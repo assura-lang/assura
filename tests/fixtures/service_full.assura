@@ -1,0 +1,43 @@
+// Full service with states, operations, queries, types, and invariant.
+
+service OrderService {
+  type Order {
+    id: Nat;
+    amount: Int;
+    status: String;
+  }
+
+  enum OrderStatus {
+    Pending,
+    Confirmed,
+    Shipped,
+    Delivered,
+    Cancelled
+  }
+
+  states: Pending -> Confirmed -> Shipped -> Delivered
+
+  operation PlaceOrder {
+    input(amount: Int)
+    output(order: Order)
+    requires { amount > 0 }
+    ensures  { order.status == "Pending" }
+    effects  { db.write }
+  }
+
+  operation ConfirmOrder {
+    input(id: Nat)
+    output(order: Order)
+    requires { id > 0 }
+    effects  { db.write }
+  }
+
+  query GetOrder {
+    input(id: Nat)
+    output(order: Order)
+    requires { id > 0 }
+    effects  { db.read }
+  }
+
+  invariant { forall o in orders: o.amount > 0 }
+}

@@ -1,0 +1,223 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: None,
+    module: None,
+    imports: [],
+    decls: [
+        Spanned {
+            node: Service(
+                ServiceDecl {
+                    name: "OrderService",
+                    items: [
+                        TypeDef(
+                            TypeDef {
+                                name: "Order",
+                                type_params: [],
+                                body: Struct(
+                                    [
+                                        FieldDef {
+                                            name: "id",
+                                            ty: [
+                                                "Nat",
+                                            ],
+                                            is_pub: false,
+                                        },
+                                        FieldDef {
+                                            name: "amount",
+                                            ty: [
+                                                "Int",
+                                            ],
+                                            is_pub: false,
+                                        },
+                                        FieldDef {
+                                            name: "status",
+                                            ty: [
+                                                "String",
+                                            ],
+                                            is_pub: false,
+                                        },
+                                    ],
+                                ),
+                            },
+                        ),
+                        EnumDef(
+                            EnumDef {
+                                name: "OrderStatus",
+                                type_params: [],
+                                variants: [
+                                    EnumVariant {
+                                        name: "Pending",
+                                        fields: [],
+                                    },
+                                    EnumVariant {
+                                        name: "Confirmed",
+                                        fields: [],
+                                    },
+                                    EnumVariant {
+                                        name: "Shipped",
+                                        fields: [],
+                                    },
+                                    EnumVariant {
+                                        name: "Delivered",
+                                        fields: [],
+                                    },
+                                    EnumVariant {
+                                        name: "Cancelled",
+                                        fields: [],
+                                    },
+                                ],
+                            },
+                        ),
+                        States(
+                            [
+                                "Pending",
+                                "Confirmed",
+                                "Shipped",
+                                "Delivered",
+                            ],
+                        ),
+                        Operation {
+                            name: "PlaceOrder",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    tokens: [
+                                        "amount",
+                                        ":",
+                                        "Int",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Output,
+                                    tokens: [
+                                        "order",
+                                        ":",
+                                        "Order",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Requires,
+                                    tokens: [
+                                        "amount",
+                                        ">",
+                                        "0",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Ensures,
+                                    tokens: [
+                                        "order",
+                                        ".",
+                                        "status",
+                                        "==",
+                                        "Pending",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    tokens: [
+                                        "db",
+                                        ".",
+                                        "write",
+                                    ],
+                                },
+                            ],
+                        },
+                        Operation {
+                            name: "ConfirmOrder",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    tokens: [
+                                        "id",
+                                        ":",
+                                        "Nat",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Output,
+                                    tokens: [
+                                        "order",
+                                        ":",
+                                        "Order",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Requires,
+                                    tokens: [
+                                        "id",
+                                        ">",
+                                        "0",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    tokens: [
+                                        "db",
+                                        ".",
+                                        "write",
+                                    ],
+                                },
+                            ],
+                        },
+                        Query {
+                            name: "GetOrder",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    tokens: [
+                                        "id",
+                                        ":",
+                                        "Nat",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Output,
+                                    tokens: [
+                                        "order",
+                                        ":",
+                                        "Order",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Requires,
+                                    tokens: [
+                                        "id",
+                                        ">",
+                                        "0",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    tokens: [
+                                        "db",
+                                        ".",
+                                        "read",
+                                    ],
+                                },
+                            ],
+                        },
+                        Invariant(
+                            [
+                                "Forall",
+                                "o",
+                                "In",
+                                "orders",
+                                ":",
+                                "o",
+                                ".",
+                                "amount",
+                                ">",
+                                "0",
+                            ],
+                        ),
+                    ],
+                },
+            ),
+            span: 73..786,
+        },
+    ],
+}

@@ -8,8 +8,8 @@ use ariadne::{Color, Label, Report, ReportKind, Source};
 use assura_parser::ast::*;
 use assura_parser::lexer::Token;
 use assura_parser::parser;
-use chumsky::prelude::*;
 use chumsky::Stream;
+use chumsky::prelude::*;
 use logos::Logos;
 
 fn main() {
@@ -73,16 +73,16 @@ fn main() {
 
     // --- Parse ---
     let len = source.len();
-    let token_stream = Stream::from_iter(
-        len..len + 1,
-        tokens.into_iter().map(|(tok, span)| (tok, span)),
-    );
+    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
 
     let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
 
     for e in &parse_errors {
         let span = e.span();
-        let found = e.found().map(|t| format!("{t}")).unwrap_or_else(|| "end of file".to_string());
+        let found = e
+            .found()
+            .map(|t| format!("{t}"))
+            .unwrap_or_else(|| "end of file".to_string());
         let expected: Vec<String> = e
             .expected()
             .map(|ex| match ex {
@@ -149,7 +149,11 @@ fn print_summary(filename: &str, file: &SourceFile) {
 
     println!("OK  {filename}");
     if let Some(p) = &file.project {
-        println!("    project:   {}  profile: [{}]", p.name, p.profile.join(", "));
+        println!(
+            "    project:   {}  profile: [{}]",
+            p.name,
+            p.profile.join(", ")
+        );
     }
     if let Some(m) = &file.module {
         println!("    module:    {}", m.path.join("."));
@@ -157,14 +161,35 @@ fn print_summary(filename: &str, file: &SourceFile) {
     println!("    imports:   {}", file.imports.len());
 
     let mut parts = Vec::new();
-    if contracts > 0 { parts.push(format!("{contracts} contract(s)")); }
-    if types > 0 { parts.push(format!("{types} type(s)")); }
-    if enums > 0 { parts.push(format!("{enums} enum(s)")); }
-    if externs > 0 { parts.push(format!("{externs} extern(s)")); }
-    if fns > 0 { parts.push(format!("{fns} fn(s)")); }
-    if services > 0 { parts.push(format!("{services} service(s)")); }
-    if other > 0 { parts.push(format!("{other} other")); }
-    println!("    declares:  {}", if parts.is_empty() { "(empty)".to_string() } else { parts.join(", ") });
+    if contracts > 0 {
+        parts.push(format!("{contracts} contract(s)"));
+    }
+    if types > 0 {
+        parts.push(format!("{types} type(s)"));
+    }
+    if enums > 0 {
+        parts.push(format!("{enums} enum(s)"));
+    }
+    if externs > 0 {
+        parts.push(format!("{externs} extern(s)"));
+    }
+    if fns > 0 {
+        parts.push(format!("{fns} fn(s)"));
+    }
+    if services > 0 {
+        parts.push(format!("{services} service(s)"));
+    }
+    if other > 0 {
+        parts.push(format!("{other} other"));
+    }
+    println!(
+        "    declares:  {}",
+        if parts.is_empty() {
+            "(empty)".to_string()
+        } else {
+            parts.join(", ")
+        }
+    );
 }
 
 fn print_ast(file: &SourceFile) {
@@ -175,7 +200,11 @@ fn print_ast(file: &SourceFile) {
         println!("Module: {}", m.path.join("."));
     }
     for imp in &file.imports {
-        let alias = imp.alias.as_deref().map(|a| format!(" as {a}")).unwrap_or_default();
+        let alias = imp
+            .alias
+            .as_deref()
+            .map(|a| format!(" as {a}"))
+            .unwrap_or_default();
         let items = if imp.items.is_empty() {
             String::new()
         } else {
@@ -192,7 +221,9 @@ fn print_decl(decl: &Decl, indent: usize) {
     let pad = "  ".repeat(indent);
     match decl {
         Decl::Contract(c) => {
-            let tps = if c.type_params.is_empty() { String::new() } else {
+            let tps = if c.type_params.is_empty() {
+                String::new()
+            } else {
                 format!("<{}>", c.type_params.join(", "))
             };
             println!("{pad}Contract: {}{tps}", c.name);
@@ -202,15 +233,25 @@ fn print_decl(decl: &Decl, indent: usize) {
             }
         }
         Decl::TypeDef(t) => {
-            let tps = if t.type_params.is_empty() { String::new() } else {
+            let tps = if t.type_params.is_empty() {
+                String::new()
+            } else {
                 format!("<{}>", t.type_params.join(", "))
             };
             match &t.body {
                 TypeBody::Refined(toks) => {
-                    println!("{pad}Type: {}{tps} = {{{}}}", t.name, truncate(&toks.join(" "), 50));
+                    println!(
+                        "{pad}Type: {}{tps} = {{{}}}",
+                        t.name,
+                        truncate(&toks.join(" "), 50)
+                    );
                 }
                 TypeBody::Alias(toks) => {
-                    println!("{pad}Type: {}{tps} = {}", t.name, truncate(&toks.join(" "), 50));
+                    println!(
+                        "{pad}Type: {}{tps} = {}",
+                        t.name,
+                        truncate(&toks.join(" "), 50)
+                    );
                 }
                 TypeBody::Struct(fields) => {
                     println!("{pad}Type: {}{tps}", t.name);
@@ -223,7 +264,9 @@ fn print_decl(decl: &Decl, indent: usize) {
             }
         }
         Decl::EnumDef(e) => {
-            let tps = if e.type_params.is_empty() { String::new() } else {
+            let tps = if e.type_params.is_empty() {
+                String::new()
+            } else {
                 format!("<{}>", e.type_params.join(", "))
             };
             println!("{pad}Enum: {}{tps}", e.name);
@@ -236,18 +279,44 @@ fn print_decl(decl: &Decl, indent: usize) {
             }
         }
         Decl::Extern(ex) => {
-            let params = ex.params.iter().map(|p| format!("{}: {}", p.name, p.ty.join(" "))).collect::<Vec<_>>().join(", ");
-            println!("{pad}Extern: fn {}({params}) -> {}", ex.name, ex.return_ty.join(" "));
+            let params = ex
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.ty.join(" ")))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!(
+                "{pad}Extern: fn {}({params}) -> {}",
+                ex.name,
+                ex.return_ty.join(" ")
+            );
             for cl in &ex.clauses {
-                println!("{pad}  {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 50));
+                println!(
+                    "{pad}  {:?}: {}",
+                    cl.kind,
+                    truncate(&cl.tokens.join(" "), 50)
+                );
             }
         }
         Decl::FnDef(f) => {
-            let params = f.params.iter().map(|p| format!("{}: {}", p.name, p.ty.join(" "))).collect::<Vec<_>>().join(", ");
-            let ret = if f.return_ty.is_empty() { String::new() } else { format!(" -> {}", f.return_ty.join(" ")) };
+            let params = f
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.ty.join(" ")))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let ret = if f.return_ty.is_empty() {
+                String::new()
+            } else {
+                format!(" -> {}", f.return_ty.join(" "))
+            };
             println!("{pad}Fn: {}({params}){ret}", f.name);
             for cl in &f.clauses {
-                println!("{pad}  {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 50));
+                println!(
+                    "{pad}  {:?}: {}",
+                    cl.kind,
+                    truncate(&cl.tokens.join(" "), 50)
+                );
             }
         }
         Decl::Service(s) => {
@@ -263,13 +332,21 @@ fn print_decl(decl: &Decl, indent: usize) {
                     ServiceItem::Operation { name, clauses } => {
                         println!("{pad}  operation: {name}");
                         for cl in clauses {
-                            println!("{pad}    {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 40));
+                            println!(
+                                "{pad}    {:?}: {}",
+                                cl.kind,
+                                truncate(&cl.tokens.join(" "), 40)
+                            );
                         }
                     }
                     ServiceItem::Query { name, clauses } => {
                         println!("{pad}  query: {name}");
                         for cl in clauses {
-                            println!("{pad}    {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 40));
+                            println!(
+                                "{pad}    {:?}: {}",
+                                cl.kind,
+                                truncate(&cl.tokens.join(" "), 40)
+                            );
                         }
                     }
                     ServiceItem::Invariant(toks) => {

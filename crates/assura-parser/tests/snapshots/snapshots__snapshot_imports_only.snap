@@ -1,0 +1,47 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: None,
+    module: Some(
+        ModuleDecl {
+            path: [
+                "imports",
+                "test",
+            ],
+        },
+    ),
+    imports: [
+        ImportDecl {
+            path: [
+                "std",
+                "math",
+            ],
+            alias: None,
+            items: [],
+        },
+        ImportDecl {
+            path: [
+                "std",
+                "collections",
+            ],
+            alias: None,
+            items: [
+                "List",
+                "Map",
+            ],
+        },
+        ImportDecl {
+            path: [
+                "crypto",
+                "hash",
+            ],
+            alias: Some(
+                "hash",
+            ),
+            items: [],
+        },
+    ],
+    decls: [],
+}

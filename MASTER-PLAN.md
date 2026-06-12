@@ -36,7 +36,7 @@
   - Crate: `assura-cli`, file: `src/main.rs`
   - Done: ~300 lines
 
-- [ ] **T005**: Add snapshot tests for parser (insta crate)
+- [x] **T005**: Add snapshot tests for parser (insta crate)
   - Depends on: T001-T004
   - Crate: `assura-parser`
   - Add `insta` to dev-dependencies

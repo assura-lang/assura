@@ -1,0 +1,642 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: Some(
+        ProjectDecl {
+            name: "mbedtls_contracts",
+            profile: [
+                "core",
+                "mem",
+                "sec",
+                "num",
+                "plat",
+            ],
+        },
+    ),
+    module: Some(
+        ModuleDecl {
+            path: [
+                "tls",
+                "ecdh",
+            ],
+        },
+    ),
+    imports: [],
+    decls: [
+        Spanned {
+            node: Block {
+                kind: "feature",
+                name: "ecdsa",
+                body: [
+                    Clause {
+                        kind: Requires,
+                        tokens: [
+                            "ecdsa",
+                            "feature",
+                            "ecdh",
+                            "=",
+                            "enabled",
+                            "feature",
+                            "rsa",
+                            "=",
+                            "enabled",
+                            "feature_max",
+                            "MAX_CONTENT_LEN",
+                            ":",
+                            "Nat",
+                            "=",
+                            "16384",
+                            "feature_max",
+                            "MAX_HANDSHAKE_LEN",
+                            ":",
+                            "Nat",
+                            "=",
+                            "65535",
+                            "feature_max",
+                            "MAX_EC_POINT_SIZE",
+                            ":",
+                            "Nat",
+                            "=",
+                            "256",
+                        ],
+                    },
+                ],
+            },
+            span: 1961..2677,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "read_from_wire",
+                    params: [
+                        Param {
+                            name: "conn",
+                            ty: [
+                                "&mut",
+                                "TlsConnection",
+                            ],
+                        },
+                        Param {
+                            name: "max",
+                            ty: [
+                                "Nat",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Bytes",
+                        "@",
+                        "taint",
+                        ":",
+                        "untrusted",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 3225..3323,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "read_u16_from_wire",
+                    params: [
+                        Param {
+                            name: "conn",
+                            ty: [
+                                "&mut",
+                                "TlsConnection",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "U16",
+                        "@",
+                        "taint",
+                        ":",
+                        "untrusted",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 3325..3415,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "read_u24_from_wire",
+                    params: [
+                        Param {
+                            name: "conn",
+                            ty: [
+                                "&mut",
+                                "TlsConnection",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "U32",
+                        "@",
+                        "taint",
+                        ":",
+                        "untrusted",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 3417..3507,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "ValidPeerKey",
+                    type_params: [],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "data",
+                                ty: [
+                                    "Bytes",
+                                    "@",
+                                    "taint",
+                                    ":",
+                                    "validated",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "length",
+                                ty: [
+                                    "{",
+                                    "v",
+                                    ":",
+                                    "Nat",
+                                    "|",
+                                    "v",
+                                    "<=",
+                                    "MAX_EC_POINT_SIZE",
+                                    "}",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "curve_id",
+                                ty: [
+                                    "CurveId",
+                                ],
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 3578..3696,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "validate_peer_key",
+                    params: [
+                        Param {
+                            name: "raw_data",
+                            ty: [
+                                "Bytes",
+                                "@",
+                                "taint",
+                                ":",
+                                "untrusted",
+                            ],
+                        },
+                        Param {
+                            name: "raw_length",
+                            ty: [
+                                "U16",
+                                "@",
+                                "taint",
+                                ":",
+                                "untrusted",
+                            ],
+                        },
+                        Param {
+                            name: "expected_curve",
+                            ty: [
+                                "CurveId",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "ValidPeerKey",
+                        "@",
+                        "taint",
+                        ":",
+                        "validated",
+                        "|",
+                        "HandshakeError",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 3698..4613,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "EcdhContext",
+                    type_params: [],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "peer_point",
+                                ty: [
+                                    "Region",
+                                    "<",
+                                    "MAX_EC_POINT_SIZE",
+                                    ">",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "our_keypair",
+                                ty: [
+                                    "EcKeyPair",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "shared_secret",
+                                ty: [
+                                    "Region",
+                                    "<",
+                                    "MAX_EC_POINT_SIZE",
+                                    ">",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "curve",
+                                ty: [
+                                    "CurveId",
+                                ],
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 5070..5289,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "parse_x509_length",
+                    params: [
+                        Param {
+                            name: "raw_len",
+                            ty: [
+                                "U32",
+                                "@",
+                                "taint",
+                                ":",
+                                "untrusted",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "{",
+                        "v",
+                        ":",
+                        "Nat",
+                        "|",
+                        "v",
+                        "<=",
+                        "MAX_HANDSHAKE_LEN",
+                        "}",
+                        "@",
+                        "taint",
+                        ":",
+                        "validated",
+                        "|",
+                        "ParseError",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 5540..5900,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "safe_alloc_size",
+                    params: [
+                        Param {
+                            name: "header_len",
+                            ty: [
+                                "{",
+                                "h",
+                                ":",
+                                "Nat",
+                                "|",
+                                "h",
+                                "<=",
+                                "MAX_HANDSHAKE_LEN",
+                                "}",
+                            ],
+                        },
+                        Param {
+                            name: "content_len",
+                            ty: [
+                                "{",
+                                "c",
+                                ":",
+                                "Nat",
+                                "|",
+                                "c",
+                                "<=",
+                                "MAX_HANDSHAKE_LEN",
+                                "}",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "{",
+                        "v",
+                        ":",
+                        "Nat",
+                        "|",
+                        "v",
+                        "<=",
+                        "2",
+                        "*",
+                        "MAX_HANDSHAKE_LEN",
+                        "}",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "header_len",
+                                "+",
+                                "content_len",
+                                "<=",
+                                "2",
+                                "*",
+                                "MAX_HANDSHAKE_LEN",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 5902..6312,
+        },
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "EcdhParseContract",
+                    type_params: [],
+                    clauses: [],
+                },
+            ),
+            span: 6700..7399,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "ecdh_compute_shared",
+                    params: [
+                        Param {
+                            name: "our_private",
+                            ty: [
+                                "U256",
+                                "#",
+                                "[",
+                                "secret",
+                                "]",
+                            ],
+                        },
+                        Param {
+                            name: "peer_public",
+                            ty: [
+                                "ValidPeerKey",
+                                "@",
+                                "taint",
+                                ":",
+                                "validated",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Region",
+                        "<",
+                        "MAX_EC_POINT_SIZE",
+                        ">",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "peer_public",
+                                ".",
+                                "curve_id",
+                                "==",
+                                "our_curve",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 7637..8221,
+        },
+        Spanned {
+            node: Block {
+                kind: "spec",
+                name: "NIST_SP_800_56A_ECDH",
+                body: [],
+            },
+            span: 8446..8951,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "ecdh_derive_secret",
+                    params: [
+                        Param {
+                            name: "private_key",
+                            ty: [
+                                "U256",
+                                "#",
+                                "[",
+                                "secret",
+                                "]",
+                            ],
+                        },
+                        Param {
+                            name: "peer_point",
+                            ty: [
+                                "ValidPeerKey",
+                                "@",
+                                "taint",
+                                ":",
+                                "validated",
+                            ],
+                        },
+                        Param {
+                            name: "curve",
+                            ty: [
+                                "CurveParams",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "SharedSecret",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "NIST_SP_800_56A_ECDH",
+                                ".",
+                                "valid_computation",
+                                "(",
+                                "private_key",
+                                ",",
+                                "to_curve_point",
+                                "(",
+                                "peer_point",
+                                ")",
+                                ",",
+                                "curve",
+                                ")",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "Result_",
+                                ".",
+                                "value",
+                                "==",
+                                "NIST_SP_800_56A_ECDH",
+                                ".",
+                                "shared_secret",
+                                "(",
+                                "private_key",
+                                ",",
+                                "to_curve_point",
+                                "(",
+                                "peer_point",
+                                ")",
+                                ")",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 8953..9392,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "process_incoming_record",
+                    params: [
+                        Param {
+                            name: "conn",
+                            ty: [
+                                "&mut",
+                                "TlsConnection",
+                            ],
+                        },
+                        Param {
+                            name: "record_buf",
+                            ty: [
+                                "Region",
+                                "<",
+                                "MAX_CONTENT_LEN",
+                                ">",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "RecordResult",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Modifies,
+                            tokens: [
+                                "record_buf",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 9855..10571,
+        },
+    ],
+}

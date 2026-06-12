@@ -1,0 +1,104 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: None,
+    module: None,
+    imports: [],
+    decls: [
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "AllClauses",
+                    type_params: [],
+                    clauses: [
+                        Clause {
+                            kind: Input,
+                            tokens: [
+                                "buf",
+                                ":",
+                                "Bytes",
+                                ",",
+                                "n",
+                                ":",
+                                "Nat",
+                            ],
+                        },
+                        Clause {
+                            kind: Output,
+                            tokens: [
+                                "Result_",
+                                ":",
+                                "Bool",
+                            ],
+                        },
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "n",
+                                ">",
+                                "0",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "Result_",
+                                "==",
+                                "true",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                        Clause {
+                            kind: Invariant,
+                            tokens: [
+                                "n",
+                                ">=",
+                                "0",
+                            ],
+                        },
+                        Clause {
+                            kind: Modifies,
+                            tokens: [
+                                "buf",
+                            ],
+                        },
+                        Clause {
+                            kind: Rule,
+                            tokens: [
+                                "n",
+                                "<=",
+                                "buf",
+                                ".",
+                                "length",
+                                "(",
+                                ")",
+                            ],
+                        },
+                        Clause {
+                            kind: DataFlow,
+                            tokens: [
+                                "buf",
+                                "->",
+                                "Result_",
+                            ],
+                        },
+                        Clause {
+                            kind: MustNot,
+                            tokens: [
+                                "overflow",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 65..336,
+        },
+    ],
+}

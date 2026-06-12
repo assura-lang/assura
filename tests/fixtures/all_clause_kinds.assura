@@ -1,0 +1,15 @@
+// Contract exercising every clause kind the parser recognizes.
+
+contract AllClauses {
+  input(buf: Bytes, n: Nat)
+  output(result: Bool)
+
+  requires { n > 0 }
+  ensures  { result == true }
+  effects  { pure }
+  invariant { n >= 0 }
+  modifies { buf }
+  rule { n <= buf.length() }
+  data-flow { buf -> result }
+  must-not { overflow }
+}

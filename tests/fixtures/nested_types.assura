@@ -1,0 +1,26 @@
+// Refinement types, generic types, and bounded type params.
+
+type Positive = { n: Int | n > 0 };
+
+type Bounded<T> {
+  value: T;
+  min: Int;
+  max: Int;
+}
+
+type Pair<A, B> {
+  first: A;
+  second: B;
+}
+
+type UserId = Nat;
+
+enum Option<T> {
+  Some(T),
+  None
+}
+
+enum Tree<T> {
+  Leaf(T),
+  Node(Tree<T>, Tree<T>)
+}

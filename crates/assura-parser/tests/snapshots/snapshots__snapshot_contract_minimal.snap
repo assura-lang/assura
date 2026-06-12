@@ -1,0 +1,60 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: None,
+    module: None,
+    imports: [],
+    decls: [
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "NonNegative",
+                    type_params: [],
+                    clauses: [
+                        Clause {
+                            kind: Input,
+                            tokens: [
+                                "x",
+                                ":",
+                                "Int",
+                            ],
+                        },
+                        Clause {
+                            kind: Output,
+                            tokens: [
+                                "Result_",
+                                ":",
+                                "Nat",
+                            ],
+                        },
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "x",
+                                ">=",
+                                "0",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "Result_",
+                                "==",
+                                "x",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 29..160,
+        },
+    ],
+}

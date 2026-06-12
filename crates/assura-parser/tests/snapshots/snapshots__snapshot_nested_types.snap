@@ -1,0 +1,167 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: None,
+    module: None,
+    imports: [],
+    decls: [
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "Positive",
+                    type_params: [],
+                    body: Refined(
+                        [
+                            "n",
+                            ":",
+                            "Int",
+                            "|",
+                            "n",
+                            ">",
+                            "0",
+                        ],
+                    ),
+                },
+            ),
+            span: 62..97,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "Bounded",
+                    type_params: [
+                        "T",
+                    ],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "value",
+                                ty: [
+                                    "T",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "min",
+                                ty: [
+                                    "Int",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "max",
+                                ty: [
+                                    "Int",
+                                ],
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 99..154,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "Pair",
+                    type_params: [
+                        "A",
+                        "B",
+                    ],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "first",
+                                ty: [
+                                    "A",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "second",
+                                ty: [
+                                    "B",
+                                ],
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 156..200,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "UserId",
+                    type_params: [],
+                    body: Alias(
+                        [
+                            "Nat",
+                        ],
+                    ),
+                },
+            ),
+            span: 202..220,
+        },
+        Spanned {
+            node: EnumDef(
+                EnumDef {
+                    name: "Option",
+                    type_params: [
+                        "T",
+                    ],
+                    variants: [
+                        EnumVariant {
+                            name: "Some",
+                            fields: [
+                                "T",
+                            ],
+                        },
+                        EnumVariant {
+                            name: "None",
+                            fields: [],
+                        },
+                    ],
+                },
+            ),
+            span: 222..258,
+        },
+        Spanned {
+            node: EnumDef(
+                EnumDef {
+                    name: "Tree",
+                    type_params: [
+                        "T",
+                    ],
+                    variants: [
+                        EnumVariant {
+                            name: "Leaf",
+                            fields: [
+                                "T",
+                            ],
+                        },
+                        EnumVariant {
+                            name: "Node",
+                            fields: [
+                                "Tree",
+                                "<",
+                                "T",
+                                ">",
+                                ",",
+                                "Tree",
+                                "<",
+                                "T",
+                                ">",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 260..312,
+        },
+    ],
+}

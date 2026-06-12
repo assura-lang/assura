@@ -49,7 +49,11 @@ pub enum Decl {
     Extern(ExternDecl),
     FnDef(FnDef),
     /// Catch-all for extended syntax (feature, incremental, liveness, etc.)
-    Block { kind: String, name: String, body: Vec<Clause> },
+    Block {
+        kind: String,
+        name: String,
+        body: Vec<Clause>,
+    },
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
-use chumsky::prelude::*;
 use crate::ast::*;
 use crate::lexer::Token;
+use chumsky::prelude::*;
 
 fn ident() -> impl Parser<Token, String, Error = Simple<Token>> + Clone {
     filter_map(|span, tok| match tok {
@@ -56,11 +56,15 @@ fn dotted_path() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
 fn type_params() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clone {
     // Support bounded params: <T: Trait, U: Bound>  -- keep just the names
     let bounded_param = ident()
-        .then(just(Token::Colon).ignore_then(
-            filter(|t: &Token| !matches!(t, Token::Comma | Token::RAngle))
-                .repeated()
-                .at_least(1),
-        ).or_not())
+        .then(
+            just(Token::Colon)
+                .ignore_then(
+                    filter(|t: &Token| !matches!(t, Token::Comma | Token::RAngle))
+                        .repeated()
+                        .at_least(1),
+                )
+                .or_not(),
+        )
         .map(|(name, _bound)| name);
 
     bounded_param
@@ -148,11 +152,7 @@ fn body_tokens(
                 v
             });
         let single = filter(move |t: &Token| {
-            !stoppers.contains(t)
-                && !matches!(
-                    t,
-                    Token::RBrace | Token::RParen | Token::RBracket
-                )
+            !stoppers.contains(t) && !matches!(t, Token::RBrace | Token::RParen | Token::RBracket)
         })
         .map(|t| vec![tok_to_str(&t)]);
 
@@ -181,13 +181,27 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
             Token::Ident(s)
                 if matches!(
                     s.as_str(),
-                    "ghost" | "step" | "resume" | "assume" | "prove"
-                        | "spec" | "validate" | "define" | "property"
-                        | "errors" | "constant_time" | "taint"
-                        | "verify" | "example" | "strategy"
-                        | "must_be" | "promise" | "bound"
+                    "ghost"
+                        | "step"
+                        | "resume"
+                        | "assume"
+                        | "prove"
+                        | "spec"
+                        | "validate"
+                        | "define"
+                        | "property"
+                        | "errors"
+                        | "constant_time"
+                        | "taint"
+                        | "verify"
+                        | "example"
+                        | "strategy"
+                        | "must_be"
+                        | "promise"
+                        | "bound"
                         | "verify_against"
-                        | "reads" | "writes"
+                        | "reads"
+                        | "writes"
                 ) =>
             {
                 Ok(ClauseKind::Other(s.clone()))
@@ -198,13 +212,13 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
 }
 
 fn clause_body() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clone {
-    let braced = just(Token::Colon)
-        .or_not()
-        .ignore_then(body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LBrace), just(Token::RBrace)));
+    let braced = just(Token::Colon).or_not().ignore_then(
+        body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LBrace), just(Token::RBrace)),
+    );
 
-    let parened = just(Token::Colon)
-        .or_not()
-        .ignore_then(body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LParen), just(Token::RParen)));
+    let parened = just(Token::Colon).or_not().ignore_then(
+        body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LParen), just(Token::RParen)),
+    );
 
     // Inline: colon then tokens until next clause keyword or }
     let inline = just(Token::Colon).ignore_then(
@@ -252,14 +266,30 @@ fn clause_body() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
     let bare = filter(move |t: &Token| {
         !matches!(
             t,
-            Token::Requires | Token::Ensures | Token::Effects
-                | Token::Invariant | Token::Modifies | Token::Input
-                | Token::Output | Token::Rule | Token::DataFlow
-                | Token::MustNot | Token::RBrace | Token::LBrace
-                | Token::Contract | Token::Type | Token::Enum
-                | Token::Extern | Token::Fn | Token::Service
-                | Token::Import | Token::Module | Token::Project
-                | Token::Ghost | Token::Pure | Token::Opaque
+            Token::Requires
+                | Token::Ensures
+                | Token::Effects
+                | Token::Invariant
+                | Token::Modifies
+                | Token::Input
+                | Token::Output
+                | Token::Rule
+                | Token::DataFlow
+                | Token::MustNot
+                | Token::RBrace
+                | Token::LBrace
+                | Token::Contract
+                | Token::Type
+                | Token::Enum
+                | Token::Extern
+                | Token::Fn
+                | Token::Service
+                | Token::Import
+                | Token::Module
+                | Token::Project
+                | Token::Ghost
+                | Token::Pure
+                | Token::Opaque
         ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
                 "ghost" | "step" | "resume" | "assume" | "prove"
                     | "spec" | "validate" | "define" | "property"
@@ -299,7 +329,11 @@ fn contract_decl() -> impl Parser<Token, ContractDecl, Error = Simple<Token>> + 
     just(Token::Contract)
         .ignore_then(ident())
         .then(type_params())
-        .then(contract_item.repeated().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        .then(
+            contract_item
+                .repeated()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
         .map(|((name, type_params), items)| ContractDecl {
             name,
             type_params,
@@ -313,15 +347,14 @@ fn field_def() -> impl Parser<Token, FieldDef, Error = Simple<Token>> + Clone {
     let vis = just(Token::Pub).or_not().map(|o| o.is_some());
 
     // Skip optional modifiers like `ghost var`
-    let modifiers = choice((
-        just(Token::Ghost), just(Token::Pure), just(Token::Opaque),
-    )).repeated();
+    let modifiers = choice((just(Token::Ghost), just(Token::Pure), just(Token::Opaque))).repeated();
 
     // Skip optional `var` after ghost
     let var_kw = filter_map(|span, tok| match &tok {
         Token::Ident(s) if s == "var" => Ok(()),
         _ => Err(Simple::expected_input_found(span, [], Some(tok))),
-    }).or_not();
+    })
+    .or_not();
 
     // Type tokens: collect everything except field terminators, but handle
     // balanced braces (for refinement types like {v: Nat | v == MaxLen})
@@ -355,9 +388,12 @@ fn field_def() -> impl Parser<Token, FieldDef, Error = Simple<Token>> + Clone {
                 v
             });
         let single = filter(|t: &Token| {
-            !matches!(t, Token::Semicolon | Token::Comma
-                | Token::RBrace | Token::RParen | Token::RBracket)
-        }).map(|t| vec![tok_to_str(&t)]);
+            !matches!(
+                t,
+                Token::Semicolon | Token::Comma | Token::RBrace | Token::RParen | Token::RBracket
+            )
+        })
+        .map(|t| vec![tok_to_str(&t)]);
 
         choice((balanced_braces, balanced_parens, balanced_brackets, single))
             .repeated()
@@ -370,7 +406,11 @@ fn field_def() -> impl Parser<Token, FieldDef, Error = Simple<Token>> + Clone {
         .then_ignore(just(Token::Colon))
         .then(field_type)
         .then_ignore(just(Token::Semicolon).or(just(Token::Comma)).or_not())
-        .map(|((((_is_pub, _mods), _var), name), ty)| FieldDef { name, ty, is_pub: _is_pub })
+        .map(|((((_is_pub, _mods), _var), name), ty)| FieldDef {
+            name,
+            ty,
+            is_pub: _is_pub,
+        })
 }
 
 fn type_def() -> impl Parser<Token, TypeDef, Error = Simple<Token>> + Clone {
@@ -380,23 +420,46 @@ fn type_def() -> impl Parser<Token, TypeDef, Error = Simple<Token>> + Clone {
         .then(choice((
             // Refined: = { ... }
             just(Token::Equals)
-                .ignore_then(body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LBrace), just(Token::RBrace)))
+                .ignore_then(
+                    body_tokens(CLAUSE_STOPS)
+                        .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                )
                 .map(TypeBody::Refined),
             // Alias: = SomeType (stop at decl keywords and braces)
             just(Token::Equals)
                 .ignore_then(
-                    filter(|t: &Token| !matches!(t, Token::Semicolon | Token::LBrace | Token::RBrace
-                        | Token::Contract | Token::Type | Token::Enum
-                        | Token::Extern | Token::Fn | Token::Service
-                        | Token::Import | Token::Module | Token::Project
-                        | Token::Axiom | Token::Lemma
-                        | Token::Requires | Token::Ensures | Token::Effects
-                        | Token::Invariant | Token::Modifies | Token::Input
-                        | Token::Output | Token::Rule | Token::DataFlow | Token::MustNot
-                    ))
-                        .map(|t| tok_to_str(&t))
-                        .repeated()
-                        .at_least(1),
+                    filter(|t: &Token| {
+                        !matches!(
+                            t,
+                            Token::Semicolon
+                                | Token::LBrace
+                                | Token::RBrace
+                                | Token::Contract
+                                | Token::Type
+                                | Token::Enum
+                                | Token::Extern
+                                | Token::Fn
+                                | Token::Service
+                                | Token::Import
+                                | Token::Module
+                                | Token::Project
+                                | Token::Axiom
+                                | Token::Lemma
+                                | Token::Requires
+                                | Token::Ensures
+                                | Token::Effects
+                                | Token::Invariant
+                                | Token::Modifies
+                                | Token::Input
+                                | Token::Output
+                                | Token::Rule
+                                | Token::DataFlow
+                                | Token::MustNot
+                        )
+                    })
+                    .map(|t| tok_to_str(&t))
+                    .repeated()
+                    .at_least(1),
                 )
                 .map(TypeBody::Alias),
             // Struct: { fields + optional invariant/clause blocks }
@@ -438,7 +501,11 @@ fn enum_def() -> impl Parser<Token, EnumDef, Error = Simple<Token>> + Clone {
     just(Token::Enum)
         .ignore_then(ident())
         .then(type_params())
-        .then(enum_variant().repeated().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        .then(
+            enum_variant()
+                .repeated()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
         .map(|((name, type_params), variants)| EnumDef {
             name,
             type_params,
@@ -494,13 +561,22 @@ fn param() -> impl Parser<Token, Param, Error = Simple<Token>> + Clone {
                 v
             });
         let single = filter(|t: &Token| {
-            !matches!(t, Token::Comma | Token::RParen
-                | Token::RBrace | Token::RBracket | Token::RAngle)
-        }).map(|t| vec![tok_to_str(&t)]);
+            !matches!(
+                t,
+                Token::Comma | Token::RParen | Token::RBrace | Token::RBracket | Token::RAngle
+            )
+        })
+        .map(|t| vec![tok_to_str(&t)]);
 
-        choice((balanced_braces, balanced_parens, balanced_angles, balanced_brackets, single))
-            .repeated()
-            .flatten()
+        choice((
+            balanced_braces,
+            balanced_parens,
+            balanced_angles,
+            balanced_brackets,
+            single,
+        ))
+        .repeated()
+        .flatten()
     });
 
     attr.ignore_then(keyword_or_ident())
@@ -521,12 +597,18 @@ fn return_type() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
         filter(|t: &Token| {
             !matches!(
                 t,
-                Token::LBrace | Token::Requires | Token::Ensures
-                    | Token::Effects | Token::Modifies
-                    | Token::Invariant | Token::Input | Token::Output
-                    | Token::Rule | Token::DataFlow | Token::MustNot
-            )
-            && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
+                Token::LBrace
+                    | Token::Requires
+                    | Token::Ensures
+                    | Token::Effects
+                    | Token::Modifies
+                    | Token::Invariant
+                    | Token::Input
+                    | Token::Output
+                    | Token::Rule
+                    | Token::DataFlow
+                    | Token::MustNot
+            ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
                     "must_be" | "promise" | "bound"))
         })
         .map(|t| tok_to_str(&t))
@@ -561,16 +643,10 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
         .repeated();
 
     // Optional modifiers: pure, ghost, opaque
-    let modifiers = choice((
-        just(Token::Pure), just(Token::Ghost), just(Token::Opaque),
-    )).repeated();
+    let modifiers = choice((just(Token::Pure), just(Token::Ghost), just(Token::Opaque))).repeated();
 
     // fn, axiom, lemma all have function-like syntax
-    let fn_keyword = choice((
-        just(Token::Fn),
-        just(Token::Axiom),
-        just(Token::Lemma),
-    ));
+    let fn_keyword = choice((just(Token::Fn), just(Token::Axiom), just(Token::Lemma)));
 
     // Return type: `-> Type` or `: Type` (axioms use colon-style)
     // Return type: simple tokens only (no balanced braces at top level,
@@ -591,14 +667,23 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
         let rest = filter(|t: &Token| {
             !matches!(
                 t,
-                Token::LBrace | Token::RBrace | Token::Requires | Token::Ensures
-                    | Token::Effects | Token::Modifies | Token::Equals
-                    | Token::Invariant | Token::Input | Token::Output
-                    | Token::Rule | Token::DataFlow | Token::MustNot
-            )
-            && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
+                Token::LBrace
+                    | Token::RBrace
+                    | Token::Requires
+                    | Token::Ensures
+                    | Token::Effects
+                    | Token::Modifies
+                    | Token::Equals
+                    | Token::Invariant
+                    | Token::Input
+                    | Token::Output
+                    | Token::Rule
+                    | Token::DataFlow
+                    | Token::MustNot
+            ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
                     "must_be" | "promise" | "bound"))
-        }).map(|t| vec![tok_to_str(&t)]);
+        })
+        .map(|t| vec![tok_to_str(&t)]);
 
         choice((first_braced, rest))
             .repeated()
@@ -612,8 +697,7 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
     // Optional `= { body }` for axiom definitions
     let eq_body = just(Token::Equals)
         .ignore_then(
-            body_tokens(CLAUSE_STOPS)
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .or_not();
 
@@ -630,12 +714,14 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
                 .delimited_by(just(Token::LBrace), just(Token::RBrace))
                 .or_not(),
         )
-        .map(|((((((name, _tps), params), ret), _eq_body), clauses), _body)| FnDef {
-            name,
-            params,
-            return_ty: ret.unwrap_or_default(),
-            clauses,
-        })
+        .map(
+            |((((((name, _tps), params), ret), _eq_body), clauses), _body)| FnDef {
+                name,
+                params,
+                return_ty: ret.unwrap_or_default(),
+                clauses,
+            },
+        )
 }
 
 // --- Service ---
@@ -650,11 +736,19 @@ fn service_item() -> impl Parser<Token, ServiceItem, Error = Simple<Token>> + Cl
             .map(ServiceItem::States),
         just(Token::Operation)
             .ignore_then(ident())
-            .then(clause().repeated().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+            .then(
+                clause()
+                    .repeated()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
             .map(|(name, clauses)| ServiceItem::Operation { name, clauses }),
         just(Token::Query)
             .ignore_then(ident())
-            .then(clause().repeated().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+            .then(
+                clause()
+                    .repeated()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
             .map(|(name, clauses)| ServiceItem::Query { name, clauses }),
         just(Token::Invariant)
             .ignore_then(clause_body())
@@ -668,7 +762,11 @@ fn service_item() -> impl Parser<Token, ServiceItem, Error = Simple<Token>> + Cl
 fn service_decl() -> impl Parser<Token, ServiceDecl, Error = Simple<Token>> + Clone {
     just(Token::Service)
         .ignore_then(ident())
-        .then(service_item().repeated().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        .then(
+            service_item()
+                .repeated()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
         .map(|(name, items)| ServiceDecl { name, items })
 }
 
@@ -710,7 +808,9 @@ fn generic_block() -> impl Parser<Token, Decl, Error = Simple<Token>> + Clone {
                 v
             });
         let single = filter(|t: &Token| {
-            !matches!(t, Token::RBrace | Token::RParen | Token::RBracket
+            !matches!(
+                t,
+                Token::RBrace | Token::RParen | Token::RBracket
                 // Stop at clause keywords
                 | Token::Requires | Token::Ensures | Token::Effects
                 | Token::Invariant | Token::Modifies | Token::Input
@@ -724,7 +824,8 @@ fn generic_block() -> impl Parser<Token, Decl, Error = Simple<Token>> + Clone {
             ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
                     "must_be" | "promise" | "bound" | "define" | "property"
                     | "verify_against" | "constant_time"))
-        }).map(|t| vec![tok_to_str(&t)]);
+        })
+        .map(|t| vec![tok_to_str(&t)]);
 
         choice((balanced_braces, balanced_parens, balanced_brackets, single))
             .repeated()
@@ -734,7 +835,8 @@ fn generic_block() -> impl Parser<Token, Decl, Error = Simple<Token>> + Clone {
     let inline_value = choice((
         just(Token::Colon).ignore_then(value_tokens.clone()),
         just(Token::Equals).ignore_then(value_tokens),
-    )).or_not();
+    ))
+    .or_not();
 
     // Block body items: clauses, embedded fns, types, enums, or nested blocks
     let block_item = choice::<_, Simple<Token>>((

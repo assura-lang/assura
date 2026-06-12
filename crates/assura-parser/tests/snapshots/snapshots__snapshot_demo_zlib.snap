@@ -1,0 +1,432 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: Some(
+        ProjectDecl {
+            name: "zlib_inflate",
+            profile: [
+                "core",
+                "mem",
+                "sec",
+                "misc",
+            ],
+        },
+    ),
+    module: Some(
+        ModuleDecl {
+            path: [
+                "inflate",
+                "gzip",
+            ],
+        },
+    ),
+    imports: [],
+    decls: [
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "GzipExtraBuffer",
+                    type_params: [
+                        "MaxLen",
+                    ],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "data",
+                                ty: [
+                                    "Region",
+                                    "<",
+                                    "MaxLen",
+                                    ">",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "extra_max",
+                                ty: [
+                                    "{",
+                                    "v",
+                                    ":",
+                                    "Nat",
+                                    "|",
+                                    "v",
+                                    "==",
+                                    "MaxLen",
+                                    "}",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "bytes_written",
+                                ty: [
+                                    "Nat",
+                                ],
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 1190..1446,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "GzipHeader",
+                    type_params: [],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "extra",
+                                ty: [
+                                    "GzipExtraBuffer",
+                                    "<",
+                                    "EXTRA_MAX",
+                                    ">",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "name",
+                                ty: [
+                                    "Option",
+                                    "<",
+                                    "String",
+                                    ">",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "comment",
+                                ty: [
+                                    "Option",
+                                    "<",
+                                    "String",
+                                    ">",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "done",
+                                ty: [
+                                    "Bool",
+                                ],
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 1448..1568,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "read_u16_le",
+                    params: [
+                        Param {
+                            name: "stream",
+                            ty: [
+                                "&mut",
+                                "InflateStream",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "U16",
+                        "@",
+                        "taint",
+                        ":",
+                        "untrusted",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 2053..2138,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "ValidXlen",
+                    type_params: [],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "value",
+                                ty: [
+                                    "U16",
+                                    "@",
+                                    "taint",
+                                    ":",
+                                    "validated",
+                                ],
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "capped_len",
+                                ty: [
+                                    "{",
+                                    "v",
+                                    ":",
+                                    "Nat",
+                                    "|",
+                                    "v",
+                                    "<=",
+                                    "EXTRA_MAX",
+                                    "}",
+                                ],
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 2211..2300,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "validate_xlen",
+                    params: [
+                        Param {
+                            name: "raw_xlen",
+                            ty: [
+                                "U16",
+                                "@",
+                                "taint",
+                                ":",
+                                "untrusted",
+                            ],
+                        },
+                        Param {
+                            name: "extra_max",
+                            ty: [
+                                "Nat",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "ValidXlen",
+                        "@",
+                        "taint",
+                        ":",
+                        "validated",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 2302..2841,
+        },
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "InflateExtraFieldContract",
+                    type_params: [],
+                    clauses: [],
+                },
+            ),
+            span: 3331..4168,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "zmemcpy_safe",
+                    params: [
+                        Param {
+                            name: "dst",
+                            ty: [
+                                "Region",
+                                "<",
+                                "DstSize",
+                                ">",
+                            ],
+                        },
+                        Param {
+                            name: "dst_offset",
+                            ty: [
+                                "{",
+                                "off",
+                                ":",
+                                "Nat",
+                                "|",
+                                "off",
+                                "<=",
+                                "DstSize",
+                                "}",
+                            ],
+                        },
+                        Param {
+                            name: "src",
+                            ty: [
+                                "&",
+                                "[",
+                                "U8",
+                                "]",
+                            ],
+                        },
+                        Param {
+                            name: "len",
+                            ty: [
+                                "{",
+                                "n",
+                                ":",
+                                "Nat",
+                                "|",
+                                "dst_offset",
+                                "+",
+                                "n",
+                                "<=",
+                                "DstSize",
+                                "And",
+                                "n",
+                                "<=",
+                                "src",
+                                ".",
+                                "len",
+                                "(",
+                                ")",
+                                "}",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Region",
+                        "<",
+                        "DstSize",
+                        ">",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Modifies,
+                            tokens: [
+                                "dst",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                                "Incremental",
+                                "InflateDecoder",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 4575..7449,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "inflate_extra_field_step",
+                    params: [
+                        Param {
+                            name: "state",
+                            ty: [
+                                "&mut",
+                                "InflateDecoder",
+                            ],
+                        },
+                        Param {
+                            name: "input",
+                            ty: [
+                                "&",
+                                "[",
+                                "U8",
+                                "]",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "InflateStepResult",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "state",
+                                ".",
+                                "state",
+                                "@",
+                                "ExtraField",
+                                ",",
+                                "state",
+                                ".",
+                                "extra_bytes_copied",
+                                "<=",
+                                "state",
+                                ".",
+                                "head",
+                                ".",
+                                "extra",
+                                ".",
+                                "extra_max",
+                            ],
+                        },
+                        Clause {
+                            kind: Modifies,
+                            tokens: [
+                                "state",
+                                ".",
+                                "head",
+                                ".",
+                                "extra",
+                                ".",
+                                "data",
+                                ",",
+                                "state",
+                                ".",
+                                "extra_bytes_copied",
+                                ",",
+                                "state",
+                                ".",
+                                "extra_bytes_remaining",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "state",
+                                ".",
+                                "extra_bytes_copied",
+                                "<=",
+                                "state",
+                                ".",
+                                "head",
+                                ".",
+                                "extra",
+                                ".",
+                                "extra_max",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 7690..9080,
+        },
+    ],
+}

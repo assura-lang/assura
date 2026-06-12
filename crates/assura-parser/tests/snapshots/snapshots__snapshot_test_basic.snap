@@ -1,0 +1,473 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: None,
+    module: Some(
+        ModuleDecl {
+            path: [
+                "test",
+                "basic",
+            ],
+        },
+    ),
+    imports: [
+        ImportDecl {
+            path: [
+                "std",
+                "math",
+            ],
+            alias: None,
+            items: [
+                "abs",
+            ],
+        },
+    ],
+    decls: [
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "SafeDivision",
+                    type_params: [],
+                    clauses: [
+                        Clause {
+                            kind: Input,
+                            tokens: [
+                                "a",
+                                ":",
+                                "Int",
+                                ",",
+                                "b",
+                                ":",
+                                "Int",
+                            ],
+                        },
+                        Clause {
+                            kind: Output,
+                            tokens: [
+                                "Result_",
+                                ":",
+                                "Int",
+                            ],
+                        },
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "b",
+                                "!=",
+                                "0",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "Result_",
+                                "*",
+                                "b",
+                                "+",
+                                "(",
+                                "a",
+                                "mod",
+                                "b",
+                                ")",
+                                "==",
+                                "a",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "abs",
+                                "(",
+                                "Result_",
+                                ")",
+                                "<=",
+                                "abs",
+                                "(",
+                                "a",
+                                ")",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 166..360,
+        },
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "BoundedBuffer",
+                    type_params: [],
+                    clauses: [
+                        Clause {
+                            kind: Input,
+                            tokens: [
+                                "buf",
+                                ":",
+                                "Bytes",
+                                ",",
+                                "offset",
+                                ":",
+                                "Nat",
+                                ",",
+                                "len",
+                                ":",
+                                "Nat",
+                            ],
+                        },
+                        Clause {
+                            kind: Output,
+                            tokens: [
+                                "data",
+                                ":",
+                                "Bytes",
+                            ],
+                        },
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "offset",
+                                "+",
+                                "len",
+                                "<=",
+                                "buf",
+                                ".",
+                                "length",
+                                "(",
+                                ")",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "data",
+                                ".",
+                                "length",
+                                "(",
+                                ")",
+                                "==",
+                                "len",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                        Clause {
+                            kind: Invariant,
+                            tokens: [
+                                "offset",
+                                ">=",
+                                "0",
+                                "And",
+                                "len",
+                                ">=",
+                                "0",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 362..596,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "PositiveInt",
+                    type_params: [],
+                    body: Refined(
+                        [
+                            "n",
+                            ":",
+                            "Int",
+                            "|",
+                            "n",
+                            ">",
+                            "0",
+                        ],
+                    ),
+                },
+            ),
+            span: 598..636,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "UserId",
+                    type_params: [],
+                    body: Refined(
+                        [
+                            "id",
+                            ":",
+                            "Nat",
+                            "|",
+                            "id",
+                            ">",
+                            "0",
+                            "And",
+                            "id",
+                            "<",
+                            "1000000",
+                        ],
+                    ),
+                },
+            ),
+            span: 638..690,
+        },
+        Spanned {
+            node: EnumDef(
+                EnumDef {
+                    name: "Color",
+                    type_params: [],
+                    variants: [
+                        EnumVariant {
+                            name: "Red",
+                            fields: [],
+                        },
+                        EnumVariant {
+                            name: "Green",
+                            fields: [],
+                        },
+                        EnumVariant {
+                            name: "Blue",
+                            fields: [],
+                        },
+                    ],
+                },
+            ),
+            span: 692..729,
+        },
+        Spanned {
+            node: EnumDef(
+                EnumDef {
+                    name: "Result",
+                    type_params: [
+                        "T",
+                    ],
+                    variants: [
+                        EnumVariant {
+                            name: "Ok",
+                            fields: [
+                                "T",
+                            ],
+                        },
+                        EnumVariant {
+                            name: "Err",
+                            fields: [
+                                "String",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 731..772,
+        },
+        Spanned {
+            node: Extern(
+                ExternDecl {
+                    name: "malloc",
+                    params: [
+                        Param {
+                            name: "size",
+                            ty: [
+                                "Nat",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Bytes",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "size",
+                                ">",
+                                "0",
+                            ],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            tokens: [
+                                "Result_",
+                                ".",
+                                "length",
+                                "(",
+                                ")",
+                                "==",
+                                "size",
+                            ],
+                        },
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "mem",
+                                ".",
+                                "alloc",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 774..899,
+        },
+        Spanned {
+            node: Service(
+                ServiceDecl {
+                    name: "UserService",
+                    items: [
+                        TypeDef(
+                            TypeDef {
+                                name: "User",
+                                type_params: [],
+                                body: Struct(
+                                    [
+                                        FieldDef {
+                                            name: "id",
+                                            ty: [
+                                                "UserId",
+                                            ],
+                                            is_pub: false,
+                                        },
+                                        FieldDef {
+                                            name: "name",
+                                            ty: [
+                                                "String",
+                                            ],
+                                            is_pub: false,
+                                        },
+                                        FieldDef {
+                                            name: "active",
+                                            ty: [
+                                                "Bool",
+                                            ],
+                                            is_pub: false,
+                                        },
+                                    ],
+                                ),
+                            },
+                        ),
+                        States(
+                            [
+                                "Created",
+                                "Active",
+                                "Suspended",
+                                "Deleted",
+                            ],
+                        ),
+                        Operation {
+                            name: "CreateUser",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    tokens: [
+                                        "name",
+                                        ":",
+                                        "String",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Output,
+                                    tokens: [
+                                        "user",
+                                        ":",
+                                        "User",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Requires,
+                                    tokens: [
+                                        "name",
+                                        ".",
+                                        "length",
+                                        "(",
+                                        ")",
+                                        ">",
+                                        "0",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Ensures,
+                                    tokens: [
+                                        "Result_",
+                                        ".",
+                                        "user",
+                                        ".",
+                                        "active",
+                                        "==",
+                                        "true",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    tokens: [
+                                        "db",
+                                        ".",
+                                        "write",
+                                        ",",
+                                        "audit",
+                                        ".",
+                                        "log",
+                                    ],
+                                },
+                            ],
+                        },
+                        Query {
+                            name: "GetUser",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    tokens: [
+                                        "id",
+                                        ":",
+                                        "UserId",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Output,
+                                    tokens: [
+                                        "user",
+                                        ":",
+                                        "User",
+                                    ],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    tokens: [
+                                        "db",
+                                        ".",
+                                        "read",
+                                    ],
+                                },
+                            ],
+                        },
+                        Invariant(
+                            [
+                                "Forall",
+                                "u",
+                                "In",
+                                "users",
+                                ":",
+                                "u",
+                                ".",
+                                "id",
+                                ">",
+                                "0",
+                            ],
+                        ),
+                    ],
+                },
+            ),
+            span: 901..1379,
+        },
+    ],
+}

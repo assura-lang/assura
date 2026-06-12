@@ -1,0 +1,329 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: Some(
+        ProjectDecl {
+            name: "libwebp_vp8l",
+            profile: [
+                "core",
+                "mem",
+                "sec",
+                "num",
+            ],
+        },
+    ),
+    module: Some(
+        ModuleDecl {
+            path: [
+                "vp8l",
+                "huffman",
+            ],
+        },
+    ),
+    imports: [],
+    decls: [
+        Spanned {
+            node: Block {
+                kind: "feature_max",
+                name: "MAX_ALPHABET_SIZE",
+                body: [],
+            },
+            span: 1233..1409,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "max_secondary_table_entries",
+                    params: [
+                        Param {
+                            name: "alphabet_size",
+                            ty: [
+                                "Nat",
+                            ],
+                        },
+                        Param {
+                            name: "root_bits",
+                            ty: [
+                                "Nat",
+                            ],
+                        },
+                        Param {
+                            name: "code_lengths",
+                            ty: [
+                                "Sequence",
+                                "<",
+                                "Nat",
+                                ">",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Nat",
+                    ],
+                    clauses: [],
+                },
+            ),
+            span: 1931..2907,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "worst_case_table_size",
+                    params: [
+                        Param {
+                            name: "alphabet_size",
+                            ty: [
+                                "U16",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "U32",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            tokens: [
+                                "alphabet_size",
+                                "<=",
+                                "MAX_ALPHABET_SIZE",
+                            ],
+                        },
+                        Clause {
+                            kind: Other(
+                                "must_be",
+                            ),
+                            tokens: [
+                                "deterministic",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 3425..3945,
+        },
+        Spanned {
+            node: Block {
+                kind: "table",
+                name: "K_TABLE_SIZE",
+                body: [
+                    Clause {
+                        kind: Other(
+                            "verify_against",
+                        ),
+                        tokens: [
+                            "worst_case_table_size",
+                        ],
+                    },
+                ],
+            },
+            span: 3947..4122,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "vp8l_read_bits",
+                    params: [
+                        Param {
+                            name: "br",
+                            ty: [
+                                "&mut",
+                                "BitReader",
+                            ],
+                        },
+                        Param {
+                            name: "n_bits",
+                            ty: [
+                                "{",
+                                "b",
+                                ":",
+                                "Nat",
+                                "|",
+                                "b",
+                                "<=",
+                                "24",
+                                "}",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "U32",
+                        "@",
+                        "taint",
+                        ":",
+                        "untrusted",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 4775..4893,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "read_huffman_code_lengths",
+                    params: [
+                        Param {
+                            name: "br",
+                            ty: [
+                                "&mut",
+                                "BitReader",
+                            ],
+                        },
+                        Param {
+                            name: "alphabet_size",
+                            ty: [
+                                "{",
+                                "a",
+                                ":",
+                                "Nat",
+                                "|",
+                                "a",
+                                "<=",
+                                "MAX_ALPHABET_SIZE",
+                                "}",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "List",
+                        "<",
+                        "U16",
+                        ">",
+                        "@",
+                        "taint",
+                        ":",
+                        "untrusted",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 4950..5403,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "validate_code_lengths",
+                    params: [
+                        Param {
+                            name: "raw_lengths",
+                            ty: [
+                                "List",
+                                "<",
+                                "U16",
+                                ">",
+                                "@",
+                                "taint",
+                                ":",
+                                "untrusted",
+                            ],
+                        },
+                        Param {
+                            name: "alphabet_size",
+                            ty: [
+                                "{",
+                                "a",
+                                ":",
+                                "Nat",
+                                "|",
+                                "a",
+                                "<=",
+                                "MAX_ALPHABET_SIZE",
+                                "}",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "ValidCodeLengths",
+                        "@",
+                        "taint",
+                        ":",
+                        "validated",
+                        "|",
+                        "HuffmanError",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "Pure",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 5719..6770,
+        },
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "BuildHuffmanTableContract",
+                    type_params: [],
+                    clauses: [],
+                },
+            ),
+            span: 7300..8899,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "decode_huffman_group",
+                    params: [
+                        Param {
+                            name: "br",
+                            ty: [
+                                "&mut",
+                                "BitReader",
+                            ],
+                        },
+                        Param {
+                            name: "table_buf",
+                            ty: [
+                                "Region",
+                                "<",
+                                "TOTAL_TABLE_SIZE",
+                                ">",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "HuffmanGroup",
+                        "|",
+                        "DecodeError",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            tokens: [
+                                "io",
+                                ".",
+                                "read",
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 9176..9853,
+        },
+    ],
+}

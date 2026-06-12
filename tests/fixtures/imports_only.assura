@@ -1,0 +1,7 @@
+// File with only imports, no declarations.
+
+module imports.test;
+
+import std.math;
+import std.collections { List, Map };
+import crypto.hash as hash;
