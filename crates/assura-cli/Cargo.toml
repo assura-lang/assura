@@ -1,0 +1,17 @@
+[package]
+name = "assura"
+description = "Contract-first AI-native language. Write what it should do. AI proves it does."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "assura"
+path = "src/main.rs"
+
+[dependencies]
+assura-parser = { path = "../assura-parser" }
+logos = "0.15"
+chumsky = "0.9"
+ariadne = "0.4"

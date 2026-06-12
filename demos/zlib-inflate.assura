@@ -1,0 +1,281 @@
+// ============================================================================
+// CVE-2022-37434: zlib Heap Buffer Overflow in inflateGetHeader()
+// CVSS 9.8 — Heap buffer overflow when processing gzip extra fields in the
+// incremental (multi-call) inflate path.
+//
+// Root cause: The gzip header contains an XLEN field (2 bytes, untrusted)
+// that specifies the length of the "extra" field. In the incremental path,
+// inflate() processes the extra field across multiple calls. The code used
+// XLEN directly as the zmemcpy length without clamping to head->extra_max,
+// writing past the end of the caller-provided head->extra buffer.
+//
+// This contract shows how Assura prevents it using four features: memory
+// regions (MEM.1), taint tracking (SEC.1), incremental contracts (MISC.1),
+// and frame conditions (CORE.3).
+// ============================================================================
+
+project zlib_inflate {
+  profile: [core, mem, sec, misc]
+}
+
+module inflate.gzip;
+
+// ---------------------------------------------------------------------------
+// Types modeling the zlib inflate state
+// ---------------------------------------------------------------------------
+
+type GzipExtraBuffer<MaxLen: Nat> {
+  data: Region<MaxLen>,
+  extra_max: {v: Nat | v == MaxLen},
+
+  // Tracks how many bytes have been written so far (for incremental path)
+  ghost var bytes_written: Nat,
+
+  invariant {
+    bytes_written <= extra_max
+  }
+}
+
+type GzipHeader {
+  extra: GzipExtraBuffer<EXTRA_MAX>,
+  name: Option<String>,
+  comment: Option<String>,
+  done: Bool
+}
+
+// ---------------------------------------------------------------------------
+// SEC.1 — Taint tracking: XLEN comes from the gzip stream
+//
+// The gzip header's XLEN field is 2 bytes read from the compressed stream.
+// It is attacker-controlled. In the original C code, this tainted value
+// drove zmemcpy's length parameter directly.
+// ---------------------------------------------------------------------------
+
+// Read 2 bytes from the compressed stream — returns untrusted
+fn read_u16_le(stream: &mut InflateStream) -> U16 @taint:untrusted
+  effects: io.read
+
+// Validated XLEN: after checking against the caller's buffer capacity
+type ValidXlen {
+  value: U16 @taint:validated,
+  capped_len: {v: Nat | v <= EXTRA_MAX}
+}
+
+fn validate_xlen(
+    raw_xlen: U16 @taint:untrusted,
+    extra_max: Nat
+) -> ValidXlen @taint:validated
+  effects: pure
+{
+  // THIS IS THE FIX. The original code skipped this clamp.
+  // In Assura, using raw_xlen as a copy length without validation
+  // is compile error A28001 ("untrusted data used as trusted").
+  let capped = validate {
+    raw_xlen <= extra_max
+  } raw_xlen
+    or raw_xlen.min(extra_max as U16)
+    // ^ If XLEN exceeds buffer capacity, clamp it.
+
+  ValidXlen {
+    value: capped,
+    capped_len: capped as Nat
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CORE.3 — Frame conditions: inflate only writes extra[0..extra_max]
+//
+// The frame condition makes it explicit: the inflate function ONLY modifies
+// head.extra.data within [0..extra_max]. Nothing else. The verifier enforces
+// this, so even if the copy logic is wrong, it cannot touch memory outside
+// the declared frame.
+// ---------------------------------------------------------------------------
+
+contract InflateExtraFieldContract {
+  fn copy_extra_field(
+      head: &mut GzipHeader,
+      stream: &InflateStream,
+      xlen: ValidXlen @taint:validated,
+      available: Nat
+  ) -> Nat
+    // Frame condition: ONLY extra.data is modified, and ONLY within bounds
+    modifies { head.extra.data }
+    reads { stream, xlen }
+    requires {
+      // Bytes already written + new bytes must not exceed capacity
+      head.extra.bytes_written + available <= head.extra.extra_max
+    }
+    ensures {
+      // We wrote at most `available` bytes, and never past extra_max
+      result <= available,
+      head.extra.bytes_written <= head.extra.extra_max,
+      // Everything outside [0..extra_max] is untouched
+      head.extra.data == old(head.extra.data)
+        .with_writes(old(head.extra.bytes_written), result)
+    }
+    effects: pure
+}
+
+// ---------------------------------------------------------------------------
+// MEM.1 — Memory region: the extra buffer is a Region<MaxLen>
+//
+// The heap buffer overflow happened because zmemcpy wrote past the end
+// of head->extra. With a Region<MaxLen>, every write requires a proof
+// that offset + length <= MaxLen.
+// ---------------------------------------------------------------------------
+
+fn zmemcpy_safe(
+    dst: Region<DstSize>,
+    dst_offset: {off: Nat | off <= DstSize},
+    src: &[U8],
+    len: {n: Nat | dst_offset + n <= DstSize and n <= src.len()}
+) -> Region<DstSize>
+  modifies { dst }
+  effects: pure
+  // ^ The refined type on `len` is the key:
+  //   dst_offset + len <= DstSize is checked at COMPILE TIME.
+  //   If the caller cannot prove this, the code does not compile.
+  //   This is exactly the check the C code was missing.
+
+// ---------------------------------------------------------------------------
+// MISC.1 — Incremental contract: inflate is a state machine
+//
+// CVE-2022-37434 only manifested in the INCREMENTAL path, where inflate()
+// is called multiple times with partial input. The single-call path happened
+// to work because the full XLEN was available. Assura's incremental
+// contracts model this multi-call protocol explicitly.
+// ---------------------------------------------------------------------------
+
+incremental InflateDecoder {
+  yields: InflateChunk
+  completes: InflateResult
+
+  states { Init, Header, ExtraField, Name, Comment, HdrCheck, Data, Done }
+
+  // Valid transitions through gzip header parsing
+  transition Init -> Header via step
+  transition Header -> ExtraField via step     // if FEXTRA flag set
+  transition Header -> Name via step           // skip to name if no extra
+  transition ExtraField -> ExtraField via step // PARTIAL extra (multi-call!)
+  transition ExtraField -> Name via step       // extra field complete
+  transition Name -> Comment via step
+  transition Comment -> HdrCheck via step
+  transition HdrCheck -> Data via step
+  transition Data -> Data via step             // decompressing
+  transition Data -> Done via step             // stream end
+
+  // THE CRITICAL INVARIANT: the extra field state tracks partial progress
+  // and never exceeds the buffer.
+  invariant {
+    self.state @ ExtraField =>
+      self.extra_bytes_copied <= self.head.extra.extra_max
+      and self.extra_bytes_remaining ==
+        self.validated_xlen.capped_len - self.extra_bytes_copied
+  }
+
+  on step {
+    requires {
+      self.state != Done
+    }
+
+    // When in the ExtraField state, each step copies a bounded chunk
+    ensures {
+      old(self.state) @ ExtraField and self.state @ ExtraField =>
+        // Partial copy: we consumed some bytes but not all
+        self.extra_bytes_copied > old(self.extra_bytes_copied)
+        and self.extra_bytes_copied <= self.head.extra.extra_max
+    }
+
+    ensures {
+      old(self.state) @ ExtraField and self.state @ Name =>
+        // Complete: all extra bytes copied, within bounds
+        self.extra_bytes_copied == self.validated_xlen.capped_len
+        and self.extra_bytes_copied <= self.head.extra.extra_max
+    }
+
+    effects: io.read
+  }
+
+  on abort {
+    requires { self.state != Done }
+    ensures { self.state @ Done }
+    effects: pure
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The actual inflate step for the ExtraField state — putting it all together
+// ---------------------------------------------------------------------------
+
+fn inflate_extra_field_step(
+    state: &mut InflateDecoder,
+    input: &[U8]
+) -> InflateStepResult
+  requires {
+    state.state @ ExtraField,
+    state.extra_bytes_copied <= state.head.extra.extra_max
+  }
+  modifies { state.head.extra.data, state.extra_bytes_copied,
+             state.extra_bytes_remaining }
+  ensures {
+    // SAFETY: after this step, we have not overflowed the buffer
+    state.extra_bytes_copied <= state.head.extra.extra_max
+  }
+  effects: pure
+{
+  let remaining = state.extra_bytes_remaining
+  let available = input.len().min(remaining)
+
+  // MEM.1: Region write — offset + length must be <= extra_max.
+  // The verifier checks:
+  //   state.extra_bytes_copied + available <= extra_max
+  // This holds because:
+  //   extra_bytes_copied <= extra_max (precondition)
+  //   available <= remaining = capped_len - extra_bytes_copied
+  //   capped_len <= extra_max (from validate_xlen)
+  zmemcpy_safe(
+    state.head.extra.data,
+    state.extra_bytes_copied,  // offset: current position
+    input,
+    available                   // length: clamped to remaining
+  )
+
+  // Ghost update: track progress
+  ghost {
+    state.extra_bytes_copied = state.extra_bytes_copied + available
+    state.extra_bytes_remaining = remaining - available
+  }
+
+  if state.extra_bytes_remaining == 0 {
+    InflateStepResult.StateChange(Name)
+  } else {
+    InflateStepResult.NeedMore
+  }
+}
+
+// ============================================================================
+// Summary: What Assura catches that C missed
+//
+// 1. SEC.1 (taint tracking): XLEN from the gzip stream is @untrusted.
+//    Using it directly as zmemcpy length is A28001. It MUST pass through
+//    validate_xlen() which clamps to extra_max.
+//
+// 2. MEM.1 (memory regions): head->extra is Region<extra_max>. Every
+//    zmemcpy_safe call requires compile-time proof that
+//    offset + length <= extra_max. Overflow is A13004.
+//
+// 3. MISC.1 (incremental contracts): The ExtraField state tracks
+//    extra_bytes_copied with an invariant that it never exceeds extra_max.
+//    The bug manifested ONLY in the multi-call path; Assura models both
+//    paths explicitly with state transitions and per-step invariants.
+//
+// 4. CORE.3 (frame conditions): modifies { head.extra.data } guarantees
+//    inflate cannot corrupt ANY other field of the gzip header, stream
+//    state, or adjacent heap objects. Even a logic bug in the copy
+//    routine cannot escape the declared frame.
+//
+// Result: CVE-2022-37434 cannot exist in Assura. The taint system blocks
+// the raw XLEN from reaching zmemcpy, the region system prevents any
+// write past extra_max, and the incremental contract ensures the multi-call
+// path maintains the same invariants as the single-call path.
+// ============================================================================

@@ -1,0 +1,11 @@
+[package]
+name = "assura-parser"
+description = "Lexer, parser, and AST for the Assura contract language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+logos = "0.15"
+chumsky = "0.9"

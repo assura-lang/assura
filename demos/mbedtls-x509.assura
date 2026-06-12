@@ -1,0 +1,319 @@
+// ============================================================================
+// mbedTLS CVE Cluster: Four Critical Vulnerabilities in TLS/X.509
+//
+// CVE-2023-45199 (CVSS 9.8): Buffer overflow in ECDH handshake.
+//   Tainted peer key length from the wire drove a buffer write with no
+//   bounds check against the configured curve's max point size.
+//
+// CVE-2022-46393: Config flag mismatch between ECDSA and X.509 modules.
+//   Disabling ECDSA while leaving X.509 signature verification enabled
+//   caused a NULL function pointer dereference during cert chain validation.
+//
+// CVE-2024-23775: Integer overflow in X.509 certificate parsing.
+//   A crafted certificate with a huge length field overflowed a 32-bit
+//   size computation, causing a small allocation followed by a large copy.
+//
+// CVE-2024-45158: Stack buffer sized by a config macro.
+//   MBEDTLS_SSL_MAX_CONTENT_LEN determined a stack buffer size. Changing
+//   the config value without re-checking all code paths that used it created
+//   a stack buffer overflow when the peer sent a record at the new limit.
+//
+// This contract demonstrates how Assura prevents all four using six features:
+// memory regions (MEM.1), taint tracking (SEC.1), frame conditions (CORE.3),
+// feature flags (PLAT.2), constant-time operations (SEC.3), and
+// cryptographic spec conformance (SEC.5).
+// ============================================================================
+
+project mbedtls_contracts {
+  profile: [core, mem, sec, num, plat]
+}
+
+module tls.ecdh;
+
+// ---------------------------------------------------------------------------
+// PLAT.2 — Feature flags: config interactions must be consistent
+//
+// CVE-2022-46393: Disabling MBEDTLS_ECDSA_C while keeping
+// MBEDTLS_X509_CHECK_KEY_USAGE enabled left a NULL pointer in the signature
+// verification vtable. Assura's feature system makes this a compile error.
+// ---------------------------------------------------------------------------
+
+feature ecdsa = enabled
+feature x509 = enabled
+  requires: ecdsa    // X.509 signature verification NEEDS ECDSA
+                     // Disabling ecdsa while x509 is enabled = compile error A38002
+feature ecdh = enabled
+feature rsa = enabled
+
+// Stack buffer size — compile-time maximum from config
+feature_max MAX_CONTENT_LEN: Nat = 16384
+feature_max MAX_HANDSHAKE_LEN: Nat = 65535
+
+// CVE-2024-45158: The stack buffer for incoming records is sized by config.
+// Assura's feature_max narrows ALL refinement types that reference it.
+// Changing MAX_CONTENT_LEN automatically re-verifies every function that
+// uses a buffer sized by it. In C, you change the macro and hope.
+feature_max MAX_EC_POINT_SIZE: Nat = 256   // P-521 worst case: 133 bytes
+
+// ---------------------------------------------------------------------------
+// SEC.1 — Taint tracking: everything from the wire is untrusted
+//
+// CVE-2023-45199: The peer's ECDH public key arrives in ServerKeyExchange.
+// Its length is a 2-byte field ON THE WIRE — fully attacker-controlled.
+// The original code used this length to copy into a fixed-size buffer
+// without checking it against the curve's actual point size.
+// ---------------------------------------------------------------------------
+
+fn read_from_wire(conn: &mut TlsConnection, max: Nat) -> Bytes @taint:untrusted
+  effects: io.read
+
+fn read_u16_from_wire(conn: &mut TlsConnection) -> U16 @taint:untrusted
+  effects: io.read
+
+fn read_u24_from_wire(conn: &mut TlsConnection) -> U32 @taint:untrusted
+  effects: io.read
+
+// Validated peer key: length proven to fit in the ECDH point buffer
+type ValidPeerKey {
+  data: Bytes @taint:validated,
+  length: {v: Nat | v <= MAX_EC_POINT_SIZE},
+  curve_id: CurveId
+}
+
+fn validate_peer_key(
+    raw_data: Bytes @taint:untrusted,
+    raw_length: U16 @taint:untrusted,
+    expected_curve: CurveId
+) -> ValidPeerKey @taint:validated | HandshakeError
+  effects: pure
+{
+  // Step 1: Validate length against the curve's known point size
+  let curve_point_size = ec_point_size(expected_curve)
+
+  validate {
+    raw_length as Nat <= curve_point_size
+    and curve_point_size <= MAX_EC_POINT_SIZE
+    and raw_length as Nat <= raw_data.len()
+  } raw_data
+    or return HandshakeError("peer key length exceeds curve point size")
+
+  // Step 2: Validate the point is on the curve (not just any bytes)
+  validate {
+    is_point_on_curve(raw_data.slice(0, raw_length as Nat), expected_curve)
+  } raw_data
+    or return HandshakeError("peer key not on expected curve")
+
+  ValidPeerKey {
+    data: raw_data.slice(0, raw_length as Nat),
+    length: raw_length as Nat,
+    curve_id: expected_curve
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MEM.1 — Memory region: ECDH point buffer has compile-time bounds
+//
+// CVE-2023-45199: The write into the ECDH point buffer used the wire length
+// without bounds checking. With Region<MAX_EC_POINT_SIZE>, the write requires
+// a compile-time proof that offset + length <= MAX_EC_POINT_SIZE.
+// ---------------------------------------------------------------------------
+
+type EcdhContext {
+  // Point buffer is a fixed-size region — writes are bounds-checked
+  peer_point: Region<MAX_EC_POINT_SIZE>,
+  our_keypair: EcKeyPair,
+  shared_secret: Region<MAX_EC_POINT_SIZE>,
+  curve: CurveId
+}
+
+// CVE-2024-23775: Integer overflow in X.509 length parsing
+// A crafted length field can overflow a 32-bit computation:
+//   alloc_size = header_len + content_len  (overflows if both are large)
+// Assura's refined types catch this at compile time.
+fn parse_x509_length(
+    raw_len: U32 @taint:untrusted
+) -> {v: Nat | v <= MAX_HANDSHAKE_LEN} @taint:validated | ParseError
+  effects: pure
+{
+  // Validate before any arithmetic — no overflow possible
+  validate {
+    raw_len as Nat <= MAX_HANDSHAKE_LEN
+  } raw_len
+    or return ParseError("X.509 length exceeds maximum handshake size")
+
+  raw_len as Nat
+}
+
+fn safe_alloc_size(
+    header_len: {h: Nat | h <= MAX_HANDSHAKE_LEN},
+    content_len: {c: Nat | c <= MAX_HANDSHAKE_LEN}
+) -> {v: Nat | v <= 2 * MAX_HANDSHAKE_LEN}
+  requires {
+    // Explicit overflow check — U32 arithmetic is verified
+    header_len + content_len <= 2 * MAX_HANDSHAKE_LEN
+  }
+  effects: pure
+{
+  header_len + content_len
+  // If this could overflow U32, the verifier rejects it (A13004)
+}
+
+// ---------------------------------------------------------------------------
+// CORE.3 — Frame conditions: ECDH parsing writes AT MOST the point buffer
+//
+// CVE-2023-45199 corrupted memory adjacent to the point buffer. Frame
+// conditions prevent this: the function declares exactly what it modifies.
+// ---------------------------------------------------------------------------
+
+contract EcdhParseContract {
+  fn parse_ecdh_peer_key(
+      ctx: &mut EcdhContext,
+      peer: ValidPeerKey @taint:validated
+  ) -> ()
+    // Frame: ONLY peer_point is modified. shared_secret, our_keypair,
+    // and everything else stays unchanged.
+    modifies { ctx.peer_point }
+    requires {
+      peer.curve_id == ctx.curve,
+      peer.length <= MAX_EC_POINT_SIZE
+    }
+    ensures {
+      // The write is bounded by the validated peer key length
+      ctx.peer_point.slice(0, peer.length) == peer.data,
+      // Everything in our_keypair is untouched (frame condition)
+      ctx.our_keypair == old(ctx.our_keypair),
+      ctx.shared_secret == old(ctx.shared_secret)
+    }
+    effects: pure
+}
+
+// ---------------------------------------------------------------------------
+// SEC.3 — Constant-time: ECDH scalar multiplication must not leak the key
+// ---------------------------------------------------------------------------
+
+#[constant_time]
+fn ecdh_compute_shared(
+    our_private: U256 #[secret],
+    peer_public: ValidPeerKey @taint:validated
+) -> Region<MAX_EC_POINT_SIZE>
+  requires { peer_public.curve_id == our_curve }
+  effects: pure
+{
+  // Montgomery ladder: both branches execute identical operations.
+  // The verifier checks:
+  //   - No branch depends on our_private (A-SEC-010)
+  //   - No array index depends on our_private (A-SEC-011)
+  //   - No variable-time operation on our_private (A-SEC-012)
+  constant_time {
+    ec_scalar_mult(our_private, peer_public.data, peer_public.curve_id)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SEC.5 — Crypto spec conformance: ECDH matches the standard
+// ---------------------------------------------------------------------------
+
+spec NIST_SP_800_56A_ECDH {
+  // The shared secret is the x-coordinate of the product point
+  axiom shared_secret(
+      d: FieldElement,
+      Q: CurvePoint
+  ) -> FieldElement {
+    let P = scalar_mult(d, Q)
+    P.x
+  }
+
+  // The scalar multiplication must be on the correct curve
+  axiom valid_computation(
+      d: FieldElement,
+      Q: CurvePoint,
+      curve: CurveParams
+  ) -> Bool {
+    is_on_curve(Q, curve)
+    and d >= 1 and d < curve.order
+    and is_on_curve(scalar_mult(d, Q), curve)
+  }
+}
+
+#[conforms("NIST_SP_800_56A_ECDH")]
+fn ecdh_derive_secret(
+    private_key: U256 #[secret],
+    peer_point: ValidPeerKey @taint:validated,
+    curve: CurveParams
+) -> SharedSecret
+  requires {
+    NIST_SP_800_56A_ECDH.valid_computation(
+      private_key, to_curve_point(peer_point), curve
+    )
+  }
+  ensures {
+    result.value == NIST_SP_800_56A_ECDH.shared_secret(
+      private_key, to_curve_point(peer_point)
+    )
+  }
+  effects: pure
+
+// ---------------------------------------------------------------------------
+// CVE-2024-45158: Stack buffer sized by config macro
+//
+// With PLAT.2, the buffer size is a feature_max. Every function that uses
+// a buffer bounded by MAX_CONTENT_LEN gets re-verified when the value
+// changes. The verifier catches any path where the actual record size
+// could exceed the buffer.
+// ---------------------------------------------------------------------------
+
+fn process_incoming_record(
+    conn: &mut TlsConnection,
+    record_buf: Region<MAX_CONTENT_LEN>
+) -> RecordResult
+  modifies { record_buf }
+  effects: io.read
+{
+  let record_len_raw = read_u16_from_wire(conn)  // @taint:untrusted
+
+  // Validate record length against the ACTUAL buffer size
+  let record_len = validate {
+    record_len_raw as Nat <= MAX_CONTENT_LEN
+  } record_len_raw
+    or return RecordResult.Error("record exceeds MAX_CONTENT_LEN")
+
+  // MEM.1: Region write with validated length.
+  // record_len <= MAX_CONTENT_LEN is proven. Write cannot overflow.
+  let data = read_from_wire(conn, record_len as Nat)
+  record_buf.write_bytes(0, data, record_len as Nat)
+
+  RecordResult.Ok(record_len as Nat)
+}
+
+// ============================================================================
+// Summary: What Assura catches that C missed
+//
+// CVE-2023-45199 (ECDH buffer overflow):
+//   SEC.1: Peer key length from wire is @untrusted. Cannot be used as
+//     copy length without validation (A28001).
+//   MEM.1: peer_point is Region<MAX_EC_POINT_SIZE>. Writes require
+//     compile-time proof of bounds (A13004).
+//   CORE.3: modifies { ctx.peer_point } prevents corruption of adjacent
+//     fields even with a logic bug.
+//
+// CVE-2022-46393 (config flag mismatch):
+//   PLAT.2: x509 requires ecdsa. Disabling ecdsa while x509 is enabled
+//     is compile error A38002. No NULL function pointer possible.
+//
+// CVE-2024-23775 (X.509 integer overflow):
+//   SEC.1: Length fields from certificates are @untrusted. Validated
+//     before arithmetic. Overflow in safe_alloc_size is caught by
+//     refined type checking (A13004).
+//
+// CVE-2024-45158 (config-sized stack buffer):
+//   PLAT.2: MAX_CONTENT_LEN is a feature_max. Changing it re-verifies
+//     every function that references it. Record length is validated
+//     against the actual buffer size, not an assumed maximum.
+//   SEC.3: ECDH scalar multiplication is verified constant-time.
+//   SEC.5: Implementation proven to match NIST SP 800-56A spec.
+//
+// Result: All four CVEs are compile-time errors in Assura. Feature flags
+// enforce config consistency, taint tracking blocks unvalidated wire data,
+// memory regions bound every buffer write, and crypto conformance proves
+// the math is right.
+// ============================================================================

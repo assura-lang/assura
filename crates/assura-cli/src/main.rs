@@ -1,0 +1,294 @@
+#![allow(dead_code)]
+
+use std::env;
+use std::fs;
+use std::process;
+
+use ariadne::{Color, Label, Report, ReportKind, Source};
+use assura_parser::ast::*;
+use assura_parser::lexer::Token;
+use assura_parser::parser;
+use chumsky::prelude::*;
+use chumsky::Stream;
+use logos::Logos;
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    let show_ast = args.contains(&"--ast".to_string());
+    let show_tokens = args.contains(&"--tokens".to_string());
+
+    let filename = args
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .nth(1)
+        .unwrap_or_else(|| {
+            eprintln!("Usage: assura [--ast|--tokens] <file.assura>");
+            process::exit(2);
+        });
+
+    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
+        eprintln!("Error: {filename}: {e}");
+        process::exit(2);
+    });
+
+    // --- Lex ---
+    let lex = Token::lexer(&source);
+    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
+    let mut lex_errors = Vec::new();
+
+    for (tok, span) in lex.spanned() {
+        match tok {
+            Ok(t) => tokens.push((t, span)),
+            Err(()) => lex_errors.push(span),
+        }
+    }
+
+    if show_tokens {
+        for (tok, span) in &tokens {
+            let line = source[..span.start].lines().count();
+            let col = span.start - source[..span.start].rfind('\n').map_or(0, |p| p + 1) + 1;
+            println!("{line}:{col}  {tok:?}");
+        }
+        return;
+    }
+
+    for span in &lex_errors {
+        let snippet = &source[span.clone()];
+        Report::build(ReportKind::Error, filename.as_str(), span.start)
+            .with_message(format!("unexpected character: {snippet:?}"))
+            .with_label(
+                Label::new((filename.as_str(), span.clone()))
+                    .with_message("invalid token")
+                    .with_color(Color::Red),
+            )
+            .finish()
+            .eprint((filename.as_str(), Source::from(&source)))
+            .ok();
+    }
+
+    if !lex_errors.is_empty() {
+        process::exit(1);
+    }
+
+    // --- Parse ---
+    let len = source.len();
+    let token_stream = Stream::from_iter(
+        len..len + 1,
+        tokens.into_iter().map(|(tok, span)| (tok, span)),
+    );
+
+    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
+
+    for e in &parse_errors {
+        let span = e.span();
+        let found = e.found().map(|t| format!("{t}")).unwrap_or_else(|| "end of file".to_string());
+        let expected: Vec<String> = e
+            .expected()
+            .map(|ex| match ex {
+                Some(t) => format!("{t}"),
+                None => "end of input".to_string(),
+            })
+            .collect();
+
+        let msg = if expected.is_empty() {
+            format!("unexpected {found}")
+        } else {
+            format!("expected {}, found {found}", expected.join(" or "))
+        };
+
+        Report::build(ReportKind::Error, filename.as_str(), span.start)
+            .with_message(&msg)
+            .with_label(
+                Label::new((filename.as_str(), span.clone()))
+                    .with_message(&msg)
+                    .with_color(Color::Red),
+            )
+            .finish()
+            .eprint((filename.as_str(), Source::from(&source)))
+            .ok();
+    }
+
+    let Some(file) = file else {
+        eprintln!("{filename}: parse failed");
+        process::exit(1);
+    };
+
+    if !parse_errors.is_empty() {
+        process::exit(1);
+    }
+
+    // --- Output ---
+    if show_ast {
+        print_ast(&file);
+    } else {
+        print_summary(filename, &file);
+    }
+}
+
+fn print_summary(filename: &str, file: &SourceFile) {
+    let mut contracts = 0u32;
+    let mut types = 0u32;
+    let mut enums = 0u32;
+    let mut externs = 0u32;
+    let mut fns = 0u32;
+    let mut services = 0u32;
+    let mut other = 0u32;
+
+    for d in &file.decls {
+        match &d.node {
+            Decl::Contract(_) => contracts += 1,
+            Decl::TypeDef(_) => types += 1,
+            Decl::EnumDef(_) => enums += 1,
+            Decl::Extern(_) => externs += 1,
+            Decl::FnDef(_) => fns += 1,
+            Decl::Service(_) => services += 1,
+            Decl::Block { .. } => other += 1,
+        }
+    }
+
+    println!("OK  {filename}");
+    if let Some(p) = &file.project {
+        println!("    project:   {}  profile: [{}]", p.name, p.profile.join(", "));
+    }
+    if let Some(m) = &file.module {
+        println!("    module:    {}", m.path.join("."));
+    }
+    println!("    imports:   {}", file.imports.len());
+
+    let mut parts = Vec::new();
+    if contracts > 0 { parts.push(format!("{contracts} contract(s)")); }
+    if types > 0 { parts.push(format!("{types} type(s)")); }
+    if enums > 0 { parts.push(format!("{enums} enum(s)")); }
+    if externs > 0 { parts.push(format!("{externs} extern(s)")); }
+    if fns > 0 { parts.push(format!("{fns} fn(s)")); }
+    if services > 0 { parts.push(format!("{services} service(s)")); }
+    if other > 0 { parts.push(format!("{other} other")); }
+    println!("    declares:  {}", if parts.is_empty() { "(empty)".to_string() } else { parts.join(", ") });
+}
+
+fn print_ast(file: &SourceFile) {
+    if let Some(p) = &file.project {
+        println!("Project: {} [{}]", p.name, p.profile.join(", "));
+    }
+    if let Some(m) = &file.module {
+        println!("Module: {}", m.path.join("."));
+    }
+    for imp in &file.imports {
+        let alias = imp.alias.as_deref().map(|a| format!(" as {a}")).unwrap_or_default();
+        let items = if imp.items.is_empty() {
+            String::new()
+        } else {
+            format!(" {{{}}}", imp.items.join(", "))
+        };
+        println!("Import: {}{alias}{items}", imp.path.join("."));
+    }
+    for d in &file.decls {
+        print_decl(&d.node, 0);
+    }
+}
+
+fn print_decl(decl: &Decl, indent: usize) {
+    let pad = "  ".repeat(indent);
+    match decl {
+        Decl::Contract(c) => {
+            let tps = if c.type_params.is_empty() { String::new() } else {
+                format!("<{}>", c.type_params.join(", "))
+            };
+            println!("{pad}Contract: {}{tps}", c.name);
+            for cl in &c.clauses {
+                let body = truncate(&cl.tokens.join(" "), 60);
+                println!("{pad}  {:?}: {body}", cl.kind);
+            }
+        }
+        Decl::TypeDef(t) => {
+            let tps = if t.type_params.is_empty() { String::new() } else {
+                format!("<{}>", t.type_params.join(", "))
+            };
+            match &t.body {
+                TypeBody::Refined(toks) => {
+                    println!("{pad}Type: {}{tps} = {{{}}}", t.name, truncate(&toks.join(" "), 50));
+                }
+                TypeBody::Alias(toks) => {
+                    println!("{pad}Type: {}{tps} = {}", t.name, truncate(&toks.join(" "), 50));
+                }
+                TypeBody::Struct(fields) => {
+                    println!("{pad}Type: {}{tps}", t.name);
+                    for f in fields {
+                        let pub_str = if f.is_pub { "pub " } else { "" };
+                        println!("{pad}  {pub_str}{}: {}", f.name, f.ty.join(" "));
+                    }
+                }
+                TypeBody::Empty => println!("{pad}Type: {}{tps}", t.name),
+            }
+        }
+        Decl::EnumDef(e) => {
+            let tps = if e.type_params.is_empty() { String::new() } else {
+                format!("<{}>", e.type_params.join(", "))
+            };
+            println!("{pad}Enum: {}{tps}", e.name);
+            for v in &e.variants {
+                if v.fields.is_empty() {
+                    println!("{pad}  {}", v.name);
+                } else {
+                    println!("{pad}  {}({})", v.name, v.fields.join(" "));
+                }
+            }
+        }
+        Decl::Extern(ex) => {
+            let params = ex.params.iter().map(|p| format!("{}: {}", p.name, p.ty.join(" "))).collect::<Vec<_>>().join(", ");
+            println!("{pad}Extern: fn {}({params}) -> {}", ex.name, ex.return_ty.join(" "));
+            for cl in &ex.clauses {
+                println!("{pad}  {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 50));
+            }
+        }
+        Decl::FnDef(f) => {
+            let params = f.params.iter().map(|p| format!("{}: {}", p.name, p.ty.join(" "))).collect::<Vec<_>>().join(", ");
+            let ret = if f.return_ty.is_empty() { String::new() } else { format!(" -> {}", f.return_ty.join(" ")) };
+            println!("{pad}Fn: {}({params}){ret}", f.name);
+            for cl in &f.clauses {
+                println!("{pad}  {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 50));
+            }
+        }
+        Decl::Service(s) => {
+            println!("{pad}Service: {}", s.name);
+            for item in &s.items {
+                match item {
+                    ServiceItem::TypeDef(t) => {
+                        println!("{pad}  type: {}", t.name);
+                    }
+                    ServiceItem::States(states) => {
+                        println!("{pad}  states: {}", states.join(" -> "));
+                    }
+                    ServiceItem::Operation { name, clauses } => {
+                        println!("{pad}  operation: {name}");
+                        for cl in clauses {
+                            println!("{pad}    {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 40));
+                        }
+                    }
+                    ServiceItem::Query { name, clauses } => {
+                        println!("{pad}  query: {name}");
+                        for cl in clauses {
+                            println!("{pad}    {:?}: {}", cl.kind, truncate(&cl.tokens.join(" "), 40));
+                        }
+                    }
+                    ServiceItem::Invariant(toks) => {
+                        println!("{pad}  invariant: {}", truncate(&toks.join(" "), 50));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Decl::Block { kind, name, body } => {
+            println!("{pad}{kind}: {name} ({} clause(s))", body.len());
+        }
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() > max {
+        format!("{}...", &s[..max])
+    } else {
+        s.to_string()
+    }
+}

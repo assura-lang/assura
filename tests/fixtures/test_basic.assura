@@ -1,0 +1,73 @@
+// Basic Assura contract file for parser testing.
+// Tests: module, import, contract, type, enum, extern declarations.
+
+module test.basic;
+
+import std.math { abs };
+
+contract SafeDivision {
+  input(a: Int, b: Int)
+  output(result: Int)
+
+  requires { b != 0 }
+  ensures  { result * b + (a mod b) == a }
+  ensures  { abs(result) <= abs(a) }
+  effects  { pure }
+}
+
+contract BoundedBuffer {
+  input(buf: Bytes, offset: Nat, len: Nat)
+  output(data: Bytes)
+
+  requires { offset + len <= buf.length() }
+  ensures  { data.length() == len }
+  effects  { pure }
+
+  invariant { offset >= 0 and len >= 0 }
+}
+
+type PositiveInt = { n: Int | n > 0 };
+
+type UserId = { id: Nat | id > 0 and id < 1000000 };
+
+enum Color {
+  Red,
+  Green,
+  Blue
+}
+
+enum Result<T> {
+  Ok(T),
+  Err(String)
+}
+
+extern fn malloc(size: Nat) -> Bytes
+  requires { size > 0 }
+  ensures  { result.length() == size }
+  effects  { mem.alloc };
+
+service UserService {
+  type User {
+    id: UserId;
+    name: String;
+    active: Bool;
+  }
+
+  states: Created -> Active -> Suspended -> Deleted
+
+  operation CreateUser {
+    input: { name: String }
+    output: { user: User }
+    requires: name.length() > 0
+    ensures: result.user.active == true
+    effects: db.write, audit.log
+  }
+
+  query GetUser {
+    input: { id: UserId }
+    output: { user: User }
+    effects: db.read
+  }
+
+  invariant { forall u in users: u.id > 0 }
+}

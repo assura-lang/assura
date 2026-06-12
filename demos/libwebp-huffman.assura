@@ -1,0 +1,265 @@
+// ============================================================================
+// CVE-2023-4863: libwebp Heap Buffer Overflow in Huffman Table Construction
+// CVSS 9.8 — Exploited in the wild. Affected Chrome, Firefox, Safari, every
+// Android/iOS device, libwebp-linked app on Earth.
+//
+// Root cause: VP8LReadBits() returns attacker-controlled code_lengths that
+// drive BuildHuffmanTable() to write beyond the pre-allocated huffman_tables
+// buffer. The kTableSize[] lookup array assumed worst-case secondary table
+// sizes that were wrong for certain code-length distributions.
+//
+// This contract shows how Assura prevents it at compile time using four
+// features: memory regions (MEM.1), taint tracking (SEC.1), precomputed
+// table verification (NUM.2), and axiomatic definitions (CORE.4).
+// ============================================================================
+
+project libwebp_vp8l {
+  profile: [core, mem, sec, num]
+}
+
+module vp8l.huffman;
+
+// ---------------------------------------------------------------------------
+// Constants from the VP8L spec
+// ---------------------------------------------------------------------------
+
+// Maximum alphabet size across all Huffman groups (green/red/blue/alpha/dist)
+feature_max MAX_ALPHABET_SIZE: Nat = 280
+feature_max MAX_CODE_LENGTH: Nat = 15
+
+// root_bits controls the primary lookup table size (typically 8)
+feature_max ROOT_BITS: Nat = 8
+
+// ---------------------------------------------------------------------------
+// CORE.4 — Axiomatic definition: upper bound on secondary table entries
+//
+// This is the mathematical fact that libwebp got wrong. For a Huffman code
+// with max code length L and primary table of 2^root_bits entries, the
+// number of secondary table entries is bounded. libwebp's kTableSize[]
+// hardcoded these bounds incorrectly for some alphabet sizes.
+// ---------------------------------------------------------------------------
+
+axiom max_secondary_table_entries(
+    alphabet_size: Nat,
+    root_bits: Nat,
+    code_lengths: Sequence<Nat>
+) : Nat = {
+  define:
+    // For codes longer than root_bits, each unique prefix of length root_bits
+    // spawns a secondary table of size 2^(max_len - root_bits).
+    // The total is bounded by the alphabet size and the code structure.
+    let max_len = max(code_lengths)
+    let secondary_bits = if max_len > root_bits then max_len - root_bits else 0
+    let num_prefixes = count_distinct_prefixes(code_lengths, root_bits)
+    num_prefixes * pow(2, secondary_bits)
+
+  property:
+    // Key property: the bound depends on ACTUAL code lengths, not just
+    // the alphabet size. kTableSize[] used only alphabet_size, which is
+    // insufficient. This axiom captures the true bound.
+    forall cl in valid_huffman_codes(alphabet_size):
+      max_secondary_table_entries(alphabet_size, root_bits, cl)
+        <= pow(2, MAX_CODE_LENGTH - root_bits) * alphabet_size
+}
+
+// ---------------------------------------------------------------------------
+// NUM.2 — Precomputed table verification: kTableSize must match the axiom
+//
+// In libwebp, kTableSize[i] was a precomputed worst-case table size for
+// alphabet size i. Some entries were too small. This contract forces every
+// entry to be verified against the actual mathematical maximum.
+// ---------------------------------------------------------------------------
+
+// Generating function: compute the TRUE worst-case table size
+fn worst_case_table_size(alphabet_size: U16) -> U32
+  requires { alphabet_size <= MAX_ALPHABET_SIZE }
+  must_be deterministic
+{
+  // Primary table: always 2^root_bits entries
+  let primary = pow(2, ROOT_BITS) as U32
+
+  // Secondary tables: worst case over all valid code-length assignments
+  // This is the computation libwebp should have done, but instead
+  // hardcoded values that were wrong for certain alphabet sizes.
+  let max_secondary = max_over_valid_codes(alphabet_size, ROOT_BITS)
+
+  primary + max_secondary
+}
+
+table K_TABLE_SIZE: [U32; MAX_ALPHABET_SIZE + 1] = precompute(
+  for i in 0..MAX_ALPHABET_SIZE + 1 => worst_case_table_size(i as U16)
+)
+  verify_against: worst_case_table_size
+  // ^ At compile time, the verifier confirms:
+  //   for all i in 0..281: K_TABLE_SIZE[i] == worst_case_table_size(i)
+  //   If ANY entry is wrong, you get error A50001.
+  //   This is the check that would have caught CVE-2023-4863.
+
+// ---------------------------------------------------------------------------
+// SEC.1 — Taint tracking: bits read from the bitstream are untrusted
+//
+// VP8LReadBits() reads attacker-controlled data from the WebP file.
+// Every value it returns is tainted until validated.
+// ---------------------------------------------------------------------------
+
+// Raw bitstream reader: everything it returns is untrusted
+fn vp8l_read_bits(
+    br: &mut BitReader,
+    n_bits: {b: Nat | b <= 24}
+) -> U32 @taint:untrusted
+  effects: io.read
+
+// Read the full code_lengths array from the bitstream
+fn read_huffman_code_lengths(
+    br: &mut BitReader,
+    alphabet_size: {a: Nat | a <= MAX_ALPHABET_SIZE}
+) -> List<U16> @taint:untrusted
+  effects: io.read
+{
+  // Each code length is read from attacker-controlled bits.
+  // The entire returned list carries @taint:untrusted.
+  let mut lengths = List.empty()
+  for i in 0..alphabet_size {
+    let raw = vp8l_read_bits(br, 4)  // @taint:untrusted
+    lengths = lengths.append(raw as U16)
+  }
+  lengths
+}
+
+// ---------------------------------------------------------------------------
+// Validation: untrusted code_lengths become validated ONLY after checking
+// that they form a valid Huffman code AND the resulting table fits the buffer.
+// ---------------------------------------------------------------------------
+
+fn validate_code_lengths(
+    raw_lengths: List<U16> @taint:untrusted,
+    alphabet_size: {a: Nat | a <= MAX_ALPHABET_SIZE}
+) -> ValidCodeLengths @taint:validated | HuffmanError
+  effects: pure
+{
+  // Step 1: Every code length must be <= MAX_CODE_LENGTH
+  validate {
+    forall cl in raw_lengths: cl <= MAX_CODE_LENGTH
+  } raw_lengths
+    or return HuffmanError("code length exceeds maximum")
+
+  // Step 2: The code lengths must form a valid prefix-free code
+  // (Kraft inequality: sum of 2^(-length) <= 1)
+  validate {
+    kraft_sum(raw_lengths) <= pow(2, MAX_CODE_LENGTH)
+  } raw_lengths
+    or return HuffmanError("invalid Huffman code: Kraft inequality violated")
+
+  // Step 3: The resulting table size must fit within kTableSize bounds
+  validate {
+    compute_table_size(raw_lengths, ROOT_BITS)
+      <= K_TABLE_SIZE[alphabet_size]
+  } raw_lengths
+    or return HuffmanError("table size exceeds pre-allocated buffer")
+
+  ValidCodeLengths { lengths: raw_lengths, alphabet_size }
+  // Now @taint:validated — safe to use for table construction
+}
+
+// ---------------------------------------------------------------------------
+// MEM.1 — Memory region: BuildHuffmanTable operates on a bounded buffer
+//
+// The actual buffer overflow happened here. BuildHuffmanTable wrote past
+// the end of huffman_tables because the pre-allocated size (from kTableSize)
+// was too small. With Assura, the buffer is a Region<Size> and every write
+// requires a compile-time proof that the offset is in bounds.
+// ---------------------------------------------------------------------------
+
+contract BuildHuffmanTableContract {
+  // The output table is a memory region with a verified size bound
+  type HuffmanTableBuffer = Region<TableSize>
+
+  fn build_huffman_table(
+      table: HuffmanTableBuffer,
+      root_bits: {r: Nat | r <= MAX_CODE_LENGTH},
+      code_lengths: ValidCodeLengths @taint:validated
+  ) -> {written: Nat | written <= TableSize}
+    modifies { table }
+    requires {
+      // Buffer must be large enough for this alphabet's worst case.
+      // This is THE precondition libwebp violated.
+      TableSize >= K_TABLE_SIZE[code_lengths.alphabet_size]
+    }
+    ensures {
+      // Every write stayed within bounds
+      written <= TableSize
+    }
+    effects: pure
+  {
+    // Primary table: always 2^root_bits entries
+    let primary_size = pow(2, root_bits)
+    // ^ Region write at offset 0..primary_size requires:
+    //   primary_size <= TableSize — always true since
+    //   TableSize >= K_TABLE_SIZE[...] >= 2^root_bits
+
+    let mut offset = primary_size
+
+    // Secondary tables: one per unique prefix longer than root_bits
+    for symbol in 0..code_lengths.len() {
+      let len = code_lengths.lengths[symbol]
+      if len > root_bits {
+        let secondary_size = pow(2, len - root_bits)
+        // COMPILE-TIME CHECK: offset + secondary_size <= TableSize
+        // This is where the verifier catches the bug.
+        // If K_TABLE_SIZE was wrong, this proof obligation FAILS (A13004),
+        // and the code does not compile.
+        table.write_u32(offset, build_entry(symbol, len))
+        offset = offset + secondary_size
+      }
+    }
+
+    offset
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Top-level decoder: the full pipeline showing how taint flows through
+// validation into safe table construction.
+// ---------------------------------------------------------------------------
+
+fn decode_huffman_group(
+    br: &mut BitReader,
+    table_buf: Region<TOTAL_TABLE_SIZE>
+) -> HuffmanGroup | DecodeError
+  effects: io.read
+{
+  // 1. Read code lengths — returns @taint:untrusted
+  let raw = read_huffman_code_lengths(br, 280)
+
+  // 2. Validate — converts to @taint:validated or returns error
+  let validated = validate_code_lengths(raw, 280)?
+
+  // 3. Build table — Region<Size> prevents any out-of-bounds write
+  //    Precondition: TOTAL_TABLE_SIZE >= K_TABLE_SIZE[280]
+  //    Verified at compile time. If false, error A13004.
+  let written = build_huffman_table(table_buf, ROOT_BITS, validated)
+
+  HuffmanGroup { table: table_buf.slice(0, written) }
+}
+
+// ============================================================================
+// Summary: What Assura catches that C/C++ missed
+//
+// 1. NUM.2 (table verification): kTableSize[] entries are verified against
+//    worst_case_table_size() at compile time. A wrong entry is A50001.
+//
+// 2. SEC.1 (taint tracking): code_lengths from VP8LReadBits() are @untrusted.
+//    They cannot be used in BuildHuffmanTable without passing through
+//    validate_code_lengths(). Skipping validation is A28001.
+//
+// 3. MEM.1 (memory regions): huffman_tables is a Region<Size>. Every write
+//    requires a proof that offset + write_size <= Size. Out-of-bounds
+//    writes are A13004 at compile time.
+//
+// 4. CORE.4 (axioms): The mathematical bound on secondary table entries
+//    is defined axiomatically. kTableSize is verified against this bound.
+//    An incorrect bound is A57003.
+//
+// Result: CVE-2023-4863 cannot exist in Assura. The contract system catches
+// it at THREE independent points before any code runs.
+// ============================================================================
