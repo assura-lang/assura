@@ -61,7 +61,7 @@
   - Test that parser produces errors (not panics) with meaningful messages
   - Test that `parse_recovery()` returns partial AST + error list
 
-- [ ] **T007**: Expand lexer to cover full spec keywords
+- [x] **T007**: Expand lexer to cover full spec keywords
   - Depends on: T001
   - Read Appendix A of `docs/SPECIFICATION.md` for all ~199 keywords
   - Add missing keyword tokens to `lexer.rs`
