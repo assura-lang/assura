@@ -198,6 +198,251 @@ These are final. Do not revisit without explicit discussion.
 | Codegen target | Rust source via prettyplease | NOT syn/quote |
 | Codegen output | `generated/` dir as Cargo workspace | Section 10.3 of spec |
 
+## Pre-Commit Gate
+
+Run this exact command before every commit. No exceptions.
+
+```bash
+cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --workspace
+```
+
+If any step fails, fix it before committing. Do not commit with
+`--no-verify` or skip tests. If a test is flaky, fix the test.
+
+After committing, verify the commit is clean:
+
+```bash
+cargo run -- demos/libwebp-huffman.assura
+cargo run -- demos/zlib-inflate.assura
+cargo run -- demos/mbedtls-x509.assura
+cargo run -- tests/fixtures/test_basic.assura
+```
+
+All four files must parse successfully. If a parser change breaks any
+demo file, the change is wrong. Fix it before pushing.
+
+## Task Completion Criteria
+
+A task in MASTER-PLAN.md is done when ALL of these are true:
+
+1. The code compiles: `cargo build`
+2. All tests pass: `cargo test --workspace`
+3. No warnings: `cargo clippy --workspace -- -D warnings`
+4. All demo files still parse: run all four
+5. New code has tests (unit tests in the same file, integration tests
+   in `tests/`)
+6. MASTER-PLAN.md is updated: task marked `[x]`, session note added
+7. Changes are committed and pushed
+
+Do not mark a task `[x]` if any of these are false.
+
+## Z3 Installation
+
+The `assura-smt` crate (T038+) depends on the `z3` Rust crate, which
+needs libz3 installed on the system.
+
+```bash
+# macOS
+brew install z3
+
+# Ubuntu/Debian
+sudo apt-get install -y libz3-dev
+
+# Verify
+z3 --version
+```
+
+The `z3` Rust crate version should be `0.12` (latest stable with good
+API). Pin it in Cargo.toml. The crate links against libz3 at build
+time; if it can't find it, set `Z3_SYS_Z3_HEADER` and `LD_LIBRARY_PATH`.
+
+For CI (T029), add this to the GitHub Actions workflow:
+
+```yaml
+- name: Install Z3
+  run: sudo apt-get install -y libz3-dev
+```
+
+## Spec Navigation Guide
+
+The spec (`docs/SPECIFICATION.md`) is 11,800 lines. Do NOT read it
+all. Use this index to find what you need:
+
+| Topic | Spec Section | What's There |
+|-------|-------------|--------------|
+| Grammar (EBNF) | Section 1, Appendix A | All 195 productions |
+| Keywords | Section 1.1, Appendix A | All ~199 keywords |
+| Type system | Sections 2.1-2.9 | Base types, refinement, linear, typestate, effects, info-flow |
+| Effect system | Section 3 | Effect rows, hierarchy, handlers |
+| Implementation IR | Section 4 | What AI generates (not contract language) |
+| SMT encoding | Section 5 | Layer 1-3 strategies, theories, counterexamples |
+| Rust codegen | Section 6, Appendix C | Type mapping, contract codegen, Cargo output |
+| Error codes | Section 7, Appendix D | All ~278 error codes with descriptions |
+| Module system | Section 8 | Imports, paths, visibility |
+| Standard library | Section 9 | Built-in types, collection contracts |
+| CLI and config | Section 10 | Commands, assura.toml, output modes |
+| AI Agent API | Section 11 | gRPC service definition |
+| Verification layers | Section 12 | Layer 0-3 boundaries, timeouts |
+| Type interactions | Section 13 | 11 test cases for pairwise feature interactions |
+| Feature categories | Section 14 | All 50 features: MEM, SEC, TYPE, CONC, FMT, etc. |
+
+When working on a task, read ONLY the spec sections listed in that
+task's description. Grep the spec for specific keywords rather than
+scrolling.
+
+## Debugging Strategy
+
+When the parser (or any compiler pass) fails on an .assura file:
+
+1. **Binary search on file size**: Comment out the bottom half, see if
+   it parses. Narrow to the failing region.
+2. **Minimal reproduction**: Extract the smallest .assura snippet that
+   triggers the failure. Put it in `tests/fixtures/` as a regression test.
+3. **Token dump**: Run `cargo run -- --tokens file.assura` to see what
+   the lexer produces. The issue might be a missing keyword token.
+4. **AST dump**: Run `cargo run -- --ast file.assura` to see what the
+   parser produces (may show partial results with `parse_recovery`).
+5. **Fix, test, commit**: Fix the issue, add the minimal reproduction
+   as a test, verify all demos still pass, commit.
+
+This binary-search approach was used to find and fix 12 parser edge
+cases during initial development. It works.
+
+## Reference Implementations
+
+Study these open-source projects when working on specific phases.
+Do not copy code; study patterns and approaches.
+
+| Phase | Project | What to Study |
+|-------|---------|--------------|
+| Parser/AST | [Gleam](https://github.com/gleam-lang/gleam) | Rust compiler that transpiles to Erlang. Parser structure, AST design, codegen to another language. |
+| Name resolution | [rust-analyzer](https://github.com/rust-lang/rust-analyzer) | How `hir-def` builds name resolution and scopes. |
+| Type checker | [Gleam](https://github.com/gleam-lang/gleam) | Type inference, generic instantiation, error reporting. |
+| Z3 encoding | [Verus](https://github.com/verus-lang/verus) | Direct Z3 encoding for Rust verification. Study `source/vir/src/sst_to_air.rs`. |
+| Z3 encoding | [Dafny](https://github.com/dafny-lang/dafny) | Boogie-to-Z3 encoding. Study `Source/DafnyCore/Verifier/`. |
+| Refinement types | [Liquid Haskell](https://github.com/ucsd-progsys/liquidhaskell) | SMT-based refinement type checking. The original. |
+| Linear types | [Rust (rustc)](https://github.com/rust-lang/rust) | Borrow checker is a form of linearity checking. |
+| Effect system | [Koka](https://github.com/koka-lang/koka) | Row-polymorphic effects. Study effect inference. |
+| Codegen | [Gleam](https://github.com/gleam-lang/gleam) | How Gleam generates Erlang/JavaScript source. |
+| LSP | [rust-analyzer](https://github.com/rust-lang/rust-analyzer) | Gold standard for Rust LSP implementation. |
+
+## Adding New Crates
+
+When a task requires a new crate:
+
+1. Create `crates/assura-{name}/`
+2. Create `Cargo.toml` using workspace inheritance:
+   ```toml
+   [package]
+   name = "assura-{name}"
+   description = "..."
+   version.workspace = true
+   edition.workspace = true
+   license.workspace = true
+   repository.workspace = true
+
+   [dependencies]
+   assura-parser = { path = "../assura-parser" }
+   # other deps
+   ```
+3. Create `src/lib.rs` with public API
+4. The workspace Cargo.toml auto-discovers via `members = ["crates/*"]`
+5. Verify: `cargo build` succeeds with the new crate
+
+## Span Propagation
+
+Every compiler pass must propagate source locations. This is critical
+for error reporting. The pattern:
+
+- **Parser**: Every AST node is wrapped in `Spanned<T>` which carries
+  a `Span = Range<usize>` (byte offsets into the source).
+- **Name resolution**: `ResolvedFile` preserves spans from the AST.
+  Every `Symbol` in the symbol table stores the span of its definition.
+- **Type checker**: `TypeError` includes the span where the error
+  occurred, plus optional secondary spans (e.g., "expected type
+  declared here" pointing to the type definition).
+- **SMT verification**: `VerificationResult` includes the span of the
+  contract clause being verified, so counterexamples can point to the
+  exact `requires` or `ensures` clause.
+- **Codegen**: Generated Rust code includes comments with source
+  locations: `// from contract Foo, line 42`.
+
+If you add a new compiler pass and it produces errors without spans,
+that's a bug.
+
+## Expression Parser Approach (T008)
+
+T008 is one of the hardest tasks. The current parser collects clause
+bodies as `Vec<String>` (raw token text). T008 replaces this with a
+proper `Expr` AST with operator precedence.
+
+**Approach**: Use chumsky's `recursive()` for expressions, with
+explicit precedence via nested parsers (not Pratt parsing, which
+chumsky 0.9 doesn't support natively).
+
+**Operator precedence** (lowest to highest):
+
+1. `||` (logical or)
+2. `&&` (logical and)
+3. `==`, `!=` (equality)
+4. `<`, `>`, `<=`, `>=` (comparison)
+5. `+`, `-` (additive)
+6. `*`, `/`, `%` (multiplicative)
+7. `!`, `-` (unary prefix)
+8. `.` field access, `()` function call, `[]` index (postfix)
+
+**Migration strategy**: Keep `Vec<String>` as a fallback. Parse
+expressions where possible, fall back to raw tokens for syntax the
+expression parser doesn't handle yet. This lets T008 be incremental:
+start with arithmetic, add quantifiers, add comprehensions.
+
+**The Expr enum** (minimum):
+
+```rust
+pub enum Expr {
+    Lit(Literal),           // 42, 3.14, "hello", true
+    Var(String),            // x, buf.len
+    Field(Box<Expr>, String), // x.field
+    Call(String, Vec<Expr>),   // f(x, y)
+    Unary(UnOp, Box<Expr>),    // !x, -x
+    Binary(BinOp, Box<Expr>, Box<Expr>), // x + y
+    If(Box<Expr>, Box<Expr>, Box<Expr>), // if P then A else B
+    Quantifier(Quantifier, String, Box<Expr>, Box<Expr>), // forall x in S: P
+    Old(Box<Expr>),         // old(x)
+    Result,                 // result (in ensures)
+}
+```
+
+## Soundness Testing
+
+The type checker and verifier must be **sound**: if the compiler says
+"verified," the contract must actually hold. Unsoundness = the compiler
+accepts buggy code. This is the worst kind of bug.
+
+**How to test soundness**:
+
+1. **Positive tests** (`// MUST COMPILE`): Valid contracts that must
+   type-check and verify. Verify the generated Rust actually compiles.
+2. **Negative tests** (`// MUST REJECT Axxxxx`): Invalid contracts that
+   must be rejected with a specific error code. If the compiler accepts
+   them, that's unsoundness.
+3. **Counterexample tests**: Contracts with known counterexamples.
+   Verify the counterexample Z3 produces matches the expected one.
+4. **Adversarial tests**: Contracts designed to trick the compiler into
+   accepting unsound code. These come from Section 13 (type interaction
+   test cases) and from known unsoundness bugs in Dafny/Verus.
+5. **Fuzzing**: Use `cargo-fuzz` to generate random .assura files.
+   The parser should never panic (only return errors). The type checker
+   should never crash. The verifier should never produce "verified" for
+   a contract that has a counterexample.
+
+**The most common unsoundness sources**:
+- Ghost code affecting runtime values (violation of erasure)
+- Linear variable used in refinement predicate counted as a use
+- Typestate transition not checked on all control flow paths
+- Effect containment bypassed via higher-order functions
+- Z3 timeout silently treated as "verified" instead of "unknown"
+
 ## What NOT To Do
 
 - Do not add features not in SPECIFICATION.md
@@ -208,3 +453,10 @@ These are final. Do not revisit without explicit discussion.
   the compiler needs exact parses; tree-sitter is for editor support)
 - Do not skip tests; every new feature needs test coverage
 - Do not commit code that fails `cargo clippy -- -D warnings`
+- Do not treat Z3 `Timeout` or `Unknown` as `Verified`; they are
+  distinct results that must be reported to the user
+- Do not silently swallow errors; every error must have a span and code
+- Do not add `#[allow(unused)]` to suppress warnings on code that
+  should be used; find and fix the actual issue
+- Do not make AST changes without updating all downstream passes;
+  if you change `ast.rs`, grep for every usage

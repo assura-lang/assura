@@ -946,6 +946,91 @@ Phase 4: T107-T119 (stdlib, perf, ecosystem)
 
 > Agents: write a brief note here when completing a task or ending a session.
 
+---
+
+## Recovery Procedures
+
+### If a task is too large for one session
+
+Split it. Mark the original task as `[x]` with a note saying "partially
+done, continued in Tyyy". Add new sub-tasks Tyyy with clear scope.
+Update the Progress Notes with what was and was not completed.
+
+### If a task seems wrong or impossible
+
+Do NOT silently skip it. Write a note in Progress Notes explaining
+what's wrong. Suggest a correction. Continue with the next independent
+task. The user will review and adjust the plan.
+
+### If dependencies are wrong
+
+The dependency graph may have errors. If you discover that task Txxx
+does NOT actually need Tyyy to be done first, note it in Progress Notes
+and proceed. If you discover a MISSING dependency (Txxx actually needs
+Tzzz which isn't listed), note it and do Tzzz first.
+
+### If the spec is ambiguous
+
+Add a `// SPEC-QUESTION: <question>` comment in the code, make a
+reasonable choice, document it in Progress Notes, and continue.
+Do not block on ambiguity.
+
+### If Z3 installation fails
+
+The `z3` Rust crate needs libz3. If installation fails:
+1. Try `brew install z3` (macOS) or `apt-get install libz3-dev` (Linux)
+2. If that fails, try building Z3 from source:
+   `git clone https://github.com/Z3Prover/z3 && cd z3 && mkdir build && cd build && cmake .. && make -j$(nproc)`
+3. Set `Z3_SYS_Z3_HEADER=/path/to/z3/src/api/z3.h` and
+   `LD_LIBRARY_PATH=/path/to/z3/build`
+4. As a last resort, note the failure and work on non-Z3 tasks
+
+---
+
+## Milestones and Validation
+
+These are the "prove it works" checkpoints. Each milestone must be
+demonstrated, not just claimed.
+
+### M1: Parser Complete (T001-T008)
+- All demo files parse with zero errors
+- Snapshot tests exist for all demo files
+- Expression parser handles arithmetic, comparisons, field access,
+  function calls, quantifiers
+- CI runs on every push
+
+### M2: Type Checker Works (T009-T018)
+- `assura check` reports type errors with codes and spans
+- Known-bad .assura files are rejected with correct error codes
+- Known-good .assura files pass
+- All demo files pass type checking
+
+### M3: End-to-End Without SMT (T019-T028)
+- SafeDivision contract: `assura build` generates Rust,
+  `cargo build` on generated code succeeds
+- Generated code contains `debug_assert!` for requires/ensures
+- Round-trip: .assura -> Rust -> compiled binary
+
+### M4: SMT Verification Works (T038-T042)
+- Simple contracts verified: `requires { x > 0 } ensures { result > 0 }`
+- Counterexamples extracted and displayed
+- Timeouts handled gracefully (not crashes)
+- `assura check --layer 1` works
+
+### M5: MVP Demo (T043-T048)
+- libwebp CVE-2023-4863 demo: full pipeline works
+- Z3 proves the buffer overflow is impossible
+- Generated Rust compiles and runs
+- This is the demo you show to the world
+
+---
+
+## Progress Notes
+
+> Agents: write a brief note here when completing a task or ending a session.
+> Include: date, tasks completed, tasks attempted but not finished,
+> any issues or spec questions encountered.
+
 ### Session 1 (2026-06-12)
 - T001-T004 completed in prior sessions (market-research repo)
 - Code copied to assura-lang/assura with proper workspace structure
