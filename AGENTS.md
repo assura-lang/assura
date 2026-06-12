@@ -198,6 +198,59 @@ These are final. Do not revisit without explicit discussion.
 | Codegen target | Rust source via prettyplease | NOT syn/quote |
 | Codegen output | `generated/` dir as Cargo workspace | Section 10.3 of spec |
 
+## Integration Rule: No Orphan Code
+
+**Every new compiler pass must be wired into the CLI pipeline in the
+same task that creates it.** Do not create crates that compile but are
+never called.
+
+The pipeline is a chain. After each task, verify the chain works
+end-to-end by running `cargo run -- demos/libwebp-huffman.assura`:
+
+```
+CLI main.rs
+  -> assura-parser::parser::source_file()   # parse
+  -> assura-resolve::resolve()              # name resolution (T009+)
+  -> assura-types::type_check()             # type checking (T013+)
+  -> assura-smt::verify()                   # SMT verification (T038+)
+  -> assura-codegen::codegen()              # Rust code generation (T019+)
+```
+
+**Concrete rules:**
+
+1. When you create `assura-resolve` (T009), update `assura-cli/src/main.rs`
+   to call `resolve()` after parsing. If resolution finds errors, print
+   them and exit 1. Verify by running a demo file through the CLI.
+
+2. When you create `assura-types` (T013), update `main.rs` to call
+   `type_check()` after resolution. Same pattern.
+
+3. When you create `assura-smt` (T038), update `main.rs` to call
+   `verify()` after type checking. Same pattern.
+
+4. When you create `assura-codegen` (T019), update `main.rs` to call
+   `codegen()` and write output. Same pattern.
+
+**Validation after every new pass**: Run this and verify the output
+changes (new errors reported, new output produced, etc.):
+
+```bash
+cargo run -- demos/libwebp-huffman.assura
+cargo run -- --ast demos/libwebp-huffman.assura
+```
+
+If the output is identical to before you added the pass, the pass is
+not wired in. Fix it before marking the task done.
+
+**Test that the passes interact**: Each new pass must have at least one
+integration test that feeds the output of the previous pass into the
+new pass. Unit tests of the pass in isolation are necessary but not
+sufficient. The test must prove the pipeline works, not just the crate.
+
+Example: a `resolve` test must start from a parsed `SourceFile` (not
+hand-built AST), and a `type_check` test must start from a resolved
+file (not hand-built resolved AST).
+
 ## Pre-Commit Gate
 
 Run this exact command before every commit. No exceptions.

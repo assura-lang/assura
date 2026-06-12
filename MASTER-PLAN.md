@@ -92,7 +92,7 @@
 
 > Build a symbol table. Resolve all names. Detect errors.
 
-- [ ] **T009**: Create `assura-resolve` crate
+- [ ] **T009**: Create `assura-resolve` crate AND wire into CLI
   - Depends on: T008
   - New crate: `crates/assura-resolve/`
   - Cargo.toml: depends on `assura-parser`
@@ -101,6 +101,10 @@
     - `SymbolTable`: maps names to definitions (type, span, visibility)
     - `Scope`: nested scopes (module > service > operation > block)
     - `Symbol`: enum of TypeDef, ContractDef, ServiceDef, FnDef, EnumDef, etc.
+  - **MUST**: Update `assura-cli/src/main.rs` to call `resolve()` after
+    parsing. Print resolution errors via ariadne. Exit 1 on errors.
+  - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` output must
+    change (e.g., "0 resolution errors" or new diagnostic output)
 
 - [ ] **T010**: Implement scope analysis
   - Depends on: T009
@@ -140,7 +144,7 @@
 
 > Check types without SMT. Structural checks only.
 
-- [ ] **T013**: Create `assura-types` crate
+- [ ] **T013**: Create `assura-types` crate AND wire into CLI
   - Depends on: T012
   - New crate: `crates/assura-types/`
   - Depends on: `assura-parser`, `assura-resolve`
@@ -149,6 +153,10 @@
     - `TypeEnv`: typing environment (maps names to types)
     - `TypeError`: structured error with code, span, message
   - Entry point: `type_check(ResolvedFile) -> Result<TypedFile, Vec<TypeError>>`
+  - **MUST**: Update `assura-cli/src/main.rs` to call `type_check()` after
+    resolve. Print type errors via ariadne. Exit 1 on errors.
+  - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` must now
+    report type checking results (pass or errors with codes)
 
 - [ ] **T014**: Implement base type checking
   - Depends on: T013
@@ -201,13 +209,17 @@
 
 > Generate valid Rust source code from type-checked contracts.
 
-- [ ] **T019**: Create `assura-codegen` crate
+- [ ] **T019**: Create `assura-codegen` crate AND wire into CLI
   - Depends on: T018
   - New crate: `crates/assura-codegen/`
   - Depends on: `assura-parser`, `assura-resolve`, `assura-types`
   - Add `prettyplease` dependency for Rust code formatting
   - Entry point: `codegen(TypedFile) -> GeneratedProject`
   - `GeneratedProject`: Cargo.toml content + Vec<(path, rust_source)>
+  - **MUST**: Update `assura-cli/src/main.rs` to call `codegen()` when
+    `assura build` is invoked. Write generated files to `generated/`.
+  - **VERIFY**: `cargo run -- build demos/libwebp-huffman.assura` must
+    produce a `generated/` directory with valid Rust source
 
 - [ ] **T020**: Implement type mapping
   - Depends on: T019
@@ -402,7 +414,7 @@
 > This is the hardest and most important milestone. Everything after
 > this depends on having a working SMT solver connection.
 
-- [ ] **T038**: Create `assura-smt` crate with Z3 bindings
+- [ ] **T038**: Create `assura-smt` crate with Z3 bindings AND wire into CLI
   - Depends on: T018
   - New crate: `crates/assura-smt/`
   - Add `z3` crate dependency (Rust bindings to libz3)
@@ -411,6 +423,11 @@
   - Entry point: `verify(TypedFile) -> Vec<VerificationResult>`
   - `VerificationResult`: `Verified | Counterexample(Model) | Timeout | Unknown`
   - Spec reference: Section 5.1
+  - **MUST**: Update `assura-cli/src/main.rs` to call `verify()` after
+    type checking. Print verification results (verified/counterexample/
+    timeout) via ariadne. Even if only trivial contracts verify at first.
+  - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` must now
+    print verification status for each contract clause
 
 - [ ] **T039**: Encode refinement type subtyping as SMT queries
   - Depends on: T038
@@ -991,6 +1008,17 @@ The `z3` Rust crate needs libz3. If installation fails:
 
 These are the "prove it works" checkpoints. Each milestone must be
 demonstrated, not just claimed.
+
+**The pipeline test**: After every task that creates or modifies a
+compiler pass, run this exact command and paste the output into the
+Progress Notes:
+
+```bash
+cargo run -- demos/libwebp-huffman.assura 2>&1
+```
+
+This is the integration test. If the output doesn't change after you
+added a new pass, the pass is not connected. Fix it.
 
 ### M1: Parser Complete (T001-T008)
 - All demo files parse with zero errors
