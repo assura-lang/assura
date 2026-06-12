@@ -10,42 +10,24 @@ fn ident() -> impl Parser<Token, String, Error = Simple<Token>> + Clone {
 }
 
 /// Accept keyword tokens as identifiers (for extended syntax blocks, field names, etc.)
+///
+/// Many keywords can appear in identifier position in extended syntax blocks,
+/// field definitions, or as block kind names. This function allows them there.
 fn keyword_or_ident() -> impl Parser<Token, String, Error = Simple<Token>> + Clone {
     filter_map(|span, tok| match &tok {
         Token::Ident(s) => Ok(s.clone()),
-        // Keywords that can appear as block kinds / field modifiers / identifiers
-        Token::Ghost => Ok("ghost".into()),
-        Token::Pure => Ok("pure".into()),
-        Token::Axiom => Ok("axiom".into()),
-        Token::Incremental => Ok("incremental".into()),
-        Token::Liveness => Ok("liveness".into()),
-        Token::Compliance => Ok("compliance".into()),
-        Token::Concurrency => Ok("concurrency".into()),
-        Token::Performance => Ok("performance".into()),
-        Token::Privacy => Ok("privacy".into()),
-        Token::Profile => Ok("profile".into()),
-        Token::Protocol => Ok("protocol".into()),
-        Token::Evolution => Ok("evolution".into()),
-        Token::Ordering => Ok("ordering".into()),
-        Token::Transaction => Ok("transaction".into()),
-        Token::Fair => Ok("fair".into()),
-        Token::Bind => Ok("bind".into()),
-        Token::Resolve => Ok("resolve".into()),
-        Token::Opaque => Ok("opaque".into()),
-        Token::Lemma => Ok("lemma".into()),
-        Token::Prophecy => Ok("prophecy".into()),
-        Token::Idempotent => Ok("idempotent".into()),
-        Token::Retention => Ok("retention".into()),
-        Token::Input => Ok("input".into()),
-        Token::Output => Ok("output".into()),
-        Token::States => Ok("states".into()),
-        Token::Rule => Ok("rule".into()),
-        Token::Where => Ok("where".into()),
-        Token::In => Ok("in".into()),
-        Token::Is => Ok("is".into()),
-        Token::Self_ => Ok("self".into()),
-        Token::Result_ => Ok("result".into()),
-        _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+        // All keywords that can appear in identifier position.
+        // We accept every keyword here; the parser context determines
+        // which are valid vs. which start a new production.
+        _ => {
+            let s = tok_to_str(&tok);
+            // Reject punctuation and operators — only keywords produce valid ident strings
+            if s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') {
+                Ok(s)
+            } else {
+                Err(Simple::expected_input_found(span, [], Some(tok)))
+            }
+        }
     })
 }
 
@@ -77,8 +59,7 @@ fn type_params() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
 fn tok_to_str(t: &Token) -> String {
     match t {
         Token::Ident(s) | Token::Int(s) | Token::Float(s) | Token::String(s) => s.clone(),
-        Token::True => "true".into(),
-        Token::False => "false".into(),
+        // Punctuation and operators
         Token::LBrace => "{".into(),
         Token::RBrace => "}".into(),
         Token::LParen => "(".into(),
@@ -115,7 +96,197 @@ fn tok_to_str(t: &Token) -> String {
         Token::AmpMut => "&mut".into(),
         Token::DotDot => "..".into(),
         Token::Caret => "^".into(),
-        _ => format!("{t:?}"),
+        // Keywords: map back to their source text
+        Token::And => "and".into(),
+        Token::ApiCompat => "api_compat".into(),
+        Token::As => "as".into(),
+        Token::Audit => "audit".into(),
+        Token::Bind => "bind".into(),
+        Token::Compliance => "compliance".into(),
+        Token::Concurrency => "concurrency".into(),
+        Token::Contract => "contract".into(),
+        Token::DataFlow => "data-flow".into(),
+        Token::Effects => "effects".into(),
+        Token::Else => "else".into(),
+        Token::Enum => "enum".into(),
+        Token::Ensures => "ensures".into(),
+        Token::Errors => "errors".into(),
+        Token::Evolution => "evolution".into(),
+        Token::Exists => "exists".into(),
+        Token::Extern => "extern".into(),
+        Token::False => "false".into(),
+        Token::Fn => "fn".into(),
+        Token::Forall => "forall".into(),
+        Token::Idempotent => "idempotent".into(),
+        Token::If => "if".into(),
+        Token::Import => "import".into(),
+        Token::In => "in".into(),
+        Token::Input => "input".into(),
+        Token::Invariant => "invariant".into(),
+        Token::Is => "is".into(),
+        Token::Module => "module".into(),
+        Token::MustNot => "must-not".into(),
+        Token::Not => "not".into(),
+        Token::Observe => "observe".into(),
+        Token::Old => "old".into(),
+        Token::Operation => "operation".into(),
+        Token::Or => "or".into(),
+        Token::Output => "output".into(),
+        Token::Performance => "performance".into(),
+        Token::Privacy => "privacy".into(),
+        Token::Profile => "profile".into(),
+        Token::Project => "project".into(),
+        Token::Protocol => "protocol".into(),
+        Token::Pub => "pub".into(),
+        Token::Pure => "pure".into(),
+        Token::Query => "query".into(),
+        Token::Requires => "requires".into(),
+        Token::Result_ => "result".into(),
+        Token::Retention => "retention".into(),
+        Token::Rule => "rule".into(),
+        Token::Self_ => "self".into(),
+        Token::Serialization => "serialization".into(),
+        Token::Service => "service".into(),
+        Token::States => "states".into(),
+        Token::Then => "then".into(),
+        Token::Transaction => "transaction".into(),
+        Token::Transition => "transition".into(),
+        Token::True => "true".into(),
+        Token::Type => "type".into(),
+        Token::Where => "where".into(),
+        // CORE
+        Token::Apply => "apply".into(),
+        Token::AutoTrigger => "auto_trigger".into(),
+        Token::Axiom => "axiom".into(),
+        Token::Cases => "cases".into(),
+        Token::Define => "define".into(),
+        Token::Eventually => "eventually".into(),
+        Token::EventuallyAlways => "eventually_always".into(),
+        Token::EventuallyWithin => "eventually_within".into(),
+        Token::Fair => "fair".into(),
+        Token::Ghost => "ghost".into(),
+        Token::Induction => "induction".into(),
+        Token::LeadsTo => "leads_to".into(),
+        Token::Lemma => "lemma".into(),
+        Token::Liveness => "liveness".into(),
+        Token::Modifies => "modifies".into(),
+        Token::Opaque => "opaque".into(),
+        Token::Prophecy => "prophecy".into(),
+        Token::Property => "property".into(),
+        Token::Reads => "reads".into(),
+        Token::Resolve => "resolve".into(),
+        Token::Reveal => "reveal".into(),
+        Token::Trigger => "trigger".into(),
+        // MEM
+        Token::Allocator => "allocator".into(),
+        Token::Atomic => "atomic".into(),
+        Token::AtomicLoad => "atomic_load".into(),
+        Token::CircularBuffer => "circular_buffer".into(),
+        Token::Layout => "layout".into(),
+        Token::Region => "region".into(),
+        Token::SharedMemory => "shared_memory".into(),
+        Token::Slide => "slide".into(),
+        Token::ValidCount => "valid_count".into(),
+        Token::WritePos => "write_pos".into(),
+        // TYPE
+        Token::ErrorPolicy => "error_policy".into(),
+        Token::Impl => "impl".into(),
+        Token::Interface => "interface".into(),
+        Token::MustNotMask => "must_not_mask".into(),
+        Token::MustPropagate => "must_propagate".into(),
+        Token::StructuralInvariant => "structural_invariant".into(),
+        // SEC
+        Token::Algorithm => "algorithm".into(),
+        Token::AxiomSpec => "axiom_spec".into(),
+        Token::CalleeGuarantees => "callee_guarantees".into(),
+        Token::CallerGuarantees => "caller_guarantees".into(),
+        Token::Conforms => "conforms".into(),
+        Token::ConstantTime => "constant_time".into(),
+        Token::Erase => "erase".into(),
+        Token::ErrorConvention => "error_convention".into(),
+        Token::Export => "export".into(),
+        Token::Ffi => "ffi".into(),
+        Token::Secret => "secret".into(),
+        Token::SecureErase => "secure_erase".into(),
+        Token::Spec => "spec".into(),
+        // CONC
+        Token::AcqRel => "acq_rel".into(),
+        Token::Acquire => "acquire".into(),
+        Token::Callback => "callback".into(),
+        Token::Deadline => "deadline".into(),
+        Token::Deterministic => "deterministic".into(),
+        Token::Fence => "fence".into(),
+        Token::LockOrder => "lock_order".into(),
+        Token::LockRank => "lock_rank".into(),
+        Token::MayCall => "may_call".into(),
+        Token::Merge => "merge".into(),
+        Token::MustBe => "must_be".into(),
+        Token::MustNotCall => "must_not_call".into(),
+        Token::MustNotReenter => "must_not_reenter".into(),
+        Token::Ordering => "ordering".into(),
+        Token::Relaxed => "relaxed".into(),
+        Token::Release => "release".into(),
+        Token::SeqCst => "seq_cst".into(),
+        Token::StaleView => "stale_view".into(),
+        Token::Timeout => "timeout".into(),
+        Token::View => "view".into(),
+        // STOR
+        Token::Cache => "cache".into(),
+        Token::CrashPoint => "crash_point".into(),
+        Token::DurableState => "durable_state".into(),
+        Token::EraseValue => "erase_value".into(),
+        Token::Monotonic => "monotonic".into(),
+        Token::OnCrashDuring => "on_crash_during".into(),
+        Token::Pinned => "pinned".into(),
+        Token::ProgIdempotent => "prog_idempotent".into(),
+        Token::RecoversTo => "recovers_to".into(),
+        Token::Recovery => "recovery".into(),
+        Token::Snapshot => "snapshot".into(),
+        Token::StorageModel => "storage_model".into(),
+        // FMT
+        Token::Accepts => "accepts".into(),
+        Token::BitFormat => "bit_format".into(),
+        Token::Bits => "bits".into(),
+        Token::Codec => "codec".into(),
+        Token::CodecRegistry => "codec_registry".into(),
+        Token::Deviation => "deviation".into(),
+        Token::EncodingMatches => "encoding_matches".into(),
+        Token::Format => "format".into(),
+        Token::Integrity => "integrity".into(),
+        Token::Magic => "magic".into(),
+        Token::Rejects => "rejects".into(),
+        Token::Rfc => "rfc".into(),
+        // NUM
+        Token::MaxAbsError => "max_abs_error".into(),
+        Token::MaxUlpError => "max_ulp_error".into(),
+        Token::Precompute => "precompute".into(),
+        Token::Precision => "precision".into(),
+        Token::Table => "table".into(),
+        Token::VerifyAgainst => "verify_against".into(),
+        // PLAT
+        Token::Cfg => "cfg".into(),
+        Token::Feature => "feature".into(),
+        Token::Limit => "limit".into(),
+        Token::OnExceed => "on_exceed".into(),
+        Token::Platform => "platform".into(),
+        Token::Variant => "variant".into(),
+        // PERF
+        Token::AmortizedTime => "amortized_time".into(),
+        Token::Bounds => "bounds".into(),
+        Token::Complexity => "complexity".into(),
+        Token::UnsafeEscape => "unsafe_escape".into(),
+        // TEST
+        Token::Convergence => "convergence".into(),
+        Token::Equivalent => "equivalent".into(),
+        Token::GenerateTests => "generate_tests".into(),
+        Token::Passes => "passes".into(),
+        Token::Quality => "quality".into(),
+        Token::Refinement => "refinement".into(),
+        // MISC
+        Token::Extensible => "extensible".into(),
+        Token::Frozen => "frozen".into(),
+        Token::Incremental => "incremental".into(),
+        Token::Yields => "yields".into(),
     }
 }
 
@@ -174,34 +345,29 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
         just(Token::Modifies).to(ClauseKind::Modifies),
         just(Token::Input).to(ClauseKind::Input),
         just(Token::Output).to(ClauseKind::Output),
+        just(Token::Errors).to(ClauseKind::Errors),
         just(Token::Rule).to(ClauseKind::Rule),
         just(Token::DataFlow).to(ClauseKind::DataFlow),
         just(Token::MustNot).to(ClauseKind::MustNot),
+        // Keywords that now have dedicated tokens but act as clause kinds
+        just(Token::Ghost).to(ClauseKind::Other("ghost".into())),
+        just(Token::Spec).to(ClauseKind::Other("spec".into())),
+        just(Token::Define).to(ClauseKind::Other("define".into())),
+        just(Token::Property).to(ClauseKind::Other("property".into())),
+        just(Token::ConstantTime).to(ClauseKind::Other("constant_time".into())),
+        just(Token::MustBe).to(ClauseKind::Other("must_be".into())),
+        just(Token::VerifyAgainst).to(ClauseKind::Other("verify_against".into())),
+        just(Token::Reads).to(ClauseKind::Other("reads".into())),
+        just(Token::Bounds).to(ClauseKind::Other("bounds".into())),
+        // Remaining ident-based clause kinds (not yet keyword tokens)
         filter_map(|span, tok| match &tok {
             Token::Ident(s)
                 if matches!(
                     s.as_str(),
-                    "ghost"
-                        | "step"
-                        | "resume"
-                        | "assume"
-                        | "prove"
-                        | "spec"
-                        | "validate"
-                        | "define"
-                        | "property"
-                        | "errors"
-                        | "constant_time"
-                        | "taint"
-                        | "verify"
-                        | "example"
-                        | "strategy"
-                        | "must_be"
-                        | "promise"
-                        | "bound"
-                        | "verify_against"
-                        | "reads"
-                        | "writes"
+                    "step" | "resume" | "assume" | "prove"
+                        | "validate" | "taint" | "verify"
+                        | "example" | "strategy" | "promise"
+                        | "bound" | "writes"
                 ) =>
             {
                 Ok(ClauseKind::Other(s.clone()))
@@ -209,6 +375,61 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
             _ => Err(Simple::expected_input_found(span, [], Some(tok))),
         }),
     ))
+}
+
+/// Returns true if a token should stop inline/bare clause body collection.
+/// This includes clause-starting keywords, declaration-starting keywords,
+/// and block delimiters.
+fn is_clause_stopper(t: &Token) -> bool {
+    matches!(
+        t,
+        // Clause keywords
+        Token::Requires
+            | Token::Ensures
+            | Token::Effects
+            | Token::Invariant
+            | Token::Modifies
+            | Token::Input
+            | Token::Output
+            | Token::Errors
+            | Token::Rule
+            | Token::DataFlow
+            | Token::MustNot
+            // Block delimiters
+            | Token::LBrace
+            | Token::RBrace
+            // Declaration-starting keywords
+            | Token::Contract
+            | Token::Type
+            | Token::Enum
+            | Token::Extern
+            | Token::Fn
+            | Token::Service
+            | Token::Import
+            | Token::Module
+            | Token::Project
+            | Token::Axiom
+            | Token::Lemma
+            // Clause-like keywords (now proper tokens)
+            // NOTE: Ghost, Pure, Opaque are NOT stoppers -- they are modifiers
+            // that also appear as values (e.g., `effects: pure`).
+            | Token::Spec
+            | Token::Define
+            | Token::Property
+            | Token::ConstantTime
+            | Token::MustBe
+            | Token::VerifyAgainst
+            | Token::Reads
+            | Token::Bounds
+            | Token::Operation
+            | Token::Query
+            | Token::States
+    ) || matches!(t, Token::Ident(s) if matches!(s.as_str(),
+            "step" | "resume" | "assume" | "prove"
+                | "validate" | "taint" | "verify"
+                | "example" | "strategy" | "promise"
+                | "bound" | "writes"
+                | "operation" | "query" | "states"))
 }
 
 fn clause_body() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clone {
@@ -222,85 +443,16 @@ fn clause_body() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
 
     // Inline: colon then tokens until next clause keyword or }
     let inline = just(Token::Colon).ignore_then(
-        filter(move |t: &Token| {
-            // Stop at clause keywords and block delimiters
-            !matches!(
-                t,
-                Token::Requires
-                    | Token::Ensures
-                    | Token::Effects
-                    | Token::Invariant
-                    | Token::Modifies
-                    | Token::Input
-                    | Token::Output
-                    | Token::Rule
-                    | Token::DataFlow
-                    | Token::MustNot
-                    | Token::LBrace
-                    | Token::RBrace
-            )
-            // Stop at declaration-starting keywords
-            && !matches!(
-                t,
-                Token::Contract | Token::Type | Token::Enum
-                    | Token::Extern | Token::Fn | Token::Service
-                    | Token::Import | Token::Module | Token::Project
-                    | Token::Axiom | Token::Lemma
-            )
-            // Stop at ident-based clause/decl keywords
-            && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
-                    "ghost" | "step" | "resume" | "assume" | "prove"
-                        | "spec" | "validate" | "define" | "property"
-                        | "errors" | "constant_time" | "taint"
-                        | "verify" | "example" | "strategy"
-                        | "must_be" | "promise" | "bound"
-                        | "verify_against"
-                        | "reads" | "writes"
-                        | "operation" | "query" | "states"))
-        })
-        .map(|t| tok_to_str(&t))
-        .repeated(),
+        filter(move |t: &Token| !is_clause_stopper(t))
+            .map(|t| tok_to_str(&t))
+            .repeated(),
     );
 
     // Bare: no colon, just space-separated tokens until next clause/decl keyword
-    let bare = filter(move |t: &Token| {
-        !matches!(
-            t,
-            Token::Requires
-                | Token::Ensures
-                | Token::Effects
-                | Token::Invariant
-                | Token::Modifies
-                | Token::Input
-                | Token::Output
-                | Token::Rule
-                | Token::DataFlow
-                | Token::MustNot
-                | Token::RBrace
-                | Token::LBrace
-                | Token::Contract
-                | Token::Type
-                | Token::Enum
-                | Token::Extern
-                | Token::Fn
-                | Token::Service
-                | Token::Import
-                | Token::Module
-                | Token::Project
-                | Token::Ghost
-                | Token::Pure
-                | Token::Opaque
-        ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
-                "ghost" | "step" | "resume" | "assume" | "prove"
-                    | "spec" | "validate" | "define" | "property"
-                    | "errors" | "constant_time" | "taint"
-                    | "verify" | "example" | "strategy"
-                    | "must_be" | "promise" | "bound"
-                    | "operation" | "query" | "states"))
-    })
-    .map(|t| tok_to_str(&t))
-    .repeated()
-    .at_least(1);
+    let bare = filter(move |t: &Token| !is_clause_stopper(t))
+        .map(|t| tok_to_str(&t))
+        .repeated()
+        .at_least(1);
 
     choice((braced, parened, inline, bare))
 }
@@ -608,8 +760,10 @@ fn return_type() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
                     | Token::Rule
                     | Token::DataFlow
                     | Token::MustNot
+                    | Token::MustBe
+                    | Token::Bounds
             ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
-                    "must_be" | "promise" | "bound"))
+                    "promise" | "bound"))
         })
         .map(|t| tok_to_str(&t))
         .repeated()
@@ -680,8 +834,10 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
                     | Token::Rule
                     | Token::DataFlow
                     | Token::MustNot
+                    | Token::MustBe
+                    | Token::Bounds
             ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
-                    "must_be" | "promise" | "bound"))
+                    "promise" | "bound"))
         })
         .map(|t| vec![tok_to_str(&t)]);
 
@@ -808,22 +964,7 @@ fn generic_block() -> impl Parser<Token, Decl, Error = Simple<Token>> + Clone {
                 v
             });
         let single = filter(|t: &Token| {
-            !matches!(
-                t,
-                Token::RBrace | Token::RParen | Token::RBracket
-                // Stop at clause keywords
-                | Token::Requires | Token::Ensures | Token::Effects
-                | Token::Invariant | Token::Modifies | Token::Input
-                | Token::Output | Token::Rule | Token::DataFlow | Token::MustNot
-                // Stop at declaration keywords
-                | Token::Contract | Token::Type | Token::Enum
-                | Token::Extern | Token::Fn | Token::Service
-                | Token::Import | Token::Module | Token::Project
-                | Token::Axiom | Token::Lemma
-                | Token::Ghost | Token::Pure | Token::Opaque
-            ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
-                    "must_be" | "promise" | "bound" | "define" | "property"
-                    | "verify_against" | "constant_time"))
+            !matches!(t, Token::RParen | Token::RBracket) && !is_clause_stopper(t)
         })
         .map(|t| vec![tok_to_str(&t)]);
 

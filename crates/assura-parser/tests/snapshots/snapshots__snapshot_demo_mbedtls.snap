@@ -265,7 +265,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],
@@ -357,7 +357,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],
@@ -428,7 +428,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],
@@ -492,7 +492,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],
@@ -565,7 +565,7 @@ SourceFile {
                         Clause {
                             kind: Ensures,
                             tokens: [
-                                "Result_",
+                                "result",
                                 ".",
                                 "value",
                                 "==",
@@ -585,7 +585,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],

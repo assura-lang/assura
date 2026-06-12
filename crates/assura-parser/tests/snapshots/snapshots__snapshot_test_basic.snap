@@ -46,7 +46,7 @@ SourceFile {
                         Clause {
                             kind: Output,
                             tokens: [
-                                "Result_",
+                                "result",
                                 ":",
                                 "Int",
                             ],
@@ -62,7 +62,7 @@ SourceFile {
                         Clause {
                             kind: Ensures,
                             tokens: [
-                                "Result_",
+                                "result",
                                 "*",
                                 "b",
                                 "+",
@@ -80,7 +80,7 @@ SourceFile {
                             tokens: [
                                 "abs",
                                 "(",
-                                "Result_",
+                                "result",
                                 ")",
                                 "<=",
                                 "abs",
@@ -92,7 +92,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],
@@ -159,7 +159,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                         Clause {
@@ -168,7 +168,7 @@ SourceFile {
                                 "offset",
                                 ">=",
                                 "0",
-                                "And",
+                                "and",
                                 "len",
                                 ">=",
                                 "0",
@@ -213,7 +213,7 @@ SourceFile {
                             "id",
                             ">",
                             "0",
-                            "And",
+                            "and",
                             "id",
                             "<",
                             "1000000",
@@ -298,7 +298,7 @@ SourceFile {
                         Clause {
                             kind: Ensures,
                             tokens: [
-                                "Result_",
+                                "result",
                                 ".",
                                 "length",
                                 "(",
@@ -398,7 +398,7 @@ SourceFile {
                                 Clause {
                                     kind: Ensures,
                                     tokens: [
-                                        "Result_",
+                                        "result",
                                         ".",
                                         "user",
                                         ".",
@@ -452,9 +452,9 @@ SourceFile {
                         },
                         Invariant(
                             [
-                                "Forall",
+                                "forall",
                                 "u",
-                                "In",
+                                "in",
                                 "users",
                                 ":",
                                 "u",

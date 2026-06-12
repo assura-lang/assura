@@ -202,9 +202,9 @@ SourceFile {
                         },
                         Invariant(
                             [
-                                "Forall",
+                                "forall",
                                 "o",
-                                "In",
+                                "in",
                                 "orders",
                                 ":",
                                 "o",

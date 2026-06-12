@@ -28,7 +28,7 @@ SourceFile {
                         Clause {
                             kind: Output,
                             tokens: [
-                                "Result_",
+                                "result",
                                 ":",
                                 "Bool",
                             ],
@@ -44,7 +44,7 @@ SourceFile {
                         Clause {
                             kind: Ensures,
                             tokens: [
-                                "Result_",
+                                "result",
                                 "==",
                                 "true",
                             ],
@@ -52,7 +52,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                         Clause {
@@ -86,7 +86,7 @@ SourceFile {
                             tokens: [
                                 "buf",
                                 "->",
-                                "Result_",
+                                "result",
                             ],
                         },
                         Clause {

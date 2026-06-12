@@ -227,7 +227,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],
@@ -295,7 +295,7 @@ SourceFile {
                                 "n",
                                 "<=",
                                 "DstSize",
-                                "And",
+                                "and",
                                 "n",
                                 "<=",
                                 "src",
@@ -323,8 +323,8 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
-                                "Incremental",
+                                "pure",
+                                "incremental",
                                 "InflateDecoder",
                             ],
                         },
@@ -420,7 +420,7 @@ SourceFile {
                         Clause {
                             kind: Effects,
                             tokens: [
-                                "Pure",
+                                "pure",
                             ],
                         },
                     ],
