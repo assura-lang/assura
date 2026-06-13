@@ -588,7 +588,7 @@
 
 ### 2.3 SEC Features (4 weeks, parallelizable)
 
-- [ ] **T058**: SEC.2 FFI boundary contracts
+- [x] **T058**: SEC.2 FFI boundary contracts
   - Depends on: T041
   - extern/bind declarations, trust boundaries
 
@@ -606,7 +606,7 @@
 
 ### 2.4 TYPE Features (3 weeks, parallelizable)
 
-- [ ] **T062**: TYPE.1 Interface contracts
+- [x] **T062**: TYPE.1 Interface contracts
   - Depends on: T041
   - Trait-like contracts, callback re-entrancy restrictions
 

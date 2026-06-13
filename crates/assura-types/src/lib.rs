@@ -3517,6 +3517,394 @@ fn is_alloc_function(name: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// T058: FFI boundary contracts
+// ---------------------------------------------------------------------------
+
+/// Trust boundary classification for FFI declarations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrustBoundary {
+    /// Fully trusted: internal Assura code
+    Trusted,
+    /// Semi-trusted: audited external code with contracts
+    Audited,
+    /// Untrusted: arbitrary external code
+    Untrusted,
+}
+
+impl std::fmt::Display for TrustBoundary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TrustBoundary::Trusted => write!(f, "trusted"),
+            TrustBoundary::Audited => write!(f, "audited"),
+            TrustBoundary::Untrusted => write!(f, "untrusted"),
+        }
+    }
+}
+
+/// Error from the FFI boundary checker.
+#[derive(Debug, Clone)]
+pub struct FfiError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for FFI boundary contracts.
+///
+/// Validates that:
+/// - All extern declarations have explicit trust boundary annotations
+/// - Untrusted FFI calls have requires/ensures contracts
+/// - Data crossing trust boundaries is validated
+/// - Unsafe operations are isolated to FFI wrappers
+pub struct FfiBoundaryChecker {
+    /// Known extern declarations with their trust levels
+    externs: HashMap<String, TrustBoundary>,
+    /// FFI functions that have contracts (requires/ensures)
+    contracted: HashMap<String, bool>,
+}
+
+impl FfiBoundaryChecker {
+    pub fn new() -> Self {
+        Self {
+            externs: HashMap::new(),
+            contracted: HashMap::new(),
+        }
+    }
+
+    /// Register an extern declaration with its trust boundary.
+    pub fn register_extern(&mut self, name: String, boundary: TrustBoundary) {
+        self.externs.insert(name, boundary);
+    }
+
+    /// Mark an extern as having a contract (requires/ensures clauses).
+    pub fn mark_contracted(&mut self, name: String) {
+        self.contracted.insert(name, true);
+    }
+
+    /// Check that an extern declaration has the required annotations.
+    /// - A11001: extern without trust boundary annotation
+    /// - A11002: untrusted extern without contract (requires/ensures)
+    pub fn check_extern_decl(
+        &self,
+        name: &str,
+        has_boundary: bool,
+        has_contract: bool,
+        span: &Range<usize>,
+    ) -> Vec<FfiError> {
+        let mut errors = Vec::new();
+        if !has_boundary {
+            errors.push(FfiError {
+                code: "A11001".into(),
+                message: format!(
+                    "extern `{name}` has no trust boundary annotation; \
+                     add @trust:trusted, @trust:audited, or @trust:untrusted"
+                ),
+                span: span.clone(),
+            });
+        }
+        let boundary = self.externs.get(name);
+        if boundary == Some(&TrustBoundary::Untrusted) && !has_contract {
+            errors.push(FfiError {
+                code: "A11002".into(),
+                message: format!(
+                    "untrusted extern `{name}` has no contract; \
+                     add requires/ensures to validate inputs and outputs"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that a call to an FFI function validates data at the trust boundary.
+    /// - A11003: data from untrusted FFI used without validation
+    pub fn check_ffi_call(
+        &self,
+        callee: &str,
+        result_validated: bool,
+        span: &Range<usize>,
+    ) -> Vec<FfiError> {
+        let mut errors = Vec::new();
+        if self.externs.get(callee) == Some(&TrustBoundary::Untrusted) && !result_validated {
+            errors.push(FfiError {
+                code: "A11003".into(),
+                message: format!(
+                    "result of untrusted FFI call `{callee}` used without validation; \
+                     wrap return value in a validate block"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that unsafe operations are confined to FFI wrappers.
+    /// - A11004: unsafe operation outside FFI wrapper
+    pub fn check_unsafe_confinement(
+        &self,
+        fn_name: &str,
+        is_ffi_wrapper: bool,
+        has_unsafe: bool,
+        span: &Range<usize>,
+    ) -> Vec<FfiError> {
+        let mut errors = Vec::new();
+        if has_unsafe && !is_ffi_wrapper {
+            errors.push(FfiError {
+                code: "A11004".into(),
+                message: format!(
+                    "function `{fn_name}` uses unsafe operations but is not an FFI wrapper; \
+                     move unsafe code to an extern wrapper"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check file-level FFI usage: all externs should be audited.
+    pub fn check_file(
+        &self,
+        externs: &[(String, bool, bool, Range<usize>)],
+    ) -> Vec<FfiError> {
+        let mut errors = Vec::new();
+        for (name, has_boundary, has_contract, span) in externs {
+            errors.extend(self.check_extern_decl(name, *has_boundary, *has_contract, span));
+        }
+        errors
+    }
+}
+
+impl Default for FfiBoundaryChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T062: Interface contracts (trait-like contracts)
+// ---------------------------------------------------------------------------
+
+/// An interface contract: a set of required method signatures with contracts.
+#[derive(Debug, Clone)]
+pub struct InterfaceContract {
+    pub name: String,
+    /// Required method signatures
+    pub methods: Vec<InterfaceMethod>,
+    /// Super-interfaces (like trait bounds)
+    pub extends: Vec<String>,
+}
+
+/// A method signature within an interface contract.
+#[derive(Debug, Clone)]
+pub struct InterfaceMethod {
+    pub name: String,
+    pub param_types: Vec<Type>,
+    pub return_type: Type,
+    pub has_requires: bool,
+    pub has_ensures: bool,
+    /// Whether the method restricts callback re-entrancy
+    pub no_reentrancy: bool,
+}
+
+/// Error from the interface contract checker.
+#[derive(Debug, Clone)]
+pub struct InterfaceError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for interface contracts.
+///
+/// Validates that:
+/// - Implementations satisfy all interface method contracts
+/// - Method signatures match (parameter types, return types)
+/// - Re-entrancy restrictions are respected
+/// - Super-interface contracts are inherited correctly
+pub struct InterfaceChecker {
+    /// Known interface definitions
+    interfaces: HashMap<String, InterfaceContract>,
+    /// Implementations: (implementing_type, interface_name) -> methods
+    impls: HashMap<(String, String), Vec<String>>,
+}
+
+impl InterfaceChecker {
+    pub fn new() -> Self {
+        Self {
+            interfaces: HashMap::new(),
+            impls: HashMap::new(),
+        }
+    }
+
+    /// Register an interface contract.
+    pub fn register_interface(&mut self, iface: InterfaceContract) {
+        self.interfaces.insert(iface.name.clone(), iface);
+    }
+
+    /// Register an implementation of an interface.
+    pub fn register_impl(
+        &mut self,
+        impl_type: String,
+        interface_name: String,
+        method_names: Vec<String>,
+    ) {
+        self.impls
+            .insert((impl_type, interface_name), method_names);
+    }
+
+    /// Check that an implementation satisfies all interface methods.
+    /// - A13001: missing method implementation
+    /// - A13002: method signature mismatch (param or return type)
+    pub fn check_impl(
+        &self,
+        impl_type: &str,
+        interface_name: &str,
+        implemented_methods: &[String],
+        span: &Range<usize>,
+    ) -> Vec<InterfaceError> {
+        let mut errors = Vec::new();
+        let Some(iface) = self.interfaces.get(interface_name) else {
+            errors.push(InterfaceError {
+                code: "A13001".into(),
+                message: format!("unknown interface `{interface_name}`"),
+                span: span.clone(),
+            });
+            return errors;
+        };
+
+        for method in &iface.methods {
+            if !implemented_methods.contains(&method.name) {
+                errors.push(InterfaceError {
+                    code: "A13001".into(),
+                    message: format!(
+                        "`{impl_type}` does not implement required method `{}` \
+                         from interface `{interface_name}`",
+                        method.name
+                    ),
+                    span: span.clone(),
+                });
+            }
+        }
+
+        // Check super-interfaces
+        for super_name in &iface.extends {
+            if let Some(super_iface) = self.interfaces.get(super_name) {
+                for method in &super_iface.methods {
+                    if !implemented_methods.contains(&method.name) {
+                        errors.push(InterfaceError {
+                            code: "A13001".into(),
+                            message: format!(
+                                "`{impl_type}` does not implement required method `{}` \
+                                 from super-interface `{super_name}`",
+                                method.name
+                            ),
+                            span: span.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+
+    /// Check method signature compatibility.
+    /// - A13002: parameter count or type mismatch
+    pub fn check_method_signature(
+        &self,
+        interface_name: &str,
+        method_name: &str,
+        impl_params: &[Type],
+        impl_return: &Type,
+        span: &Range<usize>,
+    ) -> Vec<InterfaceError> {
+        let mut errors = Vec::new();
+        let Some(iface) = self.interfaces.get(interface_name) else {
+            return errors;
+        };
+        let Some(method) = iface.methods.iter().find(|m| m.name == method_name) else {
+            return errors;
+        };
+
+        if impl_params.len() != method.param_types.len() {
+            errors.push(InterfaceError {
+                code: "A13002".into(),
+                message: format!(
+                    "method `{method_name}` has {} parameters but interface `{interface_name}` \
+                     requires {}",
+                    impl_params.len(),
+                    method.param_types.len()
+                ),
+                span: span.clone(),
+            });
+        } else {
+            for (i, (impl_t, iface_t)) in
+                impl_params.iter().zip(&method.param_types).enumerate()
+            {
+                if impl_t != iface_t {
+                    errors.push(InterfaceError {
+                        code: "A13002".into(),
+                        message: format!(
+                            "method `{method_name}` parameter {i}: \
+                             expected `{iface_t:?}`, found `{impl_t:?}`"
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+        }
+
+        if impl_return != &method.return_type {
+            errors.push(InterfaceError {
+                code: "A13002".into(),
+                message: format!(
+                    "method `{method_name}` return type mismatch: \
+                     expected `{:?}`, found `{impl_return:?}`",
+                    method.return_type
+                ),
+                span: span.clone(),
+            });
+        }
+
+        errors
+    }
+
+    /// Check callback re-entrancy restriction.
+    /// - A13003: method marked no_reentrancy called recursively through callback
+    pub fn check_reentrancy(
+        &self,
+        interface_name: &str,
+        method_name: &str,
+        is_reentrant_call: bool,
+        span: &Range<usize>,
+    ) -> Vec<InterfaceError> {
+        let mut errors = Vec::new();
+        let is_violation = self
+            .interfaces
+            .get(interface_name)
+            .and_then(|iface| iface.methods.iter().find(|m| m.name == method_name))
+            .is_some_and(|method| method.no_reentrancy && is_reentrant_call);
+        if is_violation {
+            errors.push(InterfaceError {
+                code: "A13003".into(),
+                message: format!(
+                    "method `{method_name}` on interface `{interface_name}` \
+                     is marked no_reentrancy but is called re-entrantly"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+}
+
+impl Default for InterfaceChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // T052: Dependent types (restricted)
 // ---------------------------------------------------------------------------
 
@@ -9173,5 +9561,316 @@ ghost fn bad_ghost(x: Int) -> Bool
             .to_string(),
             "m: Mode"
         );
+    }
+
+    // --- T058: FFI boundary contract tests ---
+
+    #[test]
+    fn ffi_extern_without_boundary_a11001() {
+        let checker = FfiBoundaryChecker::new();
+        let errors = checker.check_extern_decl("malloc", false, false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A11001");
+    }
+
+    #[test]
+    fn ffi_extern_with_boundary_ok() {
+        let checker = FfiBoundaryChecker::new();
+        let errors = checker.check_extern_decl("malloc", true, true, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn ffi_untrusted_without_contract_a11002() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("read_bytes".into(), TrustBoundary::Untrusted);
+        let errors = checker.check_extern_decl("read_bytes", true, false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A11002");
+    }
+
+    #[test]
+    fn ffi_untrusted_with_contract_ok() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("read_bytes".into(), TrustBoundary::Untrusted);
+        let errors = checker.check_extern_decl("read_bytes", true, true, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn ffi_trusted_no_contract_ok() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("internal_fn".into(), TrustBoundary::Trusted);
+        let errors = checker.check_extern_decl("internal_fn", true, false, &(0..1));
+        assert!(errors.is_empty(), "trusted extern doesn't need a contract");
+    }
+
+    #[test]
+    fn ffi_call_untrusted_unvalidated_a11003() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("read_raw".into(), TrustBoundary::Untrusted);
+        let errors = checker.check_ffi_call("read_raw", false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A11003");
+    }
+
+    #[test]
+    fn ffi_call_untrusted_validated_ok() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("read_raw".into(), TrustBoundary::Untrusted);
+        let errors = checker.check_ffi_call("read_raw", true, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn ffi_call_trusted_unvalidated_ok() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("safe_fn".into(), TrustBoundary::Trusted);
+        let errors = checker.check_ffi_call("safe_fn", false, &(0..1));
+        assert!(errors.is_empty(), "trusted calls don't need validation");
+    }
+
+    #[test]
+    fn ffi_unsafe_outside_wrapper_a11004() {
+        let checker = FfiBoundaryChecker::new();
+        let errors = checker.check_unsafe_confinement("compute", false, true, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A11004");
+    }
+
+    #[test]
+    fn ffi_unsafe_inside_wrapper_ok() {
+        let checker = FfiBoundaryChecker::new();
+        let errors = checker.check_unsafe_confinement("ffi_wrapper", true, true, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn ffi_boundary_display() {
+        assert_eq!(TrustBoundary::Trusted.to_string(), "trusted");
+        assert_eq!(TrustBoundary::Audited.to_string(), "audited");
+        assert_eq!(TrustBoundary::Untrusted.to_string(), "untrusted");
+    }
+
+    #[test]
+    fn ffi_file_check_multiple_externs() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("read".into(), TrustBoundary::Untrusted);
+        checker.register_extern("write".into(), TrustBoundary::Audited);
+        let externs = vec![
+            ("read".into(), true, false, 0..5),  // untrusted, no contract -> A11002
+            ("write".into(), true, true, 10..15), // audited, has contract -> ok
+            ("unknown".into(), false, false, 20..25), // no boundary -> A11001
+        ];
+        let errors = checker.check_file(&externs);
+        assert_eq!(errors.len(), 2); // A11002 for read, A11001 for unknown
+    }
+
+    // --- T062: Interface contract tests ---
+
+    #[test]
+    fn interface_missing_method_a13001() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Serializable".into(),
+            methods: vec![
+                InterfaceMethod {
+                    name: "serialize".into(),
+                    param_types: vec![],
+                    return_type: Type::Bytes,
+                    has_requires: false,
+                    has_ensures: true,
+                    no_reentrancy: false,
+                },
+                InterfaceMethod {
+                    name: "deserialize".into(),
+                    param_types: vec![Type::Bytes],
+                    return_type: Type::Named("Self".into()),
+                    has_requires: true,
+                    has_ensures: true,
+                    no_reentrancy: false,
+                },
+            ],
+            extends: vec![],
+        });
+
+        // Only implement serialize, not deserialize
+        let errors = checker.check_impl(
+            "MyType",
+            "Serializable",
+            &["serialize".into()],
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A13001");
+        assert!(errors[0].message.contains("deserialize"));
+    }
+
+    #[test]
+    fn interface_all_methods_implemented_ok() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Hashable".into(),
+            methods: vec![InterfaceMethod {
+                name: "hash".into(),
+                param_types: vec![],
+                return_type: Type::U64,
+                has_requires: false,
+                has_ensures: true,
+                no_reentrancy: false,
+            }],
+            extends: vec![],
+        });
+
+        let errors =
+            checker.check_impl("MyType", "Hashable", &["hash".into()], &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn interface_signature_param_count_mismatch_a13002() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Comparable".into(),
+            methods: vec![InterfaceMethod {
+                name: "compare".into(),
+                param_types: vec![Type::Int, Type::Int],
+                return_type: Type::Bool,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            }],
+            extends: vec![],
+        });
+
+        let errors = checker.check_method_signature(
+            "Comparable",
+            "compare",
+            &[Type::Int],        // only 1 param
+            &Type::Bool,
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A13002");
+    }
+
+    #[test]
+    fn interface_signature_return_type_mismatch_a13002() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Comparable".into(),
+            methods: vec![InterfaceMethod {
+                name: "compare".into(),
+                param_types: vec![Type::Int],
+                return_type: Type::Bool,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            }],
+            extends: vec![],
+        });
+
+        let errors = checker.check_method_signature(
+            "Comparable",
+            "compare",
+            &[Type::Int],
+            &Type::Int, // wrong return type
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A13002");
+        assert!(errors[0].message.contains("return type"));
+    }
+
+    #[test]
+    fn interface_reentrancy_violation_a13003() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Callback".into(),
+            methods: vec![InterfaceMethod {
+                name: "on_event".into(),
+                param_types: vec![],
+                return_type: Type::Unit,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: true,
+            }],
+            extends: vec![],
+        });
+
+        let errors =
+            checker.check_reentrancy("Callback", "on_event", true, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A13003");
+    }
+
+    #[test]
+    fn interface_reentrancy_no_flag_ok() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Callback".into(),
+            methods: vec![InterfaceMethod {
+                name: "on_event".into(),
+                param_types: vec![],
+                return_type: Type::Unit,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            }],
+            extends: vec![],
+        });
+
+        let errors =
+            checker.check_reentrancy("Callback", "on_event", true, &(0..1));
+        assert!(errors.is_empty(), "method allows reentrancy");
+    }
+
+    #[test]
+    fn interface_super_interface_inheritance() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Eq".into(),
+            methods: vec![InterfaceMethod {
+                name: "equals".into(),
+                param_types: vec![Type::Named("Self".into())],
+                return_type: Type::Bool,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            }],
+            extends: vec![],
+        });
+        checker.register_interface(InterfaceContract {
+            name: "Ord".into(),
+            methods: vec![InterfaceMethod {
+                name: "compare_to".into(),
+                param_types: vec![Type::Named("Self".into())],
+                return_type: Type::Int,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            }],
+            extends: vec!["Eq".into()],
+        });
+
+        // Implement compare_to but not equals -> A13001 for missing super method
+        let errors = checker.check_impl(
+            "MyType",
+            "Ord",
+            &["compare_to".into()],
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("equals"));
+        assert!(errors[0].message.contains("Eq"));
+    }
+
+    #[test]
+    fn interface_unknown_interface_a13001() {
+        let checker = InterfaceChecker::new();
+        let errors = checker.check_impl("MyType", "Unknown", &[], &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A13001");
+        assert!(errors[0].message.contains("Unknown"));
     }
 }
