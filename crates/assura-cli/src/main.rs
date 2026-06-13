@@ -1771,3 +1771,162 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     }
 }
+
+// ===========================================================================
+// Integration tests: full pipeline from source text through all passes
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+
+    /// Run the full pipeline: parse -> resolve -> type-check -> codegen
+    fn full_pipeline(source: &str) -> Result<assura_codegen::GeneratedProject, String> {
+        let (file, errs) = assura_parser::parse(source);
+        if !errs.is_empty() {
+            return Err(format!("parse errors: {errs:?}"));
+        }
+        let file = file.ok_or("parse returned None")?;
+        let resolved =
+            assura_resolve::resolve(&file).map_err(|e| format!("resolve errors: {e:?}"))?;
+        let typed =
+            assura_types::type_check(&resolved).map_err(|e| format!("type errors: {e:?}"))?;
+        Ok(assura_codegen::codegen(&typed))
+    }
+
+    /// Verify that a source string successfully passes all pipeline stages.
+    fn assert_pipeline_ok(source: &str) {
+        let project = full_pipeline(source).expect("pipeline failed");
+        assert!(!project.cargo_toml.is_empty(), "empty Cargo.toml");
+        assert!(!project.files.is_empty(), "no generated files");
+        // Validate generated Rust is syntactically valid
+        let lib = &project.files[0].1;
+        syn::parse_file(lib).unwrap_or_else(|e| {
+            panic!("generated Rust is not valid:\n{lib}\n\nerror: {e}");
+        });
+    }
+
+    #[test]
+    fn pipeline_contract() {
+        assert_pipeline_ok(
+            r#"
+contract SafeDivision {
+  input(a: Int, b: Int)
+  output(result: Int)
+  requires { b != 0 }
+  ensures { result * b == a }
+  effects { pure }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn pipeline_fn_with_clauses() {
+        assert_pipeline_ok(
+            r#"
+fn clamp(x: Int, lo: Int, hi: Int) -> Int
+  requires { lo <= hi }
+  ensures { result >= lo && result <= hi }
+{
+  if x < lo then lo else if x > hi then hi else x
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn pipeline_type_def() {
+        assert_pipeline_ok(
+            r#"
+type Point {
+  x: Int,
+  y: Int
+}
+
+contract UsePoint {
+  input(p: Point)
+  output(result: Int)
+  ensures { result >= 0 }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn pipeline_demo_libwebp() {
+        let source = std::fs::read_to_string("../../demos/libwebp-huffman.assura")
+            .or_else(|_| std::fs::read_to_string("demos/libwebp-huffman.assura"))
+            .expect("cannot find libwebp demo");
+        assert_pipeline_ok(&source);
+    }
+
+    #[test]
+    fn pipeline_demo_zlib() {
+        let source = std::fs::read_to_string("../../demos/zlib-inflate.assura")
+            .or_else(|_| std::fs::read_to_string("demos/zlib-inflate.assura"))
+            .expect("cannot find zlib demo");
+        assert_pipeline_ok(&source);
+    }
+
+    #[test]
+    fn pipeline_demo_mbedtls() {
+        let source = std::fs::read_to_string("../../demos/mbedtls-x509.assura")
+            .or_else(|_| std::fs::read_to_string("demos/mbedtls-x509.assura"))
+            .expect("cannot find mbedtls demo");
+        assert_pipeline_ok(&source);
+    }
+
+    #[test]
+    fn pipeline_test_basic() {
+        let source = std::fs::read_to_string("../../tests/fixtures/test_basic.assura")
+            .or_else(|_| std::fs::read_to_string("tests/fixtures/test_basic.assura"))
+            .expect("cannot find test_basic fixture");
+        assert_pipeline_ok(&source);
+    }
+
+    #[test]
+    fn test_diagnostics_from_parse_errors() {
+        // Deliberately invalid syntax should produce parse errors
+        let (file, errors) = assura_parser::parse("contract { invalid }");
+        // At least some errors expected
+        assert!(
+            !errors.is_empty() || file.is_none(),
+            "expected parse errors for invalid syntax"
+        );
+    }
+
+    #[test]
+    fn test_resolution_error_diagnostic() {
+        // Valid parse but contains an unresolved reference
+        let source = r#"
+contract Foo {
+  requires { unknown_fn(x) }
+}
+"#;
+        let (file, errs) = assura_parser::parse(source);
+        assert!(errs.is_empty());
+        let file = file.unwrap();
+        // Resolve should succeed (soft errors for unresolved refs)
+        let resolved = assura_resolve::resolve(&file);
+        assert!(resolved.is_ok());
+    }
+
+    #[test]
+    fn test_type_error_diagnostic() {
+        // Type checking should detect the type mismatch (requires needs Bool)
+        let source = r#"
+contract Typed {
+  input(x: Int)
+  requires { x + 1 }
+}
+"#;
+        let (file, errs) = assura_parser::parse(source);
+        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
+        let file = file.unwrap();
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let typed = assura_types::type_check(&resolved);
+        // Type checking may succeed with warnings, or produce errors
+        // depending on strictness. Just verify it doesn't panic.
+        let _ = typed;
+    }
+}

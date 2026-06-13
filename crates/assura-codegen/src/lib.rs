@@ -276,11 +276,12 @@ fn map_type_tokens(tokens: &[String]) -> String {
         return "()".to_string();
     }
 
-    // Phase 1: Strip taint annotations (everything from "@" onward)
+    // Phase 1: Strip annotations and clause keywords that leak into type tokens
+    // Stops at: "@" (taint), "#" (attribute), "decreases", "where"
     let clean: Vec<&str> = tokens
         .iter()
         .map(|s| s.as_str())
-        .take_while(|t| *t != "@")
+        .take_while(|t| !matches!(*t, "@" | "#" | "decreases" | "where"))
         .collect();
     if clean.is_empty() {
         return "()".to_string();
@@ -530,6 +531,41 @@ fn expr_to_rust(expr: &Expr) -> String {
 
 /// Derive a variable name for an `old(expr)` snapshot from the expression.
 /// E.g., `old(x)` -> `__old_x`, `old(buf.len)` -> `__old_buf_len`.
+/// Generate a debug_assert! that handles multi-line expressions.
+///
+/// If the expression contains newlines (e.g. a match block), wraps it in a
+/// block `{ ... }` so the assert is valid Rust syntax.
+fn generate_debug_assert(code: &mut String, expr: &str, label: &str) {
+    if expr.contains('\n') {
+        // Multi-line expressions (match, etc.) need a block wrapper
+        let msg = expr.replace('\n', " ").replace('"', "\\\"");
+        code.push_str(&format!(
+            "    debug_assert!({{ {expr} }}, \"{label}: {msg}\");\n"
+        ));
+    } else {
+        code.push_str(&format!(
+            "    debug_assert!({expr}, \"{label}: {}\");\n",
+            expr.replace('"', "\\\"")
+        ));
+    }
+}
+
+/// Like `generate_debug_assert` but with configurable indent level.
+fn generate_debug_assert_indented(code: &mut String, expr: &str, label: &str, indent: usize) {
+    let pad = "    ".repeat(indent);
+    if expr.contains('\n') {
+        let msg = expr.replace('\n', " ").replace('"', "\\\"");
+        code.push_str(&format!(
+            "{pad}debug_assert!({{ {expr} }}, \"{label}: {msg}\");\n"
+        ));
+    } else {
+        code.push_str(&format!(
+            "{pad}debug_assert!({expr}, \"{label}: {}\");\n",
+            expr.replace('"', "\\\"")
+        ));
+    }
+}
+
 fn old_var_name(expr: &Expr) -> String {
     match expr {
         Expr::Ident(s) => s.clone(),
@@ -809,10 +845,7 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
 
     // Generate requires assertions
     for req in &requires_exprs {
-        code.push_str(&format!(
-            "        debug_assert!({req}, \"requires: {}\");\n",
-            req.replace('"', "\\\"")
-        ));
+        generate_debug_assert_indented(code, req, "requires", 2);
     }
 
     code.push_str(&format!(
@@ -821,10 +854,7 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
 
     // Generate ensures assertions
     for ens in &ensures_exprs {
-        code.push_str(&format!(
-            "        debug_assert!({ens}, \"ensures: {}\");\n",
-            ens.replace('"', "\\\"")
-        ));
+        generate_debug_assert_indented(code, ens, "ensures", 2);
     }
 
     code.push_str("        __result\n");
@@ -941,10 +971,7 @@ fn generate_extern(ex: &ExternDecl, code: &mut String) {
     for clause in &ex.clauses {
         if clause.kind == ClauseKind::Requires {
             let expr = expr_to_rust(&clause.body);
-            code.push_str(&format!(
-                "    debug_assert!({expr}, \"requires: {}\");\n",
-                expr.replace('"', "\\\"")
-            ));
+            generate_debug_assert(code, &expr, "requires");
         }
     }
 
@@ -954,10 +981,7 @@ fn generate_extern(ex: &ExternDecl, code: &mut String) {
 
     // Generate ensures assertions before return
     for ens in &ensures_exprs {
-        code.push_str(&format!(
-            "    debug_assert!({ens}, \"ensures: {}\");\n",
-            ens.replace('"', "\\\"")
-        ));
+        generate_debug_assert(code, ens, "ensures");
     }
 
     code.push_str("    __result\n");
@@ -1005,10 +1029,7 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
     for clause in &f.clauses {
         if clause.kind == ClauseKind::Requires {
             let expr = expr_to_rust(&clause.body);
-            code.push_str(&format!(
-                "    debug_assert!({expr}, \"requires: {}\");\n",
-                expr.replace('"', "\\\"")
-            ));
+            generate_debug_assert(code, &expr, "requires");
         }
     }
 
@@ -1018,10 +1039,7 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
 
     // Generate ensures assertions before return
     for ens in &ensures_exprs {
-        code.push_str(&format!(
-            "    debug_assert!({ens}, \"ensures: {}\");\n",
-            ens.replace('"', "\\\"")
-        ));
+        generate_debug_assert(code, ens, "ensures");
     }
 
     code.push_str("    __result\n");
@@ -1085,10 +1103,7 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
                 for clause in clauses {
                     if clause.kind == ClauseKind::Requires {
                         let expr = expr_to_rust(&clause.body);
-                        code.push_str(&format!(
-                            "        debug_assert!({expr}, \"requires: {}\");\n",
-                            expr.replace('"', "\\\"")
-                        ));
+                        generate_debug_assert_indented(code, &expr, "requires", 2);
                     }
                 }
                 code.push_str("        todo!(\"operation implementation\")\n");
@@ -1106,10 +1121,7 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
                 for clause in clauses {
                     if clause.kind == ClauseKind::Requires {
                         let expr = expr_to_rust(&clause.body);
-                        code.push_str(&format!(
-                            "        debug_assert!({expr}, \"requires: {}\");\n",
-                            expr.replace('"', "\\\"")
-                        ));
+                        generate_debug_assert_indented(code, &expr, "requires", 2);
                     }
                 }
                 code.push_str("        todo!(\"query implementation\")\n");
