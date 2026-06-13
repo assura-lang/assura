@@ -607,6 +607,20 @@ fn resolve_imports(
     visited: &HashSet<String>,
     errors: &mut Vec<ResolutionError>,
 ) -> Vec<ResolvedImport> {
+    // Detect duplicate imports
+    let mut seen_paths: HashSet<String> = HashSet::new();
+    for imp in imports {
+        let path_str = imp.path.join(".");
+        if !seen_paths.insert(path_str.clone()) {
+            errors.push(ResolutionError {
+                code: "A02006",
+                message: format!("duplicate import of module `{path_str}`"),
+                span: 0..0,
+                secondary: None,
+            });
+        }
+    }
+
     imports
         .iter()
         .map(|imp| {
@@ -2034,5 +2048,31 @@ import std.math;
             names.contains(&"math"),
             "last path segment should be injected from import"
         );
+    }
+
+    #[test]
+    fn duplicate_import_detected() {
+        let src = r#"
+import std.math;
+import std.math;
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "duplicate import should produce an error");
+        let errs = result.unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.code == "A02006"),
+            "should report A02006 for duplicate import"
+        );
+    }
+
+    #[test]
+    fn different_imports_not_duplicate() {
+        let src = r#"
+import std.math;
+import std.collections;
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("different imports should not be duplicates");
     }
 }
