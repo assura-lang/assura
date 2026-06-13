@@ -223,7 +223,25 @@ fn run_check(args: &[String]) {
     // --- Resolve (only if we have a parsed file) ---
     let resolved = if let Some(ref file) = file {
         match assura_resolve::resolve(file) {
-            Ok(r) => Some(r),
+            Ok(r) => {
+                // Report resolution warnings (e.g., unused imports)
+                for w in &r.warnings {
+                    diagnostics.push(DiagnosticJson {
+                        code: w.code.to_string(),
+                        message: w.message.clone(),
+                        file: filename.clone(),
+                        start: w.span.start,
+                        end: w.span.end,
+                        severity: "warning".to_string(),
+                        secondary: w.secondary.as_ref().map(|(span, msg)| SecondaryJson {
+                            message: msg.clone(),
+                            start: span.start,
+                            end: span.end,
+                        }),
+                    });
+                }
+                Some(r)
+            }
             Err(errs) => {
                 has_errors = true;
                 for e in &errs {
@@ -542,7 +560,21 @@ fn run_build(args: &[String]) {
 
     // --- Resolve ---
     let resolved = match assura_resolve::resolve(&file) {
-        Ok(r) => r,
+        Ok(r) => {
+            for w in &r.warnings {
+                Report::build(ReportKind::Warning, filename.as_str(), w.span.start)
+                    .with_message(format!("[{}] {}", w.code, w.message))
+                    .with_label(
+                        Label::new((filename.as_str(), w.span.clone()))
+                            .with_message(&w.message)
+                            .with_color(Color::Yellow),
+                    )
+                    .finish()
+                    .eprint((filename.as_str(), Source::from(&source)))
+                    .ok();
+            }
+            r
+        }
         Err(errs) => {
             for e in &errs {
                 let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
@@ -1244,7 +1276,21 @@ fn run_legacy(args: &[String]) {
 
     // --- Resolve ---
     let resolved = match assura_resolve::resolve(&file) {
-        Ok(r) => r,
+        Ok(r) => {
+            for w in &r.warnings {
+                Report::build(ReportKind::Warning, filename.as_str(), w.span.start)
+                    .with_message(format!("[{}] {}", w.code, w.message))
+                    .with_label(
+                        Label::new((filename.as_str(), w.span.clone()))
+                            .with_message(&w.message)
+                            .with_color(Color::Yellow),
+                    )
+                    .finish()
+                    .eprint((filename.as_str(), Source::from(&source)))
+                    .ok();
+            }
+            r
+        }
         Err(errs) => {
             for e in &errs {
                 let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)

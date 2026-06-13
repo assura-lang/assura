@@ -197,6 +197,9 @@ pub struct ResolvedFile {
     pub symbols: SymbolTable,
     /// All import declarations with their resolution status.
     pub imports: Vec<ResolvedImport>,
+    /// Non-fatal warnings (e.g., unused imports). These don't prevent
+    /// resolution from succeeding.
+    pub warnings: Vec<ResolutionError>,
 }
 
 // ---------------------------------------------------------------------------
@@ -580,6 +583,12 @@ pub fn resolve_with_modules(
     // plausibly come from external sources (imports, project profiles, etc.).
     resolve_type_refs(source, &table, &resolved_imports, module, &mut errors);
 
+    // --- Check for unused imports (A02007) ---
+    // These are warnings, not errors: they don't prevent resolution.
+    let referenced_names = collect_referenced_names(source);
+    let mut warnings = Vec::new();
+    check_unused_imports(&resolved_imports, &referenced_names, &mut warnings);
+
     // Remove this module from the visited set now that resolution is done.
     visited.remove(&module_name);
 
@@ -588,6 +597,7 @@ pub fn resolve_with_modules(
             source: source.clone(),
             symbols: table,
             imports: resolved_imports,
+            warnings,
         })
     } else {
         Err(errors)
@@ -1015,6 +1025,246 @@ fn try_insert(
                 secondary: Some((prev_span, format!("`{name}` previously defined here"))),
             });
             false
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unused import detection
+// ---------------------------------------------------------------------------
+
+/// Collect all identifier-like names referenced in the AST. This includes
+/// type annotations, expression identifiers, and field/param type tokens.
+fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::TypeDef(t) => {
+                collect_type_body_names(&t.body, &mut names);
+            }
+            Decl::FnDef(f) => {
+                collect_fn_names(f, &mut names);
+            }
+            Decl::Extern(ex) => {
+                for p in &ex.params {
+                    collect_type_token_names(&p.ty, &mut names);
+                }
+                collect_type_token_names(&ex.return_ty, &mut names);
+                for clause in &ex.clauses {
+                    collect_expr_names(&clause.body, &mut names);
+                }
+            }
+            Decl::Contract(c) => {
+                for clause in &c.clauses {
+                    collect_expr_names(&clause.body, &mut names);
+                }
+            }
+            Decl::Service(s) => {
+                for item in &s.items {
+                    match item {
+                        ServiceItem::TypeDef(t) => collect_type_body_names(&t.body, &mut names),
+                        ServiceItem::EnumDef(e) => {
+                            for v in &e.variants {
+                                for f in &v.fields {
+                                    names.insert(f.clone());
+                                }
+                            }
+                        }
+                        ServiceItem::Operation { clauses, .. }
+                        | ServiceItem::Query { clauses, .. } => {
+                            for clause in clauses {
+                                collect_expr_names(&clause.body, &mut names);
+                            }
+                        }
+                        ServiceItem::Invariant(expr) => collect_expr_names(expr, &mut names),
+                        ServiceItem::Other { body, .. } => collect_expr_names(body, &mut names),
+                        _ => {}
+                    }
+                }
+            }
+            Decl::EnumDef(e) => {
+                for v in &e.variants {
+                    for f in &v.fields {
+                        names.insert(f.clone());
+                    }
+                }
+            }
+            Decl::Block { body, .. } => {
+                for clause in body {
+                    collect_expr_names(&clause.body, &mut names);
+                }
+            }
+        }
+    }
+    names
+}
+
+fn collect_type_body_names(body: &TypeBody, names: &mut HashSet<String>) {
+    match body {
+        TypeBody::Struct(fields) => {
+            for f in fields {
+                collect_type_token_names(&f.ty, names);
+            }
+        }
+        TypeBody::Alias(tokens) | TypeBody::Refined(tokens) => {
+            collect_type_token_names(tokens, names);
+        }
+        TypeBody::Empty => {}
+    }
+}
+
+fn collect_fn_names(f: &FnDef, names: &mut HashSet<String>) {
+    for p in &f.params {
+        collect_type_token_names(&p.ty, names);
+    }
+    collect_type_token_names(&f.return_ty, names);
+    for clause in &f.clauses {
+        collect_expr_names(&clause.body, names);
+    }
+}
+
+fn collect_type_token_names(tokens: &[String], names: &mut HashSet<String>) {
+    for tok in tokens {
+        if !TYPE_SYNTAX_TOKENS.contains(&tok.as_str())
+            && !tok.starts_with(|c: char| c.is_ascii_digit())
+        {
+            names.insert(tok.clone());
+        }
+    }
+}
+
+fn collect_expr_names(expr: &assura_parser::ast::Expr, names: &mut HashSet<String>) {
+    use assura_parser::ast::Expr;
+    match expr {
+        Expr::Ident(name) => {
+            names.insert(name.clone());
+        }
+        Expr::Field(receiver, field) => {
+            collect_expr_names(receiver, names);
+            names.insert(field.clone());
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_expr_names(lhs, names);
+            collect_expr_names(rhs, names);
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Paren(inner)
+        | Expr::Old(inner)
+        | Expr::Ghost(inner) => {
+            collect_expr_names(inner, names);
+        }
+        Expr::Call { func, args } => {
+            collect_expr_names(func, names);
+            for arg in args {
+                collect_expr_names(arg, names);
+            }
+        }
+        Expr::MethodCall {
+            receiver,
+            args,
+            method,
+        } => {
+            collect_expr_names(receiver, names);
+            names.insert(method.clone());
+            for arg in args {
+                collect_expr_names(arg, names);
+            }
+        }
+        Expr::Index { expr: base, index } => {
+            collect_expr_names(base, names);
+            collect_expr_names(index, names);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_expr_names(cond, names);
+            collect_expr_names(then_branch, names);
+            if let Some(e) = else_branch {
+                collect_expr_names(e, names);
+            }
+        }
+        Expr::Forall {
+            var, domain, body, ..
+        }
+        | Expr::Exists {
+            var, domain, body, ..
+        } => {
+            names.insert(var.clone());
+            collect_expr_names(domain, names);
+            collect_expr_names(body, names);
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_expr_names(item, names);
+            }
+        }
+        Expr::Cast { expr: inner, ty } => {
+            collect_expr_names(inner, names);
+            names.insert(ty.clone());
+        }
+        Expr::Apply { lemma_name, args } => {
+            names.insert(lemma_name.clone());
+            for arg in args {
+                collect_expr_names(arg, names);
+            }
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_expr_names(scrutinee, names);
+            for arm in arms {
+                collect_expr_names(&arm.body, names);
+            }
+        }
+        Expr::Let { name, value, body } => {
+            names.insert(name.clone());
+            collect_expr_names(value, names);
+            collect_expr_names(body, names);
+        }
+        Expr::Raw(tokens) => {
+            for tok in tokens {
+                if tok
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+                {
+                    names.insert(tok.clone());
+                }
+            }
+        }
+        Expr::Literal(_) => {}
+    }
+}
+
+/// Check which imports introduced names that are never referenced in the AST.
+fn check_unused_imports(
+    imports: &[ResolvedImport],
+    referenced: &HashSet<String>,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for imp in imports {
+        if imp.status == ImportStatus::Circular {
+            continue;
+        }
+        let introduced: Vec<&str> = if !imp.items.is_empty() {
+            imp.items.iter().map(|s| s.as_str()).collect()
+        } else if let Some(alias) = &imp.alias {
+            vec![alias.as_str()]
+        } else if let Some(last) = imp.path.last() {
+            vec![last.as_str()]
+        } else {
+            continue;
+        };
+
+        // An import is unused if none of its introduced names appear in references
+        if introduced.iter().all(|name| !referenced.contains(*name)) {
+            let path_str = imp.path.join(".");
+            errors.push(ResolutionError {
+                code: "A02007",
+                message: format!("unused import `{path_str}`"),
+                span: 0..0,
+                secondary: None,
+            });
         }
     }
 }
@@ -2074,5 +2324,59 @@ import std.collections;
 "#;
         let file = parse_ok(src);
         resolve(&file).expect("different imports should not be duplicates");
+    }
+
+    #[test]
+    fn unused_import_reported_as_warning() {
+        let src = r#"
+import std.math;
+contract Foo {
+    requires { x > 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve succeeds (warnings are not errors)");
+        assert!(
+            resolved
+                .warnings
+                .iter()
+                .any(|w| w.code == "A02007" && w.message.contains("std.math")),
+            "expected unused import warning for std.math"
+        );
+    }
+
+    #[test]
+    fn used_import_no_warning() {
+        // The import introduces "List" which appears in a type annotation
+        let src = r#"
+import std.collections { List };
+type Wrapper {
+    items: List
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve succeeds");
+        assert!(
+            !resolved.warnings.iter().any(|w| w.code == "A02007"),
+            "no unused import warning expected when imported name is used"
+        );
+    }
+
+    #[test]
+    fn unused_selective_import_warning() {
+        let src = r#"
+import std.collections { Map, Set };
+type Wrapper {
+    items: Map
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve succeeds");
+        // Map is used, but the import brings both Map and Set.
+        // Since at least one name (Map) is referenced, the import is considered used.
+        assert!(
+            !resolved.warnings.iter().any(|w| w.code == "A02007"),
+            "import with at least one used name should not be flagged"
+        );
     }
 }
