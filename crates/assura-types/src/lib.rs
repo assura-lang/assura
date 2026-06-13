@@ -950,18 +950,26 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             Ok(Type::Unit)
         }
 
-        // --- Match: infer type from first arm body (all arms should agree) ---
+        // --- Match: infer all arm types, return first non-Unknown ---
         Expr::Match { scrutinee, arms } => {
             let _ = infer_expr(scrutinee, env)?;
-            if let Some(first) = arms.first() {
-                infer_expr(&first.body, env)
-            } else {
-                Ok(Type::Unknown)
+            let mut result_ty = Type::Unknown;
+            for arm in arms {
+                let arm_ty = infer_expr(&arm.body, env)?;
+                if result_ty == Type::Unknown {
+                    result_ty = arm_ty;
+                }
             }
+            Ok(result_ty)
         }
 
-        // --- Let binding: infer body type ---
-        Expr::Let { body, .. } => infer_expr(body, env),
+        // --- Let binding: bind value type, infer body type ---
+        Expr::Let { name, value, body } => {
+            let val_ty = infer_expr(value, env)?;
+            let mut inner_env = env.clone();
+            inner_env.insert(name.clone(), val_ty);
+            infer_expr(body, &inner_env)
+        }
 
         // --- Tuple: cannot infer structured tuple type yet ---
         Expr::Tuple(_) => Ok(Type::Unknown),
@@ -22574,5 +22582,47 @@ ghost fn bad_ghost(x: Int) -> Bool
             infer_expr(&expr, &env).unwrap(),
             Type::Named("CustomType".into())
         );
+    }
+
+    #[test]
+    fn infer_let_binding_propagates_type() {
+        let env = TypeEnv::new();
+        // let x = 42 in x  =>  should infer Int from body
+        let expr = AstExpr::Let {
+            name: "x".into(),
+            value: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+            body: Box::new(AstExpr::Ident("x".into())),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_match_checks_all_arms() {
+        let env = TypeEnv::new();
+        // match true { true => 1, false => 2 } => Int
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Literal(AstLit::Bool(true)),
+                    body: AstExpr::Literal(AstLit::Int("1".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Literal(AstLit::Bool(false)),
+                    body: AstExpr::Literal(AstLit::Int("2".into())),
+                },
+            ],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_match_empty_arms_returns_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            arms: vec![],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
     }
 }
