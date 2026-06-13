@@ -1081,18 +1081,18 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
     }
 
     let kind_label = if is_mutation { "Operation" } else { "Query" };
-    code.push_str(&format!("    /// {kind_label}: {name}\n"));
+    code.push_str(&format!("        /// {kind_label}: {name}\n"));
 
     // Doc comments for ensures/effects
     for clause in clauses {
         match clause.kind {
             ClauseKind::Ensures => {
                 let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("    /// Ensures: {expr}\n"));
+                code.push_str(&format!("        /// Ensures: {expr}\n"));
             }
             ClauseKind::Effects => {
                 let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("    /// Effects: {expr}\n"));
+                code.push_str(&format!("        /// Effects: {expr}\n"));
             }
             _ => {}
         }
@@ -1116,32 +1116,32 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
     };
 
     code.push_str(&format!(
-        "    pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
+        "        pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
     ));
 
     // Requires assertions
     for req in &requires_exprs {
-        generate_debug_assert_indented(code, req, "requires", 2);
+        generate_debug_assert_indented(code, req, "requires", 3);
     }
 
     if output_type == "()" {
         code.push_str(&format!(
-            "        todo!(\"{} implementation\")\n",
+            "            todo!(\"{} implementation\")\n",
             kind_label.to_lowercase()
         ));
     } else {
         code.push_str(&format!(
-            "        let __result: {output_type} = todo!(\"{} implementation\");\n",
+            "            let __result: {output_type} = todo!(\"{} implementation\");\n",
             kind_label.to_lowercase()
         ));
         // Ensures assertions
         for ens in &ensures_exprs {
-            generate_debug_assert_indented(code, ens, "ensures", 2);
+            generate_debug_assert_indented(code, ens, "ensures", 3);
         }
-        code.push_str("        __result\n");
+        code.push_str("            __result\n");
     }
 
-    code.push_str("    }\n\n");
+    code.push_str("        }\n\n");
 }
 
 fn generate_service(s: &ServiceDecl, code: &mut String) {
@@ -1151,12 +1151,15 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
         s.name.to_lowercase()
     ));
 
+    // Check if the service has states
+    let has_states = s.items.iter().any(|i| matches!(i, ServiceItem::States(_)));
+
+    // Generate nested type/enum definitions and states enum first
     for item in &s.items {
         match item {
             ServiceItem::TypeDef(t) => {
                 let mut inner = String::new();
                 generate_type_def(t, &mut inner);
-                // Indent inner code
                 for line in inner.lines() {
                     code.push_str(&format!("    {line}\n"));
                 }
@@ -1169,7 +1172,6 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
                 }
             }
             ServiceItem::States(states) => {
-                // Generate a state enum
                 code.push_str("    #[derive(Debug, Clone, PartialEq)]\n");
                 code.push_str("    pub enum State {\n");
                 for state in states {
@@ -1177,6 +1179,43 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
                 }
                 code.push_str("    }\n\n");
             }
+            _ => {}
+        }
+    }
+
+    // Generate the service struct
+    code.push_str(&format!(
+        "    #[derive(Debug)]\n    pub struct {} {{\n",
+        s.name
+    ));
+    if has_states {
+        code.push_str("        pub state: State,\n");
+    }
+    code.push_str("    }\n\n");
+
+    // Generate impl block with operations, queries, and invariants
+    code.push_str(&format!("    impl {} {{\n", s.name));
+
+    // Constructor
+    if has_states {
+        // Find the first state as the initial state
+        let initial_state = s
+            .items
+            .iter()
+            .find_map(|i| match i {
+                ServiceItem::States(states) => states.first().cloned(),
+                _ => None,
+            })
+            .unwrap_or_else(|| "Default".to_string());
+        code.push_str(&format!(
+            "        pub fn new() -> Self {{\n            Self {{ state: State::{initial_state} }}\n        }}\n\n"
+        ));
+    } else {
+        code.push_str("        pub fn new() -> Self {\n            Self { }\n        }\n\n");
+    }
+
+    for item in &s.items {
+        match item {
             ServiceItem::Operation { name, clauses } => {
                 generate_service_method(code, name, clauses, true);
             }
@@ -1186,17 +1225,19 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
             ServiceItem::Invariant(expr) => {
                 let rust_expr = expr_to_rust(expr);
                 code.push_str(&format!(
-                    "    /// Service invariant\n    pub fn check_invariant(&self) {{ debug_assert!({rust_expr}); }}\n\n"
+                    "        /// Service invariant\n        pub fn check_invariant(&self) {{ debug_assert!({rust_expr}); }}\n\n"
                 ));
             }
             ServiceItem::Other { kind, body } => {
                 let rust_expr = expr_to_rust(body);
-                code.push_str(&format!("    // {kind}: {rust_expr}\n\n"));
+                code.push_str(&format!("        // {kind}: {rust_expr}\n\n"));
             }
+            _ => {}
         }
     }
 
-    code.push_str("}\n\n");
+    code.push_str("    }\n"); // close impl
+    code.push_str("}\n\n"); // close mod
 }
 
 // ---------------------------------------------------------------------------
