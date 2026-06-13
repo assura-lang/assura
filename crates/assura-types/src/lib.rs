@@ -1085,6 +1085,24 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     // T109: check CRUD/auth coverage on services
     errors.extend(run_crud_auth_checks(&resolved.source));
 
+    // T031/T032: linearity checking (usage tracking + context splitting)
+    errors.extend(run_linearity_checks(&resolved.source));
+
+    // T034: typestate checking (DFA state transitions on services)
+    errors.extend(run_typestate_checks(&resolved.source));
+
+    // T036: effect checking (declared vs actual effect containment)
+    errors.extend(run_effect_checks(&resolved.source));
+
+    // T047: taint tracking (untrusted data flow analysis)
+    errors.extend(run_taint_checks(&resolved.source));
+
+    // T058: FFI boundary contracts (extern declarations)
+    errors.extend(run_ffi_checks(&resolved.source));
+
+    // T064: error propagation checking (must_propagate on error types)
+    errors.extend(run_error_propagation_checks(&resolved.source));
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -1150,6 +1168,459 @@ fn run_crud_auth_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
             errors.extend(checker.check_delete_protection());
         }
     }
+    errors
+}
+
+/// T031/T032: Run linearity checks across all declarations.
+///
+/// For each contract, fn, extern, and service operation, declares input
+/// parameters as linear (grade 1) when annotated with `linear` in type
+/// tokens, then walks clause bodies counting usages via context splitting.
+fn run_linearity_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::Contract(c) => {
+                let mut tracker = UsageTracker::new();
+                // Declare inputs as linear if they have linear annotation
+                for clause in &c.clauses {
+                    if clause.kind == ClauseKind::Input {
+                        declare_linear_params_from_expr(&clause.body, &mut tracker, &decl.span);
+                    }
+                }
+                // Walk ensures/requires/invariant bodies
+                let mut ctx = LinearContext::new(tracker);
+                for clause in &c.clauses {
+                    if matches!(
+                        clause.kind,
+                        ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
+                    ) {
+                        errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+                    }
+                }
+                errors.extend(ctx.check());
+            }
+            Decl::FnDef(f) => {
+                let mut tracker = UsageTracker::new();
+                for param in &f.params {
+                    if param.ty.iter().any(|t| t == "linear") {
+                        tracker.declare(param.name.clone(), UsageGrade::Linear, decl.span.clone());
+                    }
+                }
+                let mut ctx = LinearContext::new(tracker);
+                for clause in &f.clauses {
+                    errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+                }
+                errors.extend(ctx.check());
+            }
+            Decl::Extern(e) => {
+                let mut tracker = UsageTracker::new();
+                for param in &e.params {
+                    if param.ty.iter().any(|t| t == "linear") {
+                        tracker.declare(param.name.clone(), UsageGrade::Linear, decl.span.clone());
+                    }
+                }
+                let mut ctx = LinearContext::new(tracker);
+                for clause in &e.clauses {
+                    errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+                }
+                errors.extend(ctx.check());
+            }
+            Decl::Service(s) => {
+                for item in &s.items {
+                    if let ServiceItem::Operation { clauses, .. }
+                    | ServiceItem::Query { clauses, .. } = item
+                    {
+                        let tracker = UsageTracker::new();
+                        let mut ctx = LinearContext::new(tracker);
+                        for clause in clauses {
+                            errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+                        }
+                        errors.extend(ctx.check());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    errors
+}
+
+/// Helper: declare linear parameters from an input clause expression.
+fn declare_linear_params_from_expr(
+    expr: &Expr,
+    tracker: &mut UsageTracker,
+    span: &std::ops::Range<usize>,
+) {
+    if let Expr::Raw(tokens) = expr {
+        // Input clauses are often Raw token sequences like: x : linear Int, y : Int
+        let mut i = 0;
+        while i < tokens.len() {
+            // Look for pattern: name : linear Type
+            if i + 2 < tokens.len()
+                && tokens[i + 1] == ":"
+                && tokens[i + 2..].iter().any(|t| t == "linear")
+            {
+                let name = &tokens[i];
+                tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
+                // Skip to the next parameter (past comma)
+                while i < tokens.len() && tokens[i] != "," {
+                    i += 1;
+                }
+            }
+            i += 1;
+        }
+    }
+}
+
+/// T034: Run typestate checks on services with `states:` declarations.
+///
+/// For each service with a States item, builds a TypestateChecker with
+/// the declared states and validates transitions and operation ordering.
+fn run_typestate_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        if let Decl::Service(s) = &decl.node {
+            // Find states declaration
+            let states: Vec<String> = s
+                .items
+                .iter()
+                .filter_map(|item| {
+                    if let ServiceItem::States(s) = item {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect();
+
+            if states.is_empty() {
+                continue;
+            }
+
+            // Build transitions from operation clauses
+            let mut transitions = Vec::new();
+            for item in &s.items {
+                if let ServiceItem::Operation { name, clauses } = item {
+                    for clause in clauses {
+                        if let ClauseKind::Other(ref k) = clause.kind
+                            && (k == "transition" || k == "from_state" || k == "to_state")
+                            && let Expr::Raw(tokens) = &clause.body
+                            && tokens.len() >= 3
+                        {
+                            transitions.push((
+                                name.clone(),
+                                tokens[0].clone(),
+                                tokens[2].clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+
+            if !transitions.is_empty() {
+                let initial = states.first().cloned().unwrap_or_default();
+                let checker = TypestateChecker::new(
+                    states,
+                    transitions,
+                    initial,
+                    decl.span.clone(),
+                );
+                // Validate transitions reference valid states
+                for tse in checker.validate_transitions() {
+                    errors.push(TypeError {
+                        code: tse.code,
+                        message: tse.message,
+                        span: tse.span,
+                        secondary: None,
+                    });
+                }
+            }
+        }
+    }
+    errors
+}
+
+/// T036: Run effect containment checks on functions and externs.
+///
+/// For each fn/extern with an `effects` clause, validates that the body's
+/// actual effects are contained in the declared effect set.
+fn run_effect_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let checker = EffectChecker::new();
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::FnDef(f) => {
+                let (declared, actual) = extract_effects_from_clauses(&f.clauses);
+                if let Some(declared_set) = declared {
+                    // Validate all effect names are known
+                    for ee in checker.check_known(&declared_set, &decl.span) {
+                        errors.push(TypeError {
+                            code: ee.code,
+                            message: ee.message,
+                            span: ee.span,
+                            secondary: None,
+                        });
+                    }
+                    // Check containment: actual subset of declared
+                    if let Some(actual_set) = actual {
+                        for ee in checker.check_containment(&declared_set, &actual_set, &decl.span)
+                        {
+                            errors.push(TypeError {
+                                code: ee.code,
+                                message: ee.message,
+                                span: ee.span,
+                                secondary: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Decl::Extern(e) => {
+                let (declared, _) = extract_effects_from_clauses(&e.clauses);
+                if let Some(declared_set) = declared {
+                    for ee in checker.check_known(&declared_set, &decl.span) {
+                        errors.push(TypeError {
+                            code: ee.code,
+                            message: ee.message,
+                            span: ee.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+            Decl::Contract(c) => {
+                let (declared, _) = extract_effects_from_clauses(&c.clauses);
+                if let Some(declared_set) = declared {
+                    for ee in checker.check_known(&declared_set, &decl.span) {
+                        errors.push(TypeError {
+                            code: ee.code,
+                            message: ee.message,
+                            span: ee.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    errors
+}
+
+/// Extract declared and actual effect sets from a list of clauses.
+fn extract_effects_from_clauses(
+    clauses: &[assura_parser::ast::Clause],
+) -> (Option<EffectSet>, Option<EffectSet>) {
+    let mut declared: Option<EffectSet> = None;
+    let mut actual: Option<EffectSet> = None;
+
+    for clause in clauses {
+        if clause.kind == ClauseKind::Effects {
+            // Extract effect names from the clause body
+            let effects = extract_effect_names_from_expr(&clause.body);
+            declared = Some(EffectSet::from_effect_names(effects));
+        }
+    }
+
+    // Infer actual effects from other clauses (requires/ensures with IO references)
+    let mut inferred = EffectSet::pure();
+    for clause in clauses {
+        if matches!(
+            clause.kind,
+            ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Modifies
+        ) {
+            infer_effects_from_expr(&clause.body, &mut inferred);
+        }
+    }
+    if !inferred.is_pure() {
+        actual = Some(inferred);
+    }
+
+    (declared, actual)
+}
+
+/// Extract effect names from an effects clause expression.
+///
+/// Effect names may be dot-separated (e.g., `console.read`) which the lexer
+/// tokenizes as `["console", ".", "read"]`. This function joins them back
+/// into single names before returning.
+fn extract_effect_names_from_expr(expr: &Expr) -> Vec<String> {
+    match expr {
+        Expr::Ident(name) => vec![name.clone()],
+        Expr::Raw(tokens) => {
+            // Join dot-separated tokens: ["console", ".", "read"] -> "console.read"
+            let filtered: Vec<&str> = tokens
+                .iter()
+                .map(|s| s.as_str())
+                .filter(|t| *t != "," && *t != "{" && *t != "}")
+                .collect();
+            let mut names = Vec::new();
+            let mut current = String::new();
+            for tok in filtered {
+                if tok == "." {
+                    current.push('.');
+                } else if current.ends_with('.') {
+                    current.push_str(tok);
+                } else {
+                    if !current.is_empty() {
+                        names.push(current);
+                    }
+                    current = tok.to_string();
+                }
+            }
+            if !current.is_empty() {
+                names.push(current);
+            }
+            names
+        }
+        Expr::Block(items) => items.iter().flat_map(extract_effect_names_from_expr).collect(),
+        Expr::Field(base, field) => {
+            // Field access expression: `console.read` parsed as Field(Ident("console"), "read")
+            let mut base_names = extract_effect_names_from_expr(base);
+            if let Some(last) = base_names.last_mut() {
+                last.push('.');
+                last.push_str(field);
+            } else {
+                base_names.push(field.clone());
+            }
+            base_names
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Infer effects from expression content (look for IO-related identifiers).
+fn infer_effects_from_expr(expr: &Expr, effects: &mut EffectSet) {
+    match expr {
+        Expr::Ident(name) => {
+            if name.contains("read") || name.contains("write") || name.contains("io") {
+                // Only infer if the name clearly implies IO
+                if name.starts_with("console") || name.starts_with("file") {
+                    effects.insert("io".to_string());
+                }
+            }
+        }
+        Expr::Call { func, args } => {
+            infer_effects_from_expr(func, effects);
+            for a in args {
+                infer_effects_from_expr(a, effects);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            infer_effects_from_expr(lhs, effects);
+            infer_effects_from_expr(rhs, effects);
+        }
+        _ => {}
+    }
+}
+
+/// T047: Run taint checking using the file-level TaintChecker entry point.
+fn run_taint_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    TaintChecker::check_file(source)
+}
+
+/// T058: Run FFI boundary checks on extern declarations.
+///
+/// Only runs if at least one extern has explicit trust boundary annotations.
+/// Without annotations, the checker would flag every extern as missing trust
+/// info, which creates noise for files that don't use FFI boundary contracts.
+fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let checker = FfiBoundaryChecker::new();
+    let mut externs = Vec::new();
+    let mut has_any_boundary = false;
+
+    for decl in &source.decls {
+        if let Decl::Extern(e) = &decl.node {
+            let has_boundary = e.clauses.iter().any(|c| {
+                matches!(c.kind, ClauseKind::Other(ref k) if k == "trust" || k == "boundary")
+            });
+            if has_boundary {
+                has_any_boundary = true;
+            }
+            let has_contract = !e.clauses.is_empty();
+            externs.push((e.name.clone(), has_boundary, has_contract, decl.span.clone()));
+        }
+    }
+
+    // Only check if at least one extern uses boundary annotations
+    if !has_any_boundary {
+        return Vec::new();
+    }
+
+    checker
+        .check_file(&externs)
+        .into_iter()
+        .map(|fe| TypeError {
+            code: fe.code,
+            message: fe.message,
+            span: fe.span,
+            secondary: None,
+        })
+        .collect()
+}
+
+/// T064: Run error propagation checks on functions that return error types.
+fn run_error_propagation_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = ErrorPropagationChecker::new();
+    let mut errors = Vec::new();
+
+    // Pass 1: discover error policies from contracts with must_propagate annotations
+    for decl in &source.decls {
+        if let Decl::Contract(c) = &decl.node {
+            let mut policy = ErrorPolicy::default();
+            for clause in &c.clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "must_propagate"
+                    && let Expr::Raw(tokens) = &clause.body
+                {
+                    policy.must_propagate.extend(tokens.iter().cloned());
+                }
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "must_check"
+                    && let Expr::Raw(tokens) = &clause.body
+                {
+                    policy.must_check.extend(tokens.iter().cloned());
+                }
+            }
+            if !policy.must_propagate.is_empty() || !policy.must_check.is_empty() {
+                checker.register_policy(c.name.clone(), policy);
+            }
+        }
+    }
+
+    // Pass 2: check functions that catch errors for propagation violations
+    for decl in &source.decls {
+        if let Decl::FnDef(f) = &decl.node {
+            // Check if return type is an error type
+            let returns_error = f.return_ty.iter().any(|t| t == "Result" || t == "Error");
+            if returns_error {
+                for clause in &f.clauses {
+                    if clause.kind == ClauseKind::Errors
+                        && let Expr::Raw(tokens) = &clause.body
+                    {
+                        for error_code in tokens {
+                            if checker.is_must_propagate(error_code) {
+                                errors.push(TypeError {
+                                    code: "A64001".into(),
+                                    message: format!(
+                                        "error code `{error_code}` in function `{}` must be \
+                                         propagated, not caught",
+                                        f.name
+                                    ),
+                                    span: decl.span.clone(),
+                                    secondary: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     errors
 }
 
@@ -2181,7 +2652,18 @@ impl EffectChecker {
         let mut errors = Vec::new();
 
         for effect in effects.iter() {
-            if !self.known_effects.contains(effect) {
+            // Skip identifiers that are clearly not effect names:
+            // - Capitalized names (type names like `InflateDecoder`)
+            // - Known block-kind keywords that leak from parser spans
+            // This prevents false positives from parser artifacts where
+            // block kind names leak into effect clause token streams.
+            if effect.chars().next().is_some_and(|c| c.is_uppercase()) {
+                continue;
+            }
+            if is_block_kind_keyword(effect) {
+                continue;
+            }
+            if !self.known_effects.contains(effect) && !self.is_sub_effect_of_known(effect) {
                 errors.push(EffectError {
                     code: "A07003".into(),
                     message: format!("unknown effect name `{effect}`"),
@@ -2194,6 +2676,45 @@ impl EffectChecker {
         errors
     }
 
+    /// Returns `true` if the effect is a dot-separated sub-effect of a
+    /// known group. For example, `io.read` is accepted because `io` is
+    /// a known group effect.
+    #[allow(clippy::unused_self)]
+    fn is_sub_effect_of_known(&self, effect: &str) -> bool {
+        if let Some(dot_pos) = effect.find('.') {
+            let parent = &effect[..dot_pos];
+            self.known_effects.contains(parent) || self.hierarchy.contains_key(parent)
+        } else {
+            false
+        }
+    }
+
+}
+
+/// Returns `true` if the name is a known Assura block-kind keyword
+/// (e.g., `incremental`, `feature`, `liveness`) that should not be
+/// treated as an effect name even when it appears in an effect clause
+/// due to parser span overlap.
+fn is_block_kind_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "incremental"
+            | "feature"
+            | "liveness"
+            | "axiomatic"
+            | "axiom"
+            | "lemma"
+            | "ghost"
+            | "opaque"
+            | "test"
+            | "property"
+            | "complexity"
+            | "benchmark"
+            | "migration"
+    )
+}
+
+impl EffectChecker {
     /// Returns `true` if `effect` is allowed by the expanded declared set.
     ///
     /// An effect is allowed if:
