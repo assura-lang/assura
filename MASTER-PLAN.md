@@ -1075,3 +1075,30 @@ added a new pass, the pass is not connected. Fix it.
 - Note: inline clause syntax (ensures: expr) parses old() as raw tokens;
   block syntax (ensures { expr }) parses old() as Expr::Old. Tests use
   block syntax for correctness.
+
+### Remediation Session 2 (2026-06-13)
+Continued comprehensive audit remediation. Changes:
+- **codegen: compilation validity tests** (6 tests using syn::parse_file)
+  verify generated Rust is syntactically valid for contracts, functions,
+  services, and all demo files
+- **smt: quantifier domain guards** encode `forall x in lo..hi: P` as
+  `forall x: (lo<=x && x<hi) => P` instead of ignoring the domain;
+  similar for exists (conjunction instead of implication); non-range
+  domains use uninterpreted `contains(domain, x)` predicate
+- **types: Cast inference** returns target type instead of Unknown
+- **types: match arm checking** infers all arm bodies (not just first)
+  to surface errors in all branches
+- **types: let binding scoping** binds variable type in body environment
+- **smt: let binding encoding** binds variable value in Z3 encoder
+- **smt: cast encoding** passes through inner value instead of fresh int
+- **codegen: taint/decreases leak fixes** strips `#[secret]` annotations
+  and `decreases` clauses from generated Rust type signatures; wraps
+  multi-line expressions (match blocks) in `{ ... }` blocks inside
+  debug_assert! macros
+- **cli: full pipeline integration tests** (10 tests) exercise parse ->
+  resolve -> type-check -> codegen -> syn::parse_file for all demo files
+- **types: builtin call inference** `len()`, `contains()`, `is_empty()`
+  etc. return correct types; Named type constructor calls return the
+  Named type instead of Unknown
+- Test count: 731 -> 739+ across crates
+- All 4 demo files pass full pipeline validation
