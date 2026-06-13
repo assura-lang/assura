@@ -919,14 +919,34 @@ mod z3_backend {
                 // --- Index: uninterpreted function __index(coll, idx) ---
                 Expr::Index { expr, index } => self.encode_index(expr, index),
 
-                // --- Tuple: no meaningful SMT encoding, use fresh ---
-                Expr::Tuple(_) => Z3Value::Int(self.fresh_int()),
+                // --- Tuple: encode elements for constraint propagation ---
+                Expr::Tuple(elems) => {
+                    // Encode each element so constraints inside are captured
+                    for elem in elems {
+                        let _ = self.encode_expr(elem);
+                    }
+                    Z3Value::Int(self.fresh_int())
+                }
 
                 // --- Cast: encode inner (the value doesn't change, only its type) ---
                 Expr::Cast { expr, .. } => self.encode_expr(expr),
 
-                // --- List/Block: no meaningful SMT encoding, use fresh ---
-                Expr::List(_) | Expr::Block(_) => Z3Value::Int(self.fresh_int()),
+                // --- List: encode elements for constraint propagation ---
+                Expr::List(elems) => {
+                    for elem in elems {
+                        let _ = self.encode_expr(elem);
+                    }
+                    Z3Value::Int(self.fresh_int())
+                }
+
+                // --- Block: encode all body expressions, return last ---
+                Expr::Block(body) => {
+                    let mut result = Z3Value::Int(self.fresh_int());
+                    for expr in body {
+                        result = self.encode_expr(expr);
+                    }
+                    result
+                }
             }
         }
 
