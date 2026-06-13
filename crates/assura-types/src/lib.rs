@@ -1077,7 +1077,14 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     // T014: walk clause bodies and infer expression types. Collect any
     // concrete type-mismatch errors (A03001). Unknown types from unresolved
     // identifiers are silently propagated (no false positives).
-    let errors = check_clause_bodies(&resolved.source, &type_env);
+    let mut errors = check_clause_bodies(&resolved.source, &type_env);
+
+    // T077: check axiomatic definition references and usage
+    errors.extend(run_axiomatic_checks(&resolved.source, &resolved.symbols));
+
+    // T109: check CRUD/auth coverage on services
+    errors.extend(run_crud_auth_checks(&resolved.source));
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -1086,6 +1093,64 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
         resolved: resolved.clone(),
         type_env,
     })
+}
+
+/// T077: Scan for axiomatic blocks and validate references/usage.
+fn run_axiomatic_checks(
+    source: &assura_parser::ast::SourceFile,
+    symbols: &assura_resolve::SymbolTable,
+) -> Vec<TypeError> {
+    let mut checker = AxiomaticDefChecker::new();
+    for decl in &source.decls {
+        if let Decl::Block { kind, name, .. } = &decl.node
+            && (kind == "axiomatic" || kind == "axiom")
+        {
+            checker.declare_axiom(AxiomDef {
+                name: name.clone(),
+                params: Vec::new(),
+                body: std::string::String::new(),
+                span: decl.span.clone(),
+                references: Vec::new(),
+            });
+        }
+    }
+    let known: Vec<&str> = symbols.symbols.iter().map(|s| s.name.as_str()).collect();
+    checker.check_references(&known)
+}
+
+/// T109: Scan services for CRUD operations and check auth coverage.
+fn run_crud_auth_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        if let Decl::Service(s) = &decl.node {
+            let mut checker = CrudAuthContracts::new();
+            for item in &s.items {
+                if let ServiceItem::Operation { name, clauses } = item {
+                    let has_auth = clauses.iter().any(|c| {
+                        matches!(c.kind, ClauseKind::Other(ref k) if k == "auth" || k == "requires_auth")
+                    });
+                    let crud_type = if name.starts_with("create") || name.starts_with("add") {
+                        CrudType::Create
+                    } else if name.starts_with("read")
+                        || name.starts_with("get")
+                        || name.starts_with("list")
+                    {
+                        CrudType::Read
+                    } else if name.starts_with("update") || name.starts_with("set") {
+                        CrudType::Update
+                    } else if name.starts_with("delete") || name.starts_with("remove") {
+                        CrudType::Delete
+                    } else {
+                        continue;
+                    };
+                    checker.add_crud(name.clone(), crud_type, has_auth);
+                }
+            }
+            errors.extend(checker.check_auth_coverage());
+            errors.extend(checker.check_delete_protection());
+        }
+    }
+    errors
 }
 
 // ---------------------------------------------------------------------------
