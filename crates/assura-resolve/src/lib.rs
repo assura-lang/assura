@@ -2,12 +2,16 @@
 //!
 //! The resolver walks the parsed AST, collects all declarations into a
 //! `SymbolTable`, detects duplicate names (A02003), registers built-in
-//! types, and resolves import declarations. Full name resolution
-//! (undefined A02001, ambiguous A02002) is deferred to later tasks.
+//! types, resolves import declarations, and checks type references
+//! (A02001 for unknown types). Full expression-level name resolution
+//! (ambiguous A02002) is deferred to later tasks.
 
 use std::collections::{HashMap, HashSet};
 
-use assura_parser::ast::{Decl, ImportDecl, ServiceItem, SourceFile, Span, TypeBody};
+use assura_parser::ast::{
+    Decl, ExternDecl, FieldDef, FnDef, ImportDecl, Param, ServiceItem, SourceFile, Span, TypeBody,
+    TypeDef,
+};
 
 // ---------------------------------------------------------------------------
 // Symbol kinds
@@ -151,6 +155,19 @@ impl SymbolTable {
     /// Returns `true` if the table contains no symbols.
     pub fn is_empty(&self) -> bool {
         self.symbols.is_empty()
+    }
+
+    /// Look up a name starting from `scope_id`, walking up the scope
+    /// chain until the name is found or the root is reached.
+    pub fn lookup(&self, name: &str, scope_id: usize) -> Option<&Symbol> {
+        let mut current = Some(scope_id);
+        while let Some(id) = current {
+            if let Some(&sym_idx) = self.scopes[id].symbols.get(name) {
+                return Some(&self.symbols[sym_idx]);
+            }
+            current = self.scopes[id].parent;
+        }
+        None
     }
 }
 
@@ -521,6 +538,14 @@ pub fn resolve_with_modules(
         }
     }
 
+    // --- Resolve type references (T012) ---
+    // Walk declarations and check that every type name used in field types,
+    // parameter types, return types, and type aliases resolves to a known
+    // type (built-in, user-defined, or type parameter). Only report A02001
+    // for names that are *definitely* unknown: skip names that could
+    // plausibly come from external sources (imports, project profiles, etc.).
+    resolve_type_refs(source, &table, &resolved_imports, module, &mut errors);
+
     // Remove this module from the visited set now that resolution is done.
     visited.remove(&module_name);
 
@@ -581,6 +606,303 @@ fn resolve_imports(
             }
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Type reference resolution (T012)
+// ---------------------------------------------------------------------------
+
+/// Tokens that are clearly syntax or modifiers, not type names.
+const TYPE_SYNTAX_TOKENS: &[&str] = &[
+    "<",
+    ">",
+    ",",
+    "|",
+    "{",
+    "}",
+    "&",
+    "(",
+    ")",
+    "[",
+    "]",
+    ":",
+    ";",
+    "=",
+    "->",
+    "..",
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "!",
+    "?",
+    "@",
+    "#",
+    "==",
+    "!=",
+    "<=",
+    ">=",
+    // Modifiers and keywords that appear in type positions
+    "pub",
+    "ghost",
+    "pure",
+    "mut",
+    "and",
+    "or",
+    "not",
+    "in",
+    "if",
+    "then",
+    "else",
+    "let",
+    "for",
+    "forall",
+    "exists",
+    "old",
+    "true",
+    "false",
+    "taint",
+    "untrusted",
+    "validated",
+    "secret",
+    "deterministic",
+    "effects",
+    "requires",
+    "ensures",
+    "invariant",
+    "modifies",
+    "where",
+    // Self and result
+    "self",
+    "result",
+    "Self",
+];
+
+/// Check whether a token looks like a type name candidate.
+///
+/// A type name is an identifier that starts with an uppercase letter and
+/// is not a syntax/modifier token. We only check names that start with
+/// uppercase because lowercase names are more likely to be values,
+/// keywords, or effect names (e.g., `io.read`, `pure`).
+fn is_type_name_candidate(tok: &str) -> bool {
+    if TYPE_SYNTAX_TOKENS.contains(&tok) {
+        return false;
+    }
+    // Must start with uppercase ASCII letter
+    tok.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// Extract candidate type names from a raw token sequence (`Vec<String>`).
+///
+/// Skips syntax, modifiers, and lowercase identifiers. Returns the list
+/// of uppercase-initial identifiers that should resolve as types.
+fn extract_type_names(tokens: &[String]) -> Vec<&str> {
+    tokens
+        .iter()
+        .filter(|t| is_type_name_candidate(t))
+        .map(|t| t.as_str())
+        .collect()
+}
+
+/// Returns `true` if we should be lenient about unknown type names.
+///
+/// We are lenient when the file may have access to types from external
+/// sources that we cannot resolve yet: unresolved imports, a project
+/// declaration (which enables profiles providing types like `Region`),
+/// or a module declaration (which implies a multi-module project with
+/// a potential prelude). Only bare standalone files with none of these
+/// get strict checking.
+fn should_be_lenient(source: &SourceFile, imports: &[ResolvedImport]) -> bool {
+    // Project declaration implies profile-provided types
+    if source.project.is_some() {
+        return true;
+    }
+    // Module declaration implies multi-module project
+    if source.module.is_some() {
+        return true;
+    }
+    // Any unresolved import means external types may exist
+    imports
+        .iter()
+        .any(|imp| imp.status == ImportStatus::Unresolved)
+}
+
+/// Check a list of type-name tokens against the symbol table. Reports
+/// A02001 for names that cannot be resolved. When unresolved imports
+/// exist, unknown names are silently skipped (they may come from an
+/// external module).
+fn check_type_tokens(
+    tokens: &[String],
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for name in extract_type_names(tokens) {
+        if table.lookup(name, scope_id).is_some() {
+            continue;
+        }
+        // In lenient mode (unresolved imports), skip unknown types
+        if lenient {
+            continue;
+        }
+        errors.push(ResolutionError {
+            code: "A02001",
+            message: format!("unknown type `{name}`"),
+            span: span.clone(),
+            secondary: None,
+        });
+    }
+}
+
+/// Check type references in field definitions.
+fn check_fields(
+    fields: &[FieldDef],
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for f in fields {
+        check_type_tokens(&f.ty, table, scope_id, span, lenient, errors);
+    }
+}
+
+/// Check type references in function/extern parameters and return type.
+fn check_fn_signature(
+    params: &[Param],
+    return_ty: &[String],
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for p in params {
+        check_type_tokens(&p.ty, table, scope_id, span, lenient, errors);
+    }
+    if !return_ty.is_empty() {
+        check_type_tokens(return_ty, table, scope_id, span, lenient, errors);
+    }
+}
+
+/// Find the scope ID for a named scope (e.g., a contract or type def).
+fn find_scope_id(table: &SymbolTable, name: &str) -> Option<usize> {
+    table.scopes.iter().position(|s| s.name == name)
+}
+
+/// Walk all declarations and resolve type references.
+fn resolve_type_refs(
+    source: &SourceFile,
+    table: &SymbolTable,
+    imports: &[ResolvedImport],
+    module_scope: usize,
+    errors: &mut Vec<ResolutionError>,
+) {
+    let lenient = should_be_lenient(source, imports);
+    let decls = &source.decls;
+
+    for decl in decls {
+        match &decl.node {
+            Decl::TypeDef(t) => {
+                resolve_typedef_refs(t, table, &decl.span, module_scope, lenient, errors);
+            }
+            Decl::FnDef(f) => {
+                resolve_fndef_refs(f, table, &decl.span, module_scope, lenient, errors);
+            }
+            Decl::Extern(ex) => {
+                resolve_extern_refs(ex, table, &decl.span, module_scope, lenient, errors);
+            }
+            Decl::Contract(c) => {
+                // Check type references in contract's clauses' input/output
+                // params are not structured, so nothing to check beyond
+                // what's already in the clause bodies (future work).
+                let scope = find_scope_id(table, &c.name).unwrap_or(module_scope);
+                // Contract clauses don't have structured type refs in
+                // the current AST, so nothing to check here yet.
+                let _ = scope;
+            }
+            Decl::Service(s) => {
+                let svc_scope = find_scope_id(table, &s.name).unwrap_or(module_scope);
+                for item in &s.items {
+                    match item {
+                        ServiceItem::TypeDef(t) => {
+                            resolve_typedef_refs(t, table, &decl.span, svc_scope, lenient, errors);
+                        }
+                        ServiceItem::EnumDef(_)
+                        | ServiceItem::States(_)
+                        | ServiceItem::Operation { .. }
+                        | ServiceItem::Query { .. }
+                        | ServiceItem::Invariant(_)
+                        | ServiceItem::Other { .. } => {}
+                    }
+                }
+            }
+            Decl::EnumDef(_) | Decl::Block { .. } => {}
+        }
+    }
+}
+
+/// Resolve type references inside a type definition.
+fn resolve_typedef_refs(
+    t: &TypeDef,
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    // Use the type's own scope (which has type params) if found
+    let scope = find_scope_id(table, &t.name).unwrap_or(parent_scope);
+    match &t.body {
+        TypeBody::Struct(fields) => {
+            check_fields(fields, table, scope, span, lenient, errors);
+        }
+        TypeBody::Alias(tokens) => {
+            check_type_tokens(tokens, table, scope, span, lenient, errors);
+        }
+        TypeBody::Refined(tokens) => {
+            check_type_tokens(tokens, table, scope, span, lenient, errors);
+        }
+        TypeBody::Empty => {}
+    }
+}
+
+/// Resolve type references in a function definition.
+fn resolve_fndef_refs(
+    f: &FnDef,
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    let scope = find_scope_id(table, &f.name).unwrap_or(parent_scope);
+    check_fn_signature(&f.params, &f.return_ty, table, scope, span, lenient, errors);
+}
+
+/// Resolve type references in an extern function declaration.
+fn resolve_extern_refs(
+    ex: &ExternDecl,
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    let scope = find_scope_id(table, &ex.name).unwrap_or(parent_scope);
+    check_fn_signature(
+        &ex.params,
+        &ex.return_ty,
+        table,
+        scope,
+        span,
+        lenient,
+        errors,
+    );
 }
 
 /// Try to insert a symbol; on duplicate, push an A02003 error.
@@ -1220,5 +1542,275 @@ module a;
             !visited.contains("a"),
             "module 'a' should be removed from visited after resolution"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Type reference resolution tests (T012)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn builtin_types_resolve_in_fields() {
+        let src = r#"
+type Point {
+  x: Int;
+  y: Float;
+  name: String;
+  active: Bool;
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("built-in types in fields should resolve");
+    }
+
+    #[test]
+    fn builtin_types_resolve_in_fn_params() {
+        let src = r#"
+fn helper(n: Int, s: String) -> Bool {
+  ensures { result == true }
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("built-in types in fn params should resolve");
+    }
+
+    #[test]
+    fn builtin_types_resolve_in_extern() {
+        let src = r#"
+extern fn malloc(size: Nat) -> Bytes
+  requires { size > 0 }
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("built-in types in extern should resolve");
+    }
+
+    #[test]
+    fn user_defined_type_resolves_in_field() {
+        let src = r#"
+type UserId = { id: Nat | id > 0 };
+
+type User {
+  id: UserId;
+  name: String;
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("user-defined type in fields should resolve");
+    }
+
+    #[test]
+    fn user_defined_type_resolves_in_fn() {
+        let src = r#"
+type UserId = { id: Nat | id > 0 };
+
+fn get_user(id: UserId) -> String {
+  ensures { result.length() > 0 }
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("user-defined type in fn params should resolve");
+    }
+
+    #[test]
+    fn type_param_resolves_in_scope() {
+        // Generic type: T should resolve within the type's own scope.
+        let src = r#"
+type Container<T> {
+  items: List;
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("type param should resolve in type scope");
+    }
+
+    #[test]
+    fn unknown_type_a02001_in_field() {
+        // No imports, no definition of Banana => A02001
+        let src = r#"
+type Basket {
+  fruit: Banana;
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "unknown type should produce A02001");
+        let errs = result.unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.code == "A02001"),
+            "should have A02001"
+        );
+        assert!(
+            errs.iter().any(|e| e.message.contains("Banana")),
+            "error should mention Banana"
+        );
+    }
+
+    #[test]
+    fn unknown_type_a02001_in_fn_param() {
+        let src = r#"
+fn process(item: Unicorn) -> Int {
+  ensures { result >= 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "unknown type should produce A02001");
+        let errs = result.unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "A02001"));
+        assert!(errs.iter().any(|e| e.message.contains("Unicorn")));
+    }
+
+    #[test]
+    fn unknown_type_a02001_in_return_type() {
+        let src = r#"
+fn compute(x: Int) -> Phantom {
+  ensures { result == x }
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "unknown return type should produce A02001");
+        let errs = result.unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "A02001"));
+        assert!(errs.iter().any(|e| e.message.contains("Phantom")));
+    }
+
+    #[test]
+    fn unknown_type_lenient_with_imports() {
+        // When there are unresolved imports, unknown types are NOT errors
+        // (they may come from the imported module).
+        let src = r#"
+import external.types;
+
+type Wrapper {
+  inner: ExternalType;
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("unknown type with unresolved imports should be lenient");
+    }
+
+    #[test]
+    fn enum_used_as_type_resolves() {
+        let src = r#"
+enum Color {
+  Red
+  Green
+  Blue
+}
+
+type Pixel {
+  color: Color;
+  x: Int;
+  y: Int;
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("enum used as field type should resolve");
+    }
+
+    #[test]
+    fn service_nested_type_refs_resolve() {
+        let src = r#"
+service Svc {
+  type Config {
+    max_size: Nat;
+    enabled: Bool;
+  }
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("types in service nested type defs should resolve");
+    }
+
+    #[test]
+    fn lookup_walks_scope_chain() {
+        // Verify the lookup method walks up the scope chain.
+        let src = r#"
+type Outer {
+  x: Int
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let table = &resolved.symbols;
+        // Find the Outer type scope
+        let outer_scope = table
+            .scopes
+            .iter()
+            .position(|s| s.name == "Outer")
+            .expect("Outer scope not found");
+        // Int is in root scope; lookup from Outer scope should find it
+        let int_sym = table.lookup("Int", outer_scope);
+        assert!(int_sym.is_some(), "Int should be found via scope chain");
+        assert_eq!(int_sym.unwrap().kind, SymbolKind::BuiltinType);
+        // Nonexistent name should return None
+        let missing = table.lookup("DoesNotExist", outer_scope);
+        assert!(missing.is_none(), "missing name should return None");
+    }
+
+    #[test]
+    fn type_alias_refs_resolve() {
+        let src = r#"
+type PositiveInt = { n: Int | n > 0 };
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("type alias with Int reference should resolve");
+    }
+
+    #[test]
+    fn multiple_unknown_types_reported() {
+        let src = r#"
+type Bad {
+  a: Alpha;
+  b: Beta;
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "should report errors for unknown types");
+        let errs = result.unwrap_err();
+        let a02001_count = errs.iter().filter(|e| e.code == "A02001").count();
+        assert_eq!(a02001_count, 2, "should report 2 A02001 errors");
+    }
+
+    #[test]
+    fn lowercase_tokens_not_checked_as_types() {
+        // Lowercase tokens in type positions (e.g., modifiers, keywords)
+        // should not trigger A02001.
+        let src = r#"
+type Wrapper {
+  x: Int;
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("lowercase tokens should not be checked as types");
+    }
+
+    #[test]
+    fn sized_int_types_resolve() {
+        let src = r#"
+type Packet {
+  header: U32;
+  length: U16;
+  checksum: U8;
+  signed_val: I64;
+  ratio: F32;
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("sized integer types should resolve");
+    }
+
+    #[test]
+    fn generic_builtin_components_resolve() {
+        // In `List<Int>`, both `List` and `Int` should resolve.
+        // The raw tokens will be something like ["List", "<", "Int", ">"]
+        let src = r#"
+fn process(items: List) -> Nat {
+  ensures { result >= 0 }
+}
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("generic type components should resolve");
     }
 }
