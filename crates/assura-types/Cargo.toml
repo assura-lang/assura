@@ -1,0 +1,11 @@
+[package]
+name = "assura-types"
+description = "Type checking for the Assura contract language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+assura-parser = { path = "../assura-parser" }
+assura-resolve = { path = "../assura-resolve" }

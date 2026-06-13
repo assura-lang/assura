@@ -147,15 +147,49 @@ fn main() {
         }
     };
 
+    // --- Type check ---
+    let typed = match assura_types::type_check(&resolved) {
+        Ok(t) => t,
+        Err(errs) => {
+            for e in &errs {
+                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
+                    .with_message(format!("[{}] {}", e.code, e.message))
+                    .with_label(
+                        Label::new((filename.as_str(), e.span.clone()))
+                            .with_message(&e.message)
+                            .with_color(Color::Red),
+                    );
+                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
+                    builder = builder.with_label(
+                        Label::new((filename.as_str(), sec_span.clone()))
+                            .with_message(sec_msg)
+                            .with_color(Color::Blue),
+                    );
+                }
+                builder
+                    .finish()
+                    .eprint((filename.as_str(), Source::from(&source)))
+                    .ok();
+            }
+            eprintln!("{filename}: {} type error(s)", errs.len());
+            process::exit(1);
+        }
+    };
+
     // --- Output ---
     if show_ast {
         print_ast(&file);
     } else {
-        print_summary(filename, &file, &resolved.symbols);
+        print_summary(filename, &file, &resolved.symbols, &typed.type_env);
     }
 }
 
-fn print_summary(filename: &str, file: &SourceFile, symbols: &assura_resolve::SymbolTable) {
+fn print_summary(
+    filename: &str,
+    file: &SourceFile,
+    symbols: &assura_resolve::SymbolTable,
+    type_env: &assura_types::TypeEnv,
+) {
     let mut contracts = 0u32;
     let mut types = 0u32;
     let mut enums = 0u32;
@@ -225,6 +259,7 @@ fn print_summary(filename: &str, file: &SourceFile, symbols: &assura_resolve::Sy
         .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
         .count();
     println!("    resolve:   OK ({user_symbols} symbols)");
+    println!("    typecheck: OK ({} bindings)", type_env.len());
 }
 
 fn print_ast(file: &SourceFile) {
