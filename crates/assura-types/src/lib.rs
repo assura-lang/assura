@@ -958,6 +958,14 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     "is_empty" => return Ok(Type::Bool),
                     _ => {}
                 },
+                // Tuple: numeric field access (0, 1, 2, ...)
+                Type::Tuple(elems) => {
+                    if let Ok(idx) = field.parse::<usize>()
+                        && idx < elems.len()
+                    {
+                        return Ok(elems[idx].clone());
+                    }
+                }
                 _ => {}
             }
             // If the receiver type is known and concrete (struct with
@@ -23517,6 +23525,18 @@ fn square(x: Int) -> Int
     fn tuple_display() {
         let ty = Type::Tuple(vec![Type::Int, Type::Bool, Type::String]);
         assert_eq!(format!("{ty}"), "(Int, Bool, String)");
+    }
+
+    #[test]
+    fn tuple_field_access_numeric() {
+        let mut env = TypeEnv::new();
+        env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::String]));
+        // pair.0 should be Int
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("pair".into())), "0".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+        // pair.1 should be String
+        let expr1 = AstExpr::Field(Box::new(AstExpr::Ident("pair".into())), "1".into());
+        assert_eq!(infer_expr(&expr1, &env).unwrap(), Type::String);
     }
 
     #[test]
