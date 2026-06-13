@@ -486,18 +486,16 @@ fn expr_to_rust(expr: &Expr) -> String {
                             Literal::Str(s) => format!("\"{s}\""),
                             Literal::Bool(b) => b.to_string(),
                         },
-                        assura_parser::ast::Pattern::Constructor { name, .. } => {
-                            format!("{name}(..)")
+                        assura_parser::ast::Pattern::Constructor { name, fields } => {
+                            if fields.is_empty() {
+                                name.clone()
+                            } else {
+                                let fs: Vec<String> = fields.iter().map(pattern_to_rust).collect();
+                                format!("{name}({})", fs.join(", "))
+                            }
                         }
                         assura_parser::ast::Pattern::Tuple(pats) => {
-                            let ps: Vec<String> = pats
-                                .iter()
-                                .map(|p| match p {
-                                    assura_parser::ast::Pattern::Ident(n) => n.clone(),
-                                    assura_parser::ast::Pattern::Wildcard => "_".into(),
-                                    _ => "_".into(),
-                                })
-                                .collect();
+                            let ps: Vec<String> = pats.iter().map(pattern_to_rust).collect();
                             format!("({})", ps.join(", "))
                         }
                     };
@@ -564,6 +562,31 @@ fn generate_debug_assert_indented(code: &mut String, expr: &str, label: &str, in
             "{pad}debug_assert!({expr}, \"{label}: {}\");\n",
             expr.replace('"', "\\\"")
         ));
+    }
+}
+
+/// Convert a pattern to Rust pattern syntax.
+fn pattern_to_rust(pat: &assura_parser::ast::Pattern) -> String {
+    match pat {
+        assura_parser::ast::Pattern::Ident(name) => name.clone(),
+        assura_parser::ast::Pattern::Wildcard => "_".into(),
+        assura_parser::ast::Pattern::Literal(lit) => match lit {
+            Literal::Int(s) | Literal::Float(s) => s.clone(),
+            Literal::Str(s) => format!("\"{s}\""),
+            Literal::Bool(b) => b.to_string(),
+        },
+        assura_parser::ast::Pattern::Constructor { name, fields } => {
+            if fields.is_empty() {
+                name.clone()
+            } else {
+                let fs: Vec<String> = fields.iter().map(pattern_to_rust).collect();
+                format!("{name}({})", fs.join(", "))
+            }
+        }
+        assura_parser::ast::Pattern::Tuple(pats) => {
+            let ps: Vec<String> = pats.iter().map(pattern_to_rust).collect();
+            format!("({})", ps.join(", "))
+        }
     }
 }
 
@@ -2111,5 +2134,48 @@ fn clamp(x: Int, lo: Int, hi: Int) -> Int
         };
         assert!(project.cargo_toml.contains("opt-level = 3"));
         assert!(project.cargo_toml.contains("debug = true"));
+    }
+
+    #[test]
+    fn pattern_to_rust_constructor_with_fields() {
+        use assura_parser::ast::Pattern;
+        let pat = Pattern::Constructor {
+            name: "Some".into(),
+            fields: vec![Pattern::Ident("x".into())],
+        };
+        assert_eq!(super::pattern_to_rust(&pat), "Some(x)");
+    }
+
+    #[test]
+    fn pattern_to_rust_constructor_no_fields() {
+        use assura_parser::ast::Pattern;
+        let pat = Pattern::Constructor {
+            name: "None".into(),
+            fields: vec![],
+        };
+        assert_eq!(super::pattern_to_rust(&pat), "None");
+    }
+
+    #[test]
+    fn pattern_to_rust_nested_constructor() {
+        use assura_parser::ast::Pattern;
+        let pat = Pattern::Constructor {
+            name: "Ok".into(),
+            fields: vec![Pattern::Constructor {
+                name: "Some".into(),
+                fields: vec![Pattern::Ident("v".into())],
+            }],
+        };
+        assert_eq!(super::pattern_to_rust(&pat), "Ok(Some(v))");
+    }
+
+    #[test]
+    fn pattern_to_rust_tuple_nested() {
+        use assura_parser::ast::Pattern;
+        let pat = Pattern::Tuple(vec![
+            Pattern::Ident("a".into()),
+            Pattern::Tuple(vec![Pattern::Ident("b".into()), Pattern::Wildcard]),
+        ]);
+        assert_eq!(super::pattern_to_rust(&pat), "(a, (b, _))");
     }
 }
