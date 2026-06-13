@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use assura_parser::ast::{BinOp, Decl, Expr, Literal, ServiceItem, UnaryOp};
 use assura_resolve::{ResolvedFile, SymbolKind, SymbolTable};
 
 // ---------------------------------------------------------------------------
@@ -232,6 +233,428 @@ fn build_type_env(symbols: &SymbolTable) -> TypeEnv {
 }
 
 // ---------------------------------------------------------------------------
+// Type display (for error messages)
+// ---------------------------------------------------------------------------
+
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Int => write!(f, "Int"),
+            Type::Nat => write!(f, "Nat"),
+            Type::Float => write!(f, "Float"),
+            Type::Bool => write!(f, "Bool"),
+            Type::String => write!(f, "String"),
+            Type::Bytes => write!(f, "Bytes"),
+            Type::Unit => write!(f, "Unit"),
+            Type::Never => write!(f, "Never"),
+            Type::U8 => write!(f, "U8"),
+            Type::U16 => write!(f, "U16"),
+            Type::U32 => write!(f, "U32"),
+            Type::U64 => write!(f, "U64"),
+            Type::I8 => write!(f, "I8"),
+            Type::I16 => write!(f, "I16"),
+            Type::I32 => write!(f, "I32"),
+            Type::I64 => write!(f, "I64"),
+            Type::F32 => write!(f, "F32"),
+            Type::F64 => write!(f, "F64"),
+            Type::List(t) => write!(f, "List<{t}>"),
+            Type::Map(k, v) => write!(f, "Map<{k}, {v}>"),
+            Type::Set(t) => write!(f, "Set<{t}>"),
+            Type::Option(t) => write!(f, "Option<{t}>"),
+            Type::Result(t, e) => write!(f, "Result<{t}, {e}>"),
+            Type::Sequence(t) => write!(f, "Sequence<{t}>"),
+            Type::Named(n) => write!(f, "{n}"),
+            Type::TypeParam(n) => write!(f, "{n}"),
+            Type::Fn { params, ret } => {
+                write!(f, "fn(")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                write!(f, ") -> {ret}")
+            }
+            Type::Refined { base, predicate } => write!(f, "{base}{{{predicate}}}"),
+            Type::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Expression type inference
+// ---------------------------------------------------------------------------
+
+/// Returns `true` if `ty` is a numeric type.
+fn is_numeric(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Int
+            | Type::Nat
+            | Type::Float
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::F32
+            | Type::F64
+    )
+}
+
+/// Infer the type of an expression given a type environment.
+///
+/// Returns `Ok(ty)` with the inferred type, or `Err(TypeError)` when a
+/// concrete type mismatch is detected (A03001). Unknown types (from
+/// unresolved references) are propagated silently; they never trigger
+/// errors.
+pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
+    match expr {
+        // --- Literals ---
+        Expr::Literal(Literal::Int(_)) => Ok(Type::Int),
+        Expr::Literal(Literal::Float(_)) => Ok(Type::Float),
+        Expr::Literal(Literal::Str(_)) => Ok(Type::String),
+        Expr::Literal(Literal::Bool(_)) => Ok(Type::Bool),
+
+        // --- Identifiers ---
+        Expr::Ident(name) => {
+            // Special built-in names
+            if name == "result" || name == "self" || name == "true" || name == "false" {
+                if name == "true" || name == "false" {
+                    return Ok(Type::Bool);
+                }
+                return Ok(Type::Unknown);
+            }
+            Ok(env.lookup(name).cloned().unwrap_or(Type::Unknown))
+        }
+
+        // --- Binary operations ---
+        Expr::BinOp { lhs, op, rhs } => infer_binop(lhs, op, rhs, env),
+
+        // --- Unary operations ---
+        Expr::UnaryOp { op, expr: inner } => {
+            let inner_ty = infer_expr(inner, env)?;
+            match op {
+                UnaryOp::Neg => {
+                    if inner_ty == Type::Unknown || is_numeric(&inner_ty) {
+                        Ok(inner_ty)
+                    } else {
+                        Err(TypeError {
+                            code: "A03001".into(),
+                            message: format!(
+                                "unary `-` requires a numeric type, found `{inner_ty}`"
+                            ),
+                            span: 0..0,
+                            secondary: None,
+                        })
+                    }
+                }
+                UnaryOp::Not => {
+                    if inner_ty == Type::Unknown || inner_ty == Type::Bool {
+                        Ok(Type::Bool)
+                    } else {
+                        Err(TypeError {
+                            code: "A03001".into(),
+                            message: format!("unary `!` requires Bool, found `{inner_ty}`"),
+                            span: 0..0,
+                            secondary: None,
+                        })
+                    }
+                }
+            }
+        }
+
+        // --- If-then-else ---
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let cond_ty = infer_expr(cond, env)?;
+            if cond_ty != Type::Unknown && cond_ty != Type::Bool {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!("if condition must be Bool, found `{cond_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            let then_ty = infer_expr(then_branch, env)?;
+            if let Some(else_br) = else_branch {
+                let else_ty = infer_expr(else_br, env)?;
+                if then_ty == Type::Unknown {
+                    Ok(else_ty)
+                } else if else_ty == Type::Unknown || then_ty == else_ty {
+                    Ok(then_ty)
+                } else {
+                    Err(TypeError {
+                        code: "A03001".into(),
+                        message: format!(
+                            "if branches have different types: `{then_ty}` vs `{else_ty}`"
+                        ),
+                        span: 0..0,
+                        secondary: None,
+                    })
+                }
+            } else {
+                Ok(then_ty)
+            }
+        }
+
+        // --- Quantifiers ---
+        Expr::Forall { body, .. } | Expr::Exists { body, .. } => {
+            // The body should be Bool but we don't enforce that strictly
+            // here (domain might introduce Unknown bindings). The overall
+            // result of a quantifier is always Bool.
+            let _body_ty = infer_expr(body, env)?;
+            Ok(Type::Bool)
+        }
+
+        // --- old(expr) ---
+        Expr::Old(inner) => infer_expr(inner, env),
+
+        // --- Parenthesized ---
+        Expr::Paren(inner) => infer_expr(inner, env),
+
+        // --- List literal ---
+        Expr::List(items) => {
+            if items.is_empty() {
+                return Ok(Type::List(Box::new(Type::Unknown)));
+            }
+            let first_ty = infer_expr(&items[0], env)?;
+            // Check remaining items match the first
+            for item in &items[1..] {
+                let item_ty = infer_expr(item, env)?;
+                if item_ty != Type::Unknown && first_ty != Type::Unknown && item_ty != first_ty {
+                    return Err(TypeError {
+                        code: "A03001".into(),
+                        message: format!(
+                            "list element type mismatch: expected `{first_ty}`, found `{item_ty}`"
+                        ),
+                        span: 0..0,
+                        secondary: None,
+                    });
+                }
+            }
+            Ok(Type::List(Box::new(first_ty)))
+        }
+
+        // --- Field access, method calls, function calls, indexing, casts ---
+        // These require more context (struct field types, function
+        // signatures) that will be implemented in T016+. Return Unknown.
+        Expr::Field(..)
+        | Expr::MethodCall { .. }
+        | Expr::Call { .. }
+        | Expr::Index { .. }
+        | Expr::Cast { .. } => Ok(Type::Unknown),
+
+        // --- Block / Raw: cannot infer ---
+        Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
+    }
+}
+
+/// Infer the result type of a binary operation.
+fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
+    let lhs_ty = infer_expr(lhs, env)?;
+    let rhs_ty = infer_expr(rhs, env)?;
+
+    // If either side is Unknown, be lenient
+    if lhs_ty == Type::Unknown || rhs_ty == Type::Unknown {
+        return match op {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Concat => {
+                // Return whichever side is known, or Unknown
+                if lhs_ty != Type::Unknown {
+                    Ok(lhs_ty)
+                } else {
+                    Ok(rhs_ty)
+                }
+            }
+            BinOp::Eq
+            | BinOp::Neq
+            | BinOp::Lt
+            | BinOp::Lte
+            | BinOp::Gt
+            | BinOp::Gte
+            | BinOp::And
+            | BinOp::Or
+            | BinOp::Implies
+            | BinOp::In
+            | BinOp::NotIn => Ok(Type::Bool),
+            BinOp::Range => Ok(Type::Unknown),
+        };
+    }
+
+    match op {
+        // Arithmetic: both operands same numeric type, result same type
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
+            if !is_numeric(&lhs_ty) {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!(
+                        "arithmetic operator requires numeric types, found `{lhs_ty}`"
+                    ),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            if lhs_ty != rhs_ty {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!("type mismatch in arithmetic: `{lhs_ty}` vs `{rhs_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            Ok(lhs_ty)
+        }
+
+        // Comparison: operands same type, result Bool
+        BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
+            if lhs_ty != rhs_ty {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!(
+                        "comparison requires same types, found `{lhs_ty}` vs `{rhs_ty}`"
+                    ),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            Ok(Type::Bool)
+        }
+
+        // Logical: both Bool, result Bool
+        BinOp::And | BinOp::Or | BinOp::Implies => {
+            if lhs_ty != Type::Bool {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!("logical operator requires Bool, found `{lhs_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            if rhs_ty != Type::Bool {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!("logical operator requires Bool, found `{rhs_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            Ok(Type::Bool)
+        }
+
+        // Concat: both same type, result same type
+        BinOp::Concat => {
+            if lhs_ty != rhs_ty {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!("concat requires same types, found `{lhs_ty}` vs `{rhs_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            Ok(lhs_ty)
+        }
+
+        // Range: both Int, result Unknown (range type deferred)
+        BinOp::Range => {
+            if lhs_ty != Type::Int {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!("range requires Int operands, found `{lhs_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            if rhs_ty != Type::Int {
+                return Err(TypeError {
+                    code: "A03001".into(),
+                    message: format!("range requires Int operands, found `{rhs_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            Ok(Type::Unknown)
+        }
+
+        // In/NotIn: result Bool
+        BinOp::In | BinOp::NotIn => Ok(Type::Bool),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Clause body type checking
+// ---------------------------------------------------------------------------
+
+/// Walk all clause bodies in a source file, infer expression types, and
+/// collect type errors. Lenient: errors involving `Unknown` are suppressed.
+fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::Contract(c) => {
+                for clause in &c.clauses {
+                    collect_expr_errors(&clause.body, env, &mut errors);
+                }
+            }
+            Decl::FnDef(f) => {
+                for clause in &f.clauses {
+                    collect_expr_errors(&clause.body, env, &mut errors);
+                }
+            }
+            Decl::Extern(ex) => {
+                for clause in &ex.clauses {
+                    collect_expr_errors(&clause.body, env, &mut errors);
+                }
+            }
+            Decl::Service(s) => {
+                for item in &s.items {
+                    let clauses = match item {
+                        ServiceItem::Operation { clauses, .. }
+                        | ServiceItem::Query { clauses, .. } => clauses.as_slice(),
+                        ServiceItem::Invariant(expr) => {
+                            collect_expr_errors(expr, env, &mut errors);
+                            continue;
+                        }
+                        ServiceItem::Other { body, .. } => {
+                            collect_expr_errors(body, env, &mut errors);
+                            continue;
+                        }
+                        _ => continue,
+                    };
+                    for clause in clauses {
+                        collect_expr_errors(&clause.body, env, &mut errors);
+                    }
+                }
+            }
+            Decl::Block { body, .. } => {
+                for clause in body {
+                    collect_expr_errors(&clause.body, env, &mut errors);
+                }
+            }
+            // TypeDef and EnumDef don't have expression bodies
+            Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+        }
+    }
+
+    errors
+}
+
+/// Try to infer the type of an expression; if a type error occurs, push
+/// it into the collector.
+fn collect_expr_errors(expr: &Expr, env: &TypeEnv, errors: &mut Vec<TypeError>) {
+    match infer_expr(expr, env) {
+        Ok(_) => {}
+        Err(e) => errors.push(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -244,8 +667,13 @@ fn build_type_env(symbols: &SymbolTable) -> TypeEnv {
 pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
     let type_env = build_type_env(&resolved.symbols);
 
-    // T013: no expression-level type checking yet; always succeeds.
-    // T014+ will add actual checking and may produce TypeErrors.
+    // T014: walk clause bodies and infer expression types. Collect any
+    // concrete type-mismatch errors (A03001). Unknown types from unresolved
+    // identifiers are silently propagated (no false positives).
+    let errors = check_clause_bodies(&resolved.source, &type_env);
+    if !errors.is_empty() {
+        return Err(errors);
+    }
 
     Ok(TypedFile {
         resolved: resolved.clone(),
@@ -397,5 +825,424 @@ type Point {
         let typed = type_check(&resolved).expect("type_check should succeed");
         // At minimum, all 22 built-in types should be in the env
         assert!(typed.type_env.len() >= 22);
+    }
+
+    // -----------------------------------------------------------------------
+    // T014: Expression type inference tests
+    // -----------------------------------------------------------------------
+
+    use assura_parser::ast::{
+        BinOp as AstBinOp, Expr as AstExpr, Literal as AstLit, UnaryOp as AstUnOp,
+    };
+
+    #[test]
+    fn infer_int_literal() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Literal(AstLit::Int("42".into()));
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_float_literal() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Literal(AstLit::Float("3.14".into()));
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
+    }
+
+    #[test]
+    fn infer_string_literal() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Literal(AstLit::Str("hello".into()));
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
+    }
+
+    #[test]
+    fn infer_bool_literal() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Literal(AstLit::Bool(true));
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_ident_known() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        let expr = AstExpr::Ident("x".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_ident_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Ident("unknown_var".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_arithmetic_add() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("2".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_arithmetic_float_mul() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Float("1.0".into()))),
+            op: AstBinOp::Mul,
+            rhs: Box::new(AstExpr::Literal(AstLit::Float("2.0".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
+    }
+
+    #[test]
+    fn infer_arithmetic_mismatch() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Float("2.0".into()))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("Int"));
+        assert!(err.message.contains("Float"));
+    }
+
+    #[test]
+    fn infer_arithmetic_non_numeric() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("numeric"));
+    }
+
+    #[test]
+    fn infer_comparison_same_type() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            op: AstBinOp::Lt,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("2".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_comparison_mismatch() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            op: AstBinOp::Eq,
+            rhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn infer_logical_and() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            op: AstBinOp::And,
+            rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_logical_non_bool() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            op: AstBinOp::And,
+            rhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("Bool"));
+    }
+
+    #[test]
+    fn infer_implies() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            op: AstBinOp::Implies,
+            rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_unary_neg() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::UnaryOp {
+            op: AstUnOp::Neg,
+            expr: Box::new(AstExpr::Literal(AstLit::Int("5".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_unary_neg_non_numeric() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::UnaryOp {
+            op: AstUnOp::Neg,
+            expr: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn infer_unary_not() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::UnaryOp {
+            op: AstUnOp::Not,
+            expr: Box::new(AstExpr::Literal(AstLit::Bool(false))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_unary_not_non_bool() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::UnaryOp {
+            op: AstUnOp::Not,
+            expr: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn infer_if_then_else() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            then_branch: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("2".into())))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_if_branch_mismatch() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            then_branch: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            else_branch: Some(Box::new(AstExpr::Literal(AstLit::Bool(false)))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("different types"));
+    }
+
+    #[test]
+    fn infer_if_non_bool_cond() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            then_branch: Box::new(AstExpr::Literal(AstLit::Int("2".into()))),
+            else_branch: None,
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("Bool"));
+    }
+
+    #[test]
+    fn infer_old_preserves_type() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_paren_preserves_type() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Paren(Box::new(AstExpr::Literal(AstLit::Float("1.5".into()))));
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
+    }
+
+    #[test]
+    fn infer_forall_is_bool() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Forall {
+            var: "i".into(),
+            domain: Box::new(AstExpr::Ident("S".into())),
+            body: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_exists_is_bool() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Exists {
+            var: "i".into(),
+            domain: Box::new(AstExpr::Ident("S".into())),
+            body: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_list_uniform() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::List(vec![
+            AstExpr::Literal(AstLit::Int("1".into())),
+            AstExpr::Literal(AstLit::Int("2".into())),
+            AstExpr::Literal(AstLit::Int("3".into())),
+        ]);
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn infer_list_empty() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::List(vec![]);
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::Unknown))
+        );
+    }
+
+    #[test]
+    fn infer_list_type_mismatch() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::List(vec![
+            AstExpr::Literal(AstLit::Int("1".into())),
+            AstExpr::Literal(AstLit::Bool(true)),
+        ]);
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("list"));
+    }
+
+    #[test]
+    fn infer_unknown_no_error_in_binop() {
+        let env = TypeEnv::new();
+        // unknown_var + 1 should not error (unknown_var is Unknown)
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("unknown_var".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        };
+        // Should succeed with Int (known side propagated)
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_range_op() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+            op: AstBinOp::Range,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_in_op() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            op: AstBinOp::In,
+            rhs: Box::new(AstExpr::Ident("collection".into())),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_raw_is_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Raw(vec!["some".into(), "tokens".into()]);
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_field_is_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("x".into())), "len".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_call_is_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("f".into())),
+            args: vec![],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn type_display_basic() {
+        assert_eq!(format!("{}", Type::Int), "Int");
+        assert_eq!(format!("{}", Type::Bool), "Bool");
+        assert_eq!(format!("{}", Type::List(Box::new(Type::Int))), "List<Int>");
+        assert_eq!(format!("{}", Type::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn demo_files_type_check() {
+        // Verify all demo files still type-check without errors
+        for path in [
+            "demos/libwebp-huffman.assura",
+            "demos/zlib-inflate.assura",
+            "demos/mbedtls-x509.assura",
+            "tests/fixtures/test_basic.assura",
+        ] {
+            let full = format!(
+                "{}/{}",
+                env!("CARGO_MANIFEST_DIR")
+                    .strip_suffix("/crates/assura-types")
+                    .unwrap_or(env!("CARGO_MANIFEST_DIR")),
+                path
+            );
+            // Try the workspace root path
+            let content = match std::fs::read_to_string(&full) {
+                Ok(c) => c,
+                Err(_) => {
+                    // Try from two levels up (crates/assura-types -> workspace root)
+                    let alt = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .and_then(|p| p.parent())
+                        .unwrap()
+                        .join(path);
+                    std::fs::read_to_string(alt)
+                        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"))
+                }
+            };
+            let (file, parse_errs) = assura_parser::parse(&content);
+            assert!(
+                parse_errs.is_empty(),
+                "{path}: unexpected parse errors: {parse_errs:?}"
+            );
+            let file = file.unwrap_or_else(|| panic!("{path}: parse returned None"));
+            let resolved = assura_resolve::resolve(&file)
+                .unwrap_or_else(|e| panic!("{path}: resolve errors: {e:?}"));
+            type_check(&resolved).unwrap_or_else(|e| panic!("{path}: type_check errors: {e:?}"));
+        }
     }
 }
