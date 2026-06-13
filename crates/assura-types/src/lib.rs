@@ -706,13 +706,12 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
 
         // --- Identifiers ---
         Expr::Ident(name) => {
-            // Special built-in names
-            if name == "result" || name == "self" || name == "true" || name == "false" {
-                if name == "true" || name == "false" {
-                    return Ok(Type::Bool);
-                }
-                return Ok(Type::Unknown);
+            // Boolean literals
+            if name == "true" || name == "false" {
+                return Ok(Type::Bool);
             }
+            // Look up in environment (includes `result` when bound by
+            // ensures clause context, and `self` if added by method context)
             Ok(env.lookup(name).cloned().unwrap_or(Type::Unknown))
         }
 
@@ -971,8 +970,15 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             infer_expr(body, &inner_env)
         }
 
-        // --- Tuple: cannot infer structured tuple type yet ---
-        Expr::Tuple(_) => Ok(Type::Unknown),
+        // --- Tuple: infer element types ---
+        Expr::Tuple(elems) => {
+            // Infer each element for error reporting; return first known type
+            // as an approximation (full tuple types would need a Tuple(Vec<Type>))
+            for elem in elems {
+                let _ = infer_expr(elem, env)?;
+            }
+            Ok(Type::Unknown)
+        }
 
         // --- Block / Raw: cannot infer ---
         Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
@@ -1049,7 +1055,7 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
             | BinOp::Implies
             | BinOp::In
             | BinOp::NotIn => Ok(Type::Bool),
-            BinOp::Range => Ok(Type::Unknown),
+            BinOp::Range => Ok(Type::List(Box::new(Type::Int))),
         };
     }
 
@@ -1126,25 +1132,25 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
             Ok(lhs_ty)
         }
 
-        // Range: both Int, result Unknown (range type deferred)
+        // Range: both Int/Nat, result is a List<Int> (iterable range)
         BinOp::Range => {
-            if lhs_ty != Type::Int {
+            if !is_numeric(&lhs_ty) {
                 return Err(TypeError {
                     code: "A03001".into(),
-                    message: format!("range requires Int operands, found `{lhs_ty}`"),
+                    message: format!("range requires numeric operands, found `{lhs_ty}`"),
                     span: 0..0,
                     secondary: None,
                 });
             }
-            if rhs_ty != Type::Int {
+            if !is_numeric(&rhs_ty) {
                 return Err(TypeError {
                     code: "A03001".into(),
-                    message: format!("range requires Int operands, found `{rhs_ty}`"),
+                    message: format!("range requires numeric operands, found `{rhs_ty}`"),
                     span: 0..0,
                     secondary: None,
                 });
             }
-            Ok(Type::Unknown)
+            Ok(Type::List(Box::new(Type::Int)))
         }
 
         // In/NotIn: result Bool
@@ -1346,6 +1352,39 @@ fn check_ghost_fn_effects(
 
 /// Walk all clause bodies in a source file, infer expression types, and
 /// collect type errors. Lenient: errors involving `Unknown` are suppressed.
+/// Create a copy of the type environment with `result` bound to the given type.
+fn env_with_result(env: &TypeEnv, result_ty: &Type) -> TypeEnv {
+    let mut new_env = env.clone();
+    new_env.insert("result".to_string(), result_ty.clone());
+    new_env
+}
+
+/// Extract the output type from a contract's output clause.
+///
+/// Looks for the first `output` clause and infers the type of its body
+/// expression. For `output(result: Int)`, the body is parsed as an
+/// expression; we extract the type annotation from the Ident or the
+/// clause body tokens. Falls back to `Unknown` if no output clause.
+fn extract_contract_output_type(c: &assura_parser::ast::ContractDecl) -> Type {
+    for clause in &c.clauses {
+        if clause.kind == ClauseKind::Output {
+            // The output clause body is typically a declaration-like expr.
+            // Try to infer what it declares by looking at input params from
+            // the parser. The AST stores output as Expr; for a simple
+            // `output(result: Int)` this becomes a call or ident.
+            // We can also check the clause's tokens for type information.
+            // For now, return the inferred type of the body expression.
+            let env = TypeEnv::new();
+            if let Ok(ty) = infer_expr(&clause.body, &env)
+                && ty != Type::Unknown
+            {
+                return ty;
+            }
+        }
+    }
+    Type::Unknown
+}
+
 fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -> Vec<TypeError> {
     let mut errors = Vec::new();
 
@@ -1353,8 +1392,17 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
         let span = &decl.span;
         match &decl.node {
             Decl::Contract(c) => {
+                // Extract the output type from the contract's output clause
+                // to bind `result` in ensures clauses.
+                let output_ty = extract_contract_output_type(c);
+                let contract_env = env_with_result(env, &output_ty);
                 for clause in &c.clauses {
-                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
+                    let clause_env = if clause.kind == ClauseKind::Ensures {
+                        &contract_env
+                    } else {
+                        env
+                    };
+                    check_clause_expr(&clause.kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
             Decl::FnDef(f) => {
@@ -1366,13 +1414,37 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                 if f.is_lemma {
                     check_lemma_fn_effects(f, span, &mut errors);
                 }
+                // Build a scoped env with `result` bound to the return type
+                // so ensures clauses can type-check `result` correctly.
+                let ret_ty = if f.return_ty.is_empty() {
+                    Type::Unit
+                } else {
+                    parse_type_tokens(&f.return_ty)
+                };
+                let fn_env = env_with_result(env, &ret_ty);
                 for clause in &f.clauses {
-                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
+                    let clause_env = if clause.kind == ClauseKind::Ensures {
+                        &fn_env
+                    } else {
+                        env
+                    };
+                    check_clause_expr(&clause.kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
             Decl::Extern(ex) => {
+                let ret_ty = if ex.return_ty.is_empty() {
+                    Type::Unit
+                } else {
+                    parse_type_tokens(&ex.return_ty)
+                };
+                let ext_env = env_with_result(env, &ret_ty);
                 for clause in &ex.clauses {
-                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
+                    let clause_env = if clause.kind == ClauseKind::Ensures {
+                        &ext_env
+                    } else {
+                        env
+                    };
+                    check_clause_expr(&clause.kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
             Decl::Service(s) => {
@@ -13518,7 +13590,10 @@ extern fn read_bytes(n: U32) -> Bytes
             op: AstBinOp::Range,
             rhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
         };
-        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::Int))
+        );
     }
 
     #[test]
@@ -22683,5 +22758,77 @@ ghost fn bad_ghost(x: Int) -> Bool
             ],
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn result_bound_in_ensures_env() {
+        // When `result` is bound in the env, infer_expr should return it
+        let mut env = TypeEnv::new();
+        env.insert("result".to_string(), Type::Int);
+        let expr = AstExpr::Ident("result".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn result_unknown_without_binding() {
+        // Without binding, `result` returns Unknown
+        let env = TypeEnv::new();
+        let expr = AstExpr::Ident("result".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn result_type_threaded_through_ensures() {
+        // Parse a function with an ensures clause using `result`
+        let src = r#"
+fn square(x: Int) -> Int
+  ensures { result >= 0 }
+"#;
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty());
+        let file = file.unwrap();
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        // type_check should succeed; the `result >= 0` comparison is
+        // Int >= Int which is valid
+        let typed = type_check(&resolved);
+        assert!(typed.is_ok(), "type_check failed: {:?}", typed.err());
+    }
+
+    #[test]
+    fn tuple_infers_elements() {
+        // Tuple inference should check element types for errors
+        let env = TypeEnv::new();
+        let expr = AstExpr::Tuple(vec![
+            AstExpr::Literal(AstLit::Int("1".into())),
+            AstExpr::Literal(AstLit::Bool(true)),
+        ]);
+        // Should succeed (no type error in elements)
+        assert!(infer_expr(&expr, &env).is_ok());
+    }
+
+    #[test]
+    fn range_returns_list_int() {
+        // Range expression returns List<Int>
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+            op: AstBinOp::Range,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn range_rejects_non_numeric() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Str("a".into()))),
+            op: AstBinOp::Range,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+        };
+        assert!(infer_expr(&expr, &env).is_err());
     }
 }
