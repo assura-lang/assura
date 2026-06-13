@@ -1622,23 +1622,62 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                 }
             }
             Decl::Service(s) => {
+                // Build a service-scoped env with `self` bound to the service type
+                let mut svc_env = env.clone();
+                svc_env.insert("self".to_string(), Type::Named(s.name.clone()));
+
                 for item in &s.items {
                     let clauses = match item {
                         ServiceItem::Operation { clauses, .. }
                         | ServiceItem::Query { clauses, .. } => clauses.as_slice(),
                         ServiceItem::Invariant(expr) => {
                             // Service-level invariants are always Bool-typed
-                            check_clause_expr(&ClauseKind::Invariant, expr, env, &mut errors, span);
+                            check_clause_expr(
+                                &ClauseKind::Invariant,
+                                expr,
+                                &svc_env,
+                                &mut errors,
+                                span,
+                            );
                             continue;
                         }
                         ServiceItem::Other { body, .. } => {
-                            collect_expr_errors(body, env, &mut errors, span);
+                            collect_expr_errors(body, &svc_env, &mut errors, span);
                             continue;
                         }
                         _ => continue,
                     };
+
+                    // Build operation-scoped env: register input clause params
+                    // and bind `result` for ensures clauses
+                    let mut op_env = svc_env.clone();
+                    let mut output_ty = Type::Unit;
                     for clause in clauses {
-                        check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
+                        if clause.kind == ClauseKind::Input {
+                            register_input_clause_params(&clause.body, &mut op_env);
+                        }
+                        if clause.kind == ClauseKind::Output
+                            && let Ok(ty) = infer_expr(&clause.body, &op_env)
+                            && ty != Type::Unknown
+                        {
+                            output_ty = ty;
+                        }
+                    }
+                    let ensures_env = env_with_result(&op_env, &output_ty);
+
+                    for clause in clauses {
+                        let clause_env = if clause.kind == ClauseKind::Ensures {
+                            &ensures_env
+                        } else {
+                            &op_env
+                        };
+                        check_clause_expr(
+                            &clause.kind,
+                            &clause.body,
+                            clause_env,
+                            &mut errors,
+                            span,
+                        );
                     }
                 }
             }
@@ -23233,5 +23272,39 @@ fn square(x: Int) -> Int
             ],
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
+    }
+
+    #[test]
+    fn self_in_service_context_resolves_to_named_type() {
+        let mut env = TypeEnv::new();
+        env.insert("self".to_string(), Type::Named("FileStore".into()));
+        let expr = AstExpr::Ident("self".into());
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Named("FileStore".into())
+        );
+    }
+
+    #[test]
+    fn self_field_access_in_service() {
+        let mut env = TypeEnv::new();
+        env.insert("self".to_string(), Type::Named("FileStore".into()));
+        env.struct_fields.insert(
+            "FileStore".into(),
+            vec![("state".into(), Type::Named("State".into()))],
+        );
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("self".into())), "state".into());
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Named("State".into())
+        );
+    }
+
+    #[test]
+    fn self_without_binding_returns_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Ident("self".into());
+        // Outside a service context, self is Unknown
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
     }
 }
