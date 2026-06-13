@@ -288,6 +288,67 @@ fn parse_type_tokens(tokens: &[String]) -> Type {
 
     let head = clean[0];
 
+    // Function type: fn ( A , B ) -> C
+    if head == "fn" && clean.len() >= 3 && clean[1] == "(" {
+        // Find matching closing paren
+        let mut depth = 0i32;
+        let mut close_paren = None;
+        for (i, tok) in clean[1..].iter().enumerate() {
+            match *tok {
+                "(" => depth += 1,
+                ")" => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close_paren = Some(i + 1); // offset by 1 for the slice
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(cp) = close_paren {
+            // Parse parameter types from between ( and )
+            let param_tokens = &clean[2..cp];
+            let mut params: Vec<Type> = Vec::new();
+            let mut current: Vec<String> = Vec::new();
+            let mut d = 0i32;
+            for tok in param_tokens {
+                match *tok {
+                    "(" | "<" => {
+                        d += 1;
+                        current.push(tok.to_string());
+                    }
+                    ")" | ">" => {
+                        d -= 1;
+                        current.push(tok.to_string());
+                    }
+                    "," if d == 0 => {
+                        if !current.is_empty() {
+                            params.push(parse_type_tokens(&current));
+                            current.clear();
+                        }
+                    }
+                    _ => current.push(tok.to_string()),
+                }
+            }
+            if !current.is_empty() {
+                params.push(parse_type_tokens(&current));
+            }
+
+            // Check for -> return type after the closing paren
+            let after_paren = &clean[cp + 1..];
+            let ret = if after_paren.len() >= 2 && after_paren[0] == "->" {
+                let ret_tokens: Vec<String> =
+                    after_paren[1..].iter().map(|s| s.to_string()).collect();
+                Box::new(parse_type_tokens(&ret_tokens))
+            } else {
+                Box::new(Type::Unit)
+            };
+
+            return Type::Fn { params, ret };
+        }
+    }
+
     // Single-token base types
     if clean.len() == 1 {
         if let Some(ty) = builtin_type(head) {
@@ -14777,6 +14838,57 @@ type Point {
             Type::Refined {
                 base: Box::new(Type::Bool),
                 predicate: String::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_fn_with_return() {
+        // fn ( Int , Bool ) -> String
+        let tokens: Vec<String> = vec!["fn", "(", "Int", ",", "Bool", ")", "->", "String"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let ty = parse_type_tokens(&tokens);
+        assert_eq!(
+            ty,
+            Type::Fn {
+                params: vec![Type::Int, Type::Bool],
+                ret: Box::new(Type::String),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_fn_no_return() {
+        // fn ( Nat ) -> Unit (implicit)
+        let tokens: Vec<String> = vec!["fn", "(", "Nat", ")"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let ty = parse_type_tokens(&tokens);
+        assert_eq!(
+            ty,
+            Type::Fn {
+                params: vec![Type::Nat],
+                ret: Box::new(Type::Unit),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_fn_no_params() {
+        // fn ( ) -> Bool
+        let tokens: Vec<String> = vec!["fn", "(", ")", "->", "Bool"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let ty = parse_type_tokens(&tokens);
+        assert_eq!(
+            ty,
+            Type::Fn {
+                params: vec![],
+                ret: Box::new(Type::Bool),
             }
         );
     }
