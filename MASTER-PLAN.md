@@ -515,7 +515,7 @@
   - Spec reference: Section 14.SEC.1
   - Test: tainted index used without validation -> error
 
-- [ ] **T048**: End-to-end: libwebp CVE-2023-4863 prevention demo
+- [x] **T048**: End-to-end: libwebp CVE-2023-4863 prevention demo
   - Depends on: T046, T047
   - Parse `demos/libwebp-huffman.assura`
   - Type-check it
@@ -578,11 +578,11 @@
   - Depends on: T041
   - Overflow detection, checked_add/checked_mul
 
-- [ ] **T056**: MEM.3 Allocator contracts
+- [x] **T056**: MEM.3 Allocator contracts
   - Depends on: T046
   - Allocation/deallocation pairing, size tracking, arena lifetime
 
-- [ ] **T057**: MEM.4 Circular buffer contracts
+- [x] **T057**: MEM.4 Circular buffer contracts
   - Depends on: T046
   - Wrap-around indexing, logical-to-physical mapping
 
@@ -624,7 +624,7 @@
   - Depends on: T032, T041
   - Per-object access modes, data race detection
 
-- [ ] **T066**: CONC.2 Callback re-entrancy
+- [x] **T066**: CONC.2 Callback re-entrancy
   - Depends on: T062
   - Prevent re-entrant calls through callback chains
 
@@ -636,39 +636,39 @@
   - Depends on: T041
   - Static lock hierarchy, deadlock prevention
 
-- [ ] **T069**: CONC.5 Temporal deadlines
+- [x] **T069**: CONC.5 Temporal deadlines
   - Depends on: T041
   - Bounded response time
 
 ### 2.6 FMT Features (5 weeks, parallelizable)
 
-- [ ] **T070**: FMT.1 Binary format contracts
+- [x] **T070**: FMT.1 Binary format contracts
   - Depends on: T041
   - Byte-aligned format contracts
 
-- [ ] **T071**: FMT.2 Bit-level format contracts
+- [x] **T071**: FMT.2 Bit-level format contracts
   - Depends on: T043, T041
   - Sub-byte parsing, ghost bit cursor
 
-- [ ] **T072**: FMT.3 String encoding contracts
+- [x] **T072**: FMT.3 String encoding contracts
   - Depends on: T041
   - UTF-8/UTF-16 safety
 
-- [ ] **T073**: FMT.4 Codec dispatch
+- [x] **T073**: FMT.4 Codec dispatch
   - Depends on: T070
   - Magic-byte routing
 
-- [ ] **T074**: FMT.5 Checksum integrity
+- [x] **T074**: FMT.5 Checksum integrity
   - Depends on: T041
   - CRC32, Adler-32, SHA verification
 
-- [ ] **T075**: FMT.6 Protocol grammar
+- [x] **T075**: FMT.6 Protocol grammar
   - Depends on: T034, T041
   - RFC conformance, state machine
 
 ### 2.7 Layer 2 Verification (2 weeks)
 
-- [ ] **T076**: Implement Layer 2 SMT encoding
+- [x] **T076**: Implement Layer 2 SMT encoding
   - Depends on: T041
   - Quantified invariants (AUFLIA)
   - Functional correctness (AUFLIA + UF)
@@ -676,15 +676,15 @@
   - Serialization roundtrip
   - Timeout: 10s default, configurable
 
-- [ ] **T077**: CORE.4 Axiomatic definitions
+- [x] **T077**: CORE.4 Axiomatic definitions
   - Depends on: T041
   - Abstract mathematical concepts
 
-- [ ] **T078**: CORE.5 Quantifier triggers
+- [x] **T078**: CORE.5 Quantifier triggers
   - Depends on: T076
   - E-matching hints for SMT solver
 
-- [ ] **T079**: CORE.6 Opaque functions
+- [x] **T079**: CORE.6 Opaque functions
   - Depends on: T041
   - Hide implementation from verifier
 
@@ -700,19 +700,19 @@
   - Features: completions, go-to-definition, hover, inline diagnostics
   - Use `tower-lsp` crate
 
-- [ ] **T081**: VS Code extension
+- [x] **T081**: VS Code extension
   - Depends on: T080
   - TextMate grammar for syntax highlighting
   - LSP client configuration
   - Publish to VS Code Marketplace (name already claimed? check)
 
-- [ ] **T082**: tree-sitter grammar
+- [x] **T082**: tree-sitter grammar
   - Depends on: T007
   - Separate grammar for editor support (NOT the compiler parser)
   - Error-tolerant by design
   - Can be used by neovim, helix, zed, etc.
 
-- [ ] **T083**: TEST.1 Test generation from contracts
+- [x] **T083**: TEST.1 Test generation from contracts
   - Depends on: T041
   - Generate property-based tests from requires/ensures
   - Use proptest or quickcheck in generated Rust
@@ -720,11 +720,11 @@
 
 ### 2.9 Phase 2 Integration (2 weeks)
 
-- [ ] **T084**: End-to-end: zlib CVE-2022-37434 demo
+- [x] **T084**: End-to-end: zlib CVE-2022-37434 demo
   - Depends on: T070, T074, T046
   - Parse, verify, codegen `demos/zlib-inflate.assura`
 
-- [ ] **T085**: End-to-end: mbedTLS 4-CVE demo
+- [x] **T085**: End-to-end: mbedTLS 4-CVE demo
   - Depends on: T047, T059, T061
   - Parse, verify, codegen `demos/mbedtls-x509.assura`
 

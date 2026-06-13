@@ -6681,6 +6681,1251 @@ impl Default for FixedWidthChecker {
         Self::new()
     }
 }
+// ===========================================================================
+// T056: MEM.3 Allocator contracts
+// ===========================================================================
+
+/// Tracks allocation/deallocation pairing and size constraints.
+///
+/// Error codes:
+/// - A22001: allocation not paired with deallocation
+/// - A22002: double free (deallocating already freed allocation)
+/// - A22003: size mismatch between allocation and deallocation
+/// - A22004: arena lifetime violation (use after arena drop)
+#[derive(Debug, Clone)]
+pub struct AllocatorChecker {
+    allocations: HashMap<std::string::String, AllocInfo>,
+    freed: HashMap<std::string::String, Range<usize>>,
+    arenas: HashMap<std::string::String, ArenaInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AllocInfo {
+    pub size_expr: std::string::String,
+    pub span: Range<usize>,
+    pub arena: Option<std::string::String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArenaInfo {
+    pub dropped: bool,
+    pub drop_span: Option<Range<usize>>,
+}
+
+impl AllocatorChecker {
+    pub fn new() -> Self {
+        Self {
+            allocations: HashMap::new(),
+            freed: HashMap::new(),
+            arenas: HashMap::new(),
+        }
+    }
+
+    pub fn declare_arena(&mut self, name: std::string::String) {
+        self.arenas.insert(name, ArenaInfo { dropped: false, drop_span: None });
+    }
+
+    pub fn drop_arena(&mut self, name: &str, span: Range<usize>) {
+        if let Some(info) = self.arenas.get_mut(name) {
+            info.dropped = true;
+            info.drop_span = Some(span);
+        }
+    }
+
+    pub fn record_alloc(&mut self, name: std::string::String, size_expr: std::string::String, arena: Option<std::string::String>, span: Range<usize>) {
+        self.allocations.insert(name, AllocInfo { size_expr, span, arena });
+    }
+
+    pub fn record_free(&mut self, name: &str, span: Range<usize>) -> Option<TypeError> {
+        if self.freed.contains_key(name) {
+            return Some(TypeError {
+                code: "A22002".into(),
+                message: format!("double free: `{name}` already deallocated"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        self.freed.insert(name.to_string(), span);
+        None
+    }
+
+    pub fn check_arena_use(&self, alloc_name: &str, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(info) = self.allocations.get(alloc_name)
+            && let Some(arena_name) = &info.arena
+                && let Some(arena) = self.arenas.get(arena_name)
+                    && arena.dropped {
+                        return Some(TypeError {
+                            code: "A22004".into(),
+                            message: format!("use of `{alloc_name}` after arena `{arena_name}` dropped"),
+                            span: span.clone(),
+                            secondary: None,
+                        });
+                    }
+        None
+    }
+
+    pub fn check_unpaired(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, info) in &self.allocations {
+            if !self.freed.contains_key(name)
+                && info.arena.is_none() {
+                    errors.push(TypeError {
+                        code: "A22001".into(),
+                        message: format!("allocation `{name}` not paired with deallocation"),
+                        span: info.span.clone(),
+                        secondary: None,
+                    });
+                }
+        }
+        errors.sort_by_key(|e| e.span.start);
+        errors
+    }
+}
+
+impl Default for AllocatorChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T057: MEM.4 Circular buffer contracts
+// ===========================================================================
+
+/// Checks circular buffer indexing invariants.
+///
+/// Error codes:
+/// - A23001: logical index exceeds buffer capacity
+/// - A23002: physical index computation may wrap incorrectly
+/// - A23003: buffer empty on read
+#[derive(Debug, Clone)]
+pub struct CircularBufferChecker {
+    buffers: HashMap<std::string::String, CircBufInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CircBufInfo {
+    pub capacity: usize,
+    pub head: usize,
+    pub tail: usize,
+    pub count: usize,
+}
+
+impl CircBufInfo {
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+    pub fn is_full(&self) -> bool {
+        self.count >= self.capacity
+    }
+    pub fn logical_to_physical(&self, logical: usize) -> usize {
+        (self.head + logical) % self.capacity
+    }
+}
+
+impl CircularBufferChecker {
+    pub fn new() -> Self {
+        Self {
+            buffers: HashMap::new(),
+        }
+    }
+
+    pub fn declare(&mut self, name: std::string::String, capacity: usize) {
+        self.buffers.insert(name, CircBufInfo {
+            capacity,
+            head: 0,
+            tail: 0,
+            count: 0,
+        });
+    }
+
+    pub fn check_read(&self, name: &str, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(buf) = self.buffers.get(name)
+            && buf.is_empty() {
+                return Some(TypeError {
+                    code: "A23003".into(),
+                    message: format!("read from empty circular buffer `{name}`"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        None
+    }
+
+    pub fn check_index(&self, name: &str, logical_idx: usize, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(buf) = self.buffers.get(name)
+            && logical_idx >= buf.capacity {
+                return Some(TypeError {
+                    code: "A23001".into(),
+                    message: format!("logical index {logical_idx} exceeds capacity {} of `{name}`", buf.capacity),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        None
+    }
+
+    pub fn check_physical_wrap(&self, name: &str, offset: usize, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(buf) = self.buffers.get(name) {
+            if buf.capacity == 0 {
+                return Some(TypeError {
+                    code: "A23002".into(),
+                    message: format!("circular buffer `{name}` has zero capacity, modular wrap undefined"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+            let _physical = (buf.head + offset) % buf.capacity;
+        }
+        None
+    }
+
+    pub fn push(&mut self, name: &str) {
+        if let Some(buf) = self.buffers.get_mut(name)
+            && buf.count < buf.capacity {
+                buf.tail = (buf.tail + 1) % buf.capacity;
+                buf.count += 1;
+            }
+    }
+
+    pub fn pop(&mut self, name: &str) {
+        if let Some(buf) = self.buffers.get_mut(name)
+            && buf.count > 0 {
+                buf.head = (buf.head + 1) % buf.capacity;
+                buf.count -= 1;
+            }
+    }
+}
+
+impl Default for CircularBufferChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T066: CONC.2 Callback re-entrancy prevention
+// ===========================================================================
+
+/// Prevents re-entrant calls through callback chains.
+///
+/// Error codes:
+/// - A24001: re-entrant callback invocation detected
+/// - A24002: callback registered in non-reentrant context
+/// - A24003: unbounded callback depth
+#[derive(Debug, Clone)]
+pub struct CallbackReentrancyChecker {
+    /// Functions currently on the call stack
+    call_stack: Vec<std::string::String>,
+    /// Functions marked as non-reentrant
+    non_reentrant: HashMap<std::string::String, Range<usize>>,
+    /// Maximum allowed callback depth
+    max_depth: usize,
+}
+
+impl CallbackReentrancyChecker {
+    pub fn new() -> Self {
+        Self {
+            call_stack: Vec::new(),
+            non_reentrant: HashMap::new(),
+            max_depth: 16,
+        }
+    }
+
+    pub fn with_max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = depth;
+        self
+    }
+
+    pub fn mark_non_reentrant(&mut self, fn_name: std::string::String, span: Range<usize>) {
+        self.non_reentrant.insert(fn_name, span);
+    }
+
+    pub fn enter_call(&mut self, fn_name: &str, span: &Range<usize>) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+
+        // Check re-entrancy
+        if self.call_stack.contains(&fn_name.to_string())
+            && self.non_reentrant.contains_key(fn_name) {
+                errors.push(TypeError {
+                    code: "A24001".into(),
+                    message: format!("re-entrant call to non-reentrant function `{fn_name}`"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+
+        // Check depth
+        if self.call_stack.len() >= self.max_depth {
+            errors.push(TypeError {
+                code: "A24003".into(),
+                message: format!("callback depth {} exceeds maximum {}", self.call_stack.len() + 1, self.max_depth),
+                span: span.clone(),
+                secondary: None,
+                });
+        }
+
+        self.call_stack.push(fn_name.to_string());
+        errors
+    }
+
+    pub fn exit_call(&mut self) {
+        self.call_stack.pop();
+    }
+
+    pub fn check_register_callback(&self, target_fn: &str, span: &Range<usize>) -> Option<TypeError> {
+        if self.non_reentrant.contains_key(target_fn) && self.call_stack.contains(&target_fn.to_string()) {
+            return Some(TypeError {
+                code: "A24002".into(),
+                message: format!("registering callback to non-reentrant `{target_fn}` while inside it"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        None
+    }
+
+    pub fn current_depth(&self) -> usize {
+        self.call_stack.len()
+    }
+}
+
+impl Default for CallbackReentrancyChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T069: CONC.5 Temporal deadlines
+// ===========================================================================
+
+/// Enforces bounded response time contracts.
+///
+/// Error codes:
+/// - A25001: operation exceeds declared deadline
+/// - A25002: nested deadline violation (inner > outer)
+/// - A25003: unbounded operation in deadline context
+#[derive(Debug, Clone)]
+pub struct TemporalDeadlineChecker {
+    /// Active deadline scopes (name -> deadline_ms)
+    deadlines: Vec<(std::string::String, u64)>,
+    /// Operations with known worst-case times
+    operation_bounds: HashMap<std::string::String, u64>,
+}
+
+impl TemporalDeadlineChecker {
+    pub fn new() -> Self {
+        Self {
+            deadlines: Vec::new(),
+            operation_bounds: HashMap::new(),
+        }
+    }
+
+    pub fn register_bound(&mut self, op: std::string::String, worst_case_ms: u64) {
+        self.operation_bounds.insert(op, worst_case_ms);
+    }
+
+    pub fn enter_deadline(&mut self, name: std::string::String, deadline_ms: u64, span: &Range<usize>) -> Option<TypeError> {
+        // Check nested deadline doesn't exceed outer
+        if let Some((outer_name, outer_ms)) = self.deadlines.last()
+            && deadline_ms > *outer_ms {
+                return Some(TypeError {
+                    code: "A25002".into(),
+                    message: format!("inner deadline `{name}` ({deadline_ms}ms) exceeds outer `{outer_name}` ({outer_ms}ms)"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        self.deadlines.push((name, deadline_ms));
+        None
+    }
+
+    pub fn exit_deadline(&mut self) {
+        self.deadlines.pop();
+    }
+
+    pub fn check_operation(&self, op: &str, span: &Range<usize>) -> Option<TypeError> {
+        if let Some((deadline_name, deadline_ms)) = self.deadlines.last() {
+            if let Some(worst_case) = self.operation_bounds.get(op) {
+                if worst_case > deadline_ms {
+                    return Some(TypeError {
+                        code: "A25001".into(),
+                        message: format!("operation `{op}` worst-case {worst_case}ms exceeds deadline `{deadline_name}` ({deadline_ms}ms)"),
+                        span: span.clone(),
+                        secondary: None,
+                    });
+                }
+            } else {
+                return Some(TypeError {
+                    code: "A25003".into(),
+                    message: format!("unbounded operation `{op}` in deadline context `{deadline_name}`"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        None
+    }
+
+    pub fn current_deadline(&self) -> Option<(&str, u64)> {
+        self.deadlines.last().map(|(n, d)| (n.as_str(), *d))
+    }
+}
+
+impl Default for TemporalDeadlineChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T070: FMT.1 Binary format contracts
+// ===========================================================================
+
+/// Validates byte-aligned binary format contracts.
+///
+/// Error codes:
+/// - A26001: field offset exceeds buffer length
+/// - A26002: field size mismatch
+/// - A26003: endianness not specified for multi-byte field
+/// - A26004: overlapping fields
+#[derive(Debug, Clone)]
+pub struct BinaryFormatChecker {
+    fields: Vec<BinaryField>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BinaryField {
+    pub name: std::string::String,
+    pub offset: usize,
+    pub size: usize,
+    pub endianness: Option<Endianness>,
+    pub span: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Endianness {
+    Big,
+    Little,
+    Native,
+}
+
+impl BinaryFormatChecker {
+    pub fn new() -> Self {
+        Self { fields: Vec::new() }
+    }
+
+    pub fn add_field(&mut self, field: BinaryField) {
+        self.fields.push(field);
+    }
+
+    pub fn check_bounds(&self, buffer_len: usize) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for f in &self.fields {
+            if f.offset + f.size > buffer_len {
+                errors.push(TypeError {
+                    code: "A26001".into(),
+                    message: format!("field `{}` at offset {} + size {} exceeds buffer length {buffer_len}", f.name, f.offset, f.size),
+                    span: f.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    pub fn check_endianness(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for f in &self.fields {
+            if f.size > 1 && f.endianness.is_none() {
+                errors.push(TypeError {
+                    code: "A26003".into(),
+                    message: format!("multi-byte field `{}` (size {}) has no endianness annotation", f.name, f.size),
+                    span: f.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    pub fn check_overlaps(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for i in 0..self.fields.len() {
+            for j in (i + 1)..self.fields.len() {
+                let a = &self.fields[i];
+                let b = &self.fields[j];
+                let a_end = a.offset + a.size;
+                let b_end = b.offset + b.size;
+                if a.offset < b_end && b.offset < a_end {
+                    errors.push(TypeError {
+                        code: "A26004".into(),
+                        message: format!("fields `{}` [{},{}] and `{}` [{},{}] overlap", a.name, a.offset, a_end, b.name, b.offset, b_end),
+                        span: a.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_all(&self, buffer_len: usize) -> Vec<TypeError> {
+        let mut errors = self.check_bounds(buffer_len);
+        errors.extend(self.check_endianness());
+        errors.extend(self.check_overlaps());
+        errors
+    }
+}
+
+impl Default for BinaryFormatChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T071: FMT.2 Bit-level format contracts
+// ===========================================================================
+
+/// Validates sub-byte parsing with ghost bit cursor tracking.
+///
+/// Error codes:
+/// - A27001: bit offset exceeds container size
+/// - A27002: bit field crosses byte boundary without permission
+/// - A27003: total bit width doesn't match declared size
+#[derive(Debug, Clone)]
+pub struct BitLevelChecker {
+    fields: Vec<BitField>,
+    container_bits: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct BitField {
+    pub name: std::string::String,
+    pub bit_offset: usize,
+    pub bit_width: usize,
+    pub span: Range<usize>,
+    pub cross_byte_ok: bool,
+}
+
+impl BitLevelChecker {
+    pub fn new(container_bits: usize) -> Self {
+        Self {
+            fields: Vec::new(),
+            container_bits,
+        }
+    }
+
+    pub fn add_field(&mut self, field: BitField) {
+        self.fields.push(field);
+    }
+
+    pub fn check_bounds(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for f in &self.fields {
+            if f.bit_offset + f.bit_width > self.container_bits {
+                errors.push(TypeError {
+                    code: "A27001".into(),
+                    message: format!("bit field `{}` at bit {} + width {} exceeds container ({} bits)", f.name, f.bit_offset, f.bit_width, self.container_bits),
+                    span: f.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    pub fn check_byte_crossing(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for f in &self.fields {
+            if !f.cross_byte_ok {
+                let start_byte = f.bit_offset / 8;
+                let end_byte = (f.bit_offset + f.bit_width.saturating_sub(1)) / 8;
+                if start_byte != end_byte {
+                    errors.push(TypeError {
+                        code: "A27002".into(),
+                        message: format!("bit field `{}` crosses byte boundary (bytes {start_byte}-{end_byte})", f.name),
+                        span: f.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_total_width(&self, declared_size: usize) -> Option<TypeError> {
+        let total: usize = self.fields.iter().map(|f| f.bit_width).sum();
+        if total != declared_size {
+            return Some(TypeError {
+                code: "A27003".into(),
+                message: format!("total bit width {total} doesn't match declared size {declared_size}"),
+                span: 0..1,
+                secondary: None,
+            });
+        }
+        None
+    }
+
+    pub fn check_all(&self, declared_size: usize) -> Vec<TypeError> {
+        let mut errors = self.check_bounds();
+        errors.extend(self.check_byte_crossing());
+        if let Some(e) = self.check_total_width(declared_size) {
+            errors.push(e);
+        }
+        errors
+    }
+}
+
+// ===========================================================================
+// T072: FMT.3 String encoding contracts
+// ===========================================================================
+
+/// Validates UTF-8/UTF-16/ASCII string encoding safety.
+///
+/// Error codes:
+/// - A28001: unvalidated bytes used as string
+/// - A28002: encoding mismatch (e.g., UTF-16 data treated as UTF-8)
+/// - A28003: truncation within multi-byte sequence
+#[derive(Debug, Clone, PartialEq)]
+pub enum StringEncoding {
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+    Ascii,
+    Latin1,
+    RawBytes,
+}
+
+#[derive(Debug, Clone)]
+pub struct StringEncodingChecker {
+    variables: HashMap<std::string::String, StringEncoding>,
+}
+
+impl StringEncodingChecker {
+    pub fn new() -> Self {
+        Self {
+            variables: HashMap::new(),
+        }
+    }
+
+    pub fn declare(&mut self, name: std::string::String, encoding: StringEncoding) {
+        self.variables.insert(name, encoding);
+    }
+
+    pub fn check_use_as_string(&self, name: &str, span: &Range<usize>) -> Option<TypeError> {
+        match self.variables.get(name) {
+            Some(StringEncoding::RawBytes) => Some(TypeError {
+                code: "A28001".into(),
+                message: format!("`{name}` is raw bytes, not a validated string"),
+                span: span.clone(),
+                secondary: None,
+            }),
+            None => Some(TypeError {
+                code: "A28001".into(),
+                message: format!("`{name}` has unknown encoding, cannot use as string"),
+                span: span.clone(),
+                secondary: None,
+            }),
+            _ => None,
+        }
+    }
+
+    pub fn check_encoding_compat(&self, src: &str, dst_encoding: &StringEncoding, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(src_enc) = self.variables.get(src)
+            && src_enc != dst_encoding && *src_enc != StringEncoding::Ascii {
+                return Some(TypeError {
+                    code: "A28002".into(),
+                    message: format!("`{src}` is {src_enc:?} but used as {dst_encoding:?}"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        None
+    }
+
+    pub fn check_truncation(&self, name: &str, byte_len: usize, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(enc) = self.variables.get(name) {
+            let unit_size = match enc {
+                StringEncoding::Utf16Le | StringEncoding::Utf16Be => 2,
+                _ => 1,
+            };
+            if unit_size > 1 && !byte_len.is_multiple_of(unit_size) {
+                return Some(TypeError {
+                    code: "A28003".into(),
+                    message: format!("truncation of `{name}` at byte {byte_len} may split a {enc:?} code unit"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        None
+    }
+}
+
+impl Default for StringEncodingChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T074: FMT.5 Checksum integrity
+// ===========================================================================
+
+/// Validates checksum verification contracts.
+///
+/// Error codes:
+/// - A29001: data used before checksum verification
+/// - A29002: checksum algorithm mismatch
+/// - A29003: checksum covers wrong byte range
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChecksumAlgorithm {
+    Crc32,
+    Adler32,
+    Sha256,
+    Sha512,
+    Md5,
+    Custom(std::string::String),
+}
+
+#[derive(Debug, Clone)]
+pub struct ChecksumChecker {
+    /// Data regions and their checksum status
+    regions: HashMap<std::string::String, ChecksumRegion>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChecksumRegion {
+    pub algorithm: ChecksumAlgorithm,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub verified: bool,
+}
+
+impl ChecksumChecker {
+    pub fn new() -> Self {
+        Self {
+            regions: HashMap::new(),
+        }
+    }
+
+    pub fn declare_region(&mut self, name: std::string::String, algorithm: ChecksumAlgorithm, start: usize, end: usize) {
+        self.regions.insert(name, ChecksumRegion {
+            algorithm,
+            byte_start: start,
+            byte_end: end,
+            verified: false,
+        });
+    }
+
+    pub fn mark_verified(&mut self, name: &str) {
+        if let Some(region) = self.regions.get_mut(name) {
+            region.verified = true;
+        }
+    }
+
+    pub fn check_use_before_verify(&self, name: &str, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(region) = self.regions.get(name)
+            && !region.verified {
+                return Some(TypeError {
+                    code: "A29001".into(),
+                    message: format!("data region `{name}` used before checksum verification"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        None
+    }
+
+    pub fn check_algorithm_match(&self, name: &str, expected: &ChecksumAlgorithm, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(region) = self.regions.get(name)
+            && &region.algorithm != expected {
+                return Some(TypeError {
+                    code: "A29002".into(),
+                    message: format!("checksum algorithm mismatch for `{name}`: declared {:?}, used {:?}", region.algorithm, expected),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        None
+    }
+
+    pub fn check_range_coverage(&self, name: &str, data_start: usize, data_end: usize, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(region) = self.regions.get(name)
+            && (region.byte_start > data_start || region.byte_end < data_end) {
+                return Some(TypeError {
+                    code: "A29003".into(),
+                    message: format!("checksum for `{name}` covers [{},{}] but data range is [{data_start},{data_end}]", region.byte_start, region.byte_end),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        None
+    }
+}
+
+impl Default for ChecksumChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T075: FMT.6 Protocol grammar
+// ===========================================================================
+
+/// Validates protocol state machine and RFC conformance.
+///
+/// Error codes:
+/// - A30001: invalid state transition
+/// - A30002: message sent in wrong protocol state
+/// - A30003: required message field missing
+#[derive(Debug, Clone)]
+pub struct ProtocolGrammarChecker {
+    states: Vec<std::string::String>,
+    current_state: std::string::String,
+    transitions: Vec<ProtocolTransition>,
+    required_fields: HashMap<std::string::String, Vec<std::string::String>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProtocolTransition {
+    pub from: std::string::String,
+    pub to: std::string::String,
+    pub message: std::string::String,
+}
+
+impl ProtocolGrammarChecker {
+    pub fn new(initial_state: std::string::String) -> Self {
+        Self {
+            states: vec![initial_state.clone()],
+            current_state: initial_state,
+            transitions: Vec::new(),
+            required_fields: HashMap::new(),
+        }
+    }
+
+    pub fn add_state(&mut self, state: std::string::String) {
+        if !self.states.contains(&state) {
+            self.states.push(state);
+        }
+    }
+
+    pub fn add_transition(&mut self, from: std::string::String, to: std::string::String, message: std::string::String) {
+        self.transitions.push(ProtocolTransition { from, to, message });
+    }
+
+    pub fn add_required_fields(&mut self, message: std::string::String, fields: Vec<std::string::String>) {
+        self.required_fields.insert(message, fields);
+    }
+
+    pub fn check_send(&self, message: &str, span: &Range<usize>) -> Option<TypeError> {
+        let valid = self.transitions.iter().any(|t| t.from == self.current_state && t.message == message);
+        if !valid {
+            return Some(TypeError {
+                code: "A30002".into(),
+                message: format!("cannot send `{message}` in state `{}`", self.current_state),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        None
+    }
+
+    pub fn transition(&mut self, message: &str, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(t) = self.transitions.iter().find(|t| t.from == self.current_state && t.message == message) {
+            self.current_state = t.to.clone();
+            None
+        } else {
+            Some(TypeError {
+                code: "A30001".into(),
+                message: format!("invalid transition: no `{message}` transition from state `{}`", self.current_state),
+                span: span.clone(),
+                secondary: None,
+            })
+        }
+    }
+
+    pub fn check_required_fields(&self, message: &str, provided: &[&str], span: &Range<usize>) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        if let Some(required) = self.required_fields.get(message) {
+            for field in required {
+                if !provided.contains(&field.as_str()) {
+                    errors.push(TypeError {
+                        code: "A30003".into(),
+                        message: format!("required field `{field}` missing in message `{message}`"),
+                        span: span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn current_state(&self) -> &str {
+        &self.current_state
+    }
+}
+
+// ===========================================================================
+// T077: CORE.4 Axiomatic definitions
+// ===========================================================================
+
+/// Validates axiomatic (abstract mathematical) definitions.
+///
+/// Error codes:
+/// - A31001: axiom references undefined symbol
+/// - A31002: axiom set is inconsistent (circular or contradictory)
+/// - A31003: axiom not used in any proof
+#[derive(Debug, Clone)]
+pub struct AxiomaticDefChecker {
+    axioms: HashMap<std::string::String, AxiomDef>,
+    used_axioms: Vec<std::string::String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AxiomDef {
+    pub name: std::string::String,
+    pub params: Vec<std::string::String>,
+    pub body: std::string::String,
+    pub span: Range<usize>,
+    pub references: Vec<std::string::String>,
+}
+
+impl AxiomaticDefChecker {
+    pub fn new() -> Self {
+        Self {
+            axioms: HashMap::new(),
+            used_axioms: Vec::new(),
+        }
+    }
+
+    pub fn declare_axiom(&mut self, axiom: AxiomDef) {
+        self.axioms.insert(axiom.name.clone(), axiom);
+    }
+
+    pub fn mark_used(&mut self, name: &str) {
+        if !self.used_axioms.contains(&name.to_string()) {
+            self.used_axioms.push(name.to_string());
+        }
+    }
+
+    pub fn check_references(&self, known_symbols: &[&str]) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for axiom in self.axioms.values() {
+            for reference in &axiom.references {
+                let is_axiom = self.axioms.contains_key(reference);
+                let is_known = known_symbols.contains(&reference.as_str());
+                if !is_axiom && !is_known {
+                    errors.push(TypeError {
+                        code: "A31001".into(),
+                        message: format!("axiom `{}` references undefined symbol `{reference}`", axiom.name),
+                        span: axiom.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_unused(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, axiom) in &self.axioms {
+            if !self.used_axioms.contains(name) {
+                errors.push(TypeError {
+                    code: "A31003".into(),
+                    message: format!("axiom `{name}` is never used in any proof"),
+                    span: axiom.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    pub fn check_circular(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, axiom) in &self.axioms {
+            if self.has_cycle(name, &mut vec![name.clone()]) {
+                errors.push(TypeError {
+                    code: "A31002".into(),
+                    message: format!("axiom `{name}` has circular dependency"),
+                    span: axiom.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    fn has_cycle(&self, current: &str, visited: &mut Vec<std::string::String>) -> bool {
+        if let Some(axiom) = self.axioms.get(current) {
+            for reference in &axiom.references {
+                if visited.contains(reference) {
+                    return true;
+                }
+                if self.axioms.contains_key(reference) {
+                    visited.push(reference.clone());
+                    if self.has_cycle(reference, visited) {
+                        return true;
+                    }
+                    visited.pop();
+                }
+            }
+        }
+        false
+    }
+}
+
+impl Default for AxiomaticDefChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T079: CORE.6 Opaque functions
+// ===========================================================================
+
+/// Manages opaque function declarations that hide implementation from verifier.
+///
+/// Error codes:
+/// - A32001: opaque function called without contract
+/// - A32002: opaque function body accessed during verification
+/// - A32003: reveal used outside proof context
+#[derive(Debug, Clone)]
+pub struct OpaqueFunctionChecker {
+    opaque_fns: HashMap<std::string::String, OpaqueFnInfo>,
+    revealed: Vec<std::string::String>,
+    in_proof_context: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct OpaqueFnInfo {
+    pub has_contract: bool,
+    pub span: Range<usize>,
+}
+
+impl OpaqueFunctionChecker {
+    pub fn new() -> Self {
+        Self {
+            opaque_fns: HashMap::new(),
+            revealed: Vec::new(),
+            in_proof_context: false,
+        }
+    }
+
+    pub fn declare_opaque(&mut self, name: std::string::String, has_contract: bool, span: Range<usize>) {
+        self.opaque_fns.insert(name, OpaqueFnInfo { has_contract, span });
+    }
+
+    pub fn enter_proof(&mut self) {
+        self.in_proof_context = true;
+    }
+
+    pub fn exit_proof(&mut self) {
+        self.in_proof_context = false;
+    }
+
+    pub fn check_call(&self, fn_name: &str, span: &Range<usize>) -> Option<TypeError> {
+        if let Some(info) = self.opaque_fns.get(fn_name)
+            && !info.has_contract {
+                return Some(TypeError {
+                    code: "A32001".into(),
+                    message: format!("opaque function `{fn_name}` called without contract"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        None
+    }
+
+    pub fn check_body_access(&self, fn_name: &str, span: &Range<usize>) -> Option<TypeError> {
+        if self.opaque_fns.contains_key(fn_name) && !self.revealed.contains(&fn_name.to_string()) {
+            return Some(TypeError {
+                code: "A32002".into(),
+                message: format!("body of opaque function `{fn_name}` accessed without reveal"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        None
+    }
+
+    pub fn reveal(&mut self, fn_name: &str, span: &Range<usize>) -> Option<TypeError> {
+        if !self.in_proof_context {
+            return Some(TypeError {
+                code: "A32003".into(),
+                message: format!("`reveal {fn_name}` used outside proof context"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        self.revealed.push(fn_name.to_string());
+        None
+    }
+
+    pub fn is_opaque(&self, fn_name: &str) -> bool {
+        self.opaque_fns.contains_key(fn_name)
+    }
+}
+
+impl Default for OpaqueFunctionChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===========================================================================
+// T083: TEST.1 Test generation from contracts
+// ===========================================================================
+
+/// Generates property-based and boundary-value tests from contract specs.
+///
+/// Produces Rust test code (proptest/quickcheck) from requires/ensures clauses.
+#[derive(Debug, Clone)]
+pub struct TestGenerator {
+    contracts: Vec<TestableContract>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TestableContract {
+    pub name: std::string::String,
+    pub params: Vec<(std::string::String, Type)>,
+    pub requires: Vec<std::string::String>,
+    pub ensures: Vec<std::string::String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GeneratedTest {
+    pub name: std::string::String,
+    pub body: std::string::String,
+    pub kind: TestKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TestKind {
+    Property,
+    Boundary,
+    Smoke,
+}
+
+impl TestGenerator {
+    pub fn new() -> Self {
+        Self {
+            contracts: Vec::new(),
+        }
+    }
+
+    pub fn add_contract(&mut self, contract: TestableContract) {
+        self.contracts.push(contract);
+    }
+
+    pub fn generate_property_test(&self, contract: &TestableContract) -> GeneratedTest {
+        let param_list: Vec<std::string::String> = contract.params.iter()
+            .map(|(n, t)| format!("{n}: {}", Self::type_to_proptest_strategy(t)))
+            .collect();
+        let preconditions = if contract.requires.is_empty() {
+            String::new()
+        } else {
+            format!("prop_assume!({});\n        ", contract.requires.join(" && "))
+        };
+        let postconditions = contract.ensures.join(" && ");
+        let body = format!(
+            "proptest! {{\n    #[test]\n    fn prop_{}({}) {{\n        {preconditions}prop_assert!({postconditions});\n    }}\n}}",
+            contract.name,
+            param_list.join(", ")
+        );
+        GeneratedTest {
+            name: format!("prop_{}", contract.name),
+            body,
+            kind: TestKind::Property,
+        }
+    }
+
+    pub fn generate_boundary_tests(&self, contract: &TestableContract) -> Vec<GeneratedTest> {
+        let mut tests = Vec::new();
+        for (name, ty) in &contract.params {
+            let boundaries = Self::boundary_values(ty);
+            for (i, val) in boundaries.iter().enumerate() {
+                tests.push(GeneratedTest {
+                    name: format!("boundary_{}_{}_{}", contract.name, name, i),
+                    body: format!("#[test]\nfn boundary_{}_{}_{i}() {{\n    let {name} = {val};\n    // boundary test for {name}\n}}", contract.name, name),
+                    kind: TestKind::Boundary,
+                });
+            }
+        }
+        tests
+    }
+
+    pub fn generate_smoke_test(&self, contract: &TestableContract) -> GeneratedTest {
+        let body = format!(
+            "#[test]\nfn smoke_{}() {{\n    // smoke test: basic valid inputs\n}}",
+            contract.name
+        );
+        GeneratedTest {
+            name: format!("smoke_{}", contract.name),
+            body,
+            kind: TestKind::Smoke,
+        }
+    }
+
+    pub fn generate_all(&self) -> Vec<GeneratedTest> {
+        let mut tests = Vec::new();
+        for contract in &self.contracts {
+            tests.push(self.generate_property_test(contract));
+            tests.extend(self.generate_boundary_tests(contract));
+            tests.push(self.generate_smoke_test(contract));
+        }
+        tests
+    }
+
+    fn type_to_proptest_strategy(ty: &Type) -> &'static str {
+        match ty {
+            Type::Int | Type::I64 => "i64::ANY",
+            Type::Nat | Type::U64 => "u64::ANY",
+            Type::U8 => "u8::ANY",
+            Type::U16 => "u16::ANY",
+            Type::U32 => "u32::ANY",
+            Type::I8 => "i8::ANY",
+            Type::I16 => "i16::ANY",
+            Type::I32 => "i32::ANY",
+            Type::Float | Type::F64 => "f64::ANY",
+            Type::F32 => "f32::ANY",
+            Type::Bool => "bool::ANY",
+            Type::String => "\".*\"",
+            _ => "any::<()>()",
+        }
+    }
+
+    fn boundary_values(ty: &Type) -> Vec<std::string::String> {
+        match ty {
+            Type::Int | Type::I64 => vec!["0".into(), "1".into(), "-1".into(), "i64::MAX".into(), "i64::MIN".into()],
+            Type::Nat | Type::U64 => vec!["0".into(), "1".into(), "u64::MAX".into()],
+            Type::U8 => vec!["0u8".into(), "1u8".into(), "255u8".into()],
+            Type::U16 => vec!["0u16".into(), "1u16".into(), "65535u16".into()],
+            Type::U32 => vec!["0u32".into(), "1u32".into(), "u32::MAX".into()],
+            Type::I8 => vec!["0i8".into(), "1i8".into(), "-1i8".into(), "127i8".into(), "-128i8".into()],
+            Type::I16 => vec!["0i16".into(), "1i16".into(), "-1i16".into(), "i16::MAX".into(), "i16::MIN".into()],
+            Type::I32 => vec!["0i32".into(), "1i32".into(), "-1i32".into(), "i32::MAX".into(), "i32::MIN".into()],
+            Type::Bool => vec!["true".into(), "false".into()],
+            Type::Float | Type::F64 => vec!["0.0".into(), "1.0".into(), "-1.0".into(), "f64::INFINITY".into(), "f64::NAN".into()],
+            _ => vec![],
+        }
+    }
+}
+
+impl Default for TestGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -13965,5 +15210,908 @@ ghost fn bad_ghost(x: Int) -> Bool
         // Non-fixed-width types are outside scope -> treated as safe
         let err = FixedWidthChecker::check_cast_safety(&Type::Int, &Type::U32, &(0..1));
         assert!(err.is_none(), "non-fixed-width cast should be out of scope");
+    }
+
+    // =======================================================================
+    // T056: AllocatorChecker tests
+    // =======================================================================
+
+    #[test]
+    fn allocator_unpaired_alloc() {
+        let mut checker = AllocatorChecker::new();
+        checker.record_alloc("buf".into(), "1024".into(), None, 0..4);
+        let errors = checker.check_unpaired();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A22001");
+    }
+
+    #[test]
+    fn allocator_paired_ok() {
+        let mut checker = AllocatorChecker::new();
+        checker.record_alloc("buf".into(), "1024".into(), None, 0..4);
+        assert!(checker.record_free("buf", 10..14).is_none());
+        let errors = checker.check_unpaired();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn allocator_double_free() {
+        let mut checker = AllocatorChecker::new();
+        checker.record_alloc("buf".into(), "1024".into(), None, 0..4);
+        assert!(checker.record_free("buf", 10..14).is_none());
+        let err = checker.record_free("buf", 20..24);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A22002");
+    }
+
+    #[test]
+    fn allocator_arena_ok() {
+        let mut checker = AllocatorChecker::new();
+        checker.declare_arena("arena1".into());
+        checker.record_alloc("obj".into(), "64".into(), Some("arena1".into()), 0..4);
+        // Arena-managed allocations are not required to have explicit free
+        let errors = checker.check_unpaired();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn allocator_arena_use_after_drop() {
+        let mut checker = AllocatorChecker::new();
+        checker.declare_arena("arena1".into());
+        checker.record_alloc("obj".into(), "64".into(), Some("arena1".into()), 0..4);
+        checker.drop_arena("arena1", 10..14);
+        let err = checker.check_arena_use("obj", &(20..24));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A22004");
+    }
+
+    #[test]
+    fn allocator_arena_use_before_drop_ok() {
+        let mut checker = AllocatorChecker::new();
+        checker.declare_arena("arena1".into());
+        checker.record_alloc("obj".into(), "64".into(), Some("arena1".into()), 0..4);
+        let err = checker.check_arena_use("obj", &(5..8));
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn allocator_default() {
+        let checker = AllocatorChecker::default();
+        assert!(checker.check_unpaired().is_empty());
+    }
+
+    // =======================================================================
+    // T057: CircularBufferChecker tests
+    // =======================================================================
+
+    #[test]
+    fn circ_buf_read_empty() {
+        let mut checker = CircularBufferChecker::new();
+        checker.declare("ring".into(), 8);
+        let err = checker.check_read("ring", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A23003");
+    }
+
+    #[test]
+    fn circ_buf_read_nonempty() {
+        let mut checker = CircularBufferChecker::new();
+        checker.declare("ring".into(), 8);
+        checker.push("ring");
+        assert!(checker.check_read("ring", &(0..1)).is_none());
+    }
+
+    #[test]
+    fn circ_buf_index_out_of_bounds() {
+        let mut checker = CircularBufferChecker::new();
+        checker.declare("ring".into(), 4);
+        let err = checker.check_index("ring", 5, &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A23001");
+    }
+
+    #[test]
+    fn circ_buf_index_ok() {
+        let mut checker = CircularBufferChecker::new();
+        checker.declare("ring".into(), 4);
+        assert!(checker.check_index("ring", 3, &(0..1)).is_none());
+    }
+
+    #[test]
+    fn circ_buf_zero_capacity() {
+        let mut checker = CircularBufferChecker::new();
+        checker.declare("ring".into(), 0);
+        let err = checker.check_physical_wrap("ring", 0, &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A23002");
+    }
+
+    #[test]
+    fn circ_buf_push_pop() {
+        let mut checker = CircularBufferChecker::new();
+        checker.declare("ring".into(), 2);
+        checker.push("ring");
+        checker.push("ring");
+        // Full, push should not increase count
+        checker.push("ring");
+        let info = checker.buffers.get("ring").unwrap();
+        assert_eq!(info.count, 2);
+        assert!(info.is_full());
+        checker.pop("ring");
+        let info = checker.buffers.get("ring").unwrap();
+        assert_eq!(info.count, 1);
+    }
+
+    #[test]
+    fn circ_buf_logical_to_physical() {
+        let mut checker = CircularBufferChecker::new();
+        checker.declare("ring".into(), 4);
+        checker.push("ring");
+        checker.push("ring");
+        checker.pop("ring"); // head = 1
+        let info = checker.buffers.get("ring").unwrap();
+        assert_eq!(info.logical_to_physical(0), 1);
+        assert_eq!(info.logical_to_physical(3), 0); // wraps
+    }
+
+    #[test]
+    fn circ_buf_default() {
+        let checker = CircularBufferChecker::default();
+        assert!(checker.check_read("x", &(0..1)).is_none());
+    }
+
+    // =======================================================================
+    // T066: CallbackReentrancyChecker tests
+    // =======================================================================
+
+    #[test]
+    fn callback_reentrant_call() {
+        let mut checker = CallbackReentrancyChecker::new();
+        checker.mark_non_reentrant("handle_event".into(), 0..10);
+        assert!(checker.enter_call("handle_event", &(0..1)).is_empty());
+        // Re-entrant call
+        let errors = checker.enter_call("handle_event", &(5..6));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A24001");
+    }
+
+    #[test]
+    fn callback_reentrant_allowed() {
+        let mut checker = CallbackReentrancyChecker::new();
+        // Not marked non-reentrant
+        assert!(checker.enter_call("handle_event", &(0..1)).is_empty());
+        assert!(checker.enter_call("handle_event", &(5..6)).is_empty());
+    }
+
+    #[test]
+    fn callback_max_depth() {
+        let mut checker = CallbackReentrancyChecker::new().with_max_depth(2);
+        assert!(checker.enter_call("a", &(0..1)).is_empty());
+        assert!(checker.enter_call("b", &(0..1)).is_empty());
+        let errors = checker.enter_call("c", &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A24003");
+    }
+
+    #[test]
+    fn callback_register_in_context() {
+        let mut checker = CallbackReentrancyChecker::new();
+        checker.mark_non_reentrant("handler".into(), 0..10);
+        assert!(checker.enter_call("handler", &(0..1)).is_empty());
+        let err = checker.check_register_callback("handler", &(5..6));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A24002");
+    }
+
+    #[test]
+    fn callback_exit_resets() {
+        let mut checker = CallbackReentrancyChecker::new();
+        checker.mark_non_reentrant("f".into(), 0..10);
+        assert!(checker.enter_call("f", &(0..1)).is_empty());
+        checker.exit_call();
+        // After exit, re-entry is allowed
+        assert!(checker.enter_call("f", &(5..6)).is_empty());
+    }
+
+    #[test]
+    fn callback_depth_tracking() {
+        let mut checker = CallbackReentrancyChecker::new();
+        assert_eq!(checker.current_depth(), 0);
+        checker.enter_call("a", &(0..1));
+        assert_eq!(checker.current_depth(), 1);
+        checker.enter_call("b", &(0..1));
+        assert_eq!(checker.current_depth(), 2);
+        checker.exit_call();
+        assert_eq!(checker.current_depth(), 1);
+    }
+
+    #[test]
+    fn callback_default() {
+        let checker = CallbackReentrancyChecker::default();
+        assert_eq!(checker.current_depth(), 0);
+    }
+
+    // =======================================================================
+    // T069: TemporalDeadlineChecker tests
+    // =======================================================================
+
+    #[test]
+    fn deadline_operation_exceeds() {
+        let mut checker = TemporalDeadlineChecker::new();
+        checker.register_bound("heavy_compute".into(), 500);
+        assert!(checker.enter_deadline("fast".into(), 100, &(0..1)).is_none());
+        let err = checker.check_operation("heavy_compute", &(5..6));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A25001");
+    }
+
+    #[test]
+    fn deadline_operation_ok() {
+        let mut checker = TemporalDeadlineChecker::new();
+        checker.register_bound("quick".into(), 10);
+        assert!(checker.enter_deadline("normal".into(), 100, &(0..1)).is_none());
+        assert!(checker.check_operation("quick", &(5..6)).is_none());
+    }
+
+    #[test]
+    fn deadline_unbounded_operation() {
+        let mut checker = TemporalDeadlineChecker::new();
+        assert!(checker.enter_deadline("strict".into(), 50, &(0..1)).is_none());
+        let err = checker.check_operation("unknown_op", &(5..6));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A25003");
+    }
+
+    #[test]
+    fn deadline_nested_violation() {
+        let mut checker = TemporalDeadlineChecker::new();
+        assert!(checker.enter_deadline("outer".into(), 100, &(0..1)).is_none());
+        let err = checker.enter_deadline("inner".into(), 200, &(5..6));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A25002");
+    }
+
+    #[test]
+    fn deadline_nested_ok() {
+        let mut checker = TemporalDeadlineChecker::new();
+        assert!(checker.enter_deadline("outer".into(), 100, &(0..1)).is_none());
+        assert!(checker.enter_deadline("inner".into(), 50, &(5..6)).is_none());
+    }
+
+    #[test]
+    fn deadline_no_context_ok() {
+        let checker = TemporalDeadlineChecker::new();
+        // No deadline context, any operation is fine
+        assert!(checker.check_operation("anything", &(0..1)).is_none());
+    }
+
+    #[test]
+    fn deadline_current() {
+        let mut checker = TemporalDeadlineChecker::new();
+        assert!(checker.current_deadline().is_none());
+        checker.enter_deadline("d".into(), 42, &(0..1));
+        assert_eq!(checker.current_deadline(), Some(("d", 42)));
+        checker.exit_deadline();
+        assert!(checker.current_deadline().is_none());
+    }
+
+    #[test]
+    fn deadline_default() {
+        let checker = TemporalDeadlineChecker::default();
+        assert!(checker.current_deadline().is_none());
+    }
+
+    // =======================================================================
+    // T070: BinaryFormatChecker tests
+    // =======================================================================
+
+    #[test]
+    fn binary_fmt_bounds_ok() {
+        let mut checker = BinaryFormatChecker::new();
+        checker.add_field(BinaryField {
+            name: "magic".into(), offset: 0, size: 4,
+            endianness: Some(Endianness::Big), span: 0..1,
+        });
+        assert!(checker.check_bounds(100).is_empty());
+    }
+
+    #[test]
+    fn binary_fmt_bounds_overflow() {
+        let mut checker = BinaryFormatChecker::new();
+        checker.add_field(BinaryField {
+            name: "data".into(), offset: 96, size: 8,
+            endianness: Some(Endianness::Little), span: 0..1,
+        });
+        let errors = checker.check_bounds(100);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A26001");
+    }
+
+    #[test]
+    fn binary_fmt_no_endianness() {
+        let mut checker = BinaryFormatChecker::new();
+        checker.add_field(BinaryField {
+            name: "len".into(), offset: 0, size: 4,
+            endianness: None, span: 0..1,
+        });
+        let errors = checker.check_endianness();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A26003");
+    }
+
+    #[test]
+    fn binary_fmt_single_byte_no_endianness_ok() {
+        let mut checker = BinaryFormatChecker::new();
+        checker.add_field(BinaryField {
+            name: "flags".into(), offset: 0, size: 1,
+            endianness: None, span: 0..1,
+        });
+        assert!(checker.check_endianness().is_empty());
+    }
+
+    #[test]
+    fn binary_fmt_overlap() {
+        let mut checker = BinaryFormatChecker::new();
+        checker.add_field(BinaryField {
+            name: "a".into(), offset: 0, size: 4,
+            endianness: Some(Endianness::Big), span: 0..1,
+        });
+        checker.add_field(BinaryField {
+            name: "b".into(), offset: 2, size: 4,
+            endianness: Some(Endianness::Big), span: 0..1,
+        });
+        let errors = checker.check_overlaps();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A26004");
+    }
+
+    #[test]
+    fn binary_fmt_no_overlap() {
+        let mut checker = BinaryFormatChecker::new();
+        checker.add_field(BinaryField {
+            name: "a".into(), offset: 0, size: 4,
+            endianness: Some(Endianness::Big), span: 0..1,
+        });
+        checker.add_field(BinaryField {
+            name: "b".into(), offset: 4, size: 4,
+            endianness: Some(Endianness::Big), span: 0..1,
+        });
+        assert!(checker.check_overlaps().is_empty());
+    }
+
+    #[test]
+    fn binary_fmt_check_all() {
+        let mut checker = BinaryFormatChecker::new();
+        checker.add_field(BinaryField {
+            name: "header".into(), offset: 0, size: 4,
+            endianness: None, span: 0..1, // missing endianness
+        });
+        let errors = checker.check_all(100);
+        assert_eq!(errors.len(), 1); // endianness only
+    }
+
+    #[test]
+    fn binary_fmt_default() {
+        let checker = BinaryFormatChecker::default();
+        assert!(checker.check_all(0).is_empty());
+    }
+
+    // =======================================================================
+    // T071: BitLevelChecker tests
+    // =======================================================================
+
+    #[test]
+    fn bit_level_bounds_ok() {
+        let mut checker = BitLevelChecker::new(32);
+        checker.add_field(BitField {
+            name: "version".into(), bit_offset: 0, bit_width: 4,
+            span: 0..1, cross_byte_ok: false,
+        });
+        assert!(checker.check_bounds().is_empty());
+    }
+
+    #[test]
+    fn bit_level_bounds_overflow() {
+        let mut checker = BitLevelChecker::new(8);
+        checker.add_field(BitField {
+            name: "big".into(), bit_offset: 4, bit_width: 8,
+            span: 0..1, cross_byte_ok: true,
+        });
+        let errors = checker.check_bounds();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A27001");
+    }
+
+    #[test]
+    fn bit_level_byte_crossing() {
+        let mut checker = BitLevelChecker::new(16);
+        checker.add_field(BitField {
+            name: "cross".into(), bit_offset: 6, bit_width: 4,
+            span: 0..1, cross_byte_ok: false,
+        });
+        let errors = checker.check_byte_crossing();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A27002");
+    }
+
+    #[test]
+    fn bit_level_byte_crossing_allowed() {
+        let mut checker = BitLevelChecker::new(16);
+        checker.add_field(BitField {
+            name: "cross".into(), bit_offset: 6, bit_width: 4,
+            span: 0..1, cross_byte_ok: true,
+        });
+        assert!(checker.check_byte_crossing().is_empty());
+    }
+
+    #[test]
+    fn bit_level_total_width_match() {
+        let mut checker = BitLevelChecker::new(8);
+        checker.add_field(BitField {
+            name: "a".into(), bit_offset: 0, bit_width: 4,
+            span: 0..1, cross_byte_ok: false,
+        });
+        checker.add_field(BitField {
+            name: "b".into(), bit_offset: 4, bit_width: 4,
+            span: 0..1, cross_byte_ok: false,
+        });
+        assert!(checker.check_total_width(8).is_none());
+    }
+
+    #[test]
+    fn bit_level_total_width_mismatch() {
+        let mut checker = BitLevelChecker::new(8);
+        checker.add_field(BitField {
+            name: "a".into(), bit_offset: 0, bit_width: 3,
+            span: 0..1, cross_byte_ok: false,
+        });
+        let err = checker.check_total_width(8);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A27003");
+    }
+
+    #[test]
+    fn bit_level_check_all() {
+        let mut checker = BitLevelChecker::new(16);
+        checker.add_field(BitField {
+            name: "a".into(), bit_offset: 0, bit_width: 8,
+            span: 0..1, cross_byte_ok: false,
+        });
+        checker.add_field(BitField {
+            name: "b".into(), bit_offset: 8, bit_width: 8,
+            span: 0..1, cross_byte_ok: false,
+        });
+        assert!(checker.check_all(16).is_empty());
+    }
+
+    // =======================================================================
+    // T072: StringEncodingChecker tests
+    // =======================================================================
+
+    #[test]
+    fn string_encoding_raw_bytes_error() {
+        let mut checker = StringEncodingChecker::new();
+        checker.declare("data".into(), StringEncoding::RawBytes);
+        let err = checker.check_use_as_string("data", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A28001");
+    }
+
+    #[test]
+    fn string_encoding_utf8_ok() {
+        let mut checker = StringEncodingChecker::new();
+        checker.declare("text".into(), StringEncoding::Utf8);
+        assert!(checker.check_use_as_string("text", &(0..1)).is_none());
+    }
+
+    #[test]
+    fn string_encoding_mismatch() {
+        let mut checker = StringEncodingChecker::new();
+        checker.declare("wide".into(), StringEncoding::Utf16Le);
+        let err = checker.check_encoding_compat("wide", &StringEncoding::Utf8, &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A28002");
+    }
+
+    #[test]
+    fn string_encoding_ascii_compat() {
+        let mut checker = StringEncodingChecker::new();
+        checker.declare("ascii_str".into(), StringEncoding::Ascii);
+        // ASCII is compatible with everything
+        assert!(checker.check_encoding_compat("ascii_str", &StringEncoding::Utf8, &(0..1)).is_none());
+    }
+
+    #[test]
+    fn string_encoding_truncation_utf16() {
+        let mut checker = StringEncodingChecker::new();
+        checker.declare("wide".into(), StringEncoding::Utf16Le);
+        let err = checker.check_truncation("wide", 5, &(0..1)); // 5 bytes, not aligned to 2
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A28003");
+    }
+
+    #[test]
+    fn string_encoding_truncation_ok() {
+        let mut checker = StringEncodingChecker::new();
+        checker.declare("wide".into(), StringEncoding::Utf16Be);
+        assert!(checker.check_truncation("wide", 4, &(0..1)).is_none()); // 4 bytes, aligned
+    }
+
+    #[test]
+    fn string_encoding_unknown_var() {
+        let checker = StringEncodingChecker::new();
+        let err = checker.check_use_as_string("unknown", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A28001");
+    }
+
+    #[test]
+    fn string_encoding_default() {
+        let checker = StringEncodingChecker::default();
+        assert!(checker.check_use_as_string("x", &(0..1)).is_some());
+    }
+
+    // =======================================================================
+    // T074: ChecksumChecker tests
+    // =======================================================================
+
+    #[test]
+    fn checksum_use_before_verify() {
+        let mut checker = ChecksumChecker::new();
+        checker.declare_region("payload".into(), ChecksumAlgorithm::Crc32, 0, 100);
+        let err = checker.check_use_before_verify("payload", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A29001");
+    }
+
+    #[test]
+    fn checksum_use_after_verify_ok() {
+        let mut checker = ChecksumChecker::new();
+        checker.declare_region("payload".into(), ChecksumAlgorithm::Crc32, 0, 100);
+        checker.mark_verified("payload");
+        assert!(checker.check_use_before_verify("payload", &(0..1)).is_none());
+    }
+
+    #[test]
+    fn checksum_algorithm_mismatch() {
+        let mut checker = ChecksumChecker::new();
+        checker.declare_region("data".into(), ChecksumAlgorithm::Sha256, 0, 100);
+        let err = checker.check_algorithm_match("data", &ChecksumAlgorithm::Crc32, &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A29002");
+    }
+
+    #[test]
+    fn checksum_algorithm_match_ok() {
+        let mut checker = ChecksumChecker::new();
+        checker.declare_region("data".into(), ChecksumAlgorithm::Sha256, 0, 100);
+        assert!(checker.check_algorithm_match("data", &ChecksumAlgorithm::Sha256, &(0..1)).is_none());
+    }
+
+    #[test]
+    fn checksum_range_coverage() {
+        let mut checker = ChecksumChecker::new();
+        checker.declare_region("data".into(), ChecksumAlgorithm::Adler32, 10, 50);
+        let err = checker.check_range_coverage("data", 0, 60, &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A29003");
+    }
+
+    #[test]
+    fn checksum_range_covered_ok() {
+        let mut checker = ChecksumChecker::new();
+        checker.declare_region("data".into(), ChecksumAlgorithm::Adler32, 0, 100);
+        assert!(checker.check_range_coverage("data", 10, 50, &(0..1)).is_none());
+    }
+
+    #[test]
+    fn checksum_default() {
+        let checker = ChecksumChecker::default();
+        assert!(checker.check_use_before_verify("x", &(0..1)).is_none());
+    }
+
+    // =======================================================================
+    // T075: ProtocolGrammarChecker tests
+    // =======================================================================
+
+    #[test]
+    fn protocol_valid_transition() {
+        let mut checker = ProtocolGrammarChecker::new("idle".into());
+        checker.add_state("connected".into());
+        checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
+        assert!(checker.check_send("CONNECT", &(0..1)).is_none());
+        assert!(checker.transition("CONNECT", &(0..1)).is_none());
+        assert_eq!(checker.current_state(), "connected");
+    }
+
+    #[test]
+    fn protocol_invalid_send() {
+        let mut checker = ProtocolGrammarChecker::new("idle".into());
+        checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
+        let err = checker.check_send("DISCONNECT", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A30002");
+    }
+
+    #[test]
+    fn protocol_invalid_transition() {
+        let mut checker = ProtocolGrammarChecker::new("idle".into());
+        checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
+        let err = checker.transition("DATA", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A30001");
+    }
+
+    #[test]
+    fn protocol_required_fields() {
+        let mut checker = ProtocolGrammarChecker::new("idle".into());
+        checker.add_required_fields("CONNECT".into(), vec!["host".into(), "port".into()]);
+        let errors = checker.check_required_fields("CONNECT", &["host"], &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A30003");
+        assert!(errors[0].message.contains("port"));
+    }
+
+    #[test]
+    fn protocol_required_fields_ok() {
+        let mut checker = ProtocolGrammarChecker::new("idle".into());
+        checker.add_required_fields("CONNECT".into(), vec!["host".into()]);
+        let errors = checker.check_required_fields("CONNECT", &["host", "port"], &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn protocol_multi_state() {
+        let mut checker = ProtocolGrammarChecker::new("idle".into());
+        checker.add_state("connected".into());
+        checker.add_state("ready".into());
+        checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
+        checker.add_transition("connected".into(), "ready".into(), "AUTH".into());
+        checker.add_transition("ready".into(), "idle".into(), "CLOSE".into());
+
+        assert!(checker.transition("CONNECT", &(0..1)).is_none());
+        assert_eq!(checker.current_state(), "connected");
+        assert!(checker.transition("AUTH", &(0..1)).is_none());
+        assert_eq!(checker.current_state(), "ready");
+        assert!(checker.transition("CLOSE", &(0..1)).is_none());
+        assert_eq!(checker.current_state(), "idle");
+    }
+
+    // =======================================================================
+    // T077: AxiomaticDefChecker tests
+    // =======================================================================
+
+    #[test]
+    fn axiom_undefined_reference() {
+        let mut checker = AxiomaticDefChecker::new();
+        checker.declare_axiom(AxiomDef {
+            name: "ax1".into(),
+            params: vec!["x".into()],
+            body: "foo(x) > 0".into(),
+            span: 0..1,
+            references: vec!["foo".into()],
+        });
+        let errors = checker.check_references(&[]);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A31001");
+    }
+
+    #[test]
+    fn axiom_known_reference_ok() {
+        let mut checker = AxiomaticDefChecker::new();
+        checker.declare_axiom(AxiomDef {
+            name: "ax1".into(),
+            params: vec![],
+            body: "foo(x) > 0".into(),
+            span: 0..1,
+            references: vec!["foo".into()],
+        });
+        assert!(checker.check_references(&["foo"]).is_empty());
+    }
+
+    #[test]
+    fn axiom_unused() {
+        let mut checker = AxiomaticDefChecker::new();
+        checker.declare_axiom(AxiomDef {
+            name: "unused_ax".into(),
+            params: vec![],
+            body: "true".into(),
+            span: 0..1,
+            references: vec![],
+        });
+        let errors = checker.check_unused();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A31003");
+    }
+
+    #[test]
+    fn axiom_used_ok() {
+        let mut checker = AxiomaticDefChecker::new();
+        checker.declare_axiom(AxiomDef {
+            name: "ax1".into(),
+            params: vec![],
+            body: "true".into(),
+            span: 0..1,
+            references: vec![],
+        });
+        checker.mark_used("ax1");
+        assert!(checker.check_unused().is_empty());
+    }
+
+    #[test]
+    fn axiom_circular() {
+        let mut checker = AxiomaticDefChecker::new();
+        checker.declare_axiom(AxiomDef {
+            name: "a".into(),
+            params: vec![],
+            body: "b(x)".into(),
+            span: 0..1,
+            references: vec!["b".into()],
+        });
+        checker.declare_axiom(AxiomDef {
+            name: "b".into(),
+            params: vec![],
+            body: "a(x)".into(),
+            span: 0..1,
+            references: vec!["a".into()],
+        });
+        let errors = checker.check_circular();
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.code == "A31002"));
+    }
+
+    #[test]
+    fn axiom_default() {
+        let checker = AxiomaticDefChecker::default();
+        assert!(checker.check_unused().is_empty());
+    }
+
+    // =======================================================================
+    // T079: OpaqueFunctionChecker tests
+    // =======================================================================
+
+    #[test]
+    fn opaque_call_without_contract() {
+        let mut checker = OpaqueFunctionChecker::new();
+        checker.declare_opaque("secret_fn".into(), false, 0..1);
+        let err = checker.check_call("secret_fn", &(5..6));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A32001");
+    }
+
+    #[test]
+    fn opaque_call_with_contract_ok() {
+        let mut checker = OpaqueFunctionChecker::new();
+        checker.declare_opaque("secret_fn".into(), true, 0..1);
+        assert!(checker.check_call("secret_fn", &(5..6)).is_none());
+    }
+
+    #[test]
+    fn opaque_body_access_without_reveal() {
+        let mut checker = OpaqueFunctionChecker::new();
+        checker.declare_opaque("hidden".into(), true, 0..1);
+        let err = checker.check_body_access("hidden", &(5..6));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A32002");
+    }
+
+    #[test]
+    fn opaque_reveal_outside_proof() {
+        let mut checker = OpaqueFunctionChecker::new();
+        checker.declare_opaque("hidden".into(), true, 0..1);
+        let err = checker.reveal("hidden", &(5..6));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A32003");
+    }
+
+    #[test]
+    fn opaque_reveal_in_proof_ok() {
+        let mut checker = OpaqueFunctionChecker::new();
+        checker.declare_opaque("hidden".into(), true, 0..1);
+        checker.enter_proof();
+        assert!(checker.reveal("hidden", &(5..6)).is_none());
+        // After reveal, body access is allowed
+        assert!(checker.check_body_access("hidden", &(10..11)).is_none());
+    }
+
+    #[test]
+    fn opaque_is_opaque() {
+        let mut checker = OpaqueFunctionChecker::new();
+        assert!(!checker.is_opaque("f"));
+        checker.declare_opaque("f".into(), true, 0..1);
+        assert!(checker.is_opaque("f"));
+    }
+
+    #[test]
+    fn opaque_non_opaque_call_ok() {
+        let checker = OpaqueFunctionChecker::new();
+        assert!(checker.check_call("regular_fn", &(0..1)).is_none());
+    }
+
+    #[test]
+    fn opaque_default() {
+        let checker = OpaqueFunctionChecker::default();
+        assert!(!checker.is_opaque("x"));
+    }
+
+    // =======================================================================
+    // T083: TestGenerator tests
+    // =======================================================================
+
+    #[test]
+    fn test_gen_property_test() {
+        let tgen = TestGenerator::new();
+        let contract = TestableContract {
+            name: "safe_div".into(),
+            params: vec![("a".into(), Type::Int), ("b".into(), Type::Int)],
+            requires: vec!["b != 0".into()],
+            ensures: vec!["result * b + (a % b) == a".into()],
+        };
+        let test = tgen.generate_property_test(&contract);
+        assert_eq!(test.kind, TestKind::Property);
+        assert!(test.body.contains("proptest!"));
+        assert!(test.body.contains("prop_assume!"));
+        assert!(test.body.contains("b != 0"));
+    }
+
+    #[test]
+    fn test_gen_boundary_values() {
+        let tgen = TestGenerator::new();
+        let contract = TestableContract {
+            name: "check".into(),
+            params: vec![("x".into(), Type::U8)],
+            requires: vec![],
+            ensures: vec![],
+        };
+        let tests = tgen.generate_boundary_tests(&contract);
+        assert_eq!(tests.len(), 3); // 0, 1, 255
+        assert!(tests.iter().all(|t| t.kind == TestKind::Boundary));
+    }
+
+    #[test]
+    fn test_gen_smoke_test() {
+        let tgen = TestGenerator::new();
+        let contract = TestableContract {
+            name: "foo".into(),
+            params: vec![],
+            requires: vec![],
+            ensures: vec![],
+        };
+        let test = tgen.generate_smoke_test(&contract);
+        assert_eq!(test.kind, TestKind::Smoke);
+        assert!(test.body.contains("smoke_foo"));
+    }
+
+    #[test]
+    fn test_gen_generate_all() {
+        let mut tgen = TestGenerator::new();
+        tgen.add_contract(TestableContract {
+            name: "add".into(),
+            params: vec![("a".into(), Type::I32), ("b".into(), Type::I32)],
+            requires: vec![],
+            ensures: vec!["result == a + b".into()],
+        });
+        let all = tgen.generate_all();
+        // 1 property + 10 boundary (5 per I32 param * 2) + 1 smoke
+        assert_eq!(all.len(), 12);
+    }
+
+    #[test]
+    fn test_gen_no_requires() {
+        let tgen = TestGenerator::new();
+        let contract = TestableContract {
+            name: "no_pre".into(),
+            params: vec![("x".into(), Type::Bool)],
+            requires: vec![],
+            ensures: vec!["result".into()],
+        };
+        let test = tgen.generate_property_test(&contract);
+        assert!(!test.body.contains("prop_assume!"));
+    }
+
+    #[test]
+    fn test_gen_default() {
+        let tgen = TestGenerator::default();
+        assert!(tgen.generate_all().is_empty());
     }
 }
