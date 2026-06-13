@@ -1687,9 +1687,17 @@ fn bind_pattern_vars(
             // Bind the pattern variable to the scrutinee type
             env.insert(name.clone(), scrutinee_ty.clone());
         }
-        assura_parser::ast::Pattern::Constructor { fields, .. } => {
-            for field in fields {
-                bind_pattern_vars(field, &Type::Unknown, env);
+        assura_parser::ast::Pattern::Constructor { name, fields } => {
+            // Look up the constructor in the environment.  Enum variant
+            // constructors are registered as Fn { params, ret }, so we
+            // can use the param types to type the sub-patterns.
+            let param_types: Vec<Type> = match env.lookup(name) {
+                Some(Type::Fn { params, .. }) => params.clone(),
+                _ => Vec::new(),
+            };
+            for (i, field) in fields.iter().enumerate() {
+                let field_ty = param_types.get(i).cloned().unwrap_or(Type::Unknown);
+                bind_pattern_vars(field, &field_ty, env);
             }
         }
         assura_parser::ast::Pattern::Tuple(pats) => {
@@ -23828,6 +23836,61 @@ fn square(x: Int) -> Int
             ],
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
+    }
+
+    #[test]
+    fn match_constructor_pattern_binds_field_types() {
+        // Register an enum variant constructor: Some(Int) -> Option
+        let mut env = TypeEnv::new();
+        env.insert(
+            "Some".into(),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Named("Option".into())),
+            },
+        );
+        env.insert("val".into(), Type::Named("Option".into()));
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("val".into())),
+            arms: vec![assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Constructor {
+                    name: "Some".into(),
+                    fields: vec![assura_parser::ast::Pattern::Ident("x".into())],
+                },
+                // body uses 'x' which should be Int from Some's first param
+                body: AstExpr::Ident("x".into()),
+            }],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn match_constructor_pattern_multi_field() {
+        // Register a constructor: Pair(Int, Bool) -> Pair
+        let mut env = TypeEnv::new();
+        env.insert(
+            "Pair".into(),
+            Type::Fn {
+                params: vec![Type::Int, Type::Bool],
+                ret: Box::new(Type::Named("PairType".into())),
+            },
+        );
+        env.insert("p".into(), Type::Named("PairType".into()));
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("p".into())),
+            arms: vec![assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Constructor {
+                    name: "Pair".into(),
+                    fields: vec![
+                        assura_parser::ast::Pattern::Ident("a".into()),
+                        assura_parser::ast::Pattern::Ident("b".into()),
+                    ],
+                },
+                // body uses 'b' which should be Bool from Pair's second param
+                body: AstExpr::Ident("b".into()),
+            }],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
     }
 
     #[test]
