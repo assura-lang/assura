@@ -983,14 +983,27 @@ fn extract_input_params(body: &Expr, params: &mut Vec<(String, String)>) {
             }
         }
         Expr::Raw(tokens) => {
-            // Try to parse "name: Type" pairs from raw tokens
+            // Parse "name: Type" pairs, handling multi-token types like List<Int>
             let mut i = 0;
             while i + 2 < tokens.len() {
                 if tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
                     let name = tokens[i].clone();
-                    let ty = map_type_token(&tokens[i + 2]).to_string();
+                    // Collect type tokens until comma at depth 0 or end
+                    let type_start = i + 2;
+                    let mut j = type_start;
+                    let mut depth = 0i32;
+                    while j < tokens.len() {
+                        match tokens[j].as_str() {
+                            "<" => depth += 1,
+                            ">" if depth > 0 => depth -= 1,
+                            "," if depth == 0 => break,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    let ty = map_type_tokens(&tokens[type_start..j]);
                     params.push((name, ty));
-                    i += 3;
+                    i = j;
                     // Skip comma
                     if tokens.get(i).map(|s| s.as_str()) == Some(",") {
                         i += 1;
@@ -1000,16 +1013,23 @@ fn extract_input_params(body: &Expr, params: &mut Vec<(String, String)>) {
                 }
             }
         }
-        _ => {
-            // Single identifier or expression; skip
-        }
+        _ => {}
     }
 }
 
 fn extract_param_from_expr(expr: &Expr, params: &mut Vec<(String, String)>) {
-    // This handles the case where the parser produced `Ident("a")` etc.
-    if let Expr::Ident(name) = expr {
-        params.push((name.clone(), "i64".to_string()));
+    match expr {
+        // Cast: `a as Int` => name="a", type from cast target
+        Expr::Cast { expr: inner, ty } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                params.push((name.clone(), map_type_token(ty).to_string()));
+            }
+        }
+        // Bare identifier with no type annotation: default to i64
+        Expr::Ident(name) => {
+            params.push((name.clone(), "i64".to_string()));
+        }
+        _ => {}
     }
 }
 
@@ -1017,19 +1037,25 @@ fn extract_param_from_expr(expr: &Expr, params: &mut Vec<(String, String)>) {
 fn extract_output_type(body: &Expr) -> String {
     match body {
         Expr::Call { args, .. } => {
-            if args.len() == 1
-                && let Expr::Ident(name) = &args[0]
-            {
-                return map_type_token(name).to_string();
+            // output(result: Int) => parse the cast or ident in args
+            for arg in args {
+                match arg {
+                    Expr::Cast { ty, .. } => return map_type_token(ty).to_string(),
+                    Expr::Ident(name) => return map_type_token(name).to_string(),
+                    _ => {}
+                }
             }
             "()".to_string()
         }
+        Expr::Cast { ty, .. } => map_type_token(ty).to_string(),
         Expr::Ident(name) => map_type_token(name).to_string(),
         Expr::Raw(tokens) => {
             // Look for the type after ":"
             for (i, tok) in tokens.iter().enumerate() {
                 if tok == ":" && i + 1 < tokens.len() {
-                    return map_type_token(&tokens[i + 1]).to_string();
+                    // Collect multi-token types like "List < Int >"
+                    let type_tokens = &tokens[i + 1..];
+                    return map_type_tokens(type_tokens);
                 }
             }
             if tokens.len() == 1 {

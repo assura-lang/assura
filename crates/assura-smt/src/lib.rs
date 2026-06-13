@@ -1274,7 +1274,11 @@ mod z3_backend {
                                 ));
                                 match (&scrut, &pat_val) {
                                     (Z3Value::Int(a), Z3Value::Int(b)) => a._eq(b),
-                                    _ => ast::Bool::from_bool(self.ctx, false),
+                                    // Overapproximate: type mismatch means we
+                                    // cannot compare, so assume the arm could
+                                    // match (sound: may produce spurious
+                                    // counterexamples but never hides real ones)
+                                    _ => ast::Bool::from_bool(self.ctx, true),
                                 }
                             }
                             assura_parser::ast::Pattern::Literal(lit) => {
@@ -1282,7 +1286,17 @@ mod z3_backend {
                                 match (&scrut, &lit_val) {
                                     (Z3Value::Int(a), Z3Value::Int(b)) => a._eq(b),
                                     (Z3Value::Bool(a), Z3Value::Bool(b)) => a._eq(b),
-                                    _ => ast::Bool::from_bool(self.ctx, false),
+                                    (Z3Value::Real(a), Z3Value::Real(b)) => a._eq(b),
+                                    // Cross-sort: promote Int to Real
+                                    (Z3Value::Int(a), Z3Value::Real(b)) => {
+                                        ast::Real::from_int(a)._eq(b)
+                                    }
+                                    (Z3Value::Real(a), Z3Value::Int(b)) => {
+                                        a._eq(&ast::Real::from_int(b))
+                                    }
+                                    // Overapproximate: unresolvable type
+                                    // mismatch, assume arm could match
+                                    _ => ast::Bool::from_bool(self.ctx, true),
                                 }
                             }
                             // Constructor and Tuple patterns bind variables
