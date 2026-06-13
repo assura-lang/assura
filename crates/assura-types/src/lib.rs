@@ -936,14 +936,22 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             }
             // Built-in field resolution on known types
             match &recv_ty {
-                // Collections: len/length/size/capacity -> Nat
-                Type::List(_) | Type::Sequence(_) | Type::Bytes | Type::String => {
-                    match field.as_str() {
-                        "len" | "length" | "size" | "capacity" => return Ok(Type::Nat),
-                        "is_empty" => return Ok(Type::Bool),
-                        _ => {}
+                // List/Sequence: len/length/size -> Nat, head/first/last -> Option<T>
+                Type::List(elem) | Type::Sequence(elem) => match field.as_str() {
+                    "len" | "length" | "size" | "capacity" => return Ok(Type::Nat),
+                    "is_empty" => return Ok(Type::Bool),
+                    "head" | "first" | "last" => {
+                        return Ok(Type::Option(elem.clone()));
                     }
-                }
+                    "tail" | "rest" => return Ok(recv_ty),
+                    _ => {}
+                },
+                // String/Bytes: len/length/size -> Nat
+                Type::Bytes | Type::String => match field.as_str() {
+                    "len" | "length" | "size" | "capacity" => return Ok(Type::Nat),
+                    "is_empty" => return Ok(Type::Bool),
+                    _ => {}
+                },
                 // Option<T>: value -> T, is_some/is_none -> Bool
                 Type::Option(inner) => match field.as_str() {
                     "value" | "unwrap" => return Ok(*inner.clone()),
@@ -1077,9 +1085,24 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     _ => {}
                 },
                 Type::Option(inner) => match method.as_str() {
-                    "unwrap" | "unwrap_or" | "expect" => return Ok(*inner.clone()),
+                    "unwrap" | "unwrap_or" | "unwrap_or_default" | "expect" => {
+                        return Ok(*inner.clone());
+                    }
                     "is_some" | "is_none" => return Ok(Type::Bool),
-                    "map" => return Ok(Type::Option(Box::new(Type::Unknown))),
+                    "map" | "and_then" | "or_else" | "filter" => {
+                        return Ok(Type::Option(Box::new(Type::Unknown)));
+                    }
+                    "flatten" => {
+                        // Option<Option<T>>.flatten() => Option<T>
+                        if let Type::Option(inner2) = inner.as_ref() {
+                            return Ok(Type::Option(inner2.clone()));
+                        }
+                        return Ok(Type::Option(Box::new(Type::Unknown)));
+                    }
+                    "ok_or" | "ok_or_else" => {
+                        return Ok(Type::Result(inner.clone(), Box::new(Type::Unknown)));
+                    }
+                    "zip" => return Ok(Type::Option(Box::new(Type::Unknown))),
                     _ => {}
                 },
                 Type::Bytes => match method.as_str() {
@@ -1088,15 +1111,20 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     "slice" => return Ok(Type::Bytes),
                     _ => {}
                 },
-                Type::Result(ok_ty, _) => match method.as_str() {
-                    "unwrap" | "unwrap_or" | "expect" => return Ok(*ok_ty.clone()),
-                    "is_ok" | "is_err" => return Ok(Type::Bool),
-                    "map" => {
-                        return Ok(Type::Result(
-                            Box::new(Type::Unknown),
-                            Box::new(Type::Unknown),
-                        ));
+                Type::Result(ok_ty, err_ty) => match method.as_str() {
+                    "unwrap" | "unwrap_or" | "unwrap_or_default" | "expect" => {
+                        return Ok(*ok_ty.clone());
                     }
+                    "unwrap_err" | "expect_err" => return Ok(*err_ty.clone()),
+                    "is_ok" | "is_err" => return Ok(Type::Bool),
+                    "map" | "and_then" => {
+                        return Ok(Type::Result(Box::new(Type::Unknown), err_ty.clone()));
+                    }
+                    "map_err" | "or_else" => {
+                        return Ok(Type::Result(ok_ty.clone(), Box::new(Type::Unknown)));
+                    }
+                    "ok" => return Ok(Type::Option(ok_ty.clone())),
+                    "err" => return Ok(Type::Option(err_ty.clone())),
                     _ => {}
                 },
                 _ => {}
@@ -23629,6 +23657,132 @@ fn square(x: Int) -> Int
             &Type::Tuple(vec![Type::Nat]),
             &Type::Tuple(vec![Type::Int])
         ));
+    }
+
+    #[test]
+    fn list_field_head_returns_option() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "head".into());
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn list_field_tail_returns_list() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "tail".into());
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn option_flatten_reduces_nesting() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "x".into(),
+            Type::Option(Box::new(Type::Option(Box::new(Type::Int)))),
+        );
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("x".into())),
+            method: "flatten".into(),
+            args: vec![],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn option_ok_or_returns_result() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Option(Box::new(Type::Int)));
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("x".into())),
+            method: "ok_or".into(),
+            args: vec![AstExpr::Literal(AstLit::Str("err".into()))],
+        };
+        let ty = infer_expr(&expr, &env).unwrap();
+        match ty {
+            Type::Result(ok, _) => assert_eq!(*ok, Type::Int),
+            other => panic!("expected Result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn result_map_err_preserves_ok_type() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "r".into(),
+            Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+        );
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("r".into())),
+            method: "map_err".into(),
+            args: vec![],
+        };
+        let ty = infer_expr(&expr, &env).unwrap();
+        match ty {
+            Type::Result(ok, _) => assert_eq!(*ok, Type::Int),
+            other => panic!("expected Result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn result_ok_returns_option() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "r".into(),
+            Type::Result(Box::new(Type::Nat), Box::new(Type::String)),
+        );
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("r".into())),
+            method: "ok".into(),
+            args: vec![],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::Nat))
+        );
+    }
+
+    #[test]
+    fn result_err_returns_option() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "r".into(),
+            Type::Result(Box::new(Type::Nat), Box::new(Type::String)),
+        );
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("r".into())),
+            method: "err".into(),
+            args: vec![],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::String))
+        );
+    }
+
+    #[test]
+    fn result_unwrap_err_returns_error_type() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "r".into(),
+            Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+        );
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("r".into())),
+            method: "unwrap_err".into(),
+            args: vec![],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
     }
 
     #[test]
