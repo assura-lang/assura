@@ -172,14 +172,14 @@
   - Emit A03001 (type mismatch), A03002 (argument count mismatch)
   - Spec reference: Sections 2.1-2.2
 
-- [ ] **T015**: Implement generic type instantiation
+- [x] **T015**: Implement generic type instantiation
   - Depends on: T014
   - Check `List<Int>`, `Map<String, Int>`, `Option<Bool>`, etc.
   - Verify type argument count matches type parameter count
   - Substitute type parameters in the body
   - Emit A03003 (wrong number of type arguments)
 
-- [ ] **T016**: Implement field access and function call type checking
+- [x] **T016**: Implement field access and function call type checking
   - Depends on: T014
   - Field access `x.field`: look up field in struct type, return field type
   - Function call `f(args)`: check argument types against parameter types,
@@ -187,7 +187,7 @@
   - Method-style calls on services: `service.operation(args)`
   - Emit A03004 (unknown field), A03005 (not callable)
 
-- [ ] **T017**: Implement pattern exhaustiveness checking
+- [x] **T017**: Implement pattern exhaustiveness checking
   - Depends on: T014
   - For match expressions over enum types:
     - Build a pattern matrix (Maranget's algorithm)
@@ -195,7 +195,7 @@
     - Report A10001 (non-exhaustive match) with missing variants
   - Spec reference: Section 2.9
 
-- [ ] **T018**: Implement contract clause type checking
+- [x] **T018**: Implement contract clause type checking
   - Depends on: T014
   - `requires` and `ensures` clauses must be Bool-typed expressions
   - `input` clause: declare parameter names and types
