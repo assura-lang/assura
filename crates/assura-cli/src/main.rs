@@ -59,14 +59,20 @@ fn main() {
         .filter(|a| !a.starts_with('-'))
         .collect();
 
-    // Detect subcommands: `assura check <file>` or `assura build <file>`
+    // Detect subcommands
     let is_check = non_flag_args.first().is_some_and(|a| a.as_str() == "check");
     let is_build = non_flag_args.first().is_some_and(|a| a.as_str() == "build");
+    let is_init = non_flag_args.first().is_some_and(|a| a.as_str() == "init");
+    let is_explain = non_flag_args.first().is_some_and(|a| a.as_str() == "explain");
 
     if is_check {
         run_check(&args);
     } else if is_build {
         run_build(&args);
+    } else if is_init {
+        run_init(&args);
+    } else if is_explain {
+        run_explain(&args);
     } else {
         run_legacy(&args);
     }
@@ -470,6 +476,72 @@ fn run_build(args: &[String]) {
 }
 
 // ---------------------------------------------------------------------------
+// `assura init <project-name>` — scaffold a new Assura project
+// ---------------------------------------------------------------------------
+
+fn run_init(args: &[String]) {
+    let project_name = args
+        .iter()
+        .skip(1) // skip binary name
+        .filter(|a| !a.starts_with('-'))
+        .nth(1) // skip "init" itself
+        .unwrap_or_else(|| {
+            eprintln!("Usage: assura init <project-name>");
+            process::exit(2);
+        });
+
+    let project_dir = Path::new(project_name);
+
+    if project_dir.exists() {
+        eprintln!("Error: directory '{project_name}' already exists");
+        process::exit(1);
+    }
+
+    // Create project directory and contracts subdirectory
+    let contracts_dir = project_dir.join("contracts");
+    fs::create_dir_all(&contracts_dir).unwrap_or_else(|e| {
+        eprintln!("Error: cannot create directory: {e}");
+        process::exit(1);
+    });
+
+    // Write assura.toml
+    let toml_content = format!(
+        r#"[project]
+name = "{project_name}"
+version = "0.1.0"
+edition = "2024"
+
+[profile]
+features = ["core"]
+"#
+    );
+    let toml_path = project_dir.join("assura.toml");
+    fs::write(&toml_path, &toml_content).unwrap_or_else(|e| {
+        eprintln!("Error: cannot write {}: {e}", toml_path.display());
+        process::exit(1);
+    });
+
+    // Write starter contract
+    let contract_content = r#"// SafeDivision: ensures division by zero is impossible
+contract SafeDivision {
+    requires: b != 0
+    ensures: result * b + (a % b) == a
+    effects: pure
+}
+"#;
+    let contract_path = contracts_dir.join("lib.assura");
+    fs::write(&contract_path, contract_content).unwrap_or_else(|e| {
+        eprintln!("Error: cannot write {}: {e}", contract_path.display());
+        process::exit(1);
+    });
+
+    // Report what was created
+    println!("Created new Assura project '{project_name}':");
+    println!("  {}", toml_path.display());
+    println!("  {}", contract_path.display());
+}
+
+// ---------------------------------------------------------------------------
 // Legacy mode: `assura [--ast|--tokens] <file>`
 // ---------------------------------------------------------------------------
 
@@ -485,6 +557,7 @@ fn run_legacy(args: &[String]) {
             eprintln!("Usage: assura [--ast|--tokens] <file.assura>");
             eprintln!("       assura check <file.assura> [--json|--human]");
             eprintln!("       assura build <file.assura>");
+            eprintln!("       assura init <project-name>");
             process::exit(2);
         });
 
