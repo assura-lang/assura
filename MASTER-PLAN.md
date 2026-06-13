@@ -734,41 +734,41 @@
 
 ### 3.1 STOR Features (6 weeks, parallelizable)
 
-- [ ] **T086**: STOR.1 Crash recovery contracts
+- [x] **T086**: STOR.1 Crash recovery contracts
   - Depends on: T034, T041
 
-- [ ] **T087**: STOR.2 Page cache contracts
+- [x] **T087**: STOR.2 Page cache contracts
   - Depends on: T034, T041
 
-- [ ] **T088**: STOR.3 MVCC / snapshot isolation
+- [x] **T088**: STOR.3 MVCC / snapshot isolation
   - Depends on: T041
 
-- [ ] **T089**: STOR.4 Transactional rollback
+- [x] **T089**: STOR.4 Transactional rollback
   - Depends on: T034
 
-- [ ] **T090**: STOR.5 Monotonic state
+- [x] **T090**: STOR.5 Monotonic state
   - Depends on: T043, T041
 
-- [ ] **T091**: STOR.6 Storage failure model
+- [x] **T091**: STOR.6 Storage failure model
   - Depends on: T041
 
 ### 3.2 Advanced Verification (8 weeks)
 
 > These are the hardest features. Each needs dedicated focus.
 
-- [ ] **T092**: CONC.6 Weak memory ordering
+- [x] **T092**: CONC.6 Weak memory ordering
   - Depends on: T065, T076
   - Per-thread ghost views (GPS/RSL approach)
   - Model all 5 C++ memory orderings
   - Effort: 3 weeks. Budget for dead ends.
 
-- [ ] **T093**: CORE.7 Prophecy variables
+- [x] **T093**: CORE.7 Prophecy variables
   - Depends on: T043, T076
   - Ghost state with deferred resolution
   - SMT encoding uses Skolemization
   - Effort: 2 weeks
 
-- [ ] **T094**: CORE.8 Liveness contracts
+- [x] **T094**: CORE.8 Liveness contracts
   - Depends on: T076
   - `eventually`, `leads_to`, `eventually_within`
   - BMC with lasso detection (Layer 2)
@@ -778,27 +778,27 @@
 
 ### 3.3 Remaining Features (6 weeks, parallelizable)
 
-- [ ] **T095**: NUM.1 Numerical precision
+- [x] **T095**: NUM.1 Numerical precision
   - Depends on: T041
-- [ ] **T096**: NUM.2 Precomputed table verification
+- [x] **T096**: NUM.2 Precomputed table verification
   - Depends on: T041
-- [ ] **T097**: PLAT.1 Platform abstraction
+- [x] **T097**: PLAT.1 Platform abstraction
   - Depends on: T041
-- [ ] **T098**: PLAT.2 Feature flags
+- [x] **T098**: PLAT.2 Feature flags
   - Depends on: T041
-- [ ] **T099**: PLAT.3 Resource limits
+- [x] **T099**: PLAT.3 Resource limits
   - Depends on: T041
-- [ ] **T100**: PERF.1 Unsafe escape with proof
+- [x] **T100**: PERF.1 Unsafe escape with proof
   - Depends on: T041
-- [ ] **T101**: PERF.2 Complexity bounds (AARA)
+- [x] **T101**: PERF.2 Complexity bounds (AARA)
   - Depends on: T076
-- [ ] **T102**: TEST.2 Behavioral equivalence
+- [x] **T102**: TEST.2 Behavioral equivalence
   - Depends on: T041
-- [ ] **T103**: TEST.3 Multi-pass refinement
+- [x] **T103**: TEST.3 Multi-pass refinement
   - Depends on: T041
-- [ ] **T104**: MISC.1 Incremental contracts
+- [x] **T104**: MISC.1 Incremental contracts
   - Depends on: T034
-- [ ] **T105**: MISC.2 Scoped invariant suspension
+- [x] **T105**: MISC.2 Scoped invariant suspension
   - Depends on: T041
 
 ### 3.4 AI Agent API (2 weeks)

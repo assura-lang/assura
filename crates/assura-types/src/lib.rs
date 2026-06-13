@@ -7928,6 +7928,1122 @@ impl Default for TestGenerator {
 
 // ---------------------------------------------------------------------------
 
+// ===========================================================================
+// T086: STOR.1 Crash recovery contracts
+// ===========================================================================
+
+/// Tracks write-ahead log (WAL) discipline and crash-safe commit sequences.
+#[derive(Debug, Clone)]
+pub struct CrashRecoveryChecker {
+    wal_entries: Vec<WalEntry>,
+    committed: Vec<std::string::String>,
+    fsynced: Vec<std::string::String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WalEntry {
+    pub id: std::string::String,
+    pub data_written: bool,
+    pub wal_written: bool,
+    pub fsynced: bool,
+}
+
+impl CrashRecoveryChecker {
+    pub fn new() -> Self {
+        Self { wal_entries: Vec::new(), committed: Vec::new(), fsynced: Vec::new() }
+    }
+
+    pub fn begin_write(&mut self, id: std::string::String) {
+        self.wal_entries.push(WalEntry { id, data_written: false, wal_written: false, fsynced: false });
+    }
+
+    pub fn write_wal(&mut self, id: &str) {
+        if let Some(e) = self.wal_entries.iter_mut().find(|e| e.id == id) {
+            e.wal_written = true;
+        }
+    }
+
+    pub fn write_data(&mut self, id: &str) {
+        if let Some(e) = self.wal_entries.iter_mut().find(|e| e.id == id) {
+            e.data_written = true;
+        }
+    }
+
+    pub fn fsync(&mut self, id: &str) {
+        if let Some(e) = self.wal_entries.iter_mut().find(|e| e.id == id) {
+            e.fsynced = true;
+        }
+        self.fsynced.push(id.to_string());
+    }
+
+    pub fn commit(&mut self, id: &str) {
+        self.committed.push(id.to_string());
+    }
+
+    pub fn check_write_ahead(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for e in &self.wal_entries {
+            if e.data_written && !e.wal_written {
+                errors.push(TypeError {
+                    code: "A33001".into(),
+                    message: format!("data write for `{}` without preceding WAL entry", e.id),
+                    span: 0..1,
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    pub fn check_commit_durability(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for id in &self.committed {
+            if !self.fsynced.contains(id) {
+                errors.push(TypeError {
+                    code: "A33002".into(),
+                    message: format!("commit for `{id}` without fsync"),
+                    span: 0..1,
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    pub fn check_ordering(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for e in &self.wal_entries {
+            if e.fsynced && !e.data_written {
+                errors.push(TypeError {
+                    code: "A33003".into(),
+                    message: format!("fsync for `{}` before data write", e.id),
+                    span: 0..1,
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+
+    pub fn check_all(&self) -> Vec<TypeError> {
+        let mut errs = self.check_write_ahead();
+        errs.extend(self.check_commit_durability());
+        errs.extend(self.check_ordering());
+        errs
+    }
+}
+
+impl Default for CrashRecoveryChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T087: STOR.2 Page cache contracts
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct PageCacheChecker {
+    pages: std::collections::HashMap<u64, PageInfo>,
+    capacity: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct PageInfo {
+    pub page_id: u64,
+    pub dirty: bool,
+    pub pinned: bool,
+    pub pin_count: u32,
+}
+
+impl PageCacheChecker {
+    pub fn new(capacity: usize) -> Self {
+        Self { pages: std::collections::HashMap::new(), capacity }
+    }
+
+    pub fn load_page(&mut self, page_id: u64) {
+        self.pages.insert(page_id, PageInfo { page_id, dirty: false, pinned: false, pin_count: 0 });
+    }
+
+    pub fn pin(&mut self, page_id: u64) {
+        if let Some(p) = self.pages.get_mut(&page_id) { p.pinned = true; p.pin_count += 1; }
+    }
+
+    pub fn unpin(&mut self, page_id: u64) {
+        if let Some(p) = self.pages.get_mut(&page_id) {
+            if p.pin_count > 0 { p.pin_count -= 1; }
+            if p.pin_count == 0 { p.pinned = false; }
+        }
+    }
+
+    pub fn mark_dirty(&mut self, page_id: u64) {
+        if let Some(p) = self.pages.get_mut(&page_id) { p.dirty = true; }
+    }
+
+    pub fn flush(&mut self, page_id: u64) {
+        if let Some(p) = self.pages.get_mut(&page_id) { p.dirty = false; }
+    }
+
+    pub fn evict(&mut self, page_id: u64) -> Option<TypeError> {
+        if let Some(p) = self.pages.get(&page_id) {
+            if p.pinned {
+                return Some(TypeError { code: "A34001".into(), message: format!("cannot evict pinned page {page_id}"), span: 0..1, secondary: None });
+            }
+            if p.dirty {
+                return Some(TypeError { code: "A34002".into(), message: format!("evicting dirty page {page_id} without flush"), span: 0..1, secondary: None });
+            }
+        }
+        self.pages.remove(&page_id);
+        None
+    }
+
+    pub fn check_capacity(&self) -> Vec<TypeError> {
+        if self.pages.len() > self.capacity {
+            vec![TypeError { code: "A34003".into(), message: format!("page cache size {} exceeds capacity {}", self.pages.len(), self.capacity), span: 0..1, secondary: None }]
+        } else { vec![] }
+    }
+
+    pub fn page_count(&self) -> usize { self.pages.len() }
+}
+
+impl Default for PageCacheChecker {
+    fn default() -> Self { Self::new(1024) }
+}
+
+// ===========================================================================
+// T088: STOR.3 MVCC / snapshot isolation
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct MvccChecker {
+    versions: std::collections::HashMap<std::string::String, Vec<MvccVersion>>,
+    active_snapshots: Vec<u64>,
+    next_txn_id: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct MvccVersion {
+    pub txn_id: u64,
+    pub committed: bool,
+}
+
+impl MvccChecker {
+    pub fn new() -> Self {
+        Self { versions: std::collections::HashMap::new(), active_snapshots: Vec::new(), next_txn_id: 1 }
+    }
+
+    pub fn begin_txn(&mut self) -> u64 {
+        let id = self.next_txn_id; self.next_txn_id += 1; self.active_snapshots.push(id); id
+    }
+
+    pub fn write_version(&mut self, key: std::string::String, txn_id: u64) {
+        self.versions.entry(key).or_default().push(MvccVersion { txn_id, committed: false });
+    }
+
+    pub fn commit_txn(&mut self, txn_id: u64) {
+        self.active_snapshots.retain(|&id| id != txn_id);
+        for versions in self.versions.values_mut() {
+            for v in versions.iter_mut() { if v.txn_id == txn_id { v.committed = true; } }
+        }
+    }
+
+    pub fn check_write_conflicts(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (key, versions) in &self.versions {
+            let uncommitted: Vec<_> = versions.iter().filter(|v| !v.committed).collect();
+            if uncommitted.len() > 1 {
+                errors.push(TypeError { code: "A35001".into(), message: format!("write-write conflict on key `{key}`: {} uncommitted versions", uncommitted.len()), span: 0..1, secondary: None });
+            }
+        }
+        errors
+    }
+
+    pub fn check_snapshot_read(&self, key: &str, reader_txn: u64) -> Option<TypeError> {
+        if let Some(versions) = self.versions.get(key) {
+            for v in versions {
+                if v.txn_id != reader_txn && !v.committed && self.active_snapshots.contains(&v.txn_id) {
+                    return Some(TypeError { code: "A35002".into(), message: format!("snapshot isolation violation: txn {reader_txn} reads uncommitted from txn {} on `{key}`", v.txn_id), span: 0..1, secondary: None });
+                }
+            }
+        }
+        None
+    }
+
+    pub fn check_phantom(&self, txn_id: u64) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (key, versions) in &self.versions {
+            for v in versions {
+                if v.txn_id > txn_id && v.committed {
+                    errors.push(TypeError { code: "A35003".into(), message: format!("phantom read: txn {txn_id} sees committed version from later txn {} on `{key}`", v.txn_id), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+}
+
+impl Default for MvccChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T089: STOR.4 Transactional rollback
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct RollbackChecker {
+    savepoints: Vec<std::string::String>,
+    resources_acquired: Vec<std::string::String>,
+    rolled_back: bool,
+}
+
+impl RollbackChecker {
+    pub fn new() -> Self {
+        Self { savepoints: Vec::new(), resources_acquired: Vec::new(), rolled_back: false }
+    }
+
+    pub fn create_savepoint(&mut self, name: std::string::String) { self.savepoints.push(name); }
+
+    pub fn acquire_resource(&mut self, name: std::string::String) { self.resources_acquired.push(name); }
+
+    pub fn release_resource(&mut self, name: &str) { self.resources_acquired.retain(|r| r != name); }
+
+    pub fn rollback_to(&mut self, savepoint: &str) -> Option<TypeError> {
+        if !self.savepoints.contains(&savepoint.to_string()) {
+            return Some(TypeError { code: "A36001".into(), message: format!("rollback to unknown savepoint `{savepoint}`"), span: 0..1, secondary: None });
+        }
+        self.rolled_back = true;
+        if let Some(pos) = self.savepoints.iter().position(|s| s == savepoint) { self.savepoints.truncate(pos + 1); }
+        None
+    }
+
+    pub fn check_resource_leak(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        if self.rolled_back {
+            for r in &self.resources_acquired {
+                errors.push(TypeError { code: "A36002".into(), message: format!("resource `{r}` not released after rollback"), span: 0..1, secondary: None });
+            }
+        }
+        errors
+    }
+
+    pub fn check_savepoint_nesting(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for sp in &self.savepoints {
+            if !seen.insert(sp.clone()) {
+                errors.push(TypeError { code: "A36003".into(), message: format!("duplicate savepoint name `{sp}`"), span: 0..1, secondary: None });
+            }
+        }
+        errors
+    }
+}
+
+impl Default for RollbackChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T090: STOR.5 Monotonic state
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct MonotonicStateChecker {
+    monotonic_vars: std::collections::HashMap<std::string::String, MonotonicInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MonotonicInfo {
+    pub current_value: i64,
+    pub direction: MonotonicDirection,
+    pub span: std::ops::Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MonotonicDirection {
+    Increasing,
+    StrictlyIncreasing,
+    Decreasing,
+}
+
+impl MonotonicStateChecker {
+    pub fn new() -> Self { Self { monotonic_vars: std::collections::HashMap::new() } }
+
+    pub fn declare(&mut self, name: std::string::String, direction: MonotonicDirection, initial: i64, span: std::ops::Range<usize>) {
+        self.monotonic_vars.insert(name, MonotonicInfo { current_value: initial, direction, span });
+    }
+
+    pub fn update(&mut self, name: &str, new_value: i64) -> Option<TypeError> {
+        if let Some(info) = self.monotonic_vars.get_mut(name) {
+            let violation = match info.direction {
+                MonotonicDirection::Increasing => new_value < info.current_value,
+                MonotonicDirection::StrictlyIncreasing => new_value <= info.current_value,
+                MonotonicDirection::Decreasing => new_value > info.current_value,
+            };
+            if violation {
+                return Some(TypeError { code: "A37001".into(), message: format!("monotonicity violation: `{name}` changed from {} to {new_value}", info.current_value), span: info.span.clone(), secondary: None });
+            }
+            info.current_value = new_value;
+        }
+        None
+    }
+
+    pub fn check_reset(&self, name: &str) -> Option<TypeError> {
+        if self.monotonic_vars.contains_key(name) {
+            Some(TypeError { code: "A37002".into(), message: format!("illegal reset of monotonic variable `{name}`"), span: 0..1, secondary: None })
+        } else { None }
+    }
+
+    pub fn check_access(&self, name: &str) -> Option<TypeError> {
+        if !self.monotonic_vars.contains_key(name) {
+            Some(TypeError { code: "A37003".into(), message: format!("access to undeclared monotonic variable `{name}`"), span: 0..1, secondary: None })
+        } else { None }
+    }
+
+    pub fn current_value(&self, name: &str) -> Option<i64> { self.monotonic_vars.get(name).map(|i| i.current_value) }
+}
+
+impl Default for MonotonicStateChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T091: STOR.6 Storage failure model
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct StorageFailureChecker {
+    failure_modes: Vec<FailureMode>,
+    handled_modes: Vec<std::string::String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FailureMode {
+    PartialWrite,
+    TornPage,
+    BitRot,
+    DiskFull,
+    IoTimeout,
+}
+
+impl FailureMode {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::PartialWrite => "partial_write", Self::TornPage => "torn_page",
+            Self::BitRot => "bit_rot", Self::DiskFull => "disk_full", Self::IoTimeout => "io_timeout",
+        }
+    }
+}
+
+impl StorageFailureChecker {
+    pub fn new() -> Self { Self { failure_modes: Vec::new(), handled_modes: Vec::new() } }
+
+    pub fn declare_failure_mode(&mut self, mode: FailureMode) { self.failure_modes.push(mode); }
+
+    pub fn mark_handled(&mut self, mode_name: &str) {
+        if !self.handled_modes.contains(&mode_name.to_string()) { self.handled_modes.push(mode_name.to_string()); }
+    }
+
+    pub fn check_unhandled(&self) -> Vec<TypeError> {
+        self.failure_modes.iter().filter(|m| !self.handled_modes.contains(&m.name().to_string()))
+            .map(|m| TypeError { code: "A38001".into(), message: format!("storage failure mode `{}` has no handler", m.name()), span: 0..1, secondary: None })
+            .collect()
+    }
+
+    pub fn check_spurious_handlers(&self) -> Vec<TypeError> {
+        let declared: Vec<_> = self.failure_modes.iter().map(|m| m.name().to_string()).collect();
+        self.handled_modes.iter().filter(|h| !declared.contains(h))
+            .map(|h| TypeError { code: "A38002".into(), message: format!("handler for undeclared failure mode `{h}`"), span: 0..1, secondary: None })
+            .collect()
+    }
+
+    pub fn check_critical_coverage(&self) -> Vec<TypeError> {
+        let critical = [FailureMode::PartialWrite, FailureMode::TornPage];
+        critical.iter().filter(|m| self.failure_modes.contains(m) && !self.handled_modes.contains(&m.name().to_string()))
+            .map(|m| TypeError { code: "A38003".into(), message: format!("critical failure mode `{}` must have a handler", m.name()), span: 0..1, secondary: None })
+            .collect()
+    }
+
+    pub fn failure_count(&self) -> usize { self.failure_modes.len() }
+}
+
+impl Default for StorageFailureChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T095: NUM.1 Numerical precision
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct NumericalPrecisionChecker {
+    variables: std::collections::HashMap<std::string::String, PrecisionInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PrecisionInfo {
+    pub bits: u32,
+    pub min_ulp: f64,
+    pub span: std::ops::Range<usize>,
+}
+
+impl NumericalPrecisionChecker {
+    pub fn new() -> Self { Self { variables: std::collections::HashMap::new() } }
+
+    pub fn declare(&mut self, name: std::string::String, bits: u32, min_ulp: f64, span: std::ops::Range<usize>) {
+        self.variables.insert(name, PrecisionInfo { bits, min_ulp, span });
+    }
+
+    pub fn check_precision_loss(&self, name: &str, result_bits: u32) -> Option<TypeError> {
+        if let Some(info) = self.variables.get(name) {
+            if result_bits < info.bits {
+                return Some(TypeError { code: "A42001".into(), message: format!("precision loss: `{name}` requires {}-bit but operation produces {result_bits}-bit", info.bits), span: info.span.clone(), secondary: None });
+            }
+        }
+        None
+    }
+
+    pub fn check_ulp_bound(&self, name: &str, actual_ulp: f64) -> Option<TypeError> {
+        if let Some(info) = self.variables.get(name) {
+            if actual_ulp > info.min_ulp {
+                return Some(TypeError { code: "A42002".into(), message: format!("ULP violation: `{name}` requires ULP <= {} but got {actual_ulp}", info.min_ulp), span: info.span.clone(), secondary: None });
+            }
+        }
+        None
+    }
+
+    pub fn check_cancellation(&self, name: &str, operand_ratio: f64) -> Option<TypeError> {
+        if operand_ratio > 0.999 {
+            if let Some(info) = self.variables.get(name) {
+                return Some(TypeError { code: "A42003".into(), message: format!("potential catastrophic cancellation in `{name}` (operand ratio: {operand_ratio})"), span: info.span.clone(), secondary: None });
+            }
+        }
+        None
+    }
+}
+
+impl Default for NumericalPrecisionChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T096: NUM.2 Precomputed table verification
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct PrecomputedTableChecker {
+    tables: Vec<TableDecl>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TableDecl {
+    pub name: std::string::String,
+    pub size: usize,
+    pub verified_entries: usize,
+    pub generator_fn: std::string::String,
+    pub span: std::ops::Range<usize>,
+}
+
+impl PrecomputedTableChecker {
+    pub fn new() -> Self { Self { tables: Vec::new() } }
+
+    pub fn declare_table(&mut self, name: std::string::String, size: usize, generator_fn: std::string::String, span: std::ops::Range<usize>) {
+        self.tables.push(TableDecl { name, size, verified_entries: 0, generator_fn, span });
+    }
+
+    pub fn mark_entries_verified(&mut self, name: &str, count: usize) {
+        if let Some(t) = self.tables.iter_mut().find(|t| t.name == name) { t.verified_entries = count; }
+    }
+
+    pub fn check_coverage(&self) -> Vec<TypeError> {
+        self.tables.iter().filter(|t| t.verified_entries < t.size)
+            .map(|t| TypeError { code: "A43001".into(), message: format!("table `{}` has only {}/{} entries verified", t.name, t.verified_entries, t.size), span: t.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn check_generator(&self) -> Vec<TypeError> {
+        self.tables.iter().filter(|t| t.generator_fn.is_empty())
+            .map(|t| TypeError { code: "A43002".into(), message: format!("table `{}` has no generator function", t.name), span: t.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn check_non_empty(&self) -> Vec<TypeError> {
+        self.tables.iter().filter(|t| t.size == 0)
+            .map(|t| TypeError { code: "A43003".into(), message: format!("table `{}` has zero size", t.name), span: t.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn table_count(&self) -> usize { self.tables.len() }
+}
+
+impl Default for PrecomputedTableChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T097: PLAT.1 Platform abstraction
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct PlatformAbstractionChecker {
+    platforms: Vec<std::string::String>,
+    abstractions: std::collections::HashMap<std::string::String, Vec<std::string::String>>,
+}
+
+impl PlatformAbstractionChecker {
+    pub fn new() -> Self { Self { platforms: Vec::new(), abstractions: std::collections::HashMap::new() } }
+
+    pub fn add_platform(&mut self, name: std::string::String) {
+        if !self.platforms.contains(&name) { self.platforms.push(name); }
+    }
+
+    pub fn declare_abstraction(&mut self, name: std::string::String, supported: Vec<std::string::String>) {
+        self.abstractions.insert(name, supported);
+    }
+
+    pub fn check_coverage(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, supported) in &self.abstractions {
+            for platform in &self.platforms {
+                if !supported.contains(platform) {
+                    errors.push(TypeError { code: "A44001".into(), message: format!("abstraction `{name}` missing impl for platform `{platform}`"), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_direct_platform_use(&self, used_platform: &str) -> Option<TypeError> {
+        if self.platforms.contains(&used_platform.to_string()) {
+            Some(TypeError { code: "A44002".into(), message: format!("direct platform reference `{used_platform}` without abstraction"), span: 0..1, secondary: None })
+        } else { None }
+    }
+
+    pub fn check_unknown_platforms(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, supported) in &self.abstractions {
+            for p in supported {
+                if !self.platforms.contains(p) {
+                    errors.push(TypeError { code: "A44003".into(), message: format!("abstraction `{name}` references unknown platform `{p}`"), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+}
+
+impl Default for PlatformAbstractionChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T098: PLAT.2 Feature flags
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct FeatureFlagChecker {
+    flags: std::collections::HashMap<std::string::String, FeatureFlagInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FeatureFlagInfo {
+    pub name: std::string::String,
+    pub default_enabled: bool,
+    pub used: bool,
+    pub conflicts_with: Vec<std::string::String>,
+}
+
+impl FeatureFlagChecker {
+    pub fn new() -> Self { Self { flags: std::collections::HashMap::new() } }
+
+    pub fn declare(&mut self, name: std::string::String, default_enabled: bool, conflicts_with: Vec<std::string::String>) {
+        self.flags.insert(name.clone(), FeatureFlagInfo { name, default_enabled, used: false, conflicts_with });
+    }
+
+    pub fn mark_used(&mut self, name: &str) {
+        if let Some(f) = self.flags.get_mut(name) { f.used = true; }
+    }
+
+    pub fn check_unused(&self) -> Vec<TypeError> {
+        self.flags.iter().filter(|(_, i)| !i.used)
+            .map(|(n, _)| TypeError { code: "A45001".into(), message: format!("feature flag `{n}` is declared but never used"), span: 0..1, secondary: None })
+            .collect()
+    }
+
+    pub fn check_conflicts(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, info) in &self.flags {
+            if info.default_enabled {
+                for conflict in &info.conflicts_with {
+                    if let Some(other) = self.flags.get(conflict) {
+                        if other.default_enabled {
+                            errors.push(TypeError { code: "A45002".into(), message: format!("conflicting flags: `{name}` and `{conflict}` both enabled"), span: 0..1, secondary: None });
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_undeclared(&self, flag_name: &str) -> Option<TypeError> {
+        if !self.flags.contains_key(flag_name) {
+            Some(TypeError { code: "A45003".into(), message: format!("reference to undeclared feature flag `{flag_name}`"), span: 0..1, secondary: None })
+        } else { None }
+    }
+}
+
+impl Default for FeatureFlagChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T099: PLAT.3 Resource limits
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct ResourceLimitChecker {
+    limits: std::collections::HashMap<std::string::String, ResourceLimit>,
+    usage: std::collections::HashMap<std::string::String, u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResourceLimit {
+    pub name: std::string::String,
+    pub max_value: u64,
+    pub unit: std::string::String,
+}
+
+impl ResourceLimitChecker {
+    pub fn new() -> Self { Self { limits: std::collections::HashMap::new(), usage: std::collections::HashMap::new() } }
+
+    pub fn declare_limit(&mut self, name: std::string::String, max_value: u64, unit: std::string::String) {
+        self.limits.insert(name.clone(), ResourceLimit { name: name.clone(), max_value, unit });
+        self.usage.insert(name, 0);
+    }
+
+    pub fn record_usage(&mut self, name: &str, amount: u64) {
+        if let Some(u) = self.usage.get_mut(name) { *u += amount; }
+    }
+
+    pub fn release_usage(&mut self, name: &str, amount: u64) {
+        if let Some(u) = self.usage.get_mut(name) { *u = u.saturating_sub(amount); }
+    }
+
+    pub fn check_limits(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, limit) in &self.limits {
+            if let Some(&current) = self.usage.get(name) {
+                if current > limit.max_value {
+                    errors.push(TypeError { code: "A46001".into(), message: format!("resource `{name}` usage {current} exceeds limit {} {}", limit.max_value, limit.unit), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_unbounded(&self, name: &str) -> Option<TypeError> {
+        if !self.limits.contains_key(name) {
+            Some(TypeError { code: "A46002".into(), message: format!("resource `{name}` used without declared limit"), span: 0..1, secondary: None })
+        } else { None }
+    }
+
+    pub fn check_near_limit(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, limit) in &self.limits {
+            if let Some(&current) = self.usage.get(name) {
+                if limit.max_value > 0 && current > limit.max_value * 9 / 10 {
+                    errors.push(TypeError { code: "A46003".into(), message: format!("resource `{name}` at {}% of limit", current * 100 / limit.max_value), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn current_usage(&self, name: &str) -> Option<u64> { self.usage.get(name).copied() }
+}
+
+impl Default for ResourceLimitChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T100: PERF.1 Unsafe escape with proof
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct UnsafeEscapeChecker {
+    unsafe_blocks: Vec<UnsafeBlock>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UnsafeBlock {
+    pub name: std::string::String,
+    pub has_safety_proof: bool,
+    pub proof_obligations: Vec<std::string::String>,
+    pub obligations_discharged: Vec<std::string::String>,
+    pub span: std::ops::Range<usize>,
+}
+
+impl UnsafeEscapeChecker {
+    pub fn new() -> Self { Self { unsafe_blocks: Vec::new() } }
+
+    pub fn declare_unsafe(&mut self, name: std::string::String, obligations: Vec<std::string::String>, span: std::ops::Range<usize>) {
+        self.unsafe_blocks.push(UnsafeBlock { name, has_safety_proof: false, proof_obligations: obligations, obligations_discharged: Vec::new(), span });
+    }
+
+    pub fn attach_proof(&mut self, name: &str) {
+        if let Some(b) = self.unsafe_blocks.iter_mut().find(|b| b.name == name) { b.has_safety_proof = true; }
+    }
+
+    pub fn discharge_obligation(&mut self, block_name: &str, obligation: std::string::String) {
+        if let Some(b) = self.unsafe_blocks.iter_mut().find(|b| b.name == block_name) { b.obligations_discharged.push(obligation); }
+    }
+
+    pub fn check_unproven(&self) -> Vec<TypeError> {
+        self.unsafe_blocks.iter().filter(|b| !b.has_safety_proof)
+            .map(|b| TypeError { code: "A47001".into(), message: format!("unsafe block `{}` has no safety proof", b.name), span: b.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn check_obligations(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for b in &self.unsafe_blocks {
+            for obl in &b.proof_obligations {
+                if !b.obligations_discharged.contains(obl) {
+                    errors.push(TypeError { code: "A47002".into(), message: format!("obligation `{obl}` in unsafe block `{}` not discharged", b.name), span: b.span.clone(), secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_empty_obligations(&self) -> Vec<TypeError> {
+        self.unsafe_blocks.iter().filter(|b| b.proof_obligations.is_empty())
+            .map(|b| TypeError { code: "A47003".into(), message: format!("unsafe block `{}` declares no proof obligations", b.name), span: b.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn unsafe_count(&self) -> usize { self.unsafe_blocks.len() }
+}
+
+impl Default for UnsafeEscapeChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T101: PERF.2 Complexity bounds (AARA)
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct ComplexityBoundChecker {
+    bounds: std::collections::HashMap<std::string::String, ComplexityBound>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComplexityClass {
+    Constant, Logarithmic, Linear, NLogN, Quadratic, Cubic, Exponential,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComplexityBound {
+    pub fn_name: std::string::String,
+    pub declared: ComplexityClass,
+    pub measured: Option<ComplexityClass>,
+    pub span: std::ops::Range<usize>,
+}
+
+impl ComplexityBoundChecker {
+    pub fn new() -> Self { Self { bounds: std::collections::HashMap::new() } }
+
+    pub fn declare_bound(&mut self, fn_name: std::string::String, declared: ComplexityClass, span: std::ops::Range<usize>) {
+        self.bounds.insert(fn_name.clone(), ComplexityBound { fn_name, declared, measured: None, span });
+    }
+
+    pub fn record_measured(&mut self, fn_name: &str, measured: ComplexityClass) {
+        if let Some(b) = self.bounds.get_mut(fn_name) { b.measured = Some(measured); }
+    }
+
+    fn class_rank(c: &ComplexityClass) -> u8 {
+        match c { ComplexityClass::Constant => 0, ComplexityClass::Logarithmic => 1, ComplexityClass::Linear => 2, ComplexityClass::NLogN => 3, ComplexityClass::Quadratic => 4, ComplexityClass::Cubic => 5, ComplexityClass::Exponential => 6 }
+    }
+
+    pub fn check_bounds(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, bound) in &self.bounds {
+            if let Some(ref measured) = bound.measured {
+                if Self::class_rank(measured) > Self::class_rank(&bound.declared) {
+                    errors.push(TypeError { code: "A48001".into(), message: format!("function `{name}` declared as {:?} but measured as {measured:?}", bound.declared), span: bound.span.clone(), secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_unverified(&self) -> Vec<TypeError> {
+        self.bounds.iter().filter(|(_, b)| b.measured.is_none())
+            .map(|(n, b)| TypeError { code: "A48002".into(), message: format!("complexity bound for `{n}` is not verified"), span: b.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn check_expensive(&self) -> Vec<TypeError> {
+        self.bounds.iter().filter(|(_, b)| b.declared == ComplexityClass::Exponential)
+            .map(|(n, b)| TypeError { code: "A48003".into(), message: format!("function `{n}` has exponential complexity bound"), span: b.span.clone(), secondary: None })
+            .collect()
+    }
+}
+
+impl Default for ComplexityBoundChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T102: TEST.2 Behavioral equivalence
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct BehavioralEquivalenceChecker {
+    equivalences: Vec<EquivalenceDecl>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EquivalenceDecl {
+    pub name: std::string::String,
+    pub impl_a: std::string::String,
+    pub impl_b: std::string::String,
+    pub contract: std::string::String,
+    pub verified: bool,
+    pub span: std::ops::Range<usize>,
+}
+
+impl BehavioralEquivalenceChecker {
+    pub fn new() -> Self { Self { equivalences: Vec::new() } }
+
+    pub fn declare(&mut self, name: std::string::String, impl_a: std::string::String, impl_b: std::string::String, contract: std::string::String, span: std::ops::Range<usize>) {
+        self.equivalences.push(EquivalenceDecl { name, impl_a, impl_b, contract, verified: false, span });
+    }
+
+    pub fn mark_verified(&mut self, name: &str) {
+        if let Some(e) = self.equivalences.iter_mut().find(|e| e.name == name) { e.verified = true; }
+    }
+
+    pub fn check_unverified(&self) -> Vec<TypeError> {
+        self.equivalences.iter().filter(|e| !e.verified)
+            .map(|e| TypeError { code: "A49001".into(), message: format!("behavioral equivalence `{}` between `{}` and `{}` not verified", e.name, e.impl_a, e.impl_b), span: e.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn check_self_equivalence(&self) -> Vec<TypeError> {
+        self.equivalences.iter().filter(|e| e.impl_a == e.impl_b)
+            .map(|e| TypeError { code: "A49002".into(), message: format!("trivial self-equivalence in `{}`: both sides are `{}`", e.name, e.impl_a), span: e.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn check_contract_ref(&self) -> Vec<TypeError> {
+        self.equivalences.iter().filter(|e| e.contract.is_empty())
+            .map(|e| TypeError { code: "A49003".into(), message: format!("equivalence `{}` has no contract reference", e.name), span: e.span.clone(), secondary: None })
+            .collect()
+    }
+}
+
+impl Default for BehavioralEquivalenceChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T103: TEST.3 Multi-pass refinement
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct MultiPassRefinementChecker {
+    passes: Vec<RefinementPass>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RefinementPass {
+    pub name: std::string::String,
+    pub from_level: std::string::String,
+    pub to_level: std::string::String,
+    pub obligations_total: usize,
+    pub obligations_discharged: usize,
+    pub span: std::ops::Range<usize>,
+}
+
+impl MultiPassRefinementChecker {
+    pub fn new() -> Self { Self { passes: Vec::new() } }
+
+    pub fn add_pass(&mut self, name: std::string::String, from_level: std::string::String, to_level: std::string::String, obligations: usize, span: std::ops::Range<usize>) {
+        self.passes.push(RefinementPass { name, from_level, to_level, obligations_total: obligations, obligations_discharged: 0, span });
+    }
+
+    pub fn discharge(&mut self, pass_name: &str, count: usize) {
+        if let Some(p) = self.passes.iter_mut().find(|p| p.name == pass_name) { p.obligations_discharged += count; }
+    }
+
+    pub fn check_complete(&self) -> Vec<TypeError> {
+        self.passes.iter().filter(|p| p.obligations_discharged < p.obligations_total)
+            .map(|p| TypeError { code: "A50001".into(), message: format!("refinement `{}` ({} -> {}): {}/{} obligations discharged", p.name, p.from_level, p.to_level, p.obligations_discharged, p.obligations_total), span: p.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn check_chain(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for i in 1..self.passes.len() {
+            if self.passes[i].from_level != self.passes[i - 1].to_level {
+                errors.push(TypeError { code: "A50002".into(), message: format!("refinement chain gap: `{}` starts at `{}` but `{}` ends at `{}`", self.passes[i].name, self.passes[i].from_level, self.passes[i-1].name, self.passes[i-1].to_level), span: self.passes[i].span.clone(), secondary: None });
+            }
+        }
+        errors
+    }
+
+    pub fn check_non_trivial(&self) -> Vec<TypeError> {
+        self.passes.iter().filter(|p| p.obligations_total == 0)
+            .map(|p| TypeError { code: "A50003".into(), message: format!("refinement pass `{}` has zero obligations", p.name), span: p.span.clone(), secondary: None })
+            .collect()
+    }
+
+    pub fn pass_count(&self) -> usize { self.passes.len() }
+}
+
+impl Default for MultiPassRefinementChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T104: MISC.1 Incremental contracts
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct IncrementalContractChecker {
+    contracts: std::collections::HashMap<std::string::String, ContractHistoryEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContractHistoryEntry {
+    pub name: std::string::String,
+    pub versions: Vec<ContractVersionEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContractVersionEntry {
+    pub version: u32,
+    pub requires_count: usize,
+    pub ensures_count: usize,
+}
+
+impl IncrementalContractChecker {
+    pub fn new() -> Self { Self { contracts: std::collections::HashMap::new() } }
+
+    pub fn add_version(&mut self, name: std::string::String, version: u32, requires_count: usize, ensures_count: usize) {
+        let history = self.contracts.entry(name.clone()).or_insert_with(|| ContractHistoryEntry { name, versions: Vec::new() });
+        history.versions.push(ContractVersionEntry { version, requires_count, ensures_count });
+    }
+
+    pub fn check_precondition_weakening(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, history) in &self.contracts {
+            for i in 1..history.versions.len() {
+                if history.versions[i].requires_count > history.versions[i - 1].requires_count {
+                    errors.push(TypeError { code: "A51001".into(), message: format!("contract `{name}` v{} strengthens preconditions", history.versions[i].version), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_postcondition_strengthening(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, history) in &self.contracts {
+            for i in 1..history.versions.len() {
+                if history.versions[i].ensures_count < history.versions[i - 1].ensures_count {
+                    errors.push(TypeError { code: "A51002".into(), message: format!("contract `{name}` v{} weakens postconditions", history.versions[i].version), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_version_continuity(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, history) in &self.contracts {
+            for i in 1..history.versions.len() {
+                if history.versions[i].version != history.versions[i - 1].version + 1 {
+                    errors.push(TypeError { code: "A51003".into(), message: format!("contract `{name}` has version gap: v{} to v{}", history.versions[i-1].version, history.versions[i].version), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+}
+
+impl Default for IncrementalContractChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T105: MISC.2 Scoped invariant suspension
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct ScopedInvariantChecker {
+    invariants: std::collections::HashMap<std::string::String, InvariantState>,
+    suspension_depth: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum InvariantState {
+    Active,
+    Suspended,
+    Restored,
+}
+
+impl ScopedInvariantChecker {
+    pub fn new() -> Self { Self { invariants: std::collections::HashMap::new(), suspension_depth: 0 } }
+
+    pub fn declare_invariant(&mut self, name: std::string::String) {
+        self.invariants.insert(name, InvariantState::Active);
+    }
+
+    pub fn suspend(&mut self, name: &str) -> Option<TypeError> {
+        if let Some(state) = self.invariants.get_mut(name) {
+            if *state == InvariantState::Suspended {
+                return Some(TypeError { code: "A52001".into(), message: format!("invariant `{name}` is already suspended"), span: 0..1, secondary: None });
+            }
+            *state = InvariantState::Suspended;
+            self.suspension_depth += 1;
+            None
+        } else {
+            Some(TypeError { code: "A52002".into(), message: format!("cannot suspend undeclared invariant `{name}`"), span: 0..1, secondary: None })
+        }
+    }
+
+    pub fn restore(&mut self, name: &str) -> Option<TypeError> {
+        if let Some(state) = self.invariants.get_mut(name) {
+            if *state != InvariantState::Suspended {
+                return Some(TypeError { code: "A52003".into(), message: format!("invariant `{name}` is not currently suspended"), span: 0..1, secondary: None });
+            }
+            *state = InvariantState::Restored;
+            if self.suspension_depth > 0 { self.suspension_depth -= 1; }
+            None
+        } else { None }
+    }
+
+    pub fn check_all_restored(&self) -> Vec<TypeError> {
+        self.invariants.iter().filter(|(_, s)| **s == InvariantState::Suspended)
+            .map(|(n, _)| TypeError { code: "A52001".into(), message: format!("invariant `{n}` still suspended at scope exit"), span: 0..1, secondary: None })
+            .collect()
+    }
+
+    pub fn is_suspended(&self, name: &str) -> bool {
+        self.invariants.get(name) == Some(&InvariantState::Suspended)
+    }
+
+    pub fn suspension_depth(&self) -> u32 { self.suspension_depth }
+}
+
+impl Default for ScopedInvariantChecker {
+    fn default() -> Self { Self::new() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -16114,4 +17230,925 @@ ghost fn bad_ghost(x: Int) -> Bool
         let tgen = TestGenerator::default();
         assert!(tgen.generate_all().is_empty());
     }
+
+    // =======================================================================
+    // T086: CrashRecoveryChecker tests
+    // =======================================================================
+
+    #[test]
+    fn crash_recovery_write_ahead_violation() {
+        let mut cr = CrashRecoveryChecker::new();
+        cr.begin_write("txn1".into());
+        cr.write_data("txn1");
+        let errs = cr.check_write_ahead();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A33001");
+    }
+
+    #[test]
+    fn crash_recovery_write_ahead_ok() {
+        let mut cr = CrashRecoveryChecker::new();
+        cr.begin_write("txn1".into());
+        cr.write_wal("txn1");
+        cr.write_data("txn1");
+        assert!(cr.check_write_ahead().is_empty());
+    }
+
+    #[test]
+    fn crash_recovery_commit_without_fsync() {
+        let mut cr = CrashRecoveryChecker::new();
+        cr.begin_write("txn1".into());
+        cr.commit("txn1");
+        let errs = cr.check_commit_durability();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A33002");
+    }
+
+    #[test]
+    fn crash_recovery_fsync_before_data() {
+        let mut cr = CrashRecoveryChecker::new();
+        cr.begin_write("txn1".into());
+        cr.write_wal("txn1");
+        cr.fsync("txn1");
+        let errs = cr.check_ordering();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A33003");
+    }
+
+    #[test]
+    fn crash_recovery_full_sequence_ok() {
+        let mut cr = CrashRecoveryChecker::new();
+        cr.begin_write("txn1".into());
+        cr.write_wal("txn1");
+        cr.write_data("txn1");
+        cr.fsync("txn1");
+        cr.commit("txn1");
+        assert!(cr.check_all().is_empty());
+    }
+
+    #[test]
+    fn crash_recovery_default() {
+        let cr = CrashRecoveryChecker::default();
+        assert!(cr.check_all().is_empty());
+    }
+
+    // =======================================================================
+    // T087: PageCacheChecker tests
+    // =======================================================================
+
+    #[test]
+    fn page_cache_evict_pinned() {
+        let mut pc = PageCacheChecker::new(10);
+        pc.load_page(1);
+        pc.pin(1);
+        let err = pc.evict(1);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A34001");
+    }
+
+    #[test]
+    fn page_cache_evict_dirty() {
+        let mut pc = PageCacheChecker::new(10);
+        pc.load_page(1);
+        pc.mark_dirty(1);
+        let err = pc.evict(1);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A34002");
+    }
+
+    #[test]
+    fn page_cache_evict_clean_ok() {
+        let mut pc = PageCacheChecker::new(10);
+        pc.load_page(1);
+        assert!(pc.evict(1).is_none());
+        assert_eq!(pc.page_count(), 0);
+    }
+
+    #[test]
+    fn page_cache_capacity_exceeded() {
+        let mut pc = PageCacheChecker::new(2);
+        pc.load_page(1);
+        pc.load_page(2);
+        pc.load_page(3);
+        let errs = pc.check_capacity();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A34003");
+    }
+
+    #[test]
+    fn page_cache_flush_then_evict() {
+        let mut pc = PageCacheChecker::new(10);
+        pc.load_page(1);
+        pc.mark_dirty(1);
+        pc.flush(1);
+        assert!(pc.evict(1).is_none());
+    }
+
+    #[test]
+    fn page_cache_unpin_then_evict() {
+        let mut pc = PageCacheChecker::new(10);
+        pc.load_page(1);
+        pc.pin(1);
+        pc.unpin(1);
+        assert!(pc.evict(1).is_none());
+    }
+
+    #[test]
+    fn page_cache_default() {
+        let pc = PageCacheChecker::default();
+        assert_eq!(pc.page_count(), 0);
+    }
+
+    // =======================================================================
+    // T088: MvccChecker tests
+    // =======================================================================
+
+    #[test]
+    fn mvcc_write_conflict() {
+        let mut mv = MvccChecker::new();
+        let t1 = mv.begin_txn();
+        let t2 = mv.begin_txn();
+        mv.write_version("key1".into(), t1);
+        mv.write_version("key1".into(), t2);
+        let errs = mv.check_write_conflicts();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A35001");
+    }
+
+    #[test]
+    fn mvcc_no_conflict_after_commit() {
+        let mut mv = MvccChecker::new();
+        let t1 = mv.begin_txn();
+        mv.write_version("key1".into(), t1);
+        mv.commit_txn(t1);
+        let t2 = mv.begin_txn();
+        mv.write_version("key1".into(), t2);
+        assert!(mv.check_write_conflicts().is_empty());
+    }
+
+    #[test]
+    fn mvcc_snapshot_violation() {
+        let mut mv = MvccChecker::new();
+        let t1 = mv.begin_txn();
+        let t2 = mv.begin_txn();
+        mv.write_version("key1".into(), t1);
+        let err = mv.check_snapshot_read("key1", t2);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A35002");
+    }
+
+    #[test]
+    fn mvcc_phantom_read() {
+        let mut mv = MvccChecker::new();
+        let t1 = mv.begin_txn();
+        let t2 = mv.begin_txn();
+        mv.write_version("key1".into(), t2);
+        mv.commit_txn(t2);
+        let errs = mv.check_phantom(t1);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A35003");
+    }
+
+    #[test]
+    fn mvcc_default() {
+        let mv = MvccChecker::default();
+        assert!(mv.check_write_conflicts().is_empty());
+    }
+
+    // =======================================================================
+    // T089: RollbackChecker tests
+    // =======================================================================
+
+    #[test]
+    fn rollback_unknown_savepoint() {
+        let mut rb = RollbackChecker::new();
+        let err = rb.rollback_to("sp1");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A36001");
+    }
+
+    #[test]
+    fn rollback_resource_leak() {
+        let mut rb = RollbackChecker::new();
+        rb.create_savepoint("sp1".into());
+        rb.acquire_resource("lock1".into());
+        rb.rollback_to("sp1");
+        let errs = rb.check_resource_leak();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A36002");
+    }
+
+    #[test]
+    fn rollback_resource_released_ok() {
+        let mut rb = RollbackChecker::new();
+        rb.create_savepoint("sp1".into());
+        rb.acquire_resource("lock1".into());
+        rb.release_resource("lock1");
+        rb.rollback_to("sp1");
+        assert!(rb.check_resource_leak().is_empty());
+    }
+
+    #[test]
+    fn rollback_duplicate_savepoint() {
+        let mut rb = RollbackChecker::new();
+        rb.create_savepoint("sp1".into());
+        rb.create_savepoint("sp1".into());
+        let errs = rb.check_savepoint_nesting();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A36003");
+    }
+
+    #[test]
+    fn rollback_default() {
+        let rb = RollbackChecker::default();
+        assert!(rb.check_resource_leak().is_empty());
+    }
+
+    // =======================================================================
+    // T090: MonotonicStateChecker tests
+    // =======================================================================
+
+    #[test]
+    fn monotonic_increasing_violation() {
+        let mut mc = MonotonicStateChecker::new();
+        mc.declare("seq".into(), MonotonicDirection::Increasing, 10, 0..1);
+        let err = mc.update("seq", 5);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A37001");
+    }
+
+    #[test]
+    fn monotonic_increasing_ok() {
+        let mut mc = MonotonicStateChecker::new();
+        mc.declare("seq".into(), MonotonicDirection::Increasing, 10, 0..1);
+        assert!(mc.update("seq", 10).is_none()); // equal allowed for Increasing
+        assert!(mc.update("seq", 15).is_none());
+    }
+
+    #[test]
+    fn monotonic_strictly_increasing() {
+        let mut mc = MonotonicStateChecker::new();
+        mc.declare("ts".into(), MonotonicDirection::StrictlyIncreasing, 10, 0..1);
+        let err = mc.update("ts", 10); // equal not allowed
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A37001");
+    }
+
+    #[test]
+    fn monotonic_reset_blocked() {
+        let mc = MonotonicStateChecker::new();
+        assert!(mc.check_reset("seq").is_none()); // not declared = no error
+    }
+
+    #[test]
+    fn monotonic_reset_declared() {
+        let mut mc = MonotonicStateChecker::new();
+        mc.declare("seq".into(), MonotonicDirection::Increasing, 0, 0..1);
+        let err = mc.check_reset("seq");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A37002");
+    }
+
+    #[test]
+    fn monotonic_undeclared_access() {
+        let mc = MonotonicStateChecker::new();
+        let err = mc.check_access("unknown");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A37003");
+    }
+
+    #[test]
+    fn monotonic_current_value() {
+        let mut mc = MonotonicStateChecker::new();
+        mc.declare("seq".into(), MonotonicDirection::Increasing, 42, 0..1);
+        assert_eq!(mc.current_value("seq"), Some(42));
+        mc.update("seq", 100);
+        assert_eq!(mc.current_value("seq"), Some(100));
+    }
+
+    #[test]
+    fn monotonic_default() {
+        let mc = MonotonicStateChecker::default();
+        assert!(mc.check_access("x").is_some());
+    }
+
+    // =======================================================================
+    // T091: StorageFailureChecker tests
+    // =======================================================================
+
+    #[test]
+    fn storage_failure_unhandled() {
+        let mut sf = StorageFailureChecker::new();
+        sf.declare_failure_mode(FailureMode::PartialWrite);
+        let errs = sf.check_unhandled();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A38001");
+    }
+
+    #[test]
+    fn storage_failure_handled_ok() {
+        let mut sf = StorageFailureChecker::new();
+        sf.declare_failure_mode(FailureMode::BitRot);
+        sf.mark_handled("bit_rot");
+        assert!(sf.check_unhandled().is_empty());
+    }
+
+    #[test]
+    fn storage_failure_spurious_handler() {
+        let mut sf = StorageFailureChecker::new();
+        sf.mark_handled("nonexistent");
+        let errs = sf.check_spurious_handlers();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A38002");
+    }
+
+    #[test]
+    fn storage_failure_critical_coverage() {
+        let mut sf = StorageFailureChecker::new();
+        sf.declare_failure_mode(FailureMode::PartialWrite);
+        sf.declare_failure_mode(FailureMode::TornPage);
+        let errs = sf.check_critical_coverage();
+        assert_eq!(errs.len(), 2);
+        assert!(errs.iter().all(|e| e.code == "A38003"));
+    }
+
+    #[test]
+    fn storage_failure_count() {
+        let mut sf = StorageFailureChecker::new();
+        sf.declare_failure_mode(FailureMode::DiskFull);
+        sf.declare_failure_mode(FailureMode::IoTimeout);
+        assert_eq!(sf.failure_count(), 2);
+    }
+
+    #[test]
+    fn storage_failure_default() {
+        let sf = StorageFailureChecker::default();
+        assert_eq!(sf.failure_count(), 0);
+    }
+
+    // =======================================================================
+    // T095: NumericalPrecisionChecker tests
+    // =======================================================================
+
+    #[test]
+    fn num_precision_loss() {
+        let mut np = NumericalPrecisionChecker::new();
+        np.declare("x".into(), 64, 1e-15, 0..1);
+        let err = np.check_precision_loss("x", 32);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A42001");
+    }
+
+    #[test]
+    fn num_precision_ok() {
+        let mut np = NumericalPrecisionChecker::new();
+        np.declare("x".into(), 32, 1e-7, 0..1);
+        assert!(np.check_precision_loss("x", 64).is_none());
+    }
+
+    #[test]
+    fn num_ulp_violation() {
+        let mut np = NumericalPrecisionChecker::new();
+        np.declare("x".into(), 64, 1e-15, 0..1);
+        let err = np.check_ulp_bound("x", 1e-10);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A42002");
+    }
+
+    #[test]
+    fn num_cancellation() {
+        let mut np = NumericalPrecisionChecker::new();
+        np.declare("x".into(), 64, 1e-15, 0..1);
+        let err = np.check_cancellation("x", 0.9999);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A42003");
+    }
+
+    #[test]
+    fn num_precision_default() {
+        let np = NumericalPrecisionChecker::default();
+        assert!(np.check_precision_loss("x", 32).is_none());
+    }
+
+    // =======================================================================
+    // T096: PrecomputedTableChecker tests
+    // =======================================================================
+
+    #[test]
+    fn table_incomplete_coverage() {
+        let mut tc = PrecomputedTableChecker::new();
+        tc.declare_table("crc32".into(), 256, "gen_crc32".into(), 0..1);
+        tc.mark_entries_verified("crc32", 100);
+        let errs = tc.check_coverage();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A43001");
+    }
+
+    #[test]
+    fn table_full_coverage_ok() {
+        let mut tc = PrecomputedTableChecker::new();
+        tc.declare_table("crc32".into(), 256, "gen_crc32".into(), 0..1);
+        tc.mark_entries_verified("crc32", 256);
+        assert!(tc.check_coverage().is_empty());
+    }
+
+    #[test]
+    fn table_no_generator() {
+        let mut tc = PrecomputedTableChecker::new();
+        tc.declare_table("lut".into(), 16, "".into(), 0..1);
+        let errs = tc.check_generator();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A43002");
+    }
+
+    #[test]
+    fn table_zero_size() {
+        let mut tc = PrecomputedTableChecker::new();
+        tc.declare_table("empty".into(), 0, "gen".into(), 0..1);
+        let errs = tc.check_non_empty();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A43003");
+    }
+
+    #[test]
+    fn table_count() {
+        let mut tc = PrecomputedTableChecker::new();
+        tc.declare_table("a".into(), 10, "g".into(), 0..1);
+        tc.declare_table("b".into(), 20, "g".into(), 0..1);
+        assert_eq!(tc.table_count(), 2);
+    }
+
+    #[test]
+    fn table_default() {
+        let tc = PrecomputedTableChecker::default();
+        assert_eq!(tc.table_count(), 0);
+    }
+
+    // =======================================================================
+    // T097: PlatformAbstractionChecker tests
+    // =======================================================================
+
+    #[test]
+    fn platform_missing_impl() {
+        let mut pa = PlatformAbstractionChecker::new();
+        pa.add_platform("linux".into());
+        pa.add_platform("windows".into());
+        pa.declare_abstraction("fs_ops".into(), vec!["linux".into()]);
+        let errs = pa.check_coverage();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A44001");
+    }
+
+    #[test]
+    fn platform_full_coverage_ok() {
+        let mut pa = PlatformAbstractionChecker::new();
+        pa.add_platform("linux".into());
+        pa.declare_abstraction("fs_ops".into(), vec!["linux".into()]);
+        assert!(pa.check_coverage().is_empty());
+    }
+
+    #[test]
+    fn platform_direct_use() {
+        let mut pa = PlatformAbstractionChecker::new();
+        pa.add_platform("linux".into());
+        let err = pa.check_direct_platform_use("linux");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A44002");
+    }
+
+    #[test]
+    fn platform_unknown() {
+        let mut pa = PlatformAbstractionChecker::new();
+        pa.add_platform("linux".into());
+        pa.declare_abstraction("net".into(), vec!["freebsd".into()]);
+        let errs = pa.check_unknown_platforms();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A44003");
+    }
+
+    #[test]
+    fn platform_default() {
+        let pa = PlatformAbstractionChecker::default();
+        assert!(pa.check_coverage().is_empty());
+    }
+
+    // =======================================================================
+    // T098: FeatureFlagChecker tests
+    // =======================================================================
+
+    #[test]
+    fn feature_flag_unused() {
+        let mut ff = FeatureFlagChecker::new();
+        ff.declare("debug_mode".into(), false, vec![]);
+        let errs = ff.check_unused();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A45001");
+    }
+
+    #[test]
+    fn feature_flag_used_ok() {
+        let mut ff = FeatureFlagChecker::new();
+        ff.declare("debug_mode".into(), false, vec![]);
+        ff.mark_used("debug_mode");
+        assert!(ff.check_unused().is_empty());
+    }
+
+    #[test]
+    fn feature_flag_conflict() {
+        let mut ff = FeatureFlagChecker::new();
+        ff.declare("a".into(), true, vec!["b".into()]);
+        ff.declare("b".into(), true, vec![]);
+        let errs = ff.check_conflicts();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A45002");
+    }
+
+    #[test]
+    fn feature_flag_undeclared() {
+        let ff = FeatureFlagChecker::new();
+        let err = ff.check_undeclared("unknown");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A45003");
+    }
+
+    #[test]
+    fn feature_flag_default() {
+        let ff = FeatureFlagChecker::default();
+        assert!(ff.check_unused().is_empty());
+    }
+
+    // =======================================================================
+    // T099: ResourceLimitChecker tests
+    // =======================================================================
+
+    #[test]
+    fn resource_limit_exceeded() {
+        let mut rl = ResourceLimitChecker::new();
+        rl.declare_limit("mem".into(), 1000, "bytes".into());
+        rl.record_usage("mem", 1500);
+        let errs = rl.check_limits();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A46001");
+    }
+
+    #[test]
+    fn resource_limit_ok() {
+        let mut rl = ResourceLimitChecker::new();
+        rl.declare_limit("mem".into(), 1000, "bytes".into());
+        rl.record_usage("mem", 500);
+        assert!(rl.check_limits().is_empty());
+    }
+
+    #[test]
+    fn resource_unbounded() {
+        let rl = ResourceLimitChecker::new();
+        let err = rl.check_unbounded("unknown");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A46002");
+    }
+
+    #[test]
+    fn resource_near_limit() {
+        let mut rl = ResourceLimitChecker::new();
+        rl.declare_limit("fds".into(), 100, "count".into());
+        rl.record_usage("fds", 95);
+        let errs = rl.check_near_limit();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A46003");
+    }
+
+    #[test]
+    fn resource_release() {
+        let mut rl = ResourceLimitChecker::new();
+        rl.declare_limit("mem".into(), 100, "bytes".into());
+        rl.record_usage("mem", 80);
+        rl.release_usage("mem", 50);
+        assert_eq!(rl.current_usage("mem"), Some(30));
+    }
+
+    #[test]
+    fn resource_default() {
+        let rl = ResourceLimitChecker::default();
+        assert!(rl.check_limits().is_empty());
+    }
+
+    // =======================================================================
+    // T100: UnsafeEscapeChecker tests
+    // =======================================================================
+
+    #[test]
+    fn unsafe_no_proof() {
+        let mut ue = UnsafeEscapeChecker::new();
+        ue.declare_unsafe("ptr_deref".into(), vec!["aligned".into()], 0..1);
+        let errs = ue.check_unproven();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A47001");
+    }
+
+    #[test]
+    fn unsafe_with_proof_ok() {
+        let mut ue = UnsafeEscapeChecker::new();
+        ue.declare_unsafe("ptr_deref".into(), vec!["aligned".into()], 0..1);
+        ue.attach_proof("ptr_deref");
+        assert!(ue.check_unproven().is_empty());
+    }
+
+    #[test]
+    fn unsafe_undischarged_obligation() {
+        let mut ue = UnsafeEscapeChecker::new();
+        ue.declare_unsafe("cast".into(), vec!["valid_repr".into(), "aligned".into()], 0..1);
+        ue.discharge_obligation("cast", "valid_repr".into());
+        let errs = ue.check_obligations();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A47002");
+    }
+
+    #[test]
+    fn unsafe_empty_obligations() {
+        let mut ue = UnsafeEscapeChecker::new();
+        ue.declare_unsafe("noop".into(), vec![], 0..1);
+        let errs = ue.check_empty_obligations();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A47003");
+    }
+
+    #[test]
+    fn unsafe_count() {
+        let mut ue = UnsafeEscapeChecker::new();
+        ue.declare_unsafe("a".into(), vec![], 0..1);
+        ue.declare_unsafe("b".into(), vec![], 0..1);
+        assert_eq!(ue.unsafe_count(), 2);
+    }
+
+    #[test]
+    fn unsafe_default() {
+        let ue = UnsafeEscapeChecker::default();
+        assert_eq!(ue.unsafe_count(), 0);
+    }
+
+    // =======================================================================
+    // T101: ComplexityBoundChecker tests
+    // =======================================================================
+
+    #[test]
+    fn complexity_bound_violated() {
+        let mut cb = ComplexityBoundChecker::new();
+        cb.declare_bound("sort".into(), ComplexityClass::Linear, 0..1);
+        cb.record_measured("sort", ComplexityClass::Quadratic);
+        let errs = cb.check_bounds();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A48001");
+    }
+
+    #[test]
+    fn complexity_bound_ok() {
+        let mut cb = ComplexityBoundChecker::new();
+        cb.declare_bound("lookup".into(), ComplexityClass::Logarithmic, 0..1);
+        cb.record_measured("lookup", ComplexityClass::Constant);
+        assert!(cb.check_bounds().is_empty());
+    }
+
+    #[test]
+    fn complexity_unverified() {
+        let mut cb = ComplexityBoundChecker::new();
+        cb.declare_bound("search".into(), ComplexityClass::Linear, 0..1);
+        let errs = cb.check_unverified();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A48002");
+    }
+
+    #[test]
+    fn complexity_exponential_warning() {
+        let mut cb = ComplexityBoundChecker::new();
+        cb.declare_bound("brute".into(), ComplexityClass::Exponential, 0..1);
+        let errs = cb.check_expensive();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A48003");
+    }
+
+    #[test]
+    fn complexity_default() {
+        let cb = ComplexityBoundChecker::default();
+        assert!(cb.check_bounds().is_empty());
+    }
+
+    // =======================================================================
+    // T102: BehavioralEquivalenceChecker tests
+    // =======================================================================
+
+    #[test]
+    fn equiv_unverified() {
+        let mut be = BehavioralEquivalenceChecker::new();
+        be.declare("eq1".into(), "sort_a".into(), "sort_b".into(), "Sortable".into(), 0..1);
+        let errs = be.check_unverified();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A49001");
+    }
+
+    #[test]
+    fn equiv_verified_ok() {
+        let mut be = BehavioralEquivalenceChecker::new();
+        be.declare("eq1".into(), "sort_a".into(), "sort_b".into(), "Sortable".into(), 0..1);
+        be.mark_verified("eq1");
+        assert!(be.check_unverified().is_empty());
+    }
+
+    #[test]
+    fn equiv_self_equivalence() {
+        let mut be = BehavioralEquivalenceChecker::new();
+        be.declare("eq1".into(), "sort_a".into(), "sort_a".into(), "Sortable".into(), 0..1);
+        let errs = be.check_self_equivalence();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A49002");
+    }
+
+    #[test]
+    fn equiv_no_contract() {
+        let mut be = BehavioralEquivalenceChecker::new();
+        be.declare("eq1".into(), "a".into(), "b".into(), "".into(), 0..1);
+        let errs = be.check_contract_ref();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A49003");
+    }
+
+    #[test]
+    fn equiv_default() {
+        let be = BehavioralEquivalenceChecker::default();
+        assert!(be.check_unverified().is_empty());
+    }
+
+    // =======================================================================
+    // T103: MultiPassRefinementChecker tests
+    // =======================================================================
+
+    #[test]
+    fn refinement_incomplete() {
+        let mut mp = MultiPassRefinementChecker::new();
+        mp.add_pass("r1".into(), "spec".into(), "design".into(), 5, 0..1);
+        mp.discharge("r1", 3);
+        let errs = mp.check_complete();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A50001");
+    }
+
+    #[test]
+    fn refinement_complete_ok() {
+        let mut mp = MultiPassRefinementChecker::new();
+        mp.add_pass("r1".into(), "spec".into(), "design".into(), 5, 0..1);
+        mp.discharge("r1", 5);
+        assert!(mp.check_complete().is_empty());
+    }
+
+    #[test]
+    fn refinement_chain_gap() {
+        let mut mp = MultiPassRefinementChecker::new();
+        mp.add_pass("r1".into(), "spec".into(), "design".into(), 1, 0..1);
+        mp.add_pass("r2".into(), "impl".into(), "code".into(), 1, 0..1);
+        let errs = mp.check_chain();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A50002");
+    }
+
+    #[test]
+    fn refinement_zero_obligations() {
+        let mut mp = MultiPassRefinementChecker::new();
+        mp.add_pass("r1".into(), "spec".into(), "design".into(), 0, 0..1);
+        let errs = mp.check_non_trivial();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A50003");
+    }
+
+    #[test]
+    fn refinement_pass_count() {
+        let mut mp = MultiPassRefinementChecker::new();
+        mp.add_pass("r1".into(), "a".into(), "b".into(), 1, 0..1);
+        mp.add_pass("r2".into(), "b".into(), "c".into(), 1, 0..1);
+        assert_eq!(mp.pass_count(), 2);
+    }
+
+    #[test]
+    fn refinement_default() {
+        let mp = MultiPassRefinementChecker::default();
+        assert_eq!(mp.pass_count(), 0);
+    }
+
+    // =======================================================================
+    // T104: IncrementalContractChecker tests
+    // =======================================================================
+
+    #[test]
+    fn incremental_strengthens_precondition() {
+        let mut ic = IncrementalContractChecker::new();
+        ic.add_version("SafeDiv".into(), 1, 1, 1);
+        ic.add_version("SafeDiv".into(), 2, 3, 1); // more requires = stronger
+        let errs = ic.check_precondition_weakening();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A51001");
+    }
+
+    #[test]
+    fn incremental_weakens_postcondition() {
+        let mut ic = IncrementalContractChecker::new();
+        ic.add_version("SafeDiv".into(), 1, 1, 3);
+        ic.add_version("SafeDiv".into(), 2, 1, 1); // fewer ensures = weaker
+        let errs = ic.check_postcondition_strengthening();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A51002");
+    }
+
+    #[test]
+    fn incremental_version_gap() {
+        let mut ic = IncrementalContractChecker::new();
+        ic.add_version("SafeDiv".into(), 1, 1, 1);
+        ic.add_version("SafeDiv".into(), 5, 1, 1);
+        let errs = ic.check_version_continuity();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A51003");
+    }
+
+    #[test]
+    fn incremental_ok() {
+        let mut ic = IncrementalContractChecker::new();
+        ic.add_version("SafeDiv".into(), 1, 3, 1);
+        ic.add_version("SafeDiv".into(), 2, 2, 2); // weaker pre, stronger post
+        assert!(ic.check_precondition_weakening().is_empty());
+        assert!(ic.check_postcondition_strengthening().is_empty());
+    }
+
+    #[test]
+    fn incremental_default() {
+        let ic = IncrementalContractChecker::default();
+        assert!(ic.check_precondition_weakening().is_empty());
+    }
+
+    // =======================================================================
+    // T105: ScopedInvariantChecker tests
+    // =======================================================================
+
+    #[test]
+    fn invariant_double_suspend() {
+        let mut si = ScopedInvariantChecker::new();
+        si.declare_invariant("inv1".into());
+        assert!(si.suspend("inv1").is_none());
+        let err = si.suspend("inv1");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A52001");
+    }
+
+    #[test]
+    fn invariant_suspend_undeclared() {
+        let mut si = ScopedInvariantChecker::new();
+        let err = si.suspend("unknown");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A52002");
+    }
+
+    #[test]
+    fn invariant_restore_not_suspended() {
+        let mut si = ScopedInvariantChecker::new();
+        si.declare_invariant("inv1".into());
+        let err = si.restore("inv1");
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A52003");
+    }
+
+    #[test]
+    fn invariant_suspend_restore_ok() {
+        let mut si = ScopedInvariantChecker::new();
+        si.declare_invariant("inv1".into());
+        si.suspend("inv1");
+        assert!(si.is_suspended("inv1"));
+        si.restore("inv1");
+        assert!(!si.is_suspended("inv1"));
+        assert!(si.check_all_restored().is_empty());
+    }
+
+    #[test]
+    fn invariant_still_suspended_at_exit() {
+        let mut si = ScopedInvariantChecker::new();
+        si.declare_invariant("inv1".into());
+        si.suspend("inv1");
+        let errs = si.check_all_restored();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A52001");
+    }
+
+    #[test]
+    fn invariant_suspension_depth() {
+        let mut si = ScopedInvariantChecker::new();
+        si.declare_invariant("a".into());
+        si.declare_invariant("b".into());
+        si.suspend("a");
+        si.suspend("b");
+        assert_eq!(si.suspension_depth(), 2);
+        si.restore("a");
+        assert_eq!(si.suspension_depth(), 1);
+    }
+
+    #[test]
+    fn invariant_default() {
+        let si = ScopedInvariantChecker::default();
+        assert_eq!(si.suspension_depth(), 0);
+    }
+
 }

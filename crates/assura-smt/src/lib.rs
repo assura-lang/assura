@@ -3344,6 +3344,270 @@ pub enum DispatchResult {
 // Non-Z3 unit tests for MeasureDefinition and axiom logic (T054)
 // ---------------------------------------------------------------------------
 
+// ===========================================================================
+// T092: CONC.6 Weak memory ordering
+// ===========================================================================
+
+/// Models C++ memory ordering semantics for verification.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MemoryOrdering {
+    Relaxed,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
+
+/// A memory access with its ordering constraint.
+#[derive(Debug, Clone)]
+pub struct MemoryAccess {
+    pub thread_id: u64,
+    pub variable: String,
+    pub is_write: bool,
+    pub ordering: MemoryOrdering,
+    pub sequence_num: u64,
+}
+
+/// Verifies weak memory ordering contracts.
+#[derive(Debug, Clone)]
+pub struct WeakMemoryChecker {
+    accesses: Vec<MemoryAccess>,
+    happens_before: Vec<(u64, u64)>,
+    next_seq: u64,
+}
+
+impl WeakMemoryChecker {
+    pub fn new() -> Self {
+        Self { accesses: Vec::new(), happens_before: Vec::new(), next_seq: 0 }
+    }
+
+    pub fn record_access(&mut self, thread_id: u64, variable: String, is_write: bool, ordering: MemoryOrdering) -> u64 {
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.accesses.push(MemoryAccess { thread_id, variable, is_write, ordering, sequence_num: seq });
+        seq
+    }
+
+    pub fn add_happens_before(&mut self, before: u64, after: u64) {
+        self.happens_before.push((before, after));
+    }
+
+    fn is_ordered(&self, a: u64, b: u64) -> bool {
+        self.happens_before.iter().any(|&(x, y)| x == a && y == b)
+    }
+
+    /// Check for data races: concurrent accesses to same variable with at least one write
+    /// and no happens-before relationship.
+    pub fn check_data_races(&self) -> Vec<String> {
+        let mut races = Vec::new();
+        for i in 0..self.accesses.len() {
+            for j in (i + 1)..self.accesses.len() {
+                let a = &self.accesses[i];
+                let b = &self.accesses[j];
+                if a.variable == b.variable && a.thread_id != b.thread_id && (a.is_write || b.is_write) {
+                    if !self.is_ordered(a.sequence_num, b.sequence_num) && !self.is_ordered(b.sequence_num, a.sequence_num) {
+                        races.push(format!("data race on `{}` between thread {} and thread {}", a.variable, a.thread_id, b.thread_id));
+                    }
+                }
+            }
+        }
+        races
+    }
+
+    /// Check that release-acquire pairs are consistent.
+    pub fn check_release_acquire(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for a in &self.accesses {
+            if a.ordering == MemoryOrdering::Release && a.is_write {
+                let has_acquire = self.accesses.iter().any(|b| {
+                    b.variable == a.variable && !b.is_write && b.thread_id != a.thread_id
+                        && b.ordering == MemoryOrdering::Acquire
+                });
+                if !has_acquire {
+                    warnings.push(format!("release write on `{}` (thread {}) has no matching acquire read", a.variable, a.thread_id));
+                }
+            }
+        }
+        warnings
+    }
+
+    /// Check for relaxed accesses that should be stronger.
+    pub fn check_ordering_strength(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for a in &self.accesses {
+            if a.ordering == MemoryOrdering::Relaxed && a.is_write {
+                let read_by_other = self.accesses.iter().any(|b| b.variable == a.variable && b.thread_id != a.thread_id && !b.is_write);
+                if read_by_other {
+                    warnings.push(format!("relaxed write on `{}` (thread {}) is read by another thread; consider Release ordering", a.variable, a.thread_id));
+                }
+            }
+        }
+        warnings
+    }
+
+    pub fn access_count(&self) -> usize { self.accesses.len() }
+}
+
+impl Default for WeakMemoryChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T093: CORE.7 Prophecy variables
+// ===========================================================================
+
+/// Ghost state with deferred resolution for future-dependent reasoning.
+#[derive(Debug, Clone)]
+pub struct ProphecyVariable {
+    pub name: String,
+    pub resolved: bool,
+    pub resolution_value: Option<String>,
+    pub constraints: Vec<String>,
+}
+
+/// Manages prophecy variables for verification.
+#[derive(Debug, Clone)]
+pub struct ProphecyManager {
+    variables: std::collections::HashMap<String, ProphecyVariable>,
+}
+
+impl ProphecyManager {
+    pub fn new() -> Self {
+        Self { variables: std::collections::HashMap::new() }
+    }
+
+    pub fn declare(&mut self, name: String) {
+        self.variables.insert(name.clone(), ProphecyVariable {
+            name, resolved: false, resolution_value: None, constraints: Vec::new(),
+        });
+    }
+
+    pub fn add_constraint(&mut self, name: &str, constraint: String) {
+        if let Some(v) = self.variables.get_mut(name) {
+            v.constraints.push(constraint);
+        }
+    }
+
+    pub fn resolve(&mut self, name: &str, value: String) -> Result<(), String> {
+        if let Some(v) = self.variables.get_mut(name) {
+            if v.resolved {
+                return Err(format!("prophecy variable `{name}` already resolved"));
+            }
+            v.resolved = true;
+            v.resolution_value = Some(value);
+            Ok(())
+        } else {
+            Err(format!("unknown prophecy variable `{name}`"))
+        }
+    }
+
+    /// Check that all prophecy variables are eventually resolved.
+    pub fn check_all_resolved(&self) -> Vec<String> {
+        self.variables.iter()
+            .filter(|(_, v)| !v.resolved)
+            .map(|(n, _)| format!("prophecy variable `{n}` was never resolved"))
+            .collect()
+    }
+
+    /// Check for prophecy variables with no constraints (useless).
+    pub fn check_unconstrained(&self) -> Vec<String> {
+        self.variables.iter()
+            .filter(|(_, v)| v.constraints.is_empty())
+            .map(|(n, _)| format!("prophecy variable `{n}` has no constraints"))
+            .collect()
+    }
+
+    pub fn variable_count(&self) -> usize { self.variables.len() }
+}
+
+impl Default for ProphecyManager {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T094: CORE.8 Liveness contracts
+// ===========================================================================
+
+/// Liveness property kinds.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LivenessKind {
+    Eventually,
+    LeadsTo,
+    EventuallyWithin(u64),
+}
+
+/// A liveness obligation.
+#[derive(Debug, Clone)]
+pub struct LivenessObligation {
+    pub name: String,
+    pub kind: LivenessKind,
+    pub premise: String,
+    pub conclusion: String,
+    pub verified: bool,
+}
+
+/// Manages liveness contracts for verification.
+#[derive(Debug, Clone)]
+pub struct LivenessChecker {
+    obligations: Vec<LivenessObligation>,
+    fairness_assumptions: Vec<String>,
+}
+
+impl LivenessChecker {
+    pub fn new() -> Self {
+        Self { obligations: Vec::new(), fairness_assumptions: Vec::new() }
+    }
+
+    pub fn add_obligation(&mut self, name: String, kind: LivenessKind, premise: String, conclusion: String) {
+        self.obligations.push(LivenessObligation { name, kind, premise, conclusion, verified: false });
+    }
+
+    pub fn add_fairness(&mut self, assumption: String) {
+        self.fairness_assumptions.push(assumption);
+    }
+
+    pub fn mark_verified(&mut self, name: &str) {
+        if let Some(o) = self.obligations.iter_mut().find(|o| o.name == name) {
+            o.verified = true;
+        }
+    }
+
+    /// Check for unverified liveness obligations.
+    pub fn check_unverified(&self) -> Vec<String> {
+        self.obligations.iter()
+            .filter(|o| !o.verified)
+            .map(|o| format!("liveness obligation `{}` ({:?}) not verified", o.name, o.kind))
+            .collect()
+    }
+
+    /// Check that eventually_within obligations have reasonable bounds.
+    pub fn check_bounded(&self) -> Vec<String> {
+        self.obligations.iter()
+            .filter(|o| matches!(o.kind, LivenessKind::EventuallyWithin(t) if t == 0))
+            .map(|o| format!("liveness obligation `{}` has zero time bound", o.name))
+            .collect()
+    }
+
+    /// Check that leads_to obligations have fairness assumptions.
+    pub fn check_fairness(&self) -> Vec<String> {
+        if self.fairness_assumptions.is_empty() {
+            let leads_to: Vec<_> = self.obligations.iter()
+                .filter(|o| o.kind == LivenessKind::LeadsTo)
+                .collect();
+            if !leads_to.is_empty() {
+                return vec!["leads_to obligations present but no fairness assumptions declared".into()];
+            }
+        }
+        vec![]
+    }
+
+    pub fn obligation_count(&self) -> usize { self.obligations.len() }
+}
+
+impl Default for LivenessChecker {
+    fn default() -> Self { Self::new() }
+}
+
 #[cfg(test)]
 mod measure_unit_tests {
     use super::*;
@@ -3686,4 +3950,162 @@ mod measure_unit_tests {
         let data = vec![0x01, 0x02]; // too short
         assert_eq!(disp.dispatch(&data), DispatchResult::Unknown);
     }
+
+
+    // =======================================================================
+    // T092: WeakMemoryChecker tests
+    // =======================================================================
+
+    #[test]
+    fn weak_memory_data_race() {
+        let mut wm = WeakMemoryChecker::new();
+        wm.record_access(1, "x".into(), true, MemoryOrdering::Relaxed);
+        wm.record_access(2, "x".into(), false, MemoryOrdering::Relaxed);
+        let races = wm.check_data_races();
+        assert_eq!(races.len(), 1);
+        assert!(races[0].contains("data race"));
+    }
+
+    #[test]
+    fn weak_memory_no_race_with_hb() {
+        let mut wm = WeakMemoryChecker::new();
+        let s1 = wm.record_access(1, "x".into(), true, MemoryOrdering::Release);
+        let s2 = wm.record_access(2, "x".into(), false, MemoryOrdering::Acquire);
+        wm.add_happens_before(s1, s2);
+        assert!(wm.check_data_races().is_empty());
+    }
+
+    #[test]
+    fn weak_memory_release_no_acquire() {
+        let mut wm = WeakMemoryChecker::new();
+        wm.record_access(1, "flag".into(), true, MemoryOrdering::Release);
+        let warnings = wm.check_release_acquire();
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn weak_memory_relaxed_warning() {
+        let mut wm = WeakMemoryChecker::new();
+        wm.record_access(1, "shared".into(), true, MemoryOrdering::Relaxed);
+        wm.record_access(2, "shared".into(), false, MemoryOrdering::Relaxed);
+        let warnings = wm.check_ordering_strength();
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn weak_memory_same_thread_ok() {
+        let mut wm = WeakMemoryChecker::new();
+        wm.record_access(1, "x".into(), true, MemoryOrdering::Relaxed);
+        wm.record_access(1, "x".into(), false, MemoryOrdering::Relaxed);
+        assert!(wm.check_data_races().is_empty());
+    }
+
+    #[test]
+    fn weak_memory_default() {
+        let wm = WeakMemoryChecker::default();
+        assert_eq!(wm.access_count(), 0);
+    }
+
+    // =======================================================================
+    // T093: ProphecyManager tests
+    // =======================================================================
+
+    #[test]
+    fn prophecy_unresolved() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("future_val".into());
+        let errs = pm.check_all_resolved();
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].contains("never resolved"));
+    }
+
+    #[test]
+    fn prophecy_resolved_ok() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("future_val".into());
+        pm.resolve("future_val", "42".into()).unwrap();
+        assert!(pm.check_all_resolved().is_empty());
+    }
+
+    #[test]
+    fn prophecy_double_resolve() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("pv".into());
+        pm.resolve("pv", "1".into()).unwrap();
+        let err = pm.resolve("pv", "2".into());
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn prophecy_unconstrained() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("pv".into());
+        let errs = pm.check_unconstrained();
+        assert_eq!(errs.len(), 1);
+    }
+
+    #[test]
+    fn prophecy_with_constraints() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("pv".into());
+        pm.add_constraint("pv", "pv > 0".into());
+        assert!(pm.check_unconstrained().is_empty());
+    }
+
+    #[test]
+    fn prophecy_default() {
+        let pm = ProphecyManager::default();
+        assert_eq!(pm.variable_count(), 0);
+    }
+
+    // =======================================================================
+    // T094: LivenessChecker tests
+    // =======================================================================
+
+    #[test]
+    fn liveness_unverified() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation("progress".into(), LivenessKind::Eventually, "true".into(), "done".into());
+        let errs = lc.check_unverified();
+        assert_eq!(errs.len(), 1);
+    }
+
+    #[test]
+    fn liveness_verified_ok() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation("progress".into(), LivenessKind::Eventually, "true".into(), "done".into());
+        lc.mark_verified("progress");
+        assert!(lc.check_unverified().is_empty());
+    }
+
+    #[test]
+    fn liveness_zero_bound() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation("deadline".into(), LivenessKind::EventuallyWithin(0), "start".into(), "end".into());
+        let errs = lc.check_bounded();
+        assert_eq!(errs.len(), 1);
+    }
+
+    #[test]
+    fn liveness_no_fairness() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation("l2r".into(), LivenessKind::LeadsTo, "req".into(), "resp".into());
+        let errs = lc.check_fairness();
+        assert_eq!(errs.len(), 1);
+    }
+
+    #[test]
+    fn liveness_with_fairness_ok() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation("l2r".into(), LivenessKind::LeadsTo, "req".into(), "resp".into());
+        lc.add_fairness("scheduler_fair".into());
+        assert!(lc.check_fairness().is_empty());
+    }
+
+    #[test]
+    fn liveness_default() {
+        let lc = LivenessChecker::default();
+        assert_eq!(lc.obligation_count(), 0);
+    }
+
 }
