@@ -429,7 +429,7 @@
   - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` must now
     print verification status for each contract clause
 
-- [ ] **T039**: Encode refinement type subtyping as SMT queries
+- [x] **T039**: Encode refinement type subtyping as SMT queries
   - Depends on: T038
   - Core encoding (Section 5.2):
     `{v: T | P} <: {v: T | Q}` becomes:
@@ -441,7 +441,7 @@
     - QF_DT: datatypes (info flow labels, typestate)
   - Start with integer arithmetic predicates only
 
-- [ ] **T040**: Implement counterexample extraction
+- [x] **T040**: Implement counterexample extraction
   - Depends on: T039
   - When Z3 returns SAT, extract the model:
     - Variable names and their concrete values
@@ -468,7 +468,7 @@
 
 ### 1.5 CORE Features (3 weeks)
 
-- [ ] **T043**: Implement CORE.1 Ghost code
+- [x] **T043**: Implement CORE.1 Ghost code
   - Depends on: T041
   - Ghost variables, functions, and blocks: exist in logic, erased at runtime
   - Enforce: ghost code cannot affect runtime values
@@ -526,7 +526,7 @@
 
 ### 1.7 Phase 1 Polish (1 week)
 
-- [ ] **T049**: Error catalog for Phase 1
+- [x] **T049**: Error catalog for Phase 1
   - Depends on: T032, T034, T036, T041
   - Implement all error codes: A01xxx-A08xxx, A10xxx, A11xxx
   - Each error: location, secondary locations, contract reference,
