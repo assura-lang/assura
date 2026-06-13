@@ -1,0 +1,102 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: ast
+---
+SourceFile {
+    project: None,
+    module: None,
+    imports: [],
+    decls: [
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "MatchDemo",
+                    type_params: [],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: Literal(
+                                Bool(
+                                    true,
+                                ),
+                            ),
+                        },
+                    ],
+                },
+            ),
+            span: 155..197,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "classify",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "x",
+                            ty: [
+                                "Int",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Int",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "result",
+                                ),
+                                op: Gte,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
+                        },
+                    ],
+                },
+            ),
+            span: 199..310,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "with_let",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "x",
+                            ty: [
+                                "Int",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Int",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "result",
+                                ),
+                                op: Gt,
+                                rhs: Ident(
+                                    "x",
+                                ),
+                            },
+                        },
+                    ],
+                },
+            ),
+            span: 312..388,
+        },
+    ],
+}

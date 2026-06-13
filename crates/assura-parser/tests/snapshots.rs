@@ -78,6 +78,12 @@ fn snapshot_demo_mbedtls() {
     insta::assert_debug_snapshot!(ast);
 }
 
+#[test]
+fn snapshot_match_expr() {
+    let ast = parse_file("../../tests/fixtures/match_expr.assura");
+    insta::assert_debug_snapshot!(ast);
+}
+
 // --- Error recovery tests (T006) ---
 //
 // These tests verify that `parse_recovery()` produces errors (not panics)

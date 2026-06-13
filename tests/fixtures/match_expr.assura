@@ -1,0 +1,22 @@
+// Test fixture for match expressions, let bindings, and tuple patterns.
+// Exercises: Expr::Match, Expr::Let, Pattern::Wildcard, and nested expressions.
+
+contract MatchDemo {
+  requires { true }
+}
+
+fn classify(x: Int) -> Int
+  ensures { result >= 0 }
+{
+  match x {
+    0 => 0,
+    1 => 1,
+    _ => x * x
+  }
+}
+
+fn with_let(x: Int) -> Int
+  ensures { result > x }
+{
+  let y = x + 1 in y
+}
