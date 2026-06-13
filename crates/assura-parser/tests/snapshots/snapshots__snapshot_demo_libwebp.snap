@@ -85,19 +85,25 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "alphabet_size",
-                                "<=",
-                                "MAX_ALPHABET_SIZE",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "alphabet_size",
+                                ),
+                                op: Lte,
+                                rhs: Ident(
+                                    "MAX_ALPHABET_SIZE",
+                                ),
+                            },
                         },
                         Clause {
                             kind: Other(
                                 "must_be",
                             ),
-                            tokens: [
-                                "deterministic",
-                            ],
+                            body: Raw(
+                                [
+                                    "deterministic",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -113,9 +119,11 @@ SourceFile {
                         kind: Other(
                             "verify_against",
                         ),
-                        tokens: [
-                            "worst_case_table_size",
-                        ],
+                        body: Raw(
+                            [
+                                "worst_case_table_size",
+                            ],
+                        ),
                     },
                 ],
             },
@@ -158,11 +166,13 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -209,11 +219,13 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -265,9 +277,11 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -314,11 +328,13 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },

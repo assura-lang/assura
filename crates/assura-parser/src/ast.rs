@@ -70,7 +70,7 @@ pub struct ContractDecl {
 #[derive(Debug, Clone)]
 pub struct Clause {
     pub kind: ClauseKind,
-    pub tokens: Vec<String>,
+    pub body: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,6 +87,104 @@ pub enum ClauseKind {
     DataFlow,
     MustNot,
     Other(String),
+}
+
+// ---------------------------------------------------------------------------
+// Expressions
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub enum Expr {
+    /// Integer, float, string, or boolean literal
+    Literal(Literal),
+    /// Named reference: variable, type, keyword-as-value
+    Ident(String),
+    /// Field access: `expr.field`
+    Field(Box<Expr>, String),
+    /// Method call: `expr.method(args)`
+    MethodCall {
+        receiver: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+    },
+    /// Function call: `f(args)`
+    Call { func: Box<Expr>, args: Vec<Expr> },
+    /// Index access: `expr[index]`
+    Index { expr: Box<Expr>, index: Box<Expr> },
+    /// Binary operation
+    BinOp {
+        lhs: Box<Expr>,
+        op: BinOp,
+        rhs: Box<Expr>,
+    },
+    /// Unary operation
+    UnaryOp { op: UnaryOp, expr: Box<Expr> },
+    /// `old(expr)` for postconditions
+    Old(Box<Expr>),
+    /// `forall var in domain: body`
+    Forall {
+        var: String,
+        domain: Box<Expr>,
+        body: Box<Expr>,
+    },
+    /// `exists var in domain: body`
+    Exists {
+        var: String,
+        domain: Box<Expr>,
+        body: Box<Expr>,
+    },
+    /// `if cond then expr [else expr]`
+    If {
+        cond: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Option<Box<Expr>>,
+    },
+    /// Parenthesized expression
+    Paren(Box<Expr>),
+    /// List literal: `[a, b, c]`
+    List(Vec<Expr>),
+    /// Type cast: `expr as Type`
+    Cast { expr: Box<Expr>, ty: String },
+    /// Sequence of space-separated expressions (e.g., `pure incremental Foo`)
+    Block(Vec<Expr>),
+    /// Unparsed token sequence (fallback)
+    Raw(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    Neq,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    And,
+    Or,
+    Implies,
+    In,
+    NotIn,
+    Concat,
+    Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOp {
+    Neg,
+    Not,
+}
+
+#[derive(Debug, Clone)]
+pub enum Literal {
+    Int(String),
+    Float(String),
+    Str(String),
+    Bool(bool),
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +269,6 @@ pub enum ServiceItem {
     States(Vec<String>),
     Operation { name: String, clauses: Vec<Clause> },
     Query { name: String, clauses: Vec<Clause> },
-    Invariant(Vec<String>),
-    Other { kind: String, body: Vec<String> },
+    Invariant(Expr),
+    Other { kind: String, body: Expr },
 }

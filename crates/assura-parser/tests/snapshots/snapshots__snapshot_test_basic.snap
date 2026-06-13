@@ -33,67 +33,81 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Input,
-                            tokens: [
-                                "a",
-                                ":",
-                                "Int",
-                                ",",
-                                "b",
-                                ":",
-                                "Int",
-                            ],
+                            body: Raw(
+                                [
+                                    "a",
+                                    ":",
+                                    "Int",
+                                    ",",
+                                    "b",
+                                    ":",
+                                    "Int",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Output,
-                            tokens: [
-                                "result",
-                                ":",
-                                "Int",
-                            ],
+                            body: Raw(
+                                [
+                                    "result",
+                                    ":",
+                                    "Int",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "b",
-                                "!=",
-                                "0",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "b",
+                                ),
+                                op: Neq,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "result",
-                                "*",
-                                "b",
-                                "+",
-                                "(",
-                                "a",
-                                "mod",
-                                "b",
-                                ")",
-                                "==",
-                                "a",
-                            ],
+                            body: Raw(
+                                [
+                                    "result",
+                                    "*",
+                                    "b",
+                                    "+",
+                                    "(",
+                                    "a",
+                                    "mod",
+                                    "b",
+                                    ")",
+                                    "==",
+                                    "a",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "abs",
-                                "(",
-                                "result",
-                                ")",
-                                "<=",
-                                "abs",
-                                "(",
-                                "a",
-                                ")",
-                            ],
+                            body: Raw(
+                                [
+                                    "abs",
+                                    "(",
+                                    "result",
+                                    ")",
+                                    "<=",
+                                    "abs",
+                                    "(",
+                                    "a",
+                                    ")",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
+                            body: Ident(
                                 "pure",
-                            ],
+                            ),
                         },
                     ],
                 },
@@ -108,71 +122,103 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Input,
-                            tokens: [
-                                "buf",
-                                ":",
-                                "Bytes",
-                                ",",
-                                "offset",
-                                ":",
-                                "Nat",
-                                ",",
-                                "len",
-                                ":",
-                                "Nat",
-                            ],
+                            body: Raw(
+                                [
+                                    "buf",
+                                    ":",
+                                    "Bytes",
+                                    ",",
+                                    "offset",
+                                    ":",
+                                    "Nat",
+                                    ",",
+                                    "len",
+                                    ":",
+                                    "Nat",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Output,
-                            tokens: [
-                                "data",
-                                ":",
-                                "Bytes",
-                            ],
+                            body: Raw(
+                                [
+                                    "data",
+                                    ":",
+                                    "Bytes",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "offset",
-                                "+",
-                                "len",
-                                "<=",
-                                "buf",
-                                ".",
-                                "length",
-                                "(",
-                                ")",
-                            ],
+                            body: BinOp {
+                                lhs: BinOp {
+                                    lhs: Ident(
+                                        "offset",
+                                    ),
+                                    op: Add,
+                                    rhs: Ident(
+                                        "len",
+                                    ),
+                                },
+                                op: Lte,
+                                rhs: MethodCall {
+                                    receiver: Ident(
+                                        "buf",
+                                    ),
+                                    method: "length",
+                                    args: [],
+                                },
+                            },
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "data",
-                                ".",
-                                "length",
-                                "(",
-                                ")",
-                                "==",
-                                "len",
-                            ],
+                            body: BinOp {
+                                lhs: MethodCall {
+                                    receiver: Ident(
+                                        "data",
+                                    ),
+                                    method: "length",
+                                    args: [],
+                                },
+                                op: Eq,
+                                rhs: Ident(
+                                    "len",
+                                ),
+                            },
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
+                            body: Ident(
                                 "pure",
-                            ],
+                            ),
                         },
                         Clause {
                             kind: Invariant,
-                            tokens: [
-                                "offset",
-                                ">=",
-                                "0",
-                                "and",
-                                "len",
-                                ">=",
-                                "0",
-                            ],
+                            body: BinOp {
+                                lhs: BinOp {
+                                    lhs: Ident(
+                                        "offset",
+                                    ),
+                                    op: Gte,
+                                    rhs: Literal(
+                                        Int(
+                                            "0",
+                                        ),
+                                    ),
+                                },
+                                op: And,
+                                rhs: BinOp {
+                                    lhs: Ident(
+                                        "len",
+                                    ),
+                                    op: Gte,
+                                    rhs: Literal(
+                                        Int(
+                                            "0",
+                                        ),
+                                    ),
+                                },
+                            },
                         },
                     ],
                 },
@@ -289,31 +335,42 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "size",
-                                ">",
-                                "0",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "size",
+                                ),
+                                op: Gt,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "result",
-                                ".",
-                                "length",
-                                "(",
-                                ")",
-                                "==",
-                                "size",
-                            ],
+                            body: BinOp {
+                                lhs: MethodCall {
+                                    receiver: Ident(
+                                        "result",
+                                    ),
+                                    method: "length",
+                                    args: [],
+                                },
+                                op: Eq,
+                                rhs: Ident(
+                                    "size",
+                                ),
+                            },
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "mem",
-                                ".",
+                            body: Field(
+                                Ident(
+                                    "mem",
+                                ),
                                 "alloc",
-                            ],
+                            ),
                         },
                     ],
                 },
@@ -369,55 +426,65 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    tokens: [
-                                        "name",
-                                        ":",
-                                        "String",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "name",
+                                            ":",
+                                            "String",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Output,
-                                    tokens: [
-                                        "user",
-                                        ":",
-                                        "User",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "user",
+                                            ":",
+                                            "User",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Requires,
-                                    tokens: [
-                                        "name",
-                                        ".",
-                                        "length",
-                                        "(",
-                                        ")",
-                                        ">",
-                                        "0",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "name",
+                                            ".",
+                                            "length",
+                                            "(",
+                                            ")",
+                                            ">",
+                                            "0",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Ensures,
-                                    tokens: [
-                                        "result",
-                                        ".",
-                                        "user",
-                                        ".",
-                                        "active",
-                                        "==",
-                                        "true",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "result",
+                                            ".",
+                                            "user",
+                                            ".",
+                                            "active",
+                                            "==",
+                                            "true",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Effects,
-                                    tokens: [
-                                        "db",
-                                        ".",
-                                        "write",
-                                        ",",
-                                        "audit",
-                                        ".",
-                                        "log",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "db",
+                                            ".",
+                                            "write",
+                                            ",",
+                                            "audit",
+                                            ".",
+                                            "log",
+                                        ],
+                                    ),
                                 },
                             ],
                         },
@@ -426,43 +493,57 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    tokens: [
-                                        "id",
-                                        ":",
-                                        "UserId",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "id",
+                                            ":",
+                                            "UserId",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Output,
-                                    tokens: [
-                                        "user",
-                                        ":",
-                                        "User",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "user",
+                                            ":",
+                                            "User",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Effects,
-                                    tokens: [
-                                        "db",
-                                        ".",
-                                        "read",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "db",
+                                            ".",
+                                            "read",
+                                        ],
+                                    ),
                                 },
                             ],
                         },
                         Invariant(
-                            [
-                                "forall",
-                                "u",
-                                "in",
-                                "users",
-                                ":",
-                                "u",
-                                ".",
-                                "id",
-                                ">",
-                                "0",
-                            ],
+                            Forall {
+                                var: "u",
+                                domain: Ident(
+                                    "users",
+                                ),
+                                body: BinOp {
+                                    lhs: Field(
+                                        Ident(
+                                            "u",
+                                        ),
+                                        "id",
+                                    ),
+                                    op: Gt,
+                                    rhs: Literal(
+                                        Int(
+                                            "0",
+                                        ),
+                                    ),
+                                },
+                            },
                         ),
                     ],
                 },

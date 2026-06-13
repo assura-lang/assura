@@ -15,85 +15,113 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Input,
-                            tokens: [
-                                "buf",
-                                ":",
-                                "Bytes",
-                                ",",
-                                "n",
-                                ":",
-                                "Nat",
-                            ],
+                            body: Raw(
+                                [
+                                    "buf",
+                                    ":",
+                                    "Bytes",
+                                    ",",
+                                    "n",
+                                    ":",
+                                    "Nat",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Output,
-                            tokens: [
-                                "result",
-                                ":",
-                                "Bool",
-                            ],
+                            body: Raw(
+                                [
+                                    "result",
+                                    ":",
+                                    "Bool",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "n",
-                                ">",
-                                "0",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "n",
+                                ),
+                                op: Gt,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "result",
-                                "==",
-                                "true",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "result",
+                                ),
+                                op: Eq,
+                                rhs: Literal(
+                                    Bool(
+                                        true,
+                                    ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
+                            body: Ident(
                                 "pure",
-                            ],
+                            ),
                         },
                         Clause {
                             kind: Invariant,
-                            tokens: [
-                                "n",
-                                ">=",
-                                "0",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "n",
+                                ),
+                                op: Gte,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Modifies,
-                            tokens: [
+                            body: Ident(
                                 "buf",
-                            ],
+                            ),
                         },
                         Clause {
                             kind: Rule,
-                            tokens: [
-                                "n",
-                                "<=",
-                                "buf",
-                                ".",
-                                "length",
-                                "(",
-                                ")",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "n",
+                                ),
+                                op: Lte,
+                                rhs: MethodCall {
+                                    receiver: Ident(
+                                        "buf",
+                                    ),
+                                    method: "length",
+                                    args: [],
+                                },
+                            },
                         },
                         Clause {
                             kind: DataFlow,
-                            tokens: [
-                                "buf",
-                                "->",
-                                "result",
-                            ],
+                            body: Raw(
+                                [
+                                    "buf",
+                                    "->",
+                                    "result",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: MustNot,
-                            tokens: [
+                            body: Ident(
                                 "overflow",
-                            ],
+                            ),
                         },
                     ],
                 },

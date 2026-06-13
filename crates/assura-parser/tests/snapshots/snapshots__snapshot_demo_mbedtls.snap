@@ -32,35 +32,37 @@ SourceFile {
                 body: [
                     Clause {
                         kind: Requires,
-                        tokens: [
-                            "ecdsa",
-                            "feature",
-                            "ecdh",
-                            "=",
-                            "enabled",
-                            "feature",
-                            "rsa",
-                            "=",
-                            "enabled",
-                            "feature_max",
-                            "MAX_CONTENT_LEN",
-                            ":",
-                            "Nat",
-                            "=",
-                            "16384",
-                            "feature_max",
-                            "MAX_HANDSHAKE_LEN",
-                            ":",
-                            "Nat",
-                            "=",
-                            "65535",
-                            "feature_max",
-                            "MAX_EC_POINT_SIZE",
-                            ":",
-                            "Nat",
-                            "=",
-                            "256",
-                        ],
+                        body: Raw(
+                            [
+                                "ecdsa",
+                                "feature",
+                                "ecdh",
+                                "=",
+                                "enabled",
+                                "feature",
+                                "rsa",
+                                "=",
+                                "enabled",
+                                "feature_max",
+                                "MAX_CONTENT_LEN",
+                                ":",
+                                "Nat",
+                                "=",
+                                "16384",
+                                "feature_max",
+                                "MAX_HANDSHAKE_LEN",
+                                ":",
+                                "Nat",
+                                "=",
+                                "65535",
+                                "feature_max",
+                                "MAX_EC_POINT_SIZE",
+                                ":",
+                                "Nat",
+                                "=",
+                                "256",
+                            ],
+                        ),
                     },
                 ],
             },
@@ -95,11 +97,13 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -129,11 +133,13 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -163,11 +169,13 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -264,9 +272,11 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -356,9 +366,11 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -415,21 +427,37 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "header_len",
-                                "+",
-                                "content_len",
-                                "<=",
-                                "2",
-                                "*",
-                                "MAX_HANDSHAKE_LEN",
-                            ],
+                            body: BinOp {
+                                lhs: BinOp {
+                                    lhs: Ident(
+                                        "header_len",
+                                    ),
+                                    op: Add,
+                                    rhs: Ident(
+                                        "content_len",
+                                    ),
+                                },
+                                op: Lte,
+                                rhs: BinOp {
+                                    lhs: Literal(
+                                        Int(
+                                            "2",
+                                        ),
+                                    ),
+                                    op: Mul,
+                                    rhs: Ident(
+                                        "MAX_HANDSHAKE_LEN",
+                                    ),
+                                },
+                            },
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -481,19 +509,26 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "peer_public",
-                                ".",
-                                "curve_id",
-                                "==",
-                                "our_curve",
-                            ],
+                            body: BinOp {
+                                lhs: Field(
+                                    Ident(
+                                        "peer_public",
+                                    ),
+                                    "curve_id",
+                                ),
+                                op: Eq,
+                                rhs: Ident(
+                                    "our_curve",
+                                ),
+                            },
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -546,47 +581,53 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "NIST_SP_800_56A_ECDH",
-                                ".",
-                                "valid_computation",
-                                "(",
-                                "private_key",
-                                ",",
-                                "to_curve_point",
-                                "(",
-                                "peer_point",
-                                ")",
-                                ",",
-                                "curve",
-                                ")",
-                            ],
+                            body: Raw(
+                                [
+                                    "NIST_SP_800_56A_ECDH",
+                                    ".",
+                                    "valid_computation",
+                                    "(",
+                                    "private_key",
+                                    ",",
+                                    "to_curve_point",
+                                    "(",
+                                    "peer_point",
+                                    ")",
+                                    ",",
+                                    "curve",
+                                    ")",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "result",
-                                ".",
-                                "value",
-                                "==",
-                                "NIST_SP_800_56A_ECDH",
-                                ".",
-                                "shared_secret",
-                                "(",
-                                "private_key",
-                                ",",
-                                "to_curve_point",
-                                "(",
-                                "peer_point",
-                                ")",
-                                ")",
-                            ],
+                            body: Raw(
+                                [
+                                    "result",
+                                    ".",
+                                    "value",
+                                    "==",
+                                    "NIST_SP_800_56A_ECDH",
+                                    ".",
+                                    "shared_secret",
+                                    "(",
+                                    "private_key",
+                                    ",",
+                                    "to_curve_point",
+                                    "(",
+                                    "peer_point",
+                                    ")",
+                                    ")",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -621,17 +662,19 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Modifies,
-                            tokens: [
+                            body: Ident(
                                 "record_buf",
-                            ],
+                            ),
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },

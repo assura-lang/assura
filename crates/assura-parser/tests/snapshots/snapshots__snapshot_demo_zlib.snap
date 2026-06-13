@@ -144,11 +144,13 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "io",
-                                ".",
-                                "read",
-                            ],
+                            body: Raw(
+                                [
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -226,9 +228,11 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -316,17 +320,19 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Modifies,
-                            tokens: [
+                            body: Ident(
                                 "dst",
-                            ],
+                            ),
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                                "incremental",
-                                "InflateDecoder",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                    "incremental",
+                                    "InflateDecoder",
+                                ],
+                            ),
                         },
                     ],
                 },
@@ -361,67 +367,81 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "state",
-                                ".",
-                                "state",
-                                "@",
-                                "ExtraField",
-                                ",",
-                                "state",
-                                ".",
-                                "extra_bytes_copied",
-                                "<=",
-                                "state",
-                                ".",
-                                "head",
-                                ".",
-                                "extra",
-                                ".",
-                                "extra_max",
-                            ],
+                            body: Raw(
+                                [
+                                    "state",
+                                    ".",
+                                    "state",
+                                    "@",
+                                    "ExtraField",
+                                    ",",
+                                    "state",
+                                    ".",
+                                    "extra_bytes_copied",
+                                    "<=",
+                                    "state",
+                                    ".",
+                                    "head",
+                                    ".",
+                                    "extra",
+                                    ".",
+                                    "extra_max",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Modifies,
-                            tokens: [
-                                "state",
-                                ".",
-                                "head",
-                                ".",
-                                "extra",
-                                ".",
-                                "data",
-                                ",",
-                                "state",
-                                ".",
-                                "extra_bytes_copied",
-                                ",",
-                                "state",
-                                ".",
-                                "extra_bytes_remaining",
-                            ],
+                            body: Raw(
+                                [
+                                    "state",
+                                    ".",
+                                    "head",
+                                    ".",
+                                    "extra",
+                                    ".",
+                                    "data",
+                                    ",",
+                                    "state",
+                                    ".",
+                                    "extra_bytes_copied",
+                                    ",",
+                                    "state",
+                                    ".",
+                                    "extra_bytes_remaining",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "state",
-                                ".",
-                                "extra_bytes_copied",
-                                "<=",
-                                "state",
-                                ".",
-                                "head",
-                                ".",
-                                "extra",
-                                ".",
-                                "extra_max",
-                            ],
+                            body: BinOp {
+                                lhs: Field(
+                                    Ident(
+                                        "state",
+                                    ),
+                                    "extra_bytes_copied",
+                                ),
+                                op: Lte,
+                                rhs: Field(
+                                    Field(
+                                        Field(
+                                            Ident(
+                                                "state",
+                                            ),
+                                            "head",
+                                        ),
+                                        "extra",
+                                    ),
+                                    "extra_max",
+                                ),
+                            },
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
-                                "pure",
-                            ],
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
+                            ),
                         },
                     ],
                 },

@@ -228,7 +228,7 @@ fn print_decl(decl: &Decl, indent: usize) {
             };
             println!("{pad}Contract: {}{tps}", c.name);
             for cl in &c.clauses {
-                let body = truncate(&cl.tokens.join(" "), 60);
+                let body = truncate(&expr_to_string(&cl.body), 60);
                 println!("{pad}  {:?}: {body}", cl.kind);
             }
         }
@@ -294,7 +294,7 @@ fn print_decl(decl: &Decl, indent: usize) {
                 println!(
                     "{pad}  {:?}: {}",
                     cl.kind,
-                    truncate(&cl.tokens.join(" "), 50)
+                    truncate(&expr_to_string(&cl.body), 50)
                 );
             }
         }
@@ -315,7 +315,7 @@ fn print_decl(decl: &Decl, indent: usize) {
                 println!(
                     "{pad}  {:?}: {}",
                     cl.kind,
-                    truncate(&cl.tokens.join(" "), 50)
+                    truncate(&expr_to_string(&cl.body), 50)
                 );
             }
         }
@@ -335,7 +335,7 @@ fn print_decl(decl: &Decl, indent: usize) {
                             println!(
                                 "{pad}    {:?}: {}",
                                 cl.kind,
-                                truncate(&cl.tokens.join(" "), 40)
+                                truncate(&expr_to_string(&cl.body), 40)
                             );
                         }
                     }
@@ -345,12 +345,12 @@ fn print_decl(decl: &Decl, indent: usize) {
                             println!(
                                 "{pad}    {:?}: {}",
                                 cl.kind,
-                                truncate(&cl.tokens.join(" "), 40)
+                                truncate(&expr_to_string(&cl.body), 40)
                             );
                         }
                     }
-                    ServiceItem::Invariant(toks) => {
-                        println!("{pad}  invariant: {}", truncate(&toks.join(" "), 50));
+                    ServiceItem::Invariant(expr) => {
+                        println!("{pad}  invariant: {}", truncate(&expr_to_string(expr), 50));
                     }
                     _ => {}
                 }
@@ -359,6 +359,110 @@ fn print_decl(decl: &Decl, indent: usize) {
         Decl::Block { kind, name, body } => {
             println!("{pad}{kind}: {name} ({} clause(s))", body.len());
         }
+    }
+}
+
+fn expr_to_string(expr: &Expr) -> String {
+    match expr {
+        Expr::Literal(lit) => match lit {
+            Literal::Int(s) | Literal::Float(s) => s.clone(),
+            Literal::Str(s) => format!("\"{s}\""),
+            Literal::Bool(b) => b.to_string(),
+        },
+        Expr::Ident(s) => s.clone(),
+        Expr::Field(e, f) => format!("{}.{f}", expr_to_string(e)),
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let args_s: Vec<String> = args.iter().map(expr_to_string).collect();
+            format!(
+                "{}.{method}({})",
+                expr_to_string(receiver),
+                args_s.join(", ")
+            )
+        }
+        Expr::Call { func, args } => {
+            let args_s: Vec<String> = args.iter().map(expr_to_string).collect();
+            format!("{}({})", expr_to_string(func), args_s.join(", "))
+        }
+        Expr::Index { expr: e, index } => {
+            format!("{}[{}]", expr_to_string(e), expr_to_string(index))
+        }
+        Expr::BinOp { lhs, op, rhs } => {
+            let op_s = match op {
+                BinOp::Add => "+",
+                BinOp::Sub => "-",
+                BinOp::Mul => "*",
+                BinOp::Div => "/",
+                BinOp::Mod => "mod",
+                BinOp::Eq => "==",
+                BinOp::Neq => "!=",
+                BinOp::Lt => "<",
+                BinOp::Lte => "<=",
+                BinOp::Gt => ">",
+                BinOp::Gte => ">=",
+                BinOp::And => "and",
+                BinOp::Or => "or",
+                BinOp::Implies => "=>",
+                BinOp::In => "in",
+                BinOp::NotIn => "not in",
+                BinOp::Concat => "++",
+                BinOp::Range => "..",
+            };
+            format!("{} {op_s} {}", expr_to_string(lhs), expr_to_string(rhs))
+        }
+        Expr::UnaryOp { op, expr: e } => {
+            let op_s = match op {
+                UnaryOp::Neg => "-",
+                UnaryOp::Not => "not",
+            };
+            format!("{op_s} {}", expr_to_string(e))
+        }
+        Expr::Old(e) => format!("old({})", expr_to_string(e)),
+        Expr::Forall { var, domain, body } => {
+            format!(
+                "forall {var} in {}: {}",
+                expr_to_string(domain),
+                expr_to_string(body)
+            )
+        }
+        Expr::Exists { var, domain, body } => {
+            format!(
+                "exists {var} in {}: {}",
+                expr_to_string(domain),
+                expr_to_string(body)
+            )
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => match else_branch {
+            Some(eb) => format!(
+                "if {} then {} else {}",
+                expr_to_string(cond),
+                expr_to_string(then_branch),
+                expr_to_string(eb)
+            ),
+            None => format!(
+                "if {} then {}",
+                expr_to_string(cond),
+                expr_to_string(then_branch)
+            ),
+        },
+        Expr::Paren(e) => format!("({})", expr_to_string(e)),
+        Expr::List(elems) => {
+            let elems_s: Vec<String> = elems.iter().map(expr_to_string).collect();
+            format!("[{}]", elems_s.join(", "))
+        }
+        Expr::Cast { expr: e, ty } => format!("{} as {ty}", expr_to_string(e)),
+        Expr::Block(exprs) => {
+            let strs: Vec<String> = exprs.iter().map(expr_to_string).collect();
+            strs.join(" ")
+        }
+        Expr::Raw(tokens) => tokens.join(" "),
     }
 }
 

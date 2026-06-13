@@ -15,41 +15,55 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Input,
-                            tokens: [
-                                "x",
-                                ":",
-                                "Int",
-                            ],
+                            body: Raw(
+                                [
+                                    "x",
+                                    ":",
+                                    "Int",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Output,
-                            tokens: [
-                                "result",
-                                ":",
-                                "Nat",
-                            ],
+                            body: Raw(
+                                [
+                                    "result",
+                                    ":",
+                                    "Nat",
+                                ],
+                            ),
                         },
                         Clause {
                             kind: Requires,
-                            tokens: [
-                                "x",
-                                ">=",
-                                "0",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "x",
+                                ),
+                                op: Gte,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Ensures,
-                            tokens: [
-                                "result",
-                                "==",
-                                "x",
-                            ],
+                            body: BinOp {
+                                lhs: Ident(
+                                    "result",
+                                ),
+                                op: Eq,
+                                rhs: Ident(
+                                    "x",
+                                ),
+                            },
                         },
                         Clause {
                             kind: Effects,
-                            tokens: [
+                            body: Ident(
                                 "pure",
-                            ],
+                            ),
                         },
                     ],
                 },

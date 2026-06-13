@@ -1,5 +1,6 @@
 use crate::ast::*;
 use crate::lexer::Token;
+use chumsky::BoxedParser;
 use chumsky::prelude::*;
 
 fn ident() -> impl Parser<Token, String, Error = Simple<Token>> + Clone {
@@ -22,7 +23,10 @@ fn keyword_or_ident() -> impl Parser<Token, String, Error = Simple<Token>> + Clo
         _ => {
             let s = tok_to_str(&tok);
             // Reject punctuation and operators — only keywords produce valid ident strings
-            if s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') {
+            if s.chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            {
                 Ok(s)
             } else {
                 Err(Simple::expected_input_found(span, [], Some(tok)))
@@ -364,10 +368,18 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
             Token::Ident(s)
                 if matches!(
                     s.as_str(),
-                    "step" | "resume" | "assume" | "prove"
-                        | "validate" | "taint" | "verify"
-                        | "example" | "strategy" | "promise"
-                        | "bound" | "writes"
+                    "step"
+                        | "resume"
+                        | "assume"
+                        | "prove"
+                        | "validate"
+                        | "taint"
+                        | "verify"
+                        | "example"
+                        | "strategy"
+                        | "promise"
+                        | "bound"
+                        | "writes"
                 ) =>
             {
                 Ok(ClauseKind::Other(s.clone()))
@@ -432,35 +444,380 @@ fn is_clause_stopper(t: &Token) -> bool {
                 | "operation" | "query" | "states"))
 }
 
-fn clause_body() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clone {
-    let braced = just(Token::Colon).or_not().ignore_then(
-        body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LBrace), just(Token::RBrace)),
+// ---------------------------------------------------------------------------
+// Expression parser — full precedence climbing
+// ---------------------------------------------------------------------------
+
+/// Helper enum for postfix operations collected during parsing.
+#[derive(Clone)]
+enum PostfixOp {
+    Field(String),
+    MethodCall(String, Vec<Expr>),
+    Index(Expr),
+    Cast(String),
+}
+
+fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
+    recursive(|expr: Recursive<Token, Expr, Simple<Token>>| {
+        // ---- Atoms ----
+
+        let int_lit = filter_map(|span, tok| match tok {
+            Token::Int(s) => Ok(Expr::Literal(Literal::Int(s))),
+            _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+        });
+
+        let float_lit = filter_map(|span, tok| match tok {
+            Token::Float(s) => Ok(Expr::Literal(Literal::Float(s))),
+            _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+        });
+
+        let string_lit = filter_map(|span, tok| match tok {
+            Token::String(s) => Ok(Expr::Literal(Literal::Str(s))),
+            _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+        });
+
+        let bool_lit = just(Token::True)
+            .to(Expr::Literal(Literal::Bool(true)))
+            .or(just(Token::False).to(Expr::Literal(Literal::Bool(false))));
+
+        let self_expr = just(Token::Self_).to(Expr::Ident("self".into()));
+        let result_expr = just(Token::Result_).to(Expr::Ident("result".into()));
+
+        // old(expr)
+        let old_expr = just(Token::Old)
+            .ignore_then(
+                expr.clone()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map(|e| Expr::Old(Box::new(e)));
+
+        // Parenthesized expression
+        let paren_expr = expr
+            .clone()
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .map(|e| Expr::Paren(Box::new(e)));
+
+        // List literal: [a, b, c]
+        let list_expr = expr
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .delimited_by(just(Token::LBracket), just(Token::RBracket))
+            .map(Expr::List);
+
+        // forall var in domain: body
+        let forall_expr = just(Token::Forall)
+            .ignore_then(ident())
+            .then_ignore(just(Token::In))
+            .then(expr.clone())
+            .then_ignore(just(Token::Colon))
+            .then(expr.clone())
+            .map(|((var, domain), body)| Expr::Forall {
+                var,
+                domain: Box::new(domain),
+                body: Box::new(body),
+            });
+
+        // exists var in domain: body
+        let exists_expr = just(Token::Exists)
+            .ignore_then(ident())
+            .then_ignore(just(Token::In))
+            .then(expr.clone())
+            .then_ignore(just(Token::Colon))
+            .then(expr.clone())
+            .map(|((var, domain), body)| Expr::Exists {
+                var,
+                domain: Box::new(domain),
+                body: Box::new(body),
+            });
+
+        // if cond then expr [else expr]
+        let if_expr = just(Token::If)
+            .ignore_then(expr.clone())
+            .then_ignore(just(Token::Then))
+            .then(expr.clone())
+            .then(just(Token::Else).ignore_then(expr.clone()).or_not())
+            .map(|((cond, then_branch), else_branch)| Expr::If {
+                cond: Box::new(cond),
+                then_branch: Box::new(then_branch),
+                else_branch: else_branch.map(Box::new),
+            });
+
+        // Identifier (plain)
+        let ident_expr = ident().map(Expr::Ident);
+
+        // Keywords that can appear as value-position identifiers in expressions
+        let keyword_as_value = choice((
+            just(Token::Pure).to("pure"),
+            just(Token::Ghost).to("ghost"),
+            just(Token::Opaque).to("opaque"),
+            just(Token::Deterministic).to("deterministic"),
+            just(Token::Atomic).to("atomic"),
+            just(Token::Monotonic).to("monotonic"),
+            just(Token::Secret).to("secret"),
+            just(Token::Frozen).to("frozen"),
+            just(Token::Pinned).to("pinned"),
+            just(Token::Relaxed).to("relaxed"),
+            just(Token::Recovery).to("recovery"),
+            just(Token::Cache).to("cache"),
+            just(Token::Snapshot).to("snapshot"),
+            just(Token::Release).to("release"),
+            just(Token::Acquire).to("acquire"),
+            just(Token::AcqRel).to("acq_rel"),
+            just(Token::SeqCst).to("seq_cst"),
+            just(Token::View).to("view"),
+            just(Token::Merge).to("merge"),
+            just(Token::Fair).to("fair"),
+            just(Token::Fence).to("fence"),
+        ))
+        .map(|s: &str| Expr::Ident(s.into()));
+
+        let atom = choice((
+            float_lit,
+            int_lit,
+            string_lit,
+            bool_lit,
+            self_expr,
+            result_expr,
+            old_expr,
+            forall_expr,
+            exists_expr,
+            if_expr,
+            paren_expr,
+            list_expr,
+            keyword_as_value,
+            ident_expr,
+        ))
+        .boxed();
+
+        // ---- Postfix: .field, .method(args), [index], as Type ----
+        let field_access = just(Token::Dot)
+            .ignore_then(keyword_or_ident())
+            .then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                    .or_not(),
+            )
+            .map(|(name, args)| match args {
+                Some(a) => PostfixOp::MethodCall(name, a),
+                None => PostfixOp::Field(name),
+            });
+
+        let index_access = expr
+            .clone()
+            .delimited_by(just(Token::LBracket), just(Token::RBracket))
+            .map(PostfixOp::Index);
+
+        let cast = just(Token::As)
+            .ignore_then(keyword_or_ident())
+            .map(PostfixOp::Cast);
+
+        let postfix_op = choice((field_access, index_access, cast));
+
+        let postfix = atom
+            .then(postfix_op.repeated())
+            .foldl(|expr, op| match op {
+                PostfixOp::Field(name) => Expr::Field(Box::new(expr), name),
+                PostfixOp::MethodCall(name, args) => Expr::MethodCall {
+                    receiver: Box::new(expr),
+                    method: name,
+                    args,
+                },
+                PostfixOp::Index(idx) => Expr::Index {
+                    expr: Box::new(expr),
+                    index: Box::new(idx),
+                },
+                PostfixOp::Cast(ty) => Expr::Cast {
+                    expr: Box::new(expr),
+                    ty,
+                },
+            })
+            .boxed();
+
+        // ---- Unary prefix: not, -, ! ----
+        let unary = choice((
+            just(Token::Not).to(UnaryOp::Not),
+            just(Token::Minus).to(UnaryOp::Neg),
+            just(Token::Bang).to(UnaryOp::Not),
+        ))
+        .repeated()
+        .then(postfix)
+        .foldr(|op, expr| Expr::UnaryOp {
+            op,
+            expr: Box::new(expr),
+        });
+
+        // ---- Binary: multiplicative *, /, % ----
+        let mul_op = choice((
+            just(Token::Star).to(BinOp::Mul),
+            just(Token::Slash).to(BinOp::Div),
+            just(Token::Percent).to(BinOp::Mod),
+        ));
+        let product = unary
+            .clone()
+            .then(mul_op.then(unary).repeated())
+            .foldl(|lhs, (op, rhs)| Expr::BinOp {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+            })
+            .boxed();
+
+        // ---- Binary: additive +, -, ++ ----
+        let add_op = choice((
+            just(Token::Plus).to(BinOp::Add),
+            just(Token::Minus).to(BinOp::Sub),
+            just(Token::Concat).to(BinOp::Concat),
+        ));
+        let sum = product
+            .clone()
+            .then(add_op.then(product).repeated())
+            .foldl(|lhs, (op, rhs)| Expr::BinOp {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+            })
+            .boxed();
+
+        // ---- Binary: range .. ----
+        let range = sum
+            .clone()
+            .then(just(Token::DotDot).ignore_then(sum).or_not())
+            .map(|(lhs, rhs)| match rhs {
+                Some(r) => Expr::BinOp {
+                    lhs: Box::new(lhs),
+                    op: BinOp::Range,
+                    rhs: Box::new(r),
+                },
+                None => lhs,
+            })
+            .boxed();
+
+        // ---- Binary: comparison ==, !=, <, <=, >, >=, in, not in, is ----
+        let cmp_op = choice((
+            just(Token::Eq).to(BinOp::Eq),
+            just(Token::Neq).to(BinOp::Neq),
+            just(Token::Lte).to(BinOp::Lte),
+            just(Token::Gte).to(BinOp::Gte),
+            just(Token::LAngle).to(BinOp::Lt),
+            just(Token::RAngle).to(BinOp::Gt),
+            just(Token::Not)
+                .ignore_then(just(Token::In))
+                .to(BinOp::NotIn),
+            just(Token::In).to(BinOp::In),
+            just(Token::Is).to(BinOp::Eq), // `is` treated as equality check
+        ));
+        let comparison = range
+            .clone()
+            .then(cmp_op.then(range).repeated())
+            .foldl(|lhs, (op, rhs)| Expr::BinOp {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+            })
+            .boxed();
+
+        // ---- Binary: logical and, && ----
+        let and_op = just(Token::And)
+            .to(BinOp::And)
+            .or(just(Token::AndAnd).to(BinOp::And));
+        let logical_and = comparison
+            .clone()
+            .then(and_op.then(comparison).repeated())
+            .foldl(|lhs, (op, rhs)| Expr::BinOp {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+            })
+            .boxed();
+
+        // ---- Binary: logical or, || ----
+        let or_op = just(Token::Or)
+            .to(BinOp::Or)
+            .or(just(Token::OrOr).to(BinOp::Or));
+        let logical_or = logical_and
+            .clone()
+            .then(or_op.then(logical_and).repeated())
+            .foldl(|lhs, (op, rhs)| Expr::BinOp {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+            })
+            .boxed();
+
+        // ---- Binary: implies => ----
+        logical_or
+            .clone()
+            .then(just(Token::FatArrow).ignore_then(logical_or).or_not())
+            .map(|(lhs, rhs)| match rhs {
+                Some(r) => Expr::BinOp {
+                    lhs: Box::new(lhs),
+                    op: BinOp::Implies,
+                    rhs: Box::new(r),
+                },
+                None => lhs,
+            })
+    })
+    .boxed()
+}
+
+fn clause_body() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
+    // Braced bodies: optional colon, then { expr } or { raw tokens }.
+    // Try expression first since braces provide clear delimiters.
+    let braced_expr = just(Token::Colon)
+        .or_not()
+        .ignore_then(expr_parser().delimited_by(just(Token::LBrace), just(Token::RBrace)));
+    let braced_raw = just(Token::Colon).or_not().ignore_then(
+        body_tokens(CLAUSE_STOPS)
+            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .map(Expr::Raw),
     );
 
-    let parened = just(Token::Colon).or_not().ignore_then(
-        body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LParen), just(Token::RParen)),
+    // Parened bodies: optional colon, then ( expr ) or ( raw tokens ).
+    let parened_expr = just(Token::Colon)
+        .or_not()
+        .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)));
+    let parened_raw = just(Token::Colon).or_not().ignore_then(
+        body_tokens(CLAUSE_STOPS)
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .map(Expr::Raw),
     );
 
-    // Inline: colon then tokens until next clause keyword or }
-    let inline = just(Token::Colon).ignore_then(
+    // Inline: colon then tokens until next clause keyword.
+    // Raw first: the greedy raw-token approach matches the old parser
+    // behavior, consuming everything up to a clause stopper. Expression
+    // parsing for unbounded inline bodies can over- or under-consume
+    // (e.g., `effects: pure incremental Foo` was one clause body before).
+    let inline_raw = just(Token::Colon).ignore_then(
         filter(move |t: &Token| !is_clause_stopper(t))
             .map(|t| tok_to_str(&t))
-            .repeated(),
+            .repeated()
+            .map(Expr::Raw),
     );
 
-    // Bare: no colon, just space-separated tokens until next clause/decl keyword
-    let bare = filter(move |t: &Token| !is_clause_stopper(t))
+    // Bare: no colon, raw tokens until next clause/decl keyword.
+    let bare_raw = filter(move |t: &Token| !is_clause_stopper(t))
         .map(|t| tok_to_str(&t))
         .repeated()
-        .at_least(1);
+        .at_least(1)
+        .map(Expr::Raw);
 
-    choice((braced, parened, inline, bare))
+    choice((
+        braced_expr,
+        braced_raw,
+        parened_expr,
+        parened_raw,
+        inline_raw,
+        bare_raw,
+    ))
 }
 
 fn clause() -> impl Parser<Token, Clause, Error = Simple<Token>> + Clone {
     clause_kind()
         .then(clause_body())
-        .map(|(kind, tokens)| Clause { kind, tokens })
+        .map(|(kind, body)| Clause { kind, body })
 }
 
 // --- Contract ---

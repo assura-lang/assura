@@ -84,45 +84,63 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    tokens: [
-                                        "amount",
-                                        ":",
-                                        "Int",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "amount",
+                                            ":",
+                                            "Int",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Output,
-                                    tokens: [
-                                        "order",
-                                        ":",
-                                        "Order",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "order",
+                                            ":",
+                                            "Order",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Requires,
-                                    tokens: [
-                                        "amount",
-                                        ">",
-                                        "0",
-                                    ],
+                                    body: BinOp {
+                                        lhs: Ident(
+                                            "amount",
+                                        ),
+                                        op: Gt,
+                                        rhs: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                    },
                                 },
                                 Clause {
                                     kind: Ensures,
-                                    tokens: [
-                                        "order",
-                                        ".",
-                                        "status",
-                                        "==",
-                                        "Pending",
-                                    ],
+                                    body: BinOp {
+                                        lhs: Field(
+                                            Ident(
+                                                "order",
+                                            ),
+                                            "status",
+                                        ),
+                                        op: Eq,
+                                        rhs: Literal(
+                                            Str(
+                                                "Pending",
+                                            ),
+                                        ),
+                                    },
                                 },
                                 Clause {
                                     kind: Effects,
-                                    tokens: [
-                                        "db",
-                                        ".",
+                                    body: Field(
+                                        Ident(
+                                            "db",
+                                        ),
                                         "write",
-                                    ],
+                                    ),
                                 },
                             ],
                         },
@@ -131,35 +149,46 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    tokens: [
-                                        "id",
-                                        ":",
-                                        "Nat",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "id",
+                                            ":",
+                                            "Nat",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Output,
-                                    tokens: [
-                                        "order",
-                                        ":",
-                                        "Order",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "order",
+                                            ":",
+                                            "Order",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Requires,
-                                    tokens: [
-                                        "id",
-                                        ">",
-                                        "0",
-                                    ],
+                                    body: BinOp {
+                                        lhs: Ident(
+                                            "id",
+                                        ),
+                                        op: Gt,
+                                        rhs: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                    },
                                 },
                                 Clause {
                                     kind: Effects,
-                                    tokens: [
-                                        "db",
-                                        ".",
+                                    body: Field(
+                                        Ident(
+                                            "db",
+                                        ),
                                         "write",
-                                    ],
+                                    ),
                                 },
                             ],
                         },
@@ -168,51 +197,70 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    tokens: [
-                                        "id",
-                                        ":",
-                                        "Nat",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "id",
+                                            ":",
+                                            "Nat",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Output,
-                                    tokens: [
-                                        "order",
-                                        ":",
-                                        "Order",
-                                    ],
+                                    body: Raw(
+                                        [
+                                            "order",
+                                            ":",
+                                            "Order",
+                                        ],
+                                    ),
                                 },
                                 Clause {
                                     kind: Requires,
-                                    tokens: [
-                                        "id",
-                                        ">",
-                                        "0",
-                                    ],
+                                    body: BinOp {
+                                        lhs: Ident(
+                                            "id",
+                                        ),
+                                        op: Gt,
+                                        rhs: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                    },
                                 },
                                 Clause {
                                     kind: Effects,
-                                    tokens: [
-                                        "db",
-                                        ".",
+                                    body: Field(
+                                        Ident(
+                                            "db",
+                                        ),
                                         "read",
-                                    ],
+                                    ),
                                 },
                             ],
                         },
                         Invariant(
-                            [
-                                "forall",
-                                "o",
-                                "in",
-                                "orders",
-                                ":",
-                                "o",
-                                ".",
-                                "amount",
-                                ">",
-                                "0",
-                            ],
+                            Forall {
+                                var: "o",
+                                domain: Ident(
+                                    "orders",
+                                ),
+                                body: BinOp {
+                                    lhs: Field(
+                                        Ident(
+                                            "o",
+                                        ),
+                                        "amount",
+                                    ),
+                                    op: Gt,
+                                    rhs: Literal(
+                                        Int(
+                                            "0",
+                                        ),
+                                    ),
+                                },
+                            },
                         ),
                     ],
                 },
