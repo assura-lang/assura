@@ -1586,19 +1586,57 @@ fn env_with_result(env: &TypeEnv, result_ty: &Type) -> TypeEnv {
 /// expression. For `output(result: Int)`, the body is parsed as an
 /// expression; we extract the type annotation from the Ident or the
 /// clause body tokens. Falls back to `Unknown` if no output clause.
+/// Extract a type annotation from an output clause body.
+///
+/// The output body can appear as:
+/// - `Expr::Cast { expr: Ident("result"), ty: "Nat" }` (expression-parsed)
+/// - `Expr::Raw(["result", ":", "Nat"])` (raw tokens from `output(result: Nat)`)
+/// - `Expr::Call { args: [Cast { ... }] }` (wrapped call)
+///
+/// Returns the declared output type, or `Type::Unknown` if not extractable.
+fn extract_output_type_from_body(body: &Expr) -> Type {
+    match body {
+        Expr::Cast { ty, .. } => parse_type_tokens(std::slice::from_ref(ty)),
+        Expr::Raw(tokens) => {
+            // Look for "name : Type" pattern
+            if let Some(colon_pos) = tokens.iter().position(|t| t == ":") {
+                let type_tokens: Vec<String> = tokens[colon_pos + 1..].to_vec();
+                if !type_tokens.is_empty() {
+                    let ty = parse_type_tokens(&type_tokens);
+                    if ty != Type::Unknown {
+                        return ty;
+                    }
+                }
+            }
+            Type::Unknown
+        }
+        Expr::Call { args, .. } => {
+            // output(result: Int) parsed as Call with Cast args
+            for arg in args {
+                let ty = extract_output_type_from_body(arg);
+                if ty != Type::Unknown {
+                    return ty;
+                }
+            }
+            Type::Unknown
+        }
+        _ => {
+            // Fall back to inference
+            let env = TypeEnv::new();
+            if let Ok(ty) = infer_expr(body, &env) {
+                ty
+            } else {
+                Type::Unknown
+            }
+        }
+    }
+}
+
 fn extract_contract_output_type(c: &assura_parser::ast::ContractDecl) -> Type {
     for clause in &c.clauses {
         if clause.kind == ClauseKind::Output {
-            // The output clause body is typically a declaration-like expr.
-            // Try to infer what it declares by looking at input params from
-            // the parser. The AST stores output as Expr; for a simple
-            // `output(result: Int)` this becomes a call or ident.
-            // We can also check the clause's tokens for type information.
-            // For now, return the inferred type of the body expression.
-            let env = TypeEnv::new();
-            if let Ok(ty) = infer_expr(&clause.body, &env)
-                && ty != Type::Unknown
-            {
+            let ty = extract_output_type_from_body(&clause.body);
+            if ty != Type::Unknown {
                 return ty;
             }
         }
@@ -1703,11 +1741,11 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                         if clause.kind == ClauseKind::Input {
                             register_input_clause_params(&clause.body, &mut op_env);
                         }
-                        if clause.kind == ClauseKind::Output
-                            && let Ok(ty) = infer_expr(&clause.body, &op_env)
-                            && ty != Type::Unknown
-                        {
-                            output_ty = ty;
+                        if clause.kind == ClauseKind::Output {
+                            let ty = extract_output_type_from_body(&clause.body);
+                            if ty != Type::Unknown {
+                                output_ty = ty;
+                            }
                         }
                     }
                     let ensures_env = env_with_result(&op_env, &output_ty);
@@ -23397,5 +23435,59 @@ fn square(x: Int) -> Int
         let expr = AstExpr::Ident("self".into());
         // Outside a service context, self is Unknown
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn extract_output_type_from_raw_tokens() {
+        // output(result: Nat) is parsed as Raw(["result", ":", "Nat"])
+        let body = AstExpr::Raw(vec!["result".into(), ":".into(), "Nat".into()]);
+        assert_eq!(extract_output_type_from_body(&body), Type::Nat);
+    }
+
+    #[test]
+    fn extract_output_type_from_cast() {
+        let body = AstExpr::Cast {
+            expr: Box::new(AstExpr::Ident("result".into())),
+            ty: "Int".into(),
+        };
+        assert_eq!(extract_output_type_from_body(&body), Type::Int);
+    }
+
+    #[test]
+    fn extract_output_type_from_raw_generic() {
+        // output(result: List<Int>) from raw tokens
+        let body = AstExpr::Raw(vec![
+            "result".into(),
+            ":".into(),
+            "List".into(),
+            "<".into(),
+            "Int".into(),
+            ">".into(),
+        ]);
+        assert_eq!(
+            extract_output_type_from_body(&body),
+            Type::List(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn service_query_output_binds_result_type() {
+        // Full pipeline: service with query that has output(result: Nat)
+        // and ensures { result >= 0 } should type-check without errors
+        let src = r#"
+service Counter {
+  query Value {
+    output(result: Nat)
+    ensures { result >= 0 }
+  }
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved);
+        assert!(
+            typed.is_ok(),
+            "query with output(result: Nat) and ensures should pass: {:?}",
+            typed.err()
+        );
     }
 }

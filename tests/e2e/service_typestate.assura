@@ -57,5 +57,6 @@ service Counter {
 
     query Value {
         output(result: Nat)
+        ensures { result >= 0 }
     }
 }
