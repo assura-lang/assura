@@ -221,7 +221,7 @@
   - **VERIFY**: `cargo run -- build demos/libwebp-huffman.assura` must
     produce a `generated/` directory with valid Rust source
 
-- [ ] **T020**: Implement type mapping
+- [x] **T020**: Implement type mapping
   - Depends on: T019
   - Assura -> Rust type translations (Section 6.1 of spec):
     - `Int` -> `i64`
@@ -240,7 +240,7 @@
   - Generate newtype wrappers for refined types (Section 6.2):
     `type Pos = { v: Int | v > 0 }` -> `struct Pos(i64);`
 
-- [ ] **T021**: Implement contract codegen
+- [x] **T021**: Implement contract codegen
   - Depends on: T020
   - `requires { P }` -> `debug_assert!(P, "requires: P");` at function entry
   - `ensures { Q }` -> `debug_assert!(Q, "ensures: Q");` before return
@@ -248,7 +248,7 @@
   - Generate function signatures from input/output clauses
   - Spec reference: Section 6.7
 
-- [ ] **T022**: Implement Cargo project generation
+- [x] **T022**: Implement Cargo project generation
   - Depends on: T021
   - Generate a complete Cargo workspace:
     ```
@@ -261,7 +261,7 @@
   - Format all generated .rs files with prettyplease
   - Spec reference: Section 10.3
 
-- [ ] **T023**: Implement struct and enum codegen
+- [x] **T023**: Implement struct and enum codegen
   - Depends on: T020
   - Assura `type Foo { field: Int }` -> Rust `struct Foo { field: i64 }`
   - Assura `enum Bar { A, B(Int) }` -> Rust `enum Bar { A, B(i64) }`
