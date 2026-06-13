@@ -130,9 +130,7 @@ fn run_check(args: &[String]) {
         .into_iter()
         .nth(1) // skip "check" itself
         .unwrap_or_else(|| {
-            eprintln!(
-                "Usage: assura check <file.assura> [--json|--human] [--layer 0|1]"
-            );
+            eprintln!("Usage: assura check <file.assura> [--json|--human] [--layer 0|1]");
             process::exit(2);
         });
 
@@ -292,8 +290,7 @@ fn run_check(args: &[String]) {
     // Convert counterexamples to diagnostics so they appear in both modes
     for vr in &verification_results {
         if let assura_smt::VerificationResult::Counterexample {
-            clause_desc,
-            model,
+            clause_desc, model, ..
         } = vr
         {
             has_errors = true;
@@ -325,12 +322,22 @@ fn run_check(args: &[String]) {
                     assura_smt::VerificationResult::Counterexample {
                         clause_desc,
                         model,
+                        counter_model,
                     } => {
-                        serde_json::json!({
+                        let mut val = serde_json::json!({
                             "status": "counterexample",
                             "clause": clause_desc,
                             "model": model,
-                        })
+                        });
+                        if let Some(cm) = counter_model {
+                            let vars: serde_json::Map<String, serde_json::Value> = cm
+                                .variables
+                                .iter()
+                                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                                .collect();
+                            val["variables"] = serde_json::Value::Object(vars);
+                        }
+                        val
                     }
                     assura_smt::VerificationResult::Timeout { clause_desc } => {
                         serde_json::json!({
@@ -382,6 +389,7 @@ fn run_check(args: &[String]) {
                         assura_smt::VerificationResult::Counterexample {
                             clause_desc,
                             model,
+                            ..
                         } => {
                             eprintln!("  COUNTEREXAMPLE  {clause_desc}");
                             eprintln!("    model: {model}");
@@ -600,7 +608,9 @@ fn run_build(args: &[String]) {
                 assura_smt::VerificationResult::Verified { clause_desc } => {
                     eprintln!("  VERIFIED    {clause_desc}");
                 }
-                assura_smt::VerificationResult::Counterexample { clause_desc, model } => {
+                assura_smt::VerificationResult::Counterexample {
+                    clause_desc, model, ..
+                } => {
                     eprintln!("  COUNTEREXAMPLE  {clause_desc}");
                     eprintln!("    model: {model}");
                 }
@@ -912,6 +922,168 @@ fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Add the missing variant(s) to the match expression, or add a wildcard \
                  pattern (_ => ...) to handle all remaining cases. The error message \
                  lists which variants are not covered.",
+        },
+        // -- Phase 1: Linearity errors (A05xxx) --
+        ErrorInfo {
+            code: "A05001",
+            name: "Linear variable used more than once",
+            description: "A variable with linear grade (:_1) was used more than once \
+                          computationally. Linear variables must be consumed exactly once. \
+                          Refinement predicates (ghost/logical uses) do not count.",
+            example: r#"  fn bad(x: Int :_1) -> (Int, Int)
+      effects: pure
+  { (x, x) }   // x used twice"#,
+            fix: "Restructure the code to use the linear variable exactly once. If you \
+                 need the value in two places, clone it first (if the type supports it) \
+                 or refactor to avoid the double use.",
+        },
+        ErrorInfo {
+            code: "A05002",
+            name: "Linear variable not consumed",
+            description: "A variable with linear grade (:_1) was never used. Linear \
+                          variables must be consumed exactly once before going out of scope.",
+            example: r#"  fn bad(x: Int :_1) -> Int
+      effects: pure
+  { 42 }   // x is never used"#,
+            fix: "Use the variable before it goes out of scope, or explicitly drop it. \
+                 If you intentionally do not need the value, consider changing its grade \
+                 to :_omega (unlimited).",
+        },
+        ErrorInfo {
+            code: "A05003",
+            name: "Usage grade violation",
+            description: "A variable was used a number of times that does not match its \
+                          declared usage grade. Grade :_n means exactly n uses.",
+            example: r#"  fn bad(x: Int :_2) -> Int
+      effects: pure
+  { x }   // used once, but grade requires exactly 2"#,
+            fix: "Adjust the code to use the variable the exact number of times \
+                 specified by its grade, or change the grade to match actual usage.",
+        },
+        ErrorInfo {
+            code: "A05004",
+            name: "Linear variable consumed in only one branch",
+            description: "A linear variable was consumed in one branch of a conditional \
+                          but not the other. Linear variables must be consumed in all \
+                          branches or none.",
+            example: r#"  fn bad(x: Int :_1, flag: Bool) -> Int
+      effects: pure
+  { if flag then x else 0 }
+  // x consumed in 'then' branch but not 'else'"#,
+            fix: "Ensure the linear variable is consumed in every branch of the \
+                 conditional, or restructure to consume it before the branch point.",
+        },
+        // -- Phase 1: Typestate errors (A06xxx) --
+        ErrorInfo {
+            code: "A06001",
+            name: "Invalid state transition",
+            description: "An operation was called on an object that is not in the required \
+                          state. Each operation declares which state the object must be in \
+                          before the operation is valid.",
+            example: r#"  service OrderService {
+      states: [Created, Paid, Shipped]
+      operation ship(order) {
+          requires: state == Paid   // must be Paid
+      }
+  }
+  // calling ship() on a Created order -> A06001"#,
+            fix: "Check the object's current state before calling the operation. Use a \
+                 prior state transition to move the object to the required state first.",
+        },
+        ErrorInfo {
+            code: "A06002",
+            name: "Typestate variable not linear",
+            description: "A variable with typestate tracking must be linear (:_1). \
+                          Typestate requires that the object is consumed and recreated \
+                          at each state transition, which requires linearity.",
+            example: r#"  fn bad(conn: Connection)  // missing :_1
+  // conn has states but is not linear -> A06002"#,
+            fix: "Add the linear grade :_1 to the variable declaration. Typestate \
+                 variables must be linear to ensure state transitions are tracked.",
+        },
+        ErrorInfo {
+            code: "A06003",
+            name: "Unknown state",
+            description: "A state name used in a transition or assertion does not match \
+                          any state in the object's state declaration.",
+            example: r#"  service Foo {
+      states: [A, B, C]
+      operation go_to_d(x) {
+          ensures: state == D   // D is not in [A, B, C] -> A06003
+      }
+  }"#,
+            fix: "Use one of the declared states from the 'states:' declaration. \
+                 If you need a new state, add it to the states list.",
+        },
+        ErrorInfo {
+            code: "A06004",
+            name: "Ambiguous state after branch",
+            description: "After a conditional (if/match) where different branches lead to \
+                          different states, the object's state is ambiguous. The type \
+                          checker cannot determine which state the object is in.",
+            example: r#"  if condition then
+      order.pay()      // state -> Paid
+  else
+      order.cancel()   // state -> Cancelled
+  // order state is ambiguous: Paid or Cancelled -> A06004"#,
+            fix: "Restructure the code so that all branches end with the object in the \
+                 same state, or consume the object before the branch point.",
+        },
+        // -- Phase 1: Effect errors (A07xxx) --
+        ErrorInfo {
+            code: "A07001",
+            name: "Undeclared effect",
+            description: "A function performs an effect that is not listed in its \
+                          'effects' clause. Every side effect must be explicitly declared.",
+            example: r#"  fn save(data: Data) -> Unit
+      effects: database.read   // only declares read
+  {
+      db.write(data)   // database.write not declared -> A07001
+  }"#,
+            fix: "Add the missing effect to the function's 'effects' clause. If the \
+                 function should be pure, remove the effectful operation.",
+        },
+        ErrorInfo {
+            code: "A07002",
+            name: "Effect containment violation",
+            description: "A function calls another function whose effects are not a \
+                          subset of the caller's declared effects. A pure function \
+                          cannot call an effectful function.",
+            example: r#"  fn helper() -> Unit
+      effects: io.write
+
+  fn pure_fn() -> Unit
+      effects: pure
+  { helper() }   // calls io.write from pure context -> A07002"#,
+            fix: "Either add the callee's effects to the caller's effect declaration, \
+                 or avoid calling effectful functions from restricted contexts.",
+        },
+        ErrorInfo {
+            code: "A07003",
+            name: "Unknown effect name",
+            description: "An effect name in an 'effects' clause does not match any known \
+                          effect. Built-in effects include: io, io.read, io.write, \
+                          database, database.read, database.write, network, crypto, pure.",
+            example: r#"  fn bad() -> Unit
+      effects: teleport   // 'teleport' is not a known effect -> A07003"#,
+            fix: "Use a valid effect name from the built-in effect hierarchy. Check \
+                 the documentation for the complete list of effects.",
+        },
+        // -- Phase 1: SMT verification (A05100) --
+        ErrorInfo {
+            code: "A05100",
+            name: "Verification failed (counterexample found)",
+            description: "The SMT solver found a counterexample showing that a contract \
+                          clause does not hold. The model shows concrete values for \
+                          variables that violate the property.",
+            example: r#"  contract AlwaysPositive {
+      requires: true
+      ensures: x > 0
+  }
+  // Counterexample: x = 0 or x = -1"#,
+            fix: "Either strengthen the requires clause to eliminate the counterexample \
+                 inputs, or weaken the ensures clause to account for the case. The \
+                 counterexample model shows exactly which inputs break the contract.",
         },
     ]
 }
@@ -1534,6 +1706,7 @@ fn expr_to_string(expr: &Expr) -> String {
             let strs: Vec<String> = exprs.iter().map(expr_to_string).collect();
             strs.join(" ")
         }
+        Expr::Ghost(inner) => format!("ghost {{ {} }}", expr_to_string(inner)),
         Expr::Raw(tokens) => tokens.join(" "),
     }
 }

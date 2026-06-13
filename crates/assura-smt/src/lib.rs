@@ -10,12 +10,39 @@
 //!
 //! The default timeout is 1 second (Layer 1).
 
-use assura_parser::ast::{ClauseKind, Decl, ServiceItem};
+use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
 use assura_types::TypedFile;
 
 // ---------------------------------------------------------------------------
 // Verification result
 // ---------------------------------------------------------------------------
+
+/// Structured counterexample model extracted from Z3.
+#[derive(Debug, Clone)]
+pub struct CounterexampleModel {
+    /// Variable name/value pairs from the Z3 model.
+    pub variables: Vec<(String, String)>,
+}
+
+impl CounterexampleModel {
+    /// Produce a JSON string: `{"variables": {"x": "0", "b": "-1"}}`.
+    pub fn to_json(&self) -> String {
+        let mut buf = String::from("{\"variables\": {");
+        for (i, (name, value)) in self.variables.iter().enumerate() {
+            if i > 0 {
+                buf.push_str(", ");
+            }
+            // Escape any quotes in name/value for valid JSON
+            buf.push('"');
+            buf.push_str(&name.replace('\\', "\\\\").replace('"', "\\\""));
+            buf.push_str("\": \"");
+            buf.push_str(&value.replace('\\', "\\\\").replace('"', "\\\""));
+            buf.push('"');
+        }
+        buf.push_str("}}");
+        buf
+    }
+}
 
 /// The result of verifying a single contract clause.
 #[derive(Debug, Clone)]
@@ -29,8 +56,10 @@ pub enum VerificationResult {
     Counterexample {
         /// Human-readable description of the clause.
         clause_desc: String,
-        /// Z3 model showing the counterexample.
+        /// Z3 model showing the counterexample (raw string).
         model: String,
+        /// Structured counterexample with parsed variable values.
+        counter_model: Option<CounterexampleModel>,
     },
     /// The solver timed out before reaching a conclusion.
     Timeout {
@@ -66,6 +95,45 @@ pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
     }
 }
 
+/// Check whether a refinement subtype relation holds:
+///
+/// `{v: T | antecedent} <: {v: T | consequent}`
+///
+/// Encodes: `(assert antecedent) (assert (not consequent)) (check-sat)`
+///
+/// UNSAT => subtyping holds (Verified).
+/// SAT  => counterexample exists.
+pub fn check_refinement_subtype(antecedent: &Expr, consequent: &Expr) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        z3_backend::check_refinement_subtype_impl(antecedent, consequent)
+    }
+    #[cfg(not(feature = "z3-verify"))]
+    {
+        no_z3::refinement_stub(antecedent, consequent)
+    }
+}
+
+/// Check refinement subtyping with extra context assumptions.
+///
+/// The `context` expressions are asserted alongside the antecedent before
+/// negating the consequent. Useful when the subtyping depends on
+/// constraints from enclosing scopes (e.g., function parameters).
+pub fn check_refinement_subtype_with_context(
+    context: &[Expr],
+    antecedent: &Expr,
+    consequent: &Expr,
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        z3_backend::check_refinement_subtype_with_context_impl(context, antecedent, consequent)
+    }
+    #[cfg(not(feature = "z3-verify"))]
+    {
+        no_z3::refinement_ctx_stub(context, antecedent, consequent)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // No-Z3 fallback
 // ---------------------------------------------------------------------------
@@ -91,6 +159,26 @@ mod no_z3 {
         }
         results
     }
+
+    /// Stub refinement subtype check when Z3 is not available.
+    pub(crate) fn refinement_stub(_ante: &Expr, _cons: &Expr) -> VerificationResult {
+        VerificationResult::Unknown {
+            clause_desc: "refinement_subtype".into(),
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+
+    /// Stub refinement subtype check with context when Z3 is not available.
+    pub(crate) fn refinement_ctx_stub(
+        _context: &[Expr],
+        _ante: &Expr,
+        _cons: &Expr,
+    ) -> VerificationResult {
+        VerificationResult::Unknown {
+            clause_desc: "refinement_subtype_with_context".into(),
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -100,10 +188,11 @@ mod no_z3 {
 #[cfg(feature = "z3-verify")]
 mod z3_backend {
     use super::*;
-    use assura_parser::ast::{BinOp, Clause, Expr, Literal, UnaryOp};
+    use super::{CounterexampleModel, Expr};
+    use assura_parser::ast::{BinOp, Clause, Literal, UnaryOp};
     use std::collections::HashMap;
     use z3::ast::Ast;
-    use z3::{Config, Context, SatResult, Solver, ast};
+    use z3::{Config, Context, Model, SatResult, Solver, ast};
 
     // -----------------------------------------------------------------------
     // Z3 value wrapper
@@ -316,6 +405,9 @@ mod z3_backend {
 
                 // --- Raw token sequence: parse operator expression ---
                 Expr::Raw(tokens) => self.encode_raw_tokens(tokens),
+
+                // --- Ghost block: encode inner for verification ---
+                Expr::Ghost(inner) => self.encode_expr(inner),
 
                 // --- Complex expressions: return fresh unconstrained value ---
                 Expr::Field(..)
@@ -689,6 +781,39 @@ mod z3_backend {
     // Solver result interpretation
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Model extraction (T040)
+    // -----------------------------------------------------------------------
+
+    /// Parse a Z3 model into a structured `CounterexampleModel`.
+    ///
+    /// Iterates over the constant declarations in the model, evaluates
+    /// each one with model completion, and collects `(name, value)` pairs.
+    /// Internal variables (prefixed with `__`) are excluded.
+    fn extract_counter_model(model: &Model<'_>) -> CounterexampleModel {
+        let mut variables: Vec<(String, String)> = Vec::new();
+        for decl in model.iter() {
+            let name = decl.name();
+            // Skip internal/fresh variables
+            if name.starts_with("__") {
+                continue;
+            }
+            // Try to get the interpretation as a string
+            let value = model
+                .get_const_interp(&decl.apply(&[]))
+                .map(|v| format!("{v}"))
+                .unwrap_or_else(|| "?".into());
+            variables.push((name, value));
+        }
+        // Sort for deterministic output
+        variables.sort_by(|a, b| a.0.cmp(&b.0));
+        CounterexampleModel { variables }
+    }
+
+    // -----------------------------------------------------------------------
+    // Solver result interpretation
+    // -----------------------------------------------------------------------
+
     /// Interpret solver result for a validity check (ensures/rule).
     /// We negate the goal and check-sat: UNSAT = valid.
     fn check_validity(solver: &Solver<'_>, desc: String, results: &mut Vec<VerificationResult>) {
@@ -697,13 +822,16 @@ mod z3_backend {
                 results.push(VerificationResult::Verified { clause_desc: desc });
             }
             SatResult::Sat => {
-                let model_str = solver
-                    .get_model()
-                    .map(|m| format!("{m}"))
-                    .unwrap_or_else(|| "(no model)".into());
+                let (model_str, counter_model) = if let Some(m) = solver.get_model() {
+                    let cm = extract_counter_model(&m);
+                    (format!("{m}"), Some(cm))
+                } else {
+                    ("(no model)".into(), None)
+                };
                 results.push(VerificationResult::Counterexample {
                     clause_desc: desc,
                     model: model_str,
+                    counter_model,
                 });
             }
             SatResult::Unknown => {
@@ -737,6 +865,7 @@ mod z3_backend {
                 results.push(VerificationResult::Counterexample {
                     clause_desc: desc,
                     model: "invariant is unsatisfiable (always false)".into(),
+                    counter_model: None,
                 });
             }
             SatResult::Unknown => {
@@ -788,6 +917,19 @@ mod z3_backend {
             return;
         }
 
+        // T045: Build frame checker from modifies clauses
+        let modifies_bodies: Vec<&Expr> = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Modifies)
+            .map(|c| &c.body)
+            .collect();
+        let frame_checker = if modifies_bodies.is_empty() {
+            assura_types::FrameChecker::empty()
+        } else {
+            let body_refs: Vec<&Expr> = modifies_bodies.to_vec();
+            assura_types::FrameChecker::new(&body_refs)
+        };
+
         for clause in &verifiable {
             let desc = clause_desc(parent_name, &clause.kind);
             let solver = Solver::new(ctx);
@@ -799,6 +941,23 @@ mod z3_backend {
                 let req_val = encoder.encode_expr(&req.body);
                 let req_bool = req_val.as_bool(ctx);
                 solver.assert(&req_bool);
+            }
+
+            // T045: For ensures clauses with a modifies set, inject frame
+            // axioms: for every variable referenced in the ensures that is
+            // NOT in the modifies set, assert `var == old(var)`.
+            if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
+                let frame_vars = frame_checker.frame_axiom_vars(&clause.body);
+                for var_name in &frame_vars {
+                    // Create the current-state variable
+                    let current = encoder.get_or_create_int(var_name);
+                    // Create the old-state variable (uses __old suffix)
+                    let old_name = format!("{var_name}__old");
+                    let old_var = encoder.get_or_create_int(&old_name);
+                    // Assert frame axiom: current == old
+                    let axiom = current._eq(&old_var);
+                    solver.assert(&axiom);
+                }
             }
 
             // Encode the clause body
@@ -840,6 +999,93 @@ mod z3_backend {
         let bool_val = val.as_bool(ctx);
         solver.assert(&bool_val);
         check_satisfiability(&solver, desc, results);
+    }
+
+    // -----------------------------------------------------------------------
+    // Refinement subtype checking (T039)
+    // -----------------------------------------------------------------------
+
+    /// Check `{v: T | antecedent} <: {v: T | consequent}`.
+    ///
+    /// Encodes: assert antecedent, assert NOT consequent, check-sat.
+    /// UNSAT => Verified, SAT => Counterexample.
+    pub(crate) fn check_refinement_subtype_impl(
+        antecedent: &Expr,
+        consequent: &Expr,
+    ) -> VerificationResult {
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "1000");
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+
+        let mut encoder = Encoder::new(&ctx);
+
+        // Assert the antecedent (P)
+        let ante_val = encoder.encode_expr(antecedent);
+        let ante_bool = ante_val.as_bool(&ctx);
+        solver.assert(&ante_bool);
+
+        // Assert NOT consequent (¬Q)
+        let cons_val = encoder.encode_expr(consequent);
+        let cons_bool = cons_val.as_bool(&ctx);
+        solver.assert(&cons_bool.not());
+
+        // Check satisfiability: UNSAT = P => Q always holds
+        let mut results = Vec::new();
+        check_validity(&solver, "refinement_subtype".into(), &mut results);
+        results
+            .into_iter()
+            .next()
+            .unwrap_or(VerificationResult::Unknown {
+                clause_desc: "refinement_subtype".into(),
+                reason: "no result from solver".into(),
+            })
+    }
+
+    /// Check refinement subtyping with additional context assumptions.
+    pub(crate) fn check_refinement_subtype_with_context_impl(
+        context: &[Expr],
+        antecedent: &Expr,
+        consequent: &Expr,
+    ) -> VerificationResult {
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "1000");
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+
+        let mut encoder = Encoder::new(&ctx);
+
+        // Assert all context assumptions
+        for ctx_expr in context {
+            let val = encoder.encode_expr(ctx_expr);
+            let bool_val = val.as_bool(&ctx);
+            solver.assert(&bool_val);
+        }
+
+        // Assert the antecedent (P)
+        let ante_val = encoder.encode_expr(antecedent);
+        let ante_bool = ante_val.as_bool(&ctx);
+        solver.assert(&ante_bool);
+
+        // Assert NOT consequent (¬Q)
+        let cons_val = encoder.encode_expr(consequent);
+        let cons_bool = cons_val.as_bool(&ctx);
+        solver.assert(&cons_bool.not());
+
+        // Check satisfiability
+        let mut results = Vec::new();
+        check_validity(
+            &solver,
+            "refinement_subtype_with_context".into(),
+            &mut results,
+        );
+        results
+            .into_iter()
+            .next()
+            .unwrap_or(VerificationResult::Unknown {
+                clause_desc: "refinement_subtype_with_context".into(),
+                reason: "no result from solver".into(),
+            })
     }
 
     // -----------------------------------------------------------------------
@@ -1249,5 +1495,216 @@ mod tests {
                 "contract {i} should verify, got: {r:?}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // T045: Frame condition (modifies clause) SMT tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_frame_axiom_unmodified_var_verified() {
+        // modifies { x }, ensures: y == old(y)
+        // y is NOT modified, so frame axiom y == old(y) is injected.
+        // This should VERIFY because the axiom makes it trivially true.
+        let src = r#"
+            contract FrameUnmodified {
+                modifies: y
+                ensures: y == old(y)
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty(), "should have verification results");
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "unmodified var y == old(y) should verify with frame axiom, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_frame_no_axiom_for_modified_var() {
+        // modifies { x }, ensures: x == old(x)
+        // x IS modified, so no frame axiom is injected.
+        // Without a requires binding x to old(x), this should produce
+        // a COUNTEREXAMPLE because x is unconstrained.
+        let src = r#"
+            contract FrameModified {
+                modifies: x
+                ensures: x == old(x)
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty(), "should have verification results");
+        assert!(
+            matches!(&results[0], VerificationResult::Counterexample { .. }),
+            "modified var x == old(x) should produce counterexample, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_frame_axiom_with_requires() {
+        // modifies { x }, requires: x > 0, ensures: y == old(y) and x > 0
+        // Frame axiom for y, requires assumed for x.
+        let src = r#"
+            contract FrameWithReq {
+                modifies: x
+                requires: x > 0
+                ensures: y == old(y)
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "frame axiom + requires should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_no_modifies_no_frame_axiom() {
+        // No modifies clause: y == old(y) should produce counterexample
+        // because no frame axiom is injected.
+        let src = r#"
+            contract NoModifies {
+                ensures: y == old(y)
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Counterexample { .. }),
+            "without modifies clause, y == old(y) should be counterexample, got: {:?}",
+            results[0]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // T039: Refinement type subtyping as SMT queries
+    // -----------------------------------------------------------------------
+
+    use assura_parser::ast::{BinOp, Expr, Literal};
+
+    /// Helper: build `Expr::BinOp { lhs, op, rhs }`.
+    fn binop(lhs: Expr, op: BinOp, rhs: Expr) -> Expr {
+        Expr::BinOp {
+            lhs: Box::new(lhs),
+            op,
+            rhs: Box::new(rhs),
+        }
+    }
+
+    /// Helper: build `Expr::Ident(name)`.
+    fn ident(name: &str) -> Expr {
+        Expr::Ident(name.to_string())
+    }
+
+    /// Helper: build `Expr::Literal(Literal::Int(n))`.
+    fn int_lit(n: i64) -> Expr {
+        Expr::Literal(Literal::Int(n.to_string()))
+    }
+
+    #[test]
+    fn test_refinement_subtype_holds() {
+        // x > 0 implies x >= 0 -> Verified
+        let ante = binop(ident("x"), BinOp::Gt, int_lit(0));
+        let cons = binop(ident("x"), BinOp::Gte, int_lit(0));
+
+        let result = super::check_refinement_subtype(&ante, &cons);
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "x > 0 should imply x >= 0, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_refinement_subtype_fails() {
+        // x > 0 does NOT imply x > 10 -> Counterexample
+        let ante = binop(ident("x"), BinOp::Gt, int_lit(0));
+        let cons = binop(ident("x"), BinOp::Gt, int_lit(10));
+
+        let result = super::check_refinement_subtype(&ante, &cons);
+        assert!(
+            matches!(result, VerificationResult::Counterexample { .. }),
+            "x > 0 should NOT imply x > 10, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_refinement_with_context() {
+        // Context: n > 5, n <= 10. Antecedent: x < n. Consequent: x < 10.
+        // With n bounded above by 10, x < n implies x < 10. -> Verified
+        let ctx = vec![
+            binop(ident("n"), BinOp::Gt, int_lit(5)),
+            binop(ident("n"), BinOp::Lte, int_lit(10)),
+        ];
+        let ante = binop(ident("x"), BinOp::Lt, ident("n"));
+        let cons = binop(ident("x"), BinOp::Lt, int_lit(10));
+
+        let result = super::check_refinement_subtype_with_context(&ctx, &ante, &cons);
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "with n > 5 and n <= 10, x < n should imply x < 10, got: {result:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // T040: Counterexample extraction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_counterexample_has_model() {
+        // true does NOT imply x > 0 -> counterexample with x value
+        let ante = Expr::Literal(Literal::Bool(true));
+        let cons = binop(ident("x"), BinOp::Gt, int_lit(0));
+
+        let result = super::check_refinement_subtype(&ante, &cons);
+        match &result {
+            VerificationResult::Counterexample {
+                counter_model: Some(cm),
+                ..
+            } => {
+                assert!(
+                    !cm.variables.is_empty(),
+                    "counterexample model should have variables"
+                );
+                // The model should contain 'x' with some integer value
+                let has_x = cm.variables.iter().any(|(name, _)| name == "x");
+                assert!(
+                    has_x,
+                    "counterexample should contain variable 'x', got: {cm:?}"
+                );
+            }
+            other => panic!("expected counterexample with model, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_counterexample_json() {
+        // Build a CounterexampleModel directly and test JSON output
+        let cm = super::CounterexampleModel {
+            variables: vec![
+                ("b".to_string(), "-1".to_string()),
+                ("x".to_string(), "0".to_string()),
+            ],
+        };
+        let json = cm.to_json();
+        assert!(
+            json.contains("\"variables\""),
+            "JSON should have variables key"
+        );
+        assert!(
+            json.contains("\"x\": \"0\""),
+            "JSON should contain x=0, got: {json}"
+        );
+        assert!(
+            json.contains("\"b\": \"-1\""),
+            "JSON should contain b=-1, got: {json}"
+        );
+
+        // Verify it's parseable JSON by checking structural correctness
+        assert!(json.starts_with('{'), "JSON should start with open brace");
+        assert!(json.ends_with('}'), "JSON should end with close brace");
     }
 }
