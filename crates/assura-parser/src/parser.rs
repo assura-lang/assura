@@ -449,12 +449,17 @@ fn is_clause_stopper(t: &Token) -> bool {
             | Token::Operation
             | Token::Query
             | Token::States
+            // Interface-related keywords (T062)
+            | Token::Interface
+            | Token::Extends
+            | Token::Impl
     ) || matches!(t, Token::Ident(s) if matches!(s.as_str(),
             "step" | "resume" | "assume" | "prove"
                 | "validate" | "taint" | "verify"
                 | "example" | "strategy" | "promise"
                 | "bound" | "writes"
-                | "operation" | "query" | "states"))
+                | "operation" | "query" | "states"
+                | "method" | "implements"))
 }
 
 // ---------------------------------------------------------------------------

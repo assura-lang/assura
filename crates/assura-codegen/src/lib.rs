@@ -760,6 +760,18 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
         return;
     }
 
+    // Check if this contract implements an interface
+    let implements: Vec<String> = c
+        .clauses
+        .iter()
+        .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "implements"))
+        .filter_map(|cl| match &cl.body {
+            Expr::Ident(name) => Some(name.clone()),
+            Expr::Raw(tokens) if tokens.len() == 1 => Some(tokens[0].clone()),
+            _ => None,
+        })
+        .collect();
+
     let tps = if c.type_params.is_empty() {
         String::new()
     } else {
@@ -832,6 +844,33 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
 
     code.push_str("        __result\n");
     code.push_str("    }\n");
+
+    // Generate struct + impl Trait if the contract implements an interface
+    if !implements.is_empty() {
+        // Generate a struct for this contract
+        code.push_str(&format!("\n    pub struct {}{tps};\n\n", c.name));
+        // Generate impl blocks for each implemented trait
+        for iface in &implements {
+            code.push_str(&format!("    impl{tps} {iface} for {}{tps} {{\n", c.name));
+            // Extract method clauses and generate stubs
+            for clause in &c.clauses {
+                if let ClauseKind::Other(k) = &clause.kind
+                    && k == "method"
+                {
+                    let method_name = match &clause.body {
+                        Expr::Ident(n) => Some(n.as_str()),
+                        Expr::Raw(tokens) if tokens.len() == 1 => Some(tokens[0].as_str()),
+                        _ => None,
+                    };
+                    if let Some(method_name) = method_name {
+                        code.push_str(&format!("        fn {method_name}(&self) {{ todo!() }}\n"));
+                    }
+                }
+            }
+            code.push_str("    }\n");
+        }
+    }
+
     code.push_str("}\n\n");
 }
 
@@ -2535,6 +2574,37 @@ contract Sortable {
         assert!(
             !lib.contains("mod contract_sortable"),
             "interface contract should NOT generate module: {lib}"
+        );
+    }
+
+    #[test]
+    fn implements_contract_generates_impl_block() {
+        // Contract with `implements` clause should generate struct + impl
+        let source = r#"
+contract Sortable {
+  interface: true
+  method: compare
+}
+
+contract MySorter {
+  implements: Sortable
+  method: compare
+  requires { x > 0 }
+}
+"#;
+        let project = codegen_ok(source);
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("trait Sortable"),
+            "should generate trait: {lib}"
+        );
+        assert!(
+            lib.contains("struct MySorter"),
+            "should generate struct: {lib}"
+        );
+        assert!(
+            lib.contains("impl Sortable for MySorter"),
+            "should generate impl block: {lib}"
         );
     }
 }
