@@ -81,7 +81,34 @@ fn main() {
 }
 
 // ---------------------------------------------------------------------------
-// `assura check <file> [--json|--human]`
+// Argument helpers
+// ---------------------------------------------------------------------------
+
+/// Extract positional arguments, skipping flags and their values.
+/// Flags with values: --layer, --output. Simple flags: --json, --human, --ast, --tokens.
+fn positional_args(args: &[String]) -> Vec<String> {
+    let flags_with_values = ["--layer", "--output"];
+    let mut result = Vec::new();
+    let mut skip_next = false;
+    for arg in args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if flags_with_values.contains(&arg.as_str()) {
+            skip_next = true;
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        result.push(arg.clone());
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// `assura check <file> [--json|--human] [--layer 0|1]`
 // ---------------------------------------------------------------------------
 
 fn run_check(args: &[String]) {
@@ -91,18 +118,25 @@ fn run_check(args: &[String]) {
         OutputMode::Human
     };
 
-    // The file is the first non-flag arg after "check"
-    let filename = args
-        .iter()
-        .skip(1) // skip binary name
-        .filter(|a| !a.starts_with('-'))
+    // Verification layer: --layer 0 = structural only, --layer 1 = SMT (default)
+    let layer: u8 = args
+        .windows(2)
+        .find(|w| w[0] == "--layer")
+        .and_then(|w| w[1].parse().ok())
+        .unwrap_or(1);
+
+    // The file is the first positional arg after "check", skipping flag values
+    let filename = positional_args(args)
+        .into_iter()
         .nth(1) // skip "check" itself
         .unwrap_or_else(|| {
-            eprintln!("Usage: assura check <file.assura> [--json|--human]");
+            eprintln!(
+                "Usage: assura check <file.assura> [--json|--human] [--layer 0|1]"
+            );
             process::exit(2);
         });
 
-    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
+    let source = fs::read_to_string(&filename).unwrap_or_else(|e| {
         if output_mode == OutputMode::Json {
             let diag = DiagnosticJson {
                 code: "A01000".to_string(),
@@ -148,7 +182,7 @@ fn run_check(args: &[String]) {
     // If lex errors, still try to continue for maximum diagnostics,
     // but we'll exit 1 at the end.
     if has_errors && output_mode == OutputMode::Human {
-        report_diagnostics_human(&diagnostics, filename, &source);
+        report_diagnostics_human(&diagnostics, &filename, &source);
     }
 
     // --- Parse ---
@@ -244,17 +278,85 @@ fn run_check(args: &[String]) {
         None
     };
 
-    // --- Verify (only if type check succeeded) ---
-    let verification_results = if let Some(ref typed) = typed {
-        assura_smt::verify(typed)
+    // --- Verify (only if type check succeeded and layer >= 1) ---
+    let verification_results = if layer >= 1 {
+        if let Some(ref typed) = typed {
+            assura_smt::verify(typed)
+        } else {
+            Vec::new()
+        }
     } else {
         Vec::new()
     };
 
+    // Convert counterexamples to diagnostics so they appear in both modes
+    for vr in &verification_results {
+        if let assura_smt::VerificationResult::Counterexample {
+            clause_desc,
+            model,
+        } = vr
+        {
+            has_errors = true;
+            diagnostics.push(DiagnosticJson {
+                code: "A05100".to_string(),
+                message: format!("verification failed for {clause_desc}: {model}"),
+                file: filename.clone(),
+                start: 0,
+                end: 0,
+                severity: "error".to_string(),
+                secondary: None,
+            });
+        }
+    }
+
     // --- Report ---
     match output_mode {
         OutputMode::Json => {
-            println!("{}", serde_json::to_string_pretty(&diagnostics).unwrap());
+            // Build verification summary for JSON output
+            let verification_json: Vec<serde_json::Value> = verification_results
+                .iter()
+                .map(|vr| match vr {
+                    assura_smt::VerificationResult::Verified { clause_desc } => {
+                        serde_json::json!({
+                            "status": "verified",
+                            "clause": clause_desc,
+                        })
+                    }
+                    assura_smt::VerificationResult::Counterexample {
+                        clause_desc,
+                        model,
+                    } => {
+                        serde_json::json!({
+                            "status": "counterexample",
+                            "clause": clause_desc,
+                            "model": model,
+                        })
+                    }
+                    assura_smt::VerificationResult::Timeout { clause_desc } => {
+                        serde_json::json!({
+                            "status": "timeout",
+                            "clause": clause_desc,
+                        })
+                    }
+                    assura_smt::VerificationResult::Unknown {
+                        clause_desc,
+                        reason,
+                    } => {
+                        serde_json::json!({
+                            "status": "unknown",
+                            "clause": clause_desc,
+                            "reason": reason,
+                        })
+                    }
+                })
+                .collect();
+
+            let output = serde_json::json!({
+                "diagnostics": diagnostics,
+                "verification": verification_json,
+                "layer": layer,
+            });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
         OutputMode::Human => {
             // Lex errors already reported above; report the rest.
@@ -263,32 +365,41 @@ fn run_check(args: &[String]) {
                 .filter(|d| d.code != "A01001")
                 .cloned()
                 .collect();
-            report_diagnostics_human(&non_lex, filename, &source);
+            report_diagnostics_human(&non_lex, &filename, &source);
 
             // Print verification results
             if !verification_results.is_empty() {
                 eprintln!();
-                eprintln!("Verification ({} clause(s)):", verification_results.len());
+                eprintln!(
+                    "Verification layer {layer} ({} clause(s)):",
+                    verification_results.len()
+                );
                 for vr in &verification_results {
                     match vr {
                         assura_smt::VerificationResult::Verified { clause_desc } => {
-                            eprintln!("  VERIFIED    {clause_desc}");
+                            eprintln!("  VERIFIED        {clause_desc}");
                         }
-                        assura_smt::VerificationResult::Counterexample { clause_desc, model } => {
+                        assura_smt::VerificationResult::Counterexample {
+                            clause_desc,
+                            model,
+                        } => {
                             eprintln!("  COUNTEREXAMPLE  {clause_desc}");
                             eprintln!("    model: {model}");
                         }
                         assura_smt::VerificationResult::Timeout { clause_desc } => {
-                            eprintln!("  TIMEOUT     {clause_desc}");
+                            eprintln!("  TIMEOUT         {clause_desc}");
                         }
                         assura_smt::VerificationResult::Unknown {
                             clause_desc,
                             reason,
                         } => {
-                            eprintln!("  UNKNOWN     {clause_desc} ({reason})");
+                            eprintln!("  UNKNOWN         {clause_desc} ({reason})");
                         }
                     }
                 }
+            } else if layer == 0 {
+                eprintln!();
+                eprintln!("Verification skipped (--layer 0: structural checks only)");
             }
 
             if !has_errors {
