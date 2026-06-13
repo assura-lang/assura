@@ -1012,6 +1012,229 @@ pub fn check_exhaustiveness(
 }
 
 // ---------------------------------------------------------------------------
+// Usage tracking for linear types (T031)
+// ---------------------------------------------------------------------------
+
+/// Usage grade for a variable, following Section 2.5 of the spec.
+///
+/// Determines how many times a variable may be used at runtime.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UsageGrade {
+    /// Grade 0: ghost/erased, no runtime usage allowed.
+    Erased,
+    /// Grade 1: linear, must be used exactly once.
+    Linear,
+    /// Grade n: must be used exactly `n` times.
+    Exact(u32),
+    /// Grade omega: unlimited, can be used any number of times.
+    Unlimited,
+}
+
+impl std::fmt::Display for UsageGrade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UsageGrade::Erased => write!(f, "erased (grade 0)"),
+            UsageGrade::Linear => write!(f, "linear (grade 1)"),
+            UsageGrade::Exact(n) => write!(f, "exact (grade {n})"),
+            UsageGrade::Unlimited => write!(f, "unlimited (grade ω)"),
+        }
+    }
+}
+
+/// Tracks variable usage counts and compares against expected grades.
+///
+/// Used for linearity checking: each variable is declared with an expected
+/// `UsageGrade`, and each use of the variable increments its actual count.
+/// After analysis, `check()` compares actual counts against expected grades
+/// and produces errors for violations.
+#[derive(Debug, Clone, Default)]
+pub struct UsageTracker {
+    /// Maps variable name -> (expected grade, actual usage count, declaration span).
+    usages: HashMap<std::string::String, (UsageGrade, u32, Range<usize>)>,
+}
+
+impl UsageTracker {
+    /// Create an empty usage tracker.
+    pub fn new() -> Self {
+        Self {
+            usages: HashMap::new(),
+        }
+    }
+
+    /// Declare a variable with its expected usage grade and declaration span.
+    ///
+    /// If the variable was already declared, updates its grade and resets
+    /// the count.
+    pub fn declare(&mut self, name: std::string::String, grade: UsageGrade, span: Range<usize>) {
+        self.usages.insert(name, (grade, 0, span));
+    }
+
+    /// Record a use of a variable. Increments its usage count.
+    ///
+    /// If the variable was not declared via `declare()`, this is a no-op
+    /// (the variable may be unlimited/external and not tracked).
+    pub fn use_var(&mut self, name: &str) {
+        if let Some((_grade, count, _span)) = self.usages.get_mut(name) {
+            *count += 1;
+        }
+    }
+
+    /// Check all tracked variables against their expected usage grades.
+    ///
+    /// Returns a list of `TypeError`s for any violations:
+    /// - **A05001**: Linear variable used more than once
+    /// - **A05002**: Linear variable never used (or erased variable used)
+    /// - **A05003**: Exact-count variable used wrong number of times
+    pub fn check(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+
+        for (name, (grade, count, span)) in &self.usages {
+            match grade {
+                UsageGrade::Erased => {
+                    if *count > 0 {
+                        errors.push(TypeError {
+                            code: "A05002".into(),
+                            message: format!(
+                                "erased variable `{name}` must not be used at runtime, \
+                                 but was used {count} time(s)"
+                            ),
+                            span: span.clone(),
+                            secondary: None,
+                        });
+                    }
+                }
+                UsageGrade::Linear => {
+                    if *count == 0 {
+                        errors.push(TypeError {
+                            code: "A05002".into(),
+                            message: format!("linear variable `{name}` was never used"),
+                            span: span.clone(),
+                            secondary: None,
+                        });
+                    } else if *count > 1 {
+                        errors.push(TypeError {
+                            code: "A05001".into(),
+                            message: format!(
+                                "linear variable `{name}` used {count} times, \
+                                 but must be used exactly once"
+                            ),
+                            span: span.clone(),
+                            secondary: None,
+                        });
+                    }
+                }
+                UsageGrade::Exact(expected) => {
+                    if count != expected {
+                        errors.push(TypeError {
+                            code: "A05003".into(),
+                            message: format!(
+                                "variable `{name}` used {count} time(s), \
+                                 but must be used exactly {expected} time(s)"
+                            ),
+                            span: span.clone(),
+                            secondary: None,
+                        });
+                    }
+                }
+                UsageGrade::Unlimited => {
+                    // No restrictions on usage count.
+                }
+            }
+        }
+
+        // Sort errors by span start for deterministic output.
+        errors.sort_by_key(|e| e.span.start);
+        errors
+    }
+}
+
+/// Walk an expression AST and count variable usages in a `UsageTracker`.
+///
+/// Each `Ident` node increments the usage count for that variable name.
+/// Recursively walks all sub-expressions (binary ops, unary ops, function
+/// calls, quantifiers, etc.).
+pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
+    match expr {
+        Expr::Ident(name) => {
+            tracker.use_var(name);
+        }
+        Expr::Literal(_) => {}
+        Expr::Field(receiver, _field) => {
+            expr_usages(receiver, tracker);
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_usages(receiver, tracker);
+            for arg in args {
+                expr_usages(arg, tracker);
+            }
+        }
+        Expr::Call { func, args } => {
+            expr_usages(func, tracker);
+            for arg in args {
+                expr_usages(arg, tracker);
+            }
+        }
+        Expr::Index { expr: base, index } => {
+            expr_usages(base, tracker);
+            expr_usages(index, tracker);
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            expr_usages(lhs, tracker);
+            expr_usages(rhs, tracker);
+        }
+        Expr::UnaryOp { expr: inner, .. } => {
+            expr_usages(inner, tracker);
+        }
+        Expr::Old(inner) => {
+            expr_usages(inner, tracker);
+        }
+        Expr::Forall {
+            var: _,
+            domain,
+            body,
+        }
+        | Expr::Exists {
+            var: _,
+            domain,
+            body,
+        } => {
+            expr_usages(domain, tracker);
+            expr_usages(body, tracker);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_usages(cond, tracker);
+            expr_usages(then_branch, tracker);
+            if let Some(else_br) = else_branch {
+                expr_usages(else_br, tracker);
+            }
+        }
+        Expr::Paren(inner) => {
+            expr_usages(inner, tracker);
+        }
+        Expr::List(items) => {
+            for item in items {
+                expr_usages(item, tracker);
+            }
+        }
+        Expr::Cast { expr: inner, .. } => {
+            expr_usages(inner, tracker);
+        }
+        Expr::Block(exprs) => {
+            for e in exprs {
+                expr_usages(e, tracker);
+            }
+        }
+        Expr::Raw(_) => {
+            // Cannot extract variable references from raw token sequences.
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -2557,5 +2780,411 @@ contract Good {
                 .unwrap_or_else(|e| panic!("{path}: resolve errors: {e:?}"));
             type_check(&resolved).unwrap_or_else(|e| panic!("{path}: type_check errors: {e:?}"));
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // T031: Usage tracking tests (linear types)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn usage_linear_exactly_once_ok() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        tracker.use_var("x");
+        let errors = tracker.check();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn usage_linear_never_used_a05002() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // Never use x
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05002");
+        assert!(errors[0].message.contains("never used"));
+        assert!(errors[0].message.contains("x"));
+    }
+
+    #[test]
+    fn usage_linear_used_twice_a05001() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        tracker.use_var("x");
+        tracker.use_var("x");
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05001");
+        assert!(errors[0].message.contains("2 times"));
+        assert!(errors[0].message.contains("exactly once"));
+    }
+
+    #[test]
+    fn usage_linear_used_many_times_a05001() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("buf".into(), UsageGrade::Linear, 5..10);
+        for _ in 0..5 {
+            tracker.use_var("buf");
+        }
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05001");
+        assert!(errors[0].message.contains("5 times"));
+    }
+
+    #[test]
+    fn usage_erased_not_used_ok() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("ghost_val".into(), UsageGrade::Erased, 0..1);
+        // Ghost variable never used at runtime: OK
+        let errors = tracker.check();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn usage_erased_used_a05002() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("ghost_val".into(), UsageGrade::Erased, 0..1);
+        tracker.use_var("ghost_val");
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05002");
+        assert!(errors[0].message.contains("erased"));
+        assert!(errors[0].message.contains("ghost_val"));
+    }
+
+    #[test]
+    fn usage_exact_correct_count_ok() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("y".into(), UsageGrade::Exact(3), 0..1);
+        tracker.use_var("y");
+        tracker.use_var("y");
+        tracker.use_var("y");
+        let errors = tracker.check();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn usage_exact_too_few_a05003() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("y".into(), UsageGrade::Exact(3), 0..1);
+        tracker.use_var("y");
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05003");
+        assert!(errors[0].message.contains("1 time(s)"));
+        assert!(errors[0].message.contains("3 time(s)"));
+    }
+
+    #[test]
+    fn usage_exact_too_many_a05003() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("y".into(), UsageGrade::Exact(2), 0..1);
+        tracker.use_var("y");
+        tracker.use_var("y");
+        tracker.use_var("y");
+        tracker.use_var("y");
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05003");
+        assert!(errors[0].message.contains("4 time(s)"));
+        assert!(errors[0].message.contains("2 time(s)"));
+    }
+
+    #[test]
+    fn usage_exact_zero_a05003() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("z".into(), UsageGrade::Exact(2), 0..1);
+        // Never use z
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05003");
+        assert!(errors[0].message.contains("0 time(s)"));
+    }
+
+    #[test]
+    fn usage_unlimited_any_count_ok() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("w".into(), UsageGrade::Unlimited, 0..1);
+        // Use 0 times: OK
+        assert!(tracker.check().is_empty());
+
+        // Use 1 time: OK
+        tracker.use_var("w");
+        assert!(tracker.check().is_empty());
+
+        // Use 100 times: OK
+        for _ in 0..99 {
+            tracker.use_var("w");
+        }
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn usage_untracked_var_ignored() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // Using a variable not declared in the tracker is a no-op
+        tracker.use_var("y");
+        tracker.use_var("x");
+        let errors = tracker.check();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn usage_multiple_variables_mixed() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("a".into(), UsageGrade::Linear, 0..1);
+        tracker.declare("b".into(), UsageGrade::Linear, 2..3);
+        tracker.declare("c".into(), UsageGrade::Unlimited, 4..5);
+
+        tracker.use_var("a"); // OK: linear used once
+        // b never used: error
+        tracker.use_var("c");
+        tracker.use_var("c");
+        tracker.use_var("c"); // OK: unlimited
+
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05002");
+        assert!(errors[0].message.contains("b"));
+    }
+
+    #[test]
+    fn usage_grade_display() {
+        assert_eq!(format!("{}", UsageGrade::Erased), "erased (grade 0)");
+        assert_eq!(format!("{}", UsageGrade::Linear), "linear (grade 1)");
+        assert_eq!(format!("{}", UsageGrade::Exact(5)), "exact (grade 5)");
+        assert_eq!(format!("{}", UsageGrade::Unlimited), "unlimited (grade ω)");
+    }
+
+    #[test]
+    fn expr_usages_counts_ident() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        let expr = AstExpr::Ident("x".into());
+        expr_usages(&expr, &mut tracker);
+        // x used once, so check should pass for Linear
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_binop_counts_both_sides() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Exact(2), 0..1);
+        // x + x => 2 uses
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("x".into())),
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_linear_used_in_binop_a05001() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // x + x => 2 uses of a linear variable
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("x".into())),
+        };
+        expr_usages(&expr, &mut tracker);
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05001");
+    }
+
+    #[test]
+    fn expr_usages_call_counts_func_and_args() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("f".into(), UsageGrade::Linear, 0..1);
+        tracker.declare("a".into(), UsageGrade::Linear, 2..3);
+        // f(a) => 1 use of f, 1 use of a
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("f".into())),
+            args: vec![AstExpr::Ident("a".into())],
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_nested_if() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("c".into(), UsageGrade::Exact(1), 0..1);
+        tracker.declare("t".into(), UsageGrade::Exact(1), 2..3);
+        tracker.declare("e".into(), UsageGrade::Exact(1), 4..5);
+        // if c then t else e => 1 use each
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Ident("c".into())),
+            then_branch: Box::new(AstExpr::Ident("t".into())),
+            else_branch: Some(Box::new(AstExpr::Ident("e".into()))),
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_quantifier_counts_domain_and_body() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("S".into(), UsageGrade::Exact(1), 0..1);
+        tracker.declare("p".into(), UsageGrade::Exact(1), 2..3);
+        // forall x in S: p => 1 use of S, 1 use of p
+        let expr = AstExpr::Forall {
+            var: "x".into(),
+            domain: Box::new(AstExpr::Ident("S".into())),
+            body: Box::new(AstExpr::Ident("p".into())),
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_field_access_counts_receiver() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("obj".into(), UsageGrade::Linear, 0..1);
+        // obj.field => 1 use of obj
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("obj".into())), "field".into());
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_method_call_counts_receiver_and_args() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("obj".into(), UsageGrade::Exact(1), 0..1);
+        tracker.declare("arg1".into(), UsageGrade::Exact(1), 2..3);
+        // obj.method(arg1)
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("obj".into())),
+            method: "method".into(),
+            args: vec![AstExpr::Ident("arg1".into())],
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_index_counts_base_and_index() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("arr".into(), UsageGrade::Exact(1), 0..1);
+        tracker.declare("i".into(), UsageGrade::Exact(1), 2..3);
+        // arr[i]
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("arr".into())),
+            index: Box::new(AstExpr::Ident("i".into())),
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_old_counts_inner() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // old(x) => 1 use of x
+        let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_paren_counts_inner() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // (x) => 1 use of x
+        let expr = AstExpr::Paren(Box::new(AstExpr::Ident("x".into())));
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_list_counts_elements() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("a".into(), UsageGrade::Exact(1), 0..1);
+        tracker.declare("b".into(), UsageGrade::Exact(1), 2..3);
+        // [a, b]
+        let expr = AstExpr::List(vec![AstExpr::Ident("a".into()), AstExpr::Ident("b".into())]);
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_unary_counts_inner() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // -x => 1 use of x
+        let expr = AstExpr::UnaryOp {
+            op: AstUnOp::Neg,
+            expr: Box::new(AstExpr::Ident("x".into())),
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_cast_counts_inner() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // x as Foo => 1 use of x
+        let expr = AstExpr::Cast {
+            expr: Box::new(AstExpr::Ident("x".into())),
+            ty: "Foo".into(),
+        };
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_block_counts_all() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("a".into(), UsageGrade::Exact(1), 0..1);
+        tracker.declare("b".into(), UsageGrade::Exact(1), 2..3);
+        let expr = AstExpr::Block(vec![AstExpr::Ident("a".into()), AstExpr::Ident("b".into())]);
+        expr_usages(&expr, &mut tracker);
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn expr_usages_raw_no_count() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        // Raw tokens cannot be analyzed; x stays at 0 uses
+        let expr = AstExpr::Raw(vec!["x".into()]);
+        expr_usages(&expr, &mut tracker);
+        let errors = tracker.check();
+        // Linear var not used => A05002
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05002");
+    }
+
+    #[test]
+    fn expr_usages_literal_no_count() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Unlimited, 0..1);
+        let expr = AstExpr::Literal(AstLit::Int("42".into()));
+        expr_usages(&expr, &mut tracker);
+        // No uses recorded, but unlimited is fine
+        assert!(tracker.check().is_empty());
+    }
+
+    #[test]
+    fn usage_tracker_redeclare_resets() {
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+        tracker.use_var("x");
+        // Re-declare resets count
+        tracker.declare("x".into(), UsageGrade::Linear, 10..11);
+        // Now x has 0 uses again
+        let errors = tracker.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05002");
+        // Span should be the new declaration span
+        assert_eq!(errors[0].span, 10..11);
     }
 }
