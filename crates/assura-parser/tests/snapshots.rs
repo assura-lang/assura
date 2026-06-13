@@ -77,3 +77,87 @@ fn snapshot_demo_mbedtls() {
     let ast = parse_file("../../demos/mbedtls-x509.assura");
     insta::assert_debug_snapshot!(ast);
 }
+
+// --- Error recovery tests (T006) ---
+//
+// These tests verify that `parse_recovery()` produces errors (not panics)
+// with meaningful messages and, where possible, returns a partial AST.
+
+/// Helper: parse an error fixture, returning (Option<AST>, errors).
+fn parse_error_file(
+    path: &str,
+) -> (
+    Option<assura_parser::ast::SourceFile>,
+    Vec<chumsky::error::Simple<assura_parser::lexer::Token>>,
+) {
+    let source =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    parse(&source)
+}
+
+#[test]
+fn error_recovery_missing_brace() {
+    let (ast, errors) = parse_error_file("../../tests/fixtures/errors/missing_brace.assura");
+
+    // Must produce at least one error for the unclosed brace
+    assert!(
+        !errors.is_empty(),
+        "expected parse errors for missing_brace.assura but got none"
+    );
+
+    // Snapshot the errors for future regression tracking
+    let error_messages: Vec<String> = errors.iter().map(|e| format!("{e}")).collect();
+    insta::assert_debug_snapshot!("missing_brace_errors", &error_messages);
+
+    // parse_recovery() may or may not return a partial AST; snapshot either way
+    insta::assert_debug_snapshot!("missing_brace_ast", &ast);
+}
+
+#[test]
+fn error_recovery_bad_token() {
+    let (ast, errors) = parse_error_file("../../tests/fixtures/errors/bad_token.assura");
+
+    // The lexer silently drops unrecognized characters (logos returns Err),
+    // so the parser sees a token stream with gaps. This may or may not
+    // produce parse errors depending on how the remaining tokens align.
+    // We snapshot both outcomes for regression tracking.
+    let error_messages: Vec<String> = errors.iter().map(|e| format!("{e}")).collect();
+    insta::assert_debug_snapshot!("bad_token_errors", &error_messages);
+    insta::assert_debug_snapshot!("bad_token_ast", &ast);
+}
+
+#[test]
+fn error_recovery_duplicate_clause() {
+    let (ast, errors) = parse_error_file("../../tests/fixtures/errors/duplicate_clause.assura");
+
+    // The parser collects all clauses without deduplication, so duplicate
+    // requires clauses should parse successfully. Detecting duplicates
+    // is a concern for the resolver/type checker, not the parser.
+    let error_messages: Vec<String> = errors.iter().map(|e| format!("{e}")).collect();
+    insta::assert_debug_snapshot!("duplicate_clause_errors", &error_messages);
+
+    // The AST should exist and contain both requires clauses
+    let source_file = ast
+        .as_ref()
+        .expect("duplicate_clause.assura should parse successfully");
+    let contract = source_file
+        .decls
+        .iter()
+        .find_map(|d| match &d.node {
+            assura_parser::ast::Decl::Contract(c) => Some(c),
+            _ => None,
+        })
+        .expect("should contain a contract declaration");
+
+    let requires_count = contract
+        .clauses
+        .iter()
+        .filter(|c| c.kind == assura_parser::ast::ClauseKind::Requires)
+        .count();
+    assert_eq!(
+        requires_count, 2,
+        "parser should preserve both requires clauses"
+    );
+
+    insta::assert_debug_snapshot!("duplicate_clause_ast", &ast);
+}

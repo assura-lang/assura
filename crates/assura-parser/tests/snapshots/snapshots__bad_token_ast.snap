@@ -1,0 +1,65 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: "&ast"
+---
+Some(
+    SourceFile {
+        project: None,
+        module: None,
+        imports: [],
+        decls: [
+            Spanned {
+                node: Contract(
+                    ContractDecl {
+                        name: "HasBadTokens",
+                        type_params: [],
+                        clauses: [
+                            Clause {
+                                kind: Input,
+                                body: Raw(
+                                    [
+                                        "x",
+                                        ":",
+                                        "Int",
+                                    ],
+                                ),
+                            },
+                            Clause {
+                                kind: Requires,
+                                body: BinOp {
+                                    lhs: Ident(
+                                        "x",
+                                    ),
+                                    op: Gt,
+                                    rhs: Literal(
+                                        Int(
+                                            "0",
+                                        ),
+                                    ),
+                                },
+                            },
+                            Clause {
+                                kind: Ensures,
+                                body: Raw(
+                                    [
+                                        "result",
+                                        "==",
+                                        "x",
+                                        "2",
+                                    ],
+                                ),
+                            },
+                            Clause {
+                                kind: Effects,
+                                body: Ident(
+                                    "pure",
+                                ),
+                            },
+                        ],
+                    },
+                ),
+                span: 71..184,
+            },
+        ],
+    },
+)

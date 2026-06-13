@@ -1,0 +1,14 @@
+// EXPECT ERROR
+// Contract with duplicate requires clause.
+// The parser currently collects all clauses without deduplication,
+// so this file parses successfully. Detecting duplicate clauses
+// is a future concern for the resolver/type checker.
+
+contract DuplicateRequires {
+  input(x: Int)
+  output(result: Nat)
+  requires { x >= 0 }
+  requires { x < 1000 }
+  ensures  { result == x }
+  effects  { pure }
+}

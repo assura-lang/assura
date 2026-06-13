@@ -1,0 +1,8 @@
+// EXPECT ERROR
+// Contract with an unclosed brace — tests parse_recovery() error handling.
+
+contract Unclosed {
+  input(x: Int)
+  output(result: Nat)
+  requires { x >= 0 }
+  ensures  { result == x

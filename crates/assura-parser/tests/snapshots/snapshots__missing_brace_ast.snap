@@ -1,0 +1,5 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: "&ast"
+---
+None

@@ -1,0 +1,90 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: "&ast"
+---
+Some(
+    SourceFile {
+        project: None,
+        module: None,
+        imports: [],
+        decls: [
+            Spanned {
+                node: Contract(
+                    ContractDecl {
+                        name: "DuplicateRequires",
+                        type_params: [],
+                        clauses: [
+                            Clause {
+                                kind: Input,
+                                body: Raw(
+                                    [
+                                        "x",
+                                        ":",
+                                        "Int",
+                                    ],
+                                ),
+                            },
+                            Clause {
+                                kind: Output,
+                                body: Raw(
+                                    [
+                                        "result",
+                                        ":",
+                                        "Nat",
+                                    ],
+                                ),
+                            },
+                            Clause {
+                                kind: Requires,
+                                body: BinOp {
+                                    lhs: Ident(
+                                        "x",
+                                    ),
+                                    op: Gte,
+                                    rhs: Literal(
+                                        Int(
+                                            "0",
+                                        ),
+                                    ),
+                                },
+                            },
+                            Clause {
+                                kind: Requires,
+                                body: BinOp {
+                                    lhs: Ident(
+                                        "x",
+                                    ),
+                                    op: Lt,
+                                    rhs: Literal(
+                                        Int(
+                                            "1000",
+                                        ),
+                                    ),
+                                },
+                            },
+                            Clause {
+                                kind: Ensures,
+                                body: BinOp {
+                                    lhs: Ident(
+                                        "result",
+                                    ),
+                                    op: Eq,
+                                    rhs: Ident(
+                                        "x",
+                                    ),
+                                },
+                            },
+                            Clause {
+                                kind: Effects,
+                                body: Ident(
+                                    "pure",
+                                ),
+                            },
+                        ],
+                    },
+                ),
+                span: 248..409,
+            },
+        ],
+    },
+)

@@ -1,0 +1,9 @@
+// EXPECT ERROR
+// File with characters the lexer does not recognize.
+
+contract HasBadTokens {
+  input(x: Int)
+  requires { x > 0 }
+  ensures  { result == x ~ 2 }
+  effects  { pure }
+}
