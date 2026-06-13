@@ -3,5 +3,5 @@ source: crates/assura-parser/tests/snapshots.rs
 expression: "&error_messages"
 ---
 [
-    "found \"LBrace\" but expected one of \"Ghost\", \"Errors\", end of input, \"Pure\", \"Axiom\", \"Contract\", \"Requires\", \"ConstantTime\", \"Equals\", \"Ensures\", \"Decreases\", \"MustNot\", \"Bounds\", \"Colon\", \"Output\", \"Invariant\", \"Fn\", \"LAngle\", \"Extern\", \"DataFlow\", \"Type\", \"Input\", \"Lemma\", \"Opaque\", \"Modifies\", \"Enum\", \"Service\", \"Spec\", \"VerifyAgainst\", \"Rule\", \"MustBe\", \"Property\", \"Define\", \"Effects\", \"Reads\", \"Hash\"",
+    "found \"'{'\" but expected one of \"'ghost'\", \"Errors\", end of input, \"'pure'\", \"Axiom\", \"'contract'\", \"'requires'\", \"ConstantTime\", \"'='\", \"'ensures'\", \"Decreases\", \"MustNot\", \"Bounds\", \"':'\", \"'output'\", \"'invariant'\", \"'fn'\", \"'<'\", \"'extern'\", \"DataFlow\", \"'type'\", \"'input'\", \"'lemma'\", \"'opaque'\", \"'modifies'\", \"'enum'\", \"'service'\", \"Spec\", \"VerifyAgainst\", \"Rule\", \"MustBe\", \"Property\", \"Define\", \"'effects'\", \"Reads\", \"'#'\"",
 ]
