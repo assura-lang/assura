@@ -1707,6 +1707,10 @@ fn expr_to_string(expr: &Expr) -> String {
             strs.join(" ")
         }
         Expr::Ghost(inner) => format!("ghost {{ {} }}", expr_to_string(inner)),
+        Expr::Apply { lemma_name, args } => {
+            let args_s: Vec<String> = args.iter().map(expr_to_string).collect();
+            format!("apply {lemma_name}({})", args_s.join(", "))
+        }
         Expr::Raw(tokens) => tokens.join(" "),
     }
 }

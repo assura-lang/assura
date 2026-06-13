@@ -551,6 +551,17 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             )
             .map(|e| Expr::Ghost(Box::new(e)));
 
+        // apply lemma_name(args) — lemma application expression
+        let apply_expr = just(Token::Apply)
+            .ignore_then(ident())
+            .then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map(|(lemma_name, args)| Expr::Apply { lemma_name, args });
+
         // Identifier (plain)
         let ident_expr = ident().map(Expr::Ident);
 
@@ -594,6 +605,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             paren_expr,
             list_expr,
             ghost_block,
+            apply_expr,
             keyword_as_value,
             ident_expr,
         ))
@@ -1165,8 +1177,12 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
     // Optional modifiers: pure, ghost, opaque — collect them to detect ghost fns
     let modifiers = choice((just(Token::Pure), just(Token::Ghost), just(Token::Opaque))).repeated();
 
-    // fn, axiom, lemma all have function-like syntax
-    let fn_keyword = choice((just(Token::Fn), just(Token::Axiom), just(Token::Lemma)));
+    // fn, axiom, lemma all have function-like syntax; preserve which keyword for is_lemma
+    let fn_keyword = choice((
+        just(Token::Lemma).to(true),
+        just(Token::Fn).to(false),
+        just(Token::Axiom).to(false),
+    ));
 
     // Return type: `-> Type` or `: Type` (axioms use colon-style)
     // Return type: simple tokens only (no balanced braces at top level,
@@ -1224,7 +1240,7 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
         .or_not();
 
     attr.ignore_then(modifiers)
-        .then_ignore(fn_keyword)
+        .then(fn_keyword)
         .then(ident())
         .then(type_params())
         .then(param_list())
@@ -1237,11 +1253,12 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
                 .or_not(),
         )
         .map(
-            |(((((((mods, name), _tps), params), ret), _eq_body), clauses), _body)| {
+            |((((((((mods, is_lemma), name), _tps), params), ret), _eq_body), clauses), _body)| {
                 let is_ghost = mods.iter().any(|t| matches!(t, Token::Ghost));
                 FnDef {
                     name,
                     is_ghost,
+                    is_lemma,
                     params,
                     return_ty: ret.unwrap_or_default(),
                     clauses,

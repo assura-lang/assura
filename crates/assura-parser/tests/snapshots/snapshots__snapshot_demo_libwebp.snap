@@ -37,6 +37,7 @@ SourceFile {
                 FnDef {
                     name: "max_secondary_table_entries",
                     is_ghost: false,
+                    is_lemma: false,
                     params: [
                         Param {
                             name: "alphabet_size",
@@ -73,6 +74,7 @@ SourceFile {
                 FnDef {
                     name: "worst_case_table_size",
                     is_ghost: false,
+                    is_lemma: false,
                     params: [
                         Param {
                             name: "alphabet_size",
@@ -136,6 +138,7 @@ SourceFile {
                 FnDef {
                     name: "vp8l_read_bits",
                     is_ghost: false,
+                    is_lemma: false,
                     params: [
                         Param {
                             name: "br",
@@ -187,6 +190,7 @@ SourceFile {
                 FnDef {
                     name: "read_huffman_code_lengths",
                     is_ghost: false,
+                    is_lemma: false,
                     params: [
                         Param {
                             name: "br",
@@ -241,6 +245,7 @@ SourceFile {
                 FnDef {
                     name: "validate_code_lengths",
                     is_ghost: false,
+                    is_lemma: false,
                     params: [
                         Param {
                             name: "raw_lengths",
@@ -308,6 +313,7 @@ SourceFile {
                 FnDef {
                     name: "decode_huffman_group",
                     is_ghost: false,
+                    is_lemma: false,
                     params: [
                         Param {
                             name: "br",

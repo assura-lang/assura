@@ -634,6 +634,16 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
         // --- Cast: cannot infer target type from string yet ---
         Expr::Cast { .. } => Ok(Type::Unknown),
 
+        // --- Apply lemma: type-check args, result is Bool (adds assumption) ---
+        Expr::Apply { args, .. } => {
+            for arg in args {
+                let _ = infer_expr(arg, env)?;
+            }
+            // apply expressions contribute assumptions; they have Bool type
+            // in the verification domain
+            Ok(Type::Bool)
+        }
+
         // --- Ghost block: type-check inner, result is Unit (erased at runtime) ---
         Expr::Ghost(inner) => {
             // Type-check the inner expression (it must be valid in the
@@ -864,6 +874,40 @@ fn extract_effect_names(expr: &Expr, names: &mut Vec<std::string::String>) {
     }
 }
 
+/// Check that a lemma function has pure effects.
+///
+/// Lemma functions are proof functions that generate no runtime code.
+/// They cannot perform side effects. If an `effects` clause is present
+/// and declares non-pure effects, emit A55001.
+fn check_lemma_fn_effects(
+    f: &assura_parser::ast::FnDef,
+    span: &Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    if let Some(effects) = extract_fn_effects(f) {
+        let has_non_pure = effects.iter().any(|e| e != "pure");
+        if has_non_pure {
+            let effect_list = effects
+                .iter()
+                .filter(|e| *e != "pure")
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            errors.push(TypeError {
+                code: "A55001".into(),
+                message: format!(
+                    "lemma function `{}` has non-pure effects: {effect_list}; \
+                     lemma functions must be pure (no side effects)",
+                    f.name,
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+    }
+    // If no effects clause is present, lemma fns are implicitly pure: OK.
+}
+
 /// Check that a ghost function has pure effects.
 ///
 /// Ghost functions exist only for verification; they cannot perform side
@@ -919,6 +963,10 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                 // T043 CORE.1: ghost functions must have pure effects
                 if f.is_ghost {
                     check_ghost_fn_effects(f, &decl.span, &mut errors);
+                }
+                // T044 CORE.2: lemma functions must have pure effects
+                if f.is_lemma {
+                    check_lemma_fn_effects(f, &decl.span, &mut errors);
                 }
                 for clause in &f.clauses {
                     check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
@@ -1462,6 +1510,11 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
             // Ghost blocks are erased at runtime. Variable references
             // inside ghost blocks do NOT count as linear uses.
         }
+        Expr::Apply { args, .. } => {
+            // Apply expressions are erased at runtime (like ghost).
+            // Arguments are verified but do not count as linear uses.
+            let _ = args;
+        }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
         }
@@ -1787,6 +1840,9 @@ pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
         }
         Expr::Ghost(_) => {
             // Ghost blocks are erased at runtime; do not count usages.
+        }
+        Expr::Apply { .. } => {
+            // Apply expressions are erased at runtime; do not count usages.
         }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
@@ -2264,6 +2320,11 @@ fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
         }
         Expr::Cast { expr: inner, .. } => collect_old_refs_inner(inner, refs),
         Expr::Ghost(inner) => collect_old_refs_inner(inner, refs),
+        Expr::Apply { args, .. } => {
+            for arg in args {
+                collect_old_refs_inner(arg, refs);
+            }
+        }
         Expr::Block(exprs) => {
             for e in exprs {
                 collect_old_refs_inner(e, refs);
@@ -2346,6 +2407,11 @@ fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
         }
         Expr::Cast { expr: inner, .. } => collect_idents_inner(inner, refs),
         Expr::Ghost(inner) => collect_idents_inner(inner, refs),
+        Expr::Apply { args, .. } => {
+            for arg in args {
+                collect_idents_inner(arg, refs);
+            }
+        }
         Expr::Block(exprs) => {
             for e in exprs {
                 collect_idents_inner(e, refs);
@@ -2531,6 +2597,12 @@ pub struct ErrorPropagationChecker {
     pub policies: HashMap<String, ErrorPolicy>,
 }
 
+impl Default for ErrorPropagationChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ErrorPropagationChecker {
     /// Create a new checker with no policies.
     pub fn new() -> Self {
@@ -2553,11 +2625,9 @@ impl ErrorPropagationChecker {
 
     /// Check if a translation from one error code to another is forbidden.
     pub fn is_masked(&self, from: &str, to: &str) -> bool {
-        self.policies.values().any(|p| {
-            p.must_not_mask
-                .iter()
-                .any(|(f, t)| f == from && t == to)
-        })
+        self.policies
+            .values()
+            .any(|p| p.must_not_mask.iter().any(|(f, t)| f == from && t == to))
     }
 
     /// Check if a function's return value must be checked.
@@ -2605,17 +2675,11 @@ impl ErrorPropagationChecker {
     }
 
     /// Check that a function's Result return value is used.
-    pub fn validate_unchecked_call(
-        &self,
-        fn_name: &str,
-        span: Range<usize>,
-    ) -> Option<TypeError> {
+    pub fn validate_unchecked_call(&self, fn_name: &str, span: Range<usize>) -> Option<TypeError> {
         if self.must_check_return(fn_name) {
             return Some(TypeError {
                 code: "A12003".into(),
-                message: format!(
-                    "return value of '{fn_name}' must be checked (must_check policy)"
-                ),
+                message: format!("return value of '{fn_name}' must be checked (must_check policy)"),
                 span,
                 secondary: None,
             });
@@ -2635,6 +2699,821 @@ pub enum ErrorAction {
     Propagate,
     /// Error is handled with meaningful recovery logic.
     Handle,
+}
+
+// ---------------------------------------------------------------------------
+// Memory region contracts (T046 - MEM.1)
+// ---------------------------------------------------------------------------
+
+/// A ghost memory region declaration, tracking a named range of valid indices.
+///
+/// In Assura, a region is a ghost construct: `region valid_range = 0..buf.len`.
+/// It describes a set of indices that are valid for buffer access.
+#[derive(Debug, Clone)]
+pub struct MemoryRegion {
+    /// Name of the region (e.g., "valid_range").
+    pub name: std::string::String,
+    /// Lower bound expression (as variable name or literal).
+    pub lower: std::string::String,
+    /// Upper bound expression (as variable name or literal).
+    pub upper: std::string::String,
+    /// The buffer variable this region is associated with.
+    pub buffer: std::string::String,
+}
+
+/// An error produced by the memory checker.
+///
+/// Uses error codes from the spec:
+/// - **A08101**: Buffer access without bounds check (requires clause missing
+///   bounds check for array/buffer index)
+/// - **A08102**: Region containment violation (sub-region not proven to be
+///   within parent region)
+/// - **A08103**: Ghost region references non-existent buffer
+#[derive(Debug, Clone)]
+pub struct MemoryError {
+    /// Error code from the spec (A08xxx series).
+    pub code: std::string::String,
+    /// Human-readable error message.
+    pub message: std::string::String,
+    /// Source location where the error was detected.
+    pub span: Range<usize>,
+}
+
+/// Memory checker for buffer safety contracts (MEM.1).
+///
+/// Validates that:
+/// 1. Buffer access contracts include proper bounds checks in requires clauses
+/// 2. Ghost region declarations reference buffers that exist in scope
+/// 3. Region containment assertions are well-formed
+///
+/// The checker works on the type-checked AST and uses the type environment
+/// to validate that variables referenced in memory contracts exist and have
+/// appropriate types (Bytes, List, etc.).
+///
+/// # Error codes
+///
+/// - **A08101**: Buffer access without bounds check
+/// - **A08102**: Region containment violation
+/// - **A08103**: Ghost region references non-existent buffer
+pub struct MemoryChecker {
+    /// Known buffer-typed variables and their capacity expressions.
+    /// Maps variable name -> capacity field name (e.g., "buf" -> "buf.len").
+    buffers: HashMap<std::string::String, std::string::String>,
+    /// Ghost region declarations.
+    regions: Vec<MemoryRegion>,
+}
+
+impl MemoryChecker {
+    /// Create a new memory checker.
+    pub fn new() -> Self {
+        Self {
+            buffers: HashMap::new(),
+            regions: Vec::new(),
+        }
+    }
+
+    /// Register a buffer-typed variable with its capacity expression.
+    ///
+    /// Buffer types are: Bytes, List<T>, Sequence<T>, and any user type
+    /// with `.len` or `.capacity` fields.
+    pub fn register_buffer(&mut self, name: std::string::String, capacity: std::string::String) {
+        self.buffers.insert(name, capacity);
+    }
+
+    /// Register a ghost region declaration.
+    pub fn register_region(&mut self, region: MemoryRegion) {
+        self.regions.push(region);
+    }
+
+    /// Returns true if the given variable name is a registered buffer.
+    pub fn is_buffer(&self, name: &str) -> bool {
+        self.buffers.contains_key(name)
+    }
+
+    /// Get the capacity expression for a buffer variable.
+    pub fn buffer_capacity(&self, name: &str) -> Option<&str> {
+        self.buffers.get(name).map(|s| s.as_str())
+    }
+
+    /// Get all registered regions.
+    pub fn regions(&self) -> &[MemoryRegion] {
+        &self.regions
+    }
+
+    /// Check whether a contract's requires clauses contain a proper bounds
+    /// check for buffer access.
+    ///
+    /// A bounds check is an expression of the form:
+    ///   `offset + len <= buf.len` or `offset + len <= buf.capacity`
+    ///
+    /// This function looks for patterns in requires clause expressions
+    /// that constrain buffer access to be within bounds.
+    ///
+    /// Returns `None` if a bounds check is found, or `Some(MemoryError)`
+    /// with code A08101 if no bounds check is present.
+    pub fn check_bounds_in_requires(
+        &self,
+        buffer_name: &str,
+        requires_exprs: &[&Expr],
+        span: &Range<usize>,
+    ) -> Option<MemoryError> {
+        if !self.is_buffer(buffer_name) {
+            return None;
+        }
+
+        // Look for a bounds-checking pattern in the requires clauses
+        let has_bounds_check = requires_exprs
+            .iter()
+            .any(|expr| self.expr_has_bounds_check(expr, buffer_name));
+
+        if has_bounds_check {
+            None
+        } else {
+            Some(MemoryError {
+                code: "A08101".into(),
+                message: format!(
+                    "buffer `{buffer_name}` accessed without bounds check: \
+                     add a `requires` clause constraining index/offset \
+                     to be within `{buffer_name}.len`"
+                ),
+                span: span.clone(),
+            })
+        }
+    }
+
+    /// Check that all ghost region declarations reference existing buffers.
+    ///
+    /// Returns A08103 errors for regions whose buffer is not registered.
+    pub fn check_region_buffers(&self, span: &Range<usize>) -> Vec<MemoryError> {
+        let mut errors = Vec::new();
+        for region in &self.regions {
+            if !self.is_buffer(&region.buffer) {
+                errors.push(MemoryError {
+                    code: "A08103".into(),
+                    message: format!(
+                        "ghost region `{}` references non-existent buffer `{}`",
+                        region.name, region.buffer,
+                    ),
+                    span: span.clone(),
+                });
+            }
+        }
+        errors
+    }
+
+    /// Check that a sub-region is contained within a parent region.
+    ///
+    /// Returns `None` if both regions are registered and the containment
+    /// is well-formed, or `Some(MemoryError)` with code A08102 if the
+    /// containment cannot be established structurally.
+    pub fn check_region_containment(
+        &self,
+        sub_region: &str,
+        parent_region: &str,
+        span: &Range<usize>,
+    ) -> Option<MemoryError> {
+        let sub = self.regions.iter().find(|r| r.name == sub_region);
+        let parent = self.regions.iter().find(|r| r.name == parent_region);
+
+        match (sub, parent) {
+            (Some(sub_r), Some(parent_r)) => {
+                // Structural containment check is deferred to SMT encoding.
+                // Here we just validate that both regions exist and reference
+                // the same buffer.
+                if sub_r.buffer != parent_r.buffer {
+                    Some(MemoryError {
+                        code: "A08102".into(),
+                        message: format!(
+                            "region `{sub_region}` (on buffer `{}`) cannot be contained in \
+                             region `{parent_region}` (on buffer `{}`): different buffers",
+                            sub_r.buffer, parent_r.buffer,
+                        ),
+                        span: span.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+            (None, _) => Some(MemoryError {
+                code: "A08102".into(),
+                message: format!("sub-region `{sub_region}` is not defined"),
+                span: span.clone(),
+            }),
+            (_, None) => Some(MemoryError {
+                code: "A08102".into(),
+                message: format!("parent region `{parent_region}` is not defined"),
+                span: span.clone(),
+            }),
+        }
+    }
+
+    /// Recursively check whether an expression contains a bounds-checking
+    /// pattern for the given buffer.
+    ///
+    /// Recognized patterns:
+    /// - `expr <= buf.len` or `expr <= buf.capacity`
+    /// - `expr < buf.len` or `expr < buf.capacity`
+    /// - `buf.len >= expr` or `buf.capacity >= expr`
+    /// - Any comparison where one side references the buffer's length/capacity
+    ///   and the other constrains an offset/index
+    fn expr_has_bounds_check(&self, expr: &Expr, buffer_name: &str) -> bool {
+        match expr {
+            Expr::BinOp { lhs, op, rhs } => {
+                match op {
+                    BinOp::Lte | BinOp::Lt => {
+                        // Check: something <= buf.len
+                        self.references_buffer_capacity(rhs, buffer_name)
+                            || self.references_buffer_capacity(lhs, buffer_name)
+                    }
+                    BinOp::Gte | BinOp::Gt => {
+                        // Check: buf.len >= something
+                        self.references_buffer_capacity(lhs, buffer_name)
+                            || self.references_buffer_capacity(rhs, buffer_name)
+                    }
+                    BinOp::And => {
+                        // Conjunction: check both sides
+                        self.expr_has_bounds_check(lhs, buffer_name)
+                            || self.expr_has_bounds_check(rhs, buffer_name)
+                    }
+                    _ => false,
+                }
+            }
+            Expr::Paren(inner) => self.expr_has_bounds_check(inner, buffer_name),
+            _ => false,
+        }
+    }
+
+    /// Check if an expression references a buffer's capacity/length.
+    ///
+    /// Looks for `buf.len`, `buf.capacity`, `buf.length`, or the
+    /// registered capacity expression for the buffer.
+    fn references_buffer_capacity(&self, expr: &Expr, buffer_name: &str) -> bool {
+        match expr {
+            Expr::Field(receiver, field) => {
+                let is_len_field =
+                    field == "len" || field == "capacity" || field == "length" || field == "size";
+                if is_len_field && let Expr::Ident(name) = receiver.as_ref() {
+                    return name == buffer_name;
+                }
+                false
+            }
+            Expr::Ident(name) => {
+                // Check against registered capacity expression
+                if let Some(cap) = self.buffers.get(buffer_name) {
+                    name == cap
+                } else {
+                    false
+                }
+            }
+            // Recurse into sub-expressions (e.g., offset + len <= buf.len)
+            Expr::BinOp { lhs, rhs, .. } => {
+                self.references_buffer_capacity(lhs, buffer_name)
+                    || self.references_buffer_capacity(rhs, buffer_name)
+            }
+            Expr::Paren(inner) => self.references_buffer_capacity(inner, buffer_name),
+            _ => false,
+        }
+    }
+}
+
+impl Default for MemoryChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for MemoryChecker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryChecker")
+            .field("buffers", &self.buffers)
+            .field("regions", &self.regions)
+            .finish()
+    }
+}
+
+/// Check whether an expression references a variable by name.
+pub fn expr_references_var(expr: &Expr, var_name: &str) -> bool {
+    match expr {
+        Expr::Ident(name) => name == var_name,
+        Expr::Field(receiver, _) => expr_references_var(receiver, var_name),
+        Expr::BinOp { lhs, rhs, .. } => {
+            expr_references_var(lhs, var_name) || expr_references_var(rhs, var_name)
+        }
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Paren(inner) => {
+            expr_references_var(inner, var_name)
+        }
+        Expr::Call { func, args } => {
+            expr_references_var(func, var_name)
+                || args.iter().any(|a| expr_references_var(a, var_name))
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_references_var(receiver, var_name)
+                || args.iter().any(|a| expr_references_var(a, var_name))
+        }
+        Expr::Index { expr: base, index } => {
+            expr_references_var(base, var_name) || expr_references_var(index, var_name)
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_references_var(cond, var_name)
+                || expr_references_var(then_branch, var_name)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| expr_references_var(e, var_name))
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            expr_references_var(domain, var_name) || expr_references_var(body, var_name)
+        }
+        Expr::List(items) => items.iter().any(|i| expr_references_var(i, var_name)),
+        Expr::Block(exprs) => exprs.iter().any(|e| expr_references_var(e, var_name)),
+        Expr::Ghost(inner) | Expr::Cast { expr: inner, .. } => expr_references_var(inner, var_name),
+        Expr::Apply { args, .. } => args.iter().any(|a| expr_references_var(a, var_name)),
+        Expr::Raw(tokens) => tokens.iter().any(|t| t.trim() == var_name),
+        Expr::Literal(_) => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Taint tracking (T047 - SEC.1)
+// ---------------------------------------------------------------------------
+
+/// Taint label for tracking untrusted data flow.
+///
+/// Follows the information flow lattice from Section 2.7 of the spec:
+/// `Untrusted < Validated < Trusted`
+///
+/// Data from external sources (network, files, user input) starts as
+/// `Untrusted`. Explicit validation functions promote it to `Validated`.
+/// Internal data is `Trusted`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TaintLabel {
+    /// Data from an external, potentially malicious source.
+    Untrusted,
+    /// Data that has been explicitly validated/sanitized.
+    Validated,
+    /// Internal data known to be safe.
+    Trusted,
+}
+
+impl std::fmt::Display for TaintLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaintLabel::Untrusted => write!(f, "untrusted"),
+            TaintLabel::Validated => write!(f, "validated"),
+            TaintLabel::Trusted => write!(f, "trusted"),
+        }
+    }
+}
+
+/// Extract a taint label from type annotation tokens.
+///
+/// Looks for patterns like `@taint:untrusted`, `@taint:validated`,
+/// `@taint:trusted` in a sequence of type tokens (from `Param.ty` or
+/// `FnDef.return_ty`). Also handles `@untrusted` short form.
+///
+/// Returns `Some(label)` if found, `None` if no taint annotation is present.
+pub fn extract_taint_label(type_tokens: &[String]) -> Option<TaintLabel> {
+    // Look for pattern: "@" "taint" ":" <label>
+    for window in type_tokens.windows(4) {
+        if window[0] == "@" && window[1] == "taint" && window[2] == ":" {
+            return match window[3].as_str() {
+                "untrusted" => Some(TaintLabel::Untrusted),
+                "validated" => Some(TaintLabel::Validated),
+                "trusted" => Some(TaintLabel::Trusted),
+                _ => None,
+            };
+        }
+    }
+    // Check shorter form: "@" <label>
+    for window in type_tokens.windows(2) {
+        if window[0] == "@" {
+            return match window[1].as_str() {
+                "untrusted" => Some(TaintLabel::Untrusted),
+                "validated" => Some(TaintLabel::Validated),
+                "trusted" => Some(TaintLabel::Trusted),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+/// Taint checker that tracks taint labels through data flow.
+///
+/// Implements SEC.1 from Section 14 of the spec: untrusted data taint
+/// tracking. Ensures that data from external sources (marked
+/// `@taint:untrusted`) cannot flow to sensitive positions (array indices,
+/// allocation sizes, etc.) without explicit validation.
+///
+/// # Error codes
+///
+/// - **A09101**: Tainted data used as array index without validation
+/// - **A09102**: Tainted data used as allocation size without validation
+/// - **A09103**: Tainted data flows to trusted sink
+/// - **A09104**: Taint validation incomplete (partial sanitization)
+#[derive(Debug, Clone)]
+pub struct TaintChecker {
+    /// Maps variable name to its taint label.
+    labels: HashMap<std::string::String, TaintLabel>,
+    /// Names of functions known to validate/sanitize input.
+    /// These functions convert Untrusted -> Validated.
+    validation_fns: std::collections::HashSet<std::string::String>,
+    /// Names of functions whose parameters require validated/trusted input.
+    /// Maps function name to its parameter taint requirements.
+    trusted_sinks: HashMap<std::string::String, Vec<Option<TaintLabel>>>,
+}
+
+impl TaintChecker {
+    /// Create an empty taint checker with built-in validation function names.
+    pub fn new() -> Self {
+        let mut validation_fns = std::collections::HashSet::new();
+        // Built-in validation function names
+        validation_fns.insert("validate".to_string());
+        validation_fns.insert("sanitize".to_string());
+        Self {
+            labels: HashMap::new(),
+            validation_fns,
+            trusted_sinks: HashMap::new(),
+        }
+    }
+
+    /// Declare a variable with a taint label.
+    pub fn declare(&mut self, name: std::string::String, label: TaintLabel) {
+        self.labels.insert(name, label);
+    }
+
+    /// Register a function as a validation/sanitization function.
+    pub fn register_validator(&mut self, name: std::string::String) {
+        self.validation_fns.insert(name);
+    }
+
+    /// Register a function as a trusted sink with parameter taint requirements.
+    pub fn register_trusted_sink(
+        &mut self,
+        name: std::string::String,
+        param_labels: Vec<Option<TaintLabel>>,
+    ) {
+        self.trusted_sinks.insert(name, param_labels);
+    }
+
+    /// Get the taint label for a variable.
+    pub fn get_label(&self, name: &str) -> Option<TaintLabel> {
+        self.labels.get(name).copied()
+    }
+
+    /// Returns true if any taint labels are tracked.
+    pub fn has_taint_info(&self) -> bool {
+        !self.labels.is_empty()
+    }
+
+    /// Infer the taint label of an expression.
+    ///
+    /// Taint propagates through operations: if any operand is tainted,
+    /// the result is tainted. Uses the minimum in the lattice
+    /// (Untrusted < Validated < Trusted).
+    pub fn infer_taint(&self, expr: &Expr) -> TaintLabel {
+        match expr {
+            Expr::Ident(name) => self
+                .labels
+                .get(name)
+                .copied()
+                .unwrap_or(TaintLabel::Trusted),
+            Expr::Literal(_) => TaintLabel::Trusted,
+            Expr::Field(receiver, _) => self.infer_taint(receiver),
+            Expr::BinOp { lhs, rhs, .. } => {
+                std::cmp::min(self.infer_taint(lhs), self.infer_taint(rhs))
+            }
+            Expr::UnaryOp { expr: inner, .. } => self.infer_taint(inner),
+            Expr::Call { func, args } => {
+                // Validation functions produce Validated output
+                if let Expr::Ident(name) = func.as_ref()
+                    && self.validation_fns.contains(name)
+                {
+                    return TaintLabel::Validated;
+                }
+                // Taint propagates from arguments
+                args.iter().fold(TaintLabel::Trusted, |acc, arg| {
+                    std::cmp::min(acc, self.infer_taint(arg))
+                })
+            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                if self.validation_fns.contains(method) {
+                    return TaintLabel::Validated;
+                }
+                let r = self.infer_taint(receiver);
+                args.iter()
+                    .fold(r, |acc, arg| std::cmp::min(acc, self.infer_taint(arg)))
+            }
+            Expr::Index { expr: base, index } => {
+                std::cmp::min(self.infer_taint(base), self.infer_taint(index))
+            }
+            Expr::Old(inner) | Expr::Paren(inner) | Expr::Cast { expr: inner, .. } => {
+                self.infer_taint(inner)
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let mut r = std::cmp::min(self.infer_taint(cond), self.infer_taint(then_branch));
+                if let Some(e) = else_branch {
+                    r = std::cmp::min(r, self.infer_taint(e));
+                }
+                r
+            }
+            Expr::List(items) => items.iter().fold(TaintLabel::Trusted, |a, i| {
+                std::cmp::min(a, self.infer_taint(i))
+            }),
+            Expr::Block(exprs) => exprs.iter().fold(TaintLabel::Trusted, |a, e| {
+                std::cmp::min(a, self.infer_taint(e))
+            }),
+            Expr::Forall { body, .. } | Expr::Exists { body, .. } => self.infer_taint(body),
+            Expr::Apply { args, .. } => args.iter().fold(TaintLabel::Trusted, |a, arg| {
+                std::cmp::min(a, self.infer_taint(arg))
+            }),
+            Expr::Ghost(_) | Expr::Raw(_) => TaintLabel::Trusted,
+        }
+    }
+
+    /// Check an expression for taint violations.
+    ///
+    /// Walks the expression tree looking for sensitive positions where
+    /// untrusted data is used without validation.
+    pub fn check_expr(&self, expr: &Expr, span: &Range<usize>) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        self.check_expr_inner(expr, span, &mut errors);
+        errors
+    }
+
+    /// Inner recursive checker for taint violations.
+    fn check_expr_inner(&self, expr: &Expr, span: &Range<usize>, errors: &mut Vec<TypeError>) {
+        match expr {
+            // A09101: tainted data as array index
+            Expr::Index { expr: base, index } => {
+                let index_taint = self.infer_taint(index);
+                if index_taint == TaintLabel::Untrusted {
+                    errors.push(TypeError {
+                        code: "A09101".into(),
+                        message: "tainted data used as array index without validation: \
+                             validate the index before using it to access an array"
+                            .into(),
+                        span: span.clone(),
+                        secondary: None,
+                    });
+                }
+                self.check_expr_inner(base, span, errors);
+                self.check_expr_inner(index, span, errors);
+            }
+
+            // A09102 / A09103: tainted data at function call sites
+            Expr::Call { func, args } => {
+                if let Expr::Ident(name) = func.as_ref() {
+                    // A09102: allocation size
+                    if is_alloc_function(name) {
+                        for arg in args {
+                            if self.infer_taint(arg) == TaintLabel::Untrusted {
+                                errors.push(TypeError {
+                                    code: "A09102".into(),
+                                    message: format!(
+                                        "tainted data used as allocation size without \
+                                         validation: argument to `{name}` is untrusted"
+                                    ),
+                                    span: span.clone(),
+                                    secondary: None,
+                                });
+                            }
+                        }
+                    }
+
+                    // A09103: trusted sink
+                    if let Some(param_labels) = self.trusted_sinks.get(name) {
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_taint = self.infer_taint(arg);
+                            if let Some(Some(required)) = param_labels.get(i)
+                                && arg_taint < *required
+                            {
+                                errors.push(TypeError {
+                                    code: "A09103".into(),
+                                    message: format!(
+                                        "tainted data flows to trusted sink: \
+                                         argument {i} to `{name}` is `{arg_taint}` \
+                                         but parameter requires `{required}`"
+                                    ),
+                                    span: span.clone(),
+                                    secondary: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                self.check_expr_inner(func, span, errors);
+                for arg in args {
+                    self.check_expr_inner(arg, span, errors);
+                }
+            }
+
+            // Recurse into sub-expressions
+            Expr::BinOp { lhs, rhs, .. } => {
+                self.check_expr_inner(lhs, span, errors);
+                self.check_expr_inner(rhs, span, errors);
+            }
+            Expr::UnaryOp { expr: inner, .. }
+            | Expr::Old(inner)
+            | Expr::Paren(inner)
+            | Expr::Cast { expr: inner, .. }
+            | Expr::Ghost(inner) => {
+                self.check_expr_inner(inner, span, errors);
+            }
+            Expr::Field(receiver, _) => {
+                self.check_expr_inner(receiver, span, errors);
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                self.check_expr_inner(receiver, span, errors);
+                for arg in args {
+                    self.check_expr_inner(arg, span, errors);
+                }
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.check_expr_inner(cond, span, errors);
+                self.check_expr_inner(then_branch, span, errors);
+                if let Some(else_br) = else_branch {
+                    self.check_expr_inner(else_br, span, errors);
+                }
+            }
+            Expr::List(items) => {
+                for item in items {
+                    self.check_expr_inner(item, span, errors);
+                }
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    self.check_expr_inner(e, span, errors);
+                }
+            }
+            Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+                self.check_expr_inner(domain, span, errors);
+                self.check_expr_inner(body, span, errors);
+            }
+            Expr::Apply { args, .. } => {
+                for arg in args {
+                    self.check_expr_inner(arg, span, errors);
+                }
+            }
+            Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
+        }
+    }
+
+    /// Check taint flow in a complete source file.
+    ///
+    /// Extracts taint labels from function parameter and return types,
+    /// registers validation functions, then checks all clause expressions
+    /// for taint violations. Returns empty if no taint annotations exist.
+    pub fn check_file(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = TaintChecker::new();
+        let mut has_taint_annotations = false;
+
+        // Pass 1: discover validation functions and trusted sinks
+        for decl in &source.decls {
+            match &decl.node {
+                Decl::FnDef(f) => {
+                    if let Some(TaintLabel::Validated) = extract_taint_label(&f.return_ty) {
+                        checker.register_validator(f.name.clone());
+                        has_taint_annotations = true;
+                    }
+                    let param_labels: Vec<Option<TaintLabel>> = f
+                        .params
+                        .iter()
+                        .map(|p| extract_taint_label(&p.ty))
+                        .collect();
+                    // If any param requires validated/trusted, register as sink
+                    if param_labels
+                        .iter()
+                        .any(|l| matches!(l, Some(TaintLabel::Validated | TaintLabel::Trusted)))
+                    {
+                        checker.register_trusted_sink(f.name.clone(), param_labels.clone());
+                        has_taint_annotations = true;
+                    }
+                    if param_labels.iter().any(|l| l.is_some()) {
+                        has_taint_annotations = true;
+                    }
+                }
+                Decl::Extern(e) => {
+                    if let Some(TaintLabel::Validated) = extract_taint_label(&e.return_ty) {
+                        checker.register_validator(e.name.clone());
+                        has_taint_annotations = true;
+                    }
+                    let param_labels: Vec<Option<TaintLabel>> = e
+                        .params
+                        .iter()
+                        .map(|p| extract_taint_label(&p.ty))
+                        .collect();
+                    if param_labels
+                        .iter()
+                        .any(|l| matches!(l, Some(TaintLabel::Validated | TaintLabel::Trusted)))
+                    {
+                        checker.register_trusted_sink(e.name.clone(), param_labels.clone());
+                        has_taint_annotations = true;
+                    }
+                    if param_labels.iter().any(|l| l.is_some()) {
+                        has_taint_annotations = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // If no taint annotations, skip the check
+        if !has_taint_annotations {
+            return Vec::new();
+        }
+
+        let mut errors = Vec::new();
+
+        // Pass 2: check each declaration with scoped taint labels
+        for decl in &source.decls {
+            match &decl.node {
+                Decl::FnDef(f) => {
+                    let mut fn_checker = checker.clone();
+                    for param in &f.params {
+                        if let Some(label) = extract_taint_label(&param.ty) {
+                            fn_checker.declare(param.name.clone(), label);
+                        }
+                    }
+                    if fn_checker.has_taint_info() {
+                        for clause in &f.clauses {
+                            errors.extend(fn_checker.check_expr(&clause.body, &decl.span));
+                        }
+                    }
+                }
+                Decl::Extern(e) => {
+                    let mut fn_checker = checker.clone();
+                    for param in &e.params {
+                        if let Some(label) = extract_taint_label(&param.ty) {
+                            fn_checker.declare(param.name.clone(), label);
+                        }
+                    }
+                    if fn_checker.has_taint_info() {
+                        for clause in &e.clauses {
+                            errors.extend(fn_checker.check_expr(&clause.body, &decl.span));
+                        }
+                    }
+                }
+                Decl::Contract(c) => {
+                    if checker.has_taint_info() {
+                        for clause in &c.clauses {
+                            errors.extend(checker.check_expr(&clause.body, &decl.span));
+                        }
+                    }
+                }
+                Decl::Service(s) => {
+                    for item in &s.items {
+                        match item {
+                            ServiceItem::Operation { clauses, .. }
+                            | ServiceItem::Query { clauses, .. } => {
+                                for clause in clauses {
+                                    errors.extend(checker.check_expr(&clause.body, &decl.span));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Decl::Block { body, .. } => {
+                    for clause in body {
+                        errors.extend(checker.check_expr(&clause.body, &decl.span));
+                    }
+                }
+                Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+            }
+        }
+
+        errors
+    }
+}
+
+impl Default for TaintChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Returns `true` if the function name is an allocation function.
+fn is_alloc_function(name: &str) -> bool {
+    matches!(
+        name,
+        "alloc" | "allocate" | "malloc" | "realloc" | "reserve" | "resize"
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -7073,6 +7952,130 @@ ghost fn bad_ghost(x: Int) -> Bool
     }
 
     // -----------------------------------------------------------------------
+    // T044: Lemma tests (CORE.2)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn lemma_fn_pure_effects_passes() {
+        // Lemma with pure effects should type-check without errors.
+        let src = r#"
+            lemma add_comm(a: Int, b: Int)
+                effects: pure
+                ensures { a + b == b + a }
+        "#;
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.unwrap();
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let result = type_check(&resolved);
+        assert!(result.is_ok(), "lemma with pure effects should pass type check");
+    }
+
+    #[test]
+    fn lemma_fn_no_effects_clause_passes() {
+        // Lemma with no explicit effects clause is implicitly pure: OK.
+        let src = r#"
+            lemma trivial(x: Int)
+                ensures { x == x }
+        "#;
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.unwrap();
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let result = type_check(&resolved);
+        assert!(result.is_ok(), "lemma with no effects clause should pass");
+    }
+
+    #[test]
+    fn lemma_fn_non_pure_effects_a55001() {
+        // Lemma with non-pure effects should produce A55001.
+        let src = r#"
+            lemma bad_lemma(x: Int)
+                effects: io
+                ensures { x > 0 }
+        "#;
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.unwrap();
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let result = type_check(&resolved);
+        assert!(result.is_err(), "lemma with io effects should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.code == "A55001"),
+            "should produce A55001, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn lemma_is_lemma_flag_set() {
+        // Verify that parsing a lemma sets is_lemma = true.
+        let src = r#"
+            lemma my_lemma(n: Int)
+                ensures { n >= 0 }
+        "#;
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::FnDef(f) = &file.decls[0].node {
+            assert!(f.is_lemma, "lemma should have is_lemma = true");
+            assert!(!f.is_ghost, "lemma should not have is_ghost = true");
+            assert_eq!(f.name, "my_lemma");
+        } else {
+            panic!("expected FnDef, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn fn_is_not_lemma() {
+        // Verify that parsing a regular fn sets is_lemma = false.
+        let src = r#"
+            fn regular(n: Int) -> Int {
+                ensures { result >= 0 }
+            }
+        "#;
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::FnDef(f) = &file.decls[0].node {
+            assert!(!f.is_lemma, "fn should have is_lemma = false");
+        } else {
+            panic!("expected FnDef");
+        }
+    }
+
+    #[test]
+    fn apply_expr_type_is_bool() {
+        // apply lemma_name(args) should have Bool type.
+        let env = TypeEnv::new();
+        let apply = AstExpr::Apply {
+            lemma_name: "some_lemma".into(),
+            args: vec![AstExpr::Literal(AstLit::Int("42".into()))],
+        };
+        let result = infer_expr(&apply, &env);
+        assert_eq!(result.unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn apply_not_counted_as_linear_use() {
+        // apply should not count variable references as linear uses.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("resource".into(), UsageGrade::Linear, 0..1);
+
+        let apply = AstExpr::Apply {
+            lemma_name: "some_lemma".into(),
+            args: vec![AstExpr::Ident("resource".into())],
+        };
+
+        let mut ctx = LinearContext::new(tracker);
+        let errors = check_expr_linearity(&apply, &mut ctx);
+        assert!(errors.is_empty(), "apply should not cause linearity errors");
+        assert_eq!(ctx.get_count("resource"), Some(0));
+    }
+
+    // -----------------------------------------------------------------------
     // T064: Error propagation tests
     // -----------------------------------------------------------------------
 
@@ -7094,7 +8097,10 @@ ghost fn bad_ghost(x: Int) -> Bool
 
         // Propagating is fine
         let err = checker.validate_catch("SQLITE_CORRUPT", ErrorAction::Propagate, 0..10);
-        assert!(err.is_none(), "propagating must_propagate error should pass");
+        assert!(
+            err.is_none(),
+            "propagating must_propagate error should pass"
+        );
 
         // Handling is fine
         let err = checker.validate_catch("SQLITE_CORRUPT", ErrorAction::Handle, 0..10);
@@ -7189,5 +8195,479 @@ ghost fn bad_ghost(x: Int) -> Bool
         // No policies registered: everything passes
         let err = checker.validate_catch("ANY_ERROR", ErrorAction::Swallow, 0..10);
         assert!(err.is_none(), "no policy means no restrictions");
+    }
+
+    // -----------------------------------------------------------------------
+    // T046: Memory region contracts (MEM.1)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn memory_checker_register_buffer() {
+        let mut checker = MemoryChecker::new();
+        assert!(!checker.is_buffer("buf"));
+        checker.register_buffer("buf".into(), "buf.len".into());
+        assert!(checker.is_buffer("buf"));
+        assert_eq!(checker.buffer_capacity("buf"), Some("buf.len"));
+    }
+
+    #[test]
+    fn memory_checker_register_region() {
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.len".into());
+        checker.register_region(MemoryRegion {
+            name: "valid_range".into(),
+            lower: "0".into(),
+            upper: "buf.len".into(),
+            buffer: "buf".into(),
+        });
+        assert_eq!(checker.regions().len(), 1);
+        assert_eq!(checker.regions()[0].name, "valid_range");
+    }
+
+    #[test]
+    fn memory_checker_bounds_check_present() {
+        // offset + len <= buf.len pattern should be recognized
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.len".into());
+
+        let bounds_expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Ident("offset".into())),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Ident("len".into())),
+            }),
+            op: AstBinOp::Lte,
+            rhs: Box::new(AstExpr::Field(
+                Box::new(AstExpr::Ident("buf".into())),
+                "len".into(),
+            )),
+        };
+
+        let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
+        assert!(result.is_none(), "should detect bounds check");
+    }
+
+    #[test]
+    fn memory_checker_bounds_check_missing() {
+        // No bounds check -> A08101
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.len".into());
+
+        // A requires clause that does not check buffer bounds
+        let unrelated_expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::Gt,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+
+        let result = checker.check_bounds_in_requires("buf", &[&unrelated_expr], &(0..10));
+        assert!(result.is_some(), "should detect missing bounds check");
+        let err = result.unwrap();
+        assert_eq!(err.code, "A08101");
+        assert!(err.message.contains("buf"));
+    }
+
+    #[test]
+    fn memory_checker_region_buffer_exists() {
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.len".into());
+        checker.register_region(MemoryRegion {
+            name: "r1".into(),
+            lower: "0".into(),
+            upper: "buf.len".into(),
+            buffer: "buf".into(),
+        });
+        let errors = checker.check_region_buffers(&(0..10));
+        assert!(errors.is_empty(), "buffer exists, no errors expected");
+    }
+
+    #[test]
+    fn memory_checker_region_buffer_missing() {
+        let mut checker = MemoryChecker::new();
+        // Do NOT register "missing_buf" as a buffer
+        checker.register_region(MemoryRegion {
+            name: "r1".into(),
+            lower: "0".into(),
+            upper: "missing_buf.len".into(),
+            buffer: "missing_buf".into(),
+        });
+        let errors = checker.check_region_buffers(&(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A08103");
+        assert!(errors[0].message.contains("missing_buf"));
+    }
+
+    #[test]
+    fn memory_checker_region_containment_same_buffer() {
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.len".into());
+        checker.register_region(MemoryRegion {
+            name: "sub".into(),
+            lower: "2".into(),
+            upper: "5".into(),
+            buffer: "buf".into(),
+        });
+        checker.register_region(MemoryRegion {
+            name: "parent".into(),
+            lower: "0".into(),
+            upper: "buf.len".into(),
+            buffer: "buf".into(),
+        });
+        let result = checker.check_region_containment("sub", "parent", &(0..10));
+        assert!(
+            result.is_none(),
+            "same buffer regions should pass structural check"
+        );
+    }
+
+    #[test]
+    fn memory_checker_region_containment_different_buffers() {
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf_a".into(), "buf_a.len".into());
+        checker.register_buffer("buf_b".into(), "buf_b.len".into());
+        checker.register_region(MemoryRegion {
+            name: "r_a".into(),
+            lower: "0".into(),
+            upper: "buf_a.len".into(),
+            buffer: "buf_a".into(),
+        });
+        checker.register_region(MemoryRegion {
+            name: "r_b".into(),
+            lower: "0".into(),
+            upper: "buf_b.len".into(),
+            buffer: "buf_b".into(),
+        });
+        let result = checker.check_region_containment("r_a", "r_b", &(0..10));
+        assert!(result.is_some(), "different buffer regions should fail");
+        assert_eq!(result.unwrap().code, "A08102");
+    }
+
+    #[test]
+    fn memory_checker_region_containment_undefined_sub() {
+        let checker = MemoryChecker::new();
+        let result = checker.check_region_containment("nonexistent", "parent", &(0..10));
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().code, "A08102");
+    }
+
+    #[test]
+    fn memory_checker_bounds_check_with_capacity() {
+        // buf.capacity pattern should also be recognized
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.capacity".into());
+
+        let bounds_expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("idx".into())),
+            op: AstBinOp::Lt,
+            rhs: Box::new(AstExpr::Field(
+                Box::new(AstExpr::Ident("buf".into())),
+                "capacity".into(),
+            )),
+        };
+
+        let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
+        assert!(result.is_none(), "should detect capacity bounds check");
+    }
+
+    #[test]
+    fn memory_checker_bounds_check_in_conjunction() {
+        // x > 0 and offset + len <= buf.len -> should detect bounds check
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.len".into());
+
+        let bounds_expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Ident("x".into())),
+                op: AstBinOp::Gt,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+            }),
+            op: AstBinOp::And,
+            rhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::BinOp {
+                    lhs: Box::new(AstExpr::Ident("offset".into())),
+                    op: AstBinOp::Add,
+                    rhs: Box::new(AstExpr::Ident("len".into())),
+                }),
+                op: AstBinOp::Lte,
+                rhs: Box::new(AstExpr::Field(
+                    Box::new(AstExpr::Ident("buf".into())),
+                    "len".into(),
+                )),
+            }),
+        };
+
+        let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
+        assert!(
+            result.is_none(),
+            "should detect bounds check in conjunction"
+        );
+    }
+
+    #[test]
+    fn memory_checker_default() {
+        let checker = MemoryChecker::default();
+        assert!(!checker.is_buffer("anything"));
+        assert!(checker.regions().is_empty());
+    }
+
+    #[test]
+    fn memory_checker_gte_bounds_check() {
+        // buf.len >= offset + len pattern should also be recognized
+        let mut checker = MemoryChecker::new();
+        checker.register_buffer("buf".into(), "buf.len".into());
+
+        let bounds_expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Field(
+                Box::new(AstExpr::Ident("buf".into())),
+                "len".into(),
+            )),
+            op: AstBinOp::Gte,
+            rhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Ident("offset".into())),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Ident("len".into())),
+            }),
+        };
+
+        let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
+        assert!(result.is_none(), "should detect buf.len >= expr pattern");
+    }
+
+    #[test]
+    fn expr_references_var_basic() {
+        let expr = AstExpr::Ident("buf".into());
+        assert!(expr_references_var(&expr, "buf"));
+        assert!(!expr_references_var(&expr, "other"));
+    }
+
+    #[test]
+    fn expr_references_var_in_binop() {
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("buf".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        };
+        assert!(expr_references_var(&expr, "buf"));
+        assert!(!expr_references_var(&expr, "other"));
+    }
+
+    // -----------------------------------------------------------------------
+    // T047: Taint tracking (SEC.1) tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn taint_label_ordering() {
+        assert!(TaintLabel::Untrusted < TaintLabel::Validated);
+        assert!(TaintLabel::Validated < TaintLabel::Trusted);
+        assert!(TaintLabel::Untrusted < TaintLabel::Trusted);
+    }
+
+    #[test]
+    fn extract_taint_from_tokens() {
+        let tokens = vec![
+            "U32".into(),
+            "@".into(),
+            "taint".into(),
+            ":".into(),
+            "untrusted".into(),
+        ];
+        assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Untrusted));
+
+        let tokens2 = vec![
+            "ValidXlen".into(),
+            "@".into(),
+            "taint".into(),
+            ":".into(),
+            "validated".into(),
+        ];
+        assert_eq!(extract_taint_label(&tokens2), Some(TaintLabel::Validated));
+
+        let no_taint = vec!["Int".into()];
+        assert_eq!(extract_taint_label(&no_taint), None);
+    }
+
+    #[test]
+    fn extract_taint_short_form() {
+        let tokens = vec!["Bytes".into(), "@".into(), "untrusted".into()];
+        assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Untrusted));
+
+        let tokens2 = vec!["Data".into(), "@".into(), "validated".into()];
+        assert_eq!(extract_taint_label(&tokens2), Some(TaintLabel::Validated));
+
+        let tokens3 = vec!["Key".into(), "@".into(), "trusted".into()];
+        assert_eq!(extract_taint_label(&tokens3), Some(TaintLabel::Trusted));
+    }
+
+    #[test]
+    fn taint_checker_untrusted_index_a09101() {
+        // Untrusted data used as array index -> A09101
+        let mut checker = TaintChecker::new();
+        checker.declare("idx".into(), TaintLabel::Untrusted);
+
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("buf".into())),
+            index: Box::new(AstExpr::Ident("idx".into())),
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A09101");
+    }
+
+    #[test]
+    fn taint_checker_validated_index_passes() {
+        // Validated data used as index -> no error
+        let mut checker = TaintChecker::new();
+        checker.declare("idx".into(), TaintLabel::Validated);
+
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("buf".into())),
+            index: Box::new(AstExpr::Ident("idx".into())),
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert!(errors.is_empty(), "validated index should pass: {errors:?}");
+    }
+
+    #[test]
+    fn taint_checker_trusted_index_passes() {
+        // Trusted (default) data -> no error
+        let checker = TaintChecker::new();
+
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("buf".into())),
+            index: Box::new(AstExpr::Ident("idx".into())),
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert!(errors.is_empty(), "trusted index should pass: {errors:?}");
+    }
+
+    #[test]
+    fn taint_propagation_through_arithmetic() {
+        // If any operand is untrusted, result is untrusted
+        let mut checker = TaintChecker::new();
+        checker.declare("tainted".into(), TaintLabel::Untrusted);
+        checker.declare("safe".into(), TaintLabel::Trusted);
+
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("tainted".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("safe".into())),
+        };
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
+    }
+
+    #[test]
+    fn taint_propagation_both_untrusted() {
+        // Both operands untrusted -> result untrusted
+        let mut checker = TaintChecker::new();
+        checker.declare("a".into(), TaintLabel::Untrusted);
+        checker.declare("b".into(), TaintLabel::Untrusted);
+
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("a".into())),
+            op: AstBinOp::Mul,
+            rhs: Box::new(AstExpr::Ident("b".into())),
+        };
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
+    }
+
+    #[test]
+    fn taint_validation_removes_taint() {
+        // Calling a validation function produces Validated
+        let mut checker = TaintChecker::new();
+        checker.declare("raw".into(), TaintLabel::Untrusted);
+
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("validate".into())),
+            args: vec![AstExpr::Ident("raw".into())],
+        };
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
+    }
+
+    #[test]
+    fn taint_checker_alloc_a09102() {
+        // Untrusted data as allocation size -> A09102
+        let mut checker = TaintChecker::new();
+        checker.declare("sz".into(), TaintLabel::Untrusted);
+
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("alloc".into())),
+            args: vec![AstExpr::Ident("sz".into())],
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A09102");
+    }
+
+    #[test]
+    fn taint_checker_trusted_sink_a09103() {
+        // Untrusted data flowing to a trusted sink -> A09103
+        let mut checker = TaintChecker::new();
+        checker.declare("raw_len".into(), TaintLabel::Untrusted);
+        checker.register_trusted_sink("memcpy_len".into(), vec![Some(TaintLabel::Validated)]);
+
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("memcpy_len".into())),
+            args: vec![AstExpr::Ident("raw_len".into())],
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A09103");
+    }
+
+    #[test]
+    fn taint_checker_validated_at_sink_passes() {
+        // Validated data at a sink that requires Validated -> no error
+        let mut checker = TaintChecker::new();
+        checker.declare("safe_len".into(), TaintLabel::Validated);
+        checker.register_trusted_sink("memcpy_len".into(), vec![Some(TaintLabel::Validated)]);
+
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("memcpy_len".into())),
+            args: vec![AstExpr::Ident("safe_len".into())],
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert!(errors.is_empty(), "validated data at sink should pass");
+    }
+
+    #[test]
+    fn taint_infer_literal_trusted() {
+        let checker = TaintChecker::new();
+        let expr = AstExpr::Literal(AstLit::Int("42".into()));
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Trusted);
+    }
+
+    #[test]
+    fn taint_infer_unknown_var_trusted() {
+        // Undeclared variables default to Trusted
+        let checker = TaintChecker::new();
+        let expr = AstExpr::Ident("x".into());
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Trusted);
+    }
+
+    #[test]
+    fn taint_checker_nested_index_propagation() {
+        // Tainted data flows through arithmetic to index -> A09101
+        let mut checker = TaintChecker::new();
+        checker.declare("offset".into(), TaintLabel::Untrusted);
+
+        let index_expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("offset".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        };
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("buf".into())),
+            index: Box::new(index_expr),
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A09101");
+    }
+
+    #[test]
+    fn taint_checker_display() {
+        assert_eq!(TaintLabel::Untrusted.to_string(), "untrusted");
+        assert_eq!(TaintLabel::Validated.to_string(), "validated");
+        assert_eq!(TaintLabel::Trusted.to_string(), "trusted");
     }
 }

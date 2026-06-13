@@ -149,6 +149,8 @@ pub enum Expr {
     Block(Vec<Expr>),
     /// Ghost block: verified but erased at runtime
     Ghost(Box<Expr>),
+    /// Apply a lemma: `apply lemma_name(args)` — adds lemma ensures as assumption
+    Apply { lemma_name: String, args: Vec<Expr> },
     /// Unparsed token sequence (fallback)
     Raw(Vec<String>),
 }
@@ -244,6 +246,7 @@ pub struct ExternDecl {
 pub struct FnDef {
     pub name: String,
     pub is_ghost: bool,
+    pub is_lemma: bool,
     pub params: Vec<Param>,
     pub return_ty: Vec<String>,
     pub clauses: Vec<Clause>,

@@ -74,7 +74,8 @@ pub fn codegen(typed: &TypedFile) -> GeneratedProject {
             Decl::Extern(ex) => generate_extern(ex, &mut code),
             Decl::FnDef(f) => {
                 // T043 CORE.1: ghost functions are erased at runtime
-                if !f.is_ghost {
+                // T044 CORE.2: lemma functions are erased at runtime
+                if !f.is_ghost && !f.is_lemma {
                     generate_fn_def(f, &mut code);
                 }
             }
@@ -278,6 +279,10 @@ fn expr_to_rust(expr: &Expr) -> String {
             // Ghost blocks are erased at runtime; emit nothing.
             "/* ghost erased */()".to_string()
         }
+        Expr::Apply { lemma_name, .. } => {
+            // Lemma applications are erased at runtime; emit comment.
+            format!("/* lemma {lemma_name} applied */")
+        }
         Expr::Raw(tokens) => tokens.join(" "),
     }
 }
@@ -371,6 +376,12 @@ fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String)>) {
             // Ghost blocks are erased but may reference old() in
             // their verification expressions.
             collect_old_exprs_inner(inner, out);
+        }
+        Expr::Apply { args, .. } => {
+            // Apply is erased but may reference old() in arguments.
+            for a in args {
+                collect_old_exprs_inner(a, out);
+            }
         }
         // Leaf nodes: no old() inside
         Expr::Literal(_) | Expr::Ident(_) | Expr::Raw(_) => {}
