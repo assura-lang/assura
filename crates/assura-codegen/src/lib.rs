@@ -442,7 +442,20 @@ fn expr_to_rust(expr: &Expr) -> String {
                     format!("    {pat} => {body},")
                 })
                 .collect();
-            format!("match {} {{\n{}\n}}", scrut, arms_code.join("\n"))
+            // Add wildcard fallback if no arm is a catch-all
+            let has_wildcard = arms.iter().any(|arm| {
+                matches!(
+                    &arm.pattern,
+                    assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Ident(_)
+                )
+            });
+            if !has_wildcard {
+                let mut all_arms = arms_code;
+                all_arms.push("    _ => unreachable!(\"non-exhaustive match\"),".to_string());
+                format!("match {} {{\n{}\n}}", scrut, all_arms.join("\n"))
+            } else {
+                format!("match {} {{\n{}\n}}", scrut, arms_code.join("\n"))
+            }
         }
         Expr::Let { name, value, body } => {
             format!(
@@ -2313,6 +2326,35 @@ type Marker {
             "should have Active arm: {rust}"
         );
         assert!(rust.contains("_ => 0"), "should have wildcard arm: {rust}");
+    }
+
+    #[test]
+    fn match_without_wildcard_gets_fallback() {
+        // match with only Constructor patterns (no wildcard) should get _ => unreachable!()
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("color".into())),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Constructor {
+                        name: "Red".into(),
+                        fields: vec![],
+                    },
+                    body: Expr::Literal(Literal::Int("1".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Constructor {
+                        name: "Blue".into(),
+                        fields: vec![],
+                    },
+                    body: Expr::Literal(Literal::Int("2".into())),
+                },
+            ],
+        };
+        let rust = expr_to_rust(&expr);
+        assert!(
+            rust.contains("_ => unreachable!"),
+            "match without wildcard should get fallback: {rust}"
+        );
     }
 
     #[test]
