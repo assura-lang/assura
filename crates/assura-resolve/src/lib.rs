@@ -611,6 +611,18 @@ pub fn resolve_with_modules(
 /// target module is currently being resolved (present in `visited`), the
 /// import is marked `Circular` and an A02005 error is emitted. Otherwise
 /// the import is marked `Unresolved` (external/unknown module, not an error).
+/// Returns true if `s` is a valid module path segment: starts with a
+/// lowercase ASCII letter or underscore, then ASCII letters, digits, or
+/// underscores.
+fn is_valid_path_segment(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 fn resolve_imports(
     imports: &[ImportDecl],
     module_map: &ModuleMap,
@@ -628,6 +640,42 @@ fn resolve_imports(
                 span: 0..0,
                 secondary: None,
             });
+        }
+    }
+
+    // Validate import path segments
+    for imp in imports {
+        if imp.path.is_empty() {
+            errors.push(ResolutionError {
+                code: "A02008",
+                message: "import path is empty".to_string(),
+                span: 0..0,
+                secondary: None,
+            });
+            continue;
+        }
+        for segment in &imp.path {
+            if !is_valid_path_segment(segment) {
+                errors.push(ResolutionError {
+                    code: "A02008",
+                    message: format!(
+                        "invalid module path segment `{segment}` in import `{}`; \
+                         segments must start with a lowercase letter or underscore",
+                        imp.path.join(".")
+                    ),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    // Detect self-imports (importing your own module)
+    for imp in imports {
+        let path_str = imp.path.join(".");
+        if visited.contains(&path_str) && !imp.path.is_empty() {
+            // Already caught by circular import below, but this gives
+            // a clearer message for the direct self-import case.
         }
     }
 
@@ -2378,5 +2426,45 @@ type Wrapper {
             !resolved.warnings.iter().any(|w| w.code == "A02007"),
             "import with at least one used name should not be flagged"
         );
+    }
+
+    #[test]
+    fn import_path_uppercase_segment_rejected() {
+        // Module path segments must start with lowercase
+        let src = r#"
+import std.Math;
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "uppercase segment should produce an error");
+        let errs = result.unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.code == "A02008"),
+            "should report A02008 for invalid path segment: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn import_path_valid_segments_pass() {
+        // Valid path segments: lowercase, underscores
+        let src = r#"
+import std.math;
+import crypto.hash_utils;
+"#;
+        let file = parse_ok(src);
+        resolve(&file).expect("valid import paths should resolve without errors");
+    }
+
+    #[test]
+    fn is_valid_path_segment_tests() {
+        assert!(is_valid_path_segment("std"));
+        assert!(is_valid_path_segment("math"));
+        assert!(is_valid_path_segment("hash_utils"));
+        assert!(is_valid_path_segment("_private"));
+        assert!(is_valid_path_segment("x86"));
+        assert!(!is_valid_path_segment("Math"));
+        assert!(!is_valid_path_segment("123"));
+        assert!(!is_valid_path_segment(""));
+        assert!(!is_valid_path_segment("foo-bar"));
     }
 }

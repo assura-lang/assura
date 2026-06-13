@@ -1171,6 +1171,16 @@ fn error_catalog() -> Vec<ErrorInfo> {
   }"#,
             fix: "Remove the unused import, or use a symbol from the imported module.",
         },
+        // -- A02008: Invalid import path segment --
+        ErrorInfo {
+            code: "A02008",
+            name: "Invalid import path segment",
+            description: "An import path contains a segment that is not a valid module \
+                          name. Segments must start with a lowercase ASCII letter or \
+                          underscore, followed by letters, digits, or underscores.",
+            example: r#"  import std.Math;  // A02008: 'Math' starts with uppercase"#,
+            fix: "Use lowercase module names: `import std.math;`",
+        },
         // -- A03010: Division by zero --
         ErrorInfo {
             code: "A03010",
