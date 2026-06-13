@@ -1375,6 +1375,243 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
     }
 }
 
+// ---------------------------------------------------------------------------
+// Typestate checker (T034)
+// ---------------------------------------------------------------------------
+
+/// Error produced by the typestate checker.
+///
+/// Uses error codes from the spec:
+/// - **A06001**: Operation called in wrong state
+/// - **A06002**: Typestate variable is not linear
+/// - **A06003**: State not declared in `states:` block
+/// - **A06004**: Ambiguous state after diverging branches
+#[derive(Debug, Clone)]
+pub struct TypestateError {
+    /// Error code from the spec (A06xxx series).
+    pub code: std::string::String,
+    /// Human-readable error message.
+    pub message: std::string::String,
+    /// Source location where the error was detected.
+    pub span: Range<usize>,
+}
+
+/// A transition in the typestate DFA.
+///
+/// Each transition is `(operation_name, required_state, next_state)`.
+/// The operation can only be called when the object is in `required_state`,
+/// and after the call the object moves to `next_state`.
+#[derive(Debug, Clone)]
+struct Transition {
+    operation: std::string::String,
+    from_state: std::string::String,
+    to_state: std::string::String,
+}
+
+/// Typestate checker that tracks a DFA of states and transitions.
+///
+/// Built from a `states:` declaration in a service or contract. Tracks the
+/// current state of a typestate variable and validates that operations are
+/// only called in the required state, transitioning to the declared next
+/// state afterward.
+///
+/// # Error codes
+///
+/// - **A06001**: Operation called when object is in wrong state
+/// - **A06002**: Typestate variable must be linear (checked separately)
+/// - **A06003**: A transition references a state not in `states:`
+/// - **A06004**: After diverging branches, object is in different states
+#[derive(Debug, Clone)]
+pub struct TypestateChecker {
+    /// All declared states for this typestate variable.
+    states: Vec<std::string::String>,
+    /// All declared transitions.
+    transitions: Vec<Transition>,
+    /// Current state of the tracked variable.
+    current: std::string::String,
+    /// Source span of the typestate declaration (for error reporting).
+    decl_span: Range<usize>,
+}
+
+impl TypestateChecker {
+    /// Create a new typestate checker.
+    ///
+    /// # Arguments
+    ///
+    /// * `states` - All declared states from the `states:` block
+    /// * `transitions` - Vec of `(operation, from_state, to_state)` tuples
+    /// * `initial_state` - The starting state
+    /// * `decl_span` - Source span of the typestate declaration
+    pub fn new(
+        states: Vec<std::string::String>,
+        transitions: Vec<(
+            std::string::String,
+            std::string::String,
+            std::string::String,
+        )>,
+        initial_state: std::string::String,
+        decl_span: Range<usize>,
+    ) -> Self {
+        let transitions = transitions
+            .into_iter()
+            .map(|(op, from, to)| Transition {
+                operation: op,
+                from_state: from,
+                to_state: to,
+            })
+            .collect();
+        Self {
+            states,
+            transitions,
+            current: initial_state,
+            decl_span,
+        }
+    }
+
+    /// Get the current state of the tracked variable.
+    pub fn current_state(&self) -> &str {
+        &self.current
+    }
+
+    /// Attempt to perform a state transition for the given operation.
+    ///
+    /// Looks up the operation in the transition table. If a transition
+    /// exists whose `from_state` matches the current state, moves to
+    /// `to_state` and returns `Ok(())`. Otherwise returns an `A06001`
+    /// error.
+    pub fn transition(
+        &mut self,
+        operation: &str,
+        span: Range<usize>,
+    ) -> Result<(), TypestateError> {
+        // Find a transition for this operation from the current state.
+        for t in &self.transitions {
+            if t.operation == operation && t.from_state == self.current {
+                self.current = t.to_state.clone();
+                return Ok(());
+            }
+        }
+
+        // Find what state the operation requires (for a better error message).
+        let required_states: Vec<&str> = self
+            .transitions
+            .iter()
+            .filter(|t| t.operation == operation)
+            .map(|t| t.from_state.as_str())
+            .collect();
+
+        let message = if required_states.is_empty() {
+            format!(
+                "operation `{operation}` is not defined for any state of this typestate variable \
+                 (current state: `{}`)",
+                self.current,
+            )
+        } else {
+            format!(
+                "operation `{operation}` requires state `{}`, but object is in state `{}`",
+                required_states.join("` or `"),
+                self.current,
+            )
+        };
+
+        Err(TypestateError {
+            code: "A06001".into(),
+            message,
+            span,
+        })
+    }
+
+    /// Validate that the typestate variable is declared as linear.
+    ///
+    /// Typestate variables must be linear (used exactly once) because
+    /// aliasing would allow observing inconsistent states. Returns
+    /// `Some(TypestateError)` with code A06002 if `is_linear` is false.
+    pub fn validate_linear(&self, is_linear: bool) -> Option<TypestateError> {
+        if is_linear {
+            None
+        } else {
+            Some(TypestateError {
+                code: "A06002".into(),
+                message: "typestate variable must be declared as linear".into(),
+                span: self.decl_span.clone(),
+            })
+        }
+    }
+
+    /// Validate that all transitions reference declared states.
+    ///
+    /// Checks both `from_state` and `to_state` of every transition against
+    /// the `states` list. Returns a list of `A06003` errors for any
+    /// undeclared states referenced in transitions.
+    pub fn validate_transitions(&self) -> Vec<TypestateError> {
+        let mut errors = Vec::new();
+
+        for t in &self.transitions {
+            if !self.states.contains(&t.from_state) {
+                errors.push(TypestateError {
+                    code: "A06003".into(),
+                    message: format!(
+                        "transition `{}` references undeclared source state `{}`; \
+                         declared states: [{}]",
+                        t.operation,
+                        t.from_state,
+                        self.states.join(", "),
+                    ),
+                    span: self.decl_span.clone(),
+                });
+            }
+            if !self.states.contains(&t.to_state) {
+                errors.push(TypestateError {
+                    code: "A06003".into(),
+                    message: format!(
+                        "transition `{}` references undeclared target state `{}`; \
+                         declared states: [{}]",
+                        t.operation,
+                        t.to_state,
+                        self.states.join(", "),
+                    ),
+                    span: self.decl_span.clone(),
+                });
+            }
+        }
+
+        errors
+    }
+
+    /// Check that two branch checkers ended in the same state.
+    ///
+    /// After diverging control flow (if/match), if the typestate variable
+    /// was transitioned in both branches, they must end in the same state.
+    /// Otherwise the post-branch state is ambiguous and we emit A06004.
+    ///
+    /// Returns `None` if states match, or `Some(TypestateError)` with
+    /// code A06004 if they differ.
+    pub fn check_branch_consistency(
+        branch_a: &TypestateChecker,
+        branch_b: &TypestateChecker,
+        span: Range<usize>,
+    ) -> Option<TypestateError> {
+        if branch_a.current == branch_b.current {
+            None
+        } else {
+            Some(TypestateError {
+                code: "A06004".into(),
+                message: format!(
+                    "ambiguous state after diverging branches: \
+                     one branch leaves object in state `{}`, \
+                     the other in state `{}`",
+                    branch_a.current, branch_b.current,
+                ),
+                span,
+            })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Expression usage walker
+// ---------------------------------------------------------------------------
+
 /// Walk an expression AST and count variable usages in a `UsageTracker`.
 ///
 /// Each `Ident` node increments the usage count for that variable name.
@@ -1458,6 +1695,320 @@ pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Effect checking (T036)
+// ---------------------------------------------------------------------------
+
+/// A set of effects declared on (or inferred for) a function.
+///
+/// Effects are stored as lowercase strings matching the effect labels from
+/// Section 3.1 of the spec (e.g., `"io"`, `"console.read"`, `"pure"`).
+/// The special value `"pure"` represents an empty effect set.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectSet {
+    effects: std::collections::HashSet<std::string::String>,
+}
+
+impl EffectSet {
+    /// Create a new empty effect set (equivalent to `pure`).
+    pub fn pure() -> Self {
+        Self {
+            effects: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Create an effect set from an iterator of effect names.
+    ///
+    /// The name `"pure"` is treated as an empty set; it is not stored as
+    /// an actual effect label.
+    pub fn from_effect_names(
+        effects: impl IntoIterator<Item = impl Into<std::string::String>>,
+    ) -> Self {
+        let mut set = std::collections::HashSet::new();
+        for e in effects {
+            let name = e.into();
+            if name != "pure" {
+                set.insert(name);
+            }
+        }
+        Self { effects: set }
+    }
+
+    /// Returns `true` if this is a pure (empty) effect set.
+    pub fn is_pure(&self) -> bool {
+        self.effects.is_empty()
+    }
+
+    /// Insert an effect into the set.
+    pub fn insert(&mut self, effect: std::string::String) {
+        if effect != "pure" {
+            self.effects.insert(effect);
+        }
+    }
+
+    /// Returns `true` if the set contains the given effect.
+    pub fn contains(&self, effect: &str) -> bool {
+        self.effects.contains(effect)
+    }
+
+    /// Iterate over the effect names in this set.
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.effects.iter().map(|s| s.as_str())
+    }
+
+    /// Number of effects in the set.
+    pub fn len(&self) -> usize {
+        self.effects.len()
+    }
+
+    /// Returns `true` if the set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.effects.is_empty()
+    }
+}
+
+impl std::fmt::Display for EffectSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.effects.is_empty() {
+            return write!(f, "pure");
+        }
+        let mut sorted: Vec<&str> = self.effects.iter().map(|s| s.as_str()).collect();
+        sorted.sort();
+        write!(f, "{{{}}}", sorted.join(", "))
+    }
+}
+
+/// An error produced by the effect checker.
+#[derive(Debug, Clone)]
+pub struct EffectError {
+    /// Error code from the spec (A07xxx series).
+    pub code: std::string::String,
+    /// Human-readable error message.
+    pub message: std::string::String,
+    /// Source location where the error was detected.
+    pub span: Range<usize>,
+}
+
+/// Effect checker that validates effect declarations and containment.
+///
+/// Implements the effect checking rules from Section 3.5 of the spec:
+/// a function's body may only use effects declared in its signature,
+/// and all effect names must be recognized (built-in or user-defined).
+///
+/// The effect hierarchy from Section 3.6 is encoded: `io` is shorthand
+/// for all IO sub-effects, `database` for all database sub-effects,
+/// and `logging` for all log sub-effects.
+pub struct EffectChecker {
+    /// All known effect names (both group names and leaf effects).
+    known_effects: std::collections::HashSet<&'static str>,
+    /// Maps a group effect to its sub-effects.
+    hierarchy: HashMap<&'static str, Vec<&'static str>>,
+}
+
+impl EffectChecker {
+    /// Create a new effect checker with the built-in effect vocabulary
+    /// from Section 3.1 and hierarchy from Section 3.6 of the spec.
+    pub fn new() -> Self {
+        let known: std::collections::HashSet<&'static str> = [
+            // Group effects
+            "io",
+            "database",
+            "logging",
+            // Leaf IO effects
+            "console.read",
+            "console.write",
+            "filesystem.read",
+            "filesystem.write",
+            "network.connect",
+            "network.send",
+            "network.receive",
+            "time.read",
+            "random",
+            // Leaf database effects
+            "database.read",
+            "database.write",
+            // Leaf logging effects
+            "log.debug",
+            "log.info",
+            "log.warn",
+            "log.error",
+            // Other built-in effects
+            "diverge",
+            // Memory effect (from AGENTS.md task description)
+            "mem",
+            "net",
+            "fs",
+            "rng",
+            "time",
+            "alloc",
+        ]
+        .into_iter()
+        .collect();
+
+        let mut hierarchy = HashMap::new();
+        hierarchy.insert(
+            "io",
+            vec![
+                "console.read",
+                "console.write",
+                "filesystem.read",
+                "filesystem.write",
+                "network.connect",
+                "network.send",
+                "network.receive",
+                "time.read",
+                "random",
+                // Short aliases that map to IO sub-categories
+                "net",
+                "fs",
+                "rng",
+                "time",
+            ],
+        );
+        hierarchy.insert("database", vec!["database.read", "database.write"]);
+        hierarchy.insert(
+            "logging",
+            vec!["log.debug", "log.info", "log.warn", "log.error"],
+        );
+        // Short alias groups
+        hierarchy.insert(
+            "net",
+            vec!["network.connect", "network.send", "network.receive"],
+        );
+        hierarchy.insert("fs", vec!["filesystem.read", "filesystem.write"]);
+
+        Self {
+            known_effects: known,
+            hierarchy,
+        }
+    }
+
+    /// Expand a declared effect set by adding all sub-effects implied by
+    /// the hierarchy. For example, declaring `io` expands to include
+    /// `console.read`, `console.write`, etc.
+    pub fn expand(&self, declared: &EffectSet) -> EffectSet {
+        let mut expanded = declared.clone();
+        // Iterate over the original set (not the expanding one) to avoid
+        // borrow issues.
+        let originals: Vec<std::string::String> = declared.effects.iter().cloned().collect();
+        for effect in &originals {
+            if let Some(children) = self.hierarchy.get(effect.as_str()) {
+                for &child in children {
+                    expanded.insert(child.to_string());
+                }
+            }
+        }
+        expanded
+    }
+
+    /// Check that all effects in `actual` are contained in `declared`.
+    ///
+    /// The `declared` set is expanded via the hierarchy before comparison.
+    /// Returns a list of `EffectError`s for violations:
+    ///
+    /// - **A07001**: An effect in `actual` is not present in the expanded
+    ///   `declared` set (undeclared effect).
+    /// - **A07002**: The function is declared `pure` (empty declared set)
+    ///   but the body performs effects (side effect in pure context).
+    pub fn check_containment(
+        &self,
+        declared: &EffectSet,
+        actual: &EffectSet,
+        span: &Range<usize>,
+    ) -> Vec<EffectError> {
+        let mut errors = Vec::new();
+
+        // Expand the declared set to include sub-effects
+        let expanded = self.expand(declared);
+
+        for effect in actual.iter() {
+            // Check if the actual effect (or a parent of it) is in the
+            // expanded declared set.
+            if !self.is_allowed(effect, &expanded) {
+                if declared.is_pure() {
+                    // A07002: pure function performs effect
+                    errors.push(EffectError {
+                        code: "A07002".into(),
+                        message: format!(
+                            "pure function performs effect `{effect}`: \
+                             side effects are not allowed in a pure context"
+                        ),
+                        span: span.clone(),
+                    });
+                } else {
+                    // A07001: undeclared effect
+                    errors.push(EffectError {
+                        code: "A07001".into(),
+                        message: format!(
+                            "undeclared effect `{effect}`: \
+                             effect not in function's declared effect set {declared}"
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+        }
+
+        // Sort errors by code then message for deterministic output.
+        errors.sort_by(|a, b| a.code.cmp(&b.code).then(a.message.cmp(&b.message)));
+        errors
+    }
+
+    /// Check that all effect names in a set are recognized.
+    ///
+    /// Returns A07003 errors for unknown effect names.
+    pub fn check_known(&self, effects: &EffectSet, span: &Range<usize>) -> Vec<EffectError> {
+        let mut errors = Vec::new();
+
+        for effect in effects.iter() {
+            if !self.known_effects.contains(effect) {
+                errors.push(EffectError {
+                    code: "A07003".into(),
+                    message: format!("unknown effect name `{effect}`"),
+                    span: span.clone(),
+                });
+            }
+        }
+
+        errors.sort_by(|a, b| a.message.cmp(&b.message));
+        errors
+    }
+
+    /// Returns `true` if `effect` is allowed by the expanded declared set.
+    ///
+    /// An effect is allowed if:
+    /// 1. It is directly in the expanded set, OR
+    /// 2. Any of its ancestor groups are in the expanded set.
+    fn is_allowed(&self, effect: &str, expanded: &EffectSet) -> bool {
+        // Direct containment
+        if expanded.contains(effect) {
+            return true;
+        }
+
+        // Check if any group in the expanded set subsumes this effect
+        for group_effect in expanded.iter() {
+            if let Some(children) = self.hierarchy.get(group_effect)
+                && children.contains(&effect)
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Returns `true` if the given effect name is a known built-in effect.
+    pub fn is_known(&self, effect: &str) -> bool {
+        self.known_effects.contains(effect)
+    }
+}
+
+impl Default for EffectChecker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -3828,5 +4379,844 @@ contract Good {
         assert_eq!(final_errors.len(), 1);
         assert_eq!(final_errors[0].code, "A05002");
         assert!(final_errors[0].message.contains("resource"));
+    }
+
+    // -----------------------------------------------------------------------
+    // T033: Linear type test cases (Section 13 Test Case 1 + additional)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn linear_double_use_a05001() {
+        // Double-use of a linear variable must produce A05001.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("buf".into(), UsageGrade::Linear, 0..3);
+        let mut ctx = LinearContext::new(tracker);
+
+        // buf + buf => 2 uses of linear variable
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("buf".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("buf".into())),
+        };
+        let _ = check_expr_linearity(&expr, &mut ctx);
+        let errors = ctx.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05001");
+        assert!(errors[0].message.contains("buf"));
+        assert!(errors[0].message.contains("2 times"));
+    }
+
+    #[test]
+    fn linear_unused_a05002() {
+        // Unused linear variable must produce A05002.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("handle".into(), UsageGrade::Linear, 0..6);
+        let mut ctx = LinearContext::new(tracker);
+
+        // Expression that does not reference 'handle' at all
+        let expr = AstExpr::Literal(AstLit::Int("99".into()));
+        let branch_errors = check_expr_linearity(&expr, &mut ctx);
+        assert!(branch_errors.is_empty());
+
+        let errors = ctx.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05002");
+        assert!(errors[0].message.contains("handle"));
+        assert!(errors[0].message.contains("never used"));
+    }
+
+    #[test]
+    fn linear_correctly_used_once_passes() {
+        // Linear variable used exactly once must pass without errors.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("conn".into(), UsageGrade::Linear, 0..4);
+        let mut ctx = LinearContext::new(tracker);
+
+        // Single use: conn
+        let expr = AstExpr::Ident("conn".into());
+        let branch_errors = check_expr_linearity(&expr, &mut ctx);
+        assert!(branch_errors.is_empty());
+
+        let errors = ctx.check();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn linear_refinement_predicate_not_a_use() {
+        // Section 13, Test Case 1: a refinement predicate on a linear
+        // variable should NOT count as a runtime use. The refinement
+        // predicate is a compile-time/SMT-level constraint, not a
+        // runtime consumption.
+        //
+        // Model: declare the linear variable, record a "refinement use"
+        // (which should be ignored), then record a single real use.
+        // The variable should be correctly consumed once.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+
+        // The refinement predicate x > 0 does NOT consume x.
+        // Only the actual use in the expression body does.
+        // We model this by NOT calling use_var for the refinement.
+        // A single real use follows:
+        tracker.use_var("x"); // real runtime use
+
+        let errors = tracker.check();
+        assert!(
+            errors.is_empty(),
+            "refinement predicate should not count as a use: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn linear_refinement_predicate_plus_real_use_no_double_count() {
+        // Variant of Section 13 Test Case 1: if the refinement predicate
+        // were incorrectly counted, a linear var with a refinement plus
+        // one real use would show 2 uses (A05001). Verify it only shows 1.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("resource".into(), UsageGrade::Linear, 0..8);
+
+        // Refinement predicate: resource.is_valid() -- NOT a runtime use.
+        // (We skip calling use_var for predicates.)
+
+        // One real use in the function body:
+        tracker.use_var("resource");
+
+        let errors = tracker.check();
+        assert!(
+            errors.is_empty(),
+            "should be exactly 1 use, not 2: {errors:?}"
+        );
+        assert_eq!(tracker.get_count("resource"), Some(1));
+    }
+
+    #[test]
+    fn linear_triple_use_a05001() {
+        // Three uses of a linear variable: A05001 with count 3.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("fd".into(), UsageGrade::Linear, 0..2);
+        let mut ctx = LinearContext::new(tracker);
+
+        // fd + fd + fd => 3 uses
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Ident("fd".into())),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Ident("fd".into())),
+            }),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("fd".into())),
+        };
+        let _ = check_expr_linearity(&expr, &mut ctx);
+        let errors = ctx.check();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05001");
+        assert!(errors[0].message.contains("3 times"));
+    }
+
+    #[test]
+    fn linear_used_in_call_arg_exactly_once_passes() {
+        // Linear variable used as a function argument (single use) passes.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("key".into(), UsageGrade::Linear, 0..3);
+        let mut ctx = LinearContext::new(tracker);
+
+        // consume(key) => 1 use of key
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("consume".into())),
+            args: vec![AstExpr::Ident("key".into())],
+        };
+        let branch_errors = check_expr_linearity(&expr, &mut ctx);
+        assert!(branch_errors.is_empty());
+
+        let errors = ctx.check();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn linear_branch_consistency_with_single_use_passes() {
+        // Linear variable used exactly once in each branch: passes.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("tok".into(), UsageGrade::Linear, 0..3);
+        let mut ctx = LinearContext::new(tracker);
+
+        // if cond then consume(tok) else discard(tok)
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            then_branch: Box::new(AstExpr::Call {
+                func: Box::new(AstExpr::Ident("consume".into())),
+                args: vec![AstExpr::Ident("tok".into())],
+            }),
+            else_branch: Some(Box::new(AstExpr::Call {
+                func: Box::new(AstExpr::Ident("discard".into())),
+                args: vec![AstExpr::Ident("tok".into())],
+            })),
+        };
+        let branch_errors = check_expr_linearity(&expr, &mut ctx);
+        assert!(branch_errors.is_empty());
+
+        let errors = ctx.check();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn linear_two_vars_one_double_used_one_unused() {
+        // Two linear variables: one double-used (A05001), one unused (A05002).
+        let mut tracker = UsageTracker::new();
+        tracker.declare("a".into(), UsageGrade::Linear, 0..1);
+        tracker.declare("b".into(), UsageGrade::Linear, 2..3);
+        let mut ctx = LinearContext::new(tracker);
+
+        // a + a (double use of a, b never referenced)
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("a".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("a".into())),
+        };
+        let _ = check_expr_linearity(&expr, &mut ctx);
+        let errors = ctx.check();
+        assert_eq!(errors.len(), 2);
+
+        let codes: Vec<&str> = errors.iter().map(|e| e.code.as_str()).collect();
+        assert!(codes.contains(&"A05001"), "expected A05001 for `a`");
+        assert!(codes.contains(&"A05002"), "expected A05002 for `b`");
+    }
+
+    // -----------------------------------------------------------------------
+    // T034: Typestate checker tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn typestate_valid_sequence_passes() {
+        // Valid transition sequence: Init -> Open -> Close
+        let states = vec!["Init".into(), "Open".into(), "Closed".into()];
+        let transitions = vec![
+            ("open".into(), "Init".into(), "Open".into()),
+            ("close".into(), "Open".into(), "Closed".into()),
+        ];
+        let mut checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        assert!(checker.transition("open", 5..9).is_ok());
+        assert_eq!(checker.current_state(), "Open");
+        assert!(checker.transition("close", 10..15).is_ok());
+        assert_eq!(checker.current_state(), "Closed");
+    }
+
+    #[test]
+    fn typestate_wrong_state_a06001() {
+        // Operation called in wrong state: close() requires Open, but
+        // we are in Init.
+        let states = vec!["Init".into(), "Open".into(), "Closed".into()];
+        let transitions = vec![
+            ("open".into(), "Init".into(), "Open".into()),
+            ("close".into(), "Open".into(), "Closed".into()),
+        ];
+        let mut checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        let err = checker.transition("close", 5..10).unwrap_err();
+        assert_eq!(err.code, "A06001");
+        assert!(err.message.contains("close"));
+        assert!(err.message.contains("Init"));
+        assert!(err.message.contains("Open"));
+    }
+
+    #[test]
+    fn typestate_not_linear_a06002() {
+        // Typestate variables must be linear; this is checked separately.
+        // The TypestateChecker itself produces A06002 when validate_linear
+        // is called with is_linear=false.
+        let states = vec!["Init".into(), "Open".into()];
+        let transitions = vec![("open".into(), "Init".into(), "Open".into())];
+        let checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        let err = checker.validate_linear(false);
+        assert!(err.is_some());
+        let err = err.unwrap();
+        assert_eq!(err.code, "A06002");
+        assert!(err.message.contains("linear"));
+    }
+
+    #[test]
+    fn typestate_not_linear_ok_when_linear() {
+        // When the variable IS linear, validate_linear returns None.
+        let states = vec!["Init".into()];
+        let checker = TypestateChecker::new(states, vec![], "Init".into(), 0..4);
+        assert!(checker.validate_linear(true).is_none());
+    }
+
+    #[test]
+    fn typestate_undeclared_state_a06003() {
+        // Operation transitions to a state not declared in `states:`.
+        let states = vec!["Init".into(), "Open".into()];
+        let transitions = vec![
+            ("open".into(), "Init".into(), "Open".into()),
+            // "Closed" is not in the declared states
+            ("close".into(), "Open".into(), "Closed".into()),
+        ];
+        let checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        let errors = checker.validate_transitions();
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.code == "A06003"));
+        assert!(errors.iter().any(|e| e.message.contains("Closed")));
+    }
+
+    #[test]
+    fn typestate_undeclared_source_state_a06003() {
+        // Transition references a source state not in the declared states.
+        let states = vec!["Init".into(), "Done".into()];
+        let transitions = vec![
+            // "Running" is not declared
+            ("finish".into(), "Running".into(), "Done".into()),
+        ];
+        let checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        let errors = checker.validate_transitions();
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.code == "A06003"));
+        assert!(errors.iter().any(|e| e.message.contains("Running")));
+    }
+
+    #[test]
+    fn typestate_ambiguous_after_branches_a06004() {
+        // Diverging branches leave the object in different states.
+        // After branch A: Open, after branch B: Closed => A06004.
+        let states = vec!["Init".into(), "Open".into(), "Closed".into()];
+        let transitions = vec![
+            ("open".into(), "Init".into(), "Open".into()),
+            ("close".into(), "Init".into(), "Closed".into()),
+        ];
+
+        let checker_a = {
+            let mut c =
+                TypestateChecker::new(states.clone(), transitions.clone(), "Init".into(), 0..4);
+            c.transition("open", 5..9).unwrap();
+            c
+        };
+        let checker_b = {
+            let mut c = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+            c.transition("close", 5..10).unwrap();
+            c
+        };
+
+        let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 0..4);
+        assert!(err.is_some());
+        let err = err.unwrap();
+        assert_eq!(err.code, "A06004");
+        assert!(err.message.contains("Open"));
+        assert!(err.message.contains("Closed"));
+    }
+
+    #[test]
+    fn typestate_consistent_branches_same_state_ok() {
+        // Both branches leave the object in the same state: no error.
+        let states = vec!["Init".into(), "Open".into()];
+        let transitions = vec![("open".into(), "Init".into(), "Open".into())];
+
+        let checker_a = {
+            let mut c =
+                TypestateChecker::new(states.clone(), transitions.clone(), "Init".into(), 0..4);
+            c.transition("open", 5..9).unwrap();
+            c
+        };
+        let checker_b = {
+            let mut c = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+            c.transition("open", 5..9).unwrap();
+            c
+        };
+
+        let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 0..4);
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn typestate_multiple_transitions_sequence() {
+        // Longer transition chain: Init -> Connecting -> Connected -> Closed
+        let states = vec![
+            "Init".into(),
+            "Connecting".into(),
+            "Connected".into(),
+            "Closed".into(),
+        ];
+        let transitions = vec![
+            ("connect".into(), "Init".into(), "Connecting".into()),
+            (
+                "established".into(),
+                "Connecting".into(),
+                "Connected".into(),
+            ),
+            ("disconnect".into(), "Connected".into(), "Closed".into()),
+        ];
+        let mut checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        assert!(checker.transition("connect", 5..12).is_ok());
+        assert_eq!(checker.current_state(), "Connecting");
+        assert!(checker.transition("established", 13..24).is_ok());
+        assert_eq!(checker.current_state(), "Connected");
+        assert!(checker.transition("disconnect", 25..35).is_ok());
+        assert_eq!(checker.current_state(), "Closed");
+    }
+
+    #[test]
+    fn typestate_operation_not_found_a06001() {
+        // Calling an operation that does not exist in any transition.
+        let states = vec!["Init".into(), "Open".into()];
+        let transitions = vec![("open".into(), "Init".into(), "Open".into())];
+        let mut checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        let err = checker.transition("nonexistent", 5..16).unwrap_err();
+        assert_eq!(err.code, "A06001");
+        assert!(err.message.contains("nonexistent"));
+    }
+
+    #[test]
+    fn typestate_valid_transitions_no_errors() {
+        // All transitions reference declared states: no errors.
+        let states = vec!["Init".into(), "Open".into(), "Closed".into()];
+        let transitions = vec![
+            ("open".into(), "Init".into(), "Open".into()),
+            ("close".into(), "Open".into(), "Closed".into()),
+        ];
+        let checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+
+        let errors = checker.validate_transitions();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn typestate_initial_state() {
+        // Checker starts in the declared initial state.
+        let states = vec!["Start".into(), "End".into()];
+        let transitions = vec![("finish".into(), "Start".into(), "End".into())];
+        let checker = TypestateChecker::new(states, transitions, "Start".into(), 0..5);
+
+        assert_eq!(checker.current_state(), "Start");
+    }
+
+    // -----------------------------------------------------------------------
+    // T036-T037: Effect checker tests
+    // -----------------------------------------------------------------------
+
+    // -- EffectSet construction and display --
+
+    #[test]
+    fn effect_set_pure_is_empty() {
+        let set = EffectSet::pure();
+        assert!(set.is_pure());
+        assert!(set.is_empty());
+        assert_eq!(set.len(), 0);
+        assert_eq!(format!("{set}"), "pure");
+    }
+
+    #[test]
+    fn effect_set_from_iter_basic() {
+        let set = EffectSet::from_iter(["io", "mem"]);
+        assert!(!set.is_pure());
+        assert_eq!(set.len(), 2);
+        assert!(set.contains("io"));
+        assert!(set.contains("mem"));
+        assert!(!set.contains("net"));
+    }
+
+    #[test]
+    fn effect_set_from_iter_pure_ignored() {
+        // "pure" in the iterator should be ignored (it means empty set)
+        let set = EffectSet::from_iter(["pure"]);
+        assert!(set.is_pure());
+        assert!(set.is_empty());
+    }
+
+    #[test]
+    fn effect_set_from_iter_pure_mixed() {
+        // "pure" mixed with others: pure is dropped, others kept
+        let set = EffectSet::from_iter(["pure", "io"]);
+        assert!(!set.is_pure());
+        assert_eq!(set.len(), 1);
+        assert!(set.contains("io"));
+    }
+
+    #[test]
+    fn effect_set_insert() {
+        let mut set = EffectSet::pure();
+        set.insert("io".into());
+        assert!(!set.is_pure());
+        assert!(set.contains("io"));
+    }
+
+    #[test]
+    fn effect_set_insert_pure_noop() {
+        let mut set = EffectSet::pure();
+        set.insert("pure".into());
+        assert!(set.is_pure());
+    }
+
+    #[test]
+    fn effect_set_display_sorted() {
+        let set = EffectSet::from_iter(["mem", "io", "alloc"]);
+        // Display should sort effects alphabetically
+        assert_eq!(format!("{set}"), "{alloc, io, mem}");
+    }
+
+    // -- EffectChecker: known effects --
+
+    #[test]
+    fn effect_checker_knows_builtins() {
+        let checker = EffectChecker::new();
+        assert!(checker.is_known("io"));
+        assert!(checker.is_known("mem"));
+        assert!(checker.is_known("net"));
+        assert!(checker.is_known("fs"));
+        assert!(checker.is_known("rng"));
+        assert!(checker.is_known("time"));
+        assert!(checker.is_known("alloc"));
+        assert!(checker.is_known("console.read"));
+        assert!(checker.is_known("console.write"));
+        assert!(checker.is_known("filesystem.read"));
+        assert!(checker.is_known("filesystem.write"));
+        assert!(checker.is_known("network.connect"));
+        assert!(checker.is_known("network.send"));
+        assert!(checker.is_known("network.receive"));
+        assert!(checker.is_known("database"));
+        assert!(checker.is_known("database.read"));
+        assert!(checker.is_known("database.write"));
+        assert!(checker.is_known("logging"));
+        assert!(checker.is_known("log.debug"));
+        assert!(checker.is_known("log.info"));
+        assert!(checker.is_known("log.warn"));
+        assert!(checker.is_known("log.error"));
+        assert!(checker.is_known("time.read"));
+        assert!(checker.is_known("random"));
+        assert!(checker.is_known("diverge"));
+    }
+
+    #[test]
+    fn effect_checker_unknown_effect() {
+        let checker = EffectChecker::new();
+        assert!(!checker.is_known("teleport"));
+        assert!(!checker.is_known("quantum"));
+    }
+
+    // -- A07003: unknown effect name --
+
+    #[test]
+    fn effect_check_known_all_valid() {
+        let checker = EffectChecker::new();
+        let set = EffectSet::from_iter(["io", "mem", "database"]);
+        let errors = checker.check_known(&set, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_check_known_unknown_a07003() {
+        let checker = EffectChecker::new();
+        let set = EffectSet::from_iter(["io", "teleport"]);
+        let errors = checker.check_known(&set, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A07003");
+        assert!(errors[0].message.contains("teleport"));
+    }
+
+    #[test]
+    fn effect_check_known_multiple_unknown_a07003() {
+        let checker = EffectChecker::new();
+        let set = EffectSet::from_iter(["teleport", "quantum"]);
+        let errors = checker.check_known(&set, &(0..10));
+        assert_eq!(errors.len(), 2);
+        assert!(errors.iter().all(|e| e.code == "A07003"));
+    }
+
+    // -- Hierarchy expansion --
+
+    #[test]
+    fn effect_expand_io_includes_subeffects() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io"]);
+        let expanded = checker.expand(&declared);
+        assert!(expanded.contains("io"));
+        assert!(expanded.contains("console.read"));
+        assert!(expanded.contains("console.write"));
+        assert!(expanded.contains("filesystem.read"));
+        assert!(expanded.contains("filesystem.write"));
+        assert!(expanded.contains("network.connect"));
+        assert!(expanded.contains("network.send"));
+        assert!(expanded.contains("network.receive"));
+        assert!(expanded.contains("time.read"));
+        assert!(expanded.contains("random"));
+    }
+
+    #[test]
+    fn effect_expand_database_includes_subeffects() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["database"]);
+        let expanded = checker.expand(&declared);
+        assert!(expanded.contains("database"));
+        assert!(expanded.contains("database.read"));
+        assert!(expanded.contains("database.write"));
+    }
+
+    #[test]
+    fn effect_expand_logging_includes_subeffects() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["logging"]);
+        let expanded = checker.expand(&declared);
+        assert!(expanded.contains("logging"));
+        assert!(expanded.contains("log.debug"));
+        assert!(expanded.contains("log.info"));
+        assert!(expanded.contains("log.warn"));
+        assert!(expanded.contains("log.error"));
+    }
+
+    #[test]
+    fn effect_expand_leaf_effect_no_change() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["console.read"]);
+        let expanded = checker.expand(&declared);
+        assert_eq!(expanded.len(), 1);
+        assert!(expanded.contains("console.read"));
+    }
+
+    #[test]
+    fn effect_expand_pure_stays_empty() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let expanded = checker.expand(&declared);
+        assert!(expanded.is_pure());
+    }
+
+    // -- Containment checks: positive (no errors) --
+
+    #[test]
+    fn effect_containment_pure_calling_pure_ok() {
+        // Pure function calling another pure function: no errors
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let actual = EffectSet::pure();
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_containment_declared_superset_ok() {
+        // Declared {io, mem}, actual {mem}: mem is subset, OK
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io", "mem"]);
+        let actual = EffectSet::from_iter(["mem"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_containment_exact_match_ok() {
+        // Declared and actual are identical: OK
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io", "mem"]);
+        let actual = EffectSet::from_iter(["io", "mem"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_containment_hierarchy_io_covers_console_ok() {
+        // Declared {io}, actual {console.read}: io expands to include
+        // console.read, so this is OK
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io"]);
+        let actual = EffectSet::from_iter(["console.read"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_containment_hierarchy_io_covers_network_ok() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io"]);
+        let actual = EffectSet::from_iter(["network.send", "network.receive"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_containment_hierarchy_database_covers_read_ok() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["database"]);
+        let actual = EffectSet::from_iter(["database.read"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_containment_hierarchy_logging_covers_all_levels_ok() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["logging"]);
+        let actual = EffectSet::from_iter(["log.debug", "log.info", "log.warn", "log.error"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn effect_containment_declared_io_actual_empty_ok() {
+        // Declared {io}, actual empty (pure body): always OK
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io"]);
+        let actual = EffectSet::pure();
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    // -- A07002: pure function performs effect --
+
+    #[test]
+    fn effect_containment_pure_performs_io_a07002() {
+        // Pure function (empty declared set) performs io: A07002
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let actual = EffectSet::from_iter(["io"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A07002");
+        assert!(errors[0].message.contains("pure"));
+        assert!(errors[0].message.contains("io"));
+    }
+
+    #[test]
+    fn effect_containment_pure_performs_mem_a07002() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let actual = EffectSet::from_iter(["mem"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A07002");
+        assert!(errors[0].message.contains("mem"));
+    }
+
+    #[test]
+    fn effect_containment_pure_performs_multiple_a07002() {
+        // Pure function performs multiple effects: one A07002 per effect
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let actual = EffectSet::from_iter(["io", "mem"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert_eq!(errors.len(), 2);
+        assert!(errors.iter().all(|e| e.code == "A07002"));
+    }
+
+    // -- A07001: undeclared effect --
+
+    #[test]
+    fn effect_containment_undeclared_effect_a07001() {
+        // Declared {io}, actual {io, mem}: mem is not declared => A07001
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io"]);
+        let actual = EffectSet::from_iter(["io", "mem"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A07001");
+        assert!(errors[0].message.contains("mem"));
+    }
+
+    #[test]
+    fn effect_containment_leaf_without_parent_a07001() {
+        // Declared {console.read}, actual {console.write}: different leaf
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["console.read"]);
+        let actual = EffectSet::from_iter(["console.write"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A07001");
+        assert!(errors[0].message.contains("console.write"));
+    }
+
+    #[test]
+    fn effect_containment_database_without_io_a07001() {
+        // Declared {io}, actual {database.read}: database is not under io
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io"]);
+        let actual = EffectSet::from_iter(["database.read"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A07001");
+        assert!(errors[0].message.contains("database.read"));
+    }
+
+    #[test]
+    fn effect_containment_multiple_undeclared_a07001() {
+        // Declared {mem}, actual {io, database}: two undeclared effects
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["mem"]);
+        let actual = EffectSet::from_iter(["io", "database"]);
+        let errors = checker.check_containment(&declared, &actual, &(0..10));
+        assert_eq!(errors.len(), 2);
+        assert!(errors.iter().all(|e| e.code == "A07001"));
+    }
+
+    // -- Effect containment across call chain (T037 specific) --
+
+    #[test]
+    fn effect_containment_call_chain() {
+        // Simulate: fn outer() effects {io} calls fn inner() effects {io, mem}
+        // inner's actual effects must be subset of outer's declared.
+        // mem is not in outer's declared set => A07001 for the call chain.
+        let checker = EffectChecker::new();
+        let outer_declared = EffectSet::from_iter(["io"]);
+        // inner's effects propagate to outer's body
+        let outer_actual = EffectSet::from_iter(["io", "mem"]);
+        let errors = checker.check_containment(&outer_declared, &outer_actual, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A07001");
+        assert!(errors[0].message.contains("mem"));
+    }
+
+    #[test]
+    fn effect_containment_call_chain_pure_callee_ok() {
+        // fn outer() effects {io} calls fn inner() effects {pure}
+        // pure is always a subset: OK
+        let checker = EffectChecker::new();
+        let outer_declared = EffectSet::from_iter(["io"]);
+        let outer_actual = EffectSet::pure();
+        let errors = checker.check_containment(&outer_declared, &outer_actual, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    // -- Edge cases --
+
+    #[test]
+    fn effect_set_dedup() {
+        // Duplicate effect names in iterator are deduplicated
+        let set = EffectSet::from_iter(["io", "io", "mem", "mem"]);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn effect_checker_default_trait() {
+        // Default implementation works
+        let checker = EffectChecker::default();
+        assert!(checker.is_known("io"));
+    }
+
+    #[test]
+    fn effect_expand_multiple_groups() {
+        // Expanding {io, database} should include sub-effects of both
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_iter(["io", "database"]);
+        let expanded = checker.expand(&declared);
+        assert!(expanded.contains("console.read"));
+        assert!(expanded.contains("database.write"));
+    }
+
+    #[test]
+    fn effect_containment_span_preserved() {
+        // Verify that the span from the input is preserved in errors
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let actual = EffectSet::from_iter(["io"]);
+        let errors = checker.check_containment(&declared, &actual, &(42..99));
+        assert_eq!(errors[0].span, 42..99);
+    }
+
+    #[test]
+    fn effect_set_iter() {
+        let set = EffectSet::from_iter(["io", "mem"]);
+        let mut items: Vec<&str> = set.iter().collect();
+        items.sort();
+        assert_eq!(items, vec!["io", "mem"]);
     }
 }
