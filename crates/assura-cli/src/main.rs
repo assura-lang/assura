@@ -97,18 +97,57 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
         let span = e.span();
         let found = e
             .found()
-            .map(|t| format!("{t}"))
+            .map(|t| friendly_token_name(&format!("{t}")))
             .unwrap_or_else(|| "end of file".to_string());
         let expected: Vec<String> = e
             .expected()
-            .map(|ex| match ex {
-                Some(t) => format!("{t}"),
-                None => "end of input".to_string(),
-            })
+            .filter_map(|ex| ex.as_ref().map(|t| friendly_token_name(&format!("{t}"))))
             .collect();
 
+        // Deduplicate and sort for cleaner output
+        let mut expected: Vec<String> = expected
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        // Group into categories for large expected sets
         let msg = if expected.is_empty() {
             format!("unexpected {found}")
+        } else if expected.len() > 6 {
+            // Too many options; summarize by category
+            let has_clause = expected.iter().any(|e| {
+                matches!(
+                    e.as_str(),
+                    "requires"
+                        | "ensures"
+                        | "invariant"
+                        | "effects"
+                        | "modifies"
+                        | "input"
+                        | "output"
+                        | "errors"
+                        | "rule"
+                        | "decreases"
+                )
+            });
+            let has_decl = expected.iter().any(|e| {
+                matches!(
+                    e.as_str(),
+                    "contract" | "type" | "enum" | "fn" | "service" | "extern"
+                )
+            });
+            let mut summary: Vec<String> = Vec::new();
+            if has_decl {
+                summary.push("a declaration".to_string());
+            }
+            if has_clause {
+                summary.push("a clause keyword".to_string());
+            }
+            if !has_decl && !has_clause {
+                expected.truncate(5);
+                summary.push(expected.join(", "));
+            }
+            format!("expected {}, found {found}", summary.join(" or "))
         } else {
             format!("expected {}, found {found}", expected.join(" or "))
         };
@@ -1920,6 +1959,69 @@ fn expr_to_string(expr: &Expr) -> String {
             format!("({})", items.join(", "))
         }
         Expr::Raw(tokens) => tokens.join(" "),
+    }
+}
+
+/// Map raw token display names to human-friendly descriptions.
+fn friendly_token_name(raw: &str) -> String {
+    // Strip surrounding quotes from chumsky's output format
+    let s = raw.trim_matches('\'').trim_matches('"');
+    match s {
+        "{" => "'{'".to_string(),
+        "}" => "'}'".to_string(),
+        "(" => "'('".to_string(),
+        ")" => "')'".to_string(),
+        "[" => "'['".to_string(),
+        "]" => "']'".to_string(),
+        ":" => "':'".to_string(),
+        ";" => "';'".to_string(),
+        "," => "','".to_string(),
+        "." => "'.'".to_string(),
+        "=" => "'='".to_string(),
+        "<" => "'<'".to_string(),
+        ">" => "'>'".to_string(),
+        "->" => "'->'".to_string(),
+        "=>" => "'=>'".to_string(),
+        "#" => "'#'".to_string(),
+        // Clause keywords
+        "Requires" | "requires" => "requires".to_string(),
+        "Ensures" | "ensures" => "ensures".to_string(),
+        "Invariant" | "invariant" => "invariant".to_string(),
+        "Effects" | "effects" => "effects".to_string(),
+        "Modifies" | "modifies" => "modifies".to_string(),
+        "Input" | "input" => "input".to_string(),
+        "Output" | "output" => "output".to_string(),
+        "Errors" | "errors" => "errors".to_string(),
+        "Rule" | "rule" => "rule".to_string(),
+        "Decreases" | "decreases" => "decreases".to_string(),
+        "MustNot" | "must_not" => "must_not".to_string(),
+        "DataFlow" | "data_flow" => "data_flow".to_string(),
+        // Declaration keywords
+        "contract" => "contract".to_string(),
+        "type" => "type".to_string(),
+        "enum" => "enum".to_string(),
+        "fn" => "fn".to_string(),
+        "service" => "service".to_string(),
+        "extern" => "extern".to_string(),
+        "lemma" => "lemma".to_string(),
+        "opaque" => "opaque".to_string(),
+        "pure" => "pure".to_string(),
+        "ghost" => "ghost".to_string(),
+        // Other keywords
+        "Interface" | "interface" => "interface".to_string(),
+        "Extends" | "extends" => "extends".to_string(),
+        "Impl" | "impl" => "impl".to_string(),
+        "Spec" | "spec" => "spec".to_string(),
+        "Axiom" | "axiom" => "axiom".to_string(),
+        "Define" | "define" => "define".to_string(),
+        "Property" | "property" => "property".to_string(),
+        "ConstantTime" | "constant_time" => "constant_time".to_string(),
+        "MustBe" | "must_be" => "must_be".to_string(),
+        "VerifyAgainst" | "verify_against" => "verify_against".to_string(),
+        "Reads" | "reads" => "reads".to_string(),
+        "Bounds" | "bounds" => "bounds".to_string(),
+        // Default: pass through
+        _ => raw.to_string(),
     }
 }
 
