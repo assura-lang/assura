@@ -1182,11 +1182,18 @@ fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv) -> Result<Type, TypeErr
             }
             Ok(*ret)
         }
-        // Unknown callee: be lenient, propagate Unknown.
-        Type::Unknown => Ok(Type::Unknown),
-        // Named type: could be a constructor or unresolved callable.
-        // Be lenient and return Unknown.
-        Type::Named(_) | Type::TypeParam(_) => Ok(Type::Unknown),
+        // Unknown callee: try to infer from function name or argument types.
+        Type::Unknown => {
+            if let Expr::Ident(name) = func
+                && let Some(ty) = infer_builtin_call_type(name, &arg_types)
+            {
+                return Ok(ty);
+            }
+            Ok(Type::Unknown)
+        }
+        // Named type: could be a constructor. Return the Named type itself.
+        Type::Named(name) => Ok(Type::Named(name)),
+        Type::TypeParam(_) => Ok(Type::Unknown),
         // Definitely not callable.
         other => Err(TypeError {
             code: "A03005".into(),
@@ -1194,6 +1201,32 @@ fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv) -> Result<Type, TypeErr
             span: 0..0,
             secondary: None,
         }),
+    }
+}
+
+/// Infer the return type of a well-known builtin function call.
+fn infer_builtin_call_type(name: &str, arg_types: &[Type]) -> Option<Type> {
+    match name {
+        // Collection operations
+        "len" | "length" | "size" | "count" => Some(Type::Nat),
+        // Type predicates
+        "is_empty" | "contains" | "is_valid" | "is_some" | "is_none" | "is_ok" | "is_err" => {
+            Some(Type::Bool)
+        }
+        // Numeric
+        "abs" => arg_types.first().cloned(),
+        "min" | "max" => arg_types.first().cloned(),
+        // Option/Result unwrapping
+        "unwrap" => {
+            if let Some(Type::Option(inner)) = arg_types.first() {
+                Some(*inner.clone())
+            } else if let Some(Type::Result(ok, _)) = arg_types.first() {
+                Some(*ok.clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
@@ -13723,15 +13756,18 @@ type Point {
     }
 
     #[test]
-    fn infer_call_named_type_is_lenient() {
+    fn infer_call_named_type_returns_named() {
         let mut env = TypeEnv::new();
         env.insert("MyType".into(), Type::Named("MyType".into()));
-        // Calling a Named type is lenient (could be a constructor)
+        // Calling a Named type returns that type (constructor pattern)
         let expr = AstExpr::Call {
             func: Box::new(AstExpr::Ident("MyType".into())),
             args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
         };
-        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Named("MyType".into())
+        );
     }
 
     #[test]
@@ -22624,5 +22660,28 @@ ghost fn bad_ghost(x: Int) -> Bool
             arms: vec![],
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_builtin_len_returns_nat() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("len".into())),
+            args: vec![AstExpr::Ident("xs".into())],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
+    }
+
+    #[test]
+    fn infer_builtin_contains_returns_bool() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("contains".into())),
+            args: vec![
+                AstExpr::Ident("xs".into()),
+                AstExpr::Literal(AstLit::Int("1".into())),
+            ],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
     }
 }
