@@ -667,6 +667,39 @@ mod z3_backend {
                 let result = decl.apply(&arg_refs);
                 return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
             }
+            // Built-in functions with known semantics
+            match func_name {
+                // abs(x) => if x >= 0 then x else -x
+                "abs" if arg_vals.len() == 1 => {
+                    let x = &arg_vals[0];
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    let neg_x = x.unary_minus();
+                    let cond = x.ge(&zero);
+                    return Z3Value::Int(cond.ite(x, &neg_x));
+                }
+                // min(a, b) => if a <= b then a else b
+                "min" if arg_vals.len() == 2 => {
+                    let (a, b) = (&arg_vals[0], &arg_vals[1]);
+                    return Z3Value::Int(a.le(b).ite(a, b));
+                }
+                // max(a, b) => if a >= b then a else b
+                "max" if arg_vals.len() == 2 => {
+                    let (a, b) = (&arg_vals[0], &arg_vals[1]);
+                    return Z3Value::Int(a.ge(b).ite(a, b));
+                }
+                _ => {}
+            }
+            // Size-like methods get non-negativity axiom
+            if matches!(func_name, "len" | "length" | "size" | "count" | "capacity") {
+                let decl = self.make_func(func_name, arg_vals.len());
+                let arg_refs: Vec<&dyn z3::ast::Ast> =
+                    arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+                let result = decl.apply(&arg_refs);
+                let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
+                let zero = ast::Int::from_i64(self.ctx, 0);
+                self.background_axioms.push(len_val.ge(&zero));
+                return Z3Value::Int(len_val);
+            }
             let decl = self.make_func(func_name, arg_vals.len());
             let arg_refs: Vec<&dyn z3::ast::Ast> =
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
@@ -1250,9 +1283,9 @@ mod z3_backend {
                 next += 2;
             }
 
-            // Check for function call: `name(args)` -> fresh
+            // Check for function call: `name(args)` -> encode with semantics
             if next < tokens.len() && tokens[next] == "(" {
-                // Skip past the call (find matching paren)
+                // Find matching close paren
                 let mut depth = 1usize;
                 let mut p = next + 1;
                 while p < tokens.len() && depth > 0 {
@@ -1261,9 +1294,94 @@ mod z3_backend {
                         ")" => depth -= 1,
                         _ => {}
                     }
-                    p += 1;
+                    if depth > 0 {
+                        p += 1;
+                    }
                 }
-                return (Z3Value::Int(self.fresh_int()), p);
+                // Parse arguments by splitting on commas at depth 0
+                let arg_tokens = &tokens[next + 1..p];
+                let mut arg_vals: Vec<ast::Int<'ctx>> = Vec::new();
+                if !(arg_tokens.is_empty() || arg_tokens.len() == 1 && arg_tokens[0] == ")") {
+                    let mut arg_start = 0;
+                    let mut d = 0usize;
+                    for (i, t) in arg_tokens.iter().enumerate() {
+                        match t.as_str() {
+                            "(" => d += 1,
+                            ")" => d = d.saturating_sub(1),
+                            "," if d == 0 => {
+                                let chunk = &arg_tokens[arg_start..i];
+                                if !chunk.is_empty() {
+                                    let (v, _) = self.parse_raw_expr(chunk, 0);
+                                    arg_vals.push(v.as_int(self.ctx, &mut self.fresh_counter));
+                                }
+                                arg_start = i + 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                    // Last argument after final comma (or only argument)
+                    let chunk = &arg_tokens[arg_start..];
+                    if !chunk.is_empty() {
+                        let (v, _) = self.parse_raw_expr(chunk, 0);
+                        arg_vals.push(v.as_int(self.ctx, &mut self.fresh_counter));
+                    }
+                }
+                let end = p + 1; // skip closing ')'
+
+                // Extract the base function name (last segment after dots)
+                let func_name = name.rsplit('.').next().unwrap_or(&name);
+
+                // Built-in functions with known semantics
+                match func_name {
+                    "abs" if arg_vals.len() == 1 => {
+                        let x = &arg_vals[0];
+                        let zero = ast::Int::from_i64(self.ctx, 0);
+                        let neg_x = x.unary_minus();
+                        let cond = x.ge(&zero);
+                        return (Z3Value::Int(cond.ite(x, &neg_x)), end);
+                    }
+                    "min" if arg_vals.len() == 2 => {
+                        let (a, b) = (&arg_vals[0], &arg_vals[1]);
+                        return (Z3Value::Int(a.le(b).ite(a, b)), end);
+                    }
+                    "max" if arg_vals.len() == 2 => {
+                        let (a, b) = (&arg_vals[0], &arg_vals[1]);
+                        return (Z3Value::Int(a.ge(b).ite(a, b)), end);
+                    }
+                    _ => {}
+                }
+
+                // Size-like functions get non-negativity axiom
+                if matches!(func_name, "len" | "length" | "size" | "count" | "capacity") {
+                    let decl = self.make_func(func_name, arg_vals.len().max(1));
+                    let arg_refs: Vec<&dyn z3::ast::Ast> =
+                        arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+                    let result = if arg_refs.is_empty() {
+                        let dummy = self.fresh_int();
+                        decl.apply(&[&dummy as &dyn z3::ast::Ast])
+                    } else {
+                        decl.apply(&arg_refs)
+                    };
+                    let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    self.background_axioms.push(len_val.ge(&zero));
+                    return (Z3Value::Int(len_val), end);
+                }
+
+                // Unknown function: uninterpreted
+                let decl = self.make_func(&name, arg_vals.len().max(1));
+                let arg_refs: Vec<&dyn z3::ast::Ast> =
+                    arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+                let result = if arg_refs.is_empty() {
+                    let dummy = self.fresh_int();
+                    decl.apply(&[&dummy as &dyn z3::ast::Ast])
+                } else {
+                    decl.apply(&arg_refs)
+                };
+                return (
+                    Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int())),
+                    end,
+                );
             }
 
             let v = self.get_or_create_int(&name);
@@ -3069,6 +3187,42 @@ mod tests {
         assert!(
             matches!(results[0], VerificationResult::Verified { .. }),
             "buf.len >= 0 should verify with non-negativity axiom, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_abs_encoding() {
+        // abs(x) >= 0 should always verify
+        let src = r#"
+            contract AbsNonNeg {
+                input { x: Int }
+                ensures { abs(x) >= 0 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty(), "should produce verification results");
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "abs(x) >= 0 should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_min_max_encoding() {
+        // min(a, b) <= max(a, b) should always verify
+        let src = r#"
+            contract MinLtMax {
+                input { a: Int, b: Int }
+                ensures { min(a, b) <= max(a, b) }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty(), "should produce verification results");
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "min(a,b) <= max(a,b) should verify, got: {:?}",
             results[0]
         );
     }
