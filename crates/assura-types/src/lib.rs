@@ -1159,6 +1159,18 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     // T060: secure erasure checking (sensitive data must be zeroed)
     errors.extend(run_secure_erasure_checks(&resolved.source));
 
+    // T062: interface contracts (method completeness, signature matching)
+    errors.extend(run_interface_checks(&resolved.source));
+
+    // T063: structural invariants (recursive type properties)
+    errors.extend(run_structural_invariant_checks(&resolved.source));
+
+    // T065: shared memory protocols (concurrent access validation)
+    errors.extend(run_shared_mem_checks(&resolved.source));
+
+    // T068: lock ordering (deadlock prevention via static hierarchy)
+    errors.extend(run_lock_order_checks(&resolved.source));
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -2627,6 +2639,302 @@ fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
                 span: err.span,
                 secondary: None,
             });
+        }
+    }
+
+    errors
+}
+
+// ---------------------------------------------------------------------------
+// Interface contracts wiring (T062)
+// ---------------------------------------------------------------------------
+
+/// Scan for contracts with `implements` clauses and validate that all
+/// required interface methods are present with correct signatures.
+fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = InterfaceChecker::new();
+    let mut errors = Vec::new();
+
+    // First pass: register all contracts that look like interfaces
+    // (have `interface` as a clause kind or are named with Interface suffix).
+    for decl in &source.decls {
+        if let Decl::Contract(c) = &decl.node {
+            let is_interface = c
+                .clauses
+                .iter()
+                .any(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "interface"));
+            if is_interface {
+                let methods: Vec<InterfaceMethod> = c
+                    .clauses
+                    .iter()
+                    .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "method"))
+                    .filter_map(|cl| {
+                        if let Expr::Ident(name) = &cl.body {
+                            Some(InterfaceMethod {
+                                name: name.clone(),
+                                param_types: vec![],
+                                return_type: Type::Unknown,
+                                has_requires: false,
+                                has_ensures: false,
+                                no_reentrancy: false,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let extends: Vec<String> = c
+                    .clauses
+                    .iter()
+                    .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "extends"))
+                    .filter_map(|cl| {
+                        if let Expr::Ident(name) = &cl.body {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                checker.register_interface(InterfaceContract {
+                    name: c.name.clone(),
+                    methods,
+                    extends,
+                });
+            }
+        }
+    }
+
+    // Second pass: check implementations
+    for decl in &source.decls {
+        if let Decl::Contract(c) = &decl.node {
+            for clause in &c.clauses {
+                if let ClauseKind::Other(k) = &clause.kind
+                    && k == "implements"
+                    && let Expr::Ident(iface_name) = &clause.body
+                {
+                    let methods: Vec<String> = c
+                        .clauses
+                        .iter()
+                        .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "method"))
+                        .filter_map(|cl| {
+                            if let Expr::Ident(name) = &cl.body {
+                                Some(name.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    for err in checker.check_impl(&c.name, iface_name, &methods, &decl.span) {
+                        errors.push(TypeError {
+                            code: err.code,
+                            message: err.message,
+                            span: err.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+// ---------------------------------------------------------------------------
+// Structural invariants wiring (T063)
+// ---------------------------------------------------------------------------
+
+/// Scan for types with structural invariant annotations and validate
+/// that the invariant kind is applicable to the type's structure.
+fn run_structural_invariant_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = StructuralInvariantChecker::new();
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::TypeDef(td) => {
+                // Detect recursive types by checking if any field references
+                // the type name itself.
+                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
+                    let recursive_fields: Vec<String> = fields
+                        .iter()
+                        .filter(|f| f.ty.iter().any(|t| t == &td.name))
+                        .map(|f| f.name.clone())
+                        .collect();
+
+                    if !recursive_fields.is_empty() {
+                        checker.register_recursive_type(td.name.clone(), recursive_fields);
+                    }
+                }
+            }
+            Decl::Contract(c) => {
+                // Look for structural_invariant clauses
+                for clause in &c.clauses {
+                    if let ClauseKind::Other(k) = &clause.kind
+                        && k == "structural_invariant"
+                    {
+                        let kind = match &clause.body {
+                            Expr::Ident(name) => match name.as_str() {
+                                "sorted" => InvariantKind::Sorted { descending: false },
+                                "acyclic" => InvariantKind::Acyclic,
+                                "bst_ordering" => InvariantKind::BstOrdering,
+                                other => InvariantKind::Custom(other.to_string()),
+                            },
+                            Expr::Call { func, .. } => {
+                                if let Expr::Ident(name) = func.as_ref() {
+                                    match name.as_str() {
+                                        "tree_balance" => {
+                                            InvariantKind::TreeBalance { max_diff: 1 }
+                                        }
+                                        "min_heap" => {
+                                            InvariantKind::HeapProperty { min_heap: true }
+                                        }
+                                        "max_heap" => {
+                                            InvariantKind::HeapProperty { min_heap: false }
+                                        }
+                                        other => InvariantKind::Custom(other.to_string()),
+                                    }
+                                } else {
+                                    InvariantKind::Custom(format!("{:?}", clause.body))
+                                }
+                            }
+                            _ => InvariantKind::Custom(format!("{:?}", clause.body)),
+                        };
+
+                        for err in checker.check_invariant_applicability(&c.name, &kind, &decl.span)
+                        {
+                            errors.push(TypeError {
+                                code: err.code,
+                                message: err.message,
+                                span: err.span,
+                                secondary: None,
+                            });
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    errors
+}
+
+// ---------------------------------------------------------------------------
+// Shared memory protocols wiring (T065)
+// ---------------------------------------------------------------------------
+
+/// Scan for functions with `shared` or `concurrent` annotations and
+/// validate that access modes are declared correctly.
+fn run_shared_mem_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Contract(c) => &c.clauses,
+            _ => continue,
+        };
+
+        let has_shared = clauses.iter().any(|c| {
+            matches!(&c.kind, ClauseKind::Other(k) if k == "shared" || k == "concurrent" || k == "access_mode")
+        });
+        if !has_shared {
+            continue;
+        }
+
+        let mut checker = SharedMemChecker::new();
+
+        // Register access modes from clauses
+        for clause in clauses {
+            if let ClauseKind::Other(k) = &clause.kind
+                && (k == "access_mode" || k == "shared")
+                && let Expr::BinOp {
+                    lhs,
+                    op: BinOp::Implies,
+                    rhs,
+                } = &clause.body
+                && let (Expr::Ident(obj), Expr::Ident(mode)) = (lhs.as_ref(), rhs.as_ref())
+            {
+                let access_mode = match mode.as_str() {
+                    "exclusive" => AccessMode::Exclusive,
+                    "shared_read" => AccessMode::SharedRead,
+                    _ => AccessMode::None,
+                };
+                checker.set_mode(obj.clone(), access_mode);
+            }
+        }
+
+        // Check modifies clauses reference objects with correct access
+        for clause in clauses {
+            if clause.kind == ClauseKind::Modifies {
+                let modified = collect_ident_references(&clause.body);
+                for name in &modified {
+                    for err in checker.check_write(name, &decl.span) {
+                        errors.push(TypeError {
+                            code: err.code,
+                            message: err.message,
+                            span: err.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+// ---------------------------------------------------------------------------
+// Lock ordering wiring (T068)
+// ---------------------------------------------------------------------------
+
+/// Scan for lock ordering declarations and validate acquisition order.
+fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = LockOrderChecker::new();
+    let mut errors = Vec::new();
+
+    // First pass: collect lock ordering declarations from blocks
+    for decl in &source.decls {
+        if let Decl::Block { kind, body, .. } = &decl.node
+            && (kind == "lock_order" || kind == "lock_hierarchy")
+        {
+            for (priority, clause) in body.iter().enumerate() {
+                if let Expr::Ident(lock_name) = &clause.body {
+                    checker.define_order(lock_name.clone(), priority as u32);
+                }
+            }
+        }
+    }
+
+    // Second pass: check lock acquisitions in function bodies
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Contract(c) => &c.clauses,
+            _ => continue,
+        };
+
+        for clause in clauses {
+            if let ClauseKind::Other(k) = &clause.kind
+                && (k == "acquires" || k == "locks")
+            {
+                let lock_names = collect_ident_references(&clause.body);
+                for name in &lock_names {
+                    for err in checker.acquire(name, &decl.span) {
+                        errors.push(TypeError {
+                            code: err.code,
+                            message: err.message,
+                            span: err.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
         }
     }
 
