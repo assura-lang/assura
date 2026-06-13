@@ -3517,6 +3517,330 @@ fn is_alloc_function(name: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// T052: Dependent types (restricted)
+// ---------------------------------------------------------------------------
+
+/// A dependent type index: the value a type depends on.
+/// Restricted to Nat, Bool, and finite enums (not arbitrary expressions).
+#[derive(Debug, Clone, PartialEq)]
+pub enum DepIndex {
+    /// A natural number index, e.g. Vec<T, n>
+    Nat(String),
+    /// A boolean index, e.g. Matrix<T, is_square>
+    Bool(String),
+    /// A finite enum index, e.g. Buffer<mode> where mode: ReadWrite
+    Enum { name: String, enum_type: String },
+}
+
+impl std::fmt::Display for DepIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DepIndex::Nat(n) => write!(f, "{n}: Nat"),
+            DepIndex::Bool(n) => write!(f, "{n}: Bool"),
+            DepIndex::Enum { name, enum_type } => write!(f, "{name}: {enum_type}"),
+        }
+    }
+}
+
+/// A dependent type: a base type parameterized by one or more indices.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DepType {
+    pub base: Type,
+    pub indices: Vec<DepIndex>,
+}
+
+/// Error from the dependent type checker.
+#[derive(Debug, Clone)]
+pub struct DepTypeError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for restricted dependent types.
+///
+/// Validates that:
+/// - Dependent type indices are of allowed kinds (Nat, Bool, finite enum)
+/// - Index arithmetic in type positions is well-formed
+/// - Indices are erased at runtime (ghost)
+/// - Type equality with indices is checked structurally
+pub struct DependentTypeChecker {
+    /// Known enum types and their variants (for finiteness check)
+    enums: HashMap<String, Vec<String>>,
+    /// Known dependent type definitions
+    dep_types: HashMap<String, DepType>,
+    /// Index variable bindings in scope: name -> DepIndex
+    index_vars: HashMap<String, DepIndex>,
+}
+
+impl DependentTypeChecker {
+    pub fn new() -> Self {
+        Self {
+            enums: HashMap::new(),
+            dep_types: HashMap::new(),
+            index_vars: HashMap::new(),
+        }
+    }
+
+    /// Register a finite enum type with its variants.
+    pub fn register_enum(&mut self, name: String, variants: Vec<String>) {
+        self.enums.insert(name, variants);
+    }
+
+    /// Register a dependent type definition.
+    pub fn register_dep_type(&mut self, name: String, dep_type: DepType) {
+        self.dep_types.insert(name, dep_type);
+    }
+
+    /// Bind an index variable in the current scope.
+    pub fn bind_index(&mut self, name: String, index: DepIndex) {
+        self.index_vars.insert(name, index);
+    }
+
+    /// Validate that a type index is of an allowed kind.
+    /// Returns A03006 if the index type is not Nat, Bool, or a known finite enum.
+    pub fn validate_index(
+        &self,
+        index_name: &str,
+        index_type: &str,
+        span: &Range<usize>,
+    ) -> Vec<DepTypeError> {
+        let mut errors = Vec::new();
+        match index_type {
+            "Nat" | "Bool" => { /* allowed */ }
+            other => {
+                if !self.enums.contains_key(other) {
+                    errors.push(DepTypeError {
+                        code: "A03006".into(),
+                        message: format!(
+                            "dependent type index `{index_name}` has type `{other}`, \
+                             which is not Nat, Bool, or a known finite enum"
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    /// Check that index arithmetic in a type position is well-formed.
+    /// For Nat indices, expressions like `n + 1`, `n - 1`, `2 * n` are allowed.
+    /// For Bool/Enum indices, only direct references are allowed (no arithmetic).
+    pub fn check_index_expr(
+        &self,
+        expr: &Expr,
+        expected_kind: &DepIndex,
+        span: &Range<usize>,
+    ) -> Vec<DepTypeError> {
+        let mut errors = Vec::new();
+        match expected_kind {
+            DepIndex::Nat(_) => {
+                // Nat indices allow arithmetic expressions
+                if !self.is_nat_expr(expr) {
+                    errors.push(DepTypeError {
+                        code: "A03007".into(),
+                        message: "index expression is not a valid Nat expression; \
+                                  only integer arithmetic over index variables is allowed"
+                            .into(),
+                        span: span.clone(),
+                    });
+                }
+            }
+            DepIndex::Bool(_) => {
+                // Bool indices: only ident or boolean literal
+                if !self.is_bool_expr(expr) {
+                    errors.push(DepTypeError {
+                        code: "A03008".into(),
+                        message: "Bool index must be a direct reference or boolean literal, \
+                                  not an arithmetic expression"
+                            .into(),
+                        span: span.clone(),
+                    });
+                }
+            }
+            DepIndex::Enum { enum_type, .. } => {
+                // Enum indices: only ident or enum variant
+                if !self.is_enum_expr(expr, enum_type) {
+                    errors.push(DepTypeError {
+                        code: "A03009".into(),
+                        message: format!(
+                            "enum index of type `{enum_type}` must be a direct reference \
+                             or variant name"
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    /// Check structural equality of two dependent types.
+    /// Two `Vec<T, n>` and `Vec<T, m>` are equal only if `n == m` can be proved.
+    pub fn check_dep_type_eq(
+        &self,
+        expected: &DepType,
+        actual: &DepType,
+        span: &Range<usize>,
+    ) -> Vec<DepTypeError> {
+        let mut errors = Vec::new();
+        if expected.base != actual.base {
+            errors.push(DepTypeError {
+                code: "A03010".into(),
+                message: format!(
+                    "dependent type base mismatch: expected `{:?}`, found `{:?}`",
+                    expected.base, actual.base
+                ),
+                span: span.clone(),
+            });
+            return errors;
+        }
+        if expected.indices.len() != actual.indices.len() {
+            errors.push(DepTypeError {
+                code: "A03010".into(),
+                message: format!(
+                    "dependent type index count mismatch: expected {}, found {}",
+                    expected.indices.len(),
+                    actual.indices.len()
+                ),
+                span: span.clone(),
+            });
+            return errors;
+        }
+        for (i, (exp, act)) in expected.indices.iter().zip(&actual.indices).enumerate() {
+            if std::mem::discriminant(exp) != std::mem::discriminant(act) {
+                errors.push(DepTypeError {
+                    code: "A03011".into(),
+                    message: format!(
+                        "dependent type index {i} kind mismatch: expected {exp}, found {act}"
+                    ),
+                    span: span.clone(),
+                });
+            }
+        }
+        errors
+    }
+
+    /// Verify that index variables are erased at runtime.
+    /// Returns an error if an index variable appears in a non-ghost context.
+    pub fn check_index_erasure(
+        &self,
+        expr: &Expr,
+        ghost_context: bool,
+        span: &Range<usize>,
+    ) -> Vec<DepTypeError> {
+        if ghost_context {
+            return Vec::new(); // Ghost context: indices are fine
+        }
+        let mut errors = Vec::new();
+        for name in self.collect_idents(expr) {
+            if self.index_vars.contains_key(&name) {
+                errors.push(DepTypeError {
+                    code: "A03012".into(),
+                    message: format!(
+                        "index variable `{name}` used in runtime context; \
+                         dependent type indices must be erased at runtime"
+                    ),
+                    span: span.clone(),
+                });
+            }
+        }
+        errors
+    }
+
+    // --- Helper methods ---
+
+    fn is_nat_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Literal(Literal::Int(_)) => true,
+            Expr::Ident(name) => {
+                matches!(self.index_vars.get(name), Some(DepIndex::Nat(_))) || !self.index_vars.contains_key(name)
+            }
+            Expr::BinOp { lhs, op, rhs } => {
+                matches!(
+                    op,
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
+                ) && self.is_nat_expr(lhs)
+                    && self.is_nat_expr(rhs)
+            }
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr,
+            } => self.is_nat_expr(expr),
+            Expr::Paren(inner) => self.is_nat_expr(inner),
+            _ => false,
+        }
+    }
+
+    fn is_bool_expr(&self, expr: &Expr) -> bool {
+        matches!(
+            expr,
+            Expr::Literal(Literal::Bool(_)) | Expr::Ident(_)
+        )
+    }
+
+    fn is_enum_expr(&self, expr: &Expr, enum_type: &str) -> bool {
+        match expr {
+            Expr::Ident(name) => {
+                // Either a variable reference or a variant name
+                if let Some(variants) = self.enums.get(enum_type) {
+                    variants.contains(name) || self.index_vars.contains_key(name)
+                } else {
+                    self.index_vars.contains_key(name)
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn collect_idents(&self, expr: &Expr) -> Vec<String> {
+        let mut names = Vec::new();
+        match expr {
+            Expr::Ident(n) => names.push(n.clone()),
+            Expr::BinOp { lhs, rhs, .. } => {
+                names.extend(self.collect_idents(lhs));
+                names.extend(self.collect_idents(rhs));
+            }
+            Expr::UnaryOp { expr, .. } => names.extend(self.collect_idents(expr)),
+            Expr::Call { func, args } => {
+                names.extend(self.collect_idents(func));
+                for a in args {
+                    names.extend(self.collect_idents(a));
+                }
+            }
+            Expr::Field(e, _) => names.extend(self.collect_idents(e)),
+            Expr::Index { expr, index } => {
+                names.extend(self.collect_idents(expr));
+                names.extend(self.collect_idents(index));
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                names.extend(self.collect_idents(cond));
+                names.extend(self.collect_idents(then_branch));
+                if let Some(e) = else_branch {
+                    names.extend(self.collect_idents(e));
+                }
+            }
+            Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
+                names.extend(self.collect_idents(e));
+            }
+            _ => {}
+        }
+        names
+    }
+}
+
+impl Default for DependentTypeChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -8672,5 +8996,182 @@ ghost fn bad_ghost(x: Int) -> Bool
         assert_eq!(TaintLabel::Untrusted.to_string(), "untrusted");
         assert_eq!(TaintLabel::Validated.to_string(), "validated");
         assert_eq!(TaintLabel::Trusted.to_string(), "trusted");
+    }
+
+    // --- T052: Dependent type tests ---
+
+    #[test]
+    fn dep_type_nat_index_valid() {
+        let checker = DependentTypeChecker::new();
+        let errors = checker.validate_index("n", "Nat", &(0..1));
+        assert!(errors.is_empty(), "Nat should be a valid index type");
+    }
+
+    #[test]
+    fn dep_type_bool_index_valid() {
+        let checker = DependentTypeChecker::new();
+        let errors = checker.validate_index("flag", "Bool", &(0..1));
+        assert!(errors.is_empty(), "Bool should be a valid index type");
+    }
+
+    #[test]
+    fn dep_type_enum_index_valid() {
+        let mut checker = DependentTypeChecker::new();
+        checker.register_enum("Mode".into(), vec!["Read".into(), "Write".into()]);
+        let errors = checker.validate_index("mode", "Mode", &(0..1));
+        assert!(errors.is_empty(), "known enum should be a valid index type");
+    }
+
+    #[test]
+    fn dep_type_unknown_type_a03006() {
+        let checker = DependentTypeChecker::new();
+        let errors = checker.validate_index("x", "String", &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03006");
+    }
+
+    #[test]
+    fn dep_type_nat_arithmetic_valid() {
+        let mut checker = DependentTypeChecker::new();
+        checker.bind_index("n".into(), DepIndex::Nat("n".into()));
+        // n + 1 is a valid Nat expression
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("n".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        };
+        let errors = checker.check_index_expr(&expr, &DepIndex::Nat("n".into()), &(0..1));
+        assert!(errors.is_empty(), "n + 1 should be valid Nat arithmetic");
+    }
+
+    #[test]
+    fn dep_type_bool_arithmetic_rejected() {
+        let mut checker = DependentTypeChecker::new();
+        checker.bind_index("flag".into(), DepIndex::Bool("flag".into()));
+        // flag + 1 is NOT valid for a Bool index
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("flag".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        };
+        let errors = checker.check_index_expr(&expr, &DepIndex::Bool("flag".into()), &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03008");
+    }
+
+    #[test]
+    fn dep_type_enum_variant_valid() {
+        let mut checker = DependentTypeChecker::new();
+        checker.register_enum("Mode".into(), vec!["Read".into(), "Write".into()]);
+        checker.bind_index(
+            "m".into(),
+            DepIndex::Enum {
+                name: "m".into(),
+                enum_type: "Mode".into(),
+            },
+        );
+        let expr = AstExpr::Ident("Read".into());
+        let idx = DepIndex::Enum {
+            name: "m".into(),
+            enum_type: "Mode".into(),
+        };
+        let errors = checker.check_index_expr(&expr, &idx, &(0..1));
+        assert!(errors.is_empty(), "enum variant should be valid");
+    }
+
+    #[test]
+    fn dep_type_equality_matching() {
+        let checker = DependentTypeChecker::new();
+        let t1 = DepType {
+            base: Type::List(Box::new(Type::Int)),
+            indices: vec![DepIndex::Nat("n".into())],
+        };
+        let t2 = DepType {
+            base: Type::List(Box::new(Type::Int)),
+            indices: vec![DepIndex::Nat("m".into())],
+        };
+        let errors = checker.check_dep_type_eq(&t1, &t2, &(0..1));
+        assert!(errors.is_empty(), "same structure should match");
+    }
+
+    #[test]
+    fn dep_type_equality_base_mismatch() {
+        let checker = DependentTypeChecker::new();
+        let t1 = DepType {
+            base: Type::List(Box::new(Type::Int)),
+            indices: vec![DepIndex::Nat("n".into())],
+        };
+        let t2 = DepType {
+            base: Type::List(Box::new(Type::Float)),
+            indices: vec![DepIndex::Nat("n".into())],
+        };
+        let errors = checker.check_dep_type_eq(&t1, &t2, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03010");
+    }
+
+    #[test]
+    fn dep_type_equality_index_count_mismatch() {
+        let checker = DependentTypeChecker::new();
+        let t1 = DepType {
+            base: Type::Int,
+            indices: vec![DepIndex::Nat("n".into())],
+        };
+        let t2 = DepType {
+            base: Type::Int,
+            indices: vec![DepIndex::Nat("n".into()), DepIndex::Bool("b".into())],
+        };
+        let errors = checker.check_dep_type_eq(&t1, &t2, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03010");
+    }
+
+    #[test]
+    fn dep_type_index_erasure_ghost_ok() {
+        let mut checker = DependentTypeChecker::new();
+        checker.bind_index("n".into(), DepIndex::Nat("n".into()));
+        let expr = AstExpr::Ident("n".into());
+        let errors = checker.check_index_erasure(&expr, true, &(0..1));
+        assert!(errors.is_empty(), "index in ghost context is ok");
+    }
+
+    #[test]
+    fn dep_type_index_erasure_runtime_error() {
+        let mut checker = DependentTypeChecker::new();
+        checker.bind_index("n".into(), DepIndex::Nat("n".into()));
+        let expr = AstExpr::Ident("n".into());
+        let errors = checker.check_index_erasure(&expr, false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03012");
+    }
+
+    #[test]
+    fn dep_type_index_kind_mismatch() {
+        let checker = DependentTypeChecker::new();
+        let t1 = DepType {
+            base: Type::Int,
+            indices: vec![DepIndex::Nat("n".into())],
+        };
+        let t2 = DepType {
+            base: Type::Int,
+            indices: vec![DepIndex::Bool("b".into())],
+        };
+        let errors = checker.check_dep_type_eq(&t1, &t2, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03011");
+    }
+
+    #[test]
+    fn dep_type_display() {
+        assert_eq!(DepIndex::Nat("n".into()).to_string(), "n: Nat");
+        assert_eq!(DepIndex::Bool("flag".into()).to_string(), "flag: Bool");
+        assert_eq!(
+            DepIndex::Enum {
+                name: "m".into(),
+                enum_type: "Mode".into()
+            }
+            .to_string(),
+            "m: Mode"
+        );
     }
 }

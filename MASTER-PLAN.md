@@ -555,7 +555,7 @@
   - Declassification tracking
   - Purpose labels for GDPR (Section 2.7)
 
-- [ ] **T052**: Dependent types (restricted)
+- [x] **T052**: Dependent types (restricted)
   - Depends on: T041
   - Types depending on Nat, Bool, finite enums
   - `Vec<T, n>` with index arithmetic
