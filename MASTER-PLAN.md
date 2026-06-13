@@ -1102,3 +1102,23 @@ Continued comprehensive audit remediation. Changes:
   Named type instead of Unknown
 - Test count: 731 -> 739+ across crates
 - All 4 demo files pass full pipeline validation
+
+### Session: 2026-06-13 (quality improvements continued)
+
+- **resolve: expression-level name resolution** walks all Expr::Ident in
+  clause bodies, warns on undefined names (strict mode), skips in lenient
+  mode (files with imports/modules). 11 new resolve tests.
+- **resolve: contract input/output params in scope** registers input and
+  output clause parameters so cross-clause references resolve correctly.
+- **smt: fix unsound match pattern encoding** overapproximates instead of
+  defaulting to false (sound: may produce spurious counterexamples but
+  never hides real ones). Cross-sort Int/Real promotion added.
+- **codegen: fix param/type extraction** handles Expr::Cast for typed
+  params, multi-token types with angle-bracket depth tracking in Raw tokens.
+- **types: enrich service operation/query types** registers each
+  operation/query as Type::Fn with proper param types from input clauses
+  and return type from output clauses. Previously a no-op placeholder.
+- Created GitHub issues #4 (pending quality improvements) and #5
+  (deduplicate raw-token param extraction across 3 crates).
+- Test count: 1171 -> 1175 across crates
+- All 4 demo files pass full pipeline validation

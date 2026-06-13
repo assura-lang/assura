@@ -24760,4 +24760,44 @@ service Store {
             panic!("Insert should be Fn type in env");
         }
     }
+
+    #[test]
+    fn service_operation_no_input_output_clauses() {
+        // Operation with only requires/ensures but no input/output
+        // should register as Fn { params: [], ret: Unit }
+        let src = r#"
+service Pinger {
+  operation Ping {
+    ensures { true }
+  }
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved);
+        assert!(typed.is_ok(), "no-io op should pass: {:?}", typed.err());
+        let typed = typed.unwrap();
+        if let Some(Type::Fn { params, ret }) = typed.type_env.lookup("Ping") {
+            assert!(params.is_empty(), "Ping should have 0 params");
+            assert_eq!(**ret, Type::Unit, "Ping should return Unit");
+        } else {
+            panic!("Ping should be Fn type in env");
+        }
+    }
+
+    #[test]
+    fn service_invariant_only_no_crash() {
+        // Service with only invariants and no operations should not crash
+        let src = r#"
+service Guardian {
+  invariant { true }
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved);
+        assert!(
+            typed.is_ok(),
+            "invariant-only service should pass: {:?}",
+            typed.err()
+        );
+    }
 }
