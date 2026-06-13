@@ -272,7 +272,7 @@
 
 > Wire up the full compilation pipeline in the CLI.
 
-- [ ] **T024**: Implement `assura check` command
+- [x] **T024**: Implement `assura check` command
   - Depends on: T018
   - Parse -> resolve -> type-check
   - Report all errors with codes and source spans
