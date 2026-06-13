@@ -1,0 +1,21 @@
+[package]
+name = "assura-smt"
+description = "SMT-based verification for Assura contracts via Z3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["z3-verify"]
+z3-verify = ["dep:z3"]
+
+[dependencies]
+assura-parser = { path = "../assura-parser" }
+assura-resolve = { path = "../assura-resolve" }
+assura-types = { path = "../assura-types" }
+z3 = { version = "0.12", optional = true }
+
+[dev-dependencies]
+logos = "0.15"
+chumsky = "0.9"

@@ -217,26 +217,39 @@ fn run_check(args: &[String]) {
     };
 
     // --- Type check (only if resolution succeeded) ---
-    if let Some(ref resolved) = resolved
-        && let Err(errs) = assura_types::type_check(resolved)
-    {
-        has_errors = true;
-        for e in &errs {
-            diagnostics.push(DiagnosticJson {
-                code: e.code.clone(),
-                message: e.message.clone(),
-                file: filename.clone(),
-                start: e.span.start,
-                end: e.span.end,
-                severity: "error".to_string(),
-                secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
-                    message: msg.clone(),
-                    start: span.start,
-                    end: span.end,
-                }),
-            });
+    let typed = if let Some(ref resolved) = resolved {
+        match assura_types::type_check(resolved) {
+            Ok(t) => Some(t),
+            Err(errs) => {
+                has_errors = true;
+                for e in &errs {
+                    diagnostics.push(DiagnosticJson {
+                        code: e.code.clone(),
+                        message: e.message.clone(),
+                        file: filename.clone(),
+                        start: e.span.start,
+                        end: e.span.end,
+                        severity: "error".to_string(),
+                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
+                            message: msg.clone(),
+                            start: span.start,
+                            end: span.end,
+                        }),
+                    });
+                }
+                None
+            }
         }
-    }
+    } else {
+        None
+    };
+
+    // --- Verify (only if type check succeeded) ---
+    let verification_results = if let Some(ref typed) = typed {
+        assura_smt::verify(typed)
+    } else {
+        Vec::new()
+    };
 
     // --- Report ---
     match output_mode {
@@ -251,6 +264,32 @@ fn run_check(args: &[String]) {
                 .cloned()
                 .collect();
             report_diagnostics_human(&non_lex, filename, &source);
+
+            // Print verification results
+            if !verification_results.is_empty() {
+                eprintln!();
+                eprintln!("Verification ({} clause(s)):", verification_results.len());
+                for vr in &verification_results {
+                    match vr {
+                        assura_smt::VerificationResult::Verified { clause_desc } => {
+                            eprintln!("  VERIFIED    {clause_desc}");
+                        }
+                        assura_smt::VerificationResult::Counterexample { clause_desc, model } => {
+                            eprintln!("  COUNTEREXAMPLE  {clause_desc}");
+                            eprintln!("    model: {model}");
+                        }
+                        assura_smt::VerificationResult::Timeout { clause_desc } => {
+                            eprintln!("  TIMEOUT     {clause_desc}");
+                        }
+                        assura_smt::VerificationResult::Unknown {
+                            clause_desc,
+                            reason,
+                        } => {
+                            eprintln!("  UNKNOWN     {clause_desc} ({reason})");
+                        }
+                    }
+                }
+            }
 
             if !has_errors {
                 eprintln!("{filename}: check passed (no errors)");
@@ -439,6 +478,33 @@ fn run_build(args: &[String]) {
             process::exit(1);
         }
     };
+
+    // --- Verify ---
+    let verification_results = assura_smt::verify(&typed);
+    if !verification_results.is_empty() {
+        eprintln!();
+        eprintln!("Verification ({} clause(s)):", verification_results.len());
+        for vr in &verification_results {
+            match vr {
+                assura_smt::VerificationResult::Verified { clause_desc } => {
+                    eprintln!("  VERIFIED    {clause_desc}");
+                }
+                assura_smt::VerificationResult::Counterexample { clause_desc, model } => {
+                    eprintln!("  COUNTEREXAMPLE  {clause_desc}");
+                    eprintln!("    model: {model}");
+                }
+                assura_smt::VerificationResult::Timeout { clause_desc } => {
+                    eprintln!("  TIMEOUT     {clause_desc}");
+                }
+                assura_smt::VerificationResult::Unknown {
+                    clause_desc,
+                    reason,
+                } => {
+                    eprintln!("  UNKNOWN     {clause_desc} ({reason})");
+                }
+            }
+        }
+    }
 
     // --- Codegen ---
     let project = assura_codegen::codegen(&typed);
@@ -951,11 +1017,20 @@ fn run_legacy(args: &[String]) {
         }
     };
 
+    // --- Verify ---
+    let verification_results = assura_smt::verify(&typed);
+
     // --- Output ---
     if show_ast {
         print_ast(&file);
     } else {
-        print_summary(filename, &file, &resolved.symbols, &typed.type_env);
+        print_summary(
+            filename,
+            &file,
+            &resolved.symbols,
+            &typed.type_env,
+            &verification_results,
+        );
     }
 }
 
@@ -964,6 +1039,7 @@ fn print_summary(
     file: &SourceFile,
     symbols: &assura_resolve::SymbolTable,
     type_env: &assura_types::TypeEnv,
+    verification_results: &[assura_smt::VerificationResult],
 ) {
     let mut contracts = 0u32;
     let mut types = 0u32;
@@ -1035,6 +1111,46 @@ fn print_summary(
         .count();
     println!("    resolve:   OK ({user_symbols} symbols)");
     println!("    typecheck: OK ({} bindings)", type_env.len());
+
+    if verification_results.is_empty() {
+        println!("    verify:    OK (no verifiable clauses)");
+    } else {
+        let verified = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Verified { .. }))
+            .count();
+        let cex = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }))
+            .count();
+        let timeout = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Timeout { .. }))
+            .count();
+        let unknown = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Unknown { .. }))
+            .count();
+
+        let mut parts = Vec::new();
+        if verified > 0 {
+            parts.push(format!("{verified} verified"));
+        }
+        if cex > 0 {
+            parts.push(format!("{cex} counterexample(s)"));
+        }
+        if timeout > 0 {
+            parts.push(format!("{timeout} timeout(s)"));
+        }
+        if unknown > 0 {
+            parts.push(format!("{unknown} unknown"));
+        }
+        println!(
+            "    verify:    {} clause(s): {}",
+            verification_results.len(),
+            parts.join(", ")
+        );
+    }
 }
 
 fn print_ast(file: &SourceFile) {

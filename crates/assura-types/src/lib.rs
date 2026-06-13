@@ -4809,7 +4809,7 @@ contract Good {
 
     #[test]
     fn effect_set_from_iter_basic() {
-        let set = EffectSet::from_iter(["io", "mem"]);
+        let set = EffectSet::from_effect_names(["io", "mem"]);
         assert!(!set.is_pure());
         assert_eq!(set.len(), 2);
         assert!(set.contains("io"));
@@ -4820,7 +4820,7 @@ contract Good {
     #[test]
     fn effect_set_from_iter_pure_ignored() {
         // "pure" in the iterator should be ignored (it means empty set)
-        let set = EffectSet::from_iter(["pure"]);
+        let set = EffectSet::from_effect_names(["pure"]);
         assert!(set.is_pure());
         assert!(set.is_empty());
     }
@@ -4828,7 +4828,7 @@ contract Good {
     #[test]
     fn effect_set_from_iter_pure_mixed() {
         // "pure" mixed with others: pure is dropped, others kept
-        let set = EffectSet::from_iter(["pure", "io"]);
+        let set = EffectSet::from_effect_names(["pure", "io"]);
         assert!(!set.is_pure());
         assert_eq!(set.len(), 1);
         assert!(set.contains("io"));
@@ -4851,7 +4851,7 @@ contract Good {
 
     #[test]
     fn effect_set_display_sorted() {
-        let set = EffectSet::from_iter(["mem", "io", "alloc"]);
+        let set = EffectSet::from_effect_names(["mem", "io", "alloc"]);
         // Display should sort effects alphabetically
         assert_eq!(format!("{set}"), "{alloc, io, mem}");
     }
@@ -4900,7 +4900,7 @@ contract Good {
     #[test]
     fn effect_check_known_all_valid() {
         let checker = EffectChecker::new();
-        let set = EffectSet::from_iter(["io", "mem", "database"]);
+        let set = EffectSet::from_effect_names(["io", "mem", "database"]);
         let errors = checker.check_known(&set, &(0..10));
         assert!(errors.is_empty());
     }
@@ -4908,7 +4908,7 @@ contract Good {
     #[test]
     fn effect_check_known_unknown_a07003() {
         let checker = EffectChecker::new();
-        let set = EffectSet::from_iter(["io", "teleport"]);
+        let set = EffectSet::from_effect_names(["io", "teleport"]);
         let errors = checker.check_known(&set, &(0..10));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A07003");
@@ -4918,7 +4918,7 @@ contract Good {
     #[test]
     fn effect_check_known_multiple_unknown_a07003() {
         let checker = EffectChecker::new();
-        let set = EffectSet::from_iter(["teleport", "quantum"]);
+        let set = EffectSet::from_effect_names(["teleport", "quantum"]);
         let errors = checker.check_known(&set, &(0..10));
         assert_eq!(errors.len(), 2);
         assert!(errors.iter().all(|e| e.code == "A07003"));
@@ -4929,7 +4929,7 @@ contract Good {
     #[test]
     fn effect_expand_io_includes_subeffects() {
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io"]);
+        let declared = EffectSet::from_effect_names(["io"]);
         let expanded = checker.expand(&declared);
         assert!(expanded.contains("io"));
         assert!(expanded.contains("console.read"));
@@ -4946,7 +4946,7 @@ contract Good {
     #[test]
     fn effect_expand_database_includes_subeffects() {
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["database"]);
+        let declared = EffectSet::from_effect_names(["database"]);
         let expanded = checker.expand(&declared);
         assert!(expanded.contains("database"));
         assert!(expanded.contains("database.read"));
@@ -4956,7 +4956,7 @@ contract Good {
     #[test]
     fn effect_expand_logging_includes_subeffects() {
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["logging"]);
+        let declared = EffectSet::from_effect_names(["logging"]);
         let expanded = checker.expand(&declared);
         assert!(expanded.contains("logging"));
         assert!(expanded.contains("log.debug"));
@@ -4968,7 +4968,7 @@ contract Good {
     #[test]
     fn effect_expand_leaf_effect_no_change() {
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["console.read"]);
+        let declared = EffectSet::from_effect_names(["console.read"]);
         let expanded = checker.expand(&declared);
         assert_eq!(expanded.len(), 1);
         assert!(expanded.contains("console.read"));
@@ -4998,8 +4998,8 @@ contract Good {
     fn effect_containment_declared_superset_ok() {
         // Declared {io, mem}, actual {mem}: mem is subset, OK
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io", "mem"]);
-        let actual = EffectSet::from_iter(["mem"]);
+        let declared = EffectSet::from_effect_names(["io", "mem"]);
+        let actual = EffectSet::from_effect_names(["mem"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -5008,8 +5008,8 @@ contract Good {
     fn effect_containment_exact_match_ok() {
         // Declared and actual are identical: OK
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io", "mem"]);
-        let actual = EffectSet::from_iter(["io", "mem"]);
+        let declared = EffectSet::from_effect_names(["io", "mem"]);
+        let actual = EffectSet::from_effect_names(["io", "mem"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -5019,8 +5019,8 @@ contract Good {
         // Declared {io}, actual {console.read}: io expands to include
         // console.read, so this is OK
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io"]);
-        let actual = EffectSet::from_iter(["console.read"]);
+        let declared = EffectSet::from_effect_names(["io"]);
+        let actual = EffectSet::from_effect_names(["console.read"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -5028,8 +5028,8 @@ contract Good {
     #[test]
     fn effect_containment_hierarchy_io_covers_network_ok() {
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io"]);
-        let actual = EffectSet::from_iter(["network.send", "network.receive"]);
+        let declared = EffectSet::from_effect_names(["io"]);
+        let actual = EffectSet::from_effect_names(["network.send", "network.receive"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -5037,8 +5037,8 @@ contract Good {
     #[test]
     fn effect_containment_hierarchy_database_covers_read_ok() {
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["database"]);
-        let actual = EffectSet::from_iter(["database.read"]);
+        let declared = EffectSet::from_effect_names(["database"]);
+        let actual = EffectSet::from_effect_names(["database.read"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -5046,8 +5046,9 @@ contract Good {
     #[test]
     fn effect_containment_hierarchy_logging_covers_all_levels_ok() {
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["logging"]);
-        let actual = EffectSet::from_iter(["log.debug", "log.info", "log.warn", "log.error"]);
+        let declared = EffectSet::from_effect_names(["logging"]);
+        let actual =
+            EffectSet::from_effect_names(["log.debug", "log.info", "log.warn", "log.error"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -5056,7 +5057,7 @@ contract Good {
     fn effect_containment_declared_io_actual_empty_ok() {
         // Declared {io}, actual empty (pure body): always OK
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io"]);
+        let declared = EffectSet::from_effect_names(["io"]);
         let actual = EffectSet::pure();
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
@@ -5069,7 +5070,7 @@ contract Good {
         // Pure function (empty declared set) performs io: A07002
         let checker = EffectChecker::new();
         let declared = EffectSet::pure();
-        let actual = EffectSet::from_iter(["io"]);
+        let actual = EffectSet::from_effect_names(["io"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A07002");
@@ -5081,7 +5082,7 @@ contract Good {
     fn effect_containment_pure_performs_mem_a07002() {
         let checker = EffectChecker::new();
         let declared = EffectSet::pure();
-        let actual = EffectSet::from_iter(["mem"]);
+        let actual = EffectSet::from_effect_names(["mem"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A07002");
@@ -5093,7 +5094,7 @@ contract Good {
         // Pure function performs multiple effects: one A07002 per effect
         let checker = EffectChecker::new();
         let declared = EffectSet::pure();
-        let actual = EffectSet::from_iter(["io", "mem"]);
+        let actual = EffectSet::from_effect_names(["io", "mem"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert_eq!(errors.len(), 2);
         assert!(errors.iter().all(|e| e.code == "A07002"));
@@ -5105,8 +5106,8 @@ contract Good {
     fn effect_containment_undeclared_effect_a07001() {
         // Declared {io}, actual {io, mem}: mem is not declared => A07001
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io"]);
-        let actual = EffectSet::from_iter(["io", "mem"]);
+        let declared = EffectSet::from_effect_names(["io"]);
+        let actual = EffectSet::from_effect_names(["io", "mem"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A07001");
@@ -5117,8 +5118,8 @@ contract Good {
     fn effect_containment_leaf_without_parent_a07001() {
         // Declared {console.read}, actual {console.write}: different leaf
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["console.read"]);
-        let actual = EffectSet::from_iter(["console.write"]);
+        let declared = EffectSet::from_effect_names(["console.read"]);
+        let actual = EffectSet::from_effect_names(["console.write"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A07001");
@@ -5129,8 +5130,8 @@ contract Good {
     fn effect_containment_database_without_io_a07001() {
         // Declared {io}, actual {database.read}: database is not under io
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io"]);
-        let actual = EffectSet::from_iter(["database.read"]);
+        let declared = EffectSet::from_effect_names(["io"]);
+        let actual = EffectSet::from_effect_names(["database.read"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A07001");
@@ -5141,8 +5142,8 @@ contract Good {
     fn effect_containment_multiple_undeclared_a07001() {
         // Declared {mem}, actual {io, database}: two undeclared effects
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["mem"]);
-        let actual = EffectSet::from_iter(["io", "database"]);
+        let declared = EffectSet::from_effect_names(["mem"]);
+        let actual = EffectSet::from_effect_names(["io", "database"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert_eq!(errors.len(), 2);
         assert!(errors.iter().all(|e| e.code == "A07001"));
@@ -5156,9 +5157,9 @@ contract Good {
         // inner's actual effects must be subset of outer's declared.
         // mem is not in outer's declared set => A07001 for the call chain.
         let checker = EffectChecker::new();
-        let outer_declared = EffectSet::from_iter(["io"]);
+        let outer_declared = EffectSet::from_effect_names(["io"]);
         // inner's effects propagate to outer's body
-        let outer_actual = EffectSet::from_iter(["io", "mem"]);
+        let outer_actual = EffectSet::from_effect_names(["io", "mem"]);
         let errors = checker.check_containment(&outer_declared, &outer_actual, &(0..10));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A07001");
@@ -5170,7 +5171,7 @@ contract Good {
         // fn outer() effects {io} calls fn inner() effects {pure}
         // pure is always a subset: OK
         let checker = EffectChecker::new();
-        let outer_declared = EffectSet::from_iter(["io"]);
+        let outer_declared = EffectSet::from_effect_names(["io"]);
         let outer_actual = EffectSet::pure();
         let errors = checker.check_containment(&outer_declared, &outer_actual, &(0..10));
         assert!(errors.is_empty());
@@ -5181,7 +5182,7 @@ contract Good {
     #[test]
     fn effect_set_dedup() {
         // Duplicate effect names in iterator are deduplicated
-        let set = EffectSet::from_iter(["io", "io", "mem", "mem"]);
+        let set = EffectSet::from_effect_names(["io", "io", "mem", "mem"]);
         assert_eq!(set.len(), 2);
     }
 
@@ -5196,7 +5197,7 @@ contract Good {
     fn effect_expand_multiple_groups() {
         // Expanding {io, database} should include sub-effects of both
         let checker = EffectChecker::new();
-        let declared = EffectSet::from_iter(["io", "database"]);
+        let declared = EffectSet::from_effect_names(["io", "database"]);
         let expanded = checker.expand(&declared);
         assert!(expanded.contains("console.read"));
         assert!(expanded.contains("database.write"));
@@ -5207,14 +5208,14 @@ contract Good {
         // Verify that the span from the input is preserved in errors
         let checker = EffectChecker::new();
         let declared = EffectSet::pure();
-        let actual = EffectSet::from_iter(["io"]);
+        let actual = EffectSet::from_effect_names(["io"]);
         let errors = checker.check_containment(&declared, &actual, &(42..99));
         assert_eq!(errors[0].span, 42..99);
     }
 
     #[test]
     fn effect_set_iter() {
-        let set = EffectSet::from_iter(["io", "mem"]);
+        let set = EffectSet::from_effect_names(["io", "mem"]);
         let mut items: Vec<&str> = set.iter().collect();
         items.sort();
         assert_eq!(items, vec!["io", "mem"]);
