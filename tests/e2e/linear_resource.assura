@@ -1,0 +1,68 @@
+// End-to-end test: linear types and resource safety
+// Tests: parser -> resolve -> type-check -> SMT verify -> codegen
+
+module test.linear_resource;
+
+// File handle with linear ownership
+contract FileHandle {
+    input(path: String)
+
+    requires {
+        path.len > 0
+    }
+
+    ensures {
+        result.is_ok
+    }
+
+    effects: io.file
+}
+
+// Buffer with capacity bounds
+contract SafeBuffer {
+    input(data: List<U8>, capacity: Nat)
+
+    requires {
+        capacity > 0
+    }
+
+    requires {
+        data.len <= capacity
+    }
+
+    ensures {
+        result.len == data.len
+    }
+}
+
+// Secure key derivation
+contract KeyDerivation {
+    input(password: String, salt: Bytes, iterations: Nat)
+
+    requires {
+        password.len >= 8
+    }
+
+    requires {
+        salt.len >= 16
+    }
+
+    requires {
+        iterations >= 100000
+    }
+
+    ensures {
+        result.len == 32
+    }
+}
+
+// Range-checked array access
+fn safe_get(arr: List<Int>, idx: Nat) -> Int
+    requires { idx < arr.len }
+    ensures { result == arr[idx] }
+
+// Absolute value with postcondition
+fn safe_abs(x: Int) -> Nat
+    requires { x > -2147483648 }
+    ensures { result >= 0 }
+    ensures { result == x || result == -x }

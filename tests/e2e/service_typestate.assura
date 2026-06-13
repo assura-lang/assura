@@ -1,0 +1,61 @@
+// End-to-end test: service with typestate transitions
+// Tests: parser -> resolve -> type-check -> SMT verify -> codegen
+
+module test.service_typestate;
+
+// A connection service with explicit states
+service Connection {
+    states: Disconnected -> Connecting -> Connected -> Closed
+
+    operation Connect {
+        requires { self.state == Disconnected }
+        ensures { self.state == Connected }
+        effects { io.network }
+    }
+
+    operation Send {
+        input(data: Bytes)
+        requires { self.state == Connected }
+        ensures { self.state == Connected }
+        effects { io.network }
+    }
+
+    query IsConnected {
+        output(result: Bool)
+    }
+
+    operation Disconnect {
+        requires { self.state == Connected }
+        ensures { self.state == Closed }
+    }
+}
+
+// A bounded channel with capacity invariant
+contract BoundedChannel {
+    input(capacity: Nat, count: Nat)
+
+    requires {
+        capacity > 0
+    }
+
+    requires {
+        count <= capacity
+    }
+
+    ensures {
+        result <= capacity
+    }
+}
+
+// A simple stateful counter
+service Counter {
+    operation Increment {
+        input(amount: Nat)
+        requires { amount > 0 }
+        effects { pure }
+    }
+
+    query Value {
+        output(result: Nat)
+    }
+}
