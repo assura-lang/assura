@@ -1059,11 +1059,32 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             let base_ty = infer_expr(base, env)?;
             // Infer index type to surface errors inside it.
             let _index_ty = infer_expr(index, env)?;
-            match base_ty {
-                Type::List(elem) => Ok(*elem),
-                Type::Map(_key, val) => Ok(*val),
-                Type::Sequence(elem) => Ok(*elem),
-                // Unknown or user-defined types: return Unknown.
+            match &base_ty {
+                Type::List(elem) => Ok(*elem.clone()),
+                Type::Map(_key, val) => Ok(*val.clone()),
+                Type::Sequence(elem) => Ok(*elem.clone()),
+                Type::Bytes => Ok(Type::U8),
+                // Tuple indexing with literal index
+                Type::Tuple(elems) => {
+                    if let Expr::Literal(Literal::Int(idx_str)) = index.as_ref()
+                        && let Ok(idx) = idx_str.parse::<usize>()
+                        && idx < elems.len()
+                    {
+                        return Ok(elems[idx].clone());
+                    }
+                    // Non-literal or out-of-bounds: return Unknown
+                    Ok(Type::Unknown)
+                }
+                // Types that cannot be indexed
+                Type::Bool | Type::Unit | Type::Never | Type::Float | Type::F32 | Type::F64 => {
+                    Err(TypeError {
+                        code: "A03005".into(),
+                        message: format!("type `{base_ty}` cannot be indexed"),
+                        span: 0..0,
+                        secondary: None,
+                    })
+                }
+                // Unknown, Named, TypeParam, or user-defined: return Unknown.
                 _ => Ok(Type::Unknown),
             }
         }
@@ -14367,6 +14388,48 @@ type Point {
         };
         let err = infer_expr(&expr, &env).unwrap_err();
         assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn infer_index_bytes_returns_u8() {
+        let mut env = TypeEnv::new();
+        env.insert("data".into(), Type::Bytes);
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("data".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::U8);
+    }
+
+    #[test]
+    fn infer_index_tuple_literal() {
+        let mut env = TypeEnv::new();
+        env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::Bool]));
+        // pair[0] should be Int
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("pair".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+
+        // pair[1] should be Bool
+        let expr1 = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("pair".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        };
+        assert_eq!(infer_expr(&expr1, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_index_bool_emits_error() {
+        let mut env = TypeEnv::new();
+        env.insert("flag".into(), Type::Bool);
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("flag".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
     }
 
     #[test]
