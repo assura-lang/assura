@@ -592,7 +592,7 @@
   - Depends on: T041
   - extern/bind declarations, trust boundaries
 
-- [ ] **T059**: SEC.3 Constant-time execution
+- [x] **T059**: SEC.3 Constant-time execution
   - Depends on: T047
   - Reject branches on secret data
 
@@ -610,7 +610,7 @@
   - Depends on: T041
   - Trait-like contracts, callback re-entrancy restrictions
 
-- [ ] **T063**: TYPE.2 Recursive structural invariants
+- [x] **T063**: TYPE.2 Recursive structural invariants
   - Depends on: T041
   - Tree balance, list sortedness, graph acyclicity
 

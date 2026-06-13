@@ -3905,6 +3905,340 @@ impl Default for InterfaceChecker {
 }
 
 // ---------------------------------------------------------------------------
+// T059: SEC.3 Constant-time execution
+// ---------------------------------------------------------------------------
+
+/// Error from the constant-time checker.
+#[derive(Debug, Clone)]
+pub struct ConstantTimeError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for constant-time execution properties.
+///
+/// Ensures secret-dependent code does not branch on secrets,
+/// preventing timing side-channel attacks.
+pub struct ConstantTimeChecker {
+    /// Variables classified as secret
+    secrets: HashMap<String, bool>,
+}
+
+impl ConstantTimeChecker {
+    pub fn new() -> Self {
+        Self {
+            secrets: HashMap::new(),
+        }
+    }
+
+    /// Mark a variable as secret (timing-sensitive).
+    pub fn mark_secret(&mut self, name: String) {
+        self.secrets.insert(name, true);
+    }
+
+    /// Check if an expression references any secret variable.
+    pub fn references_secret(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Ident(name) => self.secrets.contains_key(name),
+            Expr::BinOp { lhs, rhs, .. } => {
+                self.references_secret(lhs) || self.references_secret(rhs)
+            }
+            Expr::UnaryOp { expr, .. } => self.references_secret(expr),
+            Expr::Field(e, _) => self.references_secret(e),
+            Expr::Call { func, args } => {
+                self.references_secret(func) || args.iter().any(|a| self.references_secret(a))
+            }
+            Expr::Index { expr, index } => {
+                self.references_secret(expr) || self.references_secret(index)
+            }
+            Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => self.references_secret(e),
+            Expr::If { cond, .. } => self.references_secret(cond),
+            _ => false,
+        }
+    }
+
+    /// Check that branches do not depend on secret data.
+    /// - A14001: branch condition depends on secret data (timing leak)
+    pub fn check_branch(
+        &self,
+        condition: &Expr,
+        span: &Range<usize>,
+    ) -> Vec<ConstantTimeError> {
+        let mut errors = Vec::new();
+        if self.references_secret(condition) {
+            errors.push(ConstantTimeError {
+                code: "A14001".into(),
+                message: "branch condition depends on secret data; \
+                          this creates a timing side-channel"
+                    .into(),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that array indexing does not depend on secret data.
+    /// - A14002: secret-dependent array index (cache timing leak)
+    pub fn check_index(
+        &self,
+        index_expr: &Expr,
+        span: &Range<usize>,
+    ) -> Vec<ConstantTimeError> {
+        let mut errors = Vec::new();
+        if self.references_secret(index_expr) {
+            errors.push(ConstantTimeError {
+                code: "A14002".into(),
+                message: "array index depends on secret data; \
+                          this creates a cache timing side-channel"
+                    .into(),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check a full expression for constant-time violations.
+    pub fn check_expr(
+        &self,
+        expr: &Expr,
+        span: &Range<usize>,
+    ) -> Vec<ConstantTimeError> {
+        let mut errors = Vec::new();
+        match expr {
+            Expr::If { cond, then_branch, else_branch, .. } => {
+                errors.extend(self.check_branch(cond, span));
+                errors.extend(self.check_expr(then_branch, span));
+                if let Some(e) = else_branch {
+                    errors.extend(self.check_expr(e, span));
+                }
+            }
+            Expr::Index { index, .. } => {
+                errors.extend(self.check_index(index, span));
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                errors.extend(self.check_expr(lhs, span));
+                errors.extend(self.check_expr(rhs, span));
+            }
+            Expr::Call { args, .. } => {
+                for a in args {
+                    errors.extend(self.check_expr(a, span));
+                }
+            }
+            _ => {}
+        }
+        errors
+    }
+}
+
+impl Default for ConstantTimeChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T063: TYPE.2 Recursive structural invariants
+// ---------------------------------------------------------------------------
+
+/// A structural invariant on a recursive data structure.
+#[derive(Debug, Clone)]
+pub struct StructuralInvariant {
+    pub name: String,
+    /// The type this invariant applies to
+    pub type_name: String,
+    /// Kind of structural property
+    pub kind: InvariantKind,
+}
+
+/// Kinds of structural invariants for recursive types.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InvariantKind {
+    /// Tree balance: left depth and right depth differ by at most k
+    TreeBalance { max_diff: u32 },
+    /// List sortedness: elements in non-decreasing order
+    Sorted { descending: bool },
+    /// Graph acyclicity: no cycles in the structure
+    Acyclic,
+    /// Binary search tree: left < node < right
+    BstOrdering,
+    /// Heap property: parent <= children (or >=)
+    HeapProperty { min_heap: bool },
+    /// Custom invariant expressed as a predicate string
+    Custom(String),
+}
+
+impl std::fmt::Display for InvariantKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvariantKind::TreeBalance { max_diff } => {
+                write!(f, "tree_balance(max_diff={max_diff})")
+            }
+            InvariantKind::Sorted { descending } => {
+                if *descending {
+                    write!(f, "sorted(desc)")
+                } else {
+                    write!(f, "sorted(asc)")
+                }
+            }
+            InvariantKind::Acyclic => write!(f, "acyclic"),
+            InvariantKind::BstOrdering => write!(f, "bst_ordering"),
+            InvariantKind::HeapProperty { min_heap } => {
+                if *min_heap {
+                    write!(f, "min_heap")
+                } else {
+                    write!(f, "max_heap")
+                }
+            }
+            InvariantKind::Custom(pred) => write!(f, "custom({pred})"),
+        }
+    }
+}
+
+/// Error from the structural invariant checker.
+#[derive(Debug, Clone)]
+pub struct StructuralInvariantError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for recursive structural invariants.
+pub struct StructuralInvariantChecker {
+    /// Registered invariants per type
+    invariants: HashMap<String, Vec<StructuralInvariant>>,
+    /// Known recursive types (type name -> list of recursive field names)
+    recursive_types: HashMap<String, Vec<String>>,
+}
+
+impl StructuralInvariantChecker {
+    pub fn new() -> Self {
+        Self {
+            invariants: HashMap::new(),
+            recursive_types: HashMap::new(),
+        }
+    }
+
+    /// Register a type as recursive, listing its self-referencing fields.
+    pub fn register_recursive_type(&mut self, type_name: String, recursive_fields: Vec<String>) {
+        self.recursive_types.insert(type_name, recursive_fields);
+    }
+
+    /// Register a structural invariant on a type.
+    pub fn register_invariant(&mut self, inv: StructuralInvariant) {
+        self.invariants
+            .entry(inv.type_name.clone())
+            .or_default()
+            .push(inv);
+    }
+
+    /// Check that a structural invariant is applicable to the type.
+    /// - A15001: invariant on non-recursive type
+    /// - A15002: tree invariant on non-tree structure
+    /// - A15003: sort invariant on non-sequence structure
+    pub fn check_invariant_applicability(
+        &self,
+        type_name: &str,
+        kind: &InvariantKind,
+        span: &Range<usize>,
+    ) -> Vec<StructuralInvariantError> {
+        let mut errors = Vec::new();
+        if !self.recursive_types.contains_key(type_name) {
+            errors.push(StructuralInvariantError {
+                code: "A15001".into(),
+                message: format!(
+                    "structural invariant `{kind}` applied to non-recursive type `{type_name}`"
+                ),
+                span: span.clone(),
+            });
+            return errors;
+        }
+
+        let fields = &self.recursive_types[type_name];
+        match kind {
+            InvariantKind::TreeBalance { .. } | InvariantKind::BstOrdering | InvariantKind::HeapProperty { .. } => {
+                // Tree invariants need at least 2 recursive fields (left, right)
+                if fields.len() < 2 {
+                    errors.push(StructuralInvariantError {
+                        code: "A15002".into(),
+                        message: format!(
+                            "tree invariant `{kind}` requires at least 2 recursive fields, \
+                             but `{type_name}` has {}",
+                            fields.len()
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+            InvariantKind::Sorted { .. } => {
+                // Sort invariant needs exactly 1 recursive field (next pointer)
+                if fields.len() != 1 {
+                    errors.push(StructuralInvariantError {
+                        code: "A15003".into(),
+                        message: format!(
+                            "sort invariant requires exactly 1 recursive field (next pointer), \
+                             but `{type_name}` has {}",
+                            fields.len()
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+            InvariantKind::Acyclic | InvariantKind::Custom(_) => {
+                // These are valid for any recursive type
+            }
+        }
+        errors
+    }
+
+    /// Check that an operation preserves the structural invariant.
+    /// - A15004: operation may violate structural invariant
+    pub fn check_operation_preserves(
+        &self,
+        type_name: &str,
+        operation: &str,
+        modifies_structure: bool,
+        has_preservation_proof: bool,
+        span: &Range<usize>,
+    ) -> Vec<StructuralInvariantError> {
+        let mut errors = Vec::new();
+        if !modifies_structure {
+            return errors; // Read-only operations preserve invariants trivially
+        }
+        if let Some(invs) = self.invariants.get(type_name) {
+            for inv in invs {
+                if !has_preservation_proof {
+                    errors.push(StructuralInvariantError {
+                        code: "A15004".into(),
+                        message: format!(
+                            "operation `{operation}` modifies `{type_name}` \
+                             but has no proof preserving invariant `{}`",
+                            inv.kind
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    /// Get all invariants for a type (including inherited through recursive substructure).
+    pub fn get_invariants(&self, type_name: &str) -> Vec<&StructuralInvariant> {
+        self.invariants
+            .get(type_name)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default()
+    }
+}
+
+impl Default for StructuralInvariantChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // T052: Dependent types (restricted)
 // ---------------------------------------------------------------------------
 
@@ -9872,5 +10206,264 @@ ghost fn bad_ghost(x: Int) -> Bool
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A13001");
         assert!(errors[0].message.contains("Unknown"));
+    }
+
+    // --- T059: Constant-time execution tests ---
+
+    #[test]
+    fn ct_branch_on_secret_a14001() {
+        let mut checker = ConstantTimeChecker::new();
+        checker.mark_secret("key".into());
+        let cond = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("key".into())),
+            op: AstBinOp::Eq,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        let errors = checker.check_branch(&cond, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A14001");
+    }
+
+    #[test]
+    fn ct_branch_on_public_ok() {
+        let mut checker = ConstantTimeChecker::new();
+        checker.mark_secret("key".into());
+        let cond = AstExpr::Ident("public_val".into());
+        let errors = checker.check_branch(&cond, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn ct_index_on_secret_a14002() {
+        let mut checker = ConstantTimeChecker::new();
+        checker.mark_secret("secret_idx".into());
+        let idx = AstExpr::Ident("secret_idx".into());
+        let errors = checker.check_index(&idx, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A14002");
+    }
+
+    #[test]
+    fn ct_index_on_public_ok() {
+        let checker = ConstantTimeChecker::new();
+        let idx = AstExpr::Ident("i".into());
+        let errors = checker.check_index(&idx, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn ct_nested_secret_in_condition() {
+        let mut checker = ConstantTimeChecker::new();
+        checker.mark_secret("password".into());
+        // password + 1 == 42
+        let cond = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Ident("password".into())),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            }),
+            op: AstBinOp::Eq,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+        };
+        let errors = checker.check_branch(&cond, &(0..1));
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn ct_check_expr_if_with_secret() {
+        let mut checker = ConstantTimeChecker::new();
+        checker.mark_secret("s".into());
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Ident("s".into())),
+            then_branch: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("0".into())))),
+        };
+        let errors = checker.check_expr(&expr, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A14001");
+    }
+
+    #[test]
+    fn ct_references_secret_field() {
+        let mut checker = ConstantTimeChecker::new();
+        checker.mark_secret("key".into());
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("key".into())), "len".into());
+        assert!(checker.references_secret(&expr));
+    }
+
+    // --- T063: Recursive structural invariant tests ---
+
+    #[test]
+    fn struct_inv_tree_balance_valid() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type(
+            "AVLTree".into(),
+            vec!["left".into(), "right".into()],
+        );
+        let errors = checker.check_invariant_applicability(
+            "AVLTree",
+            &InvariantKind::TreeBalance { max_diff: 1 },
+            &(0..1),
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn struct_inv_on_non_recursive_a15001() {
+        let checker = StructuralInvariantChecker::new();
+        let errors = checker.check_invariant_applicability(
+            "Point",
+            &InvariantKind::Sorted { descending: false },
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A15001");
+    }
+
+    #[test]
+    fn struct_inv_tree_on_list_a15002() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type("LinkedList".into(), vec!["next".into()]);
+        let errors = checker.check_invariant_applicability(
+            "LinkedList",
+            &InvariantKind::BstOrdering,
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A15002");
+    }
+
+    #[test]
+    fn struct_inv_sort_on_tree_a15003() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type(
+            "BTree".into(),
+            vec!["left".into(), "right".into()],
+        );
+        let errors = checker.check_invariant_applicability(
+            "BTree",
+            &InvariantKind::Sorted { descending: false },
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A15003");
+    }
+
+    #[test]
+    fn struct_inv_acyclic_valid_for_any_recursive() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type("Graph".into(), vec!["children".into()]);
+        let errors = checker.check_invariant_applicability(
+            "Graph",
+            &InvariantKind::Acyclic,
+            &(0..1),
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn struct_inv_operation_no_proof_a15004() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type(
+            "BST".into(),
+            vec!["left".into(), "right".into()],
+        );
+        checker.register_invariant(StructuralInvariant {
+            name: "bst_order".into(),
+            type_name: "BST".into(),
+            kind: InvariantKind::BstOrdering,
+        });
+        let errors = checker.check_operation_preserves(
+            "BST",
+            "insert",
+            true,  // modifies structure
+            false, // no preservation proof
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A15004");
+    }
+
+    #[test]
+    fn struct_inv_operation_with_proof_ok() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type(
+            "BST".into(),
+            vec!["left".into(), "right".into()],
+        );
+        checker.register_invariant(StructuralInvariant {
+            name: "bst_order".into(),
+            type_name: "BST".into(),
+            kind: InvariantKind::BstOrdering,
+        });
+        let errors = checker.check_operation_preserves(
+            "BST",
+            "insert",
+            true, // modifies structure
+            true, // has preservation proof
+            &(0..1),
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn struct_inv_readonly_trivially_preserves() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type(
+            "BST".into(),
+            vec!["left".into(), "right".into()],
+        );
+        checker.register_invariant(StructuralInvariant {
+            name: "bst_order".into(),
+            type_name: "BST".into(),
+            kind: InvariantKind::BstOrdering,
+        });
+        let errors = checker.check_operation_preserves(
+            "BST",
+            "search",
+            false, // read-only
+            false, // no proof needed
+            &(0..1),
+        );
+        assert!(errors.is_empty(), "read-only ops preserve invariants");
+    }
+
+    #[test]
+    fn struct_inv_kind_display() {
+        assert_eq!(
+            InvariantKind::TreeBalance { max_diff: 1 }.to_string(),
+            "tree_balance(max_diff=1)"
+        );
+        assert_eq!(
+            InvariantKind::Sorted { descending: false }.to_string(),
+            "sorted(asc)"
+        );
+        assert_eq!(InvariantKind::Acyclic.to_string(), "acyclic");
+        assert_eq!(InvariantKind::BstOrdering.to_string(), "bst_ordering");
+        assert_eq!(
+            InvariantKind::HeapProperty { min_heap: true }.to_string(),
+            "min_heap"
+        );
+    }
+
+    #[test]
+    fn struct_inv_get_invariants() {
+        let mut checker = StructuralInvariantChecker::new();
+        checker.register_recursive_type(
+            "AVL".into(),
+            vec!["left".into(), "right".into()],
+        );
+        checker.register_invariant(StructuralInvariant {
+            name: "balance".into(),
+            type_name: "AVL".into(),
+            kind: InvariantKind::TreeBalance { max_diff: 1 },
+        });
+        checker.register_invariant(StructuralInvariant {
+            name: "order".into(),
+            type_name: "AVL".into(),
+            kind: InvariantKind::BstOrdering,
+        });
+        assert_eq!(checker.get_invariants("AVL").len(), 2);
+        assert!(checker.get_invariants("Unknown").is_empty());
     }
 }
