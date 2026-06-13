@@ -158,7 +158,7 @@
   - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` must now
     report type checking results (pass or errors with codes)
 
-- [ ] **T014**: Implement base type checking
+- [x] **T014**: Implement base type checking
   - Depends on: T013
   - Type-check expressions against expected types:
     - Integer literals -> Int (or Nat if non-negative)
