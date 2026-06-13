@@ -714,7 +714,13 @@ mod z3_backend {
                     let numer = (f * denom as f64) as i32;
                     Z3Value::Real(ast::Real::from_real(self.ctx, numer, denom))
                 }
-                Expr::Literal(Literal::Str(_)) => Z3Value::Bool(self.fresh_bool()),
+                Expr::Literal(Literal::Str(s)) => {
+                    // Encode as a named integer constant. Two identical string
+                    // literals produce the same constant, so equality works.
+                    // Different strings get different constants.
+                    let const_name = format!("__str_{s}");
+                    Z3Value::Int(ast::Int::new_const(self.ctx, const_name))
+                }
                 Expr::Literal(Literal::Bool(b)) => {
                     Z3Value::Bool(ast::Bool::from_bool(self.ctx, *b))
                 }
