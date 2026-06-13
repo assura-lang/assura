@@ -345,6 +345,41 @@ fn parse_type_tokens(tokens: &[String]) -> Type {
         };
     }
 
+    // Tuple type: ( A, B, C )
+    if head == "(" && clean.last() == Some(&")") {
+        let inner = &clean[1..clean.len() - 1];
+        if inner.is_empty() {
+            return Type::Unit;
+        }
+        // Split on commas at depth 0
+        let mut elems: Vec<Type> = Vec::new();
+        let mut current: Vec<String> = Vec::new();
+        let mut d = 0i32;
+        for tok in inner {
+            match *tok {
+                "(" | "<" => {
+                    d += 1;
+                    current.push(tok.to_string());
+                }
+                ")" | ">" => {
+                    d -= 1;
+                    current.push(tok.to_string());
+                }
+                "," if d == 0 => {
+                    if !current.is_empty() {
+                        elems.push(parse_type_tokens(&current));
+                        current.clear();
+                    }
+                }
+                _ => current.push(tok.to_string()),
+            }
+        }
+        if !current.is_empty() {
+            elems.push(parse_type_tokens(&current));
+        }
+        return Type::Tuple(elems);
+    }
+
     // Fallback: treat as named type
     if let Some(ty) = builtin_type(head) {
         return ty;
@@ -14473,6 +14508,36 @@ type Point {
         assert_eq!(format!("{}", Type::Bool), "Bool");
         assert_eq!(format!("{}", Type::List(Box::new(Type::Int))), "List<Int>");
         assert_eq!(format!("{}", Type::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn parse_type_tokens_tuple() {
+        let tokens: Vec<String> = vec!["(", "Int", ",", "Bool", ")"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Tuple(vec![Type::Int, Type::Bool])
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_nested_tuple() {
+        let tokens: Vec<String> = vec!["(", "Int", ",", "(", "Bool", ",", "String", ")", ")"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Tuple(vec![Type::Int, Type::Tuple(vec![Type::Bool, Type::String])])
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_empty_tuple_is_unit() {
+        let tokens: Vec<String> = vec!["(", ")"].into_iter().map(String::from).collect();
+        assert_eq!(parse_type_tokens(&tokens), Type::Unit);
     }
 
     // -----------------------------------------------------------------------
