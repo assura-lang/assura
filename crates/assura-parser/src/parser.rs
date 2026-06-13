@@ -498,11 +498,19 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             )
             .map(|e| Expr::Old(Box::new(e)));
 
-        // Parenthesized expression
+        // Parenthesized expression or tuple: (a) vs (a, b, c)
         let paren_expr = expr
             .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
             .delimited_by(just(Token::LParen), just(Token::RParen))
-            .map(|e| Expr::Paren(Box::new(e)));
+            .map(|items: Vec<Expr>| {
+                if items.len() == 1 {
+                    Expr::Paren(Box::new(items.into_iter().next().unwrap()))
+                } else {
+                    Expr::Tuple(items)
+                }
+            });
 
         // List literal: [a, b, c]
         let list_expr = expr
@@ -599,6 +607,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             let constructor_or_ident = ident()
                 .then(
                     inner_pattern
+                        .clone()
                         .separated_by(just(Token::Comma))
                         .allow_trailing()
                         .delimited_by(just(Token::LParen), just(Token::RParen))
@@ -608,7 +617,14 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
                     Some(fs) => Pattern::Constructor { name, fields: fs },
                     None => Pattern::Ident(name),
                 });
-            choice((wildcard, lit_pattern, constructor_or_ident))
+            // Tuple pattern: (a, b, c)
+            let tuple_pattern = inner_pattern
+                .clone()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .map(Pattern::Tuple);
+            choice((wildcard, lit_pattern, tuple_pattern, constructor_or_ident))
         };
 
         let match_arm = pattern
@@ -1770,6 +1786,37 @@ mod tests {
             assert!(matches!(body.as_ref(), Expr::Let { .. }));
         } else {
             panic!("expected nested Let expression");
+        }
+    }
+
+    #[test]
+    fn parse_tuple_expr() {
+        let expr = parse_expr("(1, 2, 3)").unwrap();
+        if let Expr::Tuple(elems) = &expr {
+            assert_eq!(elems.len(), 3);
+        } else {
+            panic!("expected Tuple expression, got {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn parse_single_paren_not_tuple() {
+        let expr = parse_expr("(42)").unwrap();
+        assert!(
+            matches!(&expr, Expr::Paren(_)),
+            "single element in parens should be Paren, got {:?}",
+            expr
+        );
+    }
+
+    #[test]
+    fn parse_tuple_pattern_in_match() {
+        let expr = parse_expr("match p { (a, b) => a + b, _ => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = &expr {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(&arms[0].pattern, Pattern::Tuple(ps) if ps.len() == 2));
+        } else {
+            panic!("expected Match expression, got {:?}", expr);
         }
     }
 }

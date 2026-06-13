@@ -1731,6 +1731,17 @@ fn expr_to_string(expr: &Expr) -> String {
                                 .collect();
                             format!("{name}({})", fs.join(", "))
                         }
+                        assura_parser::ast::Pattern::Tuple(pats) => {
+                            let ps: Vec<String> = pats
+                                .iter()
+                                .map(|p| match p {
+                                    assura_parser::ast::Pattern::Ident(n) => n.clone(),
+                                    assura_parser::ast::Pattern::Wildcard => "_".into(),
+                                    other => format!("{other:?}"),
+                                })
+                                .collect();
+                            format!("({})", ps.join(", "))
+                        }
                     };
                     format!("{pat} => {}", expr_to_string(&arm.body))
                 })
@@ -1744,6 +1755,10 @@ fn expr_to_string(expr: &Expr) -> String {
                 expr_to_string(value),
                 expr_to_string(body)
             )
+        }
+        Expr::Tuple(elems) => {
+            let items: Vec<String> = elems.iter().map(expr_to_string).collect();
+            format!("({})", items.join(", "))
         }
         Expr::Raw(tokens) => tokens.join(" "),
     }

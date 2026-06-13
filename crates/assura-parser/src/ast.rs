@@ -163,6 +163,8 @@ pub enum Expr {
         scrutinee: Box<Expr>,
         arms: Vec<MatchArm>,
     },
+    /// Tuple expression: `(a, b, c)`
+    Tuple(Vec<Expr>),
     /// Unparsed token sequence (fallback)
     Raw(Vec<String>),
 }
@@ -183,6 +185,8 @@ pub enum Pattern {
     Wildcard,
     /// Constructor pattern: `Variant(p1, p2)`
     Constructor { name: String, fields: Vec<Pattern> },
+    /// Tuple pattern: `(a, b, c)`
+    Tuple(Vec<Pattern>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

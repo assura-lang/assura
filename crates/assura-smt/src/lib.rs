@@ -817,6 +817,9 @@ mod z3_backend {
                 // --- Index: uninterpreted function __index(coll, idx) ---
                 Expr::Index { expr, index } => self.encode_index(expr, index),
 
+                // --- Tuple: no meaningful SMT encoding, use fresh ---
+                Expr::Tuple(_) => Z3Value::Int(self.fresh_int()),
+
                 // --- Cast/List/Block: still fresh (no meaningful SMT encoding) ---
                 Expr::Cast { .. } | Expr::List(_) | Expr::Block(_) => {
                     Z3Value::Int(self.fresh_int())

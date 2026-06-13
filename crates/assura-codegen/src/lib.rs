@@ -415,6 +415,17 @@ fn expr_to_rust(expr: &Expr) -> String {
                         assura_parser::ast::Pattern::Constructor { name, .. } => {
                             format!("{name}(..)")
                         }
+                        assura_parser::ast::Pattern::Tuple(pats) => {
+                            let ps: Vec<String> = pats
+                                .iter()
+                                .map(|p| match p {
+                                    assura_parser::ast::Pattern::Ident(n) => n.clone(),
+                                    assura_parser::ast::Pattern::Wildcard => "_".into(),
+                                    _ => "_".into(),
+                                })
+                                .collect();
+                            format!("({})", ps.join(", "))
+                        }
                     };
                     let body = expr_to_rust(&arm.body);
                     format!("    {pat} => {body},")
@@ -429,6 +440,10 @@ fn expr_to_rust(expr: &Expr) -> String {
                 expr_to_rust(value),
                 expr_to_rust(body)
             )
+        }
+        Expr::Tuple(elems) => {
+            let items: Vec<String> = elems.iter().map(expr_to_rust).collect();
+            format!("({})", items.join(", "))
         }
         Expr::Raw(tokens) => {
             let mapped: Vec<&str> = tokens.iter().map(|t| map_type_token(t)).collect();
@@ -542,6 +557,11 @@ fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String)>) {
         Expr::Let { value, body, .. } => {
             collect_old_exprs_inner(value, out);
             collect_old_exprs_inner(body, out);
+        }
+        Expr::Tuple(elems) => {
+            for e in elems {
+                collect_old_exprs_inner(e, out);
+            }
         }
         // Leaf nodes: no old() inside
         Expr::Literal(_) | Expr::Ident(_) | Expr::Raw(_) => {}

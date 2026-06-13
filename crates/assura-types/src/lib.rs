@@ -675,6 +675,9 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
         // --- Let binding: infer body type ---
         Expr::Let { body, .. } => infer_expr(body, env),
 
+        // --- Tuple: cannot infer structured tuple type yet ---
+        Expr::Tuple(_) => Ok(Type::Unknown),
+
         // --- Block / Raw: cannot infer ---
         Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
     }
@@ -2305,6 +2308,7 @@ fn check_match_exhaustiveness_expr(
                         assura_parser::ast::Pattern::Constructor { name, .. } => {
                             Pattern::Variant(name.clone())
                         }
+                        assura_parser::ast::Pattern::Tuple(_) => Pattern::Wildcard,
                     })
                     .collect();
 
@@ -2400,6 +2404,11 @@ fn check_match_exhaustiveness_expr(
         Expr::Let { value, body, .. } => {
             check_match_exhaustiveness_expr(value, span, enum_variants, _symbols, errors);
             check_match_exhaustiveness_expr(body, span, enum_variants, _symbols, errors);
+        }
+        Expr::Tuple(elems) => {
+            for e in elems {
+                check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
+            }
         }
         Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
     }
@@ -3341,6 +3350,11 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
             check_expr_linearity_inner(value, ctx, errors);
             check_expr_linearity_inner(body, ctx, errors);
         }
+        Expr::Tuple(elems) => {
+            for e in elems {
+                check_expr_linearity_inner(e, ctx, errors);
+            }
+        }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
         }
@@ -3679,6 +3693,11 @@ pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
         Expr::Let { value, body, .. } => {
             expr_usages(value, tracker);
             expr_usages(body, tracker);
+        }
+        Expr::Tuple(elems) => {
+            for e in elems {
+                expr_usages(e, tracker);
+            }
         }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
@@ -4225,6 +4244,11 @@ fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
                 collect_old_refs_inner(e, refs);
             }
         }
+        Expr::Tuple(elems) => {
+            for e in elems {
+                collect_old_refs_inner(e, refs);
+            }
+        }
     }
 }
 
@@ -4319,6 +4343,11 @@ fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
         }
         Expr::Block(exprs) => {
             for e in exprs {
+                collect_idents_inner(e, refs);
+            }
+        }
+        Expr::Tuple(elems) => {
+            for e in elems {
                 collect_idents_inner(e, refs);
             }
         }
@@ -4950,6 +4979,7 @@ pub fn expr_references_var(expr: &Expr, var_name: &str) -> bool {
         Expr::Let { value, body, .. } => {
             expr_references_var(value, var_name) || expr_references_var(body, var_name)
         }
+        Expr::Tuple(elems) => elems.iter().any(|e| expr_references_var(e, var_name)),
         Expr::Raw(tokens) => tokens.iter().any(|t| t.trim() == var_name),
         Expr::Literal(_) => false,
     }
@@ -5167,6 +5197,9 @@ impl TaintChecker {
             Expr::Let { value, body, .. } => {
                 std::cmp::min(self.infer_taint(value), self.infer_taint(body))
             }
+            Expr::Tuple(elems) => elems.iter().fold(TaintLabel::Trusted, |a, e| {
+                std::cmp::min(a, self.infer_taint(e))
+            }),
             Expr::Ghost(_) | Expr::Raw(_) => TaintLabel::Trusted,
         }
     }
@@ -5308,6 +5341,11 @@ impl TaintChecker {
             Expr::Let { value, body, .. } => {
                 self.check_expr_inner(value, span, errors);
                 self.check_expr_inner(body, span, errors);
+            }
+            Expr::Tuple(elems) => {
+                for e in elems {
+                    self.check_expr_inner(e, span, errors);
+                }
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
         }
@@ -7494,6 +7532,10 @@ impl InfoFlowChecker {
                 std::cmp::max(self.infer_label(value), self.infer_label(body))
             }
 
+            Expr::Tuple(elems) => elems.iter().fold(SecurityLabel::Public, |a, e| {
+                std::cmp::max(a, self.infer_label(e))
+            }),
+
             Expr::Ghost(_) | Expr::Raw(_) => SecurityLabel::Public,
         }
     }
@@ -7615,6 +7657,11 @@ impl InfoFlowChecker {
             Expr::Let { value, body, .. } => {
                 self.check_expr_inner(value, span, pc_label, errors);
                 self.check_expr_inner(body, span, pc_label, errors);
+            }
+            Expr::Tuple(elems) => {
+                for e in elems {
+                    self.check_expr_inner(e, span, pc_label, errors);
+                }
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
         }
@@ -7798,6 +7845,9 @@ impl TotalityChecker {
                 self.expr_contains_recursive_call(value, fn_name)
                     || self.expr_contains_recursive_call(body, fn_name)
             }
+            Expr::Tuple(elems) => elems
+                .iter()
+                .any(|e| self.expr_contains_recursive_call(e, fn_name)),
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => false,
         }
     }
@@ -7884,6 +7934,11 @@ impl TotalityChecker {
             Expr::Let { value, body, .. } => {
                 self.collect_recursive_call_args(value, fn_name, out);
                 self.collect_recursive_call_args(body, fn_name, out);
+            }
+            Expr::Tuple(elems) => {
+                for e in elems {
+                    self.collect_recursive_call_args(e, fn_name, out);
+                }
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
         }
