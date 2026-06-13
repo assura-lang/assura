@@ -469,11 +469,58 @@ fn expr_to_rust(expr: &Expr) -> String {
             let items: Vec<String> = elems.iter().map(expr_to_rust).collect();
             format!("({})", items.join(", "))
         }
-        Expr::Raw(tokens) => {
-            let mapped: Vec<&str> = tokens.iter().map(|t| map_type_token(t)).collect();
-            smart_join_type_tokens(&mapped)
+        Expr::Raw(tokens) => raw_tokens_to_rust(tokens),
+    }
+}
+
+/// Convert raw token sequences to Rust, handling quantifier patterns.
+///
+/// Detects `forall var in domain: body` and `exists var in domain: body`
+/// in raw tokens and translates them to `.iter().all(|var| body)` /
+/// `.iter().any(|var| body)` respectively. Falls back to joined tokens
+/// for non-quantifier sequences.
+fn raw_tokens_to_rust(tokens: &[String]) -> String {
+    if tokens.is_empty() {
+        return String::new();
+    }
+    // Detect: forall/exists VAR in DOMAIN : BODY
+    let first = tokens[0].as_str();
+    if matches!(first, "forall" | "exists")
+        && tokens.len() >= 5
+        && let Some(in_pos) = tokens[1..].iter().position(|t| t == "in")
+    {
+        let in_pos = in_pos + 1; // offset from tokens[0]
+        let var = &tokens[1..in_pos].join("_");
+        // Find the colon that separates domain from body
+        if let Some(colon_offset) = tokens[in_pos + 1..].iter().position(|t| t == ":") {
+            let colon_pos = in_pos + 1 + colon_offset;
+            let domain_tokens = &tokens[in_pos + 1..colon_pos];
+            let body_tokens = &tokens[colon_pos + 1..];
+
+            let domain = {
+                let mapped: Vec<&str> = domain_tokens.iter().map(|t| map_type_token(t)).collect();
+                smart_join_type_tokens(&mapped)
+            };
+            let body = raw_tokens_to_rust(body_tokens);
+
+            let method = if first == "forall" { "all" } else { "any" };
+            return format!("{domain}.iter().{method}(|{var}| {body})");
         }
     }
+
+    // Check for `result` keyword — replace with `__result`
+    let mapped: Vec<String> = tokens
+        .iter()
+        .map(|t| {
+            if t == "result" {
+                "__result".to_string()
+            } else {
+                map_type_token(t).to_string()
+            }
+        })
+        .collect();
+    let refs: Vec<&str> = mapped.iter().map(|s| s.as_str()).collect();
+    smart_join_type_tokens(&refs)
 }
 
 // ---------------------------------------------------------------------------
@@ -2722,6 +2769,86 @@ contract MySorter {
         assert!(
             lib.contains("impl Sortable for MySorter"),
             "should generate impl block: {lib}"
+        );
+    }
+
+    #[test]
+    fn forall_ensures_generates_iter_all() {
+        let project = codegen_ok(
+            r#"
+contract AllPositive {
+    input(values: List<Int>)
+    requires { forall v in values: v > 0 }
+    ensures  { forall v in result: v > 0 }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains(".iter().all("),
+            "forall in ensures should generate .iter().all(): {lib}"
+        );
+        assert!(
+            lib.contains("__result.iter().all("),
+            "result in forall ensures should map to __result: {lib}"
+        );
+    }
+
+    #[test]
+    fn exists_ensures_generates_iter_any() {
+        let project = codegen_ok(
+            r#"
+contract HasPositive {
+    input(values: List<Int>)
+    ensures  { exists v in result: v > 0 }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains(".iter().any("),
+            "exists in ensures should generate .iter().any(): {lib}"
+        );
+    }
+
+    #[test]
+    fn raw_forall_tokens_converted() {
+        // Test the raw_tokens_to_rust helper directly
+        let tokens: Vec<String> = vec!["forall", "v", "in", "items", ":", "v", ">", "0"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let result = raw_tokens_to_rust(&tokens);
+        assert!(
+            result.contains(".iter().all("),
+            "raw forall tokens should produce .iter().all(): {result}"
+        );
+        assert!(result.contains("|v|"), "should bind variable v: {result}");
+    }
+
+    #[test]
+    fn raw_exists_tokens_converted() {
+        let tokens: Vec<String> = vec!["exists", "x", "in", "data", ":", "x", "==", "target"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let result = raw_tokens_to_rust(&tokens);
+        assert!(
+            result.contains(".iter().any("),
+            "raw exists tokens should produce .iter().any(): {result}"
+        );
+    }
+
+    #[test]
+    fn raw_result_keyword_replaced() {
+        let tokens: Vec<String> = vec!["result", ">=", "0"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let result = raw_tokens_to_rust(&tokens);
+        assert!(
+            result.contains("__result"),
+            "result keyword in raw tokens should become __result: {result}"
         );
     }
 }
