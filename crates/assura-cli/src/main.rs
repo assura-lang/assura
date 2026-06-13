@@ -63,7 +63,9 @@ fn main() {
     let is_check = non_flag_args.first().is_some_and(|a| a.as_str() == "check");
     let is_build = non_flag_args.first().is_some_and(|a| a.as_str() == "build");
     let is_init = non_flag_args.first().is_some_and(|a| a.as_str() == "init");
-    let is_explain = non_flag_args.first().is_some_and(|a| a.as_str() == "explain");
+    let is_explain = non_flag_args
+        .first()
+        .is_some_and(|a| a.as_str() == "explain");
 
     if is_check {
         run_check(&args);
@@ -542,6 +544,244 @@ contract SafeDivision {
 }
 
 // ---------------------------------------------------------------------------
+// `assura explain <error-code>`
+// ---------------------------------------------------------------------------
+
+struct ErrorInfo {
+    code: &'static str,
+    name: &'static str,
+    description: &'static str,
+    example: &'static str,
+    fix: &'static str,
+}
+
+fn error_catalog() -> Vec<ErrorInfo> {
+    vec![
+        ErrorInfo {
+            code: "A01001",
+            name: "Unexpected character",
+            description: "The lexer encountered a character that is not part of any valid \
+                          token. This usually means a stray symbol or an unsupported \
+                          Unicode character in the source file.",
+            example: r#"  contract Foo {
+      requires: x > 0 @ y   // '@' is not a valid Assura operator
+  }"#,
+            fix: "Remove or replace the invalid character. Check for copy-paste \
+                 artifacts, smart quotes, or characters from other languages.",
+        },
+        ErrorInfo {
+            code: "A01002",
+            name: "Unexpected token",
+            description: "The parser found a token that does not fit the expected grammar \
+                          at this position. This is the most common syntax error and can \
+                          indicate a missing keyword, misplaced punctuation, or an \
+                          incomplete declaration.",
+            example: r#"  contract Foo {
+      requires x > 0   // missing ':' after 'requires'
+  }"#,
+            fix: "Check for missing colons after clause keywords (requires:, ensures:), \
+                 unmatched braces or parentheses, or misspelled keywords. The error \
+                 message shows what was expected vs. what was found.",
+        },
+        ErrorInfo {
+            code: "A02001",
+            name: "Undefined name",
+            description: "A name was used that has not been defined in the current scope \
+                          or any enclosing scope. This applies to type names, variable \
+                          names, contract names, and function names.",
+            example: r#"  contract Foo {
+      requires: bar > 0   // 'bar' is not defined anywhere
+  }
+
+  type Alias = Unknown   // 'Unknown' is not a known type"#,
+            fix: "Check spelling of the name. Ensure the type or variable is defined \
+                 before use, or add an import if it comes from another module. \
+                 Built-in types (Int, Bool, String, etc.) are always available.",
+        },
+        ErrorInfo {
+            code: "A02003",
+            name: "Duplicate definition",
+            description: "Two declarations in the same scope share the same name. Each \
+                          name must be unique within its scope (module, service, contract, \
+                          or function body).",
+            example: r#"  contract Foo {
+      requires: x > 0
+  }
+
+  contract Foo {            // duplicate: 'Foo' already defined
+      requires: y > 0
+  }"#,
+            fix: "Rename one of the conflicting declarations to a unique name. If you \
+                 intended to extend a contract, use the 'extends' keyword instead of \
+                 redefining it.",
+        },
+        ErrorInfo {
+            code: "A02005",
+            name: "Circular import",
+            description: "The import graph contains a cycle. Module A imports module B, \
+                          which (directly or indirectly) imports module A. Assura does \
+                          not allow circular dependencies between modules.",
+            example: r#"  // file: a.assura
+  import b
+
+  // file: b.assura
+  import a               // circular: a -> b -> a"#,
+            fix: "Break the cycle by extracting shared definitions into a third module \
+                 that both modules can import, or restructure the dependency so it flows \
+                 in one direction.",
+        },
+        ErrorInfo {
+            code: "A03001",
+            name: "Type mismatch",
+            description: "An expression has a type that does not match the expected type \
+                          in context. This includes operand type mismatches in binary \
+                          operations, wrong return types, and assignment type conflicts.",
+            example: r#"  contract Add {
+      requires: x > "hello"   // comparing Int with String
+  }
+
+  fn double(x: Int) -> Bool {
+      x * 2                    // returns Int, expected Bool
+  }"#,
+            fix: "Ensure both sides of an operation have compatible types. Check that \
+                 function return types match their declared output type. Use explicit \
+                 conversions when needed (e.g., 'as Int').",
+        },
+        ErrorInfo {
+            code: "A03002",
+            name: "Argument count mismatch",
+            description: "A function or contract was called with the wrong number of \
+                          arguments. The call must provide exactly the number of \
+                          parameters declared in the function signature.",
+            example: r#"  fn add(a: Int, b: Int) -> Int
+
+  // ...
+  add(1)          // error: expected 2 arguments, got 1
+  add(1, 2, 3)    // error: expected 2 arguments, got 3"#,
+            fix: "Provide exactly the number of arguments that the function expects. \
+                 Check the function signature to see its parameter list.",
+        },
+        ErrorInfo {
+            code: "A03003",
+            name: "Wrong number of type arguments",
+            description: "A generic type was instantiated with the wrong number of type \
+                          parameters. For example, List takes 1 type argument, Map takes \
+                          2, and non-generic types take 0.",
+            example: r#"  type Pair = List<Int, Bool>   // List takes 1 type arg, got 2
+
+  type Bad = Option             // Option takes 1 type arg, got 0"#,
+            fix: "Check how many type parameters the generic type expects. Common ones: \
+                 List<T> (1), Map<K, V> (2), Set<T> (1), Option<T> (1), \
+                 Result<T, E> (2).",
+        },
+        ErrorInfo {
+            code: "A03004",
+            name: "Unknown field",
+            description: "A field access (expr.field) refers to a field that does not \
+                          exist on the type of the expression. The type either has no \
+                          fields, or the field name is misspelled.",
+            example: r#"  type Point { x: Int, y: Int }
+
+  contract CheckPoint {
+      requires: p.z > 0   // Point has no field 'z'
+  }"#,
+            fix: "Check the type definition for available field names. Fix the spelling \
+                 or use a valid field. If the field should exist, add it to the type \
+                 definition.",
+        },
+        ErrorInfo {
+            code: "A03005",
+            name: "Not callable",
+            description: "An expression was used in a function call position, but its \
+                          type is not a function or callable. Only functions, extern \
+                          functions, and service operations can be called.",
+            example: r#"  type Foo { x: Int }
+
+  contract Bad {
+      requires: Foo(42) > 0   // Foo is a type, not a function
+  }"#,
+            fix: "Ensure you are calling a function, not a type or variable. If you \
+                 meant to construct a value, use struct literal syntax. If you \
+                 meant to call a method, check that the method exists on the type.",
+        },
+        ErrorInfo {
+            code: "A03006",
+            name: "Clause type mismatch",
+            description: "A 'requires' or 'ensures' clause must evaluate to a Bool. \
+                          The expression in the clause has a non-Bool type, which means \
+                          it cannot serve as a logical predicate.",
+            example: r#"  contract Foo {
+      requires: x + 1     // Int expression, not Bool
+      ensures: "done"     // String, not Bool
+  }"#,
+            fix: "Ensure requires/ensures clauses are boolean expressions. Use \
+                 comparison operators (==, !=, <, >, <=, >=), logical operators \
+                 (and, or, not), or boolean-valued function calls.",
+        },
+        ErrorInfo {
+            code: "A10001",
+            name: "Non-exhaustive pattern",
+            description: "A match expression does not cover all possible variants of the \
+                          enum being matched. Every variant must be handled either \
+                          explicitly or via a wildcard pattern to ensure the match is \
+                          total.",
+            example: r#"  enum Color { Red, Green, Blue }
+
+  match c {
+      Red => 1,
+      Green => 2
+      // missing: Blue
+  }"#,
+            fix: "Add the missing variant(s) to the match expression, or add a wildcard \
+                 pattern (_ => ...) to handle all remaining cases. The error message \
+                 lists which variants are not covered.",
+        },
+    ]
+}
+
+fn run_explain(args: &[String]) {
+    let code = args
+        .iter()
+        .skip(1) // skip binary name
+        .filter(|a| !a.starts_with('-'))
+        .nth(1) // skip "explain" itself
+        .unwrap_or_else(|| {
+            eprintln!("Usage: assura explain <error-code>");
+            eprintln!();
+            eprintln!("Example: assura explain A03001");
+            process::exit(2);
+        });
+
+    let catalog = error_catalog();
+    let entry = catalog.iter().find(|e| e.code == code.as_str());
+
+    match entry {
+        Some(info) => {
+            println!("{}: {}", info.code, info.name);
+            println!();
+            println!("{}", info.description);
+            println!();
+            println!("Example:");
+            println!();
+            println!("{}", info.example);
+            println!();
+            println!("How to fix:");
+            println!();
+            println!("{}", info.fix);
+        }
+        None => {
+            eprintln!("Unknown error code: {code}");
+            eprintln!();
+            eprintln!("Known error codes:");
+            for info in &catalog {
+                eprintln!("  {} - {}", info.code, info.name);
+            }
+            process::exit(1);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Legacy mode: `assura [--ast|--tokens] <file>`
 // ---------------------------------------------------------------------------
 
@@ -558,6 +798,7 @@ fn run_legacy(args: &[String]) {
             eprintln!("       assura check <file.assura> [--json|--human]");
             eprintln!("       assura build <file.assura>");
             eprintln!("       assura init <project-name>");
+            eprintln!("       assura explain <error-code>");
             process::exit(2);
         });
 
