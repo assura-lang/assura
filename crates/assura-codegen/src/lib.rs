@@ -1067,36 +1067,26 @@ fn extract_input_params(body: &Expr, params: &mut Vec<(String, String)>) {
                 extract_param_from_expr(arg, params);
             }
         }
-        Expr::Raw(tokens) => {
-            // Parse "name: Type" pairs, handling multi-token types like List<Int>
-            let mut i = 0;
-            while i + 2 < tokens.len() {
-                if tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
-                    let name = tokens[i].clone();
-                    // Collect type tokens until comma at depth 0 or end
-                    let type_start = i + 2;
-                    let mut j = type_start;
-                    let mut depth = 0i32;
-                    while j < tokens.len() {
-                        match tokens[j].as_str() {
-                            "<" => depth += 1,
-                            ">" if depth > 0 => depth -= 1,
-                            "," if depth == 0 => break,
-                            _ => {}
-                        }
-                        j += 1;
-                    }
-                    let ty = map_type_tokens(&tokens[type_start..j]);
-                    params.push((name, ty));
-                    i = j;
-                    // Skip comma
-                    if tokens.get(i).map(|s| s.as_str()) == Some(",") {
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
+        // Single typed param at top level
+        Expr::Cast { expr: inner, ty } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                params.push((name.clone(), map_type_token(ty).to_string()));
             }
+        }
+        // Single untyped param
+        Expr::Ident(name) => {
+            params.push((name.clone(), "i64".to_string()));
+        }
+        // Paren-wrapped: unwrap and recurse
+        Expr::Paren(inner) => extract_input_params(inner, params),
+        // Tuple/Block: process each element
+        Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                extract_param_from_expr(item, params);
+            }
+        }
+        Expr::Raw(tokens) => {
+            extract_input_params_from_raw(tokens, params);
         }
         _ => {}
     }
@@ -1114,7 +1104,61 @@ fn extract_param_from_expr(expr: &Expr, params: &mut Vec<(String, String)>) {
         Expr::Ident(name) => {
             params.push((name.clone(), "i64".to_string()));
         }
+        Expr::Paren(inner) => extract_param_from_expr(inner, params),
         _ => {}
+    }
+}
+
+/// Extract (name, type) pairs from raw tokens.
+/// Handles "name: Type" and "name as Type" patterns, plus bare identifiers.
+fn extract_input_params_from_raw(tokens: &[String], params: &mut Vec<(String, String)>) {
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i] == "," {
+            i += 1;
+            continue;
+        }
+        let sep = tokens.get(i + 1).map(|s| s.as_str());
+        if matches!(sep, Some(":" | "as")) && i + 2 < tokens.len() {
+            let name = tokens[i].clone();
+            let type_start = i + 2;
+            let mut j = type_start;
+            let mut depth = 0i32;
+            while j < tokens.len() {
+                match tokens[j].as_str() {
+                    "<" => depth += 1,
+                    ">" if depth > 0 => depth -= 1,
+                    "," if depth == 0 => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            // Filter out "linear" modifier from type tokens
+            let type_tokens: Vec<String> = tokens[type_start..j]
+                .iter()
+                .filter(|t| t.as_str() != "linear")
+                .cloned()
+                .collect();
+            let ty = if type_tokens.is_empty() {
+                "i64".to_string()
+            } else {
+                map_type_tokens(&type_tokens)
+            };
+            params.push((name, ty));
+            i = j;
+        } else {
+            // Bare identifier
+            let name = &tokens[i];
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+            {
+                params.push((name.clone(), "i64".to_string()));
+            }
+            i += 1;
+        }
     }
 }
 
@@ -1127,6 +1171,7 @@ fn extract_output_type(body: &Expr) -> String {
                 match arg {
                     Expr::Cast { ty, .. } => return map_type_token(ty).to_string(),
                     Expr::Ident(name) => return map_type_token(name).to_string(),
+                    Expr::Paren(inner) => return extract_output_type(inner),
                     _ => {}
                 }
             }
@@ -1134,11 +1179,21 @@ fn extract_output_type(body: &Expr) -> String {
         }
         Expr::Cast { ty, .. } => map_type_token(ty).to_string(),
         Expr::Ident(name) => map_type_token(name).to_string(),
+        Expr::Paren(inner) => extract_output_type(inner),
+        Expr::Tuple(items) | Expr::Block(items) => {
+            // First typed element wins (e.g., (result: Int) parsed as tuple)
+            for item in items {
+                let ty = extract_output_type(item);
+                if ty != "()" {
+                    return ty;
+                }
+            }
+            "()".to_string()
+        }
         Expr::Raw(tokens) => {
-            // Look for the type after ":"
+            // Look for the type after ":" or "as"
             for (i, tok) in tokens.iter().enumerate() {
-                if tok == ":" && i + 1 < tokens.len() {
-                    // Collect multi-token types like "List < Int >"
+                if (tok == ":" || tok == "as") && i + 1 < tokens.len() {
                     let type_tokens = &tokens[i + 1..];
                     return map_type_tokens(type_tokens);
                 }
@@ -2949,5 +3004,72 @@ enum Value {
             lib.contains("Value::Empty =>"),
             "unit variant should be covered: {lib}"
         );
+    }
+
+    #[test]
+    fn extract_input_params_single_cast() {
+        // Top-level Cast: input(a as Int) at top level
+        let mut params = Vec::new();
+        let body = Expr::Cast {
+            expr: Box::new(Expr::Ident("a".into())),
+            ty: "Int".into(),
+        };
+        extract_input_params(&body, &mut params);
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].0, "a");
+    }
+
+    #[test]
+    fn extract_input_params_single_ident() {
+        let mut params = Vec::new();
+        let body = Expr::Ident("x".into());
+        extract_input_params(&body, &mut params);
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], ("x".to_string(), "i64".to_string()));
+    }
+
+    #[test]
+    fn extract_input_params_raw_as() {
+        let mut params = Vec::new();
+        let tokens = vec![
+            "a".into(),
+            "as".into(),
+            "Int".into(),
+            ",".into(),
+            "b".into(),
+            "as".into(),
+            "String".into(),
+        ];
+        let body = Expr::Raw(tokens);
+        extract_input_params(&body, &mut params);
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].0, "a");
+        assert_eq!(params[1].0, "b");
+    }
+
+    #[test]
+    fn extract_input_params_raw_bare_idents() {
+        let mut params = Vec::new();
+        let tokens = vec!["buf".into(), ",".into(), "n".into()];
+        let body = Expr::Raw(tokens);
+        extract_input_params(&body, &mut params);
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].0, "buf");
+        assert_eq!(params[1].0, "n");
+    }
+
+    #[test]
+    fn extract_output_type_paren() {
+        let body = Expr::Paren(Box::new(Expr::Ident("Int".into())));
+        let ty = extract_output_type(&body);
+        assert_eq!(ty, "i64");
+    }
+
+    #[test]
+    fn extract_output_type_raw_as() {
+        let tokens = vec!["result".into(), "as".into(), "Bool".into()];
+        let body = Expr::Raw(tokens);
+        let ty = extract_output_type(&body);
+        assert_eq!(ty, "bool");
     }
 }
