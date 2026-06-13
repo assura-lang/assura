@@ -9044,6 +9044,386 @@ impl Default for ScopedInvariantChecker {
     fn default() -> Self { Self::new() }
 }
 
+// ===========================================================================
+// T107: Core standard library types
+// ===========================================================================
+
+/// Core standard library type definitions (Pos, NonNeg, Email, Uuid, etc.)
+#[derive(Debug, Clone)]
+pub struct StdlibTypes {
+    types: std::collections::HashMap<std::string::String, StdlibTypeDef>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StdlibTypeDef {
+    pub name: std::string::String,
+    pub base_type: Type,
+    pub refinement: std::string::String,
+    pub description: std::string::String,
+}
+
+impl StdlibTypes {
+    pub fn new() -> Self {
+        let mut types = std::collections::HashMap::new();
+        types.insert("Pos".into(), StdlibTypeDef {
+            name: "Pos".into(), base_type: Type::Int,
+            refinement: "v > 0".into(), description: "Positive integer".into(),
+        });
+        types.insert("NonNeg".into(), StdlibTypeDef {
+            name: "NonNeg".into(), base_type: Type::Int,
+            refinement: "v >= 0".into(), description: "Non-negative integer".into(),
+        });
+        types.insert("Email".into(), StdlibTypeDef {
+            name: "Email".into(), base_type: Type::String,
+            refinement: "contains(v, @)".into(), description: "Email address".into(),
+        });
+        types.insert("Uuid".into(), StdlibTypeDef {
+            name: "Uuid".into(), base_type: Type::String,
+            refinement: "len(v) == 36".into(), description: "UUID string".into(),
+        });
+        types.insert("Port".into(), StdlibTypeDef {
+            name: "Port".into(), base_type: Type::Int,
+            refinement: "v >= 0 && v <= 65535".into(), description: "Network port".into(),
+        });
+        types.insert("Percentage".into(), StdlibTypeDef {
+            name: "Percentage".into(), base_type: Type::Float,
+            refinement: "v >= 0.0 && v <= 100.0".into(), description: "Percentage value".into(),
+        });
+        Self { types }
+    }
+
+    pub fn lookup(&self, name: &str) -> Option<&StdlibTypeDef> { self.types.get(name) }
+
+    pub fn all_types(&self) -> Vec<&StdlibTypeDef> { self.types.values().collect() }
+
+    pub fn type_count(&self) -> usize { self.types.len() }
+
+    pub fn is_stdlib_type(&self, name: &str) -> bool { self.types.contains_key(name) }
+}
+
+impl Default for StdlibTypes {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T108: Collection contracts (ListOps, sort, filter)
+// ===========================================================================
+
+/// Standard collection operation contracts.
+#[derive(Debug, Clone)]
+pub struct CollectionContracts {
+    contracts: Vec<CollectionContract>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CollectionContract {
+    pub name: std::string::String,
+    pub collection_type: std::string::String,
+    pub preconditions: Vec<std::string::String>,
+    pub postconditions: Vec<std::string::String>,
+    pub preserves_length: bool,
+    pub preserves_elements: bool,
+}
+
+impl CollectionContracts {
+    pub fn new() -> Self {
+        let mut contracts = Vec::new();
+        contracts.push(CollectionContract {
+            name: "sort".into(), collection_type: "List<T>".into(),
+            preconditions: vec![], postconditions: vec!["is_sorted(result)".into(), "len(result) == len(input)".into()],
+            preserves_length: true, preserves_elements: true,
+        });
+        contracts.push(CollectionContract {
+            name: "filter".into(), collection_type: "List<T>".into(),
+            preconditions: vec![], postconditions: vec!["len(result) <= len(input)".into(), "forall x in result: pred(x)".into()],
+            preserves_length: false, preserves_elements: true,
+        });
+        contracts.push(CollectionContract {
+            name: "map".into(), collection_type: "List<T>".into(),
+            preconditions: vec![], postconditions: vec!["len(result) == len(input)".into()],
+            preserves_length: true, preserves_elements: false,
+        });
+        contracts.push(CollectionContract {
+            name: "reverse".into(), collection_type: "List<T>".into(),
+            preconditions: vec![], postconditions: vec!["len(result) == len(input)".into(), "result[0] == input[len(input)-1]".into()],
+            preserves_length: true, preserves_elements: true,
+        });
+        contracts.push(CollectionContract {
+            name: "deduplicate".into(), collection_type: "List<T>".into(),
+            preconditions: vec![], postconditions: vec!["len(result) <= len(input)".into(), "all_unique(result)".into()],
+            preserves_length: false, preserves_elements: true,
+        });
+        Self { contracts }
+    }
+
+    pub fn lookup(&self, name: &str) -> Option<&CollectionContract> {
+        self.contracts.iter().find(|c| c.name == name)
+    }
+
+    pub fn all_contracts(&self) -> &[CollectionContract] { &self.contracts }
+
+    pub fn contract_count(&self) -> usize { self.contracts.len() }
+}
+
+impl Default for CollectionContracts {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T109: CRUD patterns and auth contracts
+// ===========================================================================
+
+/// Standard CRUD and authentication contract patterns.
+#[derive(Debug, Clone)]
+pub struct CrudAuthContracts {
+    crud_ops: Vec<CrudOperation>,
+    auth_policies: Vec<AuthPolicy>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CrudOperation {
+    pub name: std::string::String,
+    pub op_type: CrudType,
+    pub requires_auth: bool,
+    pub preconditions: Vec<std::string::String>,
+    pub postconditions: Vec<std::string::String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CrudType { Create, Read, Update, Delete }
+
+#[derive(Debug, Clone)]
+pub struct AuthPolicy {
+    pub name: std::string::String,
+    pub required_role: std::string::String,
+    pub allow_self: bool,
+}
+
+impl CrudAuthContracts {
+    pub fn new() -> Self {
+        Self { crud_ops: Vec::new(), auth_policies: Vec::new() }
+    }
+
+    pub fn add_crud(&mut self, name: std::string::String, op_type: CrudType, requires_auth: bool) {
+        self.crud_ops.push(CrudOperation {
+            name, op_type, requires_auth,
+            preconditions: Vec::new(), postconditions: Vec::new(),
+        });
+    }
+
+    pub fn add_auth_policy(&mut self, name: std::string::String, required_role: std::string::String, allow_self: bool) {
+        self.auth_policies.push(AuthPolicy { name, required_role, allow_self });
+    }
+
+    pub fn check_auth_coverage(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for op in &self.crud_ops {
+            if op.requires_auth {
+                let has_policy = self.auth_policies.iter().any(|p| p.name == op.name);
+                if !has_policy {
+                    errors.push(TypeError { code: "A53001".into(), message: format!("CRUD operation `{}` requires auth but has no policy", op.name), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    pub fn check_delete_protection(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for op in &self.crud_ops {
+            if op.op_type == CrudType::Delete && !op.requires_auth {
+                errors.push(TypeError { code: "A53002".into(), message: format!("delete operation `{}` should require authentication", op.name), span: 0..1, secondary: None });
+            }
+        }
+        errors
+    }
+
+    pub fn crud_count(&self) -> usize { self.crud_ops.len() }
+    pub fn policy_count(&self) -> usize { self.auth_policies.len() }
+}
+
+impl Default for CrudAuthContracts {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T110: Contract composition with extends
+// ===========================================================================
+
+/// Tracks contract inheritance/composition via extends.
+#[derive(Debug, Clone)]
+pub struct ContractCompositionChecker {
+    contracts: std::collections::HashMap<std::string::String, ComposableContract>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComposableContract {
+    pub name: std::string::String,
+    pub extends: Vec<std::string::String>,
+    pub own_clauses: usize,
+}
+
+impl ContractCompositionChecker {
+    pub fn new() -> Self { Self { contracts: std::collections::HashMap::new() } }
+
+    pub fn declare(&mut self, name: std::string::String, extends: Vec<std::string::String>, own_clauses: usize) {
+        self.contracts.insert(name.clone(), ComposableContract { name, extends, own_clauses });
+    }
+
+    /// Check that all extended contracts exist.
+    pub fn check_extends(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, contract) in &self.contracts {
+            for parent in &contract.extends {
+                if !self.contracts.contains_key(parent) {
+                    errors.push(TypeError { code: "A54001".into(), message: format!("contract `{name}` extends unknown contract `{parent}`"), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    /// Check for circular extends.
+    pub fn check_circular(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for name in self.contracts.keys() {
+            let mut visited = vec![name.clone()];
+            if self.has_extends_cycle(name, &mut visited) {
+                errors.push(TypeError { code: "A54002".into(), message: format!("circular extends chain involving `{name}`"), span: 0..1, secondary: None });
+            }
+        }
+        errors
+    }
+
+    fn has_extends_cycle(&self, current: &str, visited: &mut Vec<std::string::String>) -> bool {
+        if let Some(contract) = self.contracts.get(current) {
+            for parent in &contract.extends {
+                if visited.contains(parent) { return true; }
+                visited.push(parent.clone());
+                if self.has_extends_cycle(parent, visited) { return true; }
+                visited.pop();
+            }
+        }
+        false
+    }
+
+    /// Check for diamond inheritance (same contract extended via two paths).
+    pub fn check_diamond(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, contract) in &self.contracts {
+            let mut all_ancestors = Vec::new();
+            for parent in &contract.extends {
+                let ancestors = self.collect_ancestors(parent);
+                for a in &ancestors {
+                    if all_ancestors.contains(a) {
+                        errors.push(TypeError { code: "A54003".into(), message: format!("diamond inheritance in `{name}`: `{a}` reached via multiple paths"), span: 0..1, secondary: None });
+                    }
+                }
+                all_ancestors.extend(ancestors);
+            }
+        }
+        errors
+    }
+
+    fn collect_ancestors(&self, name: &str) -> Vec<std::string::String> {
+        let mut result = vec![name.to_string()];
+        if let Some(c) = self.contracts.get(name) {
+            for parent in &c.extends {
+                result.extend(self.collect_ancestors(parent));
+            }
+        }
+        result
+    }
+
+    pub fn contract_count(&self) -> usize { self.contracts.len() }
+}
+
+impl Default for ContractCompositionChecker {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T111: Contract libraries as publishable packages
+// ===========================================================================
+
+/// Tracks contract library packaging metadata.
+#[derive(Debug, Clone)]
+pub struct ContractLibraryChecker {
+    libraries: Vec<ContractLibrary>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContractLibrary {
+    pub name: std::string::String,
+    pub version: std::string::String,
+    pub exported_contracts: Vec<std::string::String>,
+    pub dependencies: Vec<LibraryDep>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LibraryDep {
+    pub name: std::string::String,
+    pub version_req: std::string::String,
+}
+
+impl ContractLibraryChecker {
+    pub fn new() -> Self { Self { libraries: Vec::new() } }
+
+    pub fn declare_library(&mut self, name: std::string::String, version: std::string::String) {
+        self.libraries.push(ContractLibrary { name, version, exported_contracts: Vec::new(), dependencies: Vec::new() });
+    }
+
+    pub fn add_export(&mut self, lib_name: &str, contract: std::string::String) {
+        if let Some(lib) = self.libraries.iter_mut().find(|l| l.name == lib_name) {
+            lib.exported_contracts.push(contract);
+        }
+    }
+
+    pub fn add_dependency(&mut self, lib_name: &str, dep: LibraryDep) {
+        if let Some(lib) = self.libraries.iter_mut().find(|l| l.name == lib_name) {
+            lib.dependencies.push(dep);
+        }
+    }
+
+    /// Check for libraries with no exports.
+    pub fn check_empty_exports(&self) -> Vec<TypeError> {
+        self.libraries.iter().filter(|l| l.exported_contracts.is_empty())
+            .map(|l| TypeError { code: "A55001".into(), message: format!("library `{}` has no exported contracts", l.name), span: 0..1, secondary: None })
+            .collect()
+    }
+
+    /// Check for circular dependencies.
+    pub fn check_circular_deps(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for lib in &self.libraries {
+            for dep in &lib.dependencies {
+                if dep.name == lib.name {
+                    errors.push(TypeError { code: "A55002".into(), message: format!("library `{}` depends on itself", lib.name), span: 0..1, secondary: None });
+                }
+            }
+        }
+        errors
+    }
+
+    /// Check for duplicate library names.
+    pub fn check_duplicates(&self) -> Vec<TypeError> {
+        let mut seen = std::collections::HashSet::new();
+        let mut errors = Vec::new();
+        for lib in &self.libraries {
+            if !seen.insert(lib.name.clone()) {
+                errors.push(TypeError { code: "A55003".into(), message: format!("duplicate library name `{}`", lib.name), span: 0..1, secondary: None });
+            }
+        }
+        errors
+    }
+
+    pub fn library_count(&self) -> usize { self.libraries.len() }
+}
+
+impl Default for ContractLibraryChecker {
+    fn default() -> Self { Self::new() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -18149,6 +18529,222 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn invariant_default() {
         let si = ScopedInvariantChecker::default();
         assert_eq!(si.suspension_depth(), 0);
+    }
+
+
+    // =======================================================================
+    // T107: StdlibTypes tests
+    // =======================================================================
+
+    #[test]
+    fn stdlib_has_core_types() {
+        let stdlib = StdlibTypes::new();
+        assert!(stdlib.is_stdlib_type("Pos"));
+        assert!(stdlib.is_stdlib_type("NonNeg"));
+        assert!(stdlib.is_stdlib_type("Email"));
+        assert!(stdlib.is_stdlib_type("Uuid"));
+        assert!(!stdlib.is_stdlib_type("Unknown"));
+    }
+
+    #[test]
+    fn stdlib_lookup() {
+        let stdlib = StdlibTypes::new();
+        let pos = stdlib.lookup("Pos").unwrap();
+        assert_eq!(pos.refinement, "v > 0");
+        assert_eq!(pos.base_type, Type::Int);
+    }
+
+    #[test]
+    fn stdlib_type_count() {
+        let stdlib = StdlibTypes::new();
+        assert!(stdlib.type_count() >= 6);
+    }
+
+    #[test]
+    fn stdlib_default() {
+        let stdlib = StdlibTypes::default();
+        assert!(stdlib.type_count() >= 6);
+    }
+
+    // =======================================================================
+    // T108: CollectionContracts tests
+    // =======================================================================
+
+    #[test]
+    fn collection_has_standard_ops() {
+        let cc = CollectionContracts::new();
+        assert!(cc.lookup("sort").is_some());
+        assert!(cc.lookup("filter").is_some());
+        assert!(cc.lookup("map").is_some());
+        assert!(cc.lookup("reverse").is_some());
+    }
+
+    #[test]
+    fn collection_sort_preserves_length() {
+        let cc = CollectionContracts::new();
+        let sort = cc.lookup("sort").unwrap();
+        assert!(sort.preserves_length);
+        assert!(sort.preserves_elements);
+    }
+
+    #[test]
+    fn collection_filter_does_not_preserve_length() {
+        let cc = CollectionContracts::new();
+        let filter = cc.lookup("filter").unwrap();
+        assert!(!filter.preserves_length);
+    }
+
+    #[test]
+    fn collection_contract_count() {
+        let cc = CollectionContracts::new();
+        assert!(cc.contract_count() >= 5);
+    }
+
+    #[test]
+    fn collection_default() {
+        let cc = CollectionContracts::default();
+        assert!(cc.contract_count() >= 5);
+    }
+
+    // =======================================================================
+    // T109: CrudAuthContracts tests
+    // =======================================================================
+
+    #[test]
+    fn crud_auth_missing_policy() {
+        let mut ca = CrudAuthContracts::new();
+        ca.add_crud("create_user".into(), CrudType::Create, true);
+        let errs = ca.check_auth_coverage();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A53001");
+    }
+
+    #[test]
+    fn crud_auth_with_policy_ok() {
+        let mut ca = CrudAuthContracts::new();
+        ca.add_crud("create_user".into(), CrudType::Create, true);
+        ca.add_auth_policy("create_user".into(), "admin".into(), false);
+        assert!(ca.check_auth_coverage().is_empty());
+    }
+
+    #[test]
+    fn crud_delete_without_auth() {
+        let mut ca = CrudAuthContracts::new();
+        ca.add_crud("delete_item".into(), CrudType::Delete, false);
+        let errs = ca.check_delete_protection();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A53002");
+    }
+
+    #[test]
+    fn crud_counts() {
+        let mut ca = CrudAuthContracts::new();
+        ca.add_crud("a".into(), CrudType::Read, false);
+        ca.add_auth_policy("a".into(), "user".into(), true);
+        assert_eq!(ca.crud_count(), 1);
+        assert_eq!(ca.policy_count(), 1);
+    }
+
+    #[test]
+    fn crud_default() {
+        let ca = CrudAuthContracts::default();
+        assert_eq!(ca.crud_count(), 0);
+    }
+
+    // =======================================================================
+    // T110: ContractCompositionChecker tests
+    // =======================================================================
+
+    #[test]
+    fn composition_unknown_extends() {
+        let mut cc = ContractCompositionChecker::new();
+        cc.declare("Child".into(), vec!["Unknown".into()], 1);
+        let errs = cc.check_extends();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A54001");
+    }
+
+    #[test]
+    fn composition_valid_extends() {
+        let mut cc = ContractCompositionChecker::new();
+        cc.declare("Base".into(), vec![], 2);
+        cc.declare("Child".into(), vec!["Base".into()], 1);
+        assert!(cc.check_extends().is_empty());
+    }
+
+    #[test]
+    fn composition_circular() {
+        let mut cc = ContractCompositionChecker::new();
+        cc.declare("A".into(), vec!["B".into()], 1);
+        cc.declare("B".into(), vec!["A".into()], 1);
+        let errs = cc.check_circular();
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code == "A54002"));
+    }
+
+    #[test]
+    fn composition_diamond() {
+        let mut cc = ContractCompositionChecker::new();
+        cc.declare("Base".into(), vec![], 1);
+        cc.declare("Left".into(), vec!["Base".into()], 1);
+        cc.declare("Right".into(), vec!["Base".into()], 1);
+        cc.declare("Diamond".into(), vec!["Left".into(), "Right".into()], 1);
+        let errs = cc.check_diamond();
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code == "A54003"));
+    }
+
+    #[test]
+    fn composition_default() {
+        let cc = ContractCompositionChecker::default();
+        assert_eq!(cc.contract_count(), 0);
+    }
+
+    // =======================================================================
+    // T111: ContractLibraryChecker tests
+    // =======================================================================
+
+    #[test]
+    fn library_empty_exports() {
+        let mut lc = ContractLibraryChecker::new();
+        lc.declare_library("mylib".into(), "1.0.0".into());
+        let errs = lc.check_empty_exports();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A55001");
+    }
+
+    #[test]
+    fn library_with_exports_ok() {
+        let mut lc = ContractLibraryChecker::new();
+        lc.declare_library("mylib".into(), "1.0.0".into());
+        lc.add_export("mylib", "SafeDiv".into());
+        assert!(lc.check_empty_exports().is_empty());
+    }
+
+    #[test]
+    fn library_self_dependency() {
+        let mut lc = ContractLibraryChecker::new();
+        lc.declare_library("mylib".into(), "1.0.0".into());
+        lc.add_dependency("mylib", LibraryDep { name: "mylib".into(), version_req: ">=1.0".into() });
+        let errs = lc.check_circular_deps();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A55002");
+    }
+
+    #[test]
+    fn library_duplicate() {
+        let mut lc = ContractLibraryChecker::new();
+        lc.declare_library("mylib".into(), "1.0.0".into());
+        lc.declare_library("mylib".into(), "2.0.0".into());
+        let errs = lc.check_duplicates();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A55003");
+    }
+
+    #[test]
+    fn library_default() {
+        let lc = ContractLibraryChecker::default();
+        assert_eq!(lc.library_count(), 0);
     }
 
 }

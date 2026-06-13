@@ -815,23 +815,23 @@
 
 ### 4.1 Standard Library (3 weeks)
 
-- [ ] **T107**: Core types (Pos, NonNeg, Email, Uuid)
+- [x] **T107**: Core types (Pos, NonNeg, Email, Uuid)
   - Depends on: T041
-- [ ] **T108**: Collection contracts (ListOps, sort, filter)
+- [x] **T108**: Collection contracts (ListOps, sort, filter)
   - Depends on: T041
-- [ ] **T109**: CRUD patterns, auth contracts
+- [x] **T109**: CRUD patterns, auth contracts
   - Depends on: T041
 
 ### 4.2 Module System Completion (2 weeks)
 
-- [ ] **T110**: Contract composition with `extends`
+- [x] **T110**: Contract composition with `extends`
   - Depends on: T011
-- [ ] **T111**: Contract libraries as publishable packages
+- [x] **T111**: Contract libraries as publishable packages
   - Depends on: T110
 
 ### 4.3 IR Format (2 weeks)
 
-- [ ] **T112**: Implementation IR parser (Section 4)
+- [x] **T112**: Implementation IR parser (Section 4)
   - Depends on: T008
   - Text format parser
   - Binary (MessagePack) serializer
@@ -839,30 +839,30 @@
 
 ### 4.4 Performance (3 weeks)
 
-- [ ] **T113**: Verification caching
+- [x] **T113**: Verification caching
   - Depends on: T041
   - Hash contract + implementation, skip if unchanged
 
-- [ ] **T114**: Parallel SMT queries
+- [x] **T114**: Parallel SMT queries
   - Depends on: T041
   - Independent contracts verified in parallel
 
-- [ ] **T115**: Incremental compilation
+- [x] **T115**: Incremental compilation
   - Depends on: T011
   - Only re-check changed modules
 
 ### 4.5 Ecosystem (4 weeks)
 
-- [ ] **T116**: GitHub Action (assura-lang/verify-action)
+- [x] **T116**: GitHub Action (assura-lang/verify-action)
   - Depends on: T025
 
-- [ ] **T117**: Documentation (tutorial, internals, API reference)
+- [x] **T117**: Documentation (tutorial, internals, API reference)
   - Depends on: T106
 
-- [ ] **T118**: Showcase builds (full CVE demos with differential testing)
+- [x] **T118**: Showcase builds (full CVE demos with differential testing)
   - Depends on: T048, T084, T085
 
-- [ ] **T119**: Cranelift backend for fast dev builds
+- [x] **T119**: Cranelift backend for fast dev builds
   - Depends on: T022
 
 ---

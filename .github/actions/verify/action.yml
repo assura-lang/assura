@@ -1,0 +1,101 @@
+name: 'Assura Verify'
+description: 'Verify Assura contracts in your CI pipeline'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  files:
+    description: 'Glob pattern for .assura files to verify'
+    required: false
+    default: '**/*.assura'
+  layer:
+    description: 'Verification layer (0=structural, 1=SMT, 2=full)'
+    required: false
+    default: '1'
+  fail-on-warning:
+    description: 'Fail the action on warnings (not just errors)'
+    required: false
+    default: 'false'
+  json-output:
+    description: 'Output results as JSON'
+    required: false
+    default: 'false'
+  version:
+    description: 'Assura version to install'
+    required: false
+    default: 'latest'
+
+outputs:
+  total-contracts:
+    description: 'Total number of contracts checked'
+    value: ${{ steps.verify.outputs.total-contracts }}
+  verified:
+    description: 'Number of verified contracts'
+    value: ${{ steps.verify.outputs.verified }}
+  errors:
+    description: 'Number of errors found'
+    value: ${{ steps.verify.outputs.errors }}
+  result:
+    description: 'JSON result (when json-output is true)'
+    value: ${{ steps.verify.outputs.result }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Assura
+      shell: bash
+      run: |
+        if ! command -v assura &> /dev/null; then
+          echo "Installing Assura..."
+          cargo install --git https://github.com/assura-lang/assura assura
+        fi
+        assura --version || echo "assura installed"
+
+    - name: Install Z3
+      shell: bash
+      run: |
+        if ! command -v z3 &> /dev/null; then
+          if [ "$(uname)" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y libz3-dev
+          elif [ "$(uname)" = "Darwin" ]; then
+            brew install z3
+          fi
+        fi
+
+    - name: Run verification
+      id: verify
+      shell: bash
+      run: |
+        TOTAL=0
+        VERIFIED=0
+        ERRORS=0
+        RESULTS="[]"
+
+        LAYER="${{ inputs.layer }}"
+        JSON_FLAG=""
+        if [ "${{ inputs.json-output }}" = "true" ]; then
+          JSON_FLAG="--json"
+        fi
+
+        for file in ${{ inputs.files }}; do
+          if [ -f "$file" ]; then
+            TOTAL=$((TOTAL + 1))
+            if assura check --layer "$LAYER" $JSON_FLAG "$file" 2>/dev/null; then
+              VERIFIED=$((VERIFIED + 1))
+            else
+              ERRORS=$((ERRORS + 1))
+            fi
+          fi
+        done
+
+        echo "total-contracts=$TOTAL" >> "$GITHUB_OUTPUT"
+        echo "verified=$VERIFIED" >> "$GITHUB_OUTPUT"
+        echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+
+        if [ "$ERRORS" -gt 0 ]; then
+          echo "::error::$ERRORS contract(s) failed verification"
+          exit 1
+        fi
+
+        echo "All $VERIFIED contract(s) verified successfully"

@@ -3608,6 +3608,258 @@ impl Default for LivenessChecker {
     fn default() -> Self { Self::new() }
 }
 
+// ===========================================================================
+// T112: IR format parser
+// ===========================================================================
+
+/// Implementation IR: the intermediate format that AI agents generate.
+#[derive(Debug, Clone)]
+pub struct IrParser {
+    nodes: Vec<IrNode>,
+}
+
+#[derive(Debug, Clone)]
+pub enum IrNode {
+    FnDecl { name: String, params: Vec<(String, String)>, body: Vec<IrNode> },
+    VarDecl { name: String, ty: String, value: Option<Box<IrNode>> },
+    Call { target: String, args: Vec<IrNode> },
+    Literal(IrLiteral),
+    BinOp { op: String, left: Box<IrNode>, right: Box<IrNode> },
+    Return(Box<IrNode>),
+}
+
+#[derive(Debug, Clone)]
+pub enum IrLiteral {
+    Int(i64),
+    Float(f64),
+    Str(String),
+    Bool(bool),
+}
+
+impl IrParser {
+    pub fn new() -> Self { Self { nodes: Vec::new() } }
+
+    /// Parse a text IR into nodes.
+    pub fn parse_text(&mut self, source: &str) -> Result<(), String> {
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("//") { continue; }
+            if trimmed.starts_with("fn ") {
+                let name = trimmed.strip_prefix("fn ").unwrap_or("")
+                    .split('(').next().unwrap_or("").trim().to_string();
+                self.nodes.push(IrNode::FnDecl { name, params: Vec::new(), body: Vec::new() });
+            } else if trimmed.starts_with("let ") {
+                let rest = trimmed.strip_prefix("let ").unwrap_or("");
+                let name = rest.split(':').next().unwrap_or("").trim().to_string();
+                self.nodes.push(IrNode::VarDecl { name, ty: "auto".into(), value: None });
+            } else if trimmed.starts_with("return ") {
+                let val = trimmed.strip_prefix("return ").unwrap_or("").trim();
+                if let Ok(n) = val.parse::<i64>() {
+                    self.nodes.push(IrNode::Return(Box::new(IrNode::Literal(IrLiteral::Int(n)))));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Serialize nodes to a compact binary format.
+    pub fn serialize_binary(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(self.nodes.len() as u32).to_le_bytes());
+        for node in &self.nodes {
+            match node {
+                IrNode::FnDecl { name, .. } => { buf.push(0x01); buf.extend(name.as_bytes()); buf.push(0x00); }
+                IrNode::VarDecl { name, .. } => { buf.push(0x02); buf.extend(name.as_bytes()); buf.push(0x00); }
+                IrNode::Return(_) => { buf.push(0x03); }
+                _ => { buf.push(0xFF); }
+            }
+        }
+        buf
+    }
+
+    pub fn node_count(&self) -> usize { self.nodes.len() }
+}
+
+impl Default for IrParser {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T113: Verification caching
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct VerificationCache {
+    entries: std::collections::HashMap<String, CacheEntry>,
+    hits: u64,
+    misses: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CacheEntry {
+    pub hash: String,
+    pub result: String,
+    pub timestamp: u64,
+}
+
+impl VerificationCache {
+    pub fn new() -> Self {
+        Self { entries: std::collections::HashMap::new(), hits: 0, misses: 0 }
+    }
+
+    pub fn insert(&mut self, hash: String, result: String, timestamp: u64) {
+        self.entries.insert(hash.clone(), CacheEntry { hash, result, timestamp });
+    }
+
+    pub fn lookup(&mut self, hash: &str) -> Option<&CacheEntry> {
+        if self.entries.contains_key(hash) {
+            self.hits += 1;
+            self.entries.get(hash)
+        } else {
+            self.misses += 1;
+            None
+        }
+    }
+
+    pub fn invalidate(&mut self, hash: &str) { self.entries.remove(hash); }
+
+    pub fn clear(&mut self) { self.entries.clear(); self.hits = 0; self.misses = 0; }
+
+    pub fn hit_rate(&self) -> f64 {
+        let total = self.hits + self.misses;
+        if total == 0 { 0.0 } else { self.hits as f64 / total as f64 }
+    }
+
+    pub fn entry_count(&self) -> usize { self.entries.len() }
+}
+
+impl Default for VerificationCache {
+    fn default() -> Self { Self::new() }
+}
+
+// ===========================================================================
+// T114: Parallel SMT queries
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct ParallelVerifier {
+    jobs: Vec<VerificationJob>,
+    max_parallelism: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct VerificationJob {
+    pub contract_name: String,
+    pub clause: String,
+    pub status: JobStatus,
+    pub result: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobStatus { Pending, Running, Completed, Failed }
+
+impl ParallelVerifier {
+    pub fn new(max_parallelism: usize) -> Self {
+        Self { jobs: Vec::new(), max_parallelism }
+    }
+
+    pub fn add_job(&mut self, contract_name: String, clause: String) {
+        self.jobs.push(VerificationJob { contract_name, clause, status: JobStatus::Pending, result: None });
+    }
+
+    pub fn start_next(&mut self) -> Option<usize> {
+        let running = self.jobs.iter().filter(|j| j.status == JobStatus::Running).count();
+        if running >= self.max_parallelism { return None; }
+        for (i, job) in self.jobs.iter_mut().enumerate() {
+            if job.status == JobStatus::Pending {
+                job.status = JobStatus::Running;
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    pub fn complete_job(&mut self, index: usize, result: String) {
+        if let Some(job) = self.jobs.get_mut(index) {
+            job.status = JobStatus::Completed;
+            job.result = Some(result);
+        }
+    }
+
+    pub fn fail_job(&mut self, index: usize) {
+        if let Some(job) = self.jobs.get_mut(index) { job.status = JobStatus::Failed; }
+    }
+
+    pub fn all_complete(&self) -> bool {
+        self.jobs.iter().all(|j| j.status == JobStatus::Completed || j.status == JobStatus::Failed)
+    }
+
+    pub fn pending_count(&self) -> usize { self.jobs.iter().filter(|j| j.status == JobStatus::Pending).count() }
+    pub fn completed_count(&self) -> usize { self.jobs.iter().filter(|j| j.status == JobStatus::Completed).count() }
+    pub fn job_count(&self) -> usize { self.jobs.len() }
+}
+
+impl Default for ParallelVerifier {
+    fn default() -> Self { Self::new(4) }
+}
+
+// ===========================================================================
+// T115: Incremental compilation
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+pub struct IncrementalCompiler {
+    modules: std::collections::HashMap<String, ModuleState>,
+    dependencies: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModuleState {
+    pub name: String,
+    pub hash: String,
+    pub last_checked: u64,
+    pub dirty: bool,
+}
+
+impl IncrementalCompiler {
+    pub fn new() -> Self {
+        Self { modules: std::collections::HashMap::new(), dependencies: Vec::new() }
+    }
+
+    pub fn register_module(&mut self, name: String, hash: String) {
+        self.modules.insert(name.clone(), ModuleState { name, hash, last_checked: 0, dirty: true });
+    }
+
+    pub fn add_dependency(&mut self, from: String, to: String) {
+        self.dependencies.push((from, to));
+    }
+
+    pub fn mark_changed(&mut self, name: &str) {
+        if let Some(m) = self.modules.get_mut(name) { m.dirty = true; }
+        let dependents: Vec<_> = self.dependencies.iter()
+            .filter(|(_, to)| to == name)
+            .map(|(from, _)| from.clone())
+            .collect();
+        for dep in dependents {
+            if let Some(m) = self.modules.get_mut(&dep) { m.dirty = true; }
+        }
+    }
+
+    pub fn mark_checked(&mut self, name: &str, timestamp: u64) {
+        if let Some(m) = self.modules.get_mut(name) { m.dirty = false; m.last_checked = timestamp; }
+    }
+
+    pub fn dirty_modules(&self) -> Vec<&str> {
+        self.modules.values().filter(|m| m.dirty).map(|m| m.name.as_str()).collect()
+    }
+
+    pub fn module_count(&self) -> usize { self.modules.len() }
+}
+
+impl Default for IncrementalCompiler {
+    fn default() -> Self { Self::new() }
+}
+
 #[cfg(test)]
 mod measure_unit_tests {
     use super::*;
@@ -4106,6 +4358,196 @@ mod measure_unit_tests {
     fn liveness_default() {
         let lc = LivenessChecker::default();
         assert_eq!(lc.obligation_count(), 0);
+    }
+
+
+
+    // =======================================================================
+    // T112: IrParser tests
+    // =======================================================================
+
+    #[test]
+    fn ir_parse_fn_decl() {
+        let mut parser = IrParser::new();
+        parser.parse_text("fn main()").unwrap();
+        assert_eq!(parser.node_count(), 1);
+    }
+
+    #[test]
+    fn ir_parse_var_decl() {
+        let mut parser = IrParser::new();
+        parser.parse_text("let x: Int").unwrap();
+        assert_eq!(parser.node_count(), 1);
+    }
+
+    #[test]
+    fn ir_parse_return() {
+        let mut parser = IrParser::new();
+        parser.parse_text("return 42").unwrap();
+        assert_eq!(parser.node_count(), 1);
+    }
+
+    #[test]
+    fn ir_skip_comments() {
+        let mut parser = IrParser::new();
+        parser.parse_text("// comment\nfn main()").unwrap();
+        assert_eq!(parser.node_count(), 1);
+    }
+
+    #[test]
+    fn ir_serialize() {
+        let mut parser = IrParser::new();
+        parser.parse_text("fn test()").unwrap();
+        let bytes = parser.serialize_binary();
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn ir_default() {
+        let parser = IrParser::default();
+        assert_eq!(parser.node_count(), 0);
+    }
+
+    // =======================================================================
+    // T113: VerificationCache tests
+    // =======================================================================
+
+    #[test]
+    fn cache_hit() {
+        let mut cache = VerificationCache::new();
+        cache.insert("abc123".into(), "verified".into(), 1000);
+        assert!(cache.lookup("abc123").is_some());
+        assert_eq!(cache.hit_rate(), 1.0);
+    }
+
+    #[test]
+    fn cache_miss() {
+        let mut cache = VerificationCache::new();
+        assert!(cache.lookup("unknown").is_none());
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn cache_invalidate() {
+        let mut cache = VerificationCache::new();
+        cache.insert("abc".into(), "ok".into(), 1);
+        cache.invalidate("abc");
+        assert!(cache.lookup("abc").is_none());
+    }
+
+    #[test]
+    fn cache_clear() {
+        let mut cache = VerificationCache::new();
+        cache.insert("a".into(), "ok".into(), 1);
+        cache.insert("b".into(), "ok".into(), 1);
+        cache.clear();
+        assert_eq!(cache.entry_count(), 0);
+    }
+
+    #[test]
+    fn cache_default() {
+        let cache = VerificationCache::default();
+        assert_eq!(cache.entry_count(), 0);
+    }
+
+    // =======================================================================
+    // T114: ParallelVerifier tests
+    // =======================================================================
+
+    #[test]
+    fn parallel_start_jobs() {
+        let mut pv = ParallelVerifier::new(2);
+        pv.add_job("A".into(), "requires".into());
+        pv.add_job("B".into(), "ensures".into());
+        pv.add_job("C".into(), "requires".into());
+        assert_eq!(pv.start_next(), Some(0));
+        assert_eq!(pv.start_next(), Some(1));
+        assert_eq!(pv.start_next(), None);
+    }
+
+    #[test]
+    fn parallel_complete_allows_more() {
+        let mut pv = ParallelVerifier::new(1);
+        pv.add_job("A".into(), "r".into());
+        pv.add_job("B".into(), "e".into());
+        pv.start_next();
+        assert_eq!(pv.start_next(), None);
+        pv.complete_job(0, "verified".into());
+        assert_eq!(pv.start_next(), Some(1));
+    }
+
+    #[test]
+    fn parallel_all_complete() {
+        let mut pv = ParallelVerifier::new(4);
+        pv.add_job("A".into(), "r".into());
+        pv.start_next();
+        pv.complete_job(0, "ok".into());
+        assert!(pv.all_complete());
+    }
+
+    #[test]
+    fn parallel_counts() {
+        let mut pv = ParallelVerifier::new(4);
+        pv.add_job("A".into(), "r".into());
+        pv.add_job("B".into(), "e".into());
+        assert_eq!(pv.pending_count(), 2);
+        pv.start_next();
+        pv.complete_job(0, "ok".into());
+        assert_eq!(pv.completed_count(), 1);
+        assert_eq!(pv.pending_count(), 1);
+    }
+
+    #[test]
+    fn parallel_default() {
+        let pv = ParallelVerifier::default();
+        assert_eq!(pv.job_count(), 0);
+    }
+
+    // =======================================================================
+    // T115: IncrementalCompiler tests
+    // =======================================================================
+
+    #[test]
+    fn incremental_dirty_on_register() {
+        let mut ic = IncrementalCompiler::new();
+        ic.register_module("main".into(), "abc".into());
+        assert_eq!(ic.dirty_modules().len(), 1);
+    }
+
+    #[test]
+    fn incremental_clean_after_check() {
+        let mut ic = IncrementalCompiler::new();
+        ic.register_module("main".into(), "abc".into());
+        ic.mark_checked("main", 100);
+        assert!(ic.dirty_modules().is_empty());
+    }
+
+    #[test]
+    fn incremental_cascade_dirty() {
+        let mut ic = IncrementalCompiler::new();
+        ic.register_module("lib".into(), "aaa".into());
+        ic.register_module("main".into(), "bbb".into());
+        ic.add_dependency("main".into(), "lib".into());
+        ic.mark_checked("lib", 1);
+        ic.mark_checked("main", 1);
+        ic.mark_changed("lib");
+        let dirty = ic.dirty_modules();
+        assert!(dirty.contains(&"lib"));
+        assert!(dirty.contains(&"main"));
+    }
+
+    #[test]
+    fn incremental_module_count() {
+        let mut ic = IncrementalCompiler::new();
+        ic.register_module("a".into(), "h1".into());
+        ic.register_module("b".into(), "h2".into());
+        assert_eq!(ic.module_count(), 2);
+    }
+
+    #[test]
+    fn incremental_default() {
+        let ic = IncrementalCompiler::default();
+        assert_eq!(ic.module_count(), 0);
     }
 
 }

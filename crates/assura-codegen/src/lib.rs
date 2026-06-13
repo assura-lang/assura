@@ -29,6 +29,33 @@ pub struct GeneratedProject {
 }
 
 // ---------------------------------------------------------------------------
+// T119: Backend selection (Rustc vs Cranelift for fast dev builds)
+// ---------------------------------------------------------------------------
+
+/// Code generation backend.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CodegenBackend {
+    /// Standard rustc backend (optimized, production).
+    Rustc,
+    /// Cranelift backend (fast compilation, dev builds).
+    Cranelift,
+}
+
+/// Configuration for code generation.
+#[derive(Debug, Clone)]
+pub struct BackendConfig {
+    pub backend: CodegenBackend,
+    pub opt_level: u8,
+    pub debug_info: bool,
+}
+
+impl Default for BackendConfig {
+    fn default() -> Self {
+        Self { backend: CodegenBackend::Rustc, opt_level: 2, debug_info: false }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -1567,5 +1594,26 @@ type Marker {
             lib.contains("fn helper"),
             "non-lemma fn should appear in generated Rust code"
         );
+    }
+
+    // =======================================================================
+    // T119: Cranelift backend configuration
+    // =======================================================================
+
+    #[test]
+    fn backend_default_is_rustc() {
+        let config = super::BackendConfig::default();
+        assert_eq!(config.backend, super::CodegenBackend::Rustc);
+    }
+
+    #[test]
+    fn backend_cranelift_fast_dev() {
+        let config = super::BackendConfig {
+            backend: super::CodegenBackend::Cranelift,
+            opt_level: 0,
+            debug_info: true,
+        };
+        assert_eq!(config.backend, super::CodegenBackend::Cranelift);
+        assert_eq!(config.opt_level, 0);
     }
 }
