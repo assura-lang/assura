@@ -243,9 +243,22 @@ fn parse_type_tokens(tokens: &[String]) -> Type {
                 .collect();
             let owned: Vec<String> = after_colon.iter().map(|s| s.to_string()).collect();
             let base = parse_type_tokens(&owned);
+
+            // Extract predicate: everything between | and }
+            let predicate = if let Some(pipe_pos) = clean.iter().position(|t| *t == "|") {
+                clean[pipe_pos + 1..]
+                    .iter()
+                    .take_while(|t| **t != "}")
+                    .copied()
+                    .collect::<Vec<&str>>()
+                    .join(" ")
+            } else {
+                std::string::String::new()
+            };
+
             return Type::Refined {
                 base: Box::new(base),
-                predicate: String::new(),
+                predicate,
             };
         }
         return Type::Unknown;
@@ -13609,7 +13622,7 @@ type Point {
             parse_type_tokens(&tokens),
             Type::Refined {
                 base: Box::new(Type::Int),
-                predicate: String::new(),
+                predicate: "x > 0".to_string(),
             }
         );
     }
@@ -14661,6 +14674,59 @@ type Point {
     fn parse_type_tokens_empty_tuple_is_unit() {
         let tokens: Vec<String> = vec!["(", ")"].into_iter().map(String::from).collect();
         assert_eq!(parse_type_tokens(&tokens), Type::Unit);
+    }
+
+    #[test]
+    fn parse_type_tokens_refinement_preserves_predicate() {
+        // { x : Int | x > 0 }
+        let tokens: Vec<String> = vec!["{", "x", ":", "Int", "|", "x", ">", "0", "}"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let ty = parse_type_tokens(&tokens);
+        assert_eq!(
+            ty,
+            Type::Refined {
+                base: Box::new(Type::Int),
+                predicate: "x > 0".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_refinement_complex_predicate() {
+        // { n : Nat | n >= 1 && n <= 100 }
+        let tokens: Vec<String> = vec![
+            "{", "n", ":", "Nat", "|", "n", ">=", "1", "&&", "n", "<=", "100", "}",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let ty = parse_type_tokens(&tokens);
+        assert_eq!(
+            ty,
+            Type::Refined {
+                base: Box::new(Type::Nat),
+                predicate: "n >= 1 && n <= 100".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_refinement_no_predicate() {
+        // { x : Bool } (no pipe)
+        let tokens: Vec<String> = vec!["{", "x", ":", "Bool", "}"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let ty = parse_type_tokens(&tokens);
+        assert_eq!(
+            ty,
+            Type::Refined {
+                base: Box::new(Type::Bool),
+                predicate: String::new(),
+            }
+        );
     }
 
     // -----------------------------------------------------------------------
