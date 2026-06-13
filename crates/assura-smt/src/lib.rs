@@ -1772,8 +1772,36 @@ mod z3_backend {
             matches!(v, Z3Value::Real(_))
         }
 
+        /// Check if a BinOp is a comparison operator.
+        fn is_comparison(op: &BinOp) -> bool {
+            matches!(
+                op,
+                BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte | BinOp::Eq | BinOp::Neq
+            )
+        }
+
         /// Encode a binary operation.
         fn encode_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> Z3Value<'ctx> {
+            // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
+            // The parser produces BinOp(BinOp(a, <, b), <, c). We detect
+            // when a comparison's LHS is itself a comparison, extract the
+            // shared middle operand, and encode as conjunction.
+            if Self::is_comparison(op)
+                && let Expr::BinOp {
+                    lhs: inner_lhs,
+                    op: inner_op,
+                    rhs: inner_rhs,
+                } = lhs
+                && Self::is_comparison(inner_op)
+            {
+                // Encode: (inner_lhs inner_op inner_rhs) && (inner_rhs op rhs)
+                let left_cmp = self.encode_binop(inner_lhs, inner_op, inner_rhs);
+                let right_cmp = self.encode_binop(inner_rhs, op, rhs);
+                let l = left_cmp.as_bool(self.ctx);
+                let r = right_cmp.as_bool(self.ctx);
+                return Z3Value::Bool(ast::Bool::and(self.ctx, &[&l, &r]));
+            }
+
             let lv = self.encode_expr(lhs);
             let rv = self.encode_expr(rhs);
 
@@ -4631,6 +4659,64 @@ contract StrIsEmpty {
         assert!(
             matches!(&results[0], VerificationResult::Verified { .. }),
             "is_empty should return bool, got: {:?}",
+            results[0]
+        );
+    }
+
+    // =======================================================================
+    // Comparison chaining tests
+    // =======================================================================
+
+    #[test]
+    fn chained_comparison_lower_upper_bound() {
+        // 0 <= x < n with x = 3, n = 10 should verify
+        let source = r#"
+contract ChainedBounds {
+  requires { x > 0 && x < 10 }
+  ensures { 0 <= x && x < 10 }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "chained comparison should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn chained_comparison_three_way() {
+        // a <= b <= c when a < b < c
+        let source = r#"
+contract ThreeWayChain {
+  requires { a < b && b < c }
+  ensures { a < c }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "transitivity through chain should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn chained_comparison_false_case() {
+        // 0 < x > 10 does not imply x > 20
+        let source = r#"
+contract ChainedFalse {
+  requires { x > 0 && x > 10 }
+  ensures { x > 20 }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Counterexample { .. }),
+            "false chained claim should produce counterexample, got: {:?}",
             results[0]
         );
     }
