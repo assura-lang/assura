@@ -1078,12 +1078,33 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
 ///
 /// Operations take `&mut self`, queries take `&self`. Both extract input params
 /// and output types from their clauses for proper function signatures.
+/// Extract a state name from a `self.state == StateName` pattern.
+fn extract_state_comparison(body: &Expr) -> Option<String> {
+    if let Expr::BinOp { lhs, op, rhs } = body
+        && matches!(op, BinOp::Eq)
+    {
+        // Check lhs is self.state
+        let is_self_state = matches!(
+            lhs.as_ref(),
+            Expr::Field(recv, field) if matches!(recv.as_ref(), Expr::Ident(s) if s == "self") && field == "state"
+        );
+        if is_self_state
+            && let Expr::Ident(state_name) = rhs.as_ref()
+        {
+            return Some(state_name.clone());
+        }
+    }
+    None
+}
+
 fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is_mutation: bool) {
     // Extract input/output from clauses
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
+    let mut pre_state: Option<String> = None;
+    let mut post_state: Option<String> = None;
 
     for clause in clauses {
         match &clause.kind {
@@ -1094,10 +1115,20 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
                 output_type = extract_output_type(&clause.body);
             }
             ClauseKind::Requires => {
-                requires_exprs.push(expr_to_rust(&clause.body));
+                // Check for state guard pattern: requires { self.state == X }
+                if let Some(state) = extract_state_comparison(&clause.body) {
+                    pre_state = Some(state);
+                } else {
+                    requires_exprs.push(expr_to_rust(&clause.body));
+                }
             }
             ClauseKind::Ensures => {
-                ensures_exprs.push(expr_to_rust(&clause.body));
+                // Check for state transition pattern: ensures { self.state == X }
+                if let Some(state) = extract_state_comparison(&clause.body) {
+                    post_state = Some(state);
+                } else {
+                    ensures_exprs.push(expr_to_rust(&clause.body));
+                }
             }
             _ => {}
         }
@@ -1142,12 +1173,25 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
         "        pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
     ));
 
+    // State pre-condition guard
+    if let Some(ref state) = pre_state {
+        code.push_str(&format!(
+            "            debug_assert_eq!(self.state, State::{state}, \"requires state {state}\");\n"
+        ));
+    }
+
     // Requires assertions
     for req in &requires_exprs {
         generate_debug_assert_indented(code, req, "requires", 3);
     }
 
     if output_type == "()" {
+        // State transition
+        if let Some(ref state) = post_state {
+            code.push_str(&format!(
+                "            self.state = State::{state};\n"
+            ));
+        }
         code.push_str(&format!(
             "            todo!(\"{} implementation\")\n",
             kind_label.to_lowercase()
@@ -1160,6 +1204,12 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
         // Ensures assertions
         for ens in &ensures_exprs {
             generate_debug_assert_indented(code, ens, "ensures", 3);
+        }
+        // State transition
+        if let Some(ref state) = post_state {
+            code.push_str(&format!(
+                "            self.state = State::{state};\n"
+            ));
         }
         code.push_str("            __result\n");
     }
@@ -1476,6 +1526,33 @@ service MyService {
             "should contain service module"
         );
         assert!(lib.contains("State"), "should contain state enum");
+    }
+
+    #[test]
+    fn service_state_transition_codegen() {
+        let project = codegen_ok(
+            r#"
+service Connection {
+    states: Disconnected -> Connected -> Closed
+
+    operation Connect {
+        requires { self.state == Disconnected }
+        ensures { self.state == Connected }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        // Should generate state guard assertion
+        assert!(
+            lib.contains("State::Disconnected"),
+            "should contain pre-state guard: {lib}"
+        );
+        // Should generate state transition assignment
+        assert!(
+            lib.contains("State::Connected"),
+            "should contain post-state transition: {lib}"
+        );
     }
 
     #[test]
