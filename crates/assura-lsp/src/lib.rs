@@ -78,6 +78,10 @@ impl AssuraLanguageServer {
             // --- Resolve ---
             match assura_resolve::resolve(source_file) {
                 Ok(rf) => {
+                    // Emit resolution warnings (e.g., unused imports)
+                    for w in &rf.warnings {
+                        diagnostics.push(resolution_warning_to_diagnostic(&rope, w, uri));
+                    }
                     // --- Type check ---
                     match assura_types::type_check(&rf) {
                         Ok(typed) => {
@@ -585,6 +589,28 @@ fn resolution_error_to_diagnostic(rope: &Rope, err: &ResolutionError, doc_uri: &
         source: Some("assura".to_string()),
         message: err.message.clone(),
         related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
+            vec![DiagnosticRelatedInformation {
+                location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
+                message: sec_msg.clone(),
+            }]
+        }),
+        ..Default::default()
+    }
+}
+
+fn resolution_warning_to_diagnostic(
+    rope: &Rope,
+    warn: &ResolutionError,
+    doc_uri: &Url,
+) -> Diagnostic {
+    let range = byte_span_to_range(rope, &warn.span);
+    Diagnostic {
+        range,
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(NumberOrString::String(warn.code.to_string())),
+        source: Some("assura".to_string()),
+        message: warn.message.clone(),
+        related_information: warn.secondary.as_ref().map(|(sec_span, sec_msg)| {
             vec![DiagnosticRelatedInformation {
                 location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
                 message: sec_msg.clone(),

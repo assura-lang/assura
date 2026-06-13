@@ -166,6 +166,19 @@ fn run_check(
         let resolve_result = assura_resolve::resolve(&ast);
         match resolve_result {
             Ok(resolved) => {
+                // Emit resolution warnings (e.g., unused imports)
+                for w in &resolved.warnings {
+                    let (line, column, end_line, end_column) = span_to_line_col(source, &w.span);
+                    diagnostics.push(Diagnostic {
+                        code: w.code.to_string(),
+                        message: w.message.clone(),
+                        severity: "warning".into(),
+                        line,
+                        column,
+                        end_line,
+                        end_column,
+                    });
+                }
                 let type_result = assura_types::type_check(&resolved);
                 match type_result {
                     Ok(typed) => {
