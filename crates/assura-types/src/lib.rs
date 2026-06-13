@@ -4239,6 +4239,366 @@ impl Default for StructuralInvariantChecker {
 }
 
 // ---------------------------------------------------------------------------
+// T065: CONC.1 Shared memory protocols
+// ---------------------------------------------------------------------------
+
+/// Access mode for a shared object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessMode {
+    /// Exclusive read-write access (no other readers/writers)
+    Exclusive,
+    /// Shared read-only access (multiple readers, no writers)
+    SharedRead,
+    /// No access (object is locked by another thread)
+    None,
+}
+
+impl std::fmt::Display for AccessMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AccessMode::Exclusive => write!(f, "exclusive"),
+            AccessMode::SharedRead => write!(f, "shared_read"),
+            AccessMode::None => write!(f, "none"),
+        }
+    }
+}
+
+/// Error from the shared memory checker.
+#[derive(Debug, Clone)]
+pub struct SharedMemError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for shared memory protocols.
+///
+/// Validates that concurrent accesses to shared objects follow
+/// the declared protocol: no data races, no concurrent writes.
+pub struct SharedMemChecker {
+    /// Per-object access modes
+    object_modes: HashMap<String, AccessMode>,
+}
+
+impl SharedMemChecker {
+    pub fn new() -> Self {
+        Self {
+            object_modes: HashMap::new(),
+        }
+    }
+
+    /// Set the current access mode for an object.
+    pub fn set_mode(&mut self, object: String, mode: AccessMode) {
+        self.object_modes.insert(object, mode);
+    }
+
+    /// Check that a read access is valid for the current mode.
+    /// - A18001: read without shared_read or exclusive access
+    pub fn check_read(
+        &self,
+        object: &str,
+        span: &Range<usize>,
+    ) -> Vec<SharedMemError> {
+        let mut errors = Vec::new();
+        match self.object_modes.get(object) {
+            Some(AccessMode::Exclusive | AccessMode::SharedRead) => {}
+            Some(AccessMode::None) | None => {
+                errors.push(SharedMemError {
+                    code: "A18001".into(),
+                    message: format!(
+                        "read access to `{object}` without acquiring shared_read or exclusive mode"
+                    ),
+                    span: span.clone(),
+                });
+            }
+        }
+        errors
+    }
+
+    /// Check that a write access is valid for the current mode.
+    /// - A18002: write without exclusive access
+    pub fn check_write(
+        &self,
+        object: &str,
+        span: &Range<usize>,
+    ) -> Vec<SharedMemError> {
+        let mut errors = Vec::new();
+        if self.object_modes.get(object) != Some(&AccessMode::Exclusive) {
+            errors.push(SharedMemError {
+                code: "A18002".into(),
+                message: format!(
+                    "write access to `{object}` without exclusive mode; \
+                     acquire exclusive access before writing"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check for potential data race: two threads accessing the same object.
+    /// - A18003: data race (concurrent write + read or write + write)
+    pub fn check_data_race(
+        &self,
+        object: &str,
+        thread_a_mode: AccessMode,
+        thread_b_mode: AccessMode,
+        span: &Range<usize>,
+    ) -> Vec<SharedMemError> {
+        let mut errors = Vec::new();
+        let is_race = matches!(
+            (thread_a_mode, thread_b_mode),
+            (AccessMode::Exclusive, AccessMode::Exclusive | AccessMode::SharedRead)
+                | (AccessMode::SharedRead, AccessMode::Exclusive)
+        );
+        if is_race {
+            errors.push(SharedMemError {
+                code: "A18003".into(),
+                message: format!(
+                    "potential data race on `{object}`: thread A has {thread_a_mode} \
+                     while thread B has {thread_b_mode}"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+}
+
+impl Default for SharedMemChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T067: CONC.3 Determinism contracts
+// ---------------------------------------------------------------------------
+
+/// Error from the determinism checker.
+#[derive(Debug, Clone)]
+pub struct DeterminismError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for determinism contracts.
+///
+/// Ensures functions marked as `deterministic` do not use
+/// non-deterministic constructs (HashMap iteration, random,
+/// thread-dependent ordering).
+pub struct DeterminismChecker {
+    /// Functions marked as deterministic
+    deterministic_fns: HashMap<String, bool>,
+    /// Known non-deterministic types/functions
+    non_det_sources: Vec<String>,
+}
+
+impl DeterminismChecker {
+    pub fn new() -> Self {
+        Self {
+            deterministic_fns: HashMap::new(),
+            non_det_sources: vec![
+                "HashMap".into(),
+                "HashSet".into(),
+                "random".into(),
+                "rand".into(),
+                "thread_rng".into(),
+                "SystemTime::now".into(),
+                "Instant::now".into(),
+            ],
+        }
+    }
+
+    /// Mark a function as requiring deterministic execution.
+    pub fn mark_deterministic(&mut self, fn_name: String) {
+        self.deterministic_fns.insert(fn_name, true);
+    }
+
+    /// Add a custom non-deterministic source.
+    pub fn add_non_det_source(&mut self, source: String) {
+        self.non_det_sources.push(source);
+    }
+
+    /// Check if a type/function name is non-deterministic.
+    pub fn is_non_deterministic(&self, name: &str) -> bool {
+        self.non_det_sources.iter().any(|s| name.contains(s.as_str()))
+    }
+
+    /// Check that a deterministic function does not use non-deterministic constructs.
+    /// - A20001: deterministic function uses non-deterministic type/call
+    pub fn check_fn_body(
+        &self,
+        fn_name: &str,
+        used_names: &[String],
+        span: &Range<usize>,
+    ) -> Vec<DeterminismError> {
+        let mut errors = Vec::new();
+        if !self.deterministic_fns.contains_key(fn_name) {
+            return errors; // Not marked deterministic, skip
+        }
+        for name in used_names {
+            if self.is_non_deterministic(name) {
+                errors.push(DeterminismError {
+                    code: "A20001".into(),
+                    message: format!(
+                        "deterministic function `{fn_name}` uses non-deterministic `{name}`; \
+                         use BTreeMap/BTreeSet or a seeded RNG instead"
+                    ),
+                    span: span.clone(),
+                });
+            }
+        }
+        errors
+    }
+
+    /// Check that iteration order is deterministic.
+    /// - A20002: iterating over HashMap/HashSet in deterministic context
+    pub fn check_iteration(
+        &self,
+        fn_name: &str,
+        iterated_type: &str,
+        span: &Range<usize>,
+    ) -> Vec<DeterminismError> {
+        let mut errors = Vec::new();
+        if self.deterministic_fns.contains_key(fn_name) && (iterated_type.contains("HashMap") || iterated_type.contains("HashSet"))
+        {
+            errors.push(DeterminismError {
+                code: "A20002".into(),
+                message: format!(
+                    "deterministic function `{fn_name}` iterates over `{iterated_type}` \
+                     which has non-deterministic ordering"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+}
+
+impl Default for DeterminismChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T068: CONC.4 Lock ordering
+// ---------------------------------------------------------------------------
+
+/// Error from the lock ordering checker.
+#[derive(Debug, Clone)]
+pub struct LockOrderError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for static lock ordering.
+///
+/// Prevents deadlocks by enforcing a total order on lock acquisitions.
+pub struct LockOrderChecker {
+    /// Lock hierarchy: name -> priority (lower = acquire first)
+    lock_order: HashMap<String, u32>,
+    /// Currently held locks (name, priority)
+    held: Vec<(String, u32)>,
+}
+
+impl LockOrderChecker {
+    pub fn new() -> Self {
+        Self {
+            lock_order: HashMap::new(),
+            held: Vec::new(),
+        }
+    }
+
+    /// Define the lock hierarchy. Locks with lower priority must be acquired first.
+    pub fn define_order(&mut self, lock_name: String, priority: u32) {
+        self.lock_order.insert(lock_name, priority);
+    }
+
+    /// Record acquiring a lock. Check ordering.
+    /// - A21001: lock acquired out of order (deadlock risk)
+    pub fn acquire(
+        &mut self,
+        lock_name: &str,
+        span: &Range<usize>,
+    ) -> Vec<LockOrderError> {
+        let mut errors = Vec::new();
+        let priority = self.lock_order.get(lock_name).copied().unwrap_or(u32::MAX);
+
+        // Check that we're not acquiring a lower-priority lock while holding higher
+        if let Some((held_name, held_priority)) = self
+            .held
+            .last()
+            .filter(|(_, hp)| priority <= *hp)
+        {
+            errors.push(LockOrderError {
+                code: "A21001".into(),
+                message: format!(
+                    "lock `{lock_name}` (priority {priority}) acquired while holding \
+                     `{held_name}` (priority {held_priority}); violates lock ordering"
+                ),
+                span: span.clone(),
+            });
+        }
+
+        self.held.push((lock_name.to_string(), priority));
+        errors
+    }
+
+    /// Record releasing a lock.
+    /// - A21002: lock released out of order (must release in reverse acquisition order)
+    pub fn release(
+        &mut self,
+        lock_name: &str,
+        span: &Range<usize>,
+    ) -> Vec<LockOrderError> {
+        let mut errors = Vec::new();
+        if let Some((top_name, _)) = self.held.last().filter(|(n, _)| n != lock_name) {
+            errors.push(LockOrderError {
+                code: "A21002".into(),
+                message: format!(
+                    "lock `{lock_name}` released while `{top_name}` is still held; \
+                     release in reverse acquisition order"
+                ),
+                span: span.clone(),
+            });
+        }
+        self.held.retain(|(n, _)| n != lock_name);
+        errors
+    }
+
+    /// Check that no lock is known but unordered.
+    /// - A21003: lock used without defined order
+    pub fn check_ordering_defined(
+        &self,
+        lock_name: &str,
+        span: &Range<usize>,
+    ) -> Vec<LockOrderError> {
+        let mut errors = Vec::new();
+        if !self.lock_order.contains_key(lock_name) {
+            errors.push(LockOrderError {
+                code: "A21003".into(),
+                message: format!(
+                    "lock `{lock_name}` used without a defined ordering; \
+                     add it to the lock hierarchy"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+}
+
+impl Default for LockOrderChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // T060: SEC.4 Secure erasure
 // ---------------------------------------------------------------------------
 
@@ -10922,5 +11282,213 @@ ghost fn bad_ghost(x: Int) -> Bool
         assert!(errors.is_empty());
         let errors = checker.check_nonce_size("XSalsa20", 12, &(0..1));
         assert_eq!(errors.len(), 1);
+    }
+
+    // --- T065: Shared memory protocol tests ---
+
+    #[test]
+    fn shared_mem_read_exclusive_ok() {
+        let mut checker = SharedMemChecker::new();
+        checker.set_mode("buffer".into(), AccessMode::Exclusive);
+        let errors = checker.check_read("buffer", &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn shared_mem_read_shared_ok() {
+        let mut checker = SharedMemChecker::new();
+        checker.set_mode("buffer".into(), AccessMode::SharedRead);
+        let errors = checker.check_read("buffer", &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn shared_mem_read_none_a18001() {
+        let mut checker = SharedMemChecker::new();
+        checker.set_mode("buffer".into(), AccessMode::None);
+        let errors = checker.check_read("buffer", &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A18001");
+    }
+
+    #[test]
+    fn shared_mem_write_exclusive_ok() {
+        let mut checker = SharedMemChecker::new();
+        checker.set_mode("buffer".into(), AccessMode::Exclusive);
+        let errors = checker.check_write("buffer", &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn shared_mem_write_shared_a18002() {
+        let mut checker = SharedMemChecker::new();
+        checker.set_mode("buffer".into(), AccessMode::SharedRead);
+        let errors = checker.check_write("buffer", &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A18002");
+    }
+
+    #[test]
+    fn shared_mem_data_race_a18003() {
+        let checker = SharedMemChecker::new();
+        let errors = checker.check_data_race(
+            "counter",
+            AccessMode::Exclusive,
+            AccessMode::SharedRead,
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A18003");
+    }
+
+    #[test]
+    fn shared_mem_two_readers_ok() {
+        let checker = SharedMemChecker::new();
+        let errors = checker.check_data_race(
+            "counter",
+            AccessMode::SharedRead,
+            AccessMode::SharedRead,
+            &(0..1),
+        );
+        assert!(errors.is_empty(), "two shared readers is safe");
+    }
+
+    #[test]
+    fn shared_mem_access_mode_display() {
+        assert_eq!(AccessMode::Exclusive.to_string(), "exclusive");
+        assert_eq!(AccessMode::SharedRead.to_string(), "shared_read");
+        assert_eq!(AccessMode::None.to_string(), "none");
+    }
+
+    // --- T067: Determinism checker tests ---
+
+    #[test]
+    fn determinism_hashmap_a20001() {
+        let mut checker = DeterminismChecker::new();
+        checker.mark_deterministic("compute".into());
+        let errors = checker.check_fn_body(
+            "compute",
+            &["HashMap".into(), "Vec".into()],
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A20001");
+    }
+
+    #[test]
+    fn determinism_btreemap_ok() {
+        let mut checker = DeterminismChecker::new();
+        checker.mark_deterministic("compute".into());
+        let errors = checker.check_fn_body(
+            "compute",
+            &["BTreeMap".into(), "Vec".into()],
+            &(0..1),
+        );
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn determinism_non_det_fn_ok() {
+        let mut checker = DeterminismChecker::new();
+        // Not marked deterministic
+        let errors = checker.check_fn_body(
+            "random_pick",
+            &["random".into()],
+            &(0..1),
+        );
+        assert!(errors.is_empty(), "non-deterministic fn allows random");
+    }
+
+    #[test]
+    fn determinism_iteration_a20002() {
+        let mut checker = DeterminismChecker::new();
+        checker.mark_deterministic("process".into());
+        let errors = checker.check_iteration("process", "HashMap<K,V>", &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A20002");
+    }
+
+    #[test]
+    fn determinism_btree_iteration_ok() {
+        let mut checker = DeterminismChecker::new();
+        checker.mark_deterministic("process".into());
+        let errors = checker.check_iteration("process", "BTreeMap<K,V>", &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn determinism_random_a20001() {
+        let mut checker = DeterminismChecker::new();
+        checker.mark_deterministic("seed_fn".into());
+        let errors = checker.check_fn_body(
+            "seed_fn",
+            &["thread_rng".into()],
+            &(0..1),
+        );
+        assert_eq!(errors.len(), 1);
+    }
+
+    // --- T068: Lock ordering tests ---
+
+    #[test]
+    fn lock_order_correct_ok() {
+        let mut checker = LockOrderChecker::new();
+        checker.define_order("db".into(), 1);
+        checker.define_order("cache".into(), 2);
+        let errors = checker.acquire("db", &(0..1));
+        assert!(errors.is_empty());
+        let errors = checker.acquire("cache", &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn lock_order_violation_a21001() {
+        let mut checker = LockOrderChecker::new();
+        checker.define_order("db".into(), 1);
+        checker.define_order("cache".into(), 2);
+        let errors = checker.acquire("cache", &(0..1));
+        assert!(errors.is_empty());
+        let errors = checker.acquire("db", &(0..1)); // wrong order
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A21001");
+    }
+
+    #[test]
+    fn lock_order_release_correct() {
+        let mut checker = LockOrderChecker::new();
+        checker.define_order("a".into(), 1);
+        checker.define_order("b".into(), 2);
+        checker.acquire("a", &(0..1));
+        checker.acquire("b", &(0..1));
+        let errors = checker.release("b", &(0..1)); // correct: LIFO
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn lock_order_release_wrong_a21002() {
+        let mut checker = LockOrderChecker::new();
+        checker.define_order("a".into(), 1);
+        checker.define_order("b".into(), 2);
+        checker.acquire("a", &(0..1));
+        checker.acquire("b", &(0..1));
+        let errors = checker.release("a", &(0..1)); // wrong: b still held
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A21002");
+    }
+
+    #[test]
+    fn lock_order_undefined_a21003() {
+        let checker = LockOrderChecker::new();
+        let errors = checker.check_ordering_defined("unknown_lock", &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A21003");
+    }
+
+    #[test]
+    fn lock_order_defined_ok() {
+        let mut checker = LockOrderChecker::new();
+        checker.define_order("db".into(), 1);
+        let errors = checker.check_ordering_defined("db", &(0..1));
+        assert!(errors.is_empty());
     }
 }

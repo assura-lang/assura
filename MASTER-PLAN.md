@@ -620,7 +620,7 @@
 
 ### 2.5 CONC Features (5 weeks, partially parallelizable)
 
-- [ ] **T065**: CONC.1 Shared memory protocols
+- [x] **T065**: CONC.1 Shared memory protocols
   - Depends on: T032, T041
   - Per-object access modes, data race detection
 
@@ -628,11 +628,11 @@
   - Depends on: T062
   - Prevent re-entrant calls through callback chains
 
-- [ ] **T067**: CONC.3 Determinism contracts
+- [x] **T067**: CONC.3 Determinism contracts
   - Depends on: T041
   - Ban HashMap, ban random, enforce ordering
 
-- [ ] **T068**: CONC.4 Lock ordering
+- [x] **T068**: CONC.4 Lock ordering
   - Depends on: T041
   - Static lock hierarchy, deadlock prevention
 
