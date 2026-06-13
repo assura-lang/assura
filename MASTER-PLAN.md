@@ -120,7 +120,7 @@
     - A02004: Visibility violation (accessing non-pub field)
   - Spec reference: Section 8.1 (Module System)
 
-- [ ] **T011**: Implement import resolution
+- [x] **T011**: Implement import resolution
   - Depends on: T010
   - Resolve `import a.b.c` to the corresponding module
   - Support: `import a.b.c`, `import a.b.c as alias`, `import a.b { X, Y }`

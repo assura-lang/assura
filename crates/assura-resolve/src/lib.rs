@@ -1,13 +1,13 @@
 //! Name resolution and symbol table for the Assura contract language.
 //!
 //! The resolver walks the parsed AST, collects all declarations into a
-//! `SymbolTable`, detects duplicate names (A02003), and registers built-in
-//! types. Full name resolution (undefined A02001, ambiguous A02002) is
-//! deferred to later tasks.
+//! `SymbolTable`, detects duplicate names (A02003), registers built-in
+//! types, and resolves import declarations. Full name resolution
+//! (undefined A02001, ambiguous A02002) is deferred to later tasks.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use assura_parser::ast::{Decl, ServiceItem, SourceFile, Span, TypeBody};
+use assura_parser::ast::{Decl, ImportDecl, ServiceItem, SourceFile, Span, TypeBody};
 
 // ---------------------------------------------------------------------------
 // Symbol kinds
@@ -38,6 +38,44 @@ pub enum SymbolKind {
     Field,
     EnumVariant,
 }
+
+// ---------------------------------------------------------------------------
+// Import resolution
+// ---------------------------------------------------------------------------
+
+/// The status of a resolved import declaration.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportStatus {
+    /// The import was resolved to a known module in the module map.
+    Resolved,
+    /// The module was not found in the module map (external/unknown module).
+    /// This is not a hard error; the module may be a standard library or
+    /// external dependency that is not yet available.
+    Unresolved,
+    /// A circular import was detected (A02005).
+    Circular,
+}
+
+/// A single resolved import, recording the original declaration and its
+/// resolution status.
+#[derive(Debug, Clone)]
+pub struct ResolvedImport {
+    /// The dotted module path, e.g. `["std", "math"]`.
+    pub path: Vec<String>,
+    /// If the import used `as alias`, this is the alias name.
+    pub alias: Option<String>,
+    /// Selectively imported items, e.g. `{ List, Map }`.
+    pub items: Vec<String>,
+    /// How this import was resolved.
+    pub status: ImportStatus,
+}
+
+/// An in-memory map of known modules, keyed by their dotted path.
+///
+/// For now this is a simple `HashMap`; actual filesystem resolution is
+/// deferred to a future task. Callers can pre-populate the map with
+/// parsed `SourceFile`s to enable multi-file resolution.
+pub type ModuleMap = HashMap<String, SourceFile>;
 
 // ---------------------------------------------------------------------------
 // Scopes
@@ -135,11 +173,13 @@ pub struct ResolutionError {
 // ---------------------------------------------------------------------------
 
 /// The result of successful name resolution: the original AST plus the
-/// symbol table.
+/// symbol table and resolved imports.
 #[derive(Debug, Clone)]
 pub struct ResolvedFile {
     pub source: SourceFile,
     pub symbols: SymbolTable,
+    /// All import declarations with their resolution status.
+    pub imports: Vec<ResolvedImport>,
 }
 
 // ---------------------------------------------------------------------------
@@ -158,10 +198,26 @@ const BUILTIN_TYPES: &[&str] = &[
 
 /// Resolve all names in a `SourceFile`.
 ///
-/// Walks the AST, collects declarations into a `SymbolTable`, and detects
-/// duplicate definitions (A02003). Returns a `ResolvedFile` on success or
-/// a list of `ResolutionError`s.
+/// Walks the AST, collects declarations into a `SymbolTable`, resolves
+/// imports, and detects duplicate definitions (A02003). Returns a
+/// `ResolvedFile` on success or a list of `ResolutionError`s.
+///
+/// Imports to unknown modules are recorded as `Unresolved` without
+/// producing hard errors (the modules may be external dependencies).
 pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>> {
+    resolve_with_modules(source, &ModuleMap::new(), &mut HashSet::new())
+}
+
+/// Resolve names with an explicit module map and visited-module set.
+///
+/// The `module_map` provides known modules for import resolution.
+/// The `visited` set tracks module paths currently being resolved,
+/// enabling detection of circular imports (A02005).
+pub fn resolve_with_modules(
+    source: &SourceFile,
+    module_map: &ModuleMap,
+    visited: &mut HashSet<String>,
+) -> Result<ResolvedFile, Vec<ResolutionError>> {
     let mut table = SymbolTable::new();
     let mut errors: Vec<ResolutionError> = Vec::new();
 
@@ -181,6 +237,12 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
         .map(|m| m.path.join("."))
         .unwrap_or_else(|| "<anonymous>".to_string());
     let module = table.push_scope(&module_name, Some(root));
+
+    // Mark this module as being resolved (for circular import detection).
+    visited.insert(module_name.clone());
+
+    // --- Resolve imports ---
+    let resolved_imports = resolve_imports(&source.imports, module_map, visited, &mut errors);
 
     // --- Walk top-level declarations ---
     for decl in &source.decls {
@@ -459,14 +521,66 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
         }
     }
 
+    // Remove this module from the visited set now that resolution is done.
+    visited.remove(&module_name);
+
     if errors.is_empty() {
         Ok(ResolvedFile {
             source: source.clone(),
             symbols: table,
+            imports: resolved_imports,
         })
     } else {
         Err(errors)
     }
+}
+
+/// Resolve all import declarations from a source file.
+///
+/// For each `ImportDecl`, checks whether the target module exists in the
+/// `module_map`. If it does, the import is marked `Resolved`. If the
+/// target module is currently being resolved (present in `visited`), the
+/// import is marked `Circular` and an A02005 error is emitted. Otherwise
+/// the import is marked `Unresolved` (external/unknown module, not an error).
+fn resolve_imports(
+    imports: &[ImportDecl],
+    module_map: &ModuleMap,
+    visited: &HashSet<String>,
+    errors: &mut Vec<ResolutionError>,
+) -> Vec<ResolvedImport> {
+    imports
+        .iter()
+        .map(|imp| {
+            let path_str = imp.path.join(".");
+
+            let status = if visited.contains(&path_str) {
+                // Circular import detected: module A imports B which
+                // imports A (or transitively).
+                errors.push(ResolutionError {
+                    code: "A02005",
+                    message: format!("circular import of module `{path_str}`"),
+                    // Imports don't carry spans in the current AST, so
+                    // use a sentinel span.
+                    span: 0..0,
+                    secondary: None,
+                });
+                ImportStatus::Circular
+            } else if module_map.contains_key(&path_str) {
+                ImportStatus::Resolved
+            } else {
+                // Unknown module. Not an error: could be a standard
+                // library module or external dependency not yet loaded.
+                ImportStatus::Unresolved
+            };
+
+            ResolvedImport {
+                path: imp.path.clone(),
+                alias: imp.alias.clone(),
+                items: imp.items.clone(),
+                status,
+            }
+        })
+        .collect()
 }
 
 /// Try to insert a symbol; on duplicate, push an A02003 error.
@@ -903,5 +1017,208 @@ fn helper(Foo: Int) -> Int {
             .find(|s| s.name == "Foo" && s.kind == SymbolKind::Parameter);
         assert!(type_sym.is_some(), "type Foo not found");
         assert!(param_sym.is_some(), "param Foo not found");
+    }
+
+    // -----------------------------------------------------------------------
+    // Import resolution tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn import_basic_recorded() {
+        let src = r#"
+import std.math;
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        assert_eq!(resolved.imports.len(), 1);
+        assert_eq!(resolved.imports[0].path, vec!["std", "math"]);
+        assert!(resolved.imports[0].alias.is_none());
+        assert!(resolved.imports[0].items.is_empty());
+        // Without a module map entry, status is Unresolved.
+        assert_eq!(resolved.imports[0].status, ImportStatus::Unresolved);
+    }
+
+    #[test]
+    fn import_aliased_recorded() {
+        let src = r#"
+import crypto.hash as hash;
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        assert_eq!(resolved.imports.len(), 1);
+        assert_eq!(resolved.imports[0].path, vec!["crypto", "hash"]);
+        assert_eq!(resolved.imports[0].alias.as_deref(), Some("hash"));
+        assert!(resolved.imports[0].items.is_empty());
+        assert_eq!(resolved.imports[0].status, ImportStatus::Unresolved);
+    }
+
+    #[test]
+    fn import_selective_recorded() {
+        let src = r#"
+import std.collections { List, Map };
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        assert_eq!(resolved.imports.len(), 1);
+        assert_eq!(resolved.imports[0].path, vec!["std", "collections"]);
+        assert!(resolved.imports[0].alias.is_none());
+        assert_eq!(resolved.imports[0].items, vec!["List", "Map"]);
+        assert_eq!(resolved.imports[0].status, ImportStatus::Unresolved);
+    }
+
+    #[test]
+    fn import_multiple_recorded() {
+        let src = r#"
+import std.math;
+import std.collections { List, Map };
+import crypto.hash as hash;
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        assert_eq!(resolved.imports.len(), 3);
+        assert_eq!(resolved.imports[0].path, vec!["std", "math"]);
+        assert_eq!(resolved.imports[1].path, vec!["std", "collections"]);
+        assert_eq!(resolved.imports[2].path, vec!["crypto", "hash"]);
+    }
+
+    #[test]
+    fn import_unresolved_no_hard_error() {
+        // External/unknown modules should NOT cause resolution failure.
+        let src = r#"
+import assura.mem;
+import assura.sec;
+
+contract Foo {
+  requires { true }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("unresolved imports should not fail");
+        assert_eq!(resolved.imports.len(), 2);
+        assert_eq!(resolved.imports[0].status, ImportStatus::Unresolved);
+        assert_eq!(resolved.imports[1].status, ImportStatus::Unresolved);
+        // Declarations are still resolved normally.
+        let foo = resolved.symbols.symbols.iter().find(|s| s.name == "Foo");
+        assert!(foo.is_some(), "Foo should still be resolved");
+    }
+
+    #[test]
+    fn import_resolved_with_module_map() {
+        // Pre-populate the module map so the import resolves.
+        let target_src = r#"
+module std.math;
+
+fn abs(x: Int) -> Int {
+  ensures { result >= 0 }
+}
+"#;
+        let target_file = parse_ok(target_src);
+        let mut module_map = ModuleMap::new();
+        module_map.insert("std.math".to_string(), target_file);
+
+        let src = r#"
+import std.math;
+"#;
+        let file = parse_ok(src);
+        let mut visited = HashSet::new();
+        let resolved =
+            resolve_with_modules(&file, &module_map, &mut visited).expect("should succeed");
+        assert_eq!(resolved.imports.len(), 1);
+        assert_eq!(resolved.imports[0].status, ImportStatus::Resolved);
+    }
+
+    #[test]
+    fn import_circular_detected() {
+        // Simulate circular import: module A is being resolved and it
+        // imports module A (itself).
+        let src = r#"
+module mymod;
+
+import mymod;
+"#;
+        let file = parse_ok(src);
+        let mut visited = HashSet::new();
+        // Pre-seed visited with "mymod" to simulate a cycle.
+        visited.insert("mymod".to_string());
+        let result = resolve_with_modules(&file, &ModuleMap::new(), &mut visited);
+        assert!(result.is_err(), "circular import should produce an error");
+        let errs = result.unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A02005");
+        assert!(errs[0].message.contains("mymod"));
+    }
+
+    #[test]
+    fn import_circular_indirect() {
+        // Simulate indirect circular import: module A imports B, and B
+        // is already being resolved (present in visited).
+        let src = r#"
+module a;
+
+import b;
+"#;
+        let file = parse_ok(src);
+        let mut visited = HashSet::new();
+        // "b" is already being resolved somewhere up the call chain.
+        visited.insert("b".to_string());
+        let result = resolve_with_modules(&file, &ModuleMap::new(), &mut visited);
+        assert!(result.is_err(), "circular import should produce an error");
+        let errs = result.unwrap_err();
+        assert_eq!(errs[0].code, "A02005");
+        assert!(errs[0].message.contains("b"));
+    }
+
+    #[test]
+    fn import_mixed_resolved_and_unresolved() {
+        // One import resolves, another does not.
+        let target_src = r#"
+module known.mod;
+
+type Foo { x: Int }
+"#;
+        let target_file = parse_ok(target_src);
+        let mut module_map = ModuleMap::new();
+        module_map.insert("known.mod".to_string(), target_file);
+
+        let src = r#"
+import known.mod { Foo };
+import unknown.mod;
+"#;
+        let file = parse_ok(src);
+        let mut visited = HashSet::new();
+        let resolved =
+            resolve_with_modules(&file, &module_map, &mut visited).expect("should succeed");
+        assert_eq!(resolved.imports.len(), 2);
+        assert_eq!(resolved.imports[0].status, ImportStatus::Resolved);
+        assert_eq!(resolved.imports[1].status, ImportStatus::Unresolved);
+    }
+
+    #[test]
+    fn no_imports_empty_list() {
+        let src = r#"
+contract Foo {
+  requires { true }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        assert!(resolved.imports.is_empty());
+    }
+
+    #[test]
+    fn visited_set_cleaned_up_after_resolve() {
+        // After resolve_with_modules returns, the current module should
+        // be removed from the visited set so sibling modules are not
+        // falsely flagged as circular.
+        let src = r#"
+module a;
+"#;
+        let file = parse_ok(src);
+        let mut visited = HashSet::new();
+        resolve_with_modules(&file, &ModuleMap::new(), &mut visited).expect("should succeed");
+        assert!(
+            !visited.contains("a"),
+            "module 'a' should be removed from visited after resolution"
+        );
     }
 }
