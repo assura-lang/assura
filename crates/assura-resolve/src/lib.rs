@@ -9,8 +9,8 @@
 use std::collections::{HashMap, HashSet};
 
 use assura_parser::ast::{
-    Decl, ExternDecl, FieldDef, FnDef, ImportDecl, Param, ServiceItem, SourceFile, Span, TypeBody,
-    TypeDef,
+    Decl, EnumDef, ExternDecl, FieldDef, FnDef, ImportDecl, Param, ServiceItem, SourceFile, Span,
+    TypeBody, TypeDef,
 };
 
 // ---------------------------------------------------------------------------
@@ -520,19 +520,10 @@ pub fn resolve_with_modules(
             }
             Decl::Block { name, .. } => {
                 // Generic blocks (feature, incremental, liveness, etc.)
-                // register their name if non-empty and create a child scope.
+                // create a child scope for their body but don't register
+                // as a named symbol (they are structural, not definitions).
                 if !name.is_empty() {
-                    let inserted = try_insert(
-                        &mut table,
-                        &mut errors,
-                        module,
-                        name,
-                        SymbolKind::ContractDef,
-                        decl.span.clone(),
-                    );
-                    if inserted {
-                        table.push_scope(name, Some(module));
-                    }
+                    table.push_scope(name, Some(module));
                 }
             }
         }
@@ -789,9 +780,23 @@ fn check_fn_signature(
     }
 }
 
-/// Find the scope ID for a named scope (e.g., a contract or type def).
-fn find_scope_id(table: &SymbolTable, name: &str) -> Option<usize> {
-    table.scopes.iter().position(|s| s.name == name)
+/// Build a map from declaration name to its scope ID by scanning the scope
+/// list. When multiple scopes share a name (e.g., nested `Config` types),
+/// this finds the one whose parent matches the expected parent scope.
+fn find_scope_for(table: &SymbolTable, name: &str, parent_scope: usize) -> Option<usize> {
+    // Prefer the scope whose parent matches; fall back to any match.
+    let mut fallback = None;
+    for (i, scope) in table.scopes.iter().enumerate() {
+        if scope.name == name {
+            if scope.parent == Some(parent_scope) {
+                return Some(i);
+            }
+            if fallback.is_none() {
+                fallback = Some(i);
+            }
+        }
+    }
+    fallback
 }
 
 /// Walk all declarations and resolve type references.
@@ -816,24 +821,27 @@ fn resolve_type_refs(
             Decl::Extern(ex) => {
                 resolve_extern_refs(ex, table, &decl.span, module_scope, lenient, errors);
             }
-            Decl::Contract(c) => {
-                // Check type references in contract's clauses' input/output
-                // params are not structured, so nothing to check beyond
-                // what's already in the clause bodies (future work).
-                let scope = find_scope_id(table, &c.name).unwrap_or(module_scope);
+            Decl::Contract(_) => {
                 // Contract clauses don't have structured type refs in
-                // the current AST, so nothing to check here yet.
-                let _ = scope;
+                // the current AST; nothing to check here yet.
             }
             Decl::Service(s) => {
-                let svc_scope = find_scope_id(table, &s.name).unwrap_or(module_scope);
+                let svc_scope =
+                    find_scope_for(table, &s.name, module_scope).unwrap_or(module_scope);
                 for item in &s.items {
                     match item {
                         ServiceItem::TypeDef(t) => {
                             resolve_typedef_refs(t, table, &decl.span, svc_scope, lenient, errors);
                         }
-                        ServiceItem::EnumDef(_)
-                        | ServiceItem::States(_)
+                        ServiceItem::EnumDef(e) => {
+                            // Check enum variant field types
+                            let enum_scope =
+                                find_scope_for(table, &e.name, svc_scope).unwrap_or(svc_scope);
+                            check_enum_variant_types(
+                                e, table, enum_scope, &decl.span, lenient, errors,
+                            );
+                        }
+                        ServiceItem::States(_)
                         | ServiceItem::Operation { .. }
                         | ServiceItem::Query { .. }
                         | ServiceItem::Invariant(_)
@@ -841,7 +849,13 @@ fn resolve_type_refs(
                     }
                 }
             }
-            Decl::EnumDef(_) | Decl::Block { .. } => {}
+            Decl::EnumDef(e) => {
+                // Check enum variant field types against the symbol table
+                let enum_scope =
+                    find_scope_for(table, &e.name, module_scope).unwrap_or(module_scope);
+                check_enum_variant_types(e, table, enum_scope, &decl.span, lenient, errors);
+            }
+            Decl::Block { .. } => {}
         }
     }
 }
@@ -856,7 +870,7 @@ fn resolve_typedef_refs(
     errors: &mut Vec<ResolutionError>,
 ) {
     // Use the type's own scope (which has type params) if found
-    let scope = find_scope_id(table, &t.name).unwrap_or(parent_scope);
+    let scope = find_scope_for(table, &t.name, parent_scope).unwrap_or(parent_scope);
     match &t.body {
         TypeBody::Struct(fields) => {
             check_fields(fields, table, scope, span, lenient, errors);
@@ -880,7 +894,7 @@ fn resolve_fndef_refs(
     lenient: bool,
     errors: &mut Vec<ResolutionError>,
 ) {
-    let scope = find_scope_id(table, &f.name).unwrap_or(parent_scope);
+    let scope = find_scope_for(table, &f.name, parent_scope).unwrap_or(parent_scope);
     check_fn_signature(&f.params, &f.return_ty, table, scope, span, lenient, errors);
 }
 
@@ -893,7 +907,7 @@ fn resolve_extern_refs(
     lenient: bool,
     errors: &mut Vec<ResolutionError>,
 ) {
-    let scope = find_scope_id(table, &ex.name).unwrap_or(parent_scope);
+    let scope = find_scope_for(table, &ex.name, parent_scope).unwrap_or(parent_scope);
     check_fn_signature(
         &ex.params,
         &ex.return_ty,
@@ -903,6 +917,25 @@ fn resolve_extern_refs(
         lenient,
         errors,
     );
+}
+
+/// Check type references in enum variant fields.
+///
+/// Each variant has a `fields: Vec<String>` of type tokens. We check each
+/// token against the symbol table using `check_type_tokens`.
+fn check_enum_variant_types(
+    e: &EnumDef,
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for variant in &e.variants {
+        if !variant.fields.is_empty() {
+            check_type_tokens(&variant.fields, table, scope_id, span, lenient, errors);
+        }
+    }
 }
 
 /// Try to insert a symbol; on duplicate, push an A02003 error.
@@ -1812,5 +1845,89 @@ fn process(items: List) -> Nat {
 "#;
         let file = parse_ok(src);
         resolve(&file).expect("generic type components should resolve");
+    }
+
+    #[test]
+    fn nested_same_name_scopes_resolve_correctly() {
+        // A service-nested type and a top-level type with the same name
+        // should each resolve in their own scope without collision.
+        let src = r#"
+type Config {
+  x: Int
+}
+
+service MyService {
+  type Config {
+    y: Nat
+  }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("should resolve without errors");
+        // Both Config types should exist
+        let configs: Vec<&super::Symbol> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.name == "Config")
+            .collect();
+        assert_eq!(configs.len(), 2, "should have two Config symbols");
+    }
+
+    #[test]
+    fn block_does_not_register_as_contract() {
+        // A block declaration should NOT register as a ContractDef
+        let src = r#"
+contract RealContract {
+  requires { true }
+}
+
+feature enhanced_mode {
+  requires { true }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("should resolve");
+        // RealContract is a ContractDef, but enhanced_mode should not be
+        let contract_defs: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::ContractDef)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(
+            contract_defs.contains(&"RealContract"),
+            "RealContract should be ContractDef"
+        );
+        assert!(
+            !contract_defs.contains(&"enhanced_mode"),
+            "block should not be registered as ContractDef"
+        );
+    }
+
+    #[test]
+    fn enum_variant_types_checked_in_strict_mode() {
+        // In strict mode (no module/project/imports), unknown types in
+        // enum variant fields should be reported as A02001.
+        let src = r#"
+enum MyResult {
+  Ok(Int)
+  Err(ErrorDetails)
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        // ErrorDetails is not a known type, should trigger A02001
+        // (Int is a builtin, so only ErrorDetails should fail)
+        assert!(
+            result.is_err(),
+            "should detect unknown type in enum variant"
+        );
+        let errs = result.unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.code == "A02001"),
+            "should report A02001 for unknown type"
+        );
     }
 }
