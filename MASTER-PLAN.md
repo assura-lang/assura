@@ -335,7 +335,7 @@
     - Cache: `Swatinem/rust-cache`
     - Timeout: 15 minutes
 
-- [ ] **T030**: Add README.md
+- [x] **T030**: Add README.md
   - Depends on: T028
   - Project description (from LANDING.md)
   - Quick start (install, init, check, build)
