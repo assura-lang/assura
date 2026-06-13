@@ -408,6 +408,25 @@ fn run_check(args: &[String]) {
         Vec::new()
     };
 
+    // --- Quantifier bound validation ---
+    if let Some(ref typed) = typed {
+        let qwarnings = assura_smt::validate_quantifier_bounds(typed);
+        for w in &qwarnings {
+            diagnostics.push(DiagnosticJson {
+                code: "A05200".to_string(),
+                message: format!(
+                    "unbounded quantifier in {}: {} ({})",
+                    w.context, w.domain_desc, w.reason
+                ),
+                file: filename.clone(),
+                start: 0,
+                end: 0,
+                severity: "warning".to_string(),
+                secondary: None,
+            });
+        }
+    }
+
     // Convert counterexamples to diagnostics so they appear in both modes
     for vr in &verification_results {
         if let assura_smt::VerificationResult::Counterexample {
@@ -676,6 +695,15 @@ fn run_build(args: &[String]) {
     }
 
     let typed = typed.expect("type check should succeed if has_errors is false");
+
+    // --- Quantifier bound validation ---
+    let qwarnings = assura_smt::validate_quantifier_bounds(&typed);
+    for w in &qwarnings {
+        eprintln!(
+            "warning: unbounded quantifier in {}: {} ({})",
+            w.context, w.domain_desc, w.reason
+        );
+    }
 
     // --- Verify ---
     let verification_results = assura_smt::verify(&typed);

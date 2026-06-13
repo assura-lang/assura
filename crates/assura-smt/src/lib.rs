@@ -384,6 +384,239 @@ pub fn verify_with_measures(
 }
 
 // ---------------------------------------------------------------------------
+// Quantifier bound validation
+// ---------------------------------------------------------------------------
+
+/// A warning about a quantifier with an infinite (or potentially infinite) domain.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnboundedQuantifierWarning {
+    /// Name of the enclosing contract/function.
+    pub context: String,
+    /// The quantifier variable name.
+    pub var: String,
+    /// Description of the domain.
+    pub domain_desc: String,
+    /// Why this is problematic.
+    pub reason: String,
+}
+
+/// Known type names that represent infinite or unbounded domains.
+/// Quantifying over these with forall/exists is almost certainly a mistake
+/// or will cause SMT solver timeouts.
+const INFINITE_TYPE_NAMES: &[&str] = &[
+    "Int", "Nat", "Float", "Bool", "String", "Bytes", "U8", "U16", "U32", "U64", "I8", "I16",
+    "I32", "I64", "F32", "F64",
+];
+
+/// Check all quantifiers (forall/exists) in a typed file for unbounded domains.
+///
+/// Returns warnings for quantifiers that range over infinite type domains
+/// (e.g., `forall x in Int: ...`). These are technically valid in the spec
+/// but are almost always unintended and cause SMT solver timeouts or
+/// unsound verification (if the solver times out and the result is treated
+/// as "verified").
+pub fn validate_quantifier_bounds(typed: &TypedFile) -> Vec<UnboundedQuantifierWarning> {
+    let mut warnings = Vec::new();
+    for decl in &typed.resolved.source.decls {
+        match &decl.node {
+            Decl::Contract(c) => {
+                for clause in &c.clauses {
+                    collect_unbounded_quantifiers(&clause.body, &c.name, &mut warnings);
+                }
+            }
+            Decl::FnDef(f) => {
+                for clause in &f.clauses {
+                    collect_unbounded_quantifiers(&clause.body, &f.name, &mut warnings);
+                }
+            }
+            Decl::Extern(e) => {
+                for clause in &e.clauses {
+                    collect_unbounded_quantifiers(&clause.body, &e.name, &mut warnings);
+                }
+            }
+            Decl::Service(s) => {
+                for item in &s.items {
+                    let (name, clauses) = match item {
+                        ServiceItem::Operation { name, clauses } => (name, clauses),
+                        ServiceItem::Query { name, clauses } => (name, clauses),
+                        _ => continue,
+                    };
+                    let ctx = format!("{}::{}", s.name, name);
+                    for clause in clauses {
+                        collect_unbounded_quantifiers(&clause.body, &ctx, &mut warnings);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    warnings
+}
+
+/// Recursively walk an expression looking for forall/exists with infinite domains.
+fn collect_unbounded_quantifiers(
+    expr: &Expr,
+    context: &str,
+    warnings: &mut Vec<UnboundedQuantifierWarning>,
+) {
+    match expr {
+        Expr::Forall { var, domain, body } | Expr::Exists { var, domain, body } => {
+            if let Some(reason) = check_infinite_domain(domain) {
+                let kind = if matches!(expr, Expr::Forall { .. }) {
+                    "forall"
+                } else {
+                    "exists"
+                };
+                warnings.push(UnboundedQuantifierWarning {
+                    context: context.to_string(),
+                    var: var.clone(),
+                    domain_desc: format!("{kind} {var} in <{reason}>"),
+                    reason: "quantifier ranges over infinite domain; \
+                         use a bounded collection or range (e.g., 0..n) instead"
+                        .to_string(),
+                });
+            }
+            // Check nested quantifiers in body
+            collect_unbounded_quantifiers(body, context, warnings);
+            // Check domain sub-expressions too
+            collect_unbounded_quantifiers(domain, context, warnings);
+        }
+        // Recurse into sub-expressions
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_unbounded_quantifiers(lhs, context, warnings);
+            collect_unbounded_quantifiers(rhs, context, warnings);
+        }
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Paren(e)
+        | Expr::Ghost(e)
+        | Expr::Field(e, _) => {
+            collect_unbounded_quantifiers(e, context, warnings);
+        }
+        Expr::Call { func, args } => {
+            collect_unbounded_quantifiers(func, context, warnings);
+            for arg in args {
+                collect_unbounded_quantifiers(arg, context, warnings);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_unbounded_quantifiers(receiver, context, warnings);
+            for arg in args {
+                collect_unbounded_quantifiers(arg, context, warnings);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            collect_unbounded_quantifiers(e, context, warnings);
+            collect_unbounded_quantifiers(index, context, warnings);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_unbounded_quantifiers(cond, context, warnings);
+            collect_unbounded_quantifiers(then_branch, context, warnings);
+            if let Some(eb) = else_branch {
+                collect_unbounded_quantifiers(eb, context, warnings);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_unbounded_quantifiers(value, context, warnings);
+            collect_unbounded_quantifiers(body, context, warnings);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_unbounded_quantifiers(scrutinee, context, warnings);
+            for arm in arms {
+                collect_unbounded_quantifiers(&arm.body, context, warnings);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_unbounded_quantifiers(item, context, warnings);
+            }
+        }
+        Expr::Cast { expr: e, .. } => {
+            collect_unbounded_quantifiers(e, context, warnings);
+        }
+        Expr::Apply { args, .. } => {
+            for arg in args {
+                collect_unbounded_quantifiers(arg, context, warnings);
+            }
+        }
+        Expr::Raw(tokens) => {
+            // Check for raw quantifier patterns: forall/exists VAR in DOMAIN : BODY
+            check_raw_quantifier_bounds(tokens, context, warnings);
+        }
+        // Leaf nodes
+        Expr::Literal(_) | Expr::Ident(_) => {}
+    }
+}
+
+/// Check if a domain expression represents an infinite/unbounded type.
+/// Returns Some(description) if infinite, None if bounded.
+fn check_infinite_domain(domain: &Expr) -> Option<String> {
+    match domain {
+        Expr::Ident(name) => {
+            if INFINITE_TYPE_NAMES.contains(&name.as_str()) {
+                Some(name.clone())
+            } else {
+                None
+            }
+        }
+        Expr::Raw(tokens) if tokens.len() == 1 => {
+            if INFINITE_TYPE_NAMES.contains(&tokens[0].as_str()) {
+                Some(tokens[0].clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Check raw token sequences for quantifiers with infinite domains.
+fn check_raw_quantifier_bounds(
+    tokens: &[String],
+    context: &str,
+    warnings: &mut Vec<UnboundedQuantifierWarning>,
+) {
+    let mut i = 0;
+    while i + 4 < tokens.len() {
+        let kind = tokens[i].as_str();
+        if matches!(kind, "forall" | "exists")
+            && tokens.get(i + 2).map(|s| s.as_str()) == Some("in")
+        {
+            // tokens[i+1] = var, tokens[i+3..colon] = domain
+            let var = tokens[i + 1].clone();
+            let domain_start = i + 3;
+            // Find colon separator
+            let colon_pos = tokens[domain_start..]
+                .iter()
+                .position(|t| t == ":")
+                .map(|p| domain_start + p);
+            let domain_end = colon_pos.unwrap_or(tokens.len());
+            let domain_tokens = &tokens[domain_start..domain_end];
+            if domain_tokens.len() == 1 && INFINITE_TYPE_NAMES.contains(&domain_tokens[0].as_str())
+            {
+                warnings.push(UnboundedQuantifierWarning {
+                    context: context.to_string(),
+                    var,
+                    domain_desc: format!("{kind} over {}", domain_tokens[0]),
+                    reason: format!(
+                        "quantifier ranges over infinite domain `{}`; \
+                         use a bounded collection or range (e.g., 0..n) instead",
+                        domain_tokens[0]
+                    ),
+                });
+            }
+            i = domain_end + 1;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // No-Z3 fallback
 // ---------------------------------------------------------------------------
 
@@ -3233,6 +3466,14 @@ mod tests {
     use super::*;
 
     /// Helper: parse, resolve, type-check, then verify a source string.
+    fn type_check_ok(source: &str) -> assura_types::TypedFile {
+        let (file, errs) = assura_parser::parse(source);
+        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
+        let file = file.expect("parse returned None");
+        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+        assura_types::type_check(&resolved).expect("type_check failed")
+    }
+
     fn verify_source(source: &str) -> Vec<VerificationResult> {
         use assura_parser::lexer::Token;
         use assura_parser::parser;
@@ -6713,5 +6954,87 @@ mod measure_unit_tests {
     fn incremental_default() {
         let ic = IncrementalCompiler::default();
         assert_eq!(ic.module_count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod quantifier_bound_tests {
+    use super::*;
+
+    fn type_check_source(source: &str) -> assura_types::TypedFile {
+        let (file, errs) = assura_parser::parse(source);
+        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
+        let file = file.expect("parse returned None");
+        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+        assura_types::type_check(&resolved).expect("type_check failed")
+    }
+
+    #[test]
+    fn forall_over_int_is_unbounded() {
+        let typed = type_check_source(
+            r#"
+contract Bad {
+    input(x: Int)
+    requires { forall n in Int: n >= 0 }
+}
+"#,
+        );
+        let warnings = validate_quantifier_bounds(&typed);
+        assert!(
+            !warnings.is_empty(),
+            "forall over Int should produce a warning"
+        );
+        assert!(warnings[0].reason.contains("infinite domain"));
+    }
+
+    #[test]
+    fn exists_over_nat_is_unbounded() {
+        let typed = type_check_source(
+            r#"
+contract Bad {
+    input(x: Int)
+    requires { exists n in Nat: n > x }
+}
+"#,
+        );
+        let warnings = validate_quantifier_bounds(&typed);
+        assert!(
+            !warnings.is_empty(),
+            "exists over Nat should produce a warning"
+        );
+    }
+
+    #[test]
+    fn forall_over_collection_is_bounded() {
+        let typed = type_check_source(
+            r#"
+contract Good {
+    input(items: List<Int>)
+    requires { forall v in items: v > 0 }
+}
+"#,
+        );
+        let warnings = validate_quantifier_bounds(&typed);
+        assert!(
+            warnings.is_empty(),
+            "forall over a collection variable should NOT warn: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn forall_over_range_is_bounded() {
+        let typed = type_check_source(
+            r#"
+contract Good {
+    input(n: Nat)
+    requires { forall i in 0 .. n: i >= 0 }
+}
+"#,
+        );
+        let warnings = validate_quantifier_bounds(&typed);
+        assert!(
+            warnings.is_empty(),
+            "forall over a range should NOT warn: {warnings:?}"
+        );
     }
 }
