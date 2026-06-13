@@ -222,8 +222,9 @@ fn expr_to_rust(expr: &Expr) -> String {
             format!("({op_s}{})", expr_to_rust(e))
         }
         Expr::Old(e) => {
-            // old(x) becomes __old_x as a placeholder; proper handling in T021
-            format!("/* old */ {}", expr_to_rust(e))
+            // old(expr) references a pre-state snapshot saved at function entry.
+            // The variable name is derived from the inner expression.
+            format!("__old_{}", old_var_name(e))
         }
         Expr::Forall { var, domain, body } => {
             format!(
@@ -269,6 +270,96 @@ fn expr_to_rust(expr: &Expr) -> String {
             strs.join(" ")
         }
         Expr::Raw(tokens) => tokens.join(" "),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// old(expr) support
+// ---------------------------------------------------------------------------
+
+/// Derive a variable name for an `old(expr)` snapshot from the expression.
+/// E.g., `old(x)` -> `__old_x`, `old(buf.len)` -> `__old_buf_len`.
+fn old_var_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Ident(s) => s.clone(),
+        Expr::Field(recv, field) => format!("{}_{field}", old_var_name(recv)),
+        Expr::Call { func, .. } => old_var_name(func),
+        Expr::MethodCall {
+            receiver, method, ..
+        } => format!("{}_{method}", old_var_name(receiver)),
+        Expr::Index { expr: e, .. } => old_var_name(e),
+        _ => "expr".to_string(),
+    }
+}
+
+/// Walk an expression tree and collect all `old(inner)` sub-expressions.
+/// Returns `(var_name, rust_expr)` pairs for generating pre-state snapshots.
+fn collect_old_exprs(expr: &Expr) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    collect_old_exprs_inner(expr, &mut result);
+    result
+}
+
+fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String)>) {
+    match expr {
+        Expr::Old(inner) => {
+            let var = old_var_name(inner);
+            let rust = expr_to_rust(inner);
+            // Avoid duplicates
+            if !out.iter().any(|(v, _)| v == &var) {
+                out.push((var, rust));
+            }
+            // Also recurse into the inner expression (in case of nested old)
+            collect_old_exprs_inner(inner, out);
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_old_exprs_inner(lhs, out);
+            collect_old_exprs_inner(rhs, out);
+        }
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Paren(e)
+        | Expr::Field(e, _)
+        | Expr::Cast { expr: e, .. } => {
+            collect_old_exprs_inner(e, out);
+        }
+        Expr::Call { func, args } => {
+            collect_old_exprs_inner(func, out);
+            for a in args {
+                collect_old_exprs_inner(a, out);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_old_exprs_inner(receiver, out);
+            for a in args {
+                collect_old_exprs_inner(a, out);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            collect_old_exprs_inner(e, out);
+            collect_old_exprs_inner(index, out);
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_old_exprs_inner(domain, out);
+            collect_old_exprs_inner(body, out);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_old_exprs_inner(cond, out);
+            collect_old_exprs_inner(then_branch, out);
+            if let Some(eb) = else_branch {
+                collect_old_exprs_inner(eb, out);
+            }
+        }
+        Expr::List(items) | Expr::Block(items) => {
+            for item in items {
+                collect_old_exprs_inner(item, out);
+            }
+        }
+        // Leaf nodes: no old() inside
+        Expr::Literal(_) | Expr::Ident(_) | Expr::Raw(_) => {}
     }
 }
 
@@ -430,6 +521,15 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
         "    pub fn check{tps}({params_s}) -> {output_type} {{\n"
     ));
 
+    // Collect old() expressions from ensures clauses and save pre-state values
+    for clause in &c.clauses {
+        if clause.kind == ClauseKind::Ensures {
+            for (var, rust_expr) in collect_old_exprs(&clause.body) {
+                code.push_str(&format!("        let __old_{var} = {rust_expr}.clone();\n"));
+            }
+        }
+    }
+
     // Generate requires assertions
     for req in &requires_exprs {
         code.push_str(&format!(
@@ -549,26 +649,41 @@ fn generate_extern(ex: &ExternDecl, code: &mut String) {
         ex.name, ex.name
     ));
 
+    // Collect old() expressions from ensures clauses and save pre-state values
+    let mut ensures_exprs: Vec<String> = Vec::new();
     for clause in &ex.clauses {
-        match &clause.kind {
-            ClauseKind::Requires => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!(
-                    "    debug_assert!({expr}, \"requires: {}\");\n",
-                    expr.replace('"', "\\\"")
-                ));
+        if clause.kind == ClauseKind::Ensures {
+            for (var, rust_expr) in collect_old_exprs(&clause.body) {
+                code.push_str(&format!("    let __old_{var} = {rust_expr}.clone();\n"));
             }
-            ClauseKind::Ensures => {
-                // Ensures checked after body; for extern stubs, just emit
-                // as a comment since there is no body.
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("    // ensures: {expr}\n"));
-            }
-            _ => {}
+            ensures_exprs.push(expr_to_rust(&clause.body));
         }
     }
 
-    code.push_str("    todo!(\"extern function: implementation required\")\n");
+    // Generate requires assertions at function entry
+    for clause in &ex.clauses {
+        if clause.kind == ClauseKind::Requires {
+            let expr = expr_to_rust(&clause.body);
+            code.push_str(&format!(
+                "    debug_assert!({expr}, \"requires: {}\");\n",
+                expr.replace('"', "\\\"")
+            ));
+        }
+    }
+
+    code.push_str(&format!(
+        "    let __result: {ret} = todo!(\"extern function: implementation required\");\n"
+    ));
+
+    // Generate ensures assertions before return
+    for ens in &ensures_exprs {
+        code.push_str(&format!(
+            "    debug_assert!({ens}, \"ensures: {}\");\n",
+            ens.replace('"', "\\\"")
+        ));
+    }
+
+    code.push_str("    __result\n");
     code.push_str("}\n\n");
 }
 
@@ -584,32 +699,55 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
         .collect::<Vec<_>>()
         .join(", ");
 
-    let ret = if f.return_ty.is_empty() {
-        String::new()
+    let ret_ty = if f.return_ty.is_empty() {
+        "()".to_string()
     } else {
-        format!(" -> {}", map_type_tokens(&f.return_ty))
+        map_type_tokens(&f.return_ty)
     };
 
-    code.push_str(&format!("pub fn {}({params_s}){ret} {{\n", f.name));
+    let ret_sig = if f.return_ty.is_empty() {
+        String::new()
+    } else {
+        format!(" -> {ret_ty}")
+    };
 
+    code.push_str(&format!("pub fn {}({params_s}){ret_sig} {{\n", f.name));
+
+    // Collect old() expressions from ensures clauses and save pre-state values
+    let mut ensures_exprs: Vec<String> = Vec::new();
     for clause in &f.clauses {
-        match &clause.kind {
-            ClauseKind::Requires => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!(
-                    "    debug_assert!({expr}, \"requires: {}\");\n",
-                    expr.replace('"', "\\\"")
-                ));
+        if clause.kind == ClauseKind::Ensures {
+            for (var, rust_expr) in collect_old_exprs(&clause.body) {
+                code.push_str(&format!("    let __old_{var} = {rust_expr}.clone();\n"));
             }
-            ClauseKind::Ensures => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("    // ensures: {expr}\n"));
-            }
-            _ => {}
+            ensures_exprs.push(expr_to_rust(&clause.body));
         }
     }
 
-    code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+    // Generate requires assertions at function entry
+    for clause in &f.clauses {
+        if clause.kind == ClauseKind::Requires {
+            let expr = expr_to_rust(&clause.body);
+            code.push_str(&format!(
+                "    debug_assert!({expr}, \"requires: {}\");\n",
+                expr.replace('"', "\\\"")
+            ));
+        }
+    }
+
+    code.push_str(&format!(
+        "    let __result: {ret_ty} = todo!(\"implementation provided by AI agent\");\n"
+    ));
+
+    // Generate ensures assertions before return
+    for ens in &ensures_exprs {
+        code.push_str(&format!(
+            "    debug_assert!({ens}, \"ensures: {}\");\n",
+            ens.replace('"', "\\\"")
+        ));
+    }
+
+    code.push_str("    __result\n");
     code.push_str("}\n\n");
 }
 
@@ -894,5 +1032,338 @@ service MyService {
         assert!(project.cargo_toml.contains("[package]"));
         assert!(project.cargo_toml.contains("edition = \"2024\""));
         assert!(project.cargo_toml.contains("[dependencies]"));
+    }
+
+    // -----------------------------------------------------------------------
+    // T020: Type mapping tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn type_mapping_int_to_i64() {
+        assert_eq!(map_type_token("Int"), "i64");
+    }
+
+    #[test]
+    fn type_mapping_nat_to_u64() {
+        assert_eq!(map_type_token("Nat"), "u64");
+    }
+
+    #[test]
+    fn type_mapping_float_to_f64() {
+        assert_eq!(map_type_token("Float"), "f64");
+    }
+
+    #[test]
+    fn type_mapping_bool() {
+        assert_eq!(map_type_token("Bool"), "bool");
+    }
+
+    #[test]
+    fn type_mapping_string() {
+        assert_eq!(map_type_token("String"), "String");
+    }
+
+    #[test]
+    fn type_mapping_bytes_to_vec_u8() {
+        assert_eq!(map_type_token("Bytes"), "Vec<u8>");
+    }
+
+    #[test]
+    fn type_mapping_unit() {
+        assert_eq!(map_type_token("Unit"), "()");
+    }
+
+    #[test]
+    fn type_mapping_never() {
+        assert_eq!(map_type_token("Never"), "!");
+    }
+
+    #[test]
+    fn type_mapping_list_to_vec() {
+        assert_eq!(map_type_token("List"), "Vec");
+    }
+
+    #[test]
+    fn type_mapping_map_to_btreemap() {
+        assert_eq!(map_type_token("Map"), "std::collections::BTreeMap");
+    }
+
+    #[test]
+    fn type_mapping_set_to_btreeset() {
+        assert_eq!(map_type_token("Set"), "std::collections::BTreeSet");
+    }
+
+    #[test]
+    fn type_mapping_option_passthrough() {
+        assert_eq!(map_type_token("Option"), "Option");
+    }
+
+    #[test]
+    fn type_mapping_result_passthrough() {
+        assert_eq!(map_type_token("Result"), "Result");
+    }
+
+    #[test]
+    fn type_mapping_fixed_width() {
+        assert_eq!(map_type_token("U8"), "u8");
+        assert_eq!(map_type_token("U16"), "u16");
+        assert_eq!(map_type_token("U32"), "u32");
+        assert_eq!(map_type_token("U64"), "u64");
+        assert_eq!(map_type_token("I8"), "i8");
+        assert_eq!(map_type_token("I16"), "i16");
+        assert_eq!(map_type_token("I32"), "i32");
+        assert_eq!(map_type_token("I64"), "i64");
+        assert_eq!(map_type_token("F32"), "f32");
+        assert_eq!(map_type_token("F64"), "f64");
+    }
+
+    #[test]
+    fn refined_type_generates_newtype() {
+        let project = codegen_ok(
+            r#"
+type Pos = { n: Int | n > 0 }
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("struct Pos"),
+            "refined type should generate a newtype struct"
+        );
+        assert!(lib.contains("i64"), "refined type base should be i64");
+    }
+
+    #[test]
+    fn type_alias_codegen() {
+        let project = codegen_ok(
+            r#"
+type UserId = Int
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(lib.contains("UserId"), "should contain type alias name");
+    }
+
+    // -----------------------------------------------------------------------
+    // T021: Contract codegen tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn contract_ensures_generates_debug_assert() {
+        let project = codegen_ok(
+            r#"
+contract NonNeg {
+    requires { true }
+    ensures  { true }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        // Both requires and ensures should produce debug_assert!
+        let assert_count = lib.matches("debug_assert!").count();
+        assert!(
+            assert_count >= 2,
+            "should have debug_assert for both requires and ensures, got {assert_count}"
+        );
+    }
+
+    #[test]
+    fn contract_has_result_variable() {
+        let project = codegen_ok(
+            r#"
+contract Foo {
+    requires { true }
+    ensures  { true }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("__result"),
+            "contract should declare __result variable"
+        );
+    }
+
+    #[test]
+    fn fn_def_ensures_generates_debug_assert() {
+        // Note: clauses must be outside the body block for the parser
+        // to parse them as structured Clause objects.
+        let project = codegen_ok(
+            "fn abs(n: Int) -> Int\n    requires { true }\n    ensures  { result >= 0 }\n",
+        );
+        let lib = &project.files[0].1;
+        // requires and ensures should both be debug_assert!
+        let assert_count = lib.matches("debug_assert!").count();
+        assert!(
+            assert_count >= 2,
+            "fn should have debug_assert for both requires and ensures, got {assert_count}"
+        );
+        assert!(
+            lib.contains("__result"),
+            "fn should declare __result variable"
+        );
+    }
+
+    #[test]
+    fn fn_result_maps_to_dunder_result() {
+        let project = codegen_ok("fn double(n: Int) -> Int\n    ensures { result == n + n }\n");
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("__result"),
+            "result keyword in ensures should map to __result"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // T022: Cargo project generation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cargo_toml_has_package_name() {
+        let project = codegen_ok(
+            r#"
+project test_project {
+    profile: [core]
+}
+"#,
+        );
+        assert!(project.cargo_toml.contains("test_project"));
+        assert!(project.cargo_toml.contains("[package]"));
+    }
+
+    #[test]
+    fn default_project_name_is_generated() {
+        let project = codegen_ok("");
+        assert!(
+            project.cargo_toml.contains("\"generated\""),
+            "default project name should be 'generated'"
+        );
+    }
+
+    #[test]
+    fn generated_file_is_src_lib_rs() {
+        let project = codegen_ok(
+            r#"
+type X {
+    val: Int
+}
+"#,
+        );
+        assert_eq!(project.files.len(), 1);
+        assert_eq!(project.files[0].0, "src/lib.rs");
+    }
+
+    #[test]
+    fn generated_rust_has_header_comment() {
+        let project = codegen_ok("");
+        let lib = &project.files[0].1;
+        assert!(lib.contains("Generated by the Assura compiler"));
+        assert!(lib.contains("Do not edit manually"));
+    }
+
+    // -----------------------------------------------------------------------
+    // T023: Struct and enum codegen tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn struct_has_derive_debug_clone_partialeq() {
+        let project = codegen_ok(
+            r#"
+type Pair {
+    a: Int
+    b: Int
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(lib.contains("Debug"), "struct should derive Debug");
+        assert!(lib.contains("Clone"), "struct should derive Clone");
+        assert!(lib.contains("PartialEq"), "struct should derive PartialEq");
+    }
+
+    #[test]
+    fn struct_field_types_are_mapped() {
+        let project = codegen_ok(
+            r#"
+type Config {
+    name: String
+    count: Nat
+    enabled: Bool
+    ratio: Float
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(lib.contains("String"), "String should map to String");
+        assert!(lib.contains("u64"), "Nat should map to u64");
+        assert!(lib.contains("bool"), "Bool should map to bool");
+        assert!(lib.contains("f64"), "Float should map to f64");
+    }
+
+    #[test]
+    fn struct_pub_field_visibility() {
+        let project = codegen_ok(
+            r#"
+type Visible {
+    pub x: Int
+    y: Int
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("pub x"),
+            "pub field should have pub visibility in generated code"
+        );
+    }
+
+    #[test]
+    fn enum_has_derive_debug_clone_partialeq() {
+        let project = codegen_ok(
+            r#"
+enum Direction {
+    North,
+    South,
+    East,
+    West
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(lib.contains("Debug"), "enum should derive Debug");
+        assert!(lib.contains("Clone"), "enum should derive Clone");
+        assert!(lib.contains("PartialEq"), "enum should derive PartialEq");
+    }
+
+    #[test]
+    fn enum_variant_with_data() {
+        let project = codegen_ok(
+            r#"
+enum Value {
+    Num(Int),
+    Text(String),
+    Nothing
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(lib.contains("Num"), "should contain Num variant");
+        assert!(lib.contains("i64"), "Int should map to i64 in variant");
+        assert!(lib.contains("Text"), "should contain Text variant");
+        assert!(
+            lib.contains("Nothing"),
+            "should contain unit variant Nothing"
+        );
+    }
+
+    #[test]
+    fn empty_struct_codegen() {
+        let project = codegen_ok(
+            r#"
+type Marker {
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(lib.contains("Marker"), "should contain empty struct");
     }
 }
