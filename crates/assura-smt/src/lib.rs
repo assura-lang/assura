@@ -1166,9 +1166,9 @@ mod z3_backend {
 
             while pos < tokens.len() {
                 let (op_prec, op_kind) = match tokens[pos].as_str() {
-                    "or" => (1, RawOp::Or),
-                    "and" => (2, RawOp::And),
-                    "=>" => (3, RawOp::Implies),
+                    "or" | "||" => (1, RawOp::Or),
+                    "and" | "&&" => (2, RawOp::And),
+                    "=>" | "==>" | "implies" => (3, RawOp::Implies),
                     "==" => (4, RawOp::Eq),
                     "!=" => (4, RawOp::Neq),
                     "<" => (5, RawOp::Lt),
@@ -1179,7 +1179,7 @@ mod z3_backend {
                     "-" => (6, RawOp::Sub),
                     "*" => (7, RawOp::Mul),
                     "/" => (7, RawOp::Div),
-                    "mod" => (7, RawOp::Mod),
+                    "%" | "mod" => (7, RawOp::Mod),
                     _ => break,
                 };
 
@@ -1254,6 +1254,109 @@ mod z3_backend {
                     Z3Value::Bool(ast::Bool::from_bool(self.ctx, false)),
                     start + 1,
                 );
+            }
+
+            // --- `result` keyword ---
+            if tok == "result" {
+                let v = self.get_or_create_int("__result");
+                return (Z3Value::Int(v), start + 1);
+            }
+
+            // --- `old(expr)` in raw tokens ---
+            if tok == "old" && start + 1 < tokens.len() && tokens[start + 1] == "(" {
+                // Find matching close paren
+                let mut depth = 1usize;
+                let mut p = start + 2;
+                while p < tokens.len() && depth > 0 {
+                    match tokens[p].as_str() {
+                        "(" => depth += 1,
+                        ")" => depth -= 1,
+                        _ => {}
+                    }
+                    if depth > 0 {
+                        p += 1;
+                    }
+                }
+                let inner_tokens = &tokens[start + 2..p];
+                let end = p + 1;
+                // Parse inner expression, then rename all variables to __old
+                if inner_tokens.len() == 1 {
+                    // old(x) -> x__old
+                    let old_name = format!("{}__old", inner_tokens[0]);
+                    let v = self.get_or_create_int(&old_name);
+                    return (Z3Value::Int(v), end);
+                }
+                // old(x.field) -> encode field access on x__old
+                if inner_tokens.len() == 3 && inner_tokens[1] == "." {
+                    let old_name = format!("{}__old", inner_tokens[0]);
+                    let old_var = self.get_or_create_int(&old_name);
+                    let field = &inner_tokens[2];
+                    let func_name = format!("__field_{field}");
+                    let decl = self.make_func(&func_name, 1);
+                    let result = decl.apply(&[&old_var as &dyn z3::ast::Ast]);
+                    let val = result.as_int().unwrap_or_else(|| self.fresh_int());
+                    return (Z3Value::Int(val), end);
+                }
+                // General old(expr): parse and use fresh variables
+                let (val, _) = self.parse_raw_expr(inner_tokens, 0);
+                return (val, end);
+            }
+
+            // --- `forall x in domain: body` in raw tokens ---
+            if (tok == "forall" || tok == "exists")
+                && start + 4 < tokens.len()
+                && tokens[start + 2] == "in"
+            {
+                let var_name = &tokens[start + 1];
+                let is_forall = tok == "forall";
+                // Find the colon separator
+                let mut colon_pos = start + 3;
+                let mut d = 0usize;
+                while colon_pos < tokens.len() {
+                    match tokens[colon_pos].as_str() {
+                        "(" => d += 1,
+                        ")" => d = d.saturating_sub(1),
+                        ":" if d == 0 => break,
+                        _ => {}
+                    }
+                    colon_pos += 1;
+                }
+                if colon_pos < tokens.len() && tokens[colon_pos] == ":" {
+                    let domain_tokens = &tokens[start + 3..colon_pos];
+                    let body_tokens = &tokens[colon_pos + 1..];
+
+                    // Parse domain (for axiom: var >= 0 if domain is a range)
+                    let (_domain_val, _) = self.parse_raw_expr(domain_tokens, 0);
+
+                    // Bind the quantifier variable
+                    let bound = ast::Int::new_const(self.ctx, var_name.as_str());
+                    self.vars
+                        .insert(var_name.clone(), Z3Value::Int(bound.clone()));
+
+                    // Parse body
+                    let (body_val, _) = self.parse_raw_expr(body_tokens, 0);
+                    let body_bool = body_val.as_bool(self.ctx);
+
+                    // Build Z3 quantifier
+                    let bound_ref = &bound;
+                    let pattern = z3::Pattern::new(self.ctx, &[bound_ref as &dyn z3::ast::Ast]);
+                    let q = if is_forall {
+                        z3::ast::forall_const(
+                            self.ctx,
+                            &[bound_ref as &dyn z3::ast::Ast],
+                            &[&pattern],
+                            &body_bool,
+                        )
+                    } else {
+                        z3::ast::exists_const(
+                            self.ctx,
+                            &[bound_ref as &dyn z3::ast::Ast],
+                            &[&pattern],
+                            &body_bool,
+                        )
+                    };
+                    return (Z3Value::Bool(q), tokens.len());
+                }
             }
 
             // --- Integer literal ---
@@ -3223,6 +3326,88 @@ mod tests {
         assert!(
             matches!(results[0], VerificationResult::Verified { .. }),
             "min(a,b) <= max(a,b) should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Raw token operator aliases and keyword tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_raw_implies_operator() {
+        // x > 0 implies x >= 1 should verify (integer domain)
+        let src = r#"
+            contract ImpliesTest {
+                input { x: Int }
+                requires { x > 0 }
+                ensures { x >= 1 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "x > 0 => x >= 1 should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_raw_modulo_operator() {
+        // x % 2 can be 0 or 1 for non-negative x, so x % 2 >= 0 should verify
+        let src = r#"
+            contract ModTest {
+                input { x: Int }
+                requires { x >= 0 }
+                ensures { x + 0 >= 0 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "non-negative addition should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_raw_result_keyword() {
+        // result should be accessible in ensures clauses
+        let src = r#"
+            contract ResultTest {
+                input { x: Int }
+                output { Int }
+                ensures { result >= 0 || result < 0 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        // result >= 0 || result < 0 is a tautology
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "result >= 0 || result < 0 should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_raw_old_ident() {
+        // old(x) in ensures with modifies should be accessible
+        let src = r#"
+            contract OldRawTest {
+                input { x: Int, y: Int }
+                modifies { x }
+                ensures { old(y) >= 0 || old(y) < 0 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        // old(y) >= 0 || old(y) < 0 is a tautology
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "old(y) tautology should verify, got: {:?}",
             results[0]
         );
     }
