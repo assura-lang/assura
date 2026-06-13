@@ -340,6 +340,30 @@ fn extract_input_param_names(body: &Expr) -> Vec<String> {
     names
 }
 
+/// Register input and output clause parameters from a clause list into a scope.
+fn register_clause_params(
+    clauses: &[assura_parser::ast::Clause],
+    table: &mut SymbolTable,
+    errors: &mut Vec<ResolutionError>,
+    scope_id: usize,
+    span: &Span,
+) {
+    for clause in clauses {
+        if clause.kind == ClauseKind::Input || clause.kind == ClauseKind::Output {
+            for param_name in extract_input_param_names(&clause.body) {
+                try_insert(
+                    table,
+                    errors,
+                    scope_id,
+                    &param_name,
+                    SymbolKind::Parameter,
+                    span.clone(),
+                );
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Resolver
 // ---------------------------------------------------------------------------
@@ -459,9 +483,9 @@ pub fn resolve_with_modules(
                             decl.span.clone(),
                         );
                     }
-                    // Register input clause parameters in the contract scope
+                    // Register input and output clause parameters in the contract scope
                     for clause in &c.clauses {
-                        if clause.kind == ClauseKind::Input {
+                        if clause.kind == ClauseKind::Input || clause.kind == ClauseKind::Output {
                             for param_name in extract_input_param_names(&clause.body) {
                                 try_insert(
                                     &mut table,
@@ -684,23 +708,13 @@ pub fn resolve_with_modules(
                                 );
                                 if ins {
                                     let op_scope = table.push_scope(name, Some(svc_scope));
-                                    // Register input clause params
-                                    for clause in clauses {
-                                        if clause.kind == ClauseKind::Input {
-                                            for param_name in
-                                                extract_input_param_names(&clause.body)
-                                            {
-                                                try_insert(
-                                                    &mut table,
-                                                    &mut errors,
-                                                    op_scope,
-                                                    &param_name,
-                                                    SymbolKind::Parameter,
-                                                    decl.span.clone(),
-                                                );
-                                            }
-                                        }
-                                    }
+                                    register_clause_params(
+                                        clauses,
+                                        &mut table,
+                                        &mut errors,
+                                        op_scope,
+                                        &decl.span,
+                                    );
                                 }
                             }
                             ServiceItem::Query { name, clauses, .. } => {
@@ -714,23 +728,13 @@ pub fn resolve_with_modules(
                                 );
                                 if ins {
                                     let q_scope = table.push_scope(name, Some(svc_scope));
-                                    // Register input clause params
-                                    for clause in clauses {
-                                        if clause.kind == ClauseKind::Input {
-                                            for param_name in
-                                                extract_input_param_names(&clause.body)
-                                            {
-                                                try_insert(
-                                                    &mut table,
-                                                    &mut errors,
-                                                    q_scope,
-                                                    &param_name,
-                                                    SymbolKind::Parameter,
-                                                    decl.span.clone(),
-                                                );
-                                            }
-                                        }
-                                    }
+                                    register_clause_params(
+                                        clauses,
+                                        &mut table,
+                                        &mut errors,
+                                        q_scope,
+                                        &decl.span,
+                                    );
                                 }
                             }
                             // States / Invariant / Other don't introduce named symbols.
