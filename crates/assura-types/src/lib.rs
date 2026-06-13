@@ -3725,6 +3725,82 @@ fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
 
 /// Scan for contracts with `implements` clauses and validate that all
 /// required interface methods are present with correct signatures.
+/// Extract an interface method declaration from a clause body expression.
+///
+/// Handles several forms:
+/// - `Ident("method_name")` -> name only, no params/return
+/// - `Call { func: Ident("f"), args }` -> name + param types from args
+/// - `Raw(["f", "(", "Int", ")", "->", "Bool"])` -> name + parsed types
+fn extract_interface_method(body: &Expr) -> Option<InterfaceMethod> {
+    match body {
+        Expr::Ident(name) => Some(InterfaceMethod {
+            name: name.clone(),
+            param_types: vec![],
+            return_type: Type::Unknown,
+            has_requires: false,
+            has_ensures: false,
+            no_reentrancy: false,
+        }),
+        Expr::Call { func, args } => {
+            let name = match func.as_ref() {
+                Expr::Ident(n) => n.clone(),
+                _ => return None,
+            };
+            // Each arg in a method decl is typically a type identifier
+            let param_types: Vec<Type> = args
+                .iter()
+                .map(|arg| match arg {
+                    Expr::Ident(t) => parse_type_tokens(std::slice::from_ref(t)),
+                    _ => Type::Unknown,
+                })
+                .collect();
+            Some(InterfaceMethod {
+                name,
+                param_types,
+                return_type: Type::Unknown,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            })
+        }
+        Expr::Raw(tokens) => {
+            // Try to extract method name from first token
+            let name = tokens.first()?.clone();
+            // Look for parameter types in parentheses
+            let mut param_types = Vec::new();
+            let mut return_type = Type::Unknown;
+            if let Some(paren_start) = tokens.iter().position(|t| t == "(")
+                && let Some(paren_end) = tokens.iter().position(|t| t == ")")
+            {
+                // Parse param types between ( and )
+                let param_tokens = &tokens[paren_start + 1..paren_end];
+                for chunk in param_tokens.split(|t| t == ",") {
+                    if !chunk.is_empty() {
+                        let owned: Vec<String> = chunk.to_vec();
+                        param_types.push(parse_type_tokens(&owned));
+                    }
+                }
+                // Look for -> return type after )
+                if let Some(arrow_pos) = tokens[paren_end..].iter().position(|t| t == "->") {
+                    let ret_tokens: Vec<String> = tokens[paren_end + arrow_pos + 1..].to_vec();
+                    if !ret_tokens.is_empty() {
+                        return_type = parse_type_tokens(&ret_tokens);
+                    }
+                }
+            }
+            Some(InterfaceMethod {
+                name,
+                param_types,
+                return_type,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            })
+        }
+        _ => None,
+    }
+}
+
 fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker = InterfaceChecker::new();
     let mut errors = Vec::new();
@@ -3742,20 +3818,7 @@ fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
                     .clauses
                     .iter()
                     .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "method"))
-                    .filter_map(|cl| {
-                        if let Expr::Ident(name) = &cl.body {
-                            Some(InterfaceMethod {
-                                name: name.clone(),
-                                param_types: vec![],
-                                return_type: Type::Unknown,
-                                has_requires: false,
-                                has_ensures: false,
-                                no_reentrancy: false,
-                            })
-                        } else {
-                            None
-                        }
-                    })
+                    .filter_map(|cl| extract_interface_method(&cl.body))
                     .collect();
 
                 let extends: Vec<String> = c
