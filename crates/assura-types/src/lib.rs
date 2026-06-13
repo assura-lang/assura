@@ -1125,8 +1125,21 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 let mut arm_env = env.clone();
                 bind_pattern_vars(&arm.pattern, &scrut_ty, &mut arm_env);
                 let arm_ty = infer_expr(&arm.body, &arm_env)?;
+                if arm_ty == Type::Unknown {
+                    continue;
+                }
                 if result_ty == Type::Unknown {
                     result_ty = arm_ty;
+                } else if !types_compatible(&result_ty, &arm_ty) {
+                    return Err(TypeError {
+                        code: "A03001".into(),
+                        message: format!(
+                            "match arm type `{arm_ty}` is incompatible with \
+                             previous arm type `{result_ty}`"
+                        ),
+                        span: 0..0,
+                        secondary: None,
+                    });
                 }
             }
             Ok(result_ty)
@@ -1621,8 +1634,15 @@ fn bind_pattern_vars(
             }
         }
         assura_parser::ast::Pattern::Tuple(pats) => {
-            for pat in pats {
-                bind_pattern_vars(pat, &Type::Unknown, env);
+            if let Type::Tuple(elem_tys) = scrutinee_ty {
+                for (i, pat) in pats.iter().enumerate() {
+                    let elem_ty = elem_tys.get(i).cloned().unwrap_or(Type::Unknown);
+                    bind_pattern_vars(pat, &elem_ty, env);
+                }
+            } else {
+                for pat in pats {
+                    bind_pattern_vars(pat, &Type::Unknown, env);
+                }
             }
         }
         assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Literal(_) => {}
@@ -23077,6 +23097,52 @@ ghost fn bad_ghost(x: Int) -> Bool
     }
 
     #[test]
+    fn match_incompatible_arms_emits_error() {
+        // match x { A => 42, B => true } should emit A03001
+        let env = TypeEnv::new();
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("x".into())),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Ident("A".into()),
+                    body: AstExpr::Literal(AstLit::Int("42".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Ident("B".into()),
+                    body: AstExpr::Literal(AstLit::Bool(true)),
+                },
+            ],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("incompatible"));
+    }
+
+    #[test]
+    fn match_compatible_arms_ok() {
+        // match x { A => 42, B => 0 } all Int arms = ok
+        let env = TypeEnv::new();
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("x".into())),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Ident("A".into()),
+                    body: AstExpr::Literal(AstLit::Int("1".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Ident("B".into()),
+                    body: AstExpr::Literal(AstLit::Int("2".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Wildcard,
+                    body: AstExpr::Literal(AstLit::Int("3".into())),
+                },
+            ],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
     fn match_empty_arms_infers_unknown() {
         let env = TypeEnv::new();
         let expr = AstExpr::Match {
@@ -23518,6 +23584,24 @@ fn square(x: Int) -> Int
             }],
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn match_tuple_pattern_binds_element_types() {
+        let mut env = TypeEnv::new();
+        env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::Bool]));
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("pair".into())),
+            arms: vec![assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Tuple(vec![
+                    assura_parser::ast::Pattern::Ident("a".into()),
+                    assura_parser::ast::Pattern::Ident("b".into()),
+                ]),
+                // body uses 'a' which should be Int from pair[0]
+                body: AstExpr::Ident("a".into()),
+            }],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
     }
 
     #[test]
