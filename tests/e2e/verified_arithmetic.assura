@@ -1,0 +1,15 @@
+// T042: Arithmetic contract that should VERIFY
+// If x > 5, then x + 1 > 5 is trivially true
+
+contract IncrementPositive {
+    requires { x > 5 }
+    ensures  { x + 1 > 5 }
+}
+
+// If a >= 0 and b >= 0, then a + b >= 0
+
+contract SumNonNegative {
+    requires { a >= 0 }
+    requires { b >= 0 }
+    ensures  { a + b >= 0 }
+}

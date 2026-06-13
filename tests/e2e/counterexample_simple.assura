@@ -1,0 +1,7 @@
+// T042: Contract where ensures does NOT follow from requires (should produce COUNTEREXAMPLE)
+// requires: true (anything), ensures: x > 0 -- fails for x = 0 or negative
+
+contract AlwaysPositive {
+    requires { x == x }
+    ensures  { x > 0 }
+}

@@ -1,0 +1,7 @@
+// T042: Contract where requires implies ensures (should VERIFY)
+// requires: x > 0, ensures: x > 0 -- trivially true under assumption
+
+contract PositiveStaysPositive {
+    requires { x > 0 }
+    ensures  { x > 0 }
+}
