@@ -11,10 +11,33 @@ concurrency:
 
 jobs:
   check:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        if: ${{ !vars.RUNNER }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache dependencies
+        if: ${{ !vars.RUNNER }}
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y protobuf-compiler libz3-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Set Linux Z3 paths
+        if: runner.os == 'Linux'
+        run: |
+          echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
+          echo "CPATH=/usr/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
       - name: Check formatting
         run: cargo fmt --check --all
