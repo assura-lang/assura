@@ -1912,4 +1912,95 @@ type Marker {
         assert_eq!(config.backend, super::CodegenBackend::Cranelift);
         assert_eq!(config.opt_level, 0);
     }
+
+    // =======================================================================
+    // Generated Rust compilation tests
+    // =======================================================================
+
+    /// Verify generated Rust for a contract parses as valid Rust syntax.
+    fn assert_generated_rust_valid(source: &str) {
+        let project = codegen_ok(source);
+        let lib = &project.files[0].1;
+        syn::parse_file(lib).unwrap_or_else(|e| {
+            panic!("generated Rust is not valid syntax:\n{lib}\n\nerror: {e}");
+        });
+    }
+
+    #[test]
+    fn generated_rust_contract_is_valid() {
+        assert_generated_rust_valid(
+            r#"
+contract SafeDivision {
+  input(a: Int, b: Int)
+  output(result: Int)
+  requires { b != 0 }
+  ensures { result * b == a }
+  effects { pure }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn generated_rust_fn_is_valid() {
+        assert_generated_rust_valid(
+            r#"
+fn clamp(x: Int, lo: Int, hi: Int) -> Int
+  requires { lo <= hi }
+  ensures { result >= lo && result <= hi }
+{
+  if x < lo then lo else if x > hi then hi else x
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn generated_rust_service_is_valid() {
+        let source =
+            std::fs::read_to_string("../assura-cli/../../tests/fixtures/service_full.assura")
+                .unwrap_or_else(|_| {
+                    std::fs::read_to_string("tests/fixtures/service_full.assura")
+                        .expect("cannot find service_full fixture")
+                });
+        let project = codegen_ok(&source);
+        let lib = &project.files[0].1;
+        syn::parse_file(lib).unwrap_or_else(|e| {
+            panic!("service generated Rust is not valid:\n{lib}\n\nerror: {e}");
+        });
+    }
+
+    #[test]
+    fn generated_rust_demo_libwebp_is_valid() {
+        let source = std::fs::read_to_string("../assura-cli/../../demos/libwebp-huffman.assura")
+            .unwrap_or_else(|_| {
+                // Fallback path when running from workspace root
+                std::fs::read_to_string("demos/libwebp-huffman.assura")
+                    .expect("cannot find libwebp demo")
+            });
+        let project = codegen_ok(&source);
+        let lib = &project.files[0].1;
+        syn::parse_file(lib).unwrap_or_else(|e| {
+            panic!("libwebp generated Rust is not valid:\n{lib}\n\nerror: {e}");
+        });
+    }
+
+    #[test]
+    fn codegen_with_config_produces_profile() {
+        let config = super::BackendConfig {
+            backend: super::CodegenBackend::Rustc,
+            opt_level: 3,
+            debug_info: true,
+        };
+        let project = {
+            let (file, errs) = assura_parser::parse("");
+            assert!(errs.is_empty());
+            let file = file.expect("parse returned None");
+            let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+            let typed = assura_types::type_check(&resolved).expect("type check failed");
+            super::codegen_with_config(&typed, &config)
+        };
+        assert!(project.cargo_toml.contains("opt-level = 3"));
+        assert!(project.cargo_toml.contains("debug = true"));
+    }
 }
