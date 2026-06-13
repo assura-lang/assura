@@ -457,7 +457,7 @@
   - `assura check --layer 0` skips SMT (structural checks only)
   - `assura check --layer 1` runs Layer 1 SMT (default)
 
-- [ ] **T042**: Test Z3 integration with simple contracts
+- [x] **T042**: Test Z3 integration with simple contracts
   - Depends on: T041
   - Test: `requires { x > 0 } ensures { result > 0 }` with body
     `result = x + 1` -> VERIFIED
