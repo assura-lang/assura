@@ -750,6 +750,16 @@ fn generate_enum_def(e: &EnumDef, code: &mut String) {
 // ---------------------------------------------------------------------------
 
 fn generate_contract(c: &ContractDecl, code: &mut String) {
+    // Check if this contract is an interface declaration
+    let is_interface = c
+        .clauses
+        .iter()
+        .any(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "interface"));
+    if is_interface {
+        generate_interface_trait_from_contract(c, code);
+        return;
+    }
+
     let tps = if c.type_params.is_empty() {
         String::new()
     } else {
@@ -822,6 +832,63 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
 
     code.push_str("        __result\n");
     code.push_str("    }\n");
+    code.push_str("}\n\n");
+}
+
+/// Generate a Rust trait from a contract that has an `interface` clause.
+fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mut String) {
+    let tps = if c.type_params.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", c.type_params.join(", "))
+    };
+
+    // Collect extends (supertraits)
+    let extends: Vec<String> = c
+        .clauses
+        .iter()
+        .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "extends"))
+        .filter_map(|cl| {
+            if let Expr::Ident(name) = &cl.body {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if extends.is_empty() {
+        code.push_str(&format!(
+            "/// Interface contract: {}\npub trait {}{tps} {{\n",
+            c.name, c.name
+        ));
+    } else {
+        let bounds = extends.join(" + ");
+        code.push_str(&format!(
+            "/// Interface contract: {}\npub trait {}{tps}: {bounds} {{\n",
+            c.name, c.name
+        ));
+    }
+
+    // Generate trait methods from `method` clauses
+    for clause in &c.clauses {
+        if let ClauseKind::Other(k) = &clause.kind
+            && k == "method"
+        {
+            generate_trait_method(&clause.body, code);
+        }
+    }
+
+    // Generate invariant as a provided method
+    for clause in &c.clauses {
+        if matches!(clause.kind, ClauseKind::Invariant | ClauseKind::Ensures) {
+            let expr = expr_to_rust(&clause.body);
+            code.push_str(&format!(
+                "    /// Interface invariant\n    fn check_invariant(&self) {{ debug_assert!({expr}); }}\n\n"
+            ));
+        }
+    }
+
     code.push_str("}\n\n");
 }
 
@@ -1272,10 +1339,171 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
 }
 
 // ---------------------------------------------------------------------------
+// Interface contracts -> Rust traits (T062)
+// ---------------------------------------------------------------------------
+
+/// Generate a Rust trait from an Assura interface block.
+///
+/// Interface blocks contain `method` clauses that declare required
+/// methods, and `extends` clauses that declare supertrait bounds.
+/// Generates a Rust trait with the declared methods.
+fn generate_interface_trait(name: &str, body: &[Clause], code: &mut String) {
+    // Collect extends (supertraits)
+    let extends: Vec<String> = body
+        .iter()
+        .filter(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "extends"))
+        .filter_map(|c| {
+            if let Expr::Ident(n) = &c.body {
+                Some(n.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Build trait header with supertraits
+    if extends.is_empty() {
+        code.push_str(&format!(
+            "/// Interface contract: {name}\npub trait {name} {{\n"
+        ));
+    } else {
+        let bounds = extends.join(" + ");
+        code.push_str(&format!(
+            "/// Interface contract: {name}\npub trait {name}: {bounds} {{\n"
+        ));
+    }
+
+    // Collect method declarations
+    for clause in body {
+        match &clause.kind {
+            ClauseKind::Other(k) if k == "method" => {
+                generate_trait_method(&clause.body, code);
+            }
+            ClauseKind::Invariant | ClauseKind::Ensures => {
+                // Interface invariants become provided methods with assertions
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!(
+                    "    /// Interface invariant\n    fn check_invariant(&self) {{ debug_assert!({expr}); }}\n\n"
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    code.push_str("}\n\n");
+}
+
+/// Generate a single trait method declaration from an interface method clause.
+fn generate_trait_method(body: &Expr, code: &mut String) {
+    match body {
+        Expr::Ident(name) => {
+            // Simple method with no params: fn name(&self);
+            code.push_str(&format!("    fn {name}(&self);\n\n"));
+        }
+        Expr::Call { func, args } => {
+            // Method with params: fn name(&self, param: Type, ...) -> RetType
+            let func_name = if let Expr::Ident(n) = func.as_ref() {
+                n.clone()
+            } else {
+                "unknown".to_string()
+            };
+            let params: String = args
+                .iter()
+                .enumerate()
+                .map(|(i, arg)| {
+                    if let Expr::Ident(ty) = arg {
+                        format!("arg{i}: {}", map_type_token(ty))
+                    } else {
+                        format!("arg{i}: i64")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            if params.is_empty() {
+                code.push_str(&format!("    fn {func_name}(&self);\n\n"));
+            } else {
+                code.push_str(&format!("    fn {func_name}(&self, {params});\n\n"));
+            }
+        }
+        Expr::Raw(tokens) => {
+            // Parse method from raw tokens: "name(Type, Type) -> RetType"
+            if let Some((name, rest)) = tokens.first().map(|n| (n.clone(), &tokens[1..])) {
+                let mut params = Vec::new();
+                let mut return_type = String::new();
+                let mut i = 0;
+                let mut in_params = false;
+
+                while i < rest.len() {
+                    let tok = &rest[i];
+                    if tok == "(" {
+                        in_params = true;
+                        i += 1;
+                        continue;
+                    }
+                    if tok == ")" {
+                        in_params = false;
+                        i += 1;
+                        continue;
+                    }
+                    if tok == "->" {
+                        i += 1;
+                        if i < rest.len() {
+                            return_type = map_type_token(&rest[i]).to_string();
+                        }
+                        break;
+                    }
+                    if tok == "," {
+                        i += 1;
+                        continue;
+                    }
+                    if in_params {
+                        // Check for "name: Type" pattern
+                        if i + 2 < rest.len() && rest[i + 1] == ":" {
+                            let pname = tok.clone();
+                            let ptype = map_type_token(&rest[i + 2]).to_string();
+                            params.push(format!("{pname}: {ptype}"));
+                            i += 3;
+                            continue;
+                        }
+                        // Just a type name
+                        let ptype = map_type_token(tok).to_string();
+                        params.push(format!("arg{}: {ptype}", params.len()));
+                    }
+                    i += 1;
+                }
+
+                let params_s = if params.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", params.join(", "))
+                };
+
+                if return_type.is_empty() {
+                    code.push_str(&format!("    fn {name}(&self{params_s});\n\n"));
+                } else {
+                    code.push_str(&format!(
+                        "    fn {name}(&self{params_s}) -> {return_type};\n\n"
+                    ));
+                }
+            }
+        }
+        _ => {
+            code.push_str("    // unrecognized method declaration\n\n");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Generic blocks (feature, incremental, etc.)
 // ---------------------------------------------------------------------------
 
 fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
+    // Interface blocks generate Rust traits
+    if kind == "interface" {
+        generate_interface_trait(name, body, code);
+        return;
+    }
+
     // Generate blocks as modules with constants and assertions derived
     // from their clauses, instead of empty modules.
     code.push_str(&format!("/// {kind}: {name}\n"));
@@ -2212,5 +2440,101 @@ fn clamp(x: Int, lo: Int, hi: Int) -> Int
             Pattern::Tuple(vec![Pattern::Ident("b".into()), Pattern::Wildcard]),
         ]);
         assert_eq!(super::pattern_to_rust(&pat), "(a, (b, _))");
+    }
+
+    // =======================================================================
+    // Interface trait generation tests (T062)
+    // =======================================================================
+
+    #[test]
+    fn interface_block_generates_trait() {
+        let mut code = String::new();
+        let body = vec![
+            Clause {
+                kind: ClauseKind::Other("method".into()),
+                body: Expr::Ident("process".into()),
+            },
+            Clause {
+                kind: ClauseKind::Other("method".into()),
+                body: Expr::Ident("validate".into()),
+            },
+        ];
+        super::generate_interface_trait("Processor", &body, &mut code);
+        assert!(
+            code.contains("pub trait Processor"),
+            "should generate trait: {code}"
+        );
+        assert!(
+            code.contains("fn process(&self)"),
+            "should have process method: {code}"
+        );
+        assert!(
+            code.contains("fn validate(&self)"),
+            "should have validate method: {code}"
+        );
+    }
+
+    #[test]
+    fn interface_with_extends_generates_supertrait() {
+        let mut code = String::new();
+        let body = vec![
+            Clause {
+                kind: ClauseKind::Other("extends".into()),
+                body: Expr::Ident("Base".into()),
+            },
+            Clause {
+                kind: ClauseKind::Other("method".into()),
+                body: Expr::Ident("extra".into()),
+            },
+        ];
+        super::generate_interface_trait("Extended", &body, &mut code);
+        assert!(
+            code.contains("pub trait Extended: Base"),
+            "should have supertrait bound: {code}"
+        );
+    }
+
+    #[test]
+    fn interface_with_invariant_generates_provided_method() {
+        let mut code = String::new();
+        let body = vec![Clause {
+            kind: ClauseKind::Invariant,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+        }];
+        super::generate_interface_trait("Positive", &body, &mut code);
+        assert!(
+            code.contains("fn check_invariant"),
+            "should generate invariant check: {code}"
+        );
+        assert!(
+            code.contains("debug_assert!"),
+            "should contain debug_assert: {code}"
+        );
+    }
+
+    #[test]
+    fn interface_contract_generates_trait() {
+        // Contract with an `interface` clause should produce a trait, not a module
+        let source = r#"
+contract Sortable {
+  interface: true
+  method: compare
+  method: swap
+}
+"#;
+        let project = codegen_ok(source);
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("trait Sortable"),
+            "interface contract should generate trait: {lib}"
+        );
+        assert!(
+            !lib.contains("mod contract_sortable"),
+            "interface contract should NOT generate module: {lib}"
+        );
     }
 }

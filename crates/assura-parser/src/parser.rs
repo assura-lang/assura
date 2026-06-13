@@ -369,6 +369,10 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
         just(Token::VerifyAgainst).to(ClauseKind::Other("verify_against".into())),
         just(Token::Reads).to(ClauseKind::Other("reads".into())),
         just(Token::Bounds).to(ClauseKind::Other("bounds".into())),
+        // Interface-related clause kinds (T062)
+        just(Token::Interface).to(ClauseKind::Other("interface".into())),
+        just(Token::Extends).to(ClauseKind::Other("extends".into())),
+        just(Token::Impl).to(ClauseKind::Other("implements".into())),
         // Remaining ident-based clause kinds (not yet keyword tokens)
         filter_map(|span, tok| match &tok {
             Token::Ident(s)
@@ -386,6 +390,8 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
                         | "promise"
                         | "bound"
                         | "writes"
+                        | "method"
+                        | "implements"
                 ) =>
             {
                 Ok(ClauseKind::Other(s.clone()))
