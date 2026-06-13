@@ -816,6 +816,16 @@ pub fn instantiate_builtin_generic(name: &str, args: Vec<Type>) -> Option<Type> 
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if `ty` is a numeric type.
+/// Check if an expression is a literal zero (integer 0 or float 0.0).
+fn is_literal_zero(expr: &Expr) -> bool {
+    match expr {
+        Expr::Literal(Literal::Int(s)) => s == "0",
+        Expr::Literal(Literal::Float(s)) => s == "0.0" || s == "0",
+        Expr::Paren(inner) => is_literal_zero(inner),
+        _ => false,
+    }
+}
+
 fn is_numeric(ty: &Type) -> bool {
     match ty {
         Type::Int
@@ -1422,6 +1432,22 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
     match op {
         // Arithmetic: both operands same numeric type, result same type
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
+            // Division/modulo by literal zero
+            if matches!(op, BinOp::Div | BinOp::Mod) && is_literal_zero(rhs) {
+                return Err(TypeError {
+                    code: "A03010".into(),
+                    message: format!(
+                        "{} by zero",
+                        if matches!(op, BinOp::Div) {
+                            "division"
+                        } else {
+                            "modulo"
+                        }
+                    ),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
             if !is_numeric(&lhs_ty) {
                 return Err(TypeError {
                     code: "A03001".into(),
@@ -23985,6 +24011,51 @@ fn square(x: Int) -> Int
             rhs: Box::new(AstExpr::Ident("s".into())),
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn division_by_zero_literal_emits_error() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+            op: AstBinOp::Div,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03010");
+        assert!(
+            err.message.contains("division by zero"),
+            "got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn modulo_by_zero_literal_emits_error() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+            op: AstBinOp::Mod,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03010");
+        assert!(
+            err.message.contains("modulo by zero"),
+            "got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn division_by_nonzero_ok() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+            op: AstBinOp::Div,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("3".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
     }
 
     // -----------------------------------------------------------------------
