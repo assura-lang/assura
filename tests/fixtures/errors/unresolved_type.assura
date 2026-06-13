@@ -1,0 +1,6 @@
+// MUST REJECT A02001
+// Unknown type in a type definition field should be rejected.
+
+type Basket {
+    fruit: Banana;
+}

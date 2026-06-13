@@ -1,0 +1,7 @@
+// MUST REJECT A03001
+// Boolean operation on non-boolean operand should be rejected.
+
+contract BoolOpOnInt {
+    input { x: Int }
+    ensures { x && true }
+}

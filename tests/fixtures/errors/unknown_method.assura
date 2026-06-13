@@ -1,0 +1,7 @@
+// MUST REJECT A03005
+// Calling a method that doesn't exist on the type.
+
+contract BadMethod {
+    input { items: List<Int> }
+    ensures { items.nonexistent_method() == 0 }
+}

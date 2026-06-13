@@ -1,0 +1,12 @@
+// MUST REJECT A02003
+// Two contracts with the same name should be rejected.
+
+contract Foo {
+    input { x: Int }
+    ensures { x >= 0 }
+}
+
+contract Foo {
+    input { y: Int }
+    ensures { y > 0 }
+}
