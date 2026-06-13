@@ -557,10 +557,42 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
                     }
                 }
             }
-            Decl::Service(_) => {
-                // Service operations/queries only have name + clauses in the
-                // AST (no explicit params/return_ty). Their types remain as
-                // registered from the symbol table.
+            Decl::Service(s) => {
+                // Enrich service operation/query types from their clauses.
+                // Extract input clause params as parameter types and output
+                // clause type as return type, mirroring FnDef/Extern handling.
+                for item in &s.items {
+                    let (name, clauses) = match item {
+                        ServiceItem::Operation { name, clauses } => (name, clauses),
+                        ServiceItem::Query { name, clauses } => (name, clauses),
+                        _ => continue,
+                    };
+                    // Collect parameter types from input clauses
+                    let mut param_types = Vec::new();
+                    for clause in clauses {
+                        if clause.kind == ClauseKind::Input {
+                            collect_input_param_types(&clause.body, &mut param_types);
+                        }
+                    }
+                    // Determine return type from output clauses
+                    let mut ret = Type::Unit;
+                    for clause in clauses {
+                        if clause.kind == ClauseKind::Output {
+                            let ty = extract_output_type_from_body(&clause.body);
+                            if ty != Type::Unknown {
+                                ret = ty;
+                                break;
+                            }
+                        }
+                    }
+                    env.insert(
+                        name.clone(),
+                        Type::Fn {
+                            params: param_types,
+                            ret: Box::new(ret),
+                        },
+                    );
+                }
             }
             Decl::TypeDef(td) => {
                 // Register struct field types for field resolution
@@ -1835,6 +1867,52 @@ fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
                     env.insert(name, ty);
                     i = j;
                     // Skip comma
+                    if tokens.get(i).map(|s| s.as_str()) == Some(",") {
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collect parameter types from an input clause body (types only, no env mutation).
+///
+/// Used by service operation/query type enrichment to build the parameter
+/// type list for `Type::Fn`. Mirrors `register_input_clause_params` but
+/// returns types instead of inserting into a `TypeEnv`.
+fn collect_input_param_types(body: &Expr, out: &mut Vec<Type>) {
+    match body {
+        Expr::Call { args, .. } => {
+            for arg in args {
+                if let Expr::Cast { ty, .. } = arg {
+                    out.push(parse_type_tokens(std::slice::from_ref(ty)));
+                } else if let Expr::Ident(_) = arg {
+                    out.push(Type::Unknown);
+                }
+            }
+        }
+        Expr::Raw(tokens) => {
+            let mut i = 0;
+            while i + 2 < tokens.len() {
+                if tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
+                    let type_start = i + 2;
+                    let mut j = type_start;
+                    let mut depth = 0i32;
+                    while j < tokens.len() {
+                        match tokens[j].as_str() {
+                            "<" => depth += 1,
+                            ">" if depth > 0 => depth -= 1,
+                            "," if depth == 0 => break,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    out.push(parse_type_tokens(&tokens[type_start..j]));
+                    i = j;
                     if tokens.get(i).map(|s| s.as_str()) == Some(",") {
                         i += 1;
                     }
@@ -24600,5 +24678,86 @@ service Counter {
             "query with output(result: Nat) and ensures should pass: {:?}",
             typed.err()
         );
+    }
+
+    #[test]
+    fn service_operation_registered_as_fn_type() {
+        // After type checking, service operations should be registered as
+        // Type::Fn with the proper param types and return type in the env.
+        let src = r#"
+service UserService {
+  operation CreateUser {
+    input(name: String, age: Nat)
+    output(result: Bool)
+    requires { age > 0 }
+    ensures { result == true }
+  }
+  query GetAge {
+    input(name: String)
+    output(result: Nat)
+    ensures { result >= 0 }
+  }
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved);
+        assert!(
+            typed.is_ok(),
+            "service with typed ops should pass: {:?}",
+            typed.err()
+        );
+        let typed = typed.unwrap();
+        // Check that CreateUser is registered as a function type
+        if let Some(ty) = typed.type_env.lookup("CreateUser") {
+            match ty {
+                Type::Fn { params, ret } => {
+                    assert_eq!(params.len(), 2, "CreateUser should have 2 params");
+                    assert_eq!(**ret, Type::Bool, "CreateUser should return Bool");
+                }
+                other => panic!("CreateUser should be Fn, got {:?}", other),
+            }
+        } else {
+            panic!("CreateUser should be in type env");
+        }
+        // Check that GetAge is registered as a function type
+        if let Some(ty) = typed.type_env.lookup("GetAge") {
+            match ty {
+                Type::Fn { params, ret } => {
+                    assert_eq!(params.len(), 1, "GetAge should have 1 param");
+                    assert_eq!(params[0], Type::String, "GetAge param should be String");
+                    assert_eq!(**ret, Type::Nat, "GetAge should return Nat");
+                }
+                other => panic!("GetAge should be Fn, got {:?}", other),
+            }
+        } else {
+            panic!("GetAge should be in type env");
+        }
+    }
+
+    #[test]
+    fn service_operation_raw_token_params() {
+        // Test that raw token input clauses are also properly typed
+        let src = r#"
+service Store {
+  operation Insert {
+    input(key: String, value: Int)
+    output(result: Bool)
+  }
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved);
+        assert!(
+            typed.is_ok(),
+            "store service should pass: {:?}",
+            typed.err()
+        );
+        let typed = typed.unwrap();
+        if let Some(Type::Fn { params, ret }) = typed.type_env.lookup("Insert") {
+            assert_eq!(params.len(), 2);
+            assert_eq!(**ret, Type::Bool);
+        } else {
+            panic!("Insert should be Fn type in env");
+        }
     }
 }
