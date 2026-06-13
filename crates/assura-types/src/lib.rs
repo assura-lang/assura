@@ -437,6 +437,14 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
                     },
                 );
             }
+            Decl::Contract(c) => {
+                // Extract input params from contract clauses and register them
+                for clause in &c.clauses {
+                    if clause.kind == ClauseKind::Input {
+                        register_input_clause_params(&clause.body, &mut env);
+                    }
+                }
+            }
             Decl::Service(_) => {
                 // Service operations/queries only have name + clauses in the
                 // AST (no explicit params/return_ty). Their types remain as
@@ -450,6 +458,25 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
                         .map(|f| (f.name.clone(), parse_type_tokens(&f.ty)))
                         .collect();
                     env.struct_fields.insert(td.name.clone(), field_types);
+                }
+            }
+            Decl::EnumDef(e) => {
+                // Register enum variant constructors as functions
+                for variant in &e.variants {
+                    if !variant.fields.is_empty() {
+                        let field_types: Vec<Type> = variant
+                            .fields
+                            .iter()
+                            .map(|f| parse_type_tokens(std::slice::from_ref(f)))
+                            .collect();
+                        env.insert(
+                            variant.name.clone(),
+                            Type::Fn {
+                                params: field_types,
+                                ret: Box::new(Type::Named(e.name.clone())),
+                            },
+                        );
+                    }
                 }
             }
             _ => {}
@@ -1415,6 +1442,52 @@ fn check_ghost_fn_effects(
 /// Walk all clause bodies in a source file, infer expression types, and
 /// collect type errors. Lenient: errors involving `Unknown` are suppressed.
 /// Create a copy of the type environment with `result` bound to the given type.
+/// Register parameter types from an input clause body into the type environment.
+///
+/// Input clauses are expressions like `input(a: Int, b: String)` which parse
+/// as `Call { func: Ident("input"), args: [...] }` or raw token sequences.
+/// This extracts `(name, type)` pairs and inserts them as bindings.
+fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
+    match body {
+        Expr::Call { args, .. } => {
+            // Each arg is typically a cast expression: `Ident("a") as "Int"`
+            // or just an identifier
+            for arg in args {
+                if let Expr::Cast { expr: inner, ty } = arg {
+                    if let Expr::Ident(name) = inner.as_ref() {
+                        let parsed = parse_type_tokens(std::slice::from_ref(ty));
+                        env.insert(name.clone(), parsed);
+                    }
+                } else if let Expr::Ident(name) = arg {
+                    // Untyped parameter: keep as Unknown
+                    if env.lookup(name).is_none() {
+                        env.insert(name.clone(), Type::Unknown);
+                    }
+                }
+            }
+        }
+        Expr::Raw(tokens) => {
+            // Parse "name: Type" pairs from raw tokens
+            let mut i = 0;
+            while i + 2 < tokens.len() {
+                if tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
+                    let name = tokens[i].clone();
+                    let ty = parse_type_tokens(std::slice::from_ref(&tokens[i + 2]));
+                    env.insert(name, ty);
+                    i += 3;
+                    // Skip comma
+                    if tokens.get(i).map(|s| s.as_str()) == Some(",") {
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Bind pattern variables into a type environment.
 ///
 /// For `Ident` patterns, the variable is bound to the scrutinee type.
