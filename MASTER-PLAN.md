@@ -129,7 +129,7 @@
   - For now, multi-file resolution can use a simple in-memory file map
     (no need for actual filesystem resolution yet)
 
-- [ ] **T012**: Resolve type references
+- [x] **T012**: Resolve type references
   - Depends on: T010
   - Every type name in the AST must resolve to a TypeDef, EnumDef,
     or built-in type
