@@ -1,0 +1,7 @@
+// MUST REJECT A03001
+// The `in` operator requires a collection on the right side.
+
+contract InRhsNotCollection {
+  input { x: Int, y: Int }
+  requires { x in y }
+}

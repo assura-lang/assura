@@ -1,0 +1,7 @@
+// MUST REJECT A03001
+// Adding a string to an integer should produce a type mismatch error.
+
+contract TypeMismatch {
+  input { x: Int }
+  requires { x + "hello" > 0 }
+}

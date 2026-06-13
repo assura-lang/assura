@@ -1,0 +1,7 @@
+// MUST REJECT A03006
+// A requires clause must be Bool, not Int.
+
+contract NonBoolRequires {
+  input { x: Int }
+  requires { x + 1 }
+}

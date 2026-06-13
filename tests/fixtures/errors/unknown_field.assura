@@ -1,0 +1,7 @@
+// MUST REJECT A03005
+// Accessing a nonexistent field on a list should be rejected.
+
+contract UnknownField {
+  input { xs: List<Int> }
+  requires { xs.nonexistent > 0 }
+}

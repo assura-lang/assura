@@ -1,0 +1,7 @@
+// MUST REJECT A03010
+// Division by literal zero should be rejected.
+
+contract DivByZero {
+  input { x: Int }
+  ensures { x / 0 > 0 }
+}
