@@ -502,6 +502,8 @@ mod z3_backend {
     struct Encoder<'ctx> {
         ctx: &'ctx Context,
         vars: HashMap<String, Z3Value<'ctx>>,
+        /// Tracks known function arities for uninterpreted function encoding
+        func_arities: HashMap<String, usize>,
         fresh_counter: u32,
     }
 
@@ -510,6 +512,7 @@ mod z3_backend {
             Self {
                 ctx,
                 vars: HashMap::new(),
+                func_arities: HashMap::new(),
                 fresh_counter: 0,
             }
         }
@@ -534,6 +537,58 @@ mod z3_backend {
         fn fresh_int(&mut self) -> ast::Int<'ctx> {
             self.fresh_counter += 1;
             ast::Int::new_const(self.ctx, format!("__fresh_{}", self.fresh_counter))
+        }
+
+        /// Create an uninterpreted function declaration (Int^arity -> Int).
+        /// Z3 internally deduplicates declarations with the same name and sorts.
+        fn make_func(&mut self, name: &str, arity: usize) -> z3::FuncDecl<'ctx> {
+            self.func_arities.insert(name.to_string(), arity);
+            let int_sort = z3::Sort::int(self.ctx);
+            let param_sorts: Vec<&z3::Sort> = (0..arity).map(|_| &int_sort).collect();
+            z3::FuncDecl::new(self.ctx, name, &param_sorts, &int_sort)
+        }
+
+        /// Encode a function call as an uninterpreted function application.
+        fn encode_call(&mut self, func_name: &str, args: &[Expr]) -> Z3Value<'ctx> {
+            let arg_vals: Vec<ast::Int<'ctx>> = args
+                .iter()
+                .map(|a| {
+                    self.encode_expr(a)
+                        .as_int(self.ctx, &mut self.fresh_counter)
+                })
+                .collect();
+            let decl = self.make_func(func_name, arg_vals.len());
+            let arg_refs: Vec<&dyn z3::ast::Ast> =
+                arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+            let result = decl.apply(&arg_refs);
+            Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
+        }
+
+        /// Encode field access as uninterpreted function: field_name(object).
+        fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value<'ctx> {
+            let obj_val = self
+                .encode_expr(obj)
+                .as_int(self.ctx, &mut self.fresh_counter);
+            let func_name = format!("__field_{field}");
+            let decl = self.make_func(&func_name, 1);
+            let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
+            Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
+        }
+
+        /// Encode indexing as uninterpreted function: __index(collection, index).
+        fn encode_index(&mut self, collection: &Expr, index: &Expr) -> Z3Value<'ctx> {
+            let coll_val = self
+                .encode_expr(collection)
+                .as_int(self.ctx, &mut self.fresh_counter);
+            let idx_val = self
+                .encode_expr(index)
+                .as_int(self.ctx, &mut self.fresh_counter);
+            let decl = self.make_func("__index", 2);
+            let result = decl.apply(&[
+                &coll_val as &dyn z3::ast::Ast,
+                &idx_val as &dyn z3::ast::Ast,
+            ]);
+            Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
         }
 
         /// Hash a pattern name to a stable i64 for Z3 encoding.
@@ -735,14 +790,37 @@ mod z3_backend {
                 // --- Let binding: encode body (value binding is implicit) ---
                 Expr::Let { body, .. } => self.encode_expr(body),
 
-                // --- Complex expressions: return fresh unconstrained value ---
-                Expr::Field(..)
-                | Expr::MethodCall { .. }
-                | Expr::Call { .. }
-                | Expr::Index { .. }
-                | Expr::Cast { .. }
-                | Expr::List(_)
-                | Expr::Block(_) => Z3Value::Int(self.fresh_int()),
+                // --- Field access: uninterpreted function field_name(obj) ---
+                Expr::Field(obj, field) => self.encode_field_access(obj, field),
+
+                // --- Method call: uninterpreted function method(receiver, args...) ---
+                Expr::MethodCall {
+                    receiver,
+                    method,
+                    args,
+                } => {
+                    let mut all_args = vec![receiver.as_ref().clone()];
+                    all_args.extend(args.iter().cloned());
+                    self.encode_call(method, &all_args)
+                }
+
+                // --- Function call: uninterpreted function ---
+                Expr::Call { func, args } => {
+                    let func_name = match func.as_ref() {
+                        Expr::Ident(name) => name.clone(),
+                        Expr::Field(_, field) => field.clone(),
+                        _ => format!("__call_{}", self.fresh_counter),
+                    };
+                    self.encode_call(&func_name, args)
+                }
+
+                // --- Index: uninterpreted function __index(coll, idx) ---
+                Expr::Index { expr, index } => self.encode_index(expr, index),
+
+                // --- Cast/List/Block: still fresh (no meaningful SMT encoding) ---
+                Expr::Cast { .. } | Expr::List(_) | Expr::Block(_) => {
+                    Z3Value::Int(self.fresh_int())
+                }
             }
         }
 
@@ -1074,8 +1152,22 @@ mod z3_backend {
                     Z3Value::Bool(l.implies(&r))
                 }
 
-                // --- Membership/other: approximate ---
-                BinOp::In | BinOp::NotIn => Z3Value::Bool(self.fresh_bool()),
+                // --- Membership: uninterpreted function __contains(set, elem) ---
+                BinOp::In | BinOp::NotIn => {
+                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                    let decl = self.make_func("__contains", 2);
+                    let result = decl.apply(&[&r as &dyn z3::ast::Ast, &l as &dyn z3::ast::Ast]);
+                    let contains_int = result.as_int().unwrap_or_else(|| self.fresh_int());
+                    // __contains returns 0 for false, non-zero for true
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    let is_member = contains_int._eq(&zero).not();
+                    if matches!(op, BinOp::NotIn) {
+                        Z3Value::Bool(is_member.not())
+                    } else {
+                        Z3Value::Bool(is_member)
+                    }
+                }
                 BinOp::Concat | BinOp::Range => Z3Value::Int(self.fresh_int()),
             }
         }
