@@ -51,7 +51,7 @@
     - `service_full.assura`: service with states, operations, queries
   - Run: `cargo test --workspace` must pass
 
-- [ ] **T006**: Add error recovery test cases
+- [x] **T006**: Add error recovery test cases
   - Depends on: T005
   - Create `tests/fixtures/errors/` directory with invalid .assura files:
     - `missing_brace.assura`: unclosed block
@@ -70,7 +70,7 @@
   - Update `keyword_or_ident()` in parser.rs for any new keywords
     that can appear in identifier position
 
-- [ ] **T008**: Add expression parser
+- [x] **T008**: Add expression parser
   - Depends on: T002
   - Currently, clause bodies and type bodies are collected as raw tokens
   - Implement a proper expression AST and parser for predicates:
@@ -325,7 +325,7 @@
   - `cargo build` on generated code succeeds
   - Generated code contains `debug_assert!(b != 0)`
 
-- [ ] **T029**: CI setup (GitHub Actions)
+- [x] **T029**: CI setup (GitHub Actions)
   - Depends on: T005
   - `.github/workflows/ci.yml`:
     - Trigger: push to main, pull requests
