@@ -1454,6 +1454,40 @@ mod z3_backend {
                     _ => {}
                 }
 
+                // Boolean-returning functions
+                if matches!(
+                    func_name,
+                    "contains"
+                        | "is_empty"
+                        | "is_some"
+                        | "is_none"
+                        | "is_ok"
+                        | "is_err"
+                        | "any"
+                        | "all"
+                        | "contains_key"
+                        | "starts_with"
+                        | "ends_with"
+                        | "is_subset"
+                        | "is_superset"
+                ) {
+                    let bool_sort = z3::Sort::bool(self.ctx);
+                    let int_sort = z3::Sort::int(self.ctx);
+                    let arity = arg_vals.len().max(1);
+                    let param_sorts: Vec<&z3::Sort> = (0..arity).map(|_| &int_sort).collect();
+                    let decl = z3::FuncDecl::new(self.ctx, func_name, &param_sorts, &bool_sort);
+                    let arg_refs: Vec<&dyn z3::ast::Ast> =
+                        arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+                    let result = if arg_refs.is_empty() {
+                        let dummy = self.fresh_int();
+                        decl.apply(&[&dummy as &dyn z3::ast::Ast])
+                    } else {
+                        decl.apply(&arg_refs)
+                    };
+                    let b = result.as_bool().unwrap_or_else(|| self.fresh_bool());
+                    return (Z3Value::Bool(b), end);
+                }
+
                 // Size-like functions get non-negativity axiom
                 if matches!(func_name, "len" | "length" | "size" | "count" | "capacity") {
                     let decl = self.make_func(func_name, arg_vals.len().max(1));
@@ -3408,6 +3442,42 @@ mod tests {
         assert!(
             matches!(results[0], VerificationResult::Verified { .. }),
             "old(y) tautology should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_raw_boolean_method_returns_bool() {
+        // is_empty() => true or false (tautology), raw tokens should encode as Bool
+        let src = r#"
+            contract IsEmptyTest {
+                input { buf: List<Int> }
+                ensures { buf.is_empty() || not buf.is_empty() }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "is_empty tautology should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_raw_contains_returns_bool() {
+        // contains(x) => true or false (tautology)
+        let src = r#"
+            contract ContainsTest {
+                input { items: List<Int>, x: Int }
+                ensures { items.contains(x) || not items.contains(x) }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "contains tautology should verify, got: {:?}",
             results[0]
         );
     }
