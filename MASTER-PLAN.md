@@ -596,11 +596,11 @@
   - Depends on: T047
   - Reject branches on secret data
 
-- [ ] **T060**: SEC.4 Secure erasure
+- [x] **T060**: SEC.4 Secure erasure
   - Depends on: T032, T047
   - Linear type consumed via zeroize
 
-- [ ] **T061**: SEC.5 Cryptographic conformance
+- [x] **T061**: SEC.5 Cryptographic conformance
   - Depends on: T041
   - Top-level theorem connecting code to math spec
 

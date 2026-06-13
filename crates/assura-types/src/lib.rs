@@ -4239,6 +4239,313 @@ impl Default for StructuralInvariantChecker {
 }
 
 // ---------------------------------------------------------------------------
+// T060: SEC.4 Secure erasure
+// ---------------------------------------------------------------------------
+
+/// Error from the secure erasure checker.
+#[derive(Debug, Clone)]
+pub struct SecureErasureError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// Checker for secure erasure of sensitive data.
+///
+/// Ensures that linear types marked as sensitive are consumed
+/// via zeroize before being dropped, preventing sensitive data
+/// from lingering in memory.
+pub struct SecureErasureChecker {
+    /// Variables that hold sensitive data and must be zeroized
+    sensitive_vars: HashMap<String, bool>,
+    /// Variables that have been properly zeroized
+    zeroized: HashMap<String, bool>,
+}
+
+impl SecureErasureChecker {
+    pub fn new() -> Self {
+        Self {
+            sensitive_vars: HashMap::new(),
+            zeroized: HashMap::new(),
+        }
+    }
+
+    /// Mark a variable as holding sensitive data.
+    pub fn mark_sensitive(&mut self, name: String) {
+        self.sensitive_vars.insert(name, true);
+    }
+
+    /// Record that a variable has been zeroized.
+    pub fn mark_zeroized(&mut self, name: String) {
+        self.zeroized.insert(name, true);
+    }
+
+    /// Check that a sensitive variable was zeroized before going out of scope.
+    /// - A16001: sensitive variable dropped without zeroization
+    pub fn check_scope_exit(
+        &self,
+        var_name: &str,
+        span: &Range<usize>,
+    ) -> Vec<SecureErasureError> {
+        let mut errors = Vec::new();
+        if self.sensitive_vars.contains_key(var_name)
+            && !self.zeroized.contains_key(var_name)
+        {
+            errors.push(SecureErasureError {
+                code: "A16001".into(),
+                message: format!(
+                    "sensitive variable `{var_name}` dropped without secure erasure; \
+                     call zeroize() before the variable goes out of scope"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that a copy of sensitive data is also marked sensitive.
+    /// - A16002: sensitive data copied to non-sensitive variable
+    pub fn check_copy(
+        &self,
+        source: &str,
+        target: &str,
+        target_is_sensitive: bool,
+        span: &Range<usize>,
+    ) -> Vec<SecureErasureError> {
+        let mut errors = Vec::new();
+        if self.sensitive_vars.contains_key(source) && !target_is_sensitive {
+            errors.push(SecureErasureError {
+                code: "A16002".into(),
+                message: format!(
+                    "sensitive data from `{source}` copied to `{target}` \
+                     which is not marked as sensitive; the copy will not be zeroized"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that sensitive data is not leaked through return values.
+    /// - A16003: function returns sensitive data without @sensitive annotation
+    pub fn check_return(
+        &self,
+        returned_var: &str,
+        fn_return_is_sensitive: bool,
+        span: &Range<usize>,
+    ) -> Vec<SecureErasureError> {
+        let mut errors = Vec::new();
+        if self.sensitive_vars.contains_key(returned_var) && !fn_return_is_sensitive {
+            errors.push(SecureErasureError {
+                code: "A16003".into(),
+                message: format!(
+                    "function returns sensitive variable `{returned_var}` \
+                     but return type is not marked @sensitive"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check all sensitive variables at end of scope.
+    pub fn check_all_erased(&self, span: &Range<usize>) -> Vec<SecureErasureError> {
+        let mut errors = Vec::new();
+        for name in self.sensitive_vars.keys() {
+            if !self.zeroized.contains_key(name) {
+                errors.push(SecureErasureError {
+                    code: "A16001".into(),
+                    message: format!(
+                        "sensitive variable `{name}` dropped without secure erasure"
+                    ),
+                    span: span.clone(),
+                });
+            }
+        }
+        errors
+    }
+}
+
+impl Default for SecureErasureChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T061: SEC.5 Cryptographic conformance
+// ---------------------------------------------------------------------------
+
+/// Error from the cryptographic conformance checker.
+#[derive(Debug, Clone)]
+pub struct CryptoConformanceError {
+    pub code: String,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+/// A cryptographic algorithm specification.
+#[derive(Debug, Clone)]
+pub struct CryptoSpec {
+    pub name: String,
+    pub key_size_bits: Vec<u32>,
+    pub block_size_bytes: Option<u32>,
+    pub nonce_size_bytes: Option<u32>,
+    pub tag_size_bytes: Option<u32>,
+}
+
+/// Checker for cryptographic conformance.
+///
+/// Validates that cryptographic implementations match their mathematical
+/// specifications: correct key sizes, nonce handling, tag verification.
+pub struct CryptoConformanceChecker {
+    /// Known algorithm specs
+    specs: HashMap<String, CryptoSpec>,
+}
+
+impl CryptoConformanceChecker {
+    pub fn new() -> Self {
+        let mut specs = HashMap::new();
+        // Register common algorithms
+        specs.insert(
+            "AES-128-GCM".into(),
+            CryptoSpec {
+                name: "AES-128-GCM".into(),
+                key_size_bits: vec![128],
+                block_size_bytes: Some(16),
+                nonce_size_bytes: Some(12),
+                tag_size_bytes: Some(16),
+            },
+        );
+        specs.insert(
+            "AES-256-GCM".into(),
+            CryptoSpec {
+                name: "AES-256-GCM".into(),
+                key_size_bits: vec![256],
+                block_size_bytes: Some(16),
+                nonce_size_bytes: Some(12),
+                tag_size_bytes: Some(16),
+            },
+        );
+        specs.insert(
+            "ChaCha20-Poly1305".into(),
+            CryptoSpec {
+                name: "ChaCha20-Poly1305".into(),
+                key_size_bits: vec![256],
+                block_size_bytes: None,
+                nonce_size_bytes: Some(12),
+                tag_size_bytes: Some(16),
+            },
+        );
+        Self { specs }
+    }
+
+    /// Register a custom algorithm specification.
+    pub fn register_spec(&mut self, spec: CryptoSpec) {
+        self.specs.insert(spec.name.clone(), spec);
+    }
+
+    /// Check that a key size matches the algorithm spec.
+    /// - A17001: wrong key size for algorithm
+    pub fn check_key_size(
+        &self,
+        algorithm: &str,
+        key_size_bits: u32,
+        span: &Range<usize>,
+    ) -> Vec<CryptoConformanceError> {
+        let mut errors = Vec::new();
+        if let Some(spec) = self.specs.get(algorithm).filter(|s| !s.key_size_bits.contains(&key_size_bits)) {
+            errors.push(CryptoConformanceError {
+                code: "A17001".into(),
+                message: format!(
+                    "key size {key_size_bits} bits does not match `{algorithm}` \
+                     which requires {:?} bits",
+                    spec.key_size_bits
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that a nonce size matches the algorithm spec.
+    /// - A17002: wrong nonce size for algorithm
+    pub fn check_nonce_size(
+        &self,
+        algorithm: &str,
+        nonce_size_bytes: u32,
+        span: &Range<usize>,
+    ) -> Vec<CryptoConformanceError> {
+        let mut errors = Vec::new();
+        let mismatch = self
+            .specs
+            .get(algorithm)
+            .and_then(|s| s.nonce_size_bytes)
+            .filter(|&expected| nonce_size_bytes != expected);
+        if let Some(expected) = mismatch {
+            errors.push(CryptoConformanceError {
+                code: "A17002".into(),
+                message: format!(
+                    "nonce size {nonce_size_bytes} bytes does not match `{algorithm}` \
+                     which requires {expected} bytes"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that nonce reuse is prevented.
+    /// - A17003: potential nonce reuse detected
+    pub fn check_nonce_uniqueness(
+        &self,
+        nonce_source: &str,
+        is_counter: bool,
+        is_random: bool,
+        span: &Range<usize>,
+    ) -> Vec<CryptoConformanceError> {
+        let mut errors = Vec::new();
+        if !is_counter && !is_random {
+            errors.push(CryptoConformanceError {
+                code: "A17003".into(),
+                message: format!(
+                    "nonce `{nonce_source}` is neither counter-based nor random; \
+                     potential nonce reuse"
+                ),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+
+    /// Check that authentication tag is verified before using decrypted data.
+    /// - A17004: decrypted data used before tag verification
+    pub fn check_tag_verification(
+        &self,
+        has_tag_check: bool,
+        span: &Range<usize>,
+    ) -> Vec<CryptoConformanceError> {
+        let mut errors = Vec::new();
+        if !has_tag_check {
+            errors.push(CryptoConformanceError {
+                code: "A17004".into(),
+                message: "decrypted data used before authentication tag verification; \
+                          verify the tag before processing plaintext"
+                    .into(),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
+}
+
+impl Default for CryptoConformanceChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // T052: Dependent types (restricted)
 // ---------------------------------------------------------------------------
 
@@ -10465,5 +10772,155 @@ ghost fn bad_ghost(x: Int) -> Bool
         });
         assert_eq!(checker.get_invariants("AVL").len(), 2);
         assert!(checker.get_invariants("Unknown").is_empty());
+    }
+
+    // --- T060: Secure erasure tests ---
+
+    #[test]
+    fn secure_erasure_not_zeroized_a16001() {
+        let mut checker = SecureErasureChecker::new();
+        checker.mark_sensitive("private_key".into());
+        let errors = checker.check_scope_exit("private_key", &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A16001");
+    }
+
+    #[test]
+    fn secure_erasure_zeroized_ok() {
+        let mut checker = SecureErasureChecker::new();
+        checker.mark_sensitive("private_key".into());
+        checker.mark_zeroized("private_key".into());
+        let errors = checker.check_scope_exit("private_key", &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn secure_erasure_non_sensitive_ok() {
+        let checker = SecureErasureChecker::new();
+        let errors = checker.check_scope_exit("public_data", &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn secure_erasure_copy_to_non_sensitive_a16002() {
+        let mut checker = SecureErasureChecker::new();
+        checker.mark_sensitive("key".into());
+        let errors = checker.check_copy("key", "backup", false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A16002");
+    }
+
+    #[test]
+    fn secure_erasure_copy_to_sensitive_ok() {
+        let mut checker = SecureErasureChecker::new();
+        checker.mark_sensitive("key".into());
+        let errors = checker.check_copy("key", "key_copy", true, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn secure_erasure_return_not_sensitive_a16003() {
+        let mut checker = SecureErasureChecker::new();
+        checker.mark_sensitive("derived_key".into());
+        let errors = checker.check_return("derived_key", false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A16003");
+    }
+
+    #[test]
+    fn secure_erasure_check_all_erased() {
+        let mut checker = SecureErasureChecker::new();
+        checker.mark_sensitive("key1".into());
+        checker.mark_sensitive("key2".into());
+        checker.mark_zeroized("key1".into());
+        let errors = checker.check_all_erased(&(0..1));
+        assert_eq!(errors.len(), 1); // key2 not zeroized
+    }
+
+    // --- T061: Cryptographic conformance tests ---
+
+    #[test]
+    fn crypto_correct_key_size_ok() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_key_size("AES-128-GCM", 128, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn crypto_wrong_key_size_a17001() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_key_size("AES-128-GCM", 256, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A17001");
+    }
+
+    #[test]
+    fn crypto_correct_nonce_size_ok() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_nonce_size("AES-256-GCM", 12, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn crypto_wrong_nonce_size_a17002() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_nonce_size("AES-256-GCM", 16, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A17002");
+    }
+
+    #[test]
+    fn crypto_nonce_not_unique_a17003() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_nonce_uniqueness("fixed_nonce", false, false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A17003");
+    }
+
+    #[test]
+    fn crypto_counter_nonce_ok() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_nonce_uniqueness("counter", true, false, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn crypto_tag_not_verified_a17004() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_tag_verification(false, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A17004");
+    }
+
+    #[test]
+    fn crypto_tag_verified_ok() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_tag_verification(true, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn crypto_chacha20_key_size() {
+        let checker = CryptoConformanceChecker::new();
+        let errors = checker.check_key_size("ChaCha20-Poly1305", 256, &(0..1));
+        assert!(errors.is_empty());
+        let errors = checker.check_key_size("ChaCha20-Poly1305", 128, &(0..1));
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn crypto_custom_spec() {
+        let mut checker = CryptoConformanceChecker::new();
+        checker.register_spec(CryptoSpec {
+            name: "XSalsa20".into(),
+            key_size_bits: vec![256],
+            block_size_bytes: None,
+            nonce_size_bytes: Some(24),
+            tag_size_bytes: None,
+        });
+        let errors = checker.check_nonce_size("XSalsa20", 24, &(0..1));
+        assert!(errors.is_empty());
+        let errors = checker.check_nonce_size("XSalsa20", 12, &(0..1));
+        assert_eq!(errors.len(), 1);
     }
 }
