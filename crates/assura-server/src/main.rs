@@ -147,14 +147,16 @@ fn run_check(
 
     let mut diagnostics = Vec::new();
     for err in &parse_errors {
+        let span = err.span();
+        let (line, column, end_line, end_column) = span_to_line_col(source, &span);
         diagnostics.push(Diagnostic {
             code: "A01002".into(),
             message: format!("{err:?}"),
             severity: "error".into(),
-            line: 0,
-            column: 0,
-            end_line: 0,
-            end_column: 0,
+            line,
+            column,
+            end_line,
+            end_column,
         });
     }
 

@@ -85,7 +85,7 @@ impl AssuraLanguageServer {
                         }
                         Err(type_errors) => {
                             for te in &type_errors {
-                                diagnostics.push(type_error_to_diagnostic(&rope, te));
+                                diagnostics.push(type_error_to_diagnostic(&rope, te, uri));
                             }
                         }
                     }
@@ -93,7 +93,7 @@ impl AssuraLanguageServer {
                 }
                 Err(res_errors) => {
                     for re in &res_errors {
-                        diagnostics.push(resolution_error_to_diagnostic(&rope, re));
+                        diagnostics.push(resolution_error_to_diagnostic(&rope, re, uri));
                     }
                 }
             }
@@ -387,7 +387,7 @@ impl LanguageServer for AssuraLanguageServer {
             None => return Ok(None),
         };
 
-        let symbols = collect_document_symbols(ast, &state.rope);
+        let symbols = collect_document_symbols(ast, &state.rope, uri);
 
         Ok(Some(DocumentSymbolResponse::Flat(symbols)))
     }
@@ -399,7 +399,11 @@ impl LanguageServer for AssuraLanguageServer {
 
 /// Collect top-level declarations as flat `SymbolInformation` entries.
 #[allow(deprecated)] // SymbolInformation::deprecated is deprecated but required by the type
-fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformation> {
+fn collect_document_symbols(
+    ast: &SourceFile,
+    rope: &Rope,
+    doc_uri: &Url,
+) -> Vec<SymbolInformation> {
     let mut result = Vec::new();
 
     for decl in &ast.decls {
@@ -411,7 +415,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                     kind: SymbolKind2::CLASS,
                     tags: None,
                     deprecated: None,
-                    location: Location::new(Url::parse("file:///").unwrap(), range),
+                    location: Location::new(doc_uri.clone(), range),
                     container_name: None,
                 });
             }
@@ -421,7 +425,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                     kind: SymbolKind2::MODULE,
                     tags: None,
                     deprecated: None,
-                    location: Location::new(Url::parse("file:///").unwrap(), range),
+                    location: Location::new(doc_uri.clone(), range),
                     container_name: None,
                 });
                 // Add service items as children
@@ -443,7 +447,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                             kind,
                             tags: None,
                             deprecated: None,
-                            location: Location::new(Url::parse("file:///").unwrap(), range),
+                            location: Location::new(doc_uri.clone(), range),
                             container_name: Some(s.name.clone()),
                         });
                     }
@@ -455,7 +459,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                     kind: SymbolKind2::STRUCT,
                     tags: None,
                     deprecated: None,
-                    location: Location::new(Url::parse("file:///").unwrap(), range),
+                    location: Location::new(doc_uri.clone(), range),
                     container_name: None,
                 });
             }
@@ -465,7 +469,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                     kind: SymbolKind2::ENUM,
                     tags: None,
                     deprecated: None,
-                    location: Location::new(Url::parse("file:///").unwrap(), range),
+                    location: Location::new(doc_uri.clone(), range),
                     container_name: None,
                 });
             }
@@ -475,7 +479,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                     kind: SymbolKind2::FUNCTION,
                     tags: None,
                     deprecated: None,
-                    location: Location::new(Url::parse("file:///").unwrap(), range),
+                    location: Location::new(doc_uri.clone(), range),
                     container_name: None,
                 });
             }
@@ -485,7 +489,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                     kind: SymbolKind2::FUNCTION,
                     tags: None,
                     deprecated: None,
-                    location: Location::new(Url::parse("file:///").unwrap(), range),
+                    location: Location::new(doc_uri.clone(), range),
                     container_name: None,
                 });
             }
@@ -496,7 +500,7 @@ fn collect_document_symbols(ast: &SourceFile, rope: &Rope) -> Vec<SymbolInformat
                         kind: SymbolKind2::NAMESPACE,
                         tags: None,
                         deprecated: None,
-                        location: Location::new(Url::parse("file:///").unwrap(), range),
+                        location: Location::new(doc_uri.clone(), range),
                         container_name: None,
                     });
                 }
@@ -572,7 +576,7 @@ fn is_ident_char(b: u8) -> bool {
 // Diagnostic conversion helpers
 // ---------------------------------------------------------------------------
 
-fn resolution_error_to_diagnostic(rope: &Rope, err: &ResolutionError) -> Diagnostic {
+fn resolution_error_to_diagnostic(rope: &Rope, err: &ResolutionError, doc_uri: &Url) -> Diagnostic {
     let range = byte_span_to_range(rope, &err.span);
     Diagnostic {
         range,
@@ -582,10 +586,7 @@ fn resolution_error_to_diagnostic(rope: &Rope, err: &ResolutionError) -> Diagnos
         message: err.message.clone(),
         related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
             vec![DiagnosticRelatedInformation {
-                location: Location::new(
-                    Url::parse("file:///").unwrap(),
-                    byte_span_to_range(rope, sec_span),
-                ),
+                location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
                 message: sec_msg.clone(),
             }]
         }),
@@ -593,7 +594,7 @@ fn resolution_error_to_diagnostic(rope: &Rope, err: &ResolutionError) -> Diagnos
     }
 }
 
-fn type_error_to_diagnostic(rope: &Rope, err: &TypeError) -> Diagnostic {
+fn type_error_to_diagnostic(rope: &Rope, err: &TypeError, doc_uri: &Url) -> Diagnostic {
     let range = byte_span_to_range(rope, &err.span);
     Diagnostic {
         range,
@@ -603,10 +604,7 @@ fn type_error_to_diagnostic(rope: &Rope, err: &TypeError) -> Diagnostic {
         message: err.message.clone(),
         related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
             vec![DiagnosticRelatedInformation {
-                location: Location::new(
-                    Url::parse("file:///").unwrap(),
-                    byte_span_to_range(rope, sec_span),
-                ),
+                location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
                 message: sec_msg.clone(),
             }]
         }),
@@ -750,7 +748,8 @@ fn helper(n: Int) -> Int {
         assert!(errors.is_empty(), "parse errors: {errors:?}");
         let ast = ast.unwrap();
         let rope = Rope::from_str("");
-        let symbols = collect_document_symbols(&ast, &rope);
+        let test_uri = Url::parse("file:///test.assura").unwrap();
+        let symbols = collect_document_symbols(&ast, &rope, &test_uri);
         let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"Foo"), "missing Foo");
         assert!(names.contains(&"Bar"), "missing Bar");
@@ -781,7 +780,8 @@ fn helper(n: Int) -> Int {
             secondary: None,
         };
         let rope = Rope::from_str("Foo");
-        let diag = resolution_error_to_diagnostic(&rope, &err);
+        let test_uri = Url::parse("file:///test.assura").unwrap();
+        let diag = resolution_error_to_diagnostic(&rope, &err, &test_uri);
         assert_eq!(diag.message, "unknown type `Foo`");
         assert_eq!(
             diag.code,
@@ -798,7 +798,8 @@ fn helper(n: Int) -> Int {
             secondary: None,
         };
         let rope = Rope::from_str("hello");
-        let diag = type_error_to_diagnostic(&rope, &err);
+        let test_uri = Url::parse("file:///test.assura").unwrap();
+        let diag = type_error_to_diagnostic(&rope, &err, &test_uri);
         assert_eq!(diag.message, "type mismatch");
         assert_eq!(
             diag.code,

@@ -1103,6 +1103,19 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     // T064: error propagation checking (must_propagate on error types)
     errors.extend(run_error_propagation_checks(&resolved.source));
 
+    // T045: frame checking (modifies clause scope validation)
+    errors.extend(run_frame_checks(
+        &resolved.source,
+        &type_env,
+        &resolved.symbols,
+    ));
+
+    // T053: totality checking (termination via decreases measures)
+    errors.extend(run_totality_checks(&resolved.source));
+
+    // T055: fixed-width integer overflow detection
+    errors.extend(run_fixed_width_checks(&resolved.source, &type_env));
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -1309,11 +1322,7 @@ fn run_typestate_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
                             && let Expr::Raw(tokens) = &clause.body
                             && tokens.len() >= 3
                         {
-                            transitions.push((
-                                name.clone(),
-                                tokens[0].clone(),
-                                tokens[2].clone(),
-                            ));
+                            transitions.push((name.clone(), tokens[0].clone(), tokens[2].clone()));
                         }
                     }
                 }
@@ -1321,12 +1330,8 @@ fn run_typestate_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
 
             if !transitions.is_empty() {
                 let initial = states.first().cloned().unwrap_or_default();
-                let checker = TypestateChecker::new(
-                    states,
-                    transitions,
-                    initial,
-                    decl.span.clone(),
-                );
+                let checker =
+                    TypestateChecker::new(states, transitions, initial, decl.span.clone());
                 // Validate transitions reference valid states
                 for tse in checker.validate_transitions() {
                     errors.push(TypeError {
@@ -1476,7 +1481,10 @@ fn extract_effect_names_from_expr(expr: &Expr) -> Vec<String> {
             }
             names
         }
-        Expr::Block(items) => items.iter().flat_map(extract_effect_names_from_expr).collect(),
+        Expr::Block(items) => items
+            .iter()
+            .flat_map(extract_effect_names_from_expr)
+            .collect(),
         Expr::Field(base, field) => {
             // Field access expression: `console.read` parsed as Field(Ident("console"), "read")
             let mut base_names = extract_effect_names_from_expr(base);
@@ -1534,14 +1542,19 @@ fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
 
     for decl in &source.decls {
         if let Decl::Extern(e) = &decl.node {
-            let has_boundary = e.clauses.iter().any(|c| {
-                matches!(c.kind, ClauseKind::Other(ref k) if k == "trust" || k == "boundary")
-            });
+            let has_boundary = e.clauses.iter().any(
+                |c| matches!(c.kind, ClauseKind::Other(ref k) if k == "trust" || k == "boundary"),
+            );
             if has_boundary {
                 has_any_boundary = true;
             }
             let has_contract = !e.clauses.is_empty();
-            externs.push((e.name.clone(), has_boundary, has_contract, decl.span.clone()));
+            externs.push((
+                e.name.clone(),
+                has_boundary,
+                has_contract,
+                decl.span.clone(),
+            ));
         }
     }
 
@@ -1622,6 +1635,236 @@ fn run_error_propagation_checks(source: &assura_parser::ast::SourceFile) -> Vec<
     }
 
     errors
+}
+
+// ---------------------------------------------------------------------------
+// Frame checking wiring (T045)
+// ---------------------------------------------------------------------------
+
+/// T045: Validate modifies clause structure.
+///
+/// The FrameChecker's scope validation (check_scope) is deferred until
+/// expression-level name resolution is implemented, as the current type
+/// environment doesn't contain local variables or clause-declared params,
+/// causing false positives on valid code. The FrameChecker is already
+/// used by the SMT crate's verify_clauses() for frame axiom injection,
+/// which is its primary purpose.
+fn run_frame_checks(
+    source: &assura_parser::ast::SourceFile,
+    _type_env: &TypeEnv,
+    _symbols: &assura_resolve::SymbolTable,
+) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Extern(e) => &e.clauses,
+            _ => continue,
+        };
+        let modifies_bodies: Vec<&Expr> = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Modifies)
+            .map(|c| &c.body)
+            .collect();
+        if modifies_bodies.is_empty() {
+            continue;
+        }
+        let checker = FrameChecker::new(&modifies_bodies);
+        // Validate that modifies clauses are non-empty (structural check)
+        if checker.modified_set().is_empty() && !modifies_bodies.is_empty() {
+            errors.push(TypeError {
+                code: "A14001".into(),
+                message: "empty modifies clause; list the variables this function may change"
+                    .into(),
+                span: decl.span.clone(),
+                secondary: None,
+            });
+        }
+    }
+    errors
+}
+
+// ---------------------------------------------------------------------------
+// Totality checking wiring (T053)
+// ---------------------------------------------------------------------------
+
+/// T053: Check termination of recursive functions via decreases measures.
+fn run_totality_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let checker = TotalityChecker::new();
+    let mut errors = Vec::new();
+
+    // Collect all function definitions for mutual recursion checking
+    let mut fn_defs: Vec<(&assura_parser::ast::FnDef, &std::ops::Range<usize>)> = Vec::new();
+
+    for decl in &source.decls {
+        if let Decl::FnDef(f) = &decl.node {
+            fn_defs.push((f, &decl.span));
+            for te in checker.check_function_totality(f, &decl.span) {
+                errors.push(TypeError {
+                    code: te.code,
+                    message: te.message,
+                    span: te.span,
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    // Check for mutual recursion across all function pairs
+    if fn_defs.len() >= 2 {
+        for te in checker.check_mutual_recursion(&fn_defs) {
+            errors.push(TypeError {
+                code: te.code,
+                message: te.message,
+                span: te.span,
+                secondary: None,
+            });
+        }
+    }
+
+    errors
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-width integer checking wiring (T055)
+// ---------------------------------------------------------------------------
+
+/// T055: Detect potential integer overflow in fixed-width arithmetic.
+fn run_fixed_width_checks(
+    source: &assura_parser::ast::SourceFile,
+    type_env: &TypeEnv,
+) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Extern(e) => &e.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            check_expr_fixed_width(&clause.body, type_env, &decl.span, &mut errors);
+        }
+    }
+    errors
+}
+
+/// Recursively check an expression for fixed-width integer overflow.
+fn check_expr_fixed_width(
+    expr: &Expr,
+    type_env: &TypeEnv,
+    span: &std::ops::Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    match expr {
+        Expr::BinOp { lhs, op, rhs } => {
+            // Check operands recursively
+            check_expr_fixed_width(lhs, type_env, span, errors);
+            check_expr_fixed_width(rhs, type_env, span, errors);
+
+            // Check for overflow in arithmetic on fixed-width types
+            if let Some(left_type) = infer_fixed_width_type(lhs, type_env)
+                && let Some(right_type) = infer_fixed_width_type(rhs, type_env)
+            {
+                let checker = FixedWidthChecker::new();
+                if let Some(fwe) =
+                    checker.check_arithmetic_overflow(op, &left_type, &right_type, span)
+                {
+                    errors.push(TypeError {
+                        code: fwe.code,
+                        message: fwe.message,
+                        span: fwe.span,
+                        secondary: None,
+                    });
+                }
+                if let Some(fwe) =
+                    FixedWidthChecker::check_signedness_mismatch(op, &left_type, &right_type, span)
+                {
+                    errors.push(TypeError {
+                        code: fwe.code,
+                        message: fwe.message,
+                        span: fwe.span,
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        Expr::Cast { expr: inner, ty } => {
+            check_expr_fixed_width(inner, type_env, span, errors);
+            if let Some(from_type) = infer_fixed_width_type(inner, type_env)
+                && let Some(to_ty) = token_to_fixed_width_type(ty)
+                && let Some(fwe) = FixedWidthChecker::check_cast_safety(&from_type, &to_ty, span)
+            {
+                errors.push(TypeError {
+                    code: fwe.code,
+                    message: fwe.message,
+                    span: fwe.span,
+                    secondary: None,
+                });
+            }
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Old(inner)
+        | Expr::Paren(inner)
+        | Expr::Ghost(inner) => {
+            check_expr_fixed_width(inner, type_env, span, errors);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            check_expr_fixed_width(cond, type_env, span, errors);
+            check_expr_fixed_width(then_branch, type_env, span, errors);
+            if let Some(e) = else_branch {
+                check_expr_fixed_width(e, type_env, span, errors);
+            }
+        }
+        Expr::Call { func, args } => {
+            check_expr_fixed_width(func, type_env, span, errors);
+            for a in args {
+                check_expr_fixed_width(a, type_env, span, errors);
+            }
+        }
+        Expr::Block(items) => {
+            for item in items {
+                check_expr_fixed_width(item, type_env, span, errors);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Try to infer a fixed-width integer type for an expression.
+fn infer_fixed_width_type(expr: &Expr, type_env: &TypeEnv) -> Option<Type> {
+    match expr {
+        Expr::Ident(name) => {
+            if let Some(ty) = type_env.lookup(name)
+                && FixedWidthChecker::is_fixed_width(ty)
+            {
+                return Some(ty.clone());
+            }
+            None
+        }
+        Expr::Cast { ty, .. } => token_to_fixed_width_type(ty),
+        _ => None,
+    }
+}
+
+/// Convert a type name token to a fixed-width Type.
+fn token_to_fixed_width_type(ty: &str) -> Option<Type> {
+    match ty {
+        "U8" | "u8" => Some(Type::U8),
+        "U16" | "u16" => Some(Type::U16),
+        "U32" | "u32" => Some(Type::U32),
+        "U64" | "u64" => Some(Type::U64),
+        "I8" | "i8" => Some(Type::I8),
+        "I16" | "i16" => Some(Type::I16),
+        "I32" | "i32" => Some(Type::I32),
+        "I64" | "i64" => Some(Type::I64),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2688,7 +2931,6 @@ impl EffectChecker {
             false
         }
     }
-
 }
 
 /// Returns `true` if the name is a known Assura block-kind keyword

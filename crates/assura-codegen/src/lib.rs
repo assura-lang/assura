@@ -314,9 +314,15 @@ fn expr_to_rust(expr: &Expr) -> String {
                 BinOp::Implies => {
                     return format!("(!{} || {})", expr_to_rust(lhs), expr_to_rust(rhs));
                 }
-                BinOp::In => "/* in */==",
-                BinOp::NotIn => "/* not in */!=",
-                BinOp::Concat => "/* ++ */+",
+                BinOp::In => {
+                    return format!("{}.contains(&{})", expr_to_rust(lhs), expr_to_rust(rhs));
+                }
+                BinOp::NotIn => {
+                    return format!("!{}.contains(&{})", expr_to_rust(lhs), expr_to_rust(rhs));
+                }
+                BinOp::Concat => {
+                    return format!("[{}, {}].concat()", expr_to_rust(lhs), expr_to_rust(rhs));
+                }
                 BinOp::Range => "..",
             };
             format!("({} {op_s} {})", expr_to_rust(lhs), expr_to_rust(rhs))

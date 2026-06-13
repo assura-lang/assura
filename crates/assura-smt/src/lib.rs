@@ -1151,6 +1151,7 @@ mod z3_backend {
         parent_name: &str,
         clauses: &[Clause],
         lemma_defs: &std::collections::HashMap<String, Vec<&Expr>>,
+        cache: &mut VerificationCache,
         results: &mut Vec<VerificationResult>,
     ) {
         let requires: Vec<&Clause> = clauses
@@ -1190,6 +1191,22 @@ mod z3_backend {
 
         for clause in &verifiable {
             let desc = clause_desc(parent_name, &clause.kind);
+
+            // T113: Check verification cache before invoking Z3
+            let clause_hash = format!("{desc}:{:?}", clause.body);
+            if let Some(cached) = cache.lookup(&clause_hash) {
+                // Replay cached result
+                match cached.result.as_str() {
+                    "verified" => results.push(VerificationResult::Verified { clause_desc: desc }),
+                    "timeout" => results.push(VerificationResult::Timeout { clause_desc: desc }),
+                    other => results.push(VerificationResult::Unknown {
+                        clause_desc: desc,
+                        reason: other.to_string(),
+                    }),
+                }
+                continue;
+            }
+
             let solver = Solver::new(ctx);
 
             let mut encoder = Encoder::new(ctx);
@@ -1234,6 +1251,7 @@ mod z3_backend {
             let clause_val = encoder.encode_expr(&clause.body);
             let clause_bool = clause_val.as_bool(ctx);
 
+            let result_before = results.len();
             match clause.kind {
                 ClauseKind::Ensures | ClauseKind::Rule => {
                     // Validity check: assert NOT clause, check-sat
@@ -1251,6 +1269,17 @@ mod z3_backend {
                     check_validity(&solver, desc, results);
                 }
                 _ => {}
+            }
+
+            // T113: Cache the verification result
+            if let Some(result) = results.get(result_before) {
+                let result_str = match result {
+                    VerificationResult::Verified { .. } => "verified",
+                    VerificationResult::Timeout { .. } => "timeout",
+                    VerificationResult::Unknown { reason, .. } => reason.as_str(),
+                    VerificationResult::Counterexample { .. } => "counterexample",
+                };
+                cache.insert(clause_hash, result_str.to_string(), 0);
             }
         }
     }
@@ -1815,6 +1844,7 @@ mod z3_backend {
         cfg.set_param_value("timeout", "1000");
         let ctx = Context::new(&cfg);
         let mut results = Vec::new();
+        let mut cache = VerificationCache::new();
 
         // T044: collect all lemma definitions for apply injection
         let lemma_defs = collect_lemma_defs(typed);
@@ -1822,25 +1852,59 @@ mod z3_backend {
         for decl in &typed.resolved.source.decls {
             match &decl.node {
                 Decl::Contract(c) => {
-                    verify_clauses(&ctx, &c.name, &c.clauses, &lemma_defs, &mut results);
+                    verify_clauses(
+                        &ctx,
+                        &c.name,
+                        &c.clauses,
+                        &lemma_defs,
+                        &mut cache,
+                        &mut results,
+                    );
                 }
                 Decl::FnDef(f) => {
-                    // Lemma functions get their ensures verified independently
-                    verify_clauses(&ctx, &f.name, &f.clauses, &lemma_defs, &mut results);
+                    verify_clauses(
+                        &ctx,
+                        &f.name,
+                        &f.clauses,
+                        &lemma_defs,
+                        &mut cache,
+                        &mut results,
+                    );
                 }
                 Decl::Extern(e) => {
-                    verify_clauses(&ctx, &e.name, &e.clauses, &lemma_defs, &mut results);
+                    verify_clauses(
+                        &ctx,
+                        &e.name,
+                        &e.clauses,
+                        &lemma_defs,
+                        &mut cache,
+                        &mut results,
+                    );
                 }
                 Decl::Service(s) => {
                     for item in &s.items {
                         match item {
                             ServiceItem::Operation { name, clauses } => {
                                 let qname = format!("{}.{}", s.name, name);
-                                verify_clauses(&ctx, &qname, clauses, &lemma_defs, &mut results);
+                                verify_clauses(
+                                    &ctx,
+                                    &qname,
+                                    clauses,
+                                    &lemma_defs,
+                                    &mut cache,
+                                    &mut results,
+                                );
                             }
                             ServiceItem::Query { name, clauses } => {
                                 let qname = format!("{}.{}", s.name, name);
-                                verify_clauses(&ctx, &qname, clauses, &lemma_defs, &mut results);
+                                verify_clauses(
+                                    &ctx,
+                                    &qname,
+                                    clauses,
+                                    &lemma_defs,
+                                    &mut cache,
+                                    &mut results,
+                                );
                             }
                             ServiceItem::Invariant(expr) => {
                                 verify_invariant_expr(&ctx, &s.name, expr, &mut results);
@@ -1850,7 +1914,7 @@ mod z3_backend {
                     }
                 }
                 Decl::Block { name, body, .. } => {
-                    verify_clauses(&ctx, name, body, &lemma_defs, &mut results);
+                    verify_clauses(&ctx, name, body, &lemma_defs, &mut cache, &mut results);
                 }
                 Decl::TypeDef(_) | Decl::EnumDef(_) => {}
             }
@@ -3128,8 +3192,14 @@ impl Layer2Verifier {
         self.roundtrip_obligations.push(obl);
     }
 
-    /// Verify all obligations without Z3 (structural check only).
-    /// Returns a summary of what would be verified.
+    /// Structural pre-check without Z3 (validates obligation structure only).
+    ///
+    /// This does NOT verify correctness. It checks that obligations are
+    /// well-formed (have bound variables, have measures, etc.). Obligations
+    /// that pass structural checks are reported as `Unknown` with reason
+    /// "requires Z3 verification", NOT as `Verified`.
+    ///
+    /// Use `verify()` for actual Z3-backed verification.
     pub fn check_structural(&self) -> Vec<Layer2Result> {
         let mut results = Vec::new();
 
@@ -3140,9 +3210,10 @@ impl Layer2Verifier {
                     reason: "quantified invariant has no bound variables".into(),
                 });
             } else {
-                results.push(Layer2Result::Verified {
+                // Structurally valid, but not verified without Z3
+                results.push(Layer2Result::Unknown {
                     invariant: inv.name.clone(),
-                    time_ms: 0,
+                    reason: "requires Z3 Layer 2 verification".into(),
                 });
             }
         }
@@ -3154,17 +3225,19 @@ impl Layer2Verifier {
                     reason: "no measure provided".into(),
                 });
             } else {
-                results.push(Layer2Result::Verified {
+                // Structurally valid, but not verified without Z3
+                results.push(Layer2Result::Unknown {
                     invariant: format!("termination:{}", obl.fn_name),
-                    time_ms: 0,
+                    reason: "requires Z3 Layer 2 verification".into(),
                 });
             }
         }
 
         for obl in &self.roundtrip_obligations {
-            results.push(Layer2Result::Verified {
+            // Structurally valid, but not verified without Z3
+            results.push(Layer2Result::Unknown {
                 invariant: format!("roundtrip:{}", obl.type_name),
-                time_ms: 0,
+                reason: "requires Z3 Layer 2 verification".into(),
             });
         }
 
@@ -4243,14 +4316,15 @@ mod measure_unit_tests {
         });
         let results = verifier.check_structural();
         assert_eq!(results.len(), 3);
+        // check_structural returns Unknown (not Verified) because Z3 is not used
         assert!(
-            matches!(&results[0], Layer2Result::Verified { invariant, .. } if invariant == "inv1")
+            matches!(&results[0], Layer2Result::Unknown { invariant, reason } if invariant == "inv1" && reason.contains("requires Z3"))
         );
         assert!(
-            matches!(&results[1], Layer2Result::Verified { invariant, .. } if invariant == "termination:fib")
+            matches!(&results[1], Layer2Result::Unknown { invariant, reason } if invariant == "termination:fib" && reason.contains("requires Z3"))
         );
         assert!(
-            matches!(&results[2], Layer2Result::Verified { invariant, .. } if invariant == "roundtrip:Message")
+            matches!(&results[2], Layer2Result::Unknown { invariant, reason } if invariant == "roundtrip:Message" && reason.contains("requires Z3"))
         );
     }
 
