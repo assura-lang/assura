@@ -732,6 +732,10 @@ mod z3_backend {
                 }
 
                 // --- Complex expressions: return fresh unconstrained value ---
+                // --- Let binding: encode body (value binding is implicit) ---
+                Expr::Let { body, .. } => self.encode_expr(body),
+
+                // --- Complex expressions: return fresh unconstrained value ---
                 Expr::Field(..)
                 | Expr::MethodCall { .. }
                 | Expr::Call { .. }

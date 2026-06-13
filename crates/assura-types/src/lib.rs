@@ -672,6 +672,9 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             }
         }
 
+        // --- Let binding: infer body type ---
+        Expr::Let { body, .. } => infer_expr(body, env),
+
         // --- Block / Raw: cannot infer ---
         Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
     }
@@ -2347,6 +2350,10 @@ fn check_match_exhaustiveness_expr(
                 check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
             }
         }
+        Expr::Let { value, body, .. } => {
+            check_match_exhaustiveness_expr(value, span, enum_variants, _symbols, errors);
+            check_match_exhaustiveness_expr(body, span, enum_variants, _symbols, errors);
+        }
         Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
     }
 }
@@ -2724,6 +2731,10 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
                 check_expr_linearity_inner(&arm.body, ctx, errors);
             }
         }
+        Expr::Let { value, body, .. } => {
+            check_expr_linearity_inner(value, ctx, errors);
+            check_expr_linearity_inner(body, ctx, errors);
+        }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
         }
@@ -3058,6 +3069,10 @@ pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
             for arm in arms {
                 expr_usages(&arm.body, tracker);
             }
+        }
+        Expr::Let { value, body, .. } => {
+            expr_usages(value, tracker);
+            expr_usages(body, tracker);
         }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
@@ -3595,6 +3610,10 @@ fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
                 collect_old_refs_inner(&arm.body, refs);
             }
         }
+        Expr::Let { value, body, .. } => {
+            collect_old_refs_inner(value, refs);
+            collect_old_refs_inner(body, refs);
+        }
         Expr::Block(exprs) => {
             for e in exprs {
                 collect_old_refs_inner(e, refs);
@@ -3687,6 +3706,10 @@ fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
             for arm in arms {
                 collect_idents_inner(&arm.body, refs);
             }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_idents_inner(value, refs);
+            collect_idents_inner(body, refs);
         }
         Expr::Block(exprs) => {
             for e in exprs {
@@ -4313,6 +4336,9 @@ pub fn expr_references_var(expr: &Expr, var_name: &str) -> bool {
                     .iter()
                     .any(|arm| expr_references_var(&arm.body, var_name))
         }
+        Expr::Let { value, body, .. } => {
+            expr_references_var(value, var_name) || expr_references_var(body, var_name)
+        }
         Expr::Raw(tokens) => tokens.iter().any(|t| t.trim() == var_name),
         Expr::Literal(_) => false,
     }
@@ -4527,6 +4553,9 @@ impl TaintChecker {
                 }
                 r
             }
+            Expr::Let { value, body, .. } => {
+                std::cmp::min(self.infer_taint(value), self.infer_taint(body))
+            }
             Expr::Ghost(_) | Expr::Raw(_) => TaintLabel::Trusted,
         }
     }
@@ -4664,6 +4693,10 @@ impl TaintChecker {
                 for arm in arms {
                     self.check_expr_inner(&arm.body, span, errors);
                 }
+            }
+            Expr::Let { value, body, .. } => {
+                self.check_expr_inner(value, span, errors);
+                self.check_expr_inner(body, span, errors);
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
         }
@@ -6841,6 +6874,10 @@ impl InfoFlowChecker {
                 r
             }
 
+            Expr::Let { value, body, .. } => {
+                std::cmp::max(self.infer_label(value), self.infer_label(body))
+            }
+
             Expr::Ghost(_) | Expr::Raw(_) => SecurityLabel::Public,
         }
     }
@@ -6958,6 +6995,10 @@ impl InfoFlowChecker {
                 for arm in arms {
                     self.check_expr_inner(&arm.body, span, elevated, errors);
                 }
+            }
+            Expr::Let { value, body, .. } => {
+                self.check_expr_inner(value, span, pc_label, errors);
+                self.check_expr_inner(body, span, pc_label, errors);
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
         }
@@ -7137,6 +7178,10 @@ impl TotalityChecker {
                         .iter()
                         .any(|arm| self.expr_contains_recursive_call(&arm.body, fn_name))
             }
+            Expr::Let { value, body, .. } => {
+                self.expr_contains_recursive_call(value, fn_name)
+                    || self.expr_contains_recursive_call(body, fn_name)
+            }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => false,
         }
     }
@@ -7219,6 +7264,10 @@ impl TotalityChecker {
                 for arm in arms {
                     self.collect_recursive_call_args(&arm.body, fn_name, out);
                 }
+            }
+            Expr::Let { value, body, .. } => {
+                self.collect_recursive_call_args(value, fn_name, out);
+                self.collect_recursive_call_args(body, fn_name, out);
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
         }

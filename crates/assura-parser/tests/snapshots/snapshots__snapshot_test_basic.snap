@@ -550,5 +550,147 @@ SourceFile {
             ),
             span: 901..1379,
         },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "color_value",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "c",
+                            ty: [
+                                "Color",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Int",
+                        "decreases",
+                        "0",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Ensures,
+                            body: Match {
+                                scrutinee: Ident(
+                                    "c",
+                                ),
+                                arms: [
+                                    MatchArm {
+                                        pattern: Ident(
+                                            "Red",
+                                        ),
+                                        body: BinOp {
+                                            lhs: Ident(
+                                                "result",
+                                            ),
+                                            op: Eq,
+                                            rhs: Literal(
+                                                Int(
+                                                    "1",
+                                                ),
+                                            ),
+                                        },
+                                    },
+                                    MatchArm {
+                                        pattern: Ident(
+                                            "Green",
+                                        ),
+                                        body: BinOp {
+                                            lhs: Ident(
+                                                "result",
+                                            ),
+                                            op: Eq,
+                                            rhs: Literal(
+                                                Int(
+                                                    "2",
+                                                ),
+                                            ),
+                                        },
+                                    },
+                                    MatchArm {
+                                        pattern: Ident(
+                                            "Blue",
+                                        ),
+                                        body: BinOp {
+                                            lhs: Ident(
+                                                "result",
+                                            ),
+                                            op: Eq,
+                                            rhs: Literal(
+                                                Int(
+                                                    "3",
+                                                ),
+                                            ),
+                                        },
+                                    },
+                                    MatchArm {
+                                        pattern: Wildcard,
+                                        body: Literal(
+                                            Bool(
+                                                true,
+                                            ),
+                                        ),
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            ),
+            span: 1437..1616,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "fibonacci",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "n",
+                            ty: [
+                                "Nat",
+                            ],
+                        },
+                    ],
+                    return_ty: [
+                        "Nat",
+                    ],
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: Raw(
+                                [
+                                    "n",
+                                    ">=",
+                                    "0",
+                                ],
+                            ),
+                        },
+                        Clause {
+                            kind: Decreases,
+                            body: Raw(
+                                [
+                                    "n",
+                                ],
+                            ),
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Raw(
+                                [
+                                    "result",
+                                    ">=",
+                                    "0",
+                                ],
+                            ),
+                        },
+                    ],
+                },
+            ),
+            span: 1618..1699,
+        },
     ],
 }

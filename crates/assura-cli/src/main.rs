@@ -1737,6 +1737,14 @@ fn expr_to_string(expr: &Expr) -> String {
                 .collect();
             format!("match {scrut} {{ {} }}", arms_s.join(", "))
         }
+        Expr::Let { name, value, body } => {
+            format!(
+                "let {} = {} in {}",
+                name,
+                expr_to_string(value),
+                expr_to_string(body)
+            )
+        }
         Expr::Raw(tokens) => tokens.join(" "),
     }
 }

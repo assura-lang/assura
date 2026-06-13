@@ -422,6 +422,14 @@ fn expr_to_rust(expr: &Expr) -> String {
                 .collect();
             format!("match {} {{\n{}\n}}", scrut, arms_code.join("\n"))
         }
+        Expr::Let { name, value, body } => {
+            format!(
+                "{{ let {} = {}; {} }}",
+                name,
+                expr_to_rust(value),
+                expr_to_rust(body)
+            )
+        }
         Expr::Raw(tokens) => {
             let mapped: Vec<&str> = tokens.iter().map(|t| map_type_token(t)).collect();
             smart_join_type_tokens(&mapped)
@@ -530,6 +538,10 @@ fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String)>) {
             for arm in arms {
                 collect_old_exprs_inner(&arm.body, out);
             }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_old_exprs_inner(value, out);
+            collect_old_exprs_inner(body, out);
         }
         // Leaf nodes: no old() inside
         Expr::Literal(_) | Expr::Ident(_) | Expr::Raw(_) => {}

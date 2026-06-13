@@ -152,6 +152,12 @@ pub enum Expr {
     Ghost(Box<Expr>),
     /// Apply a lemma: `apply lemma_name(args)` — adds lemma ensures as assumption
     Apply { lemma_name: String, args: Vec<Expr> },
+    /// Let binding: `let x = expr in body`
+    Let {
+        name: String,
+        value: Box<Expr>,
+        body: Box<Expr>,
+    },
     /// Match expression: `match expr { pattern => body, ... }`
     Match {
         scrutinee: Box<Expr>,

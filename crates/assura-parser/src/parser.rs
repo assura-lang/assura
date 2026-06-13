@@ -129,6 +129,7 @@ fn tok_to_str(t: &Token) -> String {
         Token::Input => "input".into(),
         Token::Invariant => "invariant".into(),
         Token::Is => "is".into(),
+        Token::Let => "let".into(),
         Token::Match => "match".into(),
         Token::Module => "module".into(),
         Token::MustNot => "must-not".into(),
@@ -568,6 +569,19 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             )
             .map(|(lemma_name, args)| Expr::Apply { lemma_name, args });
 
+        // let x = expr in body
+        let let_expr = just(Token::Let)
+            .ignore_then(ident())
+            .then_ignore(just(Token::Equals))
+            .then(expr.clone())
+            .then_ignore(just(Token::In))
+            .then(expr.clone())
+            .map(|((name, value), body)| Expr::Let {
+                name,
+                value: Box::new(value),
+                body: Box::new(body),
+            });
+
         // match expr { pattern => body, ... }
         let pattern = {
             let wildcard = filter_map(|span, tok| match &tok {
@@ -586,8 +600,28 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
                 just(Token::True).to(Pattern::Literal(Literal::Bool(true))),
                 just(Token::False).to(Pattern::Literal(Literal::Bool(false))),
             ));
-            let ident_pattern = ident().map(Pattern::Ident);
-            choice((wildcard, lit_pattern, ident_pattern))
+            // Constructor pattern: Name(field1, field2, ...) or plain Name
+            // The inner fields are simple patterns (ident or wildcard)
+            let inner_pattern = choice((
+                filter_map(|span, tok: Token| match &tok {
+                    Token::Ident(s) if s == "_" => Ok(Pattern::Wildcard),
+                    _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+                }),
+                ident().map(Pattern::Ident),
+            ));
+            let constructor_or_ident = ident()
+                .then(
+                    inner_pattern
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .delimited_by(just(Token::LParen), just(Token::RParen))
+                        .or_not(),
+                )
+                .map(|(name, fields)| match fields {
+                    Some(fs) => Pattern::Constructor { name, fields: fs },
+                    None => Pattern::Ident(name),
+                });
+            choice((wildcard, lit_pattern, constructor_or_ident))
         };
 
         let match_arm = pattern
@@ -652,6 +686,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             list_expr,
             ghost_block,
             apply_expr,
+            let_expr,
             match_expr,
             keyword_as_value,
             ident_expr,
@@ -1660,6 +1695,31 @@ mod tests {
     fn parse_extends_keyword_token() {
         let tokens: Vec<Token> = Token::lexer("extends").filter_map(|r| r.ok()).collect();
         assert_eq!(tokens, vec![Token::Extends]);
+    }
+
+    #[test]
+    fn parse_match_constructor_patterns() {
+        let expr = parse_expr("match r { Ok(v) => v, Err(msg) => 0, _ => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = &expr {
+            assert_eq!(arms.len(), 3);
+            if let Pattern::Constructor { name, fields } = &arms[0].pattern {
+                assert_eq!(name, "Ok");
+                assert_eq!(fields.len(), 1);
+                assert!(matches!(&fields[0], Pattern::Ident(n) if n == "v"));
+            } else {
+                panic!("expected Constructor pattern for Ok(v)");
+            }
+            if let Pattern::Constructor { name, fields } = &arms[1].pattern {
+                assert_eq!(name, "Err");
+                assert_eq!(fields.len(), 1);
+                assert!(matches!(&fields[0], Pattern::Ident(n) if n == "msg"));
+            } else {
+                panic!("expected Constructor pattern for Err(msg)");
+            }
+            assert!(matches!(&arms[2].pattern, Pattern::Wildcard));
+        } else {
+            panic!("expected Match expression");
+        }
     }
 
     #[test]

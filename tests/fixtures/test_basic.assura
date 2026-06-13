@@ -71,3 +71,21 @@ service UserService {
 
   invariant { forall u in users: u.id > 0 }
 }
+
+// --- Match expression and decreases clause tests ---
+
+fn color_value(c: Color) -> Int
+  decreases 0
+  ensures {
+    match c {
+      Red => result == 1,
+      Green => result == 2,
+      Blue => result == 3,
+      _ => true,
+    }
+  }
+
+fn fibonacci(n: Nat) -> Nat
+  requires n >= 0
+  decreases n
+  ensures result >= 0

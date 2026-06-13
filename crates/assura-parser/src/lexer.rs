@@ -67,6 +67,8 @@ pub enum Token {
     Invariant,
     #[token("is")]
     Is,
+    #[token("let")]
+    Let,
     #[token("match")]
     Match,
     #[token("module")]
