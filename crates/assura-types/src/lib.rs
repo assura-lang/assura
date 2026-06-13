@@ -1022,18 +1022,24 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     }
                     _ => {}
                 },
-                Type::Map(_, val) => match method.as_str() {
+                Type::Map(key, val) => match method.as_str() {
                     "get" => return Ok(Type::Option(val.clone())),
                     "contains_key" | "is_empty" => return Ok(Type::Bool),
                     "len" | "size" => return Ok(Type::Nat),
+                    "keys" => return Ok(Type::Set(key.clone())),
+                    "values" => return Ok(Type::List(val.clone())),
+                    "insert" | "remove" | "clear" => return Ok(Type::Unit),
                     _ => {}
                 },
                 Type::Set(_) => match method.as_str() {
-                    "contains" | "is_empty" | "is_subset" | "is_superset" => {
+                    "contains" | "is_empty" | "is_subset" | "is_superset" | "is_disjoint" => {
                         return Ok(Type::Bool);
                     }
                     "len" | "size" => return Ok(Type::Nat),
                     "insert" | "remove" | "clear" => return Ok(Type::Unit),
+                    "union" | "intersection" | "difference" | "symmetric_difference" => {
+                        return Ok(recv_ty);
+                    }
                     _ => {}
                 },
                 Type::String => match method.as_str() {
@@ -1041,15 +1047,24 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     "contains" | "starts_with" | "ends_with" | "is_empty" => {
                         return Ok(Type::Bool);
                     }
-                    "to_uppercase" | "to_lowercase" | "trim" | "substring" => {
+                    "to_uppercase" | "to_lowercase" | "trim" | "substring" | "replace"
+                    | "concat" | "repeat" => {
                         return Ok(Type::String);
                     }
+                    "split" | "chars" => return Ok(Type::List(Box::new(Type::String))),
+                    "parse_int" => return Ok(Type::Option(Box::new(Type::Int))),
                     _ => {}
                 },
                 Type::Option(inner) => match method.as_str() {
                     "unwrap" | "unwrap_or" | "expect" => return Ok(*inner.clone()),
                     "is_some" | "is_none" => return Ok(Type::Bool),
                     "map" => return Ok(Type::Option(Box::new(Type::Unknown))),
+                    _ => {}
+                },
+                Type::Bytes => match method.as_str() {
+                    "len" | "length" | "size" => return Ok(Type::Nat),
+                    "is_empty" => return Ok(Type::Bool),
+                    "slice" => return Ok(Type::Bytes),
                     _ => {}
                 },
                 Type::Result(ok_ty, _) => match method.as_str() {
@@ -1070,6 +1085,7 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 Type::List(_)
                 | Type::Sequence(_)
                 | Type::String
+                | Type::Bytes
                 | Type::Set(_)
                 | Type::Option(_)
                 | Type::Result(_, _)
@@ -14114,6 +14130,97 @@ extern fn read_bytes(n: U32) -> Bytes
         let err = infer_expr(&expr, &env).unwrap_err();
         assert_eq!(err.code, "A03005");
         assert!(err.message.contains("unknown method `bogus_method`"));
+    }
+
+    #[test]
+    fn map_keys_returns_set() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "m".into(),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+        );
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("m".into())),
+            method: "keys".into(),
+            args: vec![],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Set(Box::new(Type::String))
+        );
+    }
+
+    #[test]
+    fn map_values_returns_list() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "m".into(),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+        );
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("m".into())),
+            method: "values".into(),
+            args: vec![],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn set_union_returns_set() {
+        let mut env = TypeEnv::new();
+        env.insert("s".into(), Type::Set(Box::new(Type::Int)));
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("s".into())),
+            method: "union".into(),
+            args: vec![AstExpr::Ident("s".into())],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Set(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn string_split_returns_list() {
+        let mut env = TypeEnv::new();
+        env.insert("s".into(), Type::String);
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("s".into())),
+            method: "split".into(),
+            args: vec![],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::String))
+        );
+    }
+
+    #[test]
+    fn bytes_len_returns_nat() {
+        let mut env = TypeEnv::new();
+        env.insert("data".into(), Type::Bytes);
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("data".into())),
+            method: "len".into(),
+            args: vec![],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
+    }
+
+    #[test]
+    fn unknown_method_on_bytes_emits_a03005() {
+        let mut env = TypeEnv::new();
+        env.insert("data".into(), Type::Bytes);
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("data".into())),
+            method: "bogus".into(),
+            args: vec![],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
     }
 
     #[test]
