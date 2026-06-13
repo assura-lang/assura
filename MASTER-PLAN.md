@@ -449,7 +449,7 @@
   - This is critical for AI iteration: the counterexample tells the AI
     exactly what input breaks the contract
 
-- [ ] **T041**: Wire Z3 into the compilation pipeline
+- [x] **T041**: Wire Z3 into the compilation pipeline
   - Depends on: T039, T024
   - After type checking, run SMT verification on all contracts
   - Report results: verified, counterexample, timeout
