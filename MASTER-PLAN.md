@@ -92,7 +92,7 @@
 
 > Build a symbol table. Resolve all names. Detect errors.
 
-- [ ] **T009**: Create `assura-resolve` crate AND wire into CLI
+- [x] **T009**: Create `assura-resolve` crate AND wire into CLI
   - Depends on: T008
   - New crate: `crates/assura-resolve/`
   - Cargo.toml: depends on `assura-parser`
