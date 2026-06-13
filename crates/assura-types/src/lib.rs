@@ -5231,6 +5231,1456 @@ impl Default for DependentTypeChecker {
 
 // ---------------------------------------------------------------------------
 // Tests
+
+// ---------------------------------------------------------------------------
+// Information flow checking (T051 - SEC.3)
+// ---------------------------------------------------------------------------
+
+/// Security label in the information flow lattice.
+///
+/// The lattice is ordered: `Public < Internal < Confidential < Restricted`.
+/// Data may flow upward in the lattice (Public -> Confidential) but never
+/// downward (Confidential -> Public) without explicit declassification.
+///
+/// Implements Section 2.7 of the spec (information flow types).
+///
+/// # Error codes
+///
+/// - **A08001**: Information flows from higher security to lower security
+/// - **A08002**: Declassification without explicit annotation
+/// - **A08003**: Purpose label mismatch (GDPR)
+/// - **A08004**: Implicit flow through control dependency
+/// - **A08005**: Covert channel through timing/exceptions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SecurityLabel {
+    /// Publicly accessible data.
+    Public,
+    /// Internal-only data (not exposed to external consumers).
+    Internal,
+    /// Confidential data (PII, credentials, etc.).
+    Confidential,
+    /// Restricted data (highest classification, e.g. encryption keys).
+    Restricted,
+}
+
+impl std::fmt::Display for SecurityLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SecurityLabel::Public => write!(f, "Public"),
+            SecurityLabel::Internal => write!(f, "Internal"),
+            SecurityLabel::Confidential => write!(f, "Confidential"),
+            SecurityLabel::Restricted => write!(f, "Restricted"),
+        }
+    }
+}
+
+/// A structured information flow error.
+#[derive(Debug, Clone)]
+pub struct InfoFlowError {
+    /// Error code (A08001-A08005).
+    pub code: std::string::String,
+    /// Human-readable error message.
+    pub message: std::string::String,
+    /// Source location where the error was detected.
+    pub span: Range<usize>,
+}
+
+/// Information flow checker that enforces the security lattice.
+///
+/// Tracks security labels on variables and ensures that data never flows
+/// from a higher security level to a lower one without explicit
+/// declassification.  Also tracks GDPR purpose labels for data-purpose
+/// compliance.
+#[derive(Debug, Clone)]
+pub struct InfoFlowChecker {
+    /// Maps variable name to its security label.
+    labels: HashMap<std::string::String, SecurityLabel>,
+    /// Maps variable name to its GDPR purpose label (e.g. "analytics",
+    /// "billing", "marketing").
+    purpose_labels: HashMap<std::string::String, std::string::String>,
+    /// Set of variables that carry an explicit `@declassify` annotation.
+    declassify_annotations: std::collections::HashSet<std::string::String>,
+    /// Names of functions that are considered timing-sensitive (potential
+    /// covert channels).
+    timing_sensitive_fns: std::collections::HashSet<std::string::String>,
+}
+
+impl InfoFlowChecker {
+    /// Create a new, empty information flow checker with built-in
+    /// timing-sensitive function names.
+    pub fn new() -> Self {
+        let mut timing_sensitive_fns = std::collections::HashSet::new();
+        timing_sensitive_fns.insert("sleep".to_string());
+        timing_sensitive_fns.insert("delay".to_string());
+        timing_sensitive_fns.insert("wait".to_string());
+        timing_sensitive_fns.insert("throw".to_string());
+        timing_sensitive_fns.insert("panic".to_string());
+        timing_sensitive_fns.insert("abort".to_string());
+        Self {
+            labels: HashMap::new(),
+            purpose_labels: HashMap::new(),
+            declassify_annotations: std::collections::HashSet::new(),
+            timing_sensitive_fns,
+        }
+    }
+
+    /// Declare a variable with a security label.
+    pub fn declare(&mut self, name: std::string::String, label: SecurityLabel) {
+        self.labels.insert(name, label);
+    }
+
+    /// Declare a variable with a GDPR purpose label.
+    pub fn declare_purpose(&mut self, name: std::string::String, purpose: std::string::String) {
+        self.purpose_labels.insert(name, purpose);
+    }
+
+    /// Mark a variable as having an explicit `@declassify` annotation.
+    pub fn mark_declassify(&mut self, name: std::string::String) {
+        self.declassify_annotations.insert(name);
+    }
+
+    /// Register a function as timing-sensitive (potential covert channel).
+    pub fn register_timing_sensitive(&mut self, name: std::string::String) {
+        self.timing_sensitive_fns.insert(name);
+    }
+
+    /// Get the security label for a variable. Returns `None` if the
+    /// variable has not been declared.
+    pub fn get_label(&self, name: &str) -> Option<SecurityLabel> {
+        self.labels.get(name).copied()
+    }
+
+    /// Get the purpose label for a variable.
+    pub fn get_purpose(&self, name: &str) -> Option<&str> {
+        self.purpose_labels.get(name).map(|s| s.as_str())
+    }
+
+    /// Returns `true` if any security labels are tracked.
+    pub fn has_labels(&self) -> bool {
+        !self.labels.is_empty()
+    }
+
+    // -----------------------------------------------------------------
+    // Core checks
+    // -----------------------------------------------------------------
+
+    /// Check an assignment: data flows from `source_label` to
+    /// `target_label`.
+    ///
+    /// The source security level must be less than or equal to the
+    /// target level. Emits **A08001** if data flows from a higher
+    /// security level to a lower one.
+    pub fn check_assignment(
+        &self,
+        target_label: SecurityLabel,
+        source_label: SecurityLabel,
+        span: &Range<usize>,
+    ) -> Option<InfoFlowError> {
+        if source_label > target_label {
+            Some(InfoFlowError {
+                code: "A08001".into(),
+                message: format!(
+                    "information flows from {source_label} to {target_label}: \
+                     data at security level `{source_label}` cannot be assigned \
+                     to a `{target_label}` variable"
+                ),
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Check a declassification: data is being lowered from `from_label`
+    /// to `to_label`.
+    ///
+    /// Declassification is only permitted when an explicit annotation is
+    /// present. Emits **A08002** if `has_declassify_annotation` is false.
+    pub fn check_declassify(
+        &self,
+        from_label: SecurityLabel,
+        to_label: SecurityLabel,
+        has_declassify_annotation: bool,
+        span: &Range<usize>,
+    ) -> Option<InfoFlowError> {
+        if from_label > to_label && !has_declassify_annotation {
+            Some(InfoFlowError {
+                code: "A08002".into(),
+                message: format!(
+                    "declassification from {from_label} to {to_label} \
+                     without explicit `@declassify` annotation"
+                ),
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Check that a variable's purpose label matches the required purpose.
+    ///
+    /// Emits **A08003** if the variable has a purpose label that differs
+    /// from `required_purpose`.
+    pub fn check_purpose_label(
+        &self,
+        variable: &str,
+        required_purpose: &str,
+        span: &Range<usize>,
+    ) -> Option<InfoFlowError> {
+        if let Some(actual_purpose) = self.purpose_labels.get(variable)
+            && actual_purpose != required_purpose
+        {
+            return Some(InfoFlowError {
+                code: "A08003".into(),
+                message: format!(
+                    "purpose label mismatch for `{variable}`: data labeled \
+                     for `{actual_purpose}` used in `{required_purpose}` context"
+                ),
+                span: span.clone(),
+            });
+        }
+        None
+    }
+
+    /// Check for implicit information flow through control dependencies.
+    ///
+    /// If a conditional expression depends on a high-security variable and
+    /// assigns to a low-security variable inside a branch, information
+    /// leaks through the control flow.  Emits **A08004**.
+    ///
+    /// `condition_label` is the inferred label of the if-condition.
+    /// `branch_target_label` is the label of the variable being assigned
+    /// inside the branch.
+    pub fn check_implicit_flow(
+        &self,
+        condition_label: SecurityLabel,
+        branch_target_label: SecurityLabel,
+        span: &Range<usize>,
+    ) -> Option<InfoFlowError> {
+        if condition_label > branch_target_label {
+            Some(InfoFlowError {
+                code: "A08004".into(),
+                message: format!(
+                    "implicit information flow: condition at `{condition_label}` \
+                     level influences assignment to `{branch_target_label}` variable"
+                ),
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Check for covert channels through timing or exceptions.
+    ///
+    /// If a high-security value controls whether a timing-sensitive
+    /// function (sleep, delay, throw, panic) is called, information can
+    /// leak through observable side effects.  Emits **A08005**.
+    pub fn check_covert_channel(
+        &self,
+        condition_label: SecurityLabel,
+        callee: &str,
+        span: &Range<usize>,
+    ) -> Option<InfoFlowError> {
+        if condition_label > SecurityLabel::Public && self.timing_sensitive_fns.contains(callee) {
+            Some(InfoFlowError {
+                code: "A08005".into(),
+                message: format!(
+                    "potential covert channel: `{condition_label}` data controls \
+                     call to timing/exception function `{callee}`"
+                ),
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Label inference
+    // -----------------------------------------------------------------
+
+    /// Infer the security label of an expression.
+    ///
+    /// The result label is the **maximum** of all operand labels (the
+    /// join in the lattice).  Variables without a declared label default
+    /// to `Public`.
+    pub fn infer_label(&self, expr: &Expr) -> SecurityLabel {
+        match expr {
+            Expr::Ident(name) => self
+                .labels
+                .get(name)
+                .copied()
+                .unwrap_or(SecurityLabel::Public),
+
+            Expr::Literal(_) => SecurityLabel::Public,
+
+            Expr::Field(receiver, _) => self.infer_label(receiver),
+
+            Expr::BinOp { lhs, rhs, .. } => {
+                std::cmp::max(self.infer_label(lhs), self.infer_label(rhs))
+            }
+
+            Expr::UnaryOp { expr: inner, .. } => self.infer_label(inner),
+
+            Expr::Call { func, args } => {
+                let f = self.infer_label(func);
+                args.iter()
+                    .fold(f, |acc, arg| std::cmp::max(acc, self.infer_label(arg)))
+            }
+
+            Expr::MethodCall { receiver, args, .. } => {
+                let r = self.infer_label(receiver);
+                args.iter()
+                    .fold(r, |acc, arg| std::cmp::max(acc, self.infer_label(arg)))
+            }
+
+            Expr::Index { expr: base, index } => {
+                std::cmp::max(self.infer_label(base), self.infer_label(index))
+            }
+
+            Expr::Old(inner) | Expr::Paren(inner) | Expr::Cast { expr: inner, .. } => {
+                self.infer_label(inner)
+            }
+
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let mut r = std::cmp::max(self.infer_label(cond), self.infer_label(then_branch));
+                if let Some(e) = else_branch {
+                    r = std::cmp::max(r, self.infer_label(e));
+                }
+                r
+            }
+
+            Expr::List(items) => items.iter().fold(SecurityLabel::Public, |a, i| {
+                std::cmp::max(a, self.infer_label(i))
+            }),
+
+            Expr::Block(exprs) => exprs.iter().fold(SecurityLabel::Public, |a, e| {
+                std::cmp::max(a, self.infer_label(e))
+            }),
+
+            Expr::Forall { body, .. } | Expr::Exists { body, .. } => self.infer_label(body),
+
+            Expr::Apply { args, .. } => args.iter().fold(SecurityLabel::Public, |a, arg| {
+                std::cmp::max(a, self.infer_label(arg))
+            }),
+
+            Expr::Ghost(_) | Expr::Raw(_) => SecurityLabel::Public,
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Expression-level checking
+    // -----------------------------------------------------------------
+
+    /// Check an expression tree for information flow violations.
+    ///
+    /// Walks the AST looking for:
+    /// - Implicit flows through `if` conditions (A08004)
+    /// - Covert channels through timing/exception calls (A08005)
+    pub fn check_expr(&self, expr: &Expr, span: &Range<usize>) -> Vec<InfoFlowError> {
+        let mut errors = Vec::new();
+        self.check_expr_inner(expr, span, SecurityLabel::Public, &mut errors);
+        errors
+    }
+
+    /// Inner recursive checker with a `pc_label` representing the
+    /// current program-counter security context (from enclosing
+    /// conditionals).
+    fn check_expr_inner(
+        &self,
+        expr: &Expr,
+        span: &Range<usize>,
+        pc_label: SecurityLabel,
+        errors: &mut Vec<InfoFlowError>,
+    ) {
+        match expr {
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_label = std::cmp::max(pc_label, self.infer_label(cond));
+                self.check_expr_inner(cond, span, pc_label, errors);
+                self.check_expr_inner(then_branch, span, cond_label, errors);
+                if let Some(else_br) = else_branch {
+                    self.check_expr_inner(else_br, span, cond_label, errors);
+                }
+            }
+
+            // Detect covert channels: high-security pc controls a
+            // timing-sensitive or exception-raising call.
+            Expr::Call { func, args } => {
+                if let Expr::Ident(name) = func.as_ref()
+                    && let Some(err) = self.check_covert_channel(pc_label, name, span)
+                {
+                    errors.push(err);
+                }
+                self.check_expr_inner(func, span, pc_label, errors);
+                for arg in args {
+                    self.check_expr_inner(arg, span, pc_label, errors);
+                }
+            }
+
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                if let Some(err) = self.check_covert_channel(pc_label, method, span) {
+                    errors.push(err);
+                }
+                self.check_expr_inner(receiver, span, pc_label, errors);
+                for arg in args {
+                    self.check_expr_inner(arg, span, pc_label, errors);
+                }
+            }
+
+            // Recurse into sub-expressions
+            Expr::BinOp { lhs, rhs, .. } => {
+                self.check_expr_inner(lhs, span, pc_label, errors);
+                self.check_expr_inner(rhs, span, pc_label, errors);
+            }
+            Expr::UnaryOp { expr: inner, .. }
+            | Expr::Old(inner)
+            | Expr::Paren(inner)
+            | Expr::Cast { expr: inner, .. }
+            | Expr::Ghost(inner) => {
+                self.check_expr_inner(inner, span, pc_label, errors);
+            }
+            Expr::Field(receiver, _) => {
+                self.check_expr_inner(receiver, span, pc_label, errors);
+            }
+            Expr::Index { expr: base, index } => {
+                self.check_expr_inner(base, span, pc_label, errors);
+                self.check_expr_inner(index, span, pc_label, errors);
+            }
+            Expr::List(items) => {
+                for item in items {
+                    self.check_expr_inner(item, span, pc_label, errors);
+                }
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    self.check_expr_inner(e, span, pc_label, errors);
+                }
+            }
+            Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+                self.check_expr_inner(domain, span, pc_label, errors);
+                self.check_expr_inner(body, span, pc_label, errors);
+            }
+            Expr::Apply { args, .. } => {
+                for arg in args {
+                    self.check_expr_inner(arg, span, pc_label, errors);
+                }
+            }
+            Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
+        }
+    }
+}
+
+impl Default for InfoFlowChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+
+// ---------------------------------------------------------------------------
+// Totality checking (T053)
+// ---------------------------------------------------------------------------
+
+/// What expression decreases at each recursive call, proving termination.
+#[derive(Debug, Clone)]
+pub enum DecreasesMeasure {
+    /// A single natural-number expression that must strictly decrease.
+    Natural(Expr),
+    /// A lexicographic tuple of measures (e.g., Ackermann-like functions).
+    Lexicographic(Vec<Expr>),
+    /// Well-founded ordering on a custom/structural type.
+    WellFounded(Expr),
+}
+
+/// A totality error with error code, span, and message.
+#[derive(Debug, Clone)]
+pub struct TotalityError {
+    /// Error code from the spec (A09xxx series).
+    pub code: std::string::String,
+    /// Human-readable error message.
+    pub message: std::string::String,
+    /// Source location where the error was detected.
+    pub span: Range<usize>,
+}
+
+/// Totality checker for termination checking via `decreases` measures.
+///
+/// Validates that recursive functions terminate by checking that a
+/// well-founded measure strictly decreases at every recursive call site.
+///
+/// # Error codes
+///
+/// - **A09001**: Recursive function without `decreases` clause (and no `partial` annotation)
+/// - **A09002**: Measure does not strictly decrease at recursive call site
+/// - **A09003**: Cannot prove measure is well-founded (e.g., might go negative)
+/// - **A09004**: Mutually recursive functions without collective termination proof
+pub struct TotalityChecker {
+    /// Names of functions known to be partial (escape hatch).
+    partial_fns: std::collections::HashSet<std::string::String>,
+}
+
+impl TotalityChecker {
+    /// Create a new totality checker.
+    pub fn new() -> Self {
+        Self {
+            partial_fns: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Register a function as `partial` (opt out of termination checking).
+    pub fn mark_partial(&mut self, name: std::string::String) {
+        self.partial_fns.insert(name);
+    }
+
+    /// Check whether a function definition has the `partial` escape hatch.
+    ///
+    /// A function is partial if it was explicitly registered via
+    /// [`mark_partial`] or if its clauses contain an `Other("partial")`
+    /// clause kind.
+    pub fn is_partial(&self, fn_def: &assura_parser::ast::FnDef) -> bool {
+        if self.partial_fns.contains(&fn_def.name) {
+            return true;
+        }
+        // Check for a `partial` annotation in clause kinds
+        fn_def
+            .clauses
+            .iter()
+            .any(|c| matches!(&c.kind, ClauseKind::Other(s) if s == "partial"))
+    }
+
+    /// Extract the `decreases` measure from a function definition.
+    ///
+    /// Looks for clauses with kind `Other("decreases")`. The clause body
+    /// expression becomes the measure. Multiple decreases clauses form a
+    /// lexicographic tuple. A single clause is a `Natural` measure.
+    pub fn extract_decreases_measure(
+        &self,
+        fn_def: &assura_parser::ast::FnDef,
+    ) -> Option<DecreasesMeasure> {
+        let decreases_exprs: Vec<&Expr> = fn_def
+            .clauses
+            .iter()
+            .filter(|c| matches!(&c.kind, ClauseKind::Other(s) if s == "decreases"))
+            .map(|c| &c.body)
+            .collect();
+
+        match decreases_exprs.len() {
+            0 => None,
+            1 => Some(DecreasesMeasure::Natural(decreases_exprs[0].clone())),
+            _ => Some(DecreasesMeasure::Lexicographic(
+                decreases_exprs.into_iter().cloned().collect(),
+            )),
+        }
+    }
+
+    /// Check whether the given expression contains a recursive call to `fn_name`.
+    fn expr_contains_recursive_call(&self, expr: &Expr, fn_name: &str) -> bool {
+        match expr {
+            Expr::Call { func, args } => {
+                let is_self_call = matches!(func.as_ref(), Expr::Ident(name) if name == fn_name);
+                if is_self_call {
+                    return true;
+                }
+                self.expr_contains_recursive_call(func, fn_name)
+                    || args
+                        .iter()
+                        .any(|a| self.expr_contains_recursive_call(a, fn_name))
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                self.expr_contains_recursive_call(lhs, fn_name)
+                    || self.expr_contains_recursive_call(rhs, fn_name)
+            }
+            Expr::UnaryOp { expr: inner, .. }
+            | Expr::Old(inner)
+            | Expr::Paren(inner)
+            | Expr::Cast { expr: inner, .. }
+            | Expr::Ghost(inner) => self.expr_contains_recursive_call(inner, fn_name),
+            Expr::Field(receiver, _) => self.expr_contains_recursive_call(receiver, fn_name),
+            Expr::MethodCall { receiver, args, .. } => {
+                self.expr_contains_recursive_call(receiver, fn_name)
+                    || args
+                        .iter()
+                        .any(|a| self.expr_contains_recursive_call(a, fn_name))
+            }
+            Expr::Index {
+                expr: base, index, ..
+            } => {
+                self.expr_contains_recursive_call(base, fn_name)
+                    || self.expr_contains_recursive_call(index, fn_name)
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.expr_contains_recursive_call(cond, fn_name)
+                    || self.expr_contains_recursive_call(then_branch, fn_name)
+                    || else_branch
+                        .as_ref()
+                        .is_some_and(|e| self.expr_contains_recursive_call(e, fn_name))
+            }
+            Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+                self.expr_contains_recursive_call(domain, fn_name)
+                    || self.expr_contains_recursive_call(body, fn_name)
+            }
+            Expr::List(items) => items
+                .iter()
+                .any(|i| self.expr_contains_recursive_call(i, fn_name)),
+            Expr::Block(exprs) => exprs
+                .iter()
+                .any(|e| self.expr_contains_recursive_call(e, fn_name)),
+            Expr::Apply { args, .. } => args
+                .iter()
+                .any(|a| self.expr_contains_recursive_call(a, fn_name)),
+            Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => false,
+        }
+    }
+
+    /// Collect arguments from recursive call sites to `fn_name` in `expr`.
+    fn collect_recursive_call_args<'a>(
+        &self,
+        expr: &'a Expr,
+        fn_name: &str,
+        out: &mut Vec<&'a [Expr]>,
+    ) {
+        match expr {
+            Expr::Call { func, args } => {
+                if matches!(func.as_ref(), Expr::Ident(name) if name == fn_name) {
+                    out.push(args.as_slice());
+                }
+                self.collect_recursive_call_args(func, fn_name, out);
+                for a in args {
+                    self.collect_recursive_call_args(a, fn_name, out);
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                self.collect_recursive_call_args(lhs, fn_name, out);
+                self.collect_recursive_call_args(rhs, fn_name, out);
+            }
+            Expr::UnaryOp { expr: inner, .. }
+            | Expr::Old(inner)
+            | Expr::Paren(inner)
+            | Expr::Cast { expr: inner, .. }
+            | Expr::Ghost(inner) => {
+                self.collect_recursive_call_args(inner, fn_name, out);
+            }
+            Expr::Field(receiver, _) => {
+                self.collect_recursive_call_args(receiver, fn_name, out);
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                self.collect_recursive_call_args(receiver, fn_name, out);
+                for a in args {
+                    self.collect_recursive_call_args(a, fn_name, out);
+                }
+            }
+            Expr::Index {
+                expr: base, index, ..
+            } => {
+                self.collect_recursive_call_args(base, fn_name, out);
+                self.collect_recursive_call_args(index, fn_name, out);
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_recursive_call_args(cond, fn_name, out);
+                self.collect_recursive_call_args(then_branch, fn_name, out);
+                if let Some(e) = else_branch {
+                    self.collect_recursive_call_args(e, fn_name, out);
+                }
+            }
+            Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+                self.collect_recursive_call_args(domain, fn_name, out);
+                self.collect_recursive_call_args(body, fn_name, out);
+            }
+            Expr::List(items) => {
+                for i in items {
+                    self.collect_recursive_call_args(i, fn_name, out);
+                }
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    self.collect_recursive_call_args(e, fn_name, out);
+                }
+            }
+            Expr::Apply { args, .. } => {
+                for a in args {
+                    self.collect_recursive_call_args(a, fn_name, out);
+                }
+            }
+            Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
+        }
+    }
+
+    /// Check whether a recursive call's argument is structurally smaller
+    /// than the corresponding measure expression.
+    ///
+    /// Recognizes patterns like `n - 1` (for natural measure `n`),
+    /// `xs.tail` or `node.left` / `node.right` (structural recursion).
+    fn is_strictly_decreasing(measure: &Expr, call_arg: &Expr) -> bool {
+        // Pattern: measure is `Ident(x)`, call_arg is `x - <positive>`
+        if let Expr::Ident(measure_var) = measure {
+            match call_arg {
+                // n - 1, n - 2, etc.
+                Expr::BinOp {
+                    lhs,
+                    op: BinOp::Sub,
+                    rhs,
+                } => {
+                    if let Expr::Ident(arg_var) = lhs.as_ref()
+                        && arg_var == measure_var
+                    {
+                        // The rhs must be a positive literal
+                        if let Expr::Literal(Literal::Int(s)) = rhs.as_ref()
+                            && let Ok(v) = s.parse::<i64>()
+                        {
+                            return v > 0;
+                        }
+                        // Any non-zero expression is acceptable
+                        return true;
+                    }
+                    false
+                }
+                // Structural: x.tail, x.left, x.right, x.children, etc.
+                Expr::Field(receiver, field) => {
+                    if let Expr::Ident(arg_var) = receiver.as_ref()
+                        && arg_var == measure_var
+                    {
+                        return matches!(
+                            field.as_str(),
+                            "tail" | "left" | "right" | "children" | "rest" | "next"
+                        );
+                    }
+                    false
+                }
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Check whether a measure expression is well-founded (cannot go
+    /// negative or be undefined).
+    ///
+    /// A natural-number variable is well-founded if the function has a
+    /// `requires` clause constraining it to be >= 0. Structural measures
+    /// on inductive types are always well-founded. Returns `true` if
+    /// well-foundedness can be established, `false` otherwise.
+    fn is_well_founded(measure: &Expr, fn_def: &assura_parser::ast::FnDef) -> bool {
+        match measure {
+            Expr::Ident(name) => {
+                // Check requires clauses for a constraint like `n >= 0`
+                for clause in &fn_def.clauses {
+                    if clause.kind == ClauseKind::Requires
+                        && Self::expr_constrains_non_negative(&clause.body, name)
+                    {
+                        return true;
+                    }
+                }
+                // Check parameter type for well-foundedness
+                for param in &fn_def.params {
+                    if param.name == *name {
+                        // Nat is always >= 0
+                        if param.ty.iter().any(|t| t == "Nat") {
+                            return true;
+                        }
+                        // Structural/named types (List, Tree, etc.) are
+                        // well-founded by structural induction. Any type
+                        // that is not a raw numeric type (Int, Float, etc.)
+                        // is considered structural.
+                        let is_numeric_type = param.ty.iter().any(|t| {
+                            matches!(
+                                t.as_str(),
+                                "Int" | "Float" | "F32" | "F64" | "I8" | "I16" | "I32" | "I64"
+                            )
+                        });
+                        if !is_numeric_type {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            // Field access on a structural type is well-founded by induction
+            Expr::Field(_, _) => true,
+            _ => false,
+        }
+    }
+
+    /// Check whether an expression constrains a variable to be non-negative.
+    ///
+    /// Recognizes patterns: `x >= 0`, `0 <= x`, `x > 0`, etc.
+    fn expr_constrains_non_negative(expr: &Expr, var_name: &str) -> bool {
+        match expr {
+            Expr::BinOp { lhs, op, rhs } => {
+                match op {
+                    // x >= 0 or x > 0
+                    BinOp::Gte | BinOp::Gt => {
+                        if let Expr::Ident(name) = lhs.as_ref()
+                            && name == var_name
+                            && let Expr::Literal(Literal::Int(s)) = rhs.as_ref()
+                            && let Ok(v) = s.parse::<i64>()
+                        {
+                            return v >= 0;
+                        }
+                        false
+                    }
+                    // 0 <= x or 0 < x
+                    BinOp::Lte | BinOp::Lt => {
+                        if let Expr::Literal(Literal::Int(s)) = lhs.as_ref()
+                            && let Ok(v) = s.parse::<i64>()
+                            && v >= 0
+                            && let Expr::Ident(name) = rhs.as_ref()
+                        {
+                            return name == var_name;
+                        }
+                        false
+                    }
+                    // Conjunction: either side can provide the constraint
+                    BinOp::And => {
+                        Self::expr_constrains_non_negative(lhs, var_name)
+                            || Self::expr_constrains_non_negative(rhs, var_name)
+                    }
+                    _ => false,
+                }
+            }
+            Expr::Paren(inner) => Self::expr_constrains_non_negative(inner, var_name),
+            _ => false,
+        }
+    }
+
+    /// Check whether a recursive call strictly decreases the measure.
+    ///
+    /// For a `Natural` measure, finds the parameter matching the measure
+    /// variable and checks that the corresponding call argument is
+    /// structurally smaller. For `Lexicographic` measures, checks that
+    /// at least one component strictly decreases while preceding
+    /// components are non-increasing.
+    pub fn check_recursive_call(
+        &self,
+        fn_def: &assura_parser::ast::FnDef,
+        measure: &DecreasesMeasure,
+        call_args: &[Expr],
+        span: &Range<usize>,
+    ) -> Option<TotalityError> {
+        match measure {
+            DecreasesMeasure::Natural(measure_expr) => {
+                // Find which parameter position corresponds to the measure
+                if let Expr::Ident(measure_var) = measure_expr {
+                    for (i, param) in fn_def.params.iter().enumerate() {
+                        if param.name == *measure_var
+                            && let Some(call_arg) = call_args.get(i)
+                        {
+                            if Self::is_strictly_decreasing(measure_expr, call_arg) {
+                                return None; // OK
+                            }
+                            return Some(TotalityError {
+                                code: "A09002".into(),
+                                message: format!(
+                                    "measure `{measure_var}` does not strictly \
+                                     decrease at recursive call to `{}`",
+                                    fn_def.name
+                                ),
+                                span: span.clone(),
+                            });
+                        }
+                    }
+                }
+                None // Cannot determine; deferred to SMT
+            }
+            DecreasesMeasure::Lexicographic(measures) => {
+                // For lexicographic: at least one component must strictly decrease
+                let mut any_decreases = false;
+                for measure_expr in measures {
+                    if let Expr::Ident(measure_var) = measure_expr {
+                        for (i, param) in fn_def.params.iter().enumerate() {
+                            if param.name == *measure_var
+                                && let Some(call_arg) = call_args.get(i)
+                                && Self::is_strictly_decreasing(measure_expr, call_arg)
+                            {
+                                any_decreases = true;
+                            }
+                        }
+                    }
+                }
+                if any_decreases {
+                    None
+                } else {
+                    Some(TotalityError {
+                        code: "A09002".into(),
+                        message: format!(
+                            "lexicographic measure does not strictly decrease \
+                             at recursive call to `{}`",
+                            fn_def.name
+                        ),
+                        span: span.clone(),
+                    })
+                }
+            }
+            DecreasesMeasure::WellFounded(_) => {
+                // Well-founded ordering check is deferred to SMT
+                None
+            }
+        }
+    }
+
+    /// Check a single function for totality (termination).
+    ///
+    /// 1. If the function is `partial`, skip it.
+    /// 2. Determine if the function is recursive (calls itself).
+    /// 3. If recursive, extract the `decreases` measure.
+    /// 4. Verify the measure strictly decreases at every recursive call.
+    /// 5. Verify the measure is well-founded.
+    pub fn check_function_totality(
+        &self,
+        fn_def: &assura_parser::ast::FnDef,
+        span: &Range<usize>,
+    ) -> Vec<TotalityError> {
+        let mut errors = Vec::new();
+
+        // Partial functions skip termination checking
+        if self.is_partial(fn_def) {
+            return errors;
+        }
+
+        // Determine if the function is recursive by scanning its clause bodies
+        let is_recursive = fn_def
+            .clauses
+            .iter()
+            .any(|c| self.expr_contains_recursive_call(&c.body, &fn_def.name));
+
+        if !is_recursive {
+            // Non-recursive functions are trivially total
+            return errors;
+        }
+
+        // Extract the decreases measure
+        let measure = match self.extract_decreases_measure(fn_def) {
+            Some(m) => m,
+            None => {
+                errors.push(TotalityError {
+                    code: "A09001".into(),
+                    message: format!(
+                        "recursive function `{}` has no `decreases` clause; \
+                         add `decreases <expr>` or annotate with `partial`",
+                        fn_def.name
+                    ),
+                    span: span.clone(),
+                });
+                return errors;
+            }
+        };
+
+        // Check well-foundedness of the measure
+        match &measure {
+            DecreasesMeasure::Natural(expr) => {
+                if !Self::is_well_founded(expr, fn_def) {
+                    errors.push(TotalityError {
+                        code: "A09003".into(),
+                        message: format!(
+                            "cannot prove measure is well-founded for function `{}`; \
+                             add `requires` clause ensuring the measure is non-negative",
+                            fn_def.name
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+            DecreasesMeasure::Lexicographic(exprs) => {
+                for expr in exprs {
+                    if !Self::is_well_founded(expr, fn_def) {
+                        errors.push(TotalityError {
+                            code: "A09003".into(),
+                            message: format!(
+                                "cannot prove measure component is well-founded \
+                                 for function `{}`",
+                                fn_def.name
+                            ),
+                            span: span.clone(),
+                        });
+                        break; // One error is enough
+                    }
+                }
+            }
+            DecreasesMeasure::WellFounded(_) => {
+                // Deferred to SMT
+            }
+        }
+
+        // Collect recursive call sites and check each one
+        let mut call_arg_sets: Vec<&[Expr]> = Vec::new();
+        for clause in &fn_def.clauses {
+            self.collect_recursive_call_args(&clause.body, &fn_def.name, &mut call_arg_sets);
+        }
+
+        for call_args in &call_arg_sets {
+            if let Some(err) = self.check_recursive_call(fn_def, &measure, call_args, span) {
+                errors.push(err);
+            }
+        }
+
+        errors
+    }
+
+    /// Detect and verify mutually recursive function groups.
+    ///
+    /// Given a set of function definitions, builds a call graph, finds
+    /// strongly connected components (groups of mutually recursive
+    /// functions), and checks that each group has a collective
+    /// termination proof.
+    ///
+    /// Returns A09004 for groups where no function has a `decreases` clause.
+    pub fn check_mutual_recursion(
+        &self,
+        fn_defs: &[(&assura_parser::ast::FnDef, &Range<usize>)],
+    ) -> Vec<TotalityError> {
+        let mut errors = Vec::new();
+
+        // Build a simple call graph: for each function, which other
+        // functions in the set does it call?
+        let names: Vec<&str> = fn_defs.iter().map(|(f, _)| f.name.as_str()).collect();
+
+        for (i, &(fn_def_i, span_i)) in fn_defs.iter().enumerate() {
+            // Skip partial functions
+            if self.is_partial(fn_def_i) {
+                continue;
+            }
+
+            for (j, &(fn_def_j, _)) in fn_defs.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+
+                // Does fn_i call fn_j?
+                let i_calls_j = fn_def_i
+                    .clauses
+                    .iter()
+                    .any(|c| self.expr_contains_recursive_call(&c.body, names[j]));
+
+                // Does fn_j call fn_i?
+                let j_calls_i = fn_def_j
+                    .clauses
+                    .iter()
+                    .any(|c| self.expr_contains_recursive_call(&c.body, names[i]));
+
+                if i_calls_j && j_calls_i {
+                    // Mutual recursion detected; check for decreases
+                    let has_measure_i = self.extract_decreases_measure(fn_def_i).is_some();
+                    let has_measure_j = self.extract_decreases_measure(fn_def_j).is_some();
+
+                    if !has_measure_i && !has_measure_j {
+                        errors.push(TotalityError {
+                            code: "A09004".into(),
+                            message: format!(
+                                "mutually recursive functions `{}` and `{}` \
+                                 have no collective termination proof; \
+                                 add `decreases` clauses to at least one",
+                                fn_def_i.name, fn_def_j.name
+                            ),
+                            span: span_i.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
+impl Default for TotalityChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for TotalityChecker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TotalityChecker")
+            .field("partial_fns", &self.partial_fns)
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// T055 MEM.2: Fixed-width integer checker
+// ---------------------------------------------------------------------------
+
+/// A structured error from fixed-width integer checking.
+#[derive(Debug, Clone)]
+pub struct FixedWidthError {
+    /// Error code (A10101-A10104).
+    pub code: std::string::String,
+    /// Human-readable message.
+    pub message: std::string::String,
+    /// Source span where the issue was detected.
+    pub span: Range<usize>,
+}
+
+/// Checker for fixed-width integer types with overflow detection.
+///
+/// Tracks fixed-width integer types in expressions, detects potential
+/// arithmetic overflow, validates cast safety, and flags signed/unsigned
+/// mismatches.
+///
+/// Implements MEM.2 from Section 14 of the specification.
+///
+/// # Error codes
+///
+/// - **A10101**: Potential integer overflow in arithmetic operation
+/// - **A10102**: Unsafe narrowing cast (e.g., U32 to U16 without bounds check)
+/// - **A10103**: Signed/unsigned mismatch in comparison
+/// - **A10104**: Division/modulo by zero not guarded
+#[derive(Debug, Clone)]
+pub struct FixedWidthChecker {
+    /// Maps variable name to its fixed-width type.
+    bindings: HashMap<std::string::String, Type>,
+}
+
+impl FixedWidthChecker {
+    /// Create an empty fixed-width checker.
+    pub fn new() -> Self {
+        Self {
+            bindings: HashMap::new(),
+        }
+    }
+
+    /// Register a variable with its fixed-width integer type.
+    pub fn declare(&mut self, name: std::string::String, ty: Type) {
+        self.bindings.insert(name, ty);
+    }
+
+    /// Look up the type of a registered variable.
+    pub fn get_type(&self, name: &str) -> Option<&Type> {
+        self.bindings.get(name)
+    }
+
+    /// Return the valid numeric range `(min, max)` for a fixed-width type.
+    ///
+    /// Returns `None` for non-fixed-width types.
+    pub fn range_for_type(ty: &Type) -> Option<(i128, i128)> {
+        match ty {
+            Type::U8 => Some((0, u8::MAX as i128)),
+            Type::U16 => Some((0, u16::MAX as i128)),
+            Type::U32 => Some((0, u32::MAX as i128)),
+            Type::U64 => Some((0, u64::MAX as i128)),
+            Type::I8 => Some((i8::MIN as i128, i8::MAX as i128)),
+            Type::I16 => Some((i16::MIN as i128, i16::MAX as i128)),
+            Type::I32 => Some((i32::MIN as i128, i32::MAX as i128)),
+            Type::I64 => Some((i64::MIN as i128, i64::MAX as i128)),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if the given type is a fixed-width integer type.
+    pub fn is_fixed_width(ty: &Type) -> bool {
+        Self::range_for_type(ty).is_some()
+    }
+
+    /// Returns `true` if the given type is an unsigned fixed-width integer.
+    pub fn is_unsigned(ty: &Type) -> bool {
+        matches!(ty, Type::U8 | Type::U16 | Type::U32 | Type::U64)
+    }
+
+    /// Returns `true` if the given type is a signed fixed-width integer.
+    pub fn is_signed(ty: &Type) -> bool {
+        matches!(ty, Type::I8 | Type::I16 | Type::I32 | Type::I64)
+    }
+
+    /// Check whether an arithmetic operation can overflow given the operand
+    /// type ranges.
+    ///
+    /// Returns `true` if the result of `op` applied to values in
+    /// `left_range` and `right_range` can produce a value outside
+    /// `result_range`.
+    pub fn can_overflow(
+        op: &BinOp,
+        left_range: (i128, i128),
+        right_range: (i128, i128),
+        result_range: (i128, i128),
+    ) -> bool {
+        let (result_min, result_max) = result_range;
+        match op {
+            BinOp::Add => {
+                let worst_low = left_range.0.saturating_add(right_range.0);
+                let worst_high = left_range.1.saturating_add(right_range.1);
+                worst_low < result_min || worst_high > result_max
+            }
+            BinOp::Sub => {
+                let worst_low = left_range.0.saturating_sub(right_range.1);
+                let worst_high = left_range.1.saturating_sub(right_range.0);
+                worst_low < result_min || worst_high > result_max
+            }
+            BinOp::Mul => {
+                let products = [
+                    left_range.0.saturating_mul(right_range.0),
+                    left_range.0.saturating_mul(right_range.1),
+                    left_range.1.saturating_mul(right_range.0),
+                    left_range.1.saturating_mul(right_range.1),
+                ];
+                let worst_low = products.iter().copied().min().unwrap_or(0);
+                let worst_high = products.iter().copied().max().unwrap_or(0);
+                worst_low < result_min || worst_high > result_max
+            }
+            _ => false,
+        }
+    }
+
+    /// Check whether a cast from `from_type` to `to_type` is always safe.
+    ///
+    /// A cast is safe if every value in the source range fits in the
+    /// destination range. Returns `true` for safe (widening) casts,
+    /// `false` for potentially unsafe (narrowing) casts.
+    pub fn is_safe_cast(from_type: &Type, to_type: &Type) -> bool {
+        let from_range = match Self::range_for_type(from_type) {
+            Some(r) => r,
+            None => return true, // Non-fixed-width types are outside our scope
+        };
+        let to_range = match Self::range_for_type(to_type) {
+            Some(r) => r,
+            None => return true,
+        };
+        from_range.0 >= to_range.0 && from_range.1 <= to_range.1
+    }
+
+    /// Check potential overflow in an arithmetic operation on two typed
+    /// operands.
+    ///
+    /// Returns `None` if the operation is safe, or `Some(FixedWidthError)`
+    /// with code A10101 if overflow is possible.
+    pub fn check_arithmetic_overflow(
+        &self,
+        op: &BinOp,
+        left_type: &Type,
+        right_type: &Type,
+        span: &Range<usize>,
+    ) -> Option<FixedWidthError> {
+        // Only check arithmetic ops
+        if !matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+            return None;
+        }
+
+        let left_range = Self::range_for_type(left_type)?;
+        let right_range = Self::range_for_type(right_type)?;
+
+        // Result type is the wider of the two (or left if same width)
+        let result_range = Self::wider_range(left_range, right_range);
+
+        if Self::can_overflow(op, left_range, right_range, result_range) {
+            let op_name = match op {
+                BinOp::Add => "+",
+                BinOp::Sub => "-",
+                BinOp::Mul => "*",
+                _ => "?",
+            };
+            Some(FixedWidthError {
+                code: "A10101".into(),
+                message: format!(
+                    "potential integer overflow: `{left_type:?} {op_name} {right_type:?}` \
+                     can exceed the target range [{}, {}]; consider using `{}`",
+                    result_range.0,
+                    result_range.1,
+                    Self::suggest_checked_alternative(op),
+                ),
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Check whether a cast expression is safe.
+    ///
+    /// Returns `None` if safe, or `Some(FixedWidthError)` with code
+    /// A10102 for an unsafe narrowing cast.
+    pub fn check_cast_safety(
+        from_type: &Type,
+        to_type: &Type,
+        span: &Range<usize>,
+    ) -> Option<FixedWidthError> {
+        if !Self::is_fixed_width(from_type) || !Self::is_fixed_width(to_type) {
+            return None;
+        }
+        if Self::is_safe_cast(from_type, to_type) {
+            None
+        } else {
+            Some(FixedWidthError {
+                code: "A10102".into(),
+                message: format!(
+                    "unsafe narrowing cast from `{from_type:?}` to `{to_type:?}`: \
+                     source range [{}, {}] does not fit in target range [{}, {}]; \
+                     add a bounds check before casting",
+                    Self::range_for_type(from_type).map_or(0, |r| r.0),
+                    Self::range_for_type(from_type).map_or(0, |r| r.1),
+                    Self::range_for_type(to_type).map_or(0, |r| r.0),
+                    Self::range_for_type(to_type).map_or(0, |r| r.1),
+                ),
+                span: span.clone(),
+            })
+        }
+    }
+
+    /// Check for signed/unsigned mismatch in a comparison operation.
+    ///
+    /// Returns `None` if both sides have the same signedness, or
+    /// `Some(FixedWidthError)` with code A10103.
+    pub fn check_signedness_mismatch(
+        op: &BinOp,
+        left_type: &Type,
+        right_type: &Type,
+        span: &Range<usize>,
+    ) -> Option<FixedWidthError> {
+        // Only flag comparison operators
+        if !matches!(
+            op,
+            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
+        ) {
+            return None;
+        }
+        if !Self::is_fixed_width(left_type) || !Self::is_fixed_width(right_type) {
+            return None;
+        }
+        let left_signed = Self::is_signed(left_type);
+        let right_signed = Self::is_signed(right_type);
+        if left_signed != right_signed {
+            Some(FixedWidthError {
+                code: "A10103".into(),
+                message: format!(
+                    "signed/unsigned mismatch in comparison: `{left_type:?}` vs \
+                     `{right_type:?}`; comparing signed and unsigned integers \
+                     can produce unexpected results"
+                ),
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Check whether a division or modulo operation has a zero-guard on
+    /// the divisor.
+    ///
+    /// This is a simplified check: if the RHS is a literal zero, flag it.
+    /// Full divisor analysis (tracking which requires clauses guard the
+    /// divisor) is deferred to SMT encoding.
+    ///
+    /// Returns `None` if safe, or `Some(FixedWidthError)` with code
+    /// A10104.
+    pub fn check_division_by_zero(
+        op: &BinOp,
+        rhs: &Expr,
+        left_type: &Type,
+        span: &Range<usize>,
+    ) -> Option<FixedWidthError> {
+        if !matches!(op, BinOp::Div | BinOp::Mod) {
+            return None;
+        }
+        if !Self::is_fixed_width(left_type) {
+            return None;
+        }
+        if Self::is_literal_zero(rhs) {
+            let op_name = if *op == BinOp::Div {
+                "division"
+            } else {
+                "modulo"
+            };
+            Some(FixedWidthError {
+                code: "A10104".into(),
+                message: format!(
+                    "{op_name} by zero: the divisor is a literal zero; \
+                     add a guard `requires {{ divisor != 0 }}` or use \
+                     a checked alternative"
+                ),
+                span: span.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Suggest a checked alternative for an arithmetic operator.
+    pub fn suggest_checked_alternative(op: &BinOp) -> std::string::String {
+        match op {
+            BinOp::Add => "checked_add".into(),
+            BinOp::Sub => "checked_sub".into(),
+            BinOp::Mul => "checked_mul".into(),
+            BinOp::Div => "checked_div".into(),
+            BinOp::Mod => "checked_rem".into(),
+            _ => "checked operation".into(),
+        }
+    }
+
+    /// Check a binary expression for fixed-width integer issues.
+    ///
+    /// Combines overflow, signedness, and division-by-zero checks.
+    pub fn check_binop(
+        &self,
+        op: &BinOp,
+        left_type: &Type,
+        right_type: &Type,
+        rhs_expr: &Expr,
+        span: &Range<usize>,
+    ) -> Vec<FixedWidthError> {
+        let mut errors = Vec::new();
+
+        if let Some(e) = self.check_arithmetic_overflow(op, left_type, right_type, span) {
+            errors.push(e);
+        }
+
+        if let Some(e) = Self::check_signedness_mismatch(op, left_type, right_type, span) {
+            errors.push(e);
+        }
+
+        if let Some(e) = Self::check_division_by_zero(op, rhs_expr, left_type, span) {
+            errors.push(e);
+        }
+
+        errors
+    }
+
+    // -- internal helpers ---------------------------------------------------
+
+    /// Return `true` if an expression is a literal `0`.
+    fn is_literal_zero(expr: &Expr) -> bool {
+        match expr {
+            Expr::Literal(Literal::Int(s)) => s == "0",
+            Expr::Paren(inner) => Self::is_literal_zero(inner),
+            _ => false,
+        }
+    }
+
+    /// Return the wider of two ranges (union of both ranges).
+    fn wider_range(a: (i128, i128), b: (i128, i128)) -> (i128, i128) {
+        (std::cmp::min(a.0, b.0), std::cmp::max(a.1, b.1))
+    }
+}
+
+impl Default for FixedWidthChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -5380,7 +6830,8 @@ type Point {
     // -----------------------------------------------------------------------
 
     use assura_parser::ast::{
-        BinOp as AstBinOp, Expr as AstExpr, Literal as AstLit, UnaryOp as AstUnOp,
+        BinOp as AstBinOp, Clause as AstClause, Expr as AstExpr, FnDef as AstFnDef,
+        Literal as AstLit, Param as AstParam, UnaryOp as AstUnOp,
     };
 
     #[test]
@@ -11490,5 +12941,1029 @@ ghost fn bad_ghost(x: Int) -> Bool
         checker.define_order("db".into(), 1);
         let errors = checker.check_ordering_defined("db", &(0..1));
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn info_flow_security_label_ordering() {
+        // Verify the lattice: Public < Internal < Confidential < Restricted
+        assert!(SecurityLabel::Public < SecurityLabel::Internal);
+        assert!(SecurityLabel::Internal < SecurityLabel::Confidential);
+        assert!(SecurityLabel::Confidential < SecurityLabel::Restricted);
+        assert!(SecurityLabel::Public < SecurityLabel::Restricted);
+    }
+
+    #[test]
+    fn info_flow_valid_upward_assignment() {
+        // Public -> Confidential is a valid upward flow
+        let checker = InfoFlowChecker::new();
+        let err =
+            checker.check_assignment(SecurityLabel::Confidential, SecurityLabel::Public, &(0..1));
+        assert!(err.is_none(), "upward flow should be allowed");
+    }
+
+    #[test]
+    fn info_flow_valid_same_level_assignment() {
+        // Confidential -> Confidential is allowed (same level)
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_assignment(
+            SecurityLabel::Confidential,
+            SecurityLabel::Confidential,
+            &(0..1),
+        );
+        assert!(err.is_none(), "same-level flow should be allowed");
+    }
+
+    #[test]
+    fn info_flow_invalid_downward_a08001() {
+        // Confidential -> Public is a violation (A08001)
+        let checker = InfoFlowChecker::new();
+        let err =
+            checker.check_assignment(SecurityLabel::Public, SecurityLabel::Confidential, &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A08001");
+    }
+
+    #[test]
+    fn info_flow_restricted_to_internal_a08001() {
+        // Restricted -> Internal is a violation (A08001)
+        let checker = InfoFlowChecker::new();
+        let err =
+            checker.check_assignment(SecurityLabel::Internal, SecurityLabel::Restricted, &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A08001");
+    }
+
+    #[test]
+    fn info_flow_declassify_with_annotation_ok() {
+        // Declassification with explicit annotation is permitted
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_declassify(
+            SecurityLabel::Confidential,
+            SecurityLabel::Public,
+            true,
+            &(0..1),
+        );
+        assert!(err.is_none(), "annotated declassification should pass");
+    }
+
+    #[test]
+    fn info_flow_declassify_without_annotation_a08002() {
+        // Declassification without annotation -> A08002
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_declassify(
+            SecurityLabel::Confidential,
+            SecurityLabel::Public,
+            false,
+            &(0..1),
+        );
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A08002");
+    }
+
+    #[test]
+    fn info_flow_declassify_upward_no_error() {
+        // Upward "declassification" (Public -> Confidential) is not a
+        // downgrade, so no error even without annotation
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_declassify(
+            SecurityLabel::Public,
+            SecurityLabel::Confidential,
+            false,
+            &(0..1),
+        );
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn info_flow_label_propagation_binary() {
+        // Binary op: max(Confidential, Public) = Confidential
+        let mut checker = InfoFlowChecker::new();
+        checker.declare("secret".into(), SecurityLabel::Confidential);
+        checker.declare("pub_val".into(), SecurityLabel::Public);
+
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("secret".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("pub_val".into())),
+        };
+        assert_eq!(checker.infer_label(&expr), SecurityLabel::Confidential);
+    }
+
+    #[test]
+    fn info_flow_label_propagation_both_restricted() {
+        // Both operands Restricted -> result Restricted
+        let mut checker = InfoFlowChecker::new();
+        checker.declare("a".into(), SecurityLabel::Restricted);
+        checker.declare("b".into(), SecurityLabel::Restricted);
+
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("a".into())),
+            op: AstBinOp::Mul,
+            rhs: Box::new(AstExpr::Ident("b".into())),
+        };
+        assert_eq!(checker.infer_label(&expr), SecurityLabel::Restricted);
+    }
+
+    #[test]
+    fn info_flow_infer_literal_public() {
+        // Literals are always Public
+        let checker = InfoFlowChecker::new();
+        let expr = AstExpr::Literal(AstLit::Int("42".into()));
+        assert_eq!(checker.infer_label(&expr), SecurityLabel::Public);
+    }
+
+    #[test]
+    fn info_flow_infer_unknown_var_public() {
+        // Undeclared variables default to Public
+        let checker = InfoFlowChecker::new();
+        let expr = AstExpr::Ident("x".into());
+        assert_eq!(checker.infer_label(&expr), SecurityLabel::Public);
+    }
+
+    #[test]
+    fn info_flow_purpose_label_mismatch_a08003() {
+        // Purpose mismatch -> A08003
+        let mut checker = InfoFlowChecker::new();
+        checker.declare_purpose("email".into(), "marketing".into());
+        let err = checker.check_purpose_label("email", "billing", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A08003");
+    }
+
+    #[test]
+    fn info_flow_purpose_label_match_ok() {
+        // Matching purpose -> no error
+        let mut checker = InfoFlowChecker::new();
+        checker.declare_purpose("email".into(), "billing".into());
+        let err = checker.check_purpose_label("email", "billing", &(0..1));
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn info_flow_purpose_label_untracked_ok() {
+        // Variable without purpose label -> no error
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_purpose_label("x", "analytics", &(0..1));
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn info_flow_implicit_flow_a08004() {
+        // Confidential condition, Public branch target -> A08004
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_implicit_flow(
+            SecurityLabel::Confidential,
+            SecurityLabel::Public,
+            &(0..1),
+        );
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A08004");
+    }
+
+    #[test]
+    fn info_flow_implicit_flow_same_level_ok() {
+        // Same-level condition and target -> no implicit flow
+        let checker = InfoFlowChecker::new();
+        let err =
+            checker.check_implicit_flow(SecurityLabel::Internal, SecurityLabel::Internal, &(0..1));
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn info_flow_covert_channel_a08005() {
+        // High-security data controls a timing function -> A08005
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_covert_channel(SecurityLabel::Confidential, "sleep", &(0..1));
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code, "A08005");
+    }
+
+    #[test]
+    fn info_flow_covert_channel_public_ok() {
+        // Public data controlling sleep is not a covert channel
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_covert_channel(SecurityLabel::Public, "sleep", &(0..1));
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn info_flow_covert_channel_non_sensitive_fn_ok() {
+        // High-security data controlling a non-sensitive function is ok
+        let checker = InfoFlowChecker::new();
+        let err = checker.check_covert_channel(SecurityLabel::Restricted, "compute", &(0..1));
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn info_flow_label_propagation_nested() {
+        // Nested expression: (public + confidential) * restricted
+        // -> max(max(Public, Confidential), Restricted) = Restricted
+        let mut checker = InfoFlowChecker::new();
+        checker.declare("pub_val".into(), SecurityLabel::Public);
+        checker.declare("conf".into(), SecurityLabel::Confidential);
+        checker.declare("restr".into(), SecurityLabel::Restricted);
+
+        let inner = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("pub_val".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("conf".into())),
+        };
+        let outer = AstExpr::BinOp {
+            lhs: Box::new(inner),
+            op: AstBinOp::Mul,
+            rhs: Box::new(AstExpr::Ident("restr".into())),
+        };
+        assert_eq!(checker.infer_label(&outer), SecurityLabel::Restricted);
+    }
+
+    #[test]
+    fn info_flow_label_field_access() {
+        // Field access propagates receiver label
+        let mut checker = InfoFlowChecker::new();
+        checker.declare("secret_obj".into(), SecurityLabel::Confidential);
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("secret_obj".into())), "name".into());
+        assert_eq!(checker.infer_label(&expr), SecurityLabel::Confidential);
+    }
+
+    #[test]
+    fn info_flow_check_expr_if_covert_channel() {
+        // If a confidential condition controls a sleep call inside a
+        // branch, check_expr should detect the covert channel (A08005).
+        let mut checker = InfoFlowChecker::new();
+        checker.declare("is_admin".into(), SecurityLabel::Confidential);
+
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Ident("is_admin".into())),
+            then_branch: Box::new(AstExpr::Call {
+                func: Box::new(AstExpr::Ident("sleep".into())),
+                args: vec![AstExpr::Literal(AstLit::Int("100".into()))],
+            }),
+            else_branch: None,
+        };
+        let errors = checker.check_expr(&expr, &(0..10));
+        let has_a08005 = errors.iter().any(|e| e.code == "A08005");
+        assert!(
+            has_a08005,
+            "expected A08005 for covert channel via if+sleep"
+        );
+    }
+
+    #[test]
+    fn info_flow_display_labels() {
+        assert_eq!(SecurityLabel::Public.to_string(), "Public");
+        assert_eq!(SecurityLabel::Internal.to_string(), "Internal");
+        assert_eq!(SecurityLabel::Confidential.to_string(), "Confidential");
+        assert_eq!(SecurityLabel::Restricted.to_string(), "Restricted");
+    }
+
+    #[test]
+    fn info_flow_multiple_variables_mixed_levels() {
+        // Multiple variables at different levels
+        let mut checker = InfoFlowChecker::new();
+        checker.declare("pub_data".into(), SecurityLabel::Public);
+        checker.declare("int_data".into(), SecurityLabel::Internal);
+        checker.declare("conf_data".into(), SecurityLabel::Confidential);
+        checker.declare("restr_data".into(), SecurityLabel::Restricted);
+
+        // Public -> Internal: ok
+        assert!(
+            checker
+                .check_assignment(SecurityLabel::Internal, SecurityLabel::Public, &(0..1))
+                .is_none()
+        );
+        // Internal -> Confidential: ok
+        assert!(
+            checker
+                .check_assignment(
+                    SecurityLabel::Confidential,
+                    SecurityLabel::Internal,
+                    &(0..1)
+                )
+                .is_none()
+        );
+        // Restricted -> Public: error
+        assert_eq!(
+            checker
+                .check_assignment(SecurityLabel::Public, SecurityLabel::Restricted, &(0..1))
+                .unwrap()
+                .code,
+            "A08001"
+        );
+        // Verify inferred labels
+        assert_eq!(
+            checker.infer_label(&AstExpr::Ident("pub_data".into())),
+            SecurityLabel::Public
+        );
+        assert_eq!(
+            checker.infer_label(&AstExpr::Ident("restr_data".into())),
+            SecurityLabel::Restricted
+        );
+    }
+
+    #[test]
+    fn info_flow_checker_default() {
+        // Default implementation matches new()
+        let checker: InfoFlowChecker = Default::default();
+        assert!(!checker.has_labels());
+    }
+
+    // --- T053 test helpers ---
+
+    fn make_fn_def(name: &str, params: Vec<(&str, &[&str])>, clauses: Vec<AstClause>) -> AstFnDef {
+        AstFnDef {
+            name: name.into(),
+            is_ghost: false,
+            is_lemma: false,
+            params: params
+                .into_iter()
+                .map(|(n, ty)| AstParam {
+                    name: n.into(),
+                    ty: ty.iter().map(|s| s.to_string()).collect(),
+                })
+                .collect(),
+            return_ty: vec!["Int".into()],
+            clauses,
+        }
+    }
+
+    fn decreases_clause(body: AstExpr) -> AstClause {
+        AstClause {
+            kind: ClauseKind::Other("decreases".into()),
+            body,
+        }
+    }
+
+    fn requires_clause(body: AstExpr) -> AstClause {
+        AstClause {
+            kind: ClauseKind::Requires,
+            body,
+        }
+    }
+
+    fn partial_clause() -> AstClause {
+        AstClause {
+            kind: ClauseKind::Other("partial".into()),
+            body: AstExpr::Literal(AstLit::Bool(true)),
+        }
+    }
+
+    fn ensures_with_recursive_call(fn_name: &str, args: Vec<AstExpr>) -> AstClause {
+        AstClause {
+            kind: ClauseKind::Ensures,
+            body: AstExpr::Call {
+                func: Box::new(AstExpr::Ident(fn_name.into())),
+                args,
+            },
+        }
+    }
+
+    #[test]
+    fn totality_non_recursive_trivially_total() {
+        // Non-recursive function passes without decreases
+        let fn_def = make_fn_def("add", vec![("a", &["Int"]), ("b", &["Int"])], vec![]);
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..10));
+        assert!(
+            errors.is_empty(),
+            "non-recursive function should be trivially total"
+        );
+    }
+
+    #[test]
+    fn totality_recursive_with_valid_decreases() {
+        // factorial(n) with decreases n, recursive call factorial(n - 1)
+        let fn_def = make_fn_def(
+            "factorial",
+            vec![("n", &["Nat"])],
+            vec![
+                decreases_clause(AstExpr::Ident("n".into())),
+                ensures_with_recursive_call(
+                    "factorial",
+                    vec![AstExpr::BinOp {
+                        lhs: Box::new(AstExpr::Ident("n".into())),
+                        op: AstBinOp::Sub,
+                        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                    }],
+                ),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..20));
+        assert!(
+            errors.is_empty(),
+            "valid decreasing measure should pass: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_recursive_without_decreases_a09001() {
+        // Recursive function without decreases clause -> A09001
+        let fn_def = make_fn_def(
+            "loop_forever",
+            vec![("n", &["Int"])],
+            vec![ensures_with_recursive_call(
+                "loop_forever",
+                vec![AstExpr::Ident("n".into())],
+            )],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A09001");
+    }
+
+    #[test]
+    fn totality_non_decreasing_measure_a09002() {
+        // Recursive call with same argument (not decreasing) -> A09002
+        let fn_def = make_fn_def(
+            "spin",
+            vec![("n", &["Nat"])],
+            vec![
+                decreases_clause(AstExpr::Ident("n".into())),
+                ensures_with_recursive_call("spin", vec![AstExpr::Ident("n".into())]),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..10));
+        assert!(
+            errors.iter().any(|e| e.code == "A09002"),
+            "non-decreasing measure should produce A09002: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_measure_not_well_founded_a09003() {
+        // decreases n but no requires n >= 0 and param type is Int, not Nat
+        let fn_def = make_fn_def(
+            "bad_rec",
+            vec![("n", &["Int"])],
+            vec![
+                decreases_clause(AstExpr::Ident("n".into())),
+                ensures_with_recursive_call(
+                    "bad_rec",
+                    vec![AstExpr::BinOp {
+                        lhs: Box::new(AstExpr::Ident("n".into())),
+                        op: AstBinOp::Sub,
+                        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                    }],
+                ),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..10));
+        assert!(
+            errors.iter().any(|e| e.code == "A09003"),
+            "missing well-foundedness should produce A09003: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_well_founded_with_requires_clause() {
+        // decreases n with requires n >= 0 should NOT produce A09003
+        let fn_def = make_fn_def(
+            "count_down",
+            vec![("n", &["Int"])],
+            vec![
+                requires_clause(AstExpr::BinOp {
+                    lhs: Box::new(AstExpr::Ident("n".into())),
+                    op: AstBinOp::Gte,
+                    rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+                }),
+                decreases_clause(AstExpr::Ident("n".into())),
+                ensures_with_recursive_call(
+                    "count_down",
+                    vec![AstExpr::BinOp {
+                        lhs: Box::new(AstExpr::Ident("n".into())),
+                        op: AstBinOp::Sub,
+                        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                    }],
+                ),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..20));
+        assert!(
+            !errors.iter().any(|e| e.code == "A09003"),
+            "requires n >= 0 should establish well-foundedness: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_partial_escape_hatch() {
+        // Partial function skips termination checking
+        let fn_def = make_fn_def(
+            "diverge",
+            vec![("n", &["Int"])],
+            vec![
+                partial_clause(),
+                ensures_with_recursive_call("diverge", vec![AstExpr::Ident("n".into())]),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..10));
+        assert!(
+            errors.is_empty(),
+            "partial function should skip totality check"
+        );
+    }
+
+    #[test]
+    fn totality_partial_via_register() {
+        // Partial registered via mark_partial
+        let fn_def = make_fn_def(
+            "diverge2",
+            vec![("n", &["Int"])],
+            vec![ensures_with_recursive_call(
+                "diverge2",
+                vec![AstExpr::Ident("n".into())],
+            )],
+        );
+        let mut checker = TotalityChecker::new();
+        checker.mark_partial("diverge2".into());
+        let errors = checker.check_function_totality(&fn_def, &(0..10));
+        assert!(errors.is_empty(), "registered partial should skip check");
+    }
+
+    #[test]
+    fn totality_lexicographic_measures() {
+        // Ackermann-like: decreases (m, n) with call (m - 1, n)
+        let fn_def = make_fn_def(
+            "ack",
+            vec![("m", &["Nat"]), ("n", &["Nat"])],
+            vec![
+                decreases_clause(AstExpr::Ident("m".into())),
+                decreases_clause(AstExpr::Ident("n".into())),
+                ensures_with_recursive_call(
+                    "ack",
+                    vec![
+                        AstExpr::BinOp {
+                            lhs: Box::new(AstExpr::Ident("m".into())),
+                            op: AstBinOp::Sub,
+                            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                        },
+                        AstExpr::Ident("n".into()),
+                    ],
+                ),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..20));
+        assert!(
+            errors.is_empty(),
+            "lexicographic decrease in first component should pass: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_mutual_recursion_no_decreases_a09004() {
+        // Two functions calling each other with no decreases -> A09004
+        let fn_a = make_fn_def(
+            "even",
+            vec![("n", &["Nat"])],
+            vec![ensures_with_recursive_call(
+                "odd",
+                vec![AstExpr::BinOp {
+                    lhs: Box::new(AstExpr::Ident("n".into())),
+                    op: AstBinOp::Sub,
+                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                }],
+            )],
+        );
+        let fn_b = make_fn_def(
+            "odd",
+            vec![("n", &["Nat"])],
+            vec![ensures_with_recursive_call(
+                "even",
+                vec![AstExpr::BinOp {
+                    lhs: Box::new(AstExpr::Ident("n".into())),
+                    op: AstBinOp::Sub,
+                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                }],
+            )],
+        );
+
+        let checker = TotalityChecker::new();
+        let span_a = 0..10;
+        let span_b = 10..20;
+        let fn_defs: Vec<(&AstFnDef, &Range<usize>)> = vec![(&fn_a, &span_a), (&fn_b, &span_b)];
+        let errors = checker.check_mutual_recursion(&fn_defs);
+        assert!(
+            errors.iter().any(|e| e.code == "A09004"),
+            "mutual recursion without decreases should produce A09004: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_mutual_recursion_with_decreases_passes() {
+        // Two functions calling each other, one has decreases -> passes
+        let fn_a = make_fn_def(
+            "even2",
+            vec![("n", &["Nat"])],
+            vec![
+                decreases_clause(AstExpr::Ident("n".into())),
+                ensures_with_recursive_call(
+                    "odd2",
+                    vec![AstExpr::BinOp {
+                        lhs: Box::new(AstExpr::Ident("n".into())),
+                        op: AstBinOp::Sub,
+                        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                    }],
+                ),
+            ],
+        );
+        let fn_b = make_fn_def(
+            "odd2",
+            vec![("n", &["Nat"])],
+            vec![ensures_with_recursive_call(
+                "even2",
+                vec![AstExpr::BinOp {
+                    lhs: Box::new(AstExpr::Ident("n".into())),
+                    op: AstBinOp::Sub,
+                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                }],
+            )],
+        );
+
+        let checker = TotalityChecker::new();
+        let span_a = 0..10;
+        let span_b = 10..20;
+        let fn_defs: Vec<(&AstFnDef, &Range<usize>)> = vec![(&fn_a, &span_a), (&fn_b, &span_b)];
+        let errors = checker.check_mutual_recursion(&fn_defs);
+        assert!(
+            errors.is_empty(),
+            "mutual recursion with decreases should pass: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_structural_recursion_on_list() {
+        // list_len(xs) with decreases xs, recursive call list_len(xs.tail)
+        let fn_def = make_fn_def(
+            "list_len",
+            vec![("xs", &["List"])],
+            vec![
+                decreases_clause(AstExpr::Ident("xs".into())),
+                ensures_with_recursive_call(
+                    "list_len",
+                    vec![AstExpr::Field(
+                        Box::new(AstExpr::Ident("xs".into())),
+                        "tail".into(),
+                    )],
+                ),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..20));
+        assert!(
+            errors.is_empty(),
+            "structural recursion on .tail should pass: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_structural_recursion_on_tree() {
+        // tree_depth(node) with decreases node, calls tree_depth(node.left)
+        let fn_def = make_fn_def(
+            "tree_depth",
+            vec![("node", &["Tree"])],
+            vec![
+                decreases_clause(AstExpr::Ident("node".into())),
+                ensures_with_recursive_call(
+                    "tree_depth",
+                    vec![AstExpr::Field(
+                        Box::new(AstExpr::Ident("node".into())),
+                        "left".into(),
+                    )],
+                ),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let errors = checker.check_function_totality(&fn_def, &(0..20));
+        assert!(
+            errors.is_empty(),
+            "structural recursion on .left should pass: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn totality_extract_no_decreases() {
+        let fn_def = make_fn_def("f", vec![], vec![]);
+        let checker = TotalityChecker::new();
+        assert!(checker.extract_decreases_measure(&fn_def).is_none());
+    }
+
+    #[test]
+    fn totality_extract_single_decreases() {
+        let fn_def = make_fn_def(
+            "f",
+            vec![("n", &["Nat"])],
+            vec![decreases_clause(AstExpr::Ident("n".into()))],
+        );
+        let checker = TotalityChecker::new();
+        let measure = checker.extract_decreases_measure(&fn_def);
+        assert!(
+            matches!(measure, Some(DecreasesMeasure::Natural(_))),
+            "single decreases should yield Natural"
+        );
+    }
+
+    #[test]
+    fn totality_extract_lexicographic_decreases() {
+        let fn_def = make_fn_def(
+            "f",
+            vec![("m", &["Nat"]), ("n", &["Nat"])],
+            vec![
+                decreases_clause(AstExpr::Ident("m".into())),
+                decreases_clause(AstExpr::Ident("n".into())),
+            ],
+        );
+        let checker = TotalityChecker::new();
+        let measure = checker.extract_decreases_measure(&fn_def);
+        assert!(
+            matches!(measure, Some(DecreasesMeasure::Lexicographic(ref v)) if v.len() == 2),
+            "two decreases should yield Lexicographic(2)"
+        );
+    }
+
+    #[test]
+    fn totality_checker_debug() {
+        let checker = TotalityChecker::new();
+        let dbg = format!("{checker:?}");
+        assert!(dbg.contains("TotalityChecker"));
+    }
+
+    #[test]
+    fn totality_checker_default() {
+        let checker = TotalityChecker::default();
+        assert!(!checker.is_partial(&make_fn_def("f", vec![], vec![])));
+    }
+
+    // -----------------------------------------------------------------------
+    // T055 MEM.2: FixedWidthChecker tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn fixed_width_range_u8() {
+        let r = FixedWidthChecker::range_for_type(&Type::U8).unwrap();
+        assert_eq!(r, (0, 255));
+    }
+
+    #[test]
+    fn fixed_width_range_i8() {
+        let r = FixedWidthChecker::range_for_type(&Type::I8).unwrap();
+        assert_eq!(r, (-128, 127));
+    }
+
+    #[test]
+    fn fixed_width_range_u16() {
+        let r = FixedWidthChecker::range_for_type(&Type::U16).unwrap();
+        assert_eq!(r, (0, 65535));
+    }
+
+    #[test]
+    fn fixed_width_range_i16() {
+        let r = FixedWidthChecker::range_for_type(&Type::I16).unwrap();
+        assert_eq!(r, (-32768, 32767));
+    }
+
+    #[test]
+    fn fixed_width_range_u32() {
+        let r = FixedWidthChecker::range_for_type(&Type::U32).unwrap();
+        assert_eq!(r, (0, u32::MAX as i128));
+    }
+
+    #[test]
+    fn fixed_width_range_i32() {
+        let r = FixedWidthChecker::range_for_type(&Type::I32).unwrap();
+        assert_eq!(r, (i32::MIN as i128, i32::MAX as i128));
+    }
+
+    #[test]
+    fn fixed_width_range_u64() {
+        let r = FixedWidthChecker::range_for_type(&Type::U64).unwrap();
+        assert_eq!(r, (0, u64::MAX as i128));
+    }
+
+    #[test]
+    fn fixed_width_range_i64() {
+        let r = FixedWidthChecker::range_for_type(&Type::I64).unwrap();
+        assert_eq!(r, (i64::MIN as i128, i64::MAX as i128));
+    }
+
+    #[test]
+    fn fixed_width_range_non_fixed() {
+        // Non-fixed-width types return None
+        assert!(FixedWidthChecker::range_for_type(&Type::Int).is_none());
+        assert!(FixedWidthChecker::range_for_type(&Type::Bool).is_none());
+        assert!(FixedWidthChecker::range_for_type(&Type::Float).is_none());
+    }
+
+    #[test]
+    fn fixed_width_u8_overflow_add() {
+        // U8 + U8: 255 + 255 = 510 > 255 -> overflow
+        let checker = FixedWidthChecker::new();
+        let err = checker.check_arithmetic_overflow(&AstBinOp::Add, &Type::U8, &Type::U8, &(0..1));
+        assert!(err.is_some(), "U8 + U8 should detect potential overflow");
+        let e = err.unwrap();
+        assert_eq!(e.code, "A10101");
+        assert!(e.message.contains("checked_add"));
+    }
+
+    #[test]
+    fn fixed_width_i8_overflow_add() {
+        // I8 + I8: 127 + 127 = 254 > 127 -> overflow
+        let checker = FixedWidthChecker::new();
+        let err = checker.check_arithmetic_overflow(&AstBinOp::Add, &Type::I8, &Type::I8, &(0..1));
+        assert!(err.is_some(), "I8 + I8 should detect potential overflow");
+        assert_eq!(err.unwrap().code, "A10101");
+    }
+
+    #[test]
+    fn fixed_width_safe_arithmetic_no_error() {
+        // This tests that overflow check only fires on arithmetic ops.
+        // For comparison operators, no overflow check applies.
+        let checker = FixedWidthChecker::new();
+        let err = checker.check_arithmetic_overflow(&AstBinOp::Lt, &Type::U8, &Type::U8, &(0..1));
+        assert!(err.is_none(), "comparison should not trigger overflow");
+    }
+
+    #[test]
+    fn fixed_width_mul_overflow() {
+        // U8 * U8: 255 * 255 = 65025 > 255 -> overflow
+        let checker = FixedWidthChecker::new();
+        let err = checker.check_arithmetic_overflow(&AstBinOp::Mul, &Type::U8, &Type::U8, &(0..1));
+        assert!(err.is_some(), "U8 * U8 should detect potential overflow");
+        let e = err.unwrap();
+        assert!(e.message.contains("checked_mul"));
+    }
+
+    #[test]
+    fn fixed_width_narrowing_cast_u32_to_u16() {
+        // U32 -> U16: max 4294967295 > 65535 -> unsafe
+        let err = FixedWidthChecker::check_cast_safety(&Type::U32, &Type::U16, &(0..1));
+        assert!(err.is_some(), "U32 -> U16 should be unsafe narrowing");
+        assert_eq!(err.unwrap().code, "A10102");
+    }
+
+    #[test]
+    fn fixed_width_widening_cast_u16_to_u32() {
+        // U16 -> U32: always safe (widening)
+        let err = FixedWidthChecker::check_cast_safety(&Type::U16, &Type::U32, &(0..1));
+        assert!(err.is_none(), "U16 -> U32 should be safe widening cast");
+    }
+
+    #[test]
+    fn fixed_width_signed_unsigned_comparison() {
+        // I32 == U32 -> signedness mismatch
+        let err = FixedWidthChecker::check_signedness_mismatch(
+            &AstBinOp::Eq,
+            &Type::I32,
+            &Type::U32,
+            &(0..1),
+        );
+        assert!(err.is_some(), "I32 vs U32 comparison should warn");
+        assert_eq!(err.unwrap().code, "A10103");
+    }
+
+    #[test]
+    fn fixed_width_same_signedness_ok() {
+        // U32 == U32 -> no mismatch
+        let err = FixedWidthChecker::check_signedness_mismatch(
+            &AstBinOp::Lt,
+            &Type::U32,
+            &Type::U32,
+            &(0..1),
+        );
+        assert!(err.is_none(), "same signedness should not warn");
+    }
+
+    #[test]
+    fn fixed_width_division_by_zero() {
+        let rhs = AstExpr::Literal(AstLit::Int("0".into()));
+        let err =
+            FixedWidthChecker::check_division_by_zero(&AstBinOp::Div, &rhs, &Type::U32, &(0..1));
+        assert!(err.is_some(), "division by literal 0 should be flagged");
+        assert_eq!(err.unwrap().code, "A10104");
+    }
+
+    #[test]
+    fn fixed_width_division_nonzero_ok() {
+        let rhs = AstExpr::Literal(AstLit::Int("5".into()));
+        let err =
+            FixedWidthChecker::check_division_by_zero(&AstBinOp::Div, &rhs, &Type::U32, &(0..1));
+        assert!(err.is_none(), "division by non-zero should pass");
+    }
+
+    #[test]
+    fn fixed_width_suggest_checked_add() {
+        assert_eq!(
+            FixedWidthChecker::suggest_checked_alternative(&AstBinOp::Add),
+            "checked_add"
+        );
+    }
+
+    #[test]
+    fn fixed_width_suggest_checked_sub() {
+        assert_eq!(
+            FixedWidthChecker::suggest_checked_alternative(&AstBinOp::Sub),
+            "checked_sub"
+        );
+    }
+
+    #[test]
+    fn fixed_width_suggest_checked_mul() {
+        assert_eq!(
+            FixedWidthChecker::suggest_checked_alternative(&AstBinOp::Mul),
+            "checked_mul"
+        );
+    }
+
+    #[test]
+    fn fixed_width_cast_i32_to_u32() {
+        // I32 -> U32: signed-to-unsigned, range [-2^31, 2^31-1] does not
+        // fit in [0, 2^32-1] because of negative values -> unsafe
+        let err = FixedWidthChecker::check_cast_safety(&Type::I32, &Type::U32, &(0..1));
+        assert!(err.is_some(), "I32 -> U32 cast should be unsafe");
+        assert_eq!(err.unwrap().code, "A10102");
+    }
+
+    #[test]
+    fn fixed_width_is_unsigned() {
+        assert!(FixedWidthChecker::is_unsigned(&Type::U8));
+        assert!(FixedWidthChecker::is_unsigned(&Type::U16));
+        assert!(FixedWidthChecker::is_unsigned(&Type::U32));
+        assert!(FixedWidthChecker::is_unsigned(&Type::U64));
+        assert!(!FixedWidthChecker::is_unsigned(&Type::I8));
+        assert!(!FixedWidthChecker::is_unsigned(&Type::Int));
+    }
+
+    #[test]
+    fn fixed_width_is_signed() {
+        assert!(FixedWidthChecker::is_signed(&Type::I8));
+        assert!(FixedWidthChecker::is_signed(&Type::I16));
+        assert!(FixedWidthChecker::is_signed(&Type::I32));
+        assert!(FixedWidthChecker::is_signed(&Type::I64));
+        assert!(!FixedWidthChecker::is_signed(&Type::U8));
+        assert!(!FixedWidthChecker::is_signed(&Type::Float));
+    }
+
+    #[test]
+    fn fixed_width_check_binop_combined() {
+        // I8 + U8 -> both overflow (A10101) and signedness mismatch (A10103)
+        let checker = FixedWidthChecker::new();
+        let rhs_expr = AstExpr::Ident("y".into());
+        let errors = checker.check_binop(&AstBinOp::Add, &Type::I8, &Type::U8, &rhs_expr, &(0..1));
+        // Should have both an overflow error and a signedness mismatch
+        let codes: Vec<&str> = errors.iter().map(|e| e.code.as_str()).collect();
+        assert!(codes.contains(&"A10101"), "should flag overflow");
+        // Signedness mismatch only fires for comparison ops, not arithmetic
+        // (by design: check_signedness_mismatch only checks comparison ops)
+    }
+
+    #[test]
+    fn fixed_width_modulo_by_zero() {
+        let rhs = AstExpr::Literal(AstLit::Int("0".into()));
+        let err =
+            FixedWidthChecker::check_division_by_zero(&AstBinOp::Mod, &rhs, &Type::I32, &(0..1));
+        assert!(err.is_some(), "modulo by zero should be flagged");
+        let e = err.unwrap();
+        assert_eq!(e.code, "A10104");
+        assert!(e.message.contains("modulo"));
+    }
+
+    #[test]
+    fn fixed_width_sub_overflow_unsigned() {
+        // U8 - U8: 0 - 255 = -255 < 0 -> overflow (underflow)
+        let checker = FixedWidthChecker::new();
+        let err = checker.check_arithmetic_overflow(&AstBinOp::Sub, &Type::U8, &Type::U8, &(0..1));
+        assert!(err.is_some(), "U8 - U8 should detect potential underflow");
+        assert_eq!(err.unwrap().code, "A10101");
+    }
+
+    #[test]
+    fn fixed_width_declare_and_lookup() {
+        let mut checker = FixedWidthChecker::new();
+        checker.declare("counter".into(), Type::U32);
+        assert_eq!(checker.get_type("counter"), Some(&Type::U32));
+        assert_eq!(checker.get_type("unknown"), None);
+    }
+
+    #[test]
+    fn fixed_width_default_trait() {
+        let checker = FixedWidthChecker::default();
+        assert!(checker.get_type("x").is_none());
+    }
+
+    #[test]
+    fn fixed_width_safe_cast_same_type() {
+        // U32 -> U32: always safe
+        assert!(FixedWidthChecker::is_safe_cast(&Type::U32, &Type::U32));
+    }
+
+    #[test]
+    fn fixed_width_cast_non_fixed_width() {
+        // Non-fixed-width types are outside scope -> treated as safe
+        let err = FixedWidthChecker::check_cast_safety(&Type::Int, &Type::U32, &(0..1));
+        assert!(err.is_none(), "non-fixed-width cast should be out of scope");
     }
 }

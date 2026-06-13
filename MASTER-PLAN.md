@@ -549,7 +549,7 @@
 > These tasks are independent of each other and can run in parallel.
 > All depend on T041 (Z3 integration).
 
-- [ ] **T051**: Information flow checker (A08001-A08005)
+- [x] **T051**: Information flow checker (A08001-A08005)
   - Depends on: T041
   - Security lattice: Public < Internal < Confidential < Restricted
   - Declassification tracking
@@ -562,19 +562,19 @@
   - Index erasure at runtime
   - A03006
 
-- [ ] **T053**: Totality checker (A09001-A09004)
+- [x] **T053**: Totality checker (A09001-A09004)
   - Depends on: T041
   - Termination checking via `decreases` measures
   - `partial` escape hatch
 
-- [ ] **T054**: Measures
+- [x] **T054**: Measures
   - Depends on: T041
   - `len`, `elems`, `keys`, `values`, `size`
   - Encode as uninterpreted functions in SMT
 
 ### 2.2 MEM Features (3 weeks, parallelizable)
 
-- [ ] **T055**: MEM.2 Fixed-width integers
+- [x] **T055**: MEM.2 Fixed-width integers
   - Depends on: T041
   - Overflow detection, checked_add/checked_mul
 
@@ -693,7 +693,7 @@
 > These do NOT depend on the verification features. They can be built
 > in parallel with Phase 2.1-2.7.
 
-- [ ] **T080**: LSP server
+- [x] **T080**: LSP server
   - Depends on: T012, T018
   - New crate: `crates/assura-lsp/`
   - Language Server Protocol implementation
