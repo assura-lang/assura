@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::{Decl, ServiceItem, SourceFile, Span};
+use assura_parser::ast::{Decl, ServiceItem, SourceFile, Span, TypeBody};
 
 // ---------------------------------------------------------------------------
 // Symbol kinds
@@ -33,6 +33,10 @@ pub enum SymbolKind {
     BuiltinType,
     Operation,
     Query,
+    Parameter,
+    TypeParam,
+    Field,
+    EnumVariant,
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +186,7 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
     for decl in &source.decls {
         match &decl.node {
             Decl::Contract(c) => {
-                try_insert(
+                let inserted = try_insert(
                     &mut table,
                     &mut errors,
                     module,
@@ -190,9 +194,22 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                     SymbolKind::ContractDef,
                     decl.span.clone(),
                 );
+                if inserted {
+                    let contract_scope = table.push_scope(&c.name, Some(module));
+                    for tp in &c.type_params {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            contract_scope,
+                            tp,
+                            SymbolKind::TypeParam,
+                            decl.span.clone(),
+                        );
+                    }
+                }
             }
             Decl::TypeDef(t) => {
-                try_insert(
+                let inserted = try_insert(
                     &mut table,
                     &mut errors,
                     module,
@@ -200,9 +217,34 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                     SymbolKind::TypeDef,
                     decl.span.clone(),
                 );
+                if inserted {
+                    let type_scope = table.push_scope(&t.name, Some(module));
+                    for tp in &t.type_params {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            type_scope,
+                            tp,
+                            SymbolKind::TypeParam,
+                            decl.span.clone(),
+                        );
+                    }
+                    if let TypeBody::Struct(fields) = &t.body {
+                        for f in fields {
+                            try_insert(
+                                &mut table,
+                                &mut errors,
+                                type_scope,
+                                &f.name,
+                                SymbolKind::Field,
+                                decl.span.clone(),
+                            );
+                        }
+                    }
+                }
             }
             Decl::EnumDef(e) => {
-                try_insert(
+                let inserted = try_insert(
                     &mut table,
                     &mut errors,
                     module,
@@ -210,9 +252,32 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                     SymbolKind::EnumDef,
                     decl.span.clone(),
                 );
+                if inserted {
+                    let enum_scope = table.push_scope(&e.name, Some(module));
+                    for tp in &e.type_params {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            enum_scope,
+                            tp,
+                            SymbolKind::TypeParam,
+                            decl.span.clone(),
+                        );
+                    }
+                    for v in &e.variants {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            enum_scope,
+                            &v.name,
+                            SymbolKind::EnumVariant,
+                            decl.span.clone(),
+                        );
+                    }
+                }
             }
             Decl::Extern(ex) => {
-                try_insert(
+                let inserted = try_insert(
                     &mut table,
                     &mut errors,
                     module,
@@ -220,9 +285,22 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                     SymbolKind::ExternFn,
                     decl.span.clone(),
                 );
+                if inserted {
+                    let fn_scope = table.push_scope(&ex.name, Some(module));
+                    for p in &ex.params {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            fn_scope,
+                            &p.name,
+                            SymbolKind::Parameter,
+                            decl.span.clone(),
+                        );
+                    }
+                }
             }
             Decl::FnDef(f) => {
-                try_insert(
+                let inserted = try_insert(
                     &mut table,
                     &mut errors,
                     module,
@@ -230,6 +308,19 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                     SymbolKind::FnDef,
                     decl.span.clone(),
                 );
+                if inserted {
+                    let fn_scope = table.push_scope(&f.name, Some(module));
+                    for p in &f.params {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            fn_scope,
+                            &p.name,
+                            SymbolKind::Parameter,
+                            decl.span.clone(),
+                        );
+                    }
+                }
             }
             Decl::Service(s) => {
                 let svc_sym_span = decl.span.clone();
@@ -247,7 +338,7 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                     for item in &s.items {
                         match item {
                             ServiceItem::TypeDef(t) => {
-                                try_insert(
+                                let ins = try_insert(
                                     &mut table,
                                     &mut errors,
                                     svc_scope,
@@ -255,9 +346,34 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                                     SymbolKind::TypeDef,
                                     decl.span.clone(),
                                 );
+                                if ins {
+                                    let td_scope = table.push_scope(&t.name, Some(svc_scope));
+                                    for tp in &t.type_params {
+                                        try_insert(
+                                            &mut table,
+                                            &mut errors,
+                                            td_scope,
+                                            tp,
+                                            SymbolKind::TypeParam,
+                                            decl.span.clone(),
+                                        );
+                                    }
+                                    if let TypeBody::Struct(fields) = &t.body {
+                                        for f in fields {
+                                            try_insert(
+                                                &mut table,
+                                                &mut errors,
+                                                td_scope,
+                                                &f.name,
+                                                SymbolKind::Field,
+                                                decl.span.clone(),
+                                            );
+                                        }
+                                    }
+                                }
                             }
                             ServiceItem::EnumDef(e) => {
-                                try_insert(
+                                let ins = try_insert(
                                     &mut table,
                                     &mut errors,
                                     svc_scope,
@@ -265,9 +381,32 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                                     SymbolKind::EnumDef,
                                     decl.span.clone(),
                                 );
+                                if ins {
+                                    let ed_scope = table.push_scope(&e.name, Some(svc_scope));
+                                    for tp in &e.type_params {
+                                        try_insert(
+                                            &mut table,
+                                            &mut errors,
+                                            ed_scope,
+                                            tp,
+                                            SymbolKind::TypeParam,
+                                            decl.span.clone(),
+                                        );
+                                    }
+                                    for v in &e.variants {
+                                        try_insert(
+                                            &mut table,
+                                            &mut errors,
+                                            ed_scope,
+                                            &v.name,
+                                            SymbolKind::EnumVariant,
+                                            decl.span.clone(),
+                                        );
+                                    }
+                                }
                             }
                             ServiceItem::Operation { name, .. } => {
-                                try_insert(
+                                let ins = try_insert(
                                     &mut table,
                                     &mut errors,
                                     svc_scope,
@@ -275,9 +414,13 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                                     SymbolKind::Operation,
                                     decl.span.clone(),
                                 );
+                                if ins {
+                                    // Scope for future clause-level resolution.
+                                    table.push_scope(name, Some(svc_scope));
+                                }
                             }
                             ServiceItem::Query { name, .. } => {
-                                try_insert(
+                                let ins = try_insert(
                                     &mut table,
                                     &mut errors,
                                     svc_scope,
@@ -285,6 +428,10 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                                     SymbolKind::Query,
                                     decl.span.clone(),
                                 );
+                                if ins {
+                                    // Scope for future clause-level resolution.
+                                    table.push_scope(name, Some(svc_scope));
+                                }
                             }
                             // States / Invariant / Other don't introduce named symbols.
                             _ => {}
@@ -294,9 +441,9 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
             }
             Decl::Block { name, .. } => {
                 // Generic blocks (feature, incremental, liveness, etc.)
-                // register their name if non-empty.
+                // register their name if non-empty and create a child scope.
                 if !name.is_empty() {
-                    try_insert(
+                    let inserted = try_insert(
                         &mut table,
                         &mut errors,
                         module,
@@ -304,6 +451,9 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
                         SymbolKind::ContractDef,
                         decl.span.clone(),
                     );
+                    if inserted {
+                        table.push_scope(name, Some(module));
+                    }
                 }
             }
         }
@@ -473,5 +623,285 @@ service ImageDecoder {
         let resolved = resolve(&file).expect("empty file should resolve");
         // Only builtins
         assert_eq!(resolved.symbols.symbols.len(), BUILTIN_TYPES.len());
+    }
+
+    #[test]
+    fn contract_scope_with_type_params() {
+        let src = r#"
+contract SafeBuffer<T> {
+  requires { true }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        // Contract scope is a child of module scope
+        let contract_scope = resolved
+            .symbols
+            .scopes
+            .iter()
+            .find(|s| s.name == "SafeBuffer");
+        assert!(contract_scope.is_some(), "SafeBuffer scope not found");
+        // Type param T should be a symbol
+        let tp = resolved
+            .symbols
+            .symbols
+            .iter()
+            .find(|s| s.name == "T" && s.kind == SymbolKind::TypeParam);
+        assert!(tp.is_some(), "type param T not found");
+    }
+
+    #[test]
+    fn fn_scope_with_params() {
+        let src = r#"
+fn helper(n: Int, m: Int) -> Int {
+  ensures { result >= 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        // Function scope exists
+        let fn_scope = resolved.symbols.scopes.iter().find(|s| s.name == "helper");
+        assert!(fn_scope.is_some(), "helper scope not found");
+        // Parameters are symbols
+        let params: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"n"), "param n not found");
+        assert!(params.contains(&"m"), "param m not found");
+    }
+
+    #[test]
+    fn extern_scope_with_params() {
+        let src = r#"
+extern fn malloc(size: Nat) -> Bytes
+  requires { size > 0 }
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let p = resolved
+            .symbols
+            .symbols
+            .iter()
+            .find(|s| s.name == "size" && s.kind == SymbolKind::Parameter);
+        assert!(p.is_some(), "extern param size not found");
+    }
+
+    #[test]
+    fn duplicate_fn_params() {
+        let src = r#"
+fn bad(x: Int, x: Int) -> Int {
+  ensures { result >= 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "should detect duplicate param");
+        let errs = result.unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A02003");
+        assert!(errs[0].message.contains("x"));
+    }
+
+    #[test]
+    fn type_scope_with_fields() {
+        let src = r#"
+type Point {
+  x: Int;
+  y: Int;
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let fields: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Field)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(fields.contains(&"x"), "field x not found");
+        assert!(fields.contains(&"y"), "field y not found");
+    }
+
+    #[test]
+    fn duplicate_struct_fields() {
+        let src = r#"
+type BadStruct {
+  x: Int;
+  x: Float;
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "should detect duplicate field");
+        let errs = result.unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A02003");
+        assert!(errs[0].message.contains("x"));
+    }
+
+    #[test]
+    fn enum_scope_with_variants() {
+        let src = r#"
+enum Color {
+  Red
+  Green
+  Blue
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let variants: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::EnumVariant)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(variants.contains(&"Red"), "variant Red not found");
+        assert!(variants.contains(&"Green"), "variant Green not found");
+        assert!(variants.contains(&"Blue"), "variant Blue not found");
+    }
+
+    #[test]
+    fn duplicate_enum_variants() {
+        let src = r#"
+enum Bad {
+  A
+  A
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "should detect duplicate variant");
+        let errs = result.unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A02003");
+        assert!(errs[0].message.contains("A"));
+    }
+
+    #[test]
+    fn service_nested_type_fields() {
+        let src = r#"
+service Svc {
+  type Config {
+    max_size: Nat;
+    retries: Nat;
+  }
+
+  operation start {
+    input { data: Bytes }
+  }
+
+  query health {
+    output { state: String }
+  }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        // Config fields are symbols
+        let fields: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Field)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(fields.contains(&"max_size"), "field max_size not found");
+        assert!(fields.contains(&"retries"), "field retries not found");
+        // Operation and query have scopes
+        let op_scope = resolved.symbols.scopes.iter().find(|s| s.name == "start");
+        assert!(op_scope.is_some(), "start operation scope not found");
+        let q_scope = resolved.symbols.scopes.iter().find(|s| s.name == "health");
+        assert!(q_scope.is_some(), "health query scope not found");
+    }
+
+    #[test]
+    fn duplicate_service_operations() {
+        let src = r#"
+service BadSvc {
+  operation go {
+    input { data: Bytes }
+  }
+
+  operation go {
+    input { other: Bytes }
+  }
+}
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(result.is_err(), "should detect duplicate operation");
+        let errs = result.unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A02003");
+        assert!(errs[0].message.contains("go"));
+    }
+
+    #[test]
+    fn scope_hierarchy_depth() {
+        // Verify that a service with a type def creates
+        // root > module > service > type scopes (4 levels).
+        let src = r#"
+service Deep {
+  type Inner {
+    field: Int
+  }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        // Walk from Inner scope up to root
+        let inner_scope = resolved
+            .symbols
+            .scopes
+            .iter()
+            .position(|s| s.name == "Inner")
+            .expect("Inner scope not found");
+        let inner = &resolved.symbols.scopes[inner_scope];
+        let svc_id = inner.parent.expect("Inner should have parent");
+        let svc = &resolved.symbols.scopes[svc_id];
+        assert_eq!(svc.name, "Deep");
+        let mod_id = svc.parent.expect("Deep should have parent");
+        let module = &resolved.symbols.scopes[mod_id];
+        let root_id = module.parent.expect("module should have parent");
+        let root = &resolved.symbols.scopes[root_id];
+        assert_eq!(root.name, "<root>");
+        assert!(root.parent.is_none(), "root should have no parent");
+    }
+
+    #[test]
+    fn name_shadowing_allowed_across_scopes() {
+        // A parameter named the same as a top-level type is OK —
+        // shadowing across scope levels is not a duplicate error.
+        let src = r#"
+type Foo {
+  x: Int
+}
+
+fn helper(Foo: Int) -> Int {
+  ensures { result >= 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("shadowing should be allowed");
+        // Both exist: one as TypeDef, one as Parameter
+        let type_sym = resolved
+            .symbols
+            .symbols
+            .iter()
+            .find(|s| s.name == "Foo" && s.kind == SymbolKind::TypeDef);
+        let param_sym = resolved
+            .symbols
+            .symbols
+            .iter()
+            .find(|s| s.name == "Foo" && s.kind == SymbolKind::Parameter);
+        assert!(type_sym.is_some(), "type Foo not found");
+        assert!(param_sym.is_some(), "param Foo not found");
     }
 }
