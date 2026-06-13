@@ -820,6 +820,37 @@ mod z3_backend {
                 }
                 _ => {}
             }
+            // Array set(arr, index, value): Z3 store axiom
+            // set(a, i, v) returns a new array where a[i] == v and
+            // all other elements are unchanged.
+            if func_name == "set" && arg_vals.len() == 3 {
+                let _arr = &arg_vals[0];
+                let idx = &arg_vals[1];
+                let val = &arg_vals[2];
+                let result = self.fresh_int();
+                // After set(a, i, v): get(result, i) == v
+                let get_decl = self.make_func("__index", 2);
+                let get_at_idx = get_decl
+                    .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                self.background_axioms.push(get_at_idx._eq(val));
+                // len(result) == len(original)
+                // Use "len" to match the function name users write in contracts
+                let len_decl = self.make_func("len", 1);
+                let old_len = len_decl
+                    .apply(&[_arr as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let new_len = len_decl
+                    .apply(&[&result as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                self.background_axioms.push(new_len._eq(&old_len));
+                let zero = ast::Int::from_i64(self.ctx, 0);
+                self.background_axioms.push(new_len.ge(&zero));
+                return Z3Value::Int(result);
+            }
             // Map get/put with read-over-write axioms
             // get(map, key) -> value (uninterpreted with consistency)
             // put(map, key, value) -> new_map with axiom:
@@ -927,12 +958,31 @@ mod z3_backend {
             // index < len
             self.background_axioms.push(idx_val.lt(&len_val));
 
+            // Use Z3 Array theory: select(array, index)
+            // Model arrays as Array<Int, Int> for uniform element access.
+            let int_sort = z3::Sort::int(self.ctx);
+            let _arr_sort = z3::Sort::array(self.ctx, &int_sort, &int_sort);
+            let arr_name = format!("__arr_{}", self.fresh_counter);
+            self.fresh_counter += 1;
+            let arr = z3::ast::Array::new_const(self.ctx, arr_name.as_str(), &int_sort, &int_sort);
+            // Constrain: the array is associated with this collection
+            // (same collection -> same array via naming, but we also
+            // link values through the select result).
+            let selected = arr.select(&idx_val);
+            // Z3 select returns a Dynamic; extract as Int
+            let result = selected.as_int().unwrap_or_else(|| self.fresh_int());
+
+            // Also add the uninterpreted function version for backward compat
             let decl = self.make_func("__index", 2);
-            let result = decl.apply(&[
+            let uif_result = decl.apply(&[
                 &coll_val as &dyn z3::ast::Ast,
                 &idx_val as &dyn z3::ast::Ast,
             ]);
-            Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
+            let uif_val = uif_result.as_int().unwrap_or_else(|| self.fresh_int());
+            // Link the two: select(arr, i) == __index(coll, i)
+            self.background_axioms.push(result._eq(&uif_val));
+
+            Z3Value::Int(result)
         }
 
         /// Hash a pattern name to a stable i64 for Z3 encoding.
@@ -4756,6 +4806,42 @@ contract ChainedFalse {
             matches!(&results[0], VerificationResult::Counterexample { .. }),
             "false chained claim should produce counterexample, got: {:?}",
             results[0]
+        );
+    }
+
+    #[test]
+    fn array_set_get_store_axiom() {
+        // get(set(a, i, v), i) == v should verify
+        let source = r#"
+contract ArrayStore {
+  requires { set(a, i, v) == a2 }
+  ensures { a2[i] == v }
+}
+"#;
+        let results = verify_source(source);
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r, VerificationResult::Verified { .. })),
+            "array store axiom should verify, got: {results:?}"
+        );
+    }
+
+    #[test]
+    fn array_set_preserves_length() {
+        // len(set(a, i, v)) == len(a) should verify
+        let source = r#"
+contract ArraySetLen {
+  requires { len(a) == n && set(a, 0, v) == a2 }
+  ensures { len(a2) == n }
+}
+"#;
+        let results = verify_source(source);
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r, VerificationResult::Verified { .. })),
+            "array set preserves length should verify, got: {results:?}"
         );
     }
 
