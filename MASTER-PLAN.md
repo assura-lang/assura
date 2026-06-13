@@ -106,7 +106,7 @@
   - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` output must
     change (e.g., "0 resolution errors" or new diagnostic output)
 
-- [ ] **T010**: Implement scope analysis
+- [x] **T010**: Implement scope analysis
   - Depends on: T009
   - Walk the AST top-down, building scopes:
     - Module scope: all top-level declarations
