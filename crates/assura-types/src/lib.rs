@@ -975,28 +975,29 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
     let mut errors = Vec::new();
 
     for decl in &source.decls {
+        let span = &decl.span;
         match &decl.node {
             Decl::Contract(c) => {
                 for clause in &c.clauses {
-                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
                 }
             }
             Decl::FnDef(f) => {
                 // T043 CORE.1: ghost functions must have pure effects
                 if f.is_ghost {
-                    check_ghost_fn_effects(f, &decl.span, &mut errors);
+                    check_ghost_fn_effects(f, span, &mut errors);
                 }
                 // T044 CORE.2: lemma functions must have pure effects
                 if f.is_lemma {
-                    check_lemma_fn_effects(f, &decl.span, &mut errors);
+                    check_lemma_fn_effects(f, span, &mut errors);
                 }
                 for clause in &f.clauses {
-                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
                 }
             }
             Decl::Extern(ex) => {
                 for clause in &ex.clauses {
-                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
                 }
             }
             Decl::Service(s) => {
@@ -1006,23 +1007,23 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                         | ServiceItem::Query { clauses, .. } => clauses.as_slice(),
                         ServiceItem::Invariant(expr) => {
                             // Service-level invariants are always Bool-typed
-                            check_clause_expr(&ClauseKind::Invariant, expr, env, &mut errors);
+                            check_clause_expr(&ClauseKind::Invariant, expr, env, &mut errors, span);
                             continue;
                         }
                         ServiceItem::Other { body, .. } => {
-                            collect_expr_errors(body, env, &mut errors);
+                            collect_expr_errors(body, env, &mut errors, span);
                             continue;
                         }
                         _ => continue,
                     };
                     for clause in clauses {
-                        check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
+                        check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
                     }
                 }
             }
             Decl::Block { body, .. } => {
                 for clause in body {
-                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
                 }
             }
             // TypeDef and EnumDef don't have expression bodies
@@ -1034,11 +1035,22 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
 }
 
 /// Try to infer the type of an expression; if a type error occurs, push
-/// it into the collector.
-fn collect_expr_errors(expr: &Expr, env: &TypeEnv, errors: &mut Vec<TypeError>) {
+/// it into the collector. Uses `ctx_span` to replace placeholder `0..0`
+/// spans with the declaration's actual source span.
+fn collect_expr_errors(
+    expr: &Expr,
+    env: &TypeEnv,
+    errors: &mut Vec<TypeError>,
+    ctx_span: &std::ops::Range<usize>,
+) {
     match infer_expr(expr, env) {
         Ok(_) => {}
-        Err(e) => errors.push(e),
+        Err(mut e) => {
+            if e.span == (0..0) {
+                e.span = ctx_span.clone();
+            }
+            errors.push(e);
+        }
     }
 }
 
@@ -1064,7 +1076,13 @@ fn clause_kind_label(kind: &ClauseKind) -> &'static str {
 /// Check a single clause expression. Infer its type, push any inference
 /// errors, and additionally emit A03006 if the clause kind demands Bool
 /// but the body has a definitively non-Bool type.
-fn check_clause_expr(kind: &ClauseKind, body: &Expr, env: &TypeEnv, errors: &mut Vec<TypeError>) {
+fn check_clause_expr(
+    kind: &ClauseKind,
+    body: &Expr,
+    env: &TypeEnv,
+    errors: &mut Vec<TypeError>,
+    ctx_span: &std::ops::Range<usize>,
+) {
     match infer_expr(body, env) {
         Ok(ty) => {
             if clause_requires_bool(kind) && ty != Type::Unknown && ty != Type::Bool {
@@ -1074,12 +1092,17 @@ fn check_clause_expr(kind: &ClauseKind, body: &Expr, env: &TypeEnv, errors: &mut
                         "{} clause must be Bool, found `{ty}`",
                         clause_kind_label(kind),
                     ),
-                    span: 0..0,
+                    span: ctx_span.clone(),
                     secondary: None,
                 });
             }
         }
-        Err(e) => errors.push(e),
+        Err(mut e) => {
+            if e.span == (0..0) {
+                e.span = ctx_span.clone();
+            }
+            errors.push(e);
+        }
     }
 }
 
@@ -13796,7 +13819,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Literal(AstLit::Bool(true));
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
@@ -13805,7 +13828,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Literal(AstLit::Int("42".into()));
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A03006");
         assert!(errors[0].message.contains("requires"));
@@ -13818,7 +13841,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Literal(AstLit::Bool(false));
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
@@ -13827,7 +13850,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Literal(AstLit::Str("hello".into()));
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors, &(0..0));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A03006");
         assert!(errors[0].message.contains("ensures"));
@@ -13838,7 +13861,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Literal(AstLit::Bool(true));
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
@@ -13847,7 +13870,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Literal(AstLit::Float("3.14".into()));
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors, &(0..0));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A03006");
         assert!(errors[0].message.contains("invariant"));
@@ -13862,7 +13885,7 @@ type Point {
             rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
         };
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
@@ -13871,7 +13894,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Literal(AstLit::Int("99".into()));
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors, &(0..0));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A03006");
         assert!(errors[0].message.contains("rule"));
@@ -13883,7 +13906,7 @@ type Point {
         // Effects clause accepts any type (lenient)
         let body = AstExpr::Ident("pure".into());
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Effects, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Effects, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
@@ -13892,7 +13915,7 @@ type Point {
         let env = TypeEnv::new();
         let body = AstExpr::Ident("buffer".into());
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Modifies, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Modifies, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
@@ -13902,7 +13925,7 @@ type Point {
         // Unknown ident in requires clause should not emit A03006
         let body = AstExpr::Ident("unknown_predicate".into());
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
@@ -13917,7 +13940,7 @@ type Point {
             rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
         };
         let mut errors = Vec::new();
-        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
         assert!(errors.is_empty());
     }
 
