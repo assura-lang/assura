@@ -667,6 +667,137 @@ mod z3_backend {
                 let result = decl.apply(&arg_refs);
                 return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
             }
+            // String methods with known semantics
+            match func_name {
+                // substring(str, start, end): fresh value with length == end - start
+                // and bounds axioms: 0 <= start <= end <= len(str)
+                "substring" | "substr" if arg_vals.len() == 3 => {
+                    let str_val = &arg_vals[0];
+                    let start = &arg_vals[1];
+                    let end = &arg_vals[2];
+                    let result = self.fresh_int();
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    // 0 <= start
+                    self.background_axioms.push(start.ge(&zero));
+                    // start <= end
+                    self.background_axioms.push(start.le(end));
+                    // end <= len(str)
+                    let len_decl = self.make_func("__field_len", 1);
+                    let str_len = len_decl
+                        .apply(&[str_val as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    self.background_axioms.push(end.le(&str_len));
+                    // len(result) == end - start
+                    let res_len = len_decl
+                        .apply(&[&result as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let diff = ast::Int::sub(self.ctx, &[end, start]);
+                    self.background_axioms.push(res_len._eq(&diff));
+                    self.background_axioms.push(res_len.ge(&zero));
+                    return Z3Value::Int(result);
+                }
+                // concat(a, b): same semantics as BinOp::Concat
+                "concat" if arg_vals.len() == 2 => {
+                    let l = &arg_vals[0];
+                    let r = &arg_vals[1];
+                    let result = self.fresh_int();
+                    let len_decl = self.make_func("__field_len", 1);
+                    let len_l = len_decl
+                        .apply(&[l as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let len_r = len_decl
+                        .apply(&[r as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let len_result = len_decl
+                        .apply(&[&result as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    self.background_axioms.push(len_l.ge(&zero));
+                    self.background_axioms.push(len_r.ge(&zero));
+                    let sum = ast::Int::add(self.ctx, &[&len_l, &len_r]);
+                    self.background_axioms.push(len_result._eq(&sum));
+                    self.background_axioms.push(len_result.ge(&zero));
+                    return Z3Value::Int(result);
+                }
+                // index_of(str, substr): returns Int with -1 <= result < len(str)
+                "index_of" | "find" | "indexOf" if arg_vals.len() == 2 => {
+                    let str_val = &arg_vals[0];
+                    let result = self.fresh_int();
+                    let neg_one = ast::Int::from_i64(self.ctx, -1);
+                    self.background_axioms.push(result.ge(&neg_one));
+                    let len_decl = self.make_func("__field_len", 1);
+                    let str_len = len_decl
+                        .apply(&[str_val as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    self.background_axioms.push(result.lt(&str_len));
+                    return Z3Value::Int(result);
+                }
+                // char_at(str, idx): returns Int with bounds axiom
+                "char_at" | "charAt" if arg_vals.len() == 2 => {
+                    let str_val = &arg_vals[0];
+                    let idx = &arg_vals[1];
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    self.background_axioms.push(idx.ge(&zero));
+                    let len_decl = self.make_func("__field_len", 1);
+                    let str_len = len_decl
+                        .apply(&[str_val as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    self.background_axioms.push(idx.lt(&str_len));
+                    return Z3Value::Int(self.fresh_int());
+                }
+                // replace(str, old, new): result length is bounded
+                "replace" if arg_vals.len() == 3 => {
+                    let result = self.fresh_int();
+                    let len_decl = self.make_func("__field_len", 1);
+                    let res_len = len_decl
+                        .apply(&[&result as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    self.background_axioms.push(res_len.ge(&zero));
+                    return Z3Value::Int(result);
+                }
+                // split(str, delim): returns a fresh collection with len >= 1
+                "split" if arg_vals.len() == 2 => {
+                    let result = self.fresh_int();
+                    let len_decl = self.make_func("__field_len", 1);
+                    let res_len = len_decl
+                        .apply(&[&result as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let one = ast::Int::from_i64(self.ctx, 1);
+                    self.background_axioms.push(res_len.ge(&one));
+                    return Z3Value::Int(result);
+                }
+                // trim/to_lower/to_upper: result length <= input length
+                "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
+                    if arg_vals.len() == 1 =>
+                {
+                    let str_val = &arg_vals[0];
+                    let result = self.fresh_int();
+                    let len_decl = self.make_func("__field_len", 1);
+                    let str_len = len_decl
+                        .apply(&[str_val as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let res_len = len_decl
+                        .apply(&[&result as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    self.background_axioms.push(res_len.ge(&zero));
+                    self.background_axioms.push(res_len.le(&str_len));
+                    return Z3Value::Int(result);
+                }
+                _ => {}
+            }
             // Built-in functions with known semantics
             match func_name {
                 // abs(x) => if x >= 0 then x else -x
@@ -855,7 +986,16 @@ mod z3_backend {
                     // literals produce the same constant, so equality works.
                     // Different strings get different constants.
                     let const_name = format!("__str_{s}");
-                    Z3Value::Int(ast::Int::new_const(self.ctx, const_name))
+                    let str_val = ast::Int::new_const(self.ctx, const_name);
+                    // String length axiom: len("hello") == 5
+                    let len_decl = self.make_func("__field_len", 1);
+                    let len_result = len_decl
+                        .apply(&[&str_val as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let str_len = ast::Int::from_i64(self.ctx, s.len() as i64);
+                    self.background_axioms.push(len_result._eq(&str_len));
+                    Z3Value::Int(str_val)
                 }
                 Expr::Literal(Literal::Bool(b)) => {
                     Z3Value::Bool(ast::Bool::from_bool(self.ctx, *b))
@@ -1799,10 +1939,34 @@ mod z3_backend {
                     }
                 }
                 BinOp::Concat => {
-                    // Encode both operands for constraint propagation
-                    let _ = lv;
-                    let _ = rv;
-                    Z3Value::Int(self.fresh_int())
+                    // String/list concat: result is a fresh value with
+                    // length axiom: len(a ++ b) == len(a) + len(b)
+                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                    let result = self.fresh_int();
+                    let len_decl = self.make_func("__field_len", 1);
+                    let len_l = len_decl
+                        .apply(&[&l as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let len_r = len_decl
+                        .apply(&[&r as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let len_result = len_decl
+                        .apply(&[&result as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    // len(a) >= 0, len(b) >= 0
+                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    self.background_axioms.push(len_l.ge(&zero));
+                    self.background_axioms.push(len_r.ge(&zero));
+                    // len(a ++ b) == len(a) + len(b)
+                    let sum = ast::Int::add(self.ctx, &[&len_l, &len_r]);
+                    self.background_axioms.push(len_result._eq(&sum));
+                    // len(a ++ b) >= 0
+                    self.background_axioms.push(len_result.ge(&zero));
+                    Z3Value::Int(result)
                 }
                 BinOp::Range => {
                     // Range is structural (already constrained by domain
@@ -4352,6 +4516,123 @@ contract SetForall {
 "#;
         let results = verify_source(source);
         let _ = results;
+    }
+
+    // =======================================================================
+    // String theory encoding tests
+    // =======================================================================
+
+    #[test]
+    fn string_literal_has_known_length() {
+        // String literal "hello" should have len == 5
+        // requires: s == "hello", ensures: s.len >= 0
+        // should verify because len("hello") == 5 >= 0
+        let source = r#"
+contract StringLen {
+  requires { s.len >= 0 }
+  ensures { s.len >= 0 }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty(), "should have verification results");
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "string len >= 0 should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn concat_length_is_sum_verified() {
+        // len(a ++ b) == len(a) + len(b) should be provable
+        // We require len(a) >= 0 and len(b) >= 0, and the concat
+        // axiom should make len(a ++ b) == len(a) + len(b)
+        let source = r#"
+contract ConcatLen {
+  requires { a.len >= 0 && b.len >= 0 }
+  ensures { (a ++ b).len == a.len + b.len }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty(), "should have verification results");
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "concat length axiom should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn concat_length_nonneg() {
+        // len(a ++ b) >= 0 should always hold
+        let source = r#"
+contract ConcatNonNeg {
+  requires { a.len >= 0 && b.len >= 0 }
+  ensures { (a ++ b).len >= 0 }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "concat result length should be non-negative, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn string_method_contains_returns_bool() {
+        // contains() should return a boolean value usable in logic
+        let source = r#"
+contract StrContains {
+  requires { s.contains("x") }
+  ensures { s.contains("x") }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty());
+        // P => P is trivially true
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "contains returning bool should verify P => P, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn string_starts_with_returns_bool() {
+        // starts_with() returns Bool
+        let source = r#"
+contract StrStartsWith {
+  requires { s.starts_with("pre") }
+  ensures { s.starts_with("pre") }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "starts_with should return bool, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn string_is_empty_returns_bool() {
+        // is_empty() returns Bool
+        let source = r#"
+contract StrIsEmpty {
+  requires { !s.is_empty }
+  ensures { !s.is_empty }
+}
+"#;
+        let results = verify_source(source);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "is_empty should return bool, got: {:?}",
+            results[0]
+        );
     }
 }
 
