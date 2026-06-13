@@ -2,7 +2,7 @@
 
 contract QuantifiedContract {
   input(arr: List<Int>, n: Nat)
-  output(result: Bool)
+  output(result: Int)
   requires { n > 0 }
   requires { forall i in 0 .. n : arr[i] >= 0 }
   ensures { exists i in 0 .. n : arr[i] == result }

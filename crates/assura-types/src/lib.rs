@@ -1523,14 +1523,28 @@ fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
             }
         }
         Expr::Raw(tokens) => {
-            // Parse "name: Type" pairs from raw tokens
+            // Parse "name: Type" pairs from raw tokens.
+            // Handles multi-token types like List<Int> or Map<String, Int>.
             let mut i = 0;
             while i + 2 < tokens.len() {
                 if tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
                     let name = tokens[i].clone();
-                    let ty = parse_type_tokens(std::slice::from_ref(&tokens[i + 2]));
+                    // Collect type tokens until next comma at depth 0 or end
+                    let type_start = i + 2;
+                    let mut j = type_start;
+                    let mut depth = 0i32;
+                    while j < tokens.len() {
+                        match tokens[j].as_str() {
+                            "<" => depth += 1,
+                            ">" if depth > 0 => depth -= 1,
+                            "," if depth == 0 => break,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    let ty = parse_type_tokens(&tokens[type_start..j]);
                     env.insert(name, ty);
-                    i += 3;
+                    i = j;
                     // Skip comma
                     if tokens.get(i).map(|s| s.as_str()) == Some(",") {
                         i += 1;
