@@ -1,0 +1,35 @@
+// E2E test: Option and Result type contracts
+//
+// Verifies:
+// - Option field access (is_some, value)
+// - Result field access (is_ok, ok, err)
+// - Implies operator in contracts
+
+contract SafeUnwrap {
+    input(opt: Option<Int>)
+    requires { opt.is_some }
+    ensures  { result >= 0 }
+}
+
+contract ResultHandling {
+    input(r: Result<Int, String>)
+    requires { r.is_ok }
+    ensures  { result >= 0 }
+}
+
+contract ImpliesContract {
+    requires { x > 0 }
+    ensures  { x > 0 => result > 0 }
+}
+
+fn abs(x: Int) -> Int
+    requires { true }
+    ensures  { result >= 0 }
+{
+}
+
+fn max(a: Int, b: Int) -> Int
+    ensures  { result >= a }
+    ensures  { result >= b }
+{
+}

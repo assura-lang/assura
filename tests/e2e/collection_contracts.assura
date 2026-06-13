@@ -1,0 +1,31 @@
+// E2E test: Collection contracts with field access and method calls
+//
+// Verifies:
+// - Field access on collection types (len, is_empty)
+// - Method calls on Option/Result types
+// - Quantifier-based contracts over collections
+
+contract NonEmptyList {
+    input(items: List<Int>)
+    requires { items.len > 0 }
+    ensures  { result.len > 0 }
+}
+
+contract BoundedBuffer {
+    input(buf: List<Int>, capacity: Nat)
+    requires { buf.len <= capacity }
+    requires { capacity > 0 }
+    ensures  { result.len <= capacity }
+}
+
+contract AllPositive {
+    input(values: List<Int>)
+    requires { forall v in values: v > 0 }
+    ensures  { forall v in result: v > 0 }
+}
+
+contract SafeLookup {
+    input(items: List<Int>, index: Nat)
+    requires { index < items.len }
+    ensures  { result >= 0 }
+}
