@@ -1885,6 +1885,14 @@ contract UsePoint {
     }
 
     #[test]
+    fn pipeline_advanced_patterns() {
+        let source = std::fs::read_to_string("../../tests/fixtures/advanced_patterns.assura")
+            .or_else(|_| std::fs::read_to_string("tests/fixtures/advanced_patterns.assura"))
+            .expect("cannot find advanced_patterns fixture");
+        assert_pipeline_ok(&source);
+    }
+
+    #[test]
     fn test_diagnostics_from_parse_errors() {
         // Deliberately invalid syntax should produce parse errors
         let (file, errors) = assura_parser::parse("contract { invalid }");

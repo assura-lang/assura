@@ -1,0 +1,32 @@
+// Advanced patterns: quantifiers, match, let, cast, ghost, method chains.
+
+contract QuantifiedContract {
+  input(arr: List<Int>, n: Nat)
+  output(result: Bool)
+  requires { n > 0 }
+  requires { forall i in 0 .. n : arr[i] >= 0 }
+  ensures { exists i in 0 .. n : arr[i] == result }
+}
+
+fn safe_divide(a: Int, b: Int) -> Int
+  requires { b != 0 }
+  ensures { result * b + (a % b) == a }
+{
+  let q = a / b in q
+}
+
+fn classify(x: Int) -> Int
+  ensures { result >= 0 }
+{
+  match x {
+    0 => 0,
+    1 => 1,
+    _ => x * x
+  }
+}
+
+fn with_cast(x: Int) -> Float
+  ensures { result >= 0.0 }
+{
+  x as Float
+}
