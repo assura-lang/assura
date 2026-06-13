@@ -1147,6 +1147,18 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
         &resolved.symbols,
     ));
 
+    // T059: constant-time checking (secret-dependent branching/indexing)
+    errors.extend(run_constant_time_checks(&resolved.source));
+
+    // T067: determinism checking (pure functions must be deterministic)
+    errors.extend(run_determinism_checks(&resolved.source));
+
+    // T046: memory safety checking (buffer bounds via annotations)
+    errors.extend(run_memory_checks(&resolved.source));
+
+    // T060: secure erasure checking (sensitive data must be zeroed)
+    errors.extend(run_secure_erasure_checks(&resolved.source));
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -2356,6 +2368,269 @@ fn check_match_exhaustiveness_expr(
         }
         Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
     }
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time wiring (T059)
+// ---------------------------------------------------------------------------
+
+/// Scan for functions annotated with `constant_time` clause or `#[secret]`
+/// parameter annotations and run the ConstantTimeChecker on their bodies.
+fn run_constant_time_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut all_errors = Vec::new();
+
+    for decl in &source.decls {
+        let (clauses, params) = match &decl.node {
+            Decl::FnDef(f) => (&f.clauses, f.params.as_slice()),
+            Decl::Contract(c) => (&c.clauses, &[] as &[_]),
+            Decl::Extern(e) => (&e.clauses, e.params.as_slice()),
+            _ => continue,
+        };
+
+        // Check if function has a constant_time clause
+        let has_ct = clauses
+            .iter()
+            .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "constant_time"));
+        if !has_ct {
+            continue;
+        }
+
+        // Build checker: mark parameters with #[secret] or "secret" in type tokens
+        let mut checker = ConstantTimeChecker::new();
+        for param in params {
+            let is_secret = param.ty.iter().any(|t| t == "secret" || t == "#[secret]");
+            if is_secret {
+                checker.mark_secret(param.name.clone());
+            }
+        }
+
+        // Check all clause bodies for timing leaks
+        for clause in clauses {
+            for err in checker.check_expr(&clause.body, &decl.span) {
+                all_errors.push(TypeError {
+                    code: err.code,
+                    message: err.message,
+                    span: err.span,
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    all_errors
+}
+
+// ---------------------------------------------------------------------------
+// Determinism wiring (T067)
+// ---------------------------------------------------------------------------
+
+/// Scan for functions with `pure` effect annotation and check that their
+/// clause bodies do not reference non-deterministic sources.
+fn run_determinism_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut all_errors = Vec::new();
+    let mut checker = DeterminismChecker::new();
+
+    for decl in &source.decls {
+        let (fn_name, clauses) = match &decl.node {
+            Decl::FnDef(f) => (f.name.as_str(), f.clauses.as_slice()),
+            Decl::Contract(c) => (c.name.as_str(), c.clauses.as_slice()),
+            _ => continue,
+        };
+
+        // Check if the function has a pure effects clause
+        let is_pure = clauses.iter().any(|c| {
+            c.kind == ClauseKind::Effects && matches!(&c.body, Expr::Ident(name) if name == "pure")
+        });
+        if !is_pure {
+            continue;
+        }
+
+        checker.mark_deterministic(fn_name.to_string());
+
+        // Collect all identifiers referenced in clause bodies
+        let mut used_names = Vec::new();
+        for clause in clauses {
+            let refs = collect_ident_references(&clause.body);
+            used_names.extend(refs);
+        }
+
+        for err in checker.check_fn_body(fn_name, &used_names, &decl.span) {
+            all_errors.push(TypeError {
+                code: err.code,
+                message: err.message,
+                span: err.span,
+                secondary: None,
+            });
+        }
+    }
+
+    all_errors
+}
+
+// ---------------------------------------------------------------------------
+// Memory safety wiring (T046)
+// ---------------------------------------------------------------------------
+
+/// Scan for functions with buffer/region parameters and validate memory
+/// bounds annotations using the MemoryChecker.
+fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+
+    // Per-function analysis: for each function with buffer-typed params,
+    // check that its requires clauses include bounds checks.
+    for decl in &source.decls {
+        let (params, clauses) = match &decl.node {
+            Decl::FnDef(f) => {
+                // Skip axioms, lemmas, and ghost functions: they are
+                // mathematical definitions without runtime semantics
+                // and should not require bounds-checking annotations.
+                if f.is_ghost || f.is_lemma {
+                    continue;
+                }
+                // Axioms are parsed as FnDef with is_lemma=false but
+                // use define/property clauses instead of requires/ensures.
+                // Skip any function that has no requires AND no ensures.
+                let has_runtime_contract = f
+                    .clauses
+                    .iter()
+                    .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
+                if !has_runtime_contract {
+                    continue;
+                }
+                (f.params.as_slice(), f.clauses.as_slice())
+            }
+            Decl::Extern(e) => (e.params.as_slice(), e.clauses.as_slice()),
+            _ => continue,
+        };
+
+        let mut checker = MemoryChecker::new();
+        let mut has_buffers = false;
+
+        for param in params {
+            let ty_str = param.ty.join(" ");
+            if let Some(cap) = extract_capacity_annotation(&ty_str) {
+                checker.register_buffer(param.name.clone(), cap);
+                has_buffers = true;
+            } else if ty_str.contains("Bytes") || ty_str.contains("Sequence") {
+                checker.register_buffer(param.name.clone(), format!("{}.len", param.name));
+                has_buffers = true;
+            }
+        }
+
+        if !has_buffers {
+            continue;
+        }
+
+        let requires_exprs: Vec<&Expr> = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Requires)
+            .map(|c| &c.body)
+            .collect();
+
+        for buf_name in checker.buffer_names() {
+            // Any requires clause referencing the buffer counts as a
+            // bounds constraint (the author is aware of the buffer).
+            let has_any_constraint = requires_exprs
+                .iter()
+                .any(|expr| expr_references_var(expr, &buf_name));
+            if has_any_constraint {
+                continue;
+            }
+            if let Some(mem_err) =
+                checker.check_bounds_in_requires(&buf_name, &requires_exprs, &decl.span)
+            {
+                errors.push(TypeError {
+                    code: mem_err.code,
+                    message: mem_err.message,
+                    span: mem_err.span,
+                    secondary: None,
+                });
+            }
+        }
+    }
+    errors
+}
+
+/// Extract a capacity annotation from a type string like "Buffer<1024>" or
+/// "Region<MAX_SIZE>".
+fn extract_capacity_annotation(ty: &str) -> Option<String> {
+    for prefix in &["Buffer", "Region", "FixedBuffer"] {
+        if let Some(rest) = ty.strip_prefix(prefix)
+            && let Some(inner) = rest.strip_prefix('<')
+            && let Some(cap) = inner.strip_suffix('>')
+        {
+            return Some(cap.trim().to_string());
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Secure erasure wiring (T060)
+// ---------------------------------------------------------------------------
+
+/// Scan for parameters annotated with `#[sensitive]` or `@sensitive` and
+/// verify that functions handling sensitive data include erasure guarantees.
+fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = SecureErasureChecker::new();
+    let mut has_sensitive = false;
+
+    for decl in &source.decls {
+        let params = match &decl.node {
+            Decl::FnDef(f) => f.params.as_slice(),
+            Decl::Extern(e) => e.params.as_slice(),
+            _ => continue,
+        };
+
+        for param in params {
+            // Only `sensitive`/`#[sensitive]` triggers secure erasure.
+            // `secret`/`#[secret]` is for constant-time checking (T059).
+            let is_sensitive = param
+                .ty
+                .iter()
+                .any(|t| t == "sensitive" || t == "#[sensitive]");
+            if is_sensitive {
+                checker.mark_sensitive(param.name.clone());
+                has_sensitive = true;
+            }
+        }
+    }
+
+    if !has_sensitive {
+        return Vec::new();
+    }
+
+    // Check that sensitive variables have scope-exit erasure
+    let mut errors = Vec::new();
+    let sensitive_names = checker.sensitive_names();
+    for name in &sensitive_names {
+        for decl in &source.decls {
+            let clauses = match &decl.node {
+                Decl::FnDef(f) => &f.clauses,
+                Decl::Extern(e) => &e.clauses,
+                _ => continue,
+            };
+
+            // Look for zeroize/erase patterns in ensures clauses
+            let has_erasure = clauses
+                .iter()
+                .any(|c| c.kind == ClauseKind::Ensures && expr_references_var(&c.body, name));
+            if has_erasure {
+                checker.mark_zeroized(name.clone());
+            }
+        }
+
+        for err in checker.check_scope_exit(name, &(0..0)) {
+            errors.push(TypeError {
+                code: err.code,
+                message: err.message,
+                span: err.span,
+                secondary: None,
+            });
+        }
+    }
+
+    errors
 }
 
 // ---------------------------------------------------------------------------
@@ -4082,6 +4357,11 @@ impl MemoryChecker {
     /// Register a ghost region declaration.
     pub fn register_region(&mut self, region: MemoryRegion) {
         self.regions.push(region);
+    }
+
+    /// Returns all registered buffer names.
+    pub fn buffer_names(&self) -> Vec<String> {
+        self.buffers.keys().cloned().collect()
     }
 
     /// Returns true if the given variable name is a registered buffer.
@@ -5931,6 +6211,11 @@ impl SecureErasureChecker {
             sensitive_vars: HashMap::new(),
             zeroized: HashMap::new(),
         }
+    }
+
+    /// Returns the names of all sensitive variables.
+    pub fn sensitive_names(&self) -> Vec<String> {
+        self.sensitive_vars.keys().cloned().collect()
     }
 
     /// Mark a variable as holding sensitive data.

@@ -569,19 +569,6 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             )
             .map(|(lemma_name, args)| Expr::Apply { lemma_name, args });
 
-        // let x = expr in body
-        let let_expr = just(Token::Let)
-            .ignore_then(ident())
-            .then_ignore(just(Token::Equals))
-            .then(expr.clone())
-            .then_ignore(just(Token::In))
-            .then(expr.clone())
-            .map(|((name, value), body)| Expr::Let {
-                name,
-                value: Box::new(value),
-                body: Box::new(body),
-            });
-
         // match expr { pattern => body, ... }
         let pattern = {
             let wildcard = filter_map(|span, tok| match &tok {
@@ -686,7 +673,6 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             list_expr,
             ghost_block,
             apply_expr,
-            let_expr,
             match_expr,
             keyword_as_value,
             ident_expr,
@@ -814,7 +800,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
         ));
         let comparison = range
             .clone()
-            .then(cmp_op.then(range).repeated())
+            .then(cmp_op.then(range.clone()).repeated())
             .foldl(|lhs, (op, rhs)| Expr::BinOp {
                 lhs: Box::new(lhs),
                 op,
@@ -851,7 +837,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             .boxed();
 
         // ---- Binary: implies => ----
-        logical_or
+        let implies = logical_or
             .clone()
             .then(just(Token::FatArrow).ignore_then(logical_or).or_not())
             .map(|(lhs, rhs)| match rhs {
@@ -862,6 +848,24 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
                 },
                 None => lhs,
             })
+            .boxed();
+
+        // ---- Let expression: let x = value in body ----
+        // Value uses `range` (below comparison) to avoid ambiguity with
+        // the `in` keyword that separates value from body.
+        let let_expr = just(Token::Let)
+            .ignore_then(ident())
+            .then_ignore(just(Token::Equals))
+            .then(range)
+            .then_ignore(just(Token::In))
+            .then(expr.clone())
+            .map(|((name, value), body)| Expr::Let {
+                name,
+                value: Box::new(value),
+                body: Box::new(body),
+            });
+
+        choice((let_expr, implies))
     })
     .boxed()
 }
@@ -1726,5 +1730,46 @@ mod tests {
     fn parse_partial_keyword_token() {
         let tokens: Vec<Token> = Token::lexer("partial").filter_map(|r| r.ok()).collect();
         assert_eq!(tokens, vec![Token::Partial]);
+    }
+
+    #[test]
+    fn parse_let_keyword_token() {
+        let tokens: Vec<Token> = Token::lexer("let").filter_map(|r| r.ok()).collect();
+        assert_eq!(tokens, vec![Token::Let]);
+    }
+
+    #[test]
+    fn parse_let_expr_simple() {
+        let expr = parse_expr("let x = 42 in x").unwrap();
+        if let Expr::Let { name, value, body } = &expr {
+            assert_eq!(name, "x");
+            assert!(matches!(value.as_ref(), Expr::Literal(Literal::Int(s)) if s == "42"));
+            assert!(matches!(body.as_ref(), Expr::Ident(n) if n == "x"));
+        } else {
+            panic!("expected Let expression, got {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn parse_let_expr_with_binop() {
+        let expr = parse_expr("let y = x + 1 in y * 2").unwrap();
+        if let Expr::Let { name, value, body } = &expr {
+            assert_eq!(name, "y");
+            assert!(matches!(value.as_ref(), Expr::BinOp { .. }));
+            assert!(matches!(body.as_ref(), Expr::BinOp { .. }));
+        } else {
+            panic!("expected Let expression, got {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn parse_let_expr_nested() {
+        let expr = parse_expr("let a = 1 in let b = 2 in a + b").unwrap();
+        if let Expr::Let { name, body, .. } = &expr {
+            assert_eq!(name, "a");
+            assert!(matches!(body.as_ref(), Expr::Let { .. }));
+        } else {
+            panic!("expected nested Let expression");
+        }
     }
 }
