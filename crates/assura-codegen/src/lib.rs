@@ -1051,6 +1051,99 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
 // Service declarations
 // ---------------------------------------------------------------------------
 
+/// Generate a service operation or query method with proper parameter extraction.
+///
+/// Operations take `&mut self`, queries take `&self`. Both extract input params
+/// and output types from their clauses for proper function signatures.
+fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is_mutation: bool) {
+    // Extract input/output from clauses
+    let mut input_params: Vec<(String, String)> = Vec::new();
+    let mut output_type = "()".to_string();
+    let mut requires_exprs: Vec<String> = Vec::new();
+    let mut ensures_exprs: Vec<String> = Vec::new();
+
+    for clause in clauses {
+        match &clause.kind {
+            ClauseKind::Input => {
+                extract_input_params(&clause.body, &mut input_params);
+            }
+            ClauseKind::Output => {
+                output_type = extract_output_type(&clause.body);
+            }
+            ClauseKind::Requires => {
+                requires_exprs.push(expr_to_rust(&clause.body));
+            }
+            ClauseKind::Ensures => {
+                ensures_exprs.push(expr_to_rust(&clause.body));
+            }
+            _ => {}
+        }
+    }
+
+    let kind_label = if is_mutation { "Operation" } else { "Query" };
+    code.push_str(&format!("    /// {kind_label}: {name}\n"));
+
+    // Doc comments for ensures/effects
+    for clause in clauses {
+        match clause.kind {
+            ClauseKind::Ensures => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("    /// Ensures: {expr}\n"));
+            }
+            ClauseKind::Effects => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("    /// Effects: {expr}\n"));
+            }
+            _ => {}
+        }
+    }
+
+    // Build function signature
+    let self_param = if is_mutation { "&mut self" } else { "&self" };
+    let extra_params = if input_params.is_empty() {
+        String::new()
+    } else {
+        let ps: Vec<String> = input_params
+            .iter()
+            .map(|(n, t)| format!("{n}: {t}"))
+            .collect();
+        format!(", {}", ps.join(", "))
+    };
+    let ret_sig = if output_type == "()" {
+        String::new()
+    } else {
+        format!(" -> {output_type}")
+    };
+
+    code.push_str(&format!(
+        "    pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
+    ));
+
+    // Requires assertions
+    for req in &requires_exprs {
+        generate_debug_assert_indented(code, req, "requires", 2);
+    }
+
+    if output_type == "()" {
+        code.push_str(&format!(
+            "        todo!(\"{} implementation\")\n",
+            kind_label.to_lowercase()
+        ));
+    } else {
+        code.push_str(&format!(
+            "        let __result: {output_type} = todo!(\"{} implementation\");\n",
+            kind_label.to_lowercase()
+        ));
+        // Ensures assertions
+        for ens in &ensures_exprs {
+            generate_debug_assert_indented(code, ens, "ensures", 2);
+        }
+        code.push_str("        __result\n");
+    }
+
+    code.push_str("    }\n\n");
+}
+
 fn generate_service(s: &ServiceDecl, code: &mut String) {
     code.push_str(&format!(
         "/// Service: {}\npub mod {} {{\n",
@@ -1085,48 +1178,10 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
                 code.push_str("    }\n\n");
             }
             ServiceItem::Operation { name, clauses } => {
-                // Doc comments with contract info
-                code.push_str(&format!("    /// Operation: {name}\n"));
-                for clause in clauses {
-                    match clause.kind {
-                        ClauseKind::Ensures => {
-                            let expr = expr_to_rust(&clause.body);
-                            code.push_str(&format!("    /// Ensures: {expr}\n"));
-                        }
-                        ClauseKind::Effects => {
-                            let expr = expr_to_rust(&clause.body);
-                            code.push_str(&format!("    /// Effects: {expr}\n"));
-                        }
-                        _ => {}
-                    }
-                }
-                code.push_str(&format!("    pub fn {name}(&mut self) {{\n"));
-                for clause in clauses {
-                    if clause.kind == ClauseKind::Requires {
-                        let expr = expr_to_rust(&clause.body);
-                        generate_debug_assert_indented(code, &expr, "requires", 2);
-                    }
-                }
-                code.push_str("        todo!(\"operation implementation\")\n");
-                code.push_str("    }\n\n");
+                generate_service_method(code, name, clauses, true);
             }
             ServiceItem::Query { name, clauses } => {
-                code.push_str(&format!("    /// Query: {name}\n"));
-                for clause in clauses {
-                    if let ClauseKind::Ensures | ClauseKind::Effects = clause.kind {
-                        let expr = expr_to_rust(&clause.body);
-                        code.push_str(&format!("    /// {:?}: {expr}\n", clause.kind));
-                    }
-                }
-                code.push_str(&format!("    pub fn {name}(&self) {{\n"));
-                for clause in clauses {
-                    if clause.kind == ClauseKind::Requires {
-                        let expr = expr_to_rust(&clause.body);
-                        generate_debug_assert_indented(code, &expr, "requires", 2);
-                    }
-                }
-                code.push_str("        todo!(\"query implementation\")\n");
-                code.push_str("    }\n\n");
+                generate_service_method(code, name, clauses, false);
             }
             ServiceItem::Invariant(expr) => {
                 let rust_expr = expr_to_rust(expr);
