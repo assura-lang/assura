@@ -1159,6 +1159,187 @@ fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Validate or sanitize the untrusted input before passing it \
                  to the trusted sink, or adjust the taint labels.",
         },
+        // -- A02002: Ambiguous name --
+        ErrorInfo {
+            code: "A02002",
+            name: "Ambiguous name",
+            description: "A name could refer to multiple definitions because of \
+                          overlapping imports. The compiler cannot determine which \
+                          definition was intended.",
+            example: r#"  import a { Foo }
+  import b { Foo }   // both modules export 'Foo'
+
+  contract Bar {
+      requires: Foo > 0   // ambiguous: a.Foo or b.Foo?
+  }"#,
+            fix: "Use a qualified name (module.Foo) to disambiguate, or use an \
+                 alias on one of the imports: import b { Foo as BFoo }.",
+        },
+        // -- A02004: Visibility violation --
+        ErrorInfo {
+            code: "A02004",
+            name: "Visibility violation",
+            description: "An attempt was made to access a field or member that \
+                          is not public. Non-pub fields are only accessible within \
+                          the module that defines the type.",
+            example: r#"  type Wallet {
+      balance: Int   // private (no pub)
+  }
+
+  contract Check {
+      requires: w.balance > 0   // A02004: balance is private
+  }"#,
+            fix: "Mark the field as 'pub' in the type definition if external \
+                 access is intended, or access it through a public getter method.",
+        },
+        // -- A05005: Ghost/linear interaction --
+        ErrorInfo {
+            code: "A05005",
+            name: "Ghost code modifies linear variable",
+            description: "A ghost block attempted to consume or modify a linear \
+                          variable. Ghost code is erased at runtime, so it must not \
+                          affect the usage count of linear variables.",
+            example: r#"  fn bad(x: Int :_1) -> Int
+      effects: pure
+  {
+      ghost { let _ = x; }   // ghost uses linear var -> A05005
+      x
+  }"#,
+            fix: "Remove the linear variable reference from the ghost block. \
+                 Ghost code should only read or reference non-linear variables.",
+        },
+        // -- A07004: Pure function has side effects --
+        ErrorInfo {
+            code: "A07004",
+            name: "Pure function has side effects",
+            description: "A function declared as 'effects: pure' performs an \
+                          operation that has side effects. Pure functions may not \
+                          perform I/O, mutate shared state, or call effectful functions.",
+            example: r#"  fn pure_fn(x: Int) -> Int
+      effects: pure
+  {
+      println(x)   // I/O in pure function -> A07004
+      x
+  }"#,
+            fix: "Remove the effectful operation from the pure function, or \
+                 change the effects declaration to include the required effects.",
+        },
+        // -- A07005: Effect row mismatch --
+        ErrorInfo {
+            code: "A07005",
+            name: "Effect row mismatch",
+            description: "A function's declared effect row does not match the \
+                          effect rows of higher-order function parameters or \
+                          closures passed to it.",
+            example: r#"  fn map(f: fn(Int) -> Int effects: pure, xs: List<Int>)
+      effects: pure
+  // calling with an effectful closure -> A07005"#,
+            fix: "Ensure the function or closure passed as an argument has \
+                 effects that are a subset of the expected effects.",
+        },
+        // -- A08002-A08005: Information flow --
+        ErrorInfo {
+            code: "A08002",
+            name: "Information flow: implicit leak",
+            description: "A secret value influences a public output through \
+                          control flow (e.g., an if-branch on a secret condition). \
+                          This is an implicit information flow violation.",
+            example: r#"  fn check(secret: @Confidential Bool) -> @Public Int
+  {
+      if secret then 1 else 0   // A08002: implicit leak
+  }"#,
+            fix: "Remove the dependency of the public output on the secret \
+                 value, or explicitly declassify the information.",
+        },
+        ErrorInfo {
+            code: "A08003",
+            name: "Declassification without justification",
+            description: "A declassify operation lowers the security label of data \
+                          without providing the required justification label.",
+            example: r#"  fn leak(x: @Confidential Int) -> @Public Int
+  {
+      declassify(x)   // missing purpose -> A08003
+  }"#,
+            fix: "Provide a purpose label for the declassification: \
+                 declassify(x, purpose: \"user_consent\").",
+        },
+        ErrorInfo {
+            code: "A08004",
+            name: "Missing taint label",
+            description: "A function accepts external input without a taint label. \
+                          All data from external sources must be explicitly labeled.",
+            example: r#"  extern fn read_input() -> String   // missing @Untrusted
+  // Should be: -> @Untrusted String"#,
+            fix: "Add a taint annotation to the return type: @Untrusted.",
+        },
+        ErrorInfo {
+            code: "A08005",
+            name: "Security label hierarchy violation",
+            description: "An assignment or operation violates the security label \
+                          hierarchy. Data cannot flow from higher security levels \
+                          to lower ones without explicit declassification.",
+            example: r#"  fn bad(secret: @Restricted Data) -> @Public Data
+  {
+      secret   // Restricted -> Public without declassify -> A08005
+  }"#,
+            fix: "Add a declassify operation with appropriate justification, \
+                 or adjust the security labels.",
+        },
+        // -- A09001-A09004: Totality / termination --
+        ErrorInfo {
+            code: "A09001",
+            name: "Missing decreases clause",
+            description: "A recursive function does not have a 'decreases' clause. \
+                          Recursive functions must prove termination by providing a \
+                          measure that decreases on each recursive call.",
+            example: r#"  fn factorial(n: Int) -> Int
+  {
+      if n == 0 then 1 else n * factorial(n - 1)
+      // missing: decreases { n }
+  }"#,
+            fix: "Add a 'decreases' clause with a non-negative expression that \
+                 strictly decreases on each recursive call. Example: decreases { n }.",
+        },
+        ErrorInfo {
+            code: "A09002",
+            name: "Decreases clause not proven",
+            description: "The SMT solver could not prove that the decreases measure \
+                          strictly decreases on every recursive call, or that the \
+                          measure remains non-negative.",
+            example: r#"  fn bad(n: Int) -> Int
+      decreases { n }
+  {
+      bad(n + 1)   // n increases, not decreases -> A09002
+  }"#,
+            fix: "Ensure the decreases expression becomes strictly smaller on \
+                 each recursive call and remains non-negative. The base case \
+                 must be reachable.",
+        },
+        ErrorInfo {
+            code: "A09003",
+            name: "Partial function without 'partial' marker",
+            description: "A function may not terminate but is not marked as 'partial'. \
+                          Functions that may loop forever must be explicitly annotated.",
+            example: r#"  fn server_loop() -> Never
+  {
+      loop { handle_request() }
+      // infinite loop without 'partial' -> A09003
+  }"#,
+            fix: "Mark the function as 'partial' to acknowledge it may not \
+                 terminate, or add a termination proof with 'decreases'.",
+        },
+        ErrorInfo {
+            code: "A09004",
+            name: "Mutual recursion without termination proof",
+            description: "Two or more functions call each other recursively without \
+                          a combined termination measure that decreases across the \
+                          call cycle.",
+            example: r#"  fn is_even(n: Nat) -> Bool { if n == 0 then true else is_odd(n-1) }
+  fn is_odd(n: Nat) -> Bool { if n == 0 then false else is_even(n-1) }
+  // need decreases { n } on both"#,
+            fix: "Add 'decreases' clauses to all functions in the recursive \
+                 group. The measure must decrease on every call in the cycle.",
+        },
         // -- Phase 1: SMT verification (A05100) --
         ErrorInfo {
             code: "A05100",
