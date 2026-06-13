@@ -280,7 +280,7 @@
   - Support `--json` output mode (structured errors as JSON)
   - Support `--human` output mode (ariadne-formatted, default)
 
-- [ ] **T025**: Implement `assura build` command
+- [x] **T025**: Implement `assura build` command
   - Depends on: T022, T024
   - Parse -> resolve -> type-check -> codegen
   - Write generated Rust project to `generated/` directory
@@ -288,7 +288,7 @@
   - Forward cargo's stdout/stderr
   - Exit with cargo's exit code
 
-- [ ] **T026**: Implement `assura init` command
+- [x] **T026**: Implement `assura init` command
   - Depends on: T024
   - Create a new Assura project:
     ```
@@ -300,7 +300,7 @@
   - `assura.toml` format per Section 10.3 of spec
   - Starter contract: SafeDivision example from ROADMAP.md
 
-- [ ] **T027**: Implement `assura explain <error-code>` command
+- [x] **T027**: Implement `assura explain <error-code>` command
   - Depends on: T024
   - Look up error code in the error catalog
   - Print: description, example code that triggers it, how to fix
