@@ -2509,6 +2509,135 @@ impl std::fmt::Debug for FrameChecker {
 }
 
 // ---------------------------------------------------------------------------
+// Error propagation checking (T064 TYPE.3)
+// ---------------------------------------------------------------------------
+
+/// Error propagation policy for a set of error codes.
+#[derive(Debug, Clone, Default)]
+pub struct ErrorPolicy {
+    /// Error codes that MUST propagate to the caller (never silently swallowed).
+    pub must_propagate: Vec<String>,
+    /// Forbidden error translations: (from, to).
+    pub must_not_mask: Vec<(String, String)>,
+    /// Error codes whose detail must be preserved across translations.
+    pub must_preserve_detail: Vec<String>,
+    /// Function names whose return values MUST be checked.
+    pub must_check: Vec<String>,
+}
+
+/// Checker for error propagation contracts.
+pub struct ErrorPropagationChecker {
+    /// Registered error policies.
+    pub policies: HashMap<String, ErrorPolicy>,
+}
+
+impl ErrorPropagationChecker {
+    /// Create a new checker with no policies.
+    pub fn new() -> Self {
+        Self {
+            policies: HashMap::new(),
+        }
+    }
+
+    /// Register an error policy.
+    pub fn register_policy(&mut self, name: String, policy: ErrorPolicy) {
+        self.policies.insert(name, policy);
+    }
+
+    /// Check if an error code is must-propagate in any registered policy.
+    pub fn is_must_propagate(&self, error_code: &str) -> bool {
+        self.policies
+            .values()
+            .any(|p| p.must_propagate.iter().any(|c| c == error_code))
+    }
+
+    /// Check if a translation from one error code to another is forbidden.
+    pub fn is_masked(&self, from: &str, to: &str) -> bool {
+        self.policies.values().any(|p| {
+            p.must_not_mask
+                .iter()
+                .any(|(f, t)| f == from && t == to)
+        })
+    }
+
+    /// Check if a function's return value must be checked.
+    pub fn must_check_return(&self, fn_name: &str) -> bool {
+        self.policies
+            .values()
+            .any(|p| p.must_check.iter().any(|f| f == fn_name))
+    }
+
+    /// Validate an error handling action. Returns error if the action violates a policy.
+    pub fn validate_catch(
+        &self,
+        error_code: &str,
+        action: ErrorAction,
+        span: Range<usize>,
+    ) -> Option<TypeError> {
+        match action {
+            ErrorAction::Swallow => {
+                if self.is_must_propagate(error_code) {
+                    return Some(TypeError {
+                        code: "A12001".into(),
+                        message: format!(
+                            "error code '{error_code}' has must_propagate policy and cannot be silently swallowed"
+                        ),
+                        span,
+                        secondary: None,
+                    });
+                }
+            }
+            ErrorAction::TranslateTo(target) => {
+                if self.is_masked(error_code, &target) {
+                    return Some(TypeError {
+                        code: "A12002".into(),
+                        message: format!(
+                            "translating '{error_code}' to '{target}' is forbidden by must_not_mask policy"
+                        ),
+                        span,
+                        secondary: None,
+                    });
+                }
+            }
+            ErrorAction::Propagate | ErrorAction::Handle => {}
+        }
+        None
+    }
+
+    /// Check that a function's Result return value is used.
+    pub fn validate_unchecked_call(
+        &self,
+        fn_name: &str,
+        span: Range<usize>,
+    ) -> Option<TypeError> {
+        if self.must_check_return(fn_name) {
+            return Some(TypeError {
+                code: "A12003".into(),
+                message: format!(
+                    "return value of '{fn_name}' must be checked (must_check policy)"
+                ),
+                span,
+                secondary: None,
+            });
+        }
+        None
+    }
+}
+
+/// What happens to a caught error.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ErrorAction {
+    /// Error is silently discarded (catch and ignore).
+    Swallow,
+    /// Error is translated to a different code.
+    TranslateTo(String),
+    /// Error is re-raised to the caller.
+    Propagate,
+    /// Error is handled with meaningful recovery logic.
+    Handle,
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -6941,5 +7070,124 @@ ghost fn bad_ghost(x: Int) -> Bool
 
         // The variable should still show 0 uses (ghost use does not count)
         assert_eq!(ctx.get_count("resource"), Some(0));
+    }
+
+    // -----------------------------------------------------------------------
+    // T064: Error propagation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_error_propagation_must_propagate_swallow_rejected() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "TestPolicy".into(),
+            ErrorPolicy {
+                must_propagate: vec!["SQLITE_CORRUPT".into(), "SQLITE_NOMEM".into()],
+                ..Default::default()
+            },
+        );
+
+        // Swallowing a must_propagate error should produce A12001
+        let err = checker.validate_catch("SQLITE_CORRUPT", ErrorAction::Swallow, 0..10);
+        assert!(err.is_some(), "swallowing must_propagate error should fail");
+        assert_eq!(err.unwrap().code, "A12001");
+
+        // Propagating is fine
+        let err = checker.validate_catch("SQLITE_CORRUPT", ErrorAction::Propagate, 0..10);
+        assert!(err.is_none(), "propagating must_propagate error should pass");
+
+        // Handling is fine
+        let err = checker.validate_catch("SQLITE_CORRUPT", ErrorAction::Handle, 0..10);
+        assert!(err.is_none(), "handling must_propagate error should pass");
+
+        // Swallowing a non-must_propagate error is fine
+        let err = checker.validate_catch("SQLITE_BUSY", ErrorAction::Swallow, 0..10);
+        assert!(err.is_none(), "swallowing non-policy error should pass");
+    }
+
+    #[test]
+    fn test_error_propagation_must_not_mask() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "TestPolicy".into(),
+            ErrorPolicy {
+                must_not_mask: vec![
+                    ("SQLITE_CORRUPT".into(), "SQLITE_OK".into()),
+                    ("SQLITE_NOMEM".into(), "SQLITE_ERROR".into()),
+                ],
+                ..Default::default()
+            },
+        );
+
+        // Forbidden translation should produce A12002
+        let err = checker.validate_catch(
+            "SQLITE_CORRUPT",
+            ErrorAction::TranslateTo("SQLITE_OK".into()),
+            0..10,
+        );
+        assert!(err.is_some(), "forbidden translation should fail");
+        assert_eq!(err.unwrap().code, "A12002");
+
+        // Allowed translation should pass
+        let err = checker.validate_catch(
+            "SQLITE_CORRUPT",
+            ErrorAction::TranslateTo("SQLITE_CORRUPT_DETAILED".into()),
+            0..10,
+        );
+        assert!(err.is_none(), "non-forbidden translation should pass");
+    }
+
+    #[test]
+    fn test_error_propagation_must_check() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "TestPolicy".into(),
+            ErrorPolicy {
+                must_check: vec!["sqlite3_reset".into(), "sqlite3_finalize".into()],
+                ..Default::default()
+            },
+        );
+
+        // Unchecked call to must_check function -> A12003
+        let err = checker.validate_unchecked_call("sqlite3_reset", 0..10);
+        assert!(err.is_some(), "unchecked must_check call should fail");
+        assert_eq!(err.unwrap().code, "A12003");
+
+        // Non-must_check function is fine
+        let err = checker.validate_unchecked_call("sqlite3_open", 0..10);
+        assert!(err.is_none(), "non-policy function should pass");
+    }
+
+    #[test]
+    fn test_error_propagation_multiple_policies() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "PolicyA".into(),
+            ErrorPolicy {
+                must_propagate: vec!["ERR_A".into()],
+                ..Default::default()
+            },
+        );
+        checker.register_policy(
+            "PolicyB".into(),
+            ErrorPolicy {
+                must_propagate: vec!["ERR_B".into()],
+                ..Default::default()
+            },
+        );
+
+        // Both policies are checked
+        assert!(checker.is_must_propagate("ERR_A"));
+        assert!(checker.is_must_propagate("ERR_B"));
+        assert!(!checker.is_must_propagate("ERR_C"));
+    }
+
+    #[test]
+    fn test_error_propagation_empty_policy() {
+        let checker = ErrorPropagationChecker::new();
+
+        // No policies registered: everything passes
+        let err = checker.validate_catch("ANY_ERROR", ErrorAction::Swallow, 0..10);
+        assert!(err.is_none(), "no policy means no restrictions");
     }
 }
