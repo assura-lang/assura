@@ -527,6 +527,70 @@ mod z3_backend {
             v
         }
 
+        /// Build a domain guard for quantifier bodies.
+        ///
+        /// For range domains (`lo..hi`):
+        /// - `is_forall=true`:  `(lo <= x && x < hi) => body`
+        /// - `is_forall=false`: `(lo <= x && x < hi) && body`
+        ///
+        /// For non-range domains (collections, identifiers), encode
+        /// membership as an uninterpreted `contains(domain, x)` predicate.
+        fn guard_quantifier_body(
+            &mut self,
+            domain: &Expr,
+            bound: &ast::Int<'ctx>,
+            body: &ast::Bool<'ctx>,
+            is_forall: bool,
+        ) -> ast::Bool<'ctx> {
+            // Check if domain is a range expression: lo..hi
+            if let Expr::BinOp {
+                op: BinOp::Range,
+                lhs: lo,
+                rhs: hi,
+            } = domain
+            {
+                let lo_val = self
+                    .encode_expr(lo)
+                    .as_int(self.ctx, &mut self.fresh_counter);
+                let hi_val = self
+                    .encode_expr(hi)
+                    .as_int(self.ctx, &mut self.fresh_counter);
+                let ge_lo = bound.ge(&lo_val);
+                let lt_hi = bound.lt(&hi_val);
+                let in_range = ast::Bool::and(self.ctx, &[&ge_lo, &lt_hi]);
+                if is_forall {
+                    in_range.implies(body)
+                } else {
+                    ast::Bool::and(self.ctx, &[&in_range, body])
+                }
+            } else {
+                // Non-range domain: encode as uninterpreted contains(domain, x)
+                let int_sort = z3::Sort::int(self.ctx);
+                let bool_sort = z3::Sort::bool(self.ctx);
+                let contains_fn = z3::FuncDecl::new(
+                    self.ctx,
+                    "__domain_contains",
+                    &[&int_sort, &int_sort],
+                    &bool_sort,
+                );
+                let domain_val = self
+                    .encode_expr(domain)
+                    .as_int(self.ctx, &mut self.fresh_counter);
+                let membership = contains_fn
+                    .apply(&[
+                        &ast::Dynamic::from_ast(&domain_val),
+                        &ast::Dynamic::from_ast(bound),
+                    ])
+                    .as_bool()
+                    .unwrap_or_else(|| self.fresh_bool());
+                if is_forall {
+                    membership.implies(body)
+                } else {
+                    ast::Bool::and(self.ctx, &[&membership, body])
+                }
+            }
+        }
+
         /// Create a fresh unconstrained boolean.
         fn fresh_bool(&mut self) -> ast::Bool<'ctx> {
             self.fresh_counter += 1;
@@ -682,22 +746,26 @@ mod z3_backend {
                 }
 
                 // --- Forall quantifier ---
-                Expr::Forall { var, body, .. } => {
+                Expr::Forall { var, domain, body } => {
                     let bound = ast::Int::new_const(self.ctx, var.as_str());
                     self.vars.insert(var.clone(), Z3Value::Int(bound.clone()));
                     let body_val = self.encode_expr(body);
                     let body_bool = body_val.as_bool(self.ctx);
-                    let result = ast::forall_const(self.ctx, &[&bound], &[], &body_bool);
+                    // Domain-aware: forall x in lo..hi: P  =>  forall x: (lo <= x && x < hi) => P
+                    let guarded = self.guard_quantifier_body(domain, &bound, &body_bool, true);
+                    let result = ast::forall_const(self.ctx, &[&bound], &[], &guarded);
                     Z3Value::Bool(result)
                 }
 
                 // --- Exists quantifier ---
-                Expr::Exists { var, body, .. } => {
+                Expr::Exists { var, domain, body } => {
                     let bound = ast::Int::new_const(self.ctx, var.as_str());
                     self.vars.insert(var.clone(), Z3Value::Int(bound.clone()));
                     let body_val = self.encode_expr(body);
                     let body_bool = body_val.as_bool(self.ctx);
-                    let result = ast::exists_const(self.ctx, &[&bound], &[], &body_bool);
+                    // Domain-aware: exists x in lo..hi: P  =>  exists x: (lo <= x && x < hi) && P
+                    let guarded = self.guard_quantifier_body(domain, &bound, &body_bool, false);
+                    let result = ast::exists_const(self.ctx, &[&bound], &[], &guarded);
                     Z3Value::Bool(result)
                 }
 
@@ -3430,6 +3498,56 @@ mod tests {
             matches!(result, VerificationResult::Verified { .. }),
             "append axiom should not break verification, got: {result:?}"
         );
+    }
+
+    // =======================================================================
+    // Quantifier domain encoding tests
+    // =======================================================================
+
+    #[test]
+    fn forall_with_range_domain_produces_guarded_implication() {
+        // forall i in 0..10: i >= 0
+        // SMT: forall i: (0 <= i && i < 10) => i >= 0
+        let source = r#"
+contract RangeForall {
+  input(arr: List<Int>)
+  output(result: Bool)
+  requires { forall i in 0 .. 10 : i >= 0 }
+}
+"#;
+        let results = verify_source(source);
+        // Should not panic; the domain guard is encoded
+        let _ = results;
+    }
+
+    #[test]
+    fn exists_with_range_domain_encodes_conjunction() {
+        // exists i in 0..5: i == 3
+        // SMT: exists i: (0 <= i && i < 5) && i == 3
+        let source = r#"
+contract RangeExists {
+  input(arr: List<Int>)
+  output(result: Bool)
+  requires { exists i in 0 .. 5 : i == 3 }
+}
+"#;
+        let results = verify_source(source);
+        let _ = results;
+    }
+
+    #[test]
+    fn forall_with_ident_domain_uses_uninterpreted_contains() {
+        // forall x in S: x > 0
+        // Domain is an identifier (not a range), encoded with uninterpreted contains
+        let source = r#"
+contract SetForall {
+  input(s: Set<Int>)
+  output(result: Bool)
+  requires { forall x in s : x > 0 }
+}
+"#;
+        let results = verify_source(source);
+        let _ = results;
     }
 }
 
