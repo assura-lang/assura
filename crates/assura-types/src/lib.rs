@@ -923,8 +923,13 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             }
         }
 
-        // --- Cast: cannot infer target type from string yet ---
-        Expr::Cast { .. } => Ok(Type::Unknown),
+        // --- Cast: infer from target type annotation ---
+        Expr::Cast { expr: inner, ty } => {
+            // Type-check the inner expression for side effects
+            let _ = infer_expr(inner, env)?;
+            // Parse the target type from the cast annotation
+            Ok(parse_type_tokens(std::slice::from_ref(ty)))
+        }
 
         // --- Apply lemma: type-check args, result is Bool (adds assumption) ---
         Expr::Apply { args, .. } => {
@@ -22536,5 +22541,38 @@ ghost fn bad_ghost(x: Int) -> Bool
         assert!(expr_references_var(&expr, "status"));
         assert!(expr_references_var(&expr, "result"));
         assert!(!expr_references_var(&expr, "other"));
+    }
+
+    #[test]
+    fn infer_cast_returns_target_type() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Cast {
+            expr: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+            ty: "Float".into(),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
+    }
+
+    #[test]
+    fn infer_cast_to_u8() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Cast {
+            expr: Box::new(AstExpr::Literal(AstLit::Int("255".into()))),
+            ty: "U8".into(),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::U8);
+    }
+
+    #[test]
+    fn infer_cast_to_named_type() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Cast {
+            expr: Box::new(AstExpr::Ident("x".into())),
+            ty: "CustomType".into(),
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Named("CustomType".into())
+        );
     }
 }
