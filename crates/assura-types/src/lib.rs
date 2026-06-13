@@ -82,6 +82,8 @@ pub enum Type {
 pub struct TypeEnv {
     /// Maps symbol name -> Type.
     pub bindings: HashMap<std::string::String, Type>,
+    /// Maps struct type name -> { field_name -> field_type }.
+    pub struct_fields: HashMap<std::string::String, Vec<(std::string::String, Type)>>,
 }
 
 impl TypeEnv {
@@ -89,6 +91,7 @@ impl TypeEnv {
     pub fn new() -> Self {
         Self {
             bindings: HashMap::new(),
+            struct_fields: HashMap::new(),
         }
     }
 
@@ -101,6 +104,13 @@ impl TypeEnv {
     /// Look up a name in the environment.
     pub fn lookup(&self, name: &str) -> Option<&Type> {
         self.bindings.get(name)
+    }
+
+    /// Look up a field type on a struct type.
+    pub fn lookup_field(&self, struct_name: &str, field_name: &str) -> Option<&Type> {
+        self.struct_fields
+            .get(struct_name)
+            .and_then(|fields| fields.iter().find(|(n, _)| n == field_name).map(|(_, t)| t))
     }
 
     /// Number of bindings.
@@ -431,6 +441,16 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
                 // Service operations/queries only have name + clauses in the
                 // AST (no explicit params/return_ty). Their types remain as
                 // registered from the symbol table.
+            }
+            Decl::TypeDef(td) => {
+                // Register struct field types for field resolution
+                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
+                    let field_types: Vec<(String, Type)> = fields
+                        .iter()
+                        .map(|f| (f.name.clone(), parse_type_tokens(&f.ty)))
+                        .collect();
+                    env.struct_fields.insert(td.name.clone(), field_types);
+                }
             }
             _ => {}
         }
@@ -808,28 +828,80 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
         }
 
         // --- Field access ---
-        Expr::Field(receiver, _field) => {
-            // Infer the receiver type. If it is Unknown or a Named type
-            // (user-defined struct) we cannot resolve fields without a
-            // richer TypeEnv that stores struct field info, so return
-            // Unknown. We never emit A03004 here because we cannot
-            // confirm whether the field exists or not yet.
-            let _recv_ty = infer_expr(receiver, env)?;
+        Expr::Field(receiver, field) => {
+            let recv_ty = infer_expr(receiver, env)?;
+            // Try to resolve the field on the receiver's type
+            let struct_name = match &recv_ty {
+                Type::Named(name) => Some(name.as_str()),
+                Type::Refined { base, .. } => {
+                    if let Type::Named(name) = base.as_ref() {
+                        Some(name.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(sname) = struct_name
+                && let Some(field_ty) = env.lookup_field(sname, field)
+            {
+                return Ok(field_ty.clone());
+            }
+            // Common built-in fields: len/length/size/capacity on collections
+            if matches!(
+                &recv_ty,
+                Type::List(_) | Type::Sequence(_) | Type::Bytes | Type::String
+            ) && (field == "len" || field == "length" || field == "size" || field == "capacity")
+            {
+                return Ok(Type::Nat);
+            }
+            // Cannot resolve field; return Unknown (no false positive A03004)
             Ok(Type::Unknown)
         }
 
         // --- Method call ---
         Expr::MethodCall {
             receiver,
-            method: _,
+            method,
             args,
         } => {
-            // Infer receiver and argument types (to surface errors
-            // inside them) but return Unknown since full method
-            // resolution requires struct/service context.
-            let _recv_ty = infer_expr(receiver, env)?;
+            let recv_ty = infer_expr(receiver, env)?;
+            // Infer argument types to surface errors inside them
             for arg in args {
                 let _ = infer_expr(arg, env)?;
+            }
+            // Try to resolve the method as a known function in the env
+            if let Some(Type::Fn { ret, .. }) = env.lookup(method) {
+                return Ok(*ret.clone());
+            }
+            // Common collection methods with known return types
+            match &recv_ty {
+                Type::List(elem) | Type::Sequence(elem) => match method.as_str() {
+                    "len" | "length" | "size" | "count" => return Ok(Type::Nat),
+                    "get" | "first" | "last" => {
+                        return Ok(Type::Option(elem.clone()));
+                    }
+                    "contains" | "is_empty" | "any" | "all" => return Ok(Type::Bool),
+                    "push" | "append" | "remove" | "clear" => return Ok(Type::Unit),
+                    "map" | "filter" | "take" | "skip" | "reverse" | "sort" => {
+                        return Ok(recv_ty);
+                    }
+                    _ => {}
+                },
+                Type::Map(_, val) => match method.as_str() {
+                    "get" => return Ok(Type::Option(val.clone())),
+                    "contains_key" | "is_empty" => return Ok(Type::Bool),
+                    "len" | "size" => return Ok(Type::Nat),
+                    _ => {}
+                },
+                Type::Set(_) => match method.as_str() {
+                    "contains" | "is_empty" | "is_subset" | "is_superset" => {
+                        return Ok(Type::Bool);
+                    }
+                    "len" | "size" => return Ok(Type::Nat),
+                    _ => {}
+                },
+                _ => {}
             }
             Ok(Type::Unknown)
         }
@@ -13447,8 +13519,99 @@ extern fn read_bytes(n: U32) -> Bytes
         let mut env = TypeEnv::new();
         env.insert("p".into(), Type::Named("Point".into()));
         let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "x".into());
-        // Named type field access returns Unknown (no struct field info yet)
+        // Named type without struct field info returns Unknown
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_field_resolves_struct_field() {
+        let mut env = TypeEnv::new();
+        env.insert("p".into(), Type::Named("Point".into()));
+        env.struct_fields.insert(
+            "Point".into(),
+            vec![("x".into(), Type::Int), ("y".into(), Type::Int)],
+        );
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "x".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_field_unknown_field_on_known_struct() {
+        let mut env = TypeEnv::new();
+        env.insert("p".into(), Type::Named("Point".into()));
+        env.struct_fields
+            .insert("Point".into(), vec![("x".into(), Type::Int)]);
+        // Accessing unknown field returns Unknown (lenient, no A03004 yet)
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "z".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_field_collection_len() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "len".into());
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
+    }
+
+    #[test]
+    fn infer_method_collection_contains() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("xs".into())),
+            method: "contains".into(),
+            args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_method_list_get() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("xs".into())),
+            method: "get".into(),
+            args: vec![AstExpr::Literal(AstLit::Int("0".into()))],
+        };
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn field_resolution_from_ast() {
+        let src = r#"
+type Point {
+  x: Int
+  y: Float
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved).expect("type_check should succeed");
+        // NOTE: without field separators (comma/semicolon), the parser groups
+        // all tokens after the first colon into one field. Use commas.
+        assert_eq!(typed.type_env.lookup_field("Point", "x"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn field_resolution_with_commas() {
+        let src = r#"
+type Point {
+  x: Int,
+  y: Float
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved).expect("type_check should succeed");
+        assert_eq!(typed.type_env.lookup_field("Point", "x"), Some(&Type::Int));
+        assert_eq!(
+            typed.type_env.lookup_field("Point", "y"),
+            Some(&Type::Float)
+        );
+        assert_eq!(typed.type_env.lookup_field("Point", "z"), None);
     }
 
     #[test]
