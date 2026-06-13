@@ -668,6 +668,7 @@ mod z3_backend {
                 | Expr::Index { .. }
                 | Expr::Cast { .. }
                 | Expr::List(_)
+                | Expr::Match { .. }
                 | Expr::Block(_) => Z3Value::Int(self.fresh_int()),
             }
         }
@@ -1024,6 +1025,7 @@ mod z3_backend {
             ClauseKind::Rule => "rule",
             ClauseKind::DataFlow => "data_flow",
             ClauseKind::MustNot => "must_not",
+            ClauseKind::Decreases => "decreases",
             ClauseKind::Other(s) => s.as_str(),
         };
         format!("{parent_name}::{kind_str}")

@@ -399,6 +399,29 @@ fn expr_to_rust(expr: &Expr) -> String {
             // Lemma applications are erased at runtime; emit comment.
             format!("/* lemma {lemma_name} applied */")
         }
+        Expr::Match { scrutinee, arms } => {
+            let scrut = expr_to_rust(scrutinee);
+            let arms_code: Vec<String> = arms
+                .iter()
+                .map(|arm| {
+                    let pat = match &arm.pattern {
+                        assura_parser::ast::Pattern::Ident(name) => name.clone(),
+                        assura_parser::ast::Pattern::Wildcard => "_".into(),
+                        assura_parser::ast::Pattern::Literal(lit) => match lit {
+                            Literal::Int(s) | Literal::Float(s) => s.clone(),
+                            Literal::Str(s) => format!("\"{s}\""),
+                            Literal::Bool(b) => b.to_string(),
+                        },
+                        assura_parser::ast::Pattern::Constructor { name, .. } => {
+                            format!("{name}(..)")
+                        }
+                    };
+                    let body = expr_to_rust(&arm.body);
+                    format!("    {pat} => {body},")
+                })
+                .collect();
+            format!("match {} {{\n{}\n}}", scrut, arms_code.join("\n"))
+        }
         Expr::Raw(tokens) => {
             let mapped: Vec<&str> = tokens.iter().map(|t| map_type_token(t)).collect();
             smart_join_type_tokens(&mapped)
@@ -500,6 +523,12 @@ fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String)>) {
             // Apply is erased but may reference old() in arguments.
             for a in args {
                 collect_old_exprs_inner(a, out);
+            }
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_old_exprs_inner(scrutinee, out);
+            for arm in arms {
+                collect_old_exprs_inner(&arm.body, out);
             }
         }
         // Leaf nodes: no old() inside

@@ -41,6 +41,8 @@ pub enum Token {
     Errors,
     #[token("evolution")]
     Evolution,
+    #[token("extends")]
+    Extends,
     #[token("exists")]
     Exists,
     #[token("extern")]
@@ -65,6 +67,8 @@ pub enum Token {
     Invariant,
     #[token("is")]
     Is,
+    #[token("match")]
+    Match,
     #[token("module")]
     Module,
     #[token("must-not")]
@@ -81,6 +85,8 @@ pub enum Token {
     Or,
     #[token("output")]
     Output,
+    #[token("partial")]
+    Partial,
     #[token("performance")]
     Performance,
     #[token("privacy")]
@@ -135,6 +141,8 @@ pub enum Token {
     Axiom,
     #[token("cases")]
     Cases,
+    #[token("decreases")]
+    Decreases,
     #[token("define")]
     Define,
     #[token("eventually")]

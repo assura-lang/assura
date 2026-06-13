@@ -3,5 +3,5 @@ source: crates/assura-parser/tests/snapshots.rs
 expression: "&error_messages"
 ---
 [
-    "found \"LBrace\" but expected one of \"ConstantTime\", \"Errors\", end of input, \"Contract\", \"Opaque\", \"LAngle\", \"Define\", \"Requires\", \"Rule\", \"Fn\", \"Ensures\", \"Bounds\", \"Reads\", \"Service\", \"DataFlow\", \"Axiom\", \"MustNot\", \"Colon\", \"MustBe\", \"Invariant\", \"Property\", \"Lemma\", \"Type\", \"Output\", \"Enum\", \"Extern\", \"VerifyAgainst\", \"Equals\", \"Hash\", \"Pure\", \"Input\", \"Spec\", \"Ghost\", \"Effects\", \"Modifies\"",
+    "found \"LBrace\" but expected one of \"Equals\", \"Errors\", \"Colon\", \"Axiom\", end of input, \"MustBe\", \"Type\", \"Contract\", \"MustNot\", \"Bounds\", \"Requires\", \"Ensures\", \"Pure\", \"Define\", \"Service\", \"Invariant\", \"Modifies\", \"Fn\", \"Rule\", \"Extern\", \"DataFlow\", \"VerifyAgainst\", \"ConstantTime\", \"Spec\", \"Input\", \"Output\", \"Opaque\", \"Enum\", \"Property\", \"Hash\", \"Decreases\", \"Reads\", \"Ghost\", \"Effects\", \"LAngle\", \"Lemma\"",
 ]

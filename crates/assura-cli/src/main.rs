@@ -1711,6 +1711,32 @@ fn expr_to_string(expr: &Expr) -> String {
             let args_s: Vec<String> = args.iter().map(expr_to_string).collect();
             format!("apply {lemma_name}({})", args_s.join(", "))
         }
+        Expr::Match { scrutinee, arms } => {
+            let scrut = expr_to_string(scrutinee);
+            let arms_s: Vec<String> = arms
+                .iter()
+                .map(|arm| {
+                    let pat = match &arm.pattern {
+                        assura_parser::ast::Pattern::Ident(name) => name.clone(),
+                        assura_parser::ast::Pattern::Wildcard => "_".into(),
+                        assura_parser::ast::Pattern::Literal(lit) => format!("{lit:?}"),
+                        assura_parser::ast::Pattern::Constructor { name, fields } => {
+                            let fs: Vec<String> = fields
+                                .iter()
+                                .map(|f| match f {
+                                    assura_parser::ast::Pattern::Ident(n) => n.clone(),
+                                    assura_parser::ast::Pattern::Wildcard => "_".into(),
+                                    other => format!("{other:?}"),
+                                })
+                                .collect();
+                            format!("{name}({})", fs.join(", "))
+                        }
+                    };
+                    format!("{pat} => {}", expr_to_string(&arm.body))
+                })
+                .collect();
+            format!("match {scrut} {{ {} }}", arms_s.join(", "))
+        }
         Expr::Raw(tokens) => tokens.join(" "),
     }
 }

@@ -662,6 +662,16 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             Ok(Type::Unit)
         }
 
+        // --- Match: infer type from first arm body (all arms should agree) ---
+        Expr::Match { scrutinee, arms } => {
+            let _ = infer_expr(scrutinee, env)?;
+            if let Some(first) = arms.first() {
+                infer_expr(&first.body, env)
+            } else {
+                Ok(Type::Unknown)
+            }
+        }
+
         // --- Block / Raw: cannot infer ---
         Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
     }
@@ -1127,6 +1137,12 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
 
     // T108: collection contracts validation (sort, filter, map, reverse, deduplicate)
     errors.extend(run_collection_contract_checks(&resolved.source));
+
+    // T017: match expression exhaustiveness checking
+    errors.extend(run_match_exhaustiveness_checks(
+        &resolved.source,
+        &resolved.symbols,
+    ));
 
     if !errors.is_empty() {
         return Err(errors);
@@ -2165,6 +2181,179 @@ pub fn check_exhaustiveness(
 }
 
 // ---------------------------------------------------------------------------
+// Match exhaustiveness wiring (T017)
+// ---------------------------------------------------------------------------
+
+/// Walk all expressions in the source file and check match expressions
+/// for exhaustiveness against known enum types in the symbol table.
+fn run_match_exhaustiveness_checks(
+    source: &assura_parser::ast::SourceFile,
+    symbols: &assura_resolve::SymbolTable,
+) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+
+    // Build a map of enum name -> variant names
+    let mut enum_variants: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for decl in &source.decls {
+        if let Decl::EnumDef(e) = &decl.node {
+            enum_variants.insert(
+                e.name.clone(),
+                e.variants.iter().map(|v| v.name.clone()).collect(),
+            );
+        }
+    }
+
+    // Walk all clause bodies looking for match expressions
+    for decl in &source.decls {
+        let clauses: &[assura_parser::ast::Clause] = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Extern(e) => &e.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            check_match_exhaustiveness_expr(
+                &clause.body,
+                &decl.span,
+                &enum_variants,
+                symbols,
+                &mut errors,
+            );
+        }
+    }
+
+    errors
+}
+
+/// Recursively walk an expression looking for match expressions.
+fn check_match_exhaustiveness_expr(
+    expr: &Expr,
+    span: &std::ops::Range<usize>,
+    enum_variants: &std::collections::HashMap<String, Vec<String>>,
+    _symbols: &assura_resolve::SymbolTable,
+    errors: &mut Vec<TypeError>,
+) {
+    match expr {
+        Expr::Match { scrutinee, arms } => {
+            // Recurse into scrutinee and arm bodies
+            check_match_exhaustiveness_expr(scrutinee, span, enum_variants, _symbols, errors);
+            for arm in arms {
+                check_match_exhaustiveness_expr(&arm.body, span, enum_variants, _symbols, errors);
+            }
+
+            // Try to determine the enum type from the scrutinee
+            if let Expr::Ident(name) = scrutinee.as_ref()
+                && let Some(variants) = enum_variants.get(name)
+            {
+                    let patterns: Vec<Pattern> = arms
+                        .iter()
+                        .map(|arm| match &arm.pattern {
+                            assura_parser::ast::Pattern::Ident(n) => Pattern::Variant(n.clone()),
+                            assura_parser::ast::Pattern::Wildcard => Pattern::Wildcard,
+                            assura_parser::ast::Pattern::Literal(lit) => {
+                                Pattern::Literal(lit.clone())
+                            }
+                            assura_parser::ast::Pattern::Constructor { name, .. } => {
+                                Pattern::Variant(name.clone())
+                            }
+                        })
+                        .collect();
+
+                    if let Some(missing) = check_exhaustiveness(&patterns, variants) {
+                        errors.push(TypeError {
+                            code: "A10001".into(),
+                            message: format!(
+                                "non-exhaustive match: missing variants {}",
+                                missing.join(", ")
+                            ),
+                            span: span.clone(),
+                            secondary: None,
+                        });
+                    }
+            }
+
+            // Even without known enum type, check that there is at least
+            // a wildcard if we cannot determine the type
+            let has_wildcard = arms
+                .iter()
+                .any(|arm| matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard));
+            let has_enum_coverage = if let Expr::Ident(name) = scrutinee.as_ref() {
+                enum_variants.contains_key(name)
+            } else {
+                false
+            };
+            if !has_wildcard && !has_enum_coverage && !arms.is_empty() {
+                // Warn about match without wildcard on unknown scrutinee type
+                errors.push(TypeError {
+                    code: "A10002".into(),
+                    message: "match expression on unknown type has no wildcard `_` arm; \
+                              consider adding a catch-all pattern"
+                        .into(),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        // Recurse into sub-expressions
+        Expr::BinOp { lhs, rhs, .. } => {
+            check_match_exhaustiveness_expr(lhs, span, enum_variants, _symbols, errors);
+            check_match_exhaustiveness_expr(rhs, span, enum_variants, _symbols, errors);
+        }
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Paren(e)
+        | Expr::Ghost(e)
+        | Expr::Field(e, _)
+        | Expr::Cast { expr: e, .. } => {
+            check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
+        }
+        Expr::Call { func, args } => {
+            check_match_exhaustiveness_expr(func, span, enum_variants, _symbols, errors);
+            for a in args {
+                check_match_exhaustiveness_expr(a, span, enum_variants, _symbols, errors);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for a in args {
+                check_match_exhaustiveness_expr(a, span, enum_variants, _symbols, errors);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            check_match_exhaustiveness_expr(receiver, span, enum_variants, _symbols, errors);
+            for a in args {
+                check_match_exhaustiveness_expr(a, span, enum_variants, _symbols, errors);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
+            check_match_exhaustiveness_expr(index, span, enum_variants, _symbols, errors);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            check_match_exhaustiveness_expr(cond, span, enum_variants, _symbols, errors);
+            check_match_exhaustiveness_expr(then_branch, span, enum_variants, _symbols, errors);
+            if let Some(e) = else_branch {
+                check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
+            }
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            check_match_exhaustiveness_expr(domain, span, enum_variants, _symbols, errors);
+            check_match_exhaustiveness_expr(body, span, enum_variants, _symbols, errors);
+        }
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
+            }
+        }
+        Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Usage tracking for linear types (T031)
 // ---------------------------------------------------------------------------
 
@@ -2531,6 +2720,12 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
             // Arguments are verified but do not count as linear uses.
             let _ = args;
         }
+        Expr::Match { scrutinee, arms } => {
+            check_expr_linearity_inner(scrutinee, ctx, errors);
+            for arm in arms {
+                check_expr_linearity_inner(&arm.body, ctx, errors);
+            }
+        }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
         }
@@ -2859,6 +3054,12 @@ pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
         }
         Expr::Apply { .. } => {
             // Apply expressions are erased at runtime; do not count usages.
+        }
+        Expr::Match { scrutinee, arms } => {
+            expr_usages(scrutinee, tracker);
+            for arm in arms {
+                expr_usages(&arm.body, tracker);
+            }
         }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
@@ -3390,6 +3591,12 @@ fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
                 collect_old_refs_inner(arg, refs);
             }
         }
+        Expr::Match { scrutinee, arms } => {
+            collect_old_refs_inner(scrutinee, refs);
+            for arm in arms {
+                collect_old_refs_inner(&arm.body, refs);
+            }
+        }
         Expr::Block(exprs) => {
             for e in exprs {
                 collect_old_refs_inner(e, refs);
@@ -3475,6 +3682,12 @@ fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
         Expr::Apply { args, .. } => {
             for arg in args {
                 collect_idents_inner(arg, refs);
+            }
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_idents_inner(scrutinee, refs);
+            for arm in arms {
+                collect_idents_inner(&arm.body, refs);
             }
         }
         Expr::Block(exprs) => {
@@ -4096,6 +4309,12 @@ pub fn expr_references_var(expr: &Expr, var_name: &str) -> bool {
         Expr::Block(exprs) => exprs.iter().any(|e| expr_references_var(e, var_name)),
         Expr::Ghost(inner) | Expr::Cast { expr: inner, .. } => expr_references_var(inner, var_name),
         Expr::Apply { args, .. } => args.iter().any(|a| expr_references_var(a, var_name)),
+        Expr::Match { scrutinee, arms } => {
+            expr_references_var(scrutinee, var_name)
+                || arms
+                    .iter()
+                    .any(|arm| expr_references_var(&arm.body, var_name))
+        }
         Expr::Raw(tokens) => tokens.iter().any(|t| t.trim() == var_name),
         Expr::Literal(_) => false,
     }
@@ -4303,6 +4522,13 @@ impl TaintChecker {
             Expr::Apply { args, .. } => args.iter().fold(TaintLabel::Trusted, |a, arg| {
                 std::cmp::min(a, self.infer_taint(arg))
             }),
+            Expr::Match { scrutinee, arms } => {
+                let mut r = self.infer_taint(scrutinee);
+                for arm in arms {
+                    r = std::cmp::min(r, self.infer_taint(&arm.body));
+                }
+                r
+            }
             Expr::Ghost(_) | Expr::Raw(_) => TaintLabel::Trusted,
         }
     }
@@ -4433,6 +4659,12 @@ impl TaintChecker {
             Expr::Apply { args, .. } => {
                 for arg in args {
                     self.check_expr_inner(arg, span, errors);
+                }
+            }
+            Expr::Match { scrutinee, arms } => {
+                self.check_expr_inner(scrutinee, span, errors);
+                for arm in arms {
+                    self.check_expr_inner(&arm.body, span, errors);
                 }
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
@@ -6603,6 +6835,14 @@ impl InfoFlowChecker {
                 std::cmp::max(a, self.infer_label(arg))
             }),
 
+            Expr::Match { scrutinee, arms } => {
+                let mut r = self.infer_label(scrutinee);
+                for arm in arms {
+                    r = std::cmp::max(r, self.infer_label(&arm.body));
+                }
+                r
+            }
+
             Expr::Ghost(_) | Expr::Raw(_) => SecurityLabel::Public,
         }
     }
@@ -6712,6 +6952,15 @@ impl InfoFlowChecker {
                     self.check_expr_inner(arg, span, pc_label, errors);
                 }
             }
+            Expr::Match { scrutinee, arms } => {
+                self.check_expr_inner(scrutinee, span, pc_label, errors);
+                // Each arm body executes under the PC label of the scrutinee
+                let scrut_label = self.infer_label(scrutinee);
+                let elevated = std::cmp::max(pc_label, scrut_label);
+                for arm in arms {
+                    self.check_expr_inner(&arm.body, span, elevated, errors);
+                }
+            }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
         }
     }
@@ -6809,7 +7058,10 @@ impl TotalityChecker {
         let decreases_exprs: Vec<&Expr> = fn_def
             .clauses
             .iter()
-            .filter(|c| matches!(&c.kind, ClauseKind::Other(s) if s == "decreases"))
+            .filter(|c| {
+                c.kind == ClauseKind::Decreases
+                    || matches!(&c.kind, ClauseKind::Other(s) if s == "decreases")
+            })
             .map(|c| &c.body)
             .collect();
 
@@ -6881,6 +7133,12 @@ impl TotalityChecker {
             Expr::Apply { args, .. } => args
                 .iter()
                 .any(|a| self.expr_contains_recursive_call(a, fn_name)),
+            Expr::Match { scrutinee, arms } => {
+                self.expr_contains_recursive_call(scrutinee, fn_name)
+                    || arms
+                        .iter()
+                        .any(|arm| self.expr_contains_recursive_call(&arm.body, fn_name))
+            }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => false,
         }
     }
@@ -6956,6 +7214,12 @@ impl TotalityChecker {
             Expr::Apply { args, .. } => {
                 for a in args {
                     self.collect_recursive_call_args(a, fn_name, out);
+                }
+            }
+            Expr::Match { scrutinee, arms } => {
+                self.collect_recursive_call_args(scrutinee, fn_name, out);
+                for arm in arms {
+                    self.collect_recursive_call_args(&arm.body, fn_name, out);
                 }
             }
             Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}

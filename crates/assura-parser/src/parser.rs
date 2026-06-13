@@ -117,6 +117,7 @@ fn tok_to_str(t: &Token) -> String {
         Token::Errors => "errors".into(),
         Token::Evolution => "evolution".into(),
         Token::Exists => "exists".into(),
+        Token::Extends => "extends".into(),
         Token::Extern => "extern".into(),
         Token::False => "false".into(),
         Token::Fn => "fn".into(),
@@ -128,6 +129,7 @@ fn tok_to_str(t: &Token) -> String {
         Token::Input => "input".into(),
         Token::Invariant => "invariant".into(),
         Token::Is => "is".into(),
+        Token::Match => "match".into(),
         Token::Module => "module".into(),
         Token::MustNot => "must-not".into(),
         Token::Not => "not".into(),
@@ -136,6 +138,7 @@ fn tok_to_str(t: &Token) -> String {
         Token::Operation => "operation".into(),
         Token::Or => "or".into(),
         Token::Output => "output".into(),
+        Token::Partial => "partial".into(),
         Token::Performance => "performance".into(),
         Token::Privacy => "privacy".into(),
         Token::Profile => "profile".into(),
@@ -163,6 +166,7 @@ fn tok_to_str(t: &Token) -> String {
         Token::AutoTrigger => "auto_trigger".into(),
         Token::Axiom => "axiom".into(),
         Token::Cases => "cases".into(),
+        Token::Decreases => "decreases".into(),
         Token::Define => "define".into(),
         Token::Eventually => "eventually".into(),
         Token::EventuallyAlways => "eventually_always".into(),
@@ -353,6 +357,7 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
         just(Token::Rule).to(ClauseKind::Rule),
         just(Token::DataFlow).to(ClauseKind::DataFlow),
         just(Token::MustNot).to(ClauseKind::MustNot),
+        just(Token::Decreases).to(ClauseKind::Decreases),
         // Keywords that now have dedicated tokens but act as clause kinds
         just(Token::Ghost).to(ClauseKind::Other("ghost".into())),
         just(Token::Spec).to(ClauseKind::Other("spec".into())),
@@ -433,6 +438,7 @@ fn is_clause_stopper(t: &Token) -> bool {
             | Token::VerifyAgainst
             | Token::Reads
             | Token::Bounds
+            | Token::Decreases
             | Token::Operation
             | Token::Query
             | Token::States
@@ -562,6 +568,46 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             )
             .map(|(lemma_name, args)| Expr::Apply { lemma_name, args });
 
+        // match expr { pattern => body, ... }
+        let pattern = {
+            let wildcard = filter_map(|span, tok| match &tok {
+                Token::Ident(s) if s == "_" => Ok(Pattern::Wildcard),
+                _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+            });
+            let lit_pattern = choice((
+                filter_map(|span, tok| match tok {
+                    Token::Int(s) => Ok(Pattern::Literal(Literal::Int(s))),
+                    _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+                }),
+                filter_map(|span, tok| match tok {
+                    Token::String(s) => Ok(Pattern::Literal(Literal::Str(s))),
+                    _ => Err(Simple::expected_input_found(span, [], Some(tok))),
+                }),
+                just(Token::True).to(Pattern::Literal(Literal::Bool(true))),
+                just(Token::False).to(Pattern::Literal(Literal::Bool(false))),
+            ));
+            let ident_pattern = ident().map(Pattern::Ident);
+            choice((wildcard, lit_pattern, ident_pattern))
+        };
+
+        let match_arm = pattern
+            .then_ignore(just(Token::FatArrow))
+            .then(expr.clone())
+            .map(|(pattern, body)| MatchArm { pattern, body });
+
+        let match_expr = just(Token::Match)
+            .ignore_then(expr.clone())
+            .then(
+                match_arm
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map(|(scrutinee, arms)| Expr::Match {
+                scrutinee: Box::new(scrutinee),
+                arms,
+            });
+
         // Identifier (plain)
         let ident_expr = ident().map(Expr::Ident);
 
@@ -606,6 +652,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             list_expr,
             ghost_block,
             apply_expr,
+            match_expr,
             keyword_as_value,
             ident_expr,
         ))

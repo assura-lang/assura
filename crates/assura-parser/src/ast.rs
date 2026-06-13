@@ -86,6 +86,7 @@ pub enum ClauseKind {
     Rule,
     DataFlow,
     MustNot,
+    Decreases,
     Other(String),
 }
 
@@ -151,8 +152,31 @@ pub enum Expr {
     Ghost(Box<Expr>),
     /// Apply a lemma: `apply lemma_name(args)` — adds lemma ensures as assumption
     Apply { lemma_name: String, args: Vec<Expr> },
+    /// Match expression: `match expr { pattern => body, ... }`
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
     /// Unparsed token sequence (fallback)
     Raw(Vec<String>),
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    /// A simple identifier or enum variant name
+    Ident(String),
+    /// A literal value
+    Literal(Literal),
+    /// Wildcard pattern `_`
+    Wildcard,
+    /// Constructor pattern: `Variant(p1, p2)`
+    Constructor { name: String, fields: Vec<Pattern> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
