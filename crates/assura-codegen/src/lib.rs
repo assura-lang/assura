@@ -830,6 +830,44 @@ fn generate_enum_def(e: &EnumDef, code: &mut String) {
         code.push_str("    }\n");
         code.push_str("}\n\n");
     }
+
+    // Generate exhaustiveness check: a match with no wildcard arm.
+    // Rust's compiler will error if a variant is added but not covered,
+    // catching missing cases at compile time rather than runtime.
+    if !e.variants.is_empty() && e.type_params.is_empty() {
+        code.push_str(&format!(
+            "/// Compile-time exhaustiveness check for `{}`.\n",
+            e.name
+        ));
+        code.push_str(
+            "/// Adding a variant without updating all match sites causes a build error.\n",
+        );
+        code.push_str(&format!(
+            "#[allow(dead_code)]\nfn __exhaustive_check_{}(v: &{}) -> &'static str {{\n",
+            e.name.to_lowercase(),
+            e.name
+        ));
+        code.push_str("    match v {\n");
+        for v in &e.variants {
+            if v.fields.is_empty() {
+                code.push_str(&format!(
+                    "        {}::{} => \"{}\",\n",
+                    e.name, v.name, v.name
+                ));
+            } else {
+                let underscores: Vec<&str> = (0..v.fields.len()).map(|_| "_").collect();
+                code.push_str(&format!(
+                    "        {}::{}({}) => \"{}\",\n",
+                    e.name,
+                    v.name,
+                    underscores.join(", "),
+                    v.name
+                ));
+            }
+        }
+        code.push_str("    }\n");
+        code.push_str("}\n\n");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2849,6 +2887,67 @@ contract HasPositive {
         assert!(
             result.contains("__result"),
             "result keyword in raw tokens should become __result: {result}"
+        );
+    }
+
+    #[test]
+    fn enum_generates_exhaustiveness_check() {
+        let project = codegen_ok(
+            r#"
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("__exhaustive_check_color"),
+            "enum should generate exhaustiveness check function: {lib}"
+        );
+        assert!(
+            lib.contains("Color::Red =>"),
+            "exhaustiveness check should cover Red variant: {lib}"
+        );
+        assert!(
+            lib.contains("Color::Green =>"),
+            "exhaustiveness check should cover Green variant: {lib}"
+        );
+        assert!(
+            lib.contains("Color::Blue =>"),
+            "exhaustiveness check should cover Blue variant: {lib}"
+        );
+        // Should NOT have a wildcard arm
+        assert!(
+            !lib.contains("_ =>"),
+            "exhaustiveness check must not have a wildcard arm: {lib}"
+        );
+    }
+
+    #[test]
+    fn enum_with_data_generates_exhaustiveness_check() {
+        let project = codegen_ok(
+            r#"
+enum Value {
+    Num(Int),
+    Text(String),
+    Empty,
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("__exhaustive_check_value"),
+            "data enum should generate exhaustiveness check: {lib}"
+        );
+        assert!(
+            lib.contains("Value::Num(_)"),
+            "data variant should use wildcard field: {lib}"
+        );
+        assert!(
+            lib.contains("Value::Empty =>"),
+            "unit variant should be covered: {lib}"
         );
     }
 }
