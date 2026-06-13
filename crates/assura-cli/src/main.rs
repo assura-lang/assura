@@ -67,6 +67,16 @@ fn main() {
         .first()
         .is_some_and(|a| a.as_str() == "explain");
 
+    // Handle --help, -h, and --version first
+    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+        print_help();
+        return;
+    }
+    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
+        println!("assura {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     if is_check {
         run_check(&args);
     } else if is_build {
@@ -78,6 +88,34 @@ fn main() {
     } else {
         run_legacy(&args);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Help
+// ---------------------------------------------------------------------------
+
+fn print_help() {
+    println!(
+        "assura {} - The Assura contract compiler\n\
+         \n\
+         USAGE:\n\
+         \x20   assura <file.assura>                Parse and check a contract file\n\
+         \x20   assura check <file> [OPTIONS]       Full pipeline: parse, resolve, type-check, verify\n\
+         \x20   assura build <file>                  Generate Rust code from a contract file\n\
+         \x20   assura init <name>                   Create a new Assura project\n\
+         \x20   assura explain <code>                Explain an error code (e.g., A03001)\n\
+         \n\
+         OPTIONS:\n\
+         \x20   --ast                               Dump the AST (with default command)\n\
+         \x20   --tokens                            Dump the token stream (with default command)\n\
+         \x20   --json                              Output diagnostics as JSON\n\
+         \x20   --human                             Output diagnostics as rich terminal (default)\n\
+         \x20   --layer <0|1>                       Verification layer (0=structural, 1=SMT)\n\
+         \x20   --output <dir>                      Output directory for generated code (build)\n\
+         \x20   -h, --help                          Show this help message\n\
+         \x20   -V, --version                       Show version",
+        env!("CARGO_PKG_VERSION")
+    );
 }
 
 // ---------------------------------------------------------------------------
