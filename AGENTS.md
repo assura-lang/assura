@@ -45,25 +45,48 @@ assura/
         lexer.rs              # Token definitions, logos derive
         ast.rs                # AST node types
         parser.rs             # chumsky parser combinators
-    assura-cli/               # CLI binary (assura check/build/init)
+    assura-cli/               # CLI binary (assura check/build/init/explain)
       src/
         main.rs               # Entry point, error reporting (ariadne)
-    assura-resolve/           # [future] Name resolution, symbol table
-    assura-types/             # [future] Type checker (Layer 0)
-    assura-smt/               # [future] Z3/CVC5 integration (Layer 1-3)
-    assura-codegen/           # [future] Rust code generation
+    assura-resolve/           # Name resolution, symbol table, scopes
+      src/
+        lib.rs
+    assura-types/             # Type checker (Layer 0): 50+ domain checkers
+      src/
+        lib.rs
+    assura-smt/               # Z3 SMT integration (Layer 1-3), IR, caching
+      src/
+        lib.rs
+    assura-codegen/           # Rust code generation, backend config
+      src/
+        lib.rs
+    assura-lsp/               # LSP server (tower-lsp)
+      src/
+        lib.rs
+        main.rs
+    assura-server/            # gRPC (tonic) + HTTP (axum) API server
+      proto/
+        assura.proto
+      src/
+        main.rs
   docs/
     SPECIFICATION.md          # Language specification (source of truth)
     INVESTIGATION.md          # Competitive analysis, architecture decisions
     ROADMAP.md                # High-level phased roadmap
     LANDING.md                # Marketing content
+    TUTORIAL.md               # Getting started tutorial
+    INTERNALS.md              # Architecture and internals documentation
   demos/                      # Example .assura contract files
     libwebp-huffman.assura    # CVE-2023-4863 prevention demo
     zlib-inflate.assura       # CVE-2022-37434 prevention demo
     mbedtls-x509.assura       # 4 CVSS 9.8 CVE prevention demo
+  editors/
+    vscode/                   # VS Code extension (TextMate + LSP)
+    tree-sitter-assura/       # tree-sitter grammar for editors
   tests/
     fixtures/                 # Test .assura files
       test_basic.assura
+    e2e/                      # End-to-end verification test contracts
 ```
 
 New crates are added as `crates/assura-{name}/`. Every crate uses

@@ -90,6 +90,12 @@ cargo run -- --ast demos/libwebp-huffman.assura
 
 # Dump tokens
 cargo run -- --tokens demos/libwebp-huffman.assura
+
+# Explain an error code
+cargo run -- explain A03001
+
+# Build and generate Rust code
+cargo run -- build demos/libwebp-huffman.assura
 ```
 
 ## Example: CVE Prevention
@@ -114,11 +120,19 @@ contract.
 | **CONC** Concurrency | Shared memory protocols, callback re-entrancy, determinism, lock ordering, temporal deadlines, weak memory ordering |
 | **NUM** Numerical and Precision | Numerical precision contracts, precomputed table verification |
 | **PERF** Performance | Unsafe escape with proof obligation, complexity bounds |
+| **FMT** Binary Formats | Binary/bit-level format contracts, string encoding, codec dispatch, checksum, protocol grammar |
+| **STOR** Storage | Crash recovery, page cache, MVCC, rollback, monotonic state, failure models |
+| **NUM** Numerical | Numerical precision, precomputed table verification |
+| **PLAT** Platform | Platform abstraction, feature flags, resource limits |
+| **TEST** Testing | Test generation from contracts, behavioral equivalence, multi-pass refinement |
+| **MISC** Miscellaneous | Incremental contracts, scoped invariant suspension |
 
 A project activates only the categories it needs. CORE is always on.
 
 ## Documentation
 
+- [Tutorial](docs/TUTORIAL.md) (getting started, first contract, verification layers)
+- [Internals](docs/INTERNALS.md) (architecture, crate map, SMT encoding)
 - [Language Specification](docs/SPECIFICATION.md) (195 EBNF productions, 50 verification features, ~278 error codes)
 - [Implementation Roadmap](docs/ROADMAP.md)
 - [Competitive Analysis](docs/INVESTIGATION.md)

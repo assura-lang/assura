@@ -51,7 +51,11 @@ pub struct BackendConfig {
 
 impl Default for BackendConfig {
     fn default() -> Self {
-        Self { backend: CodegenBackend::Rustc, opt_level: 2, debug_info: false }
+        Self {
+            backend: CodegenBackend::Rustc,
+            opt_level: 2,
+            debug_info: false,
+        }
     }
 }
 

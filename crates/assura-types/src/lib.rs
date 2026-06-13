@@ -3662,10 +3662,7 @@ impl FfiBoundaryChecker {
     }
 
     /// Check file-level FFI usage: all externs should be audited.
-    pub fn check_file(
-        &self,
-        externs: &[(String, bool, bool, Range<usize>)],
-    ) -> Vec<FfiError> {
+    pub fn check_file(&self, externs: &[(String, bool, bool, Range<usize>)]) -> Vec<FfiError> {
         let mut errors = Vec::new();
         for (name, has_boundary, has_contract, span) in externs {
             errors.extend(self.check_extern_decl(name, *has_boundary, *has_contract, span));
@@ -3748,8 +3745,7 @@ impl InterfaceChecker {
         interface_name: String,
         method_names: Vec<String>,
     ) {
-        self.impls
-            .insert((impl_type, interface_name), method_names);
+        self.impls.insert((impl_type, interface_name), method_names);
     }
 
     /// Check that an implementation satisfies all interface methods.
@@ -3838,9 +3834,7 @@ impl InterfaceChecker {
                 span: span.clone(),
             });
         } else {
-            for (i, (impl_t, iface_t)) in
-                impl_params.iter().zip(&method.param_types).enumerate()
-            {
+            for (i, (impl_t, iface_t)) in impl_params.iter().zip(&method.param_types).enumerate() {
                 if impl_t != iface_t {
                     errors.push(InterfaceError {
                         code: "A13002".into(),
@@ -3960,11 +3954,7 @@ impl ConstantTimeChecker {
 
     /// Check that branches do not depend on secret data.
     /// - A14001: branch condition depends on secret data (timing leak)
-    pub fn check_branch(
-        &self,
-        condition: &Expr,
-        span: &Range<usize>,
-    ) -> Vec<ConstantTimeError> {
+    pub fn check_branch(&self, condition: &Expr, span: &Range<usize>) -> Vec<ConstantTimeError> {
         let mut errors = Vec::new();
         if self.references_secret(condition) {
             errors.push(ConstantTimeError {
@@ -3980,11 +3970,7 @@ impl ConstantTimeChecker {
 
     /// Check that array indexing does not depend on secret data.
     /// - A14002: secret-dependent array index (cache timing leak)
-    pub fn check_index(
-        &self,
-        index_expr: &Expr,
-        span: &Range<usize>,
-    ) -> Vec<ConstantTimeError> {
+    pub fn check_index(&self, index_expr: &Expr, span: &Range<usize>) -> Vec<ConstantTimeError> {
         let mut errors = Vec::new();
         if self.references_secret(index_expr) {
             errors.push(ConstantTimeError {
@@ -3999,14 +3985,15 @@ impl ConstantTimeChecker {
     }
 
     /// Check a full expression for constant-time violations.
-    pub fn check_expr(
-        &self,
-        expr: &Expr,
-        span: &Range<usize>,
-    ) -> Vec<ConstantTimeError> {
+    pub fn check_expr(&self, expr: &Expr, span: &Range<usize>) -> Vec<ConstantTimeError> {
         let mut errors = Vec::new();
         match expr {
-            Expr::If { cond, then_branch, else_branch, .. } => {
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 errors.extend(self.check_branch(cond, span));
                 errors.extend(self.check_expr(then_branch, span));
                 if let Some(e) = else_branch {
@@ -4156,7 +4143,9 @@ impl StructuralInvariantChecker {
 
         let fields = &self.recursive_types[type_name];
         match kind {
-            InvariantKind::TreeBalance { .. } | InvariantKind::BstOrdering | InvariantKind::HeapProperty { .. } => {
+            InvariantKind::TreeBalance { .. }
+            | InvariantKind::BstOrdering
+            | InvariantKind::HeapProperty { .. } => {
                 // Tree invariants need at least 2 recursive fields (left, right)
                 if fields.len() < 2 {
                     errors.push(StructuralInvariantError {
@@ -4294,11 +4283,7 @@ impl SharedMemChecker {
 
     /// Check that a read access is valid for the current mode.
     /// - A18001: read without shared_read or exclusive access
-    pub fn check_read(
-        &self,
-        object: &str,
-        span: &Range<usize>,
-    ) -> Vec<SharedMemError> {
+    pub fn check_read(&self, object: &str, span: &Range<usize>) -> Vec<SharedMemError> {
         let mut errors = Vec::new();
         match self.object_modes.get(object) {
             Some(AccessMode::Exclusive | AccessMode::SharedRead) => {}
@@ -4317,11 +4302,7 @@ impl SharedMemChecker {
 
     /// Check that a write access is valid for the current mode.
     /// - A18002: write without exclusive access
-    pub fn check_write(
-        &self,
-        object: &str,
-        span: &Range<usize>,
-    ) -> Vec<SharedMemError> {
+    pub fn check_write(&self, object: &str, span: &Range<usize>) -> Vec<SharedMemError> {
         let mut errors = Vec::new();
         if self.object_modes.get(object) != Some(&AccessMode::Exclusive) {
             errors.push(SharedMemError {
@@ -4348,8 +4329,10 @@ impl SharedMemChecker {
         let mut errors = Vec::new();
         let is_race = matches!(
             (thread_a_mode, thread_b_mode),
-            (AccessMode::Exclusive, AccessMode::Exclusive | AccessMode::SharedRead)
-                | (AccessMode::SharedRead, AccessMode::Exclusive)
+            (
+                AccessMode::Exclusive,
+                AccessMode::Exclusive | AccessMode::SharedRead
+            ) | (AccessMode::SharedRead, AccessMode::Exclusive)
         );
         if is_race {
             errors.push(SharedMemError {
@@ -4423,7 +4406,9 @@ impl DeterminismChecker {
 
     /// Check if a type/function name is non-deterministic.
     pub fn is_non_deterministic(&self, name: &str) -> bool {
-        self.non_det_sources.iter().any(|s| name.contains(s.as_str()))
+        self.non_det_sources
+            .iter()
+            .any(|s| name.contains(s.as_str()))
     }
 
     /// Check that a deterministic function does not use non-deterministic constructs.
@@ -4462,7 +4447,8 @@ impl DeterminismChecker {
         span: &Range<usize>,
     ) -> Vec<DeterminismError> {
         let mut errors = Vec::new();
-        if self.deterministic_fns.contains_key(fn_name) && (iterated_type.contains("HashMap") || iterated_type.contains("HashSet"))
+        if self.deterministic_fns.contains_key(fn_name)
+            && (iterated_type.contains("HashMap") || iterated_type.contains("HashSet"))
         {
             errors.push(DeterminismError {
                 code: "A20002".into(),
@@ -4520,19 +4506,12 @@ impl LockOrderChecker {
 
     /// Record acquiring a lock. Check ordering.
     /// - A21001: lock acquired out of order (deadlock risk)
-    pub fn acquire(
-        &mut self,
-        lock_name: &str,
-        span: &Range<usize>,
-    ) -> Vec<LockOrderError> {
+    pub fn acquire(&mut self, lock_name: &str, span: &Range<usize>) -> Vec<LockOrderError> {
         let mut errors = Vec::new();
         let priority = self.lock_order.get(lock_name).copied().unwrap_or(u32::MAX);
 
         // Check that we're not acquiring a lower-priority lock while holding higher
-        if let Some((held_name, held_priority)) = self
-            .held
-            .last()
-            .filter(|(_, hp)| priority <= *hp)
+        if let Some((held_name, held_priority)) = self.held.last().filter(|(_, hp)| priority <= *hp)
         {
             errors.push(LockOrderError {
                 code: "A21001".into(),
@@ -4550,11 +4529,7 @@ impl LockOrderChecker {
 
     /// Record releasing a lock.
     /// - A21002: lock released out of order (must release in reverse acquisition order)
-    pub fn release(
-        &mut self,
-        lock_name: &str,
-        span: &Range<usize>,
-    ) -> Vec<LockOrderError> {
+    pub fn release(&mut self, lock_name: &str, span: &Range<usize>) -> Vec<LockOrderError> {
         let mut errors = Vec::new();
         if let Some((top_name, _)) = self.held.last().filter(|(n, _)| n != lock_name) {
             errors.push(LockOrderError {
@@ -4642,15 +4617,9 @@ impl SecureErasureChecker {
 
     /// Check that a sensitive variable was zeroized before going out of scope.
     /// - A16001: sensitive variable dropped without zeroization
-    pub fn check_scope_exit(
-        &self,
-        var_name: &str,
-        span: &Range<usize>,
-    ) -> Vec<SecureErasureError> {
+    pub fn check_scope_exit(&self, var_name: &str, span: &Range<usize>) -> Vec<SecureErasureError> {
         let mut errors = Vec::new();
-        if self.sensitive_vars.contains_key(var_name)
-            && !self.zeroized.contains_key(var_name)
-        {
+        if self.sensitive_vars.contains_key(var_name) && !self.zeroized.contains_key(var_name) {
             errors.push(SecureErasureError {
                 code: "A16001".into(),
                 message: format!(
@@ -4715,9 +4684,7 @@ impl SecureErasureChecker {
             if !self.zeroized.contains_key(name) {
                 errors.push(SecureErasureError {
                     code: "A16001".into(),
-                    message: format!(
-                        "sensitive variable `{name}` dropped without secure erasure"
-                    ),
+                    message: format!("sensitive variable `{name}` dropped without secure erasure"),
                     span: span.clone(),
                 });
             }
@@ -4814,7 +4781,11 @@ impl CryptoConformanceChecker {
         span: &Range<usize>,
     ) -> Vec<CryptoConformanceError> {
         let mut errors = Vec::new();
-        if let Some(spec) = self.specs.get(algorithm).filter(|s| !s.key_size_bits.contains(&key_size_bits)) {
+        if let Some(spec) = self
+            .specs
+            .get(algorithm)
+            .filter(|s| !s.key_size_bits.contains(&key_size_bits))
+        {
             errors.push(CryptoConformanceError {
                 code: "A17001".into(),
                 message: format!(
@@ -5144,7 +5115,8 @@ impl DependentTypeChecker {
         match expr {
             Expr::Literal(Literal::Int(_)) => true,
             Expr::Ident(name) => {
-                matches!(self.index_vars.get(name), Some(DepIndex::Nat(_))) || !self.index_vars.contains_key(name)
+                matches!(self.index_vars.get(name), Some(DepIndex::Nat(_)))
+                    || !self.index_vars.contains_key(name)
             }
             Expr::BinOp { lhs, op, rhs } => {
                 matches!(
@@ -5163,10 +5135,7 @@ impl DependentTypeChecker {
     }
 
     fn is_bool_expr(&self, expr: &Expr) -> bool {
-        matches!(
-            expr,
-            Expr::Literal(Literal::Bool(_)) | Expr::Ident(_)
-        )
+        matches!(expr, Expr::Literal(Literal::Bool(_)) | Expr::Ident(_))
     }
 
     fn is_enum_expr(&self, expr: &Expr, enum_type: &str) -> bool {
@@ -6722,7 +6691,13 @@ impl AllocatorChecker {
     }
 
     pub fn declare_arena(&mut self, name: std::string::String) {
-        self.arenas.insert(name, ArenaInfo { dropped: false, drop_span: None });
+        self.arenas.insert(
+            name,
+            ArenaInfo {
+                dropped: false,
+                drop_span: None,
+            },
+        );
     }
 
     pub fn drop_arena(&mut self, name: &str, span: Range<usize>) {
@@ -6732,8 +6707,21 @@ impl AllocatorChecker {
         }
     }
 
-    pub fn record_alloc(&mut self, name: std::string::String, size_expr: std::string::String, arena: Option<std::string::String>, span: Range<usize>) {
-        self.allocations.insert(name, AllocInfo { size_expr, span, arena });
+    pub fn record_alloc(
+        &mut self,
+        name: std::string::String,
+        size_expr: std::string::String,
+        arena: Option<std::string::String>,
+        span: Range<usize>,
+    ) {
+        self.allocations.insert(
+            name,
+            AllocInfo {
+                size_expr,
+                span,
+                arena,
+            },
+        );
     }
 
     pub fn record_free(&mut self, name: &str, span: Range<usize>) -> Option<TypeError> {
@@ -6752,30 +6740,30 @@ impl AllocatorChecker {
     pub fn check_arena_use(&self, alloc_name: &str, span: &Range<usize>) -> Option<TypeError> {
         if let Some(info) = self.allocations.get(alloc_name)
             && let Some(arena_name) = &info.arena
-                && let Some(arena) = self.arenas.get(arena_name)
-                    && arena.dropped {
-                        return Some(TypeError {
-                            code: "A22004".into(),
-                            message: format!("use of `{alloc_name}` after arena `{arena_name}` dropped"),
-                            span: span.clone(),
-                            secondary: None,
-                        });
-                    }
+            && let Some(arena) = self.arenas.get(arena_name)
+            && arena.dropped
+        {
+            return Some(TypeError {
+                code: "A22004".into(),
+                message: format!("use of `{alloc_name}` after arena `{arena_name}` dropped"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 
     pub fn check_unpaired(&self) -> Vec<TypeError> {
         let mut errors = Vec::new();
         for (name, info) in &self.allocations {
-            if !self.freed.contains_key(name)
-                && info.arena.is_none() {
-                    errors.push(TypeError {
-                        code: "A22001".into(),
-                        message: format!("allocation `{name}` not paired with deallocation"),
-                        span: info.span.clone(),
-                        secondary: None,
-                    });
-                }
+            if !self.freed.contains_key(name) && info.arena.is_none() {
+                errors.push(TypeError {
+                    code: "A22001".into(),
+                    message: format!("allocation `{name}` not paired with deallocation"),
+                    span: info.span.clone(),
+                    secondary: None,
+                });
+            }
         }
         errors.sort_by_key(|e| e.span.start);
         errors
@@ -6831,46 +6819,66 @@ impl CircularBufferChecker {
     }
 
     pub fn declare(&mut self, name: std::string::String, capacity: usize) {
-        self.buffers.insert(name, CircBufInfo {
-            capacity,
-            head: 0,
-            tail: 0,
-            count: 0,
-        });
+        self.buffers.insert(
+            name,
+            CircBufInfo {
+                capacity,
+                head: 0,
+                tail: 0,
+                count: 0,
+            },
+        );
     }
 
     pub fn check_read(&self, name: &str, span: &Range<usize>) -> Option<TypeError> {
         if let Some(buf) = self.buffers.get(name)
-            && buf.is_empty() {
-                return Some(TypeError {
-                    code: "A23003".into(),
-                    message: format!("read from empty circular buffer `{name}`"),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && buf.is_empty()
+        {
+            return Some(TypeError {
+                code: "A23003".into(),
+                message: format!("read from empty circular buffer `{name}`"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 
-    pub fn check_index(&self, name: &str, logical_idx: usize, span: &Range<usize>) -> Option<TypeError> {
+    pub fn check_index(
+        &self,
+        name: &str,
+        logical_idx: usize,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
         if let Some(buf) = self.buffers.get(name)
-            && logical_idx >= buf.capacity {
-                return Some(TypeError {
-                    code: "A23001".into(),
-                    message: format!("logical index {logical_idx} exceeds capacity {} of `{name}`", buf.capacity),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && logical_idx >= buf.capacity
+        {
+            return Some(TypeError {
+                code: "A23001".into(),
+                message: format!(
+                    "logical index {logical_idx} exceeds capacity {} of `{name}`",
+                    buf.capacity
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 
-    pub fn check_physical_wrap(&self, name: &str, offset: usize, span: &Range<usize>) -> Option<TypeError> {
+    pub fn check_physical_wrap(
+        &self,
+        name: &str,
+        offset: usize,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
         if let Some(buf) = self.buffers.get(name) {
             if buf.capacity == 0 {
                 return Some(TypeError {
                     code: "A23002".into(),
-                    message: format!("circular buffer `{name}` has zero capacity, modular wrap undefined"),
+                    message: format!(
+                        "circular buffer `{name}` has zero capacity, modular wrap undefined"
+                    ),
                     span: span.clone(),
                     secondary: None,
                 });
@@ -6882,18 +6890,20 @@ impl CircularBufferChecker {
 
     pub fn push(&mut self, name: &str) {
         if let Some(buf) = self.buffers.get_mut(name)
-            && buf.count < buf.capacity {
-                buf.tail = (buf.tail + 1) % buf.capacity;
-                buf.count += 1;
-            }
+            && buf.count < buf.capacity
+        {
+            buf.tail = (buf.tail + 1) % buf.capacity;
+            buf.count += 1;
+        }
     }
 
     pub fn pop(&mut self, name: &str) {
         if let Some(buf) = self.buffers.get_mut(name)
-            && buf.count > 0 {
-                buf.head = (buf.head + 1) % buf.capacity;
-                buf.count -= 1;
-            }
+            && buf.count > 0
+        {
+            buf.head = (buf.head + 1) % buf.capacity;
+            buf.count -= 1;
+        }
     }
 }
 
@@ -6946,23 +6956,28 @@ impl CallbackReentrancyChecker {
 
         // Check re-entrancy
         if self.call_stack.contains(&fn_name.to_string())
-            && self.non_reentrant.contains_key(fn_name) {
-                errors.push(TypeError {
-                    code: "A24001".into(),
-                    message: format!("re-entrant call to non-reentrant function `{fn_name}`"),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && self.non_reentrant.contains_key(fn_name)
+        {
+            errors.push(TypeError {
+                code: "A24001".into(),
+                message: format!("re-entrant call to non-reentrant function `{fn_name}`"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
 
         // Check depth
         if self.call_stack.len() >= self.max_depth {
             errors.push(TypeError {
                 code: "A24003".into(),
-                message: format!("callback depth {} exceeds maximum {}", self.call_stack.len() + 1, self.max_depth),
+                message: format!(
+                    "callback depth {} exceeds maximum {}",
+                    self.call_stack.len() + 1,
+                    self.max_depth
+                ),
                 span: span.clone(),
                 secondary: None,
-                });
+            });
         }
 
         self.call_stack.push(fn_name.to_string());
@@ -6973,11 +6988,19 @@ impl CallbackReentrancyChecker {
         self.call_stack.pop();
     }
 
-    pub fn check_register_callback(&self, target_fn: &str, span: &Range<usize>) -> Option<TypeError> {
-        if self.non_reentrant.contains_key(target_fn) && self.call_stack.contains(&target_fn.to_string()) {
+    pub fn check_register_callback(
+        &self,
+        target_fn: &str,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
+        if self.non_reentrant.contains_key(target_fn)
+            && self.call_stack.contains(&target_fn.to_string())
+        {
             return Some(TypeError {
                 code: "A24002".into(),
-                message: format!("registering callback to non-reentrant `{target_fn}` while inside it"),
+                message: format!(
+                    "registering callback to non-reentrant `{target_fn}` while inside it"
+                ),
                 span: span.clone(),
                 secondary: None,
             });
@@ -7026,17 +7049,25 @@ impl TemporalDeadlineChecker {
         self.operation_bounds.insert(op, worst_case_ms);
     }
 
-    pub fn enter_deadline(&mut self, name: std::string::String, deadline_ms: u64, span: &Range<usize>) -> Option<TypeError> {
+    pub fn enter_deadline(
+        &mut self,
+        name: std::string::String,
+        deadline_ms: u64,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
         // Check nested deadline doesn't exceed outer
         if let Some((outer_name, outer_ms)) = self.deadlines.last()
-            && deadline_ms > *outer_ms {
-                return Some(TypeError {
-                    code: "A25002".into(),
-                    message: format!("inner deadline `{name}` ({deadline_ms}ms) exceeds outer `{outer_name}` ({outer_ms}ms)"),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && deadline_ms > *outer_ms
+        {
+            return Some(TypeError {
+                code: "A25002".into(),
+                message: format!(
+                    "inner deadline `{name}` ({deadline_ms}ms) exceeds outer `{outer_name}` ({outer_ms}ms)"
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         self.deadlines.push((name, deadline_ms));
         None
     }
@@ -7051,7 +7082,9 @@ impl TemporalDeadlineChecker {
                 if worst_case > deadline_ms {
                     return Some(TypeError {
                         code: "A25001".into(),
-                        message: format!("operation `{op}` worst-case {worst_case}ms exceeds deadline `{deadline_name}` ({deadline_ms}ms)"),
+                        message: format!(
+                            "operation `{op}` worst-case {worst_case}ms exceeds deadline `{deadline_name}` ({deadline_ms}ms)"
+                        ),
                         span: span.clone(),
                         secondary: None,
                     });
@@ -7059,7 +7092,9 @@ impl TemporalDeadlineChecker {
             } else {
                 return Some(TypeError {
                     code: "A25003".into(),
-                    message: format!("unbounded operation `{op}` in deadline context `{deadline_name}`"),
+                    message: format!(
+                        "unbounded operation `{op}` in deadline context `{deadline_name}`"
+                    ),
                     span: span.clone(),
                     secondary: None,
                 });
@@ -7126,7 +7161,10 @@ impl BinaryFormatChecker {
             if f.offset + f.size > buffer_len {
                 errors.push(TypeError {
                     code: "A26001".into(),
-                    message: format!("field `{}` at offset {} + size {} exceeds buffer length {buffer_len}", f.name, f.offset, f.size),
+                    message: format!(
+                        "field `{}` at offset {} + size {} exceeds buffer length {buffer_len}",
+                        f.name, f.offset, f.size
+                    ),
                     span: f.span.clone(),
                     secondary: None,
                 });
@@ -7141,7 +7179,10 @@ impl BinaryFormatChecker {
             if f.size > 1 && f.endianness.is_none() {
                 errors.push(TypeError {
                     code: "A26003".into(),
-                    message: format!("multi-byte field `{}` (size {}) has no endianness annotation", f.name, f.size),
+                    message: format!(
+                        "multi-byte field `{}` (size {}) has no endianness annotation",
+                        f.name, f.size
+                    ),
                     span: f.span.clone(),
                     secondary: None,
                 });
@@ -7161,7 +7202,10 @@ impl BinaryFormatChecker {
                 if a.offset < b_end && b.offset < a_end {
                     errors.push(TypeError {
                         code: "A26004".into(),
-                        message: format!("fields `{}` [{},{}] and `{}` [{},{}] overlap", a.name, a.offset, a_end, b.name, b.offset, b_end),
+                        message: format!(
+                            "fields `{}` [{},{}] and `{}` [{},{}] overlap",
+                            a.name, a.offset, a_end, b.name, b.offset, b_end
+                        ),
                         span: a.span.clone(),
                         secondary: None,
                     });
@@ -7228,7 +7272,10 @@ impl BitLevelChecker {
             if f.bit_offset + f.bit_width > self.container_bits {
                 errors.push(TypeError {
                     code: "A27001".into(),
-                    message: format!("bit field `{}` at bit {} + width {} exceeds container ({} bits)", f.name, f.bit_offset, f.bit_width, self.container_bits),
+                    message: format!(
+                        "bit field `{}` at bit {} + width {} exceeds container ({} bits)",
+                        f.name, f.bit_offset, f.bit_width, self.container_bits
+                    ),
                     span: f.span.clone(),
                     secondary: None,
                 });
@@ -7246,7 +7293,10 @@ impl BitLevelChecker {
                 if start_byte != end_byte {
                     errors.push(TypeError {
                         code: "A27002".into(),
-                        message: format!("bit field `{}` crosses byte boundary (bytes {start_byte}-{end_byte})", f.name),
+                        message: format!(
+                            "bit field `{}` crosses byte boundary (bytes {start_byte}-{end_byte})",
+                            f.name
+                        ),
                         span: f.span.clone(),
                         secondary: None,
                     });
@@ -7261,7 +7311,9 @@ impl BitLevelChecker {
         if total != declared_size {
             return Some(TypeError {
                 code: "A27003".into(),
-                message: format!("total bit width {total} doesn't match declared size {declared_size}"),
+                message: format!(
+                    "total bit width {total} doesn't match declared size {declared_size}"
+                ),
                 span: 0..1,
                 secondary: None,
             });
@@ -7333,20 +7385,32 @@ impl StringEncodingChecker {
         }
     }
 
-    pub fn check_encoding_compat(&self, src: &str, dst_encoding: &StringEncoding, span: &Range<usize>) -> Option<TypeError> {
+    pub fn check_encoding_compat(
+        &self,
+        src: &str,
+        dst_encoding: &StringEncoding,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
         if let Some(src_enc) = self.variables.get(src)
-            && src_enc != dst_encoding && *src_enc != StringEncoding::Ascii {
-                return Some(TypeError {
-                    code: "A28002".into(),
-                    message: format!("`{src}` is {src_enc:?} but used as {dst_encoding:?}"),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && src_enc != dst_encoding
+            && *src_enc != StringEncoding::Ascii
+        {
+            return Some(TypeError {
+                code: "A28002".into(),
+                message: format!("`{src}` is {src_enc:?} but used as {dst_encoding:?}"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 
-    pub fn check_truncation(&self, name: &str, byte_len: usize, span: &Range<usize>) -> Option<TypeError> {
+    pub fn check_truncation(
+        &self,
+        name: &str,
+        byte_len: usize,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
         if let Some(enc) = self.variables.get(name) {
             let unit_size = match enc {
                 StringEncoding::Utf16Le | StringEncoding::Utf16Be => 2,
@@ -7355,7 +7419,9 @@ impl StringEncodingChecker {
             if unit_size > 1 && !byte_len.is_multiple_of(unit_size) {
                 return Some(TypeError {
                     code: "A28003".into(),
-                    message: format!("truncation of `{name}` at byte {byte_len} may split a {enc:?} code unit"),
+                    message: format!(
+                        "truncation of `{name}` at byte {byte_len} may split a {enc:?} code unit"
+                    ),
                     span: span.clone(),
                     secondary: None,
                 });
@@ -7412,13 +7478,22 @@ impl ChecksumChecker {
         }
     }
 
-    pub fn declare_region(&mut self, name: std::string::String, algorithm: ChecksumAlgorithm, start: usize, end: usize) {
-        self.regions.insert(name, ChecksumRegion {
-            algorithm,
-            byte_start: start,
-            byte_end: end,
-            verified: false,
-        });
+    pub fn declare_region(
+        &mut self,
+        name: std::string::String,
+        algorithm: ChecksumAlgorithm,
+        start: usize,
+        end: usize,
+    ) {
+        self.regions.insert(
+            name,
+            ChecksumRegion {
+                algorithm,
+                byte_start: start,
+                byte_end: end,
+                verified: false,
+            },
+        );
     }
 
     pub fn mark_verified(&mut self, name: &str) {
@@ -7429,40 +7504,60 @@ impl ChecksumChecker {
 
     pub fn check_use_before_verify(&self, name: &str, span: &Range<usize>) -> Option<TypeError> {
         if let Some(region) = self.regions.get(name)
-            && !region.verified {
-                return Some(TypeError {
-                    code: "A29001".into(),
-                    message: format!("data region `{name}` used before checksum verification"),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && !region.verified
+        {
+            return Some(TypeError {
+                code: "A29001".into(),
+                message: format!("data region `{name}` used before checksum verification"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 
-    pub fn check_algorithm_match(&self, name: &str, expected: &ChecksumAlgorithm, span: &Range<usize>) -> Option<TypeError> {
+    pub fn check_algorithm_match(
+        &self,
+        name: &str,
+        expected: &ChecksumAlgorithm,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
         if let Some(region) = self.regions.get(name)
-            && &region.algorithm != expected {
-                return Some(TypeError {
-                    code: "A29002".into(),
-                    message: format!("checksum algorithm mismatch for `{name}`: declared {:?}, used {:?}", region.algorithm, expected),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && &region.algorithm != expected
+        {
+            return Some(TypeError {
+                code: "A29002".into(),
+                message: format!(
+                    "checksum algorithm mismatch for `{name}`: declared {:?}, used {:?}",
+                    region.algorithm, expected
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 
-    pub fn check_range_coverage(&self, name: &str, data_start: usize, data_end: usize, span: &Range<usize>) -> Option<TypeError> {
+    pub fn check_range_coverage(
+        &self,
+        name: &str,
+        data_start: usize,
+        data_end: usize,
+        span: &Range<usize>,
+    ) -> Option<TypeError> {
         if let Some(region) = self.regions.get(name)
-            && (region.byte_start > data_start || region.byte_end < data_end) {
-                return Some(TypeError {
-                    code: "A29003".into(),
-                    message: format!("checksum for `{name}` covers [{},{}] but data range is [{data_start},{data_end}]", region.byte_start, region.byte_end),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && (region.byte_start > data_start || region.byte_end < data_end)
+        {
+            return Some(TypeError {
+                code: "A29003".into(),
+                message: format!(
+                    "checksum for `{name}` covers [{},{}] but data range is [{data_start},{data_end}]",
+                    region.byte_start, region.byte_end
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 }
@@ -7514,16 +7609,29 @@ impl ProtocolGrammarChecker {
         }
     }
 
-    pub fn add_transition(&mut self, from: std::string::String, to: std::string::String, message: std::string::String) {
-        self.transitions.push(ProtocolTransition { from, to, message });
+    pub fn add_transition(
+        &mut self,
+        from: std::string::String,
+        to: std::string::String,
+        message: std::string::String,
+    ) {
+        self.transitions
+            .push(ProtocolTransition { from, to, message });
     }
 
-    pub fn add_required_fields(&mut self, message: std::string::String, fields: Vec<std::string::String>) {
+    pub fn add_required_fields(
+        &mut self,
+        message: std::string::String,
+        fields: Vec<std::string::String>,
+    ) {
         self.required_fields.insert(message, fields);
     }
 
     pub fn check_send(&self, message: &str, span: &Range<usize>) -> Option<TypeError> {
-        let valid = self.transitions.iter().any(|t| t.from == self.current_state && t.message == message);
+        let valid = self
+            .transitions
+            .iter()
+            .any(|t| t.from == self.current_state && t.message == message);
         if !valid {
             return Some(TypeError {
                 code: "A30002".into(),
@@ -7536,20 +7644,32 @@ impl ProtocolGrammarChecker {
     }
 
     pub fn transition(&mut self, message: &str, span: &Range<usize>) -> Option<TypeError> {
-        if let Some(t) = self.transitions.iter().find(|t| t.from == self.current_state && t.message == message) {
+        if let Some(t) = self
+            .transitions
+            .iter()
+            .find(|t| t.from == self.current_state && t.message == message)
+        {
             self.current_state = t.to.clone();
             None
         } else {
             Some(TypeError {
                 code: "A30001".into(),
-                message: format!("invalid transition: no `{message}` transition from state `{}`", self.current_state),
+                message: format!(
+                    "invalid transition: no `{message}` transition from state `{}`",
+                    self.current_state
+                ),
                 span: span.clone(),
                 secondary: None,
             })
         }
     }
 
-    pub fn check_required_fields(&self, message: &str, provided: &[&str], span: &Range<usize>) -> Vec<TypeError> {
+    pub fn check_required_fields(
+        &self,
+        message: &str,
+        provided: &[&str],
+        span: &Range<usize>,
+    ) -> Vec<TypeError> {
         let mut errors = Vec::new();
         if let Some(required) = self.required_fields.get(message) {
             for field in required {
@@ -7623,7 +7743,10 @@ impl AxiomaticDefChecker {
                 if !is_axiom && !is_known {
                     errors.push(TypeError {
                         code: "A31001".into(),
-                        message: format!("axiom `{}` references undefined symbol `{reference}`", axiom.name),
+                        message: format!(
+                            "axiom `{}` references undefined symbol `{reference}`",
+                            axiom.name
+                        ),
                         span: axiom.span.clone(),
                         secondary: None,
                     });
@@ -7720,8 +7843,14 @@ impl OpaqueFunctionChecker {
         }
     }
 
-    pub fn declare_opaque(&mut self, name: std::string::String, has_contract: bool, span: Range<usize>) {
-        self.opaque_fns.insert(name, OpaqueFnInfo { has_contract, span });
+    pub fn declare_opaque(
+        &mut self,
+        name: std::string::String,
+        has_contract: bool,
+        span: Range<usize>,
+    ) {
+        self.opaque_fns
+            .insert(name, OpaqueFnInfo { has_contract, span });
     }
 
     pub fn enter_proof(&mut self) {
@@ -7734,14 +7863,15 @@ impl OpaqueFunctionChecker {
 
     pub fn check_call(&self, fn_name: &str, span: &Range<usize>) -> Option<TypeError> {
         if let Some(info) = self.opaque_fns.get(fn_name)
-            && !info.has_contract {
-                return Some(TypeError {
-                    code: "A32001".into(),
-                    message: format!("opaque function `{fn_name}` called without contract"),
-                    span: span.clone(),
-                    secondary: None,
-                });
-            }
+            && !info.has_contract
+        {
+            return Some(TypeError {
+                code: "A32001".into(),
+                message: format!("opaque function `{fn_name}` called without contract"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
         None
     }
 
@@ -7827,13 +7957,18 @@ impl TestGenerator {
     }
 
     pub fn generate_property_test(&self, contract: &TestableContract) -> GeneratedTest {
-        let param_list: Vec<std::string::String> = contract.params.iter()
+        let param_list: Vec<std::string::String> = contract
+            .params
+            .iter()
             .map(|(n, t)| format!("{n}: {}", Self::type_to_proptest_strategy(t)))
             .collect();
         let preconditions = if contract.requires.is_empty() {
             String::new()
         } else {
-            format!("prop_assume!({});\n        ", contract.requires.join(" && "))
+            format!(
+                "prop_assume!({});\n        ",
+                contract.requires.join(" && ")
+            )
         };
         let postconditions = contract.ensures.join(" && ");
         let body = format!(
@@ -7905,16 +8040,46 @@ impl TestGenerator {
 
     fn boundary_values(ty: &Type) -> Vec<std::string::String> {
         match ty {
-            Type::Int | Type::I64 => vec!["0".into(), "1".into(), "-1".into(), "i64::MAX".into(), "i64::MIN".into()],
+            Type::Int | Type::I64 => vec![
+                "0".into(),
+                "1".into(),
+                "-1".into(),
+                "i64::MAX".into(),
+                "i64::MIN".into(),
+            ],
             Type::Nat | Type::U64 => vec!["0".into(), "1".into(), "u64::MAX".into()],
             Type::U8 => vec!["0u8".into(), "1u8".into(), "255u8".into()],
             Type::U16 => vec!["0u16".into(), "1u16".into(), "65535u16".into()],
             Type::U32 => vec!["0u32".into(), "1u32".into(), "u32::MAX".into()],
-            Type::I8 => vec!["0i8".into(), "1i8".into(), "-1i8".into(), "127i8".into(), "-128i8".into()],
-            Type::I16 => vec!["0i16".into(), "1i16".into(), "-1i16".into(), "i16::MAX".into(), "i16::MIN".into()],
-            Type::I32 => vec!["0i32".into(), "1i32".into(), "-1i32".into(), "i32::MAX".into(), "i32::MIN".into()],
+            Type::I8 => vec![
+                "0i8".into(),
+                "1i8".into(),
+                "-1i8".into(),
+                "127i8".into(),
+                "-128i8".into(),
+            ],
+            Type::I16 => vec![
+                "0i16".into(),
+                "1i16".into(),
+                "-1i16".into(),
+                "i16::MAX".into(),
+                "i16::MIN".into(),
+            ],
+            Type::I32 => vec![
+                "0i32".into(),
+                "1i32".into(),
+                "-1i32".into(),
+                "i32::MAX".into(),
+                "i32::MIN".into(),
+            ],
             Type::Bool => vec!["true".into(), "false".into()],
-            Type::Float | Type::F64 => vec!["0.0".into(), "1.0".into(), "-1.0".into(), "f64::INFINITY".into(), "f64::NAN".into()],
+            Type::Float | Type::F64 => vec![
+                "0.0".into(),
+                "1.0".into(),
+                "-1.0".into(),
+                "f64::INFINITY".into(),
+                "f64::NAN".into(),
+            ],
             _ => vec![],
         }
     }
@@ -7950,11 +8115,20 @@ pub struct WalEntry {
 
 impl CrashRecoveryChecker {
     pub fn new() -> Self {
-        Self { wal_entries: Vec::new(), committed: Vec::new(), fsynced: Vec::new() }
+        Self {
+            wal_entries: Vec::new(),
+            committed: Vec::new(),
+            fsynced: Vec::new(),
+        }
     }
 
     pub fn begin_write(&mut self, id: std::string::String) {
-        self.wal_entries.push(WalEntry { id, data_written: false, wal_written: false, fsynced: false });
+        self.wal_entries.push(WalEntry {
+            id,
+            data_written: false,
+            wal_written: false,
+            fsynced: false,
+        });
     }
 
     pub fn write_wal(&mut self, id: &str) {
@@ -8034,7 +8208,9 @@ impl CrashRecoveryChecker {
 }
 
 impl Default for CrashRecoveryChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8057,39 +8233,71 @@ pub struct PageInfo {
 
 impl PageCacheChecker {
     pub fn new(capacity: usize) -> Self {
-        Self { pages: std::collections::HashMap::new(), capacity }
+        Self {
+            pages: std::collections::HashMap::new(),
+            capacity,
+        }
     }
 
     pub fn load_page(&mut self, page_id: u64) {
-        self.pages.insert(page_id, PageInfo { page_id, dirty: false, pinned: false, pin_count: 0 });
+        self.pages.insert(
+            page_id,
+            PageInfo {
+                page_id,
+                dirty: false,
+                pinned: false,
+                pin_count: 0,
+            },
+        );
     }
 
     pub fn pin(&mut self, page_id: u64) {
-        if let Some(p) = self.pages.get_mut(&page_id) { p.pinned = true; p.pin_count += 1; }
+        if let Some(p) = self.pages.get_mut(&page_id) {
+            p.pinned = true;
+            p.pin_count += 1;
+        }
     }
 
     pub fn unpin(&mut self, page_id: u64) {
         if let Some(p) = self.pages.get_mut(&page_id) {
-            if p.pin_count > 0 { p.pin_count -= 1; }
-            if p.pin_count == 0 { p.pinned = false; }
+            if p.pin_count > 0 {
+                p.pin_count -= 1;
+            }
+            if p.pin_count == 0 {
+                p.pinned = false;
+            }
         }
     }
 
     pub fn mark_dirty(&mut self, page_id: u64) {
-        if let Some(p) = self.pages.get_mut(&page_id) { p.dirty = true; }
+        if let Some(p) = self.pages.get_mut(&page_id) {
+            p.dirty = true;
+        }
     }
 
     pub fn flush(&mut self, page_id: u64) {
-        if let Some(p) = self.pages.get_mut(&page_id) { p.dirty = false; }
+        if let Some(p) = self.pages.get_mut(&page_id) {
+            p.dirty = false;
+        }
     }
 
     pub fn evict(&mut self, page_id: u64) -> Option<TypeError> {
         if let Some(p) = self.pages.get(&page_id) {
             if p.pinned {
-                return Some(TypeError { code: "A34001".into(), message: format!("cannot evict pinned page {page_id}"), span: 0..1, secondary: None });
+                return Some(TypeError {
+                    code: "A34001".into(),
+                    message: format!("cannot evict pinned page {page_id}"),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
             if p.dirty {
-                return Some(TypeError { code: "A34002".into(), message: format!("evicting dirty page {page_id} without flush"), span: 0..1, secondary: None });
+                return Some(TypeError {
+                    code: "A34002".into(),
+                    message: format!("evicting dirty page {page_id} without flush"),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         self.pages.remove(&page_id);
@@ -8098,15 +8306,30 @@ impl PageCacheChecker {
 
     pub fn check_capacity(&self) -> Vec<TypeError> {
         if self.pages.len() > self.capacity {
-            vec![TypeError { code: "A34003".into(), message: format!("page cache size {} exceeds capacity {}", self.pages.len(), self.capacity), span: 0..1, secondary: None }]
-        } else { vec![] }
+            vec![TypeError {
+                code: "A34003".into(),
+                message: format!(
+                    "page cache size {} exceeds capacity {}",
+                    self.pages.len(),
+                    self.capacity
+                ),
+                span: 0..1,
+                secondary: None,
+            }]
+        } else {
+            vec![]
+        }
     }
 
-    pub fn page_count(&self) -> usize { self.pages.len() }
+    pub fn page_count(&self) -> usize {
+        self.pages.len()
+    }
 }
 
 impl Default for PageCacheChecker {
-    fn default() -> Self { Self::new(1024) }
+    fn default() -> Self {
+        Self::new(1024)
+    }
 }
 
 // ===========================================================================
@@ -8128,21 +8351,35 @@ pub struct MvccVersion {
 
 impl MvccChecker {
     pub fn new() -> Self {
-        Self { versions: std::collections::HashMap::new(), active_snapshots: Vec::new(), next_txn_id: 1 }
+        Self {
+            versions: std::collections::HashMap::new(),
+            active_snapshots: Vec::new(),
+            next_txn_id: 1,
+        }
     }
 
     pub fn begin_txn(&mut self) -> u64 {
-        let id = self.next_txn_id; self.next_txn_id += 1; self.active_snapshots.push(id); id
+        let id = self.next_txn_id;
+        self.next_txn_id += 1;
+        self.active_snapshots.push(id);
+        id
     }
 
     pub fn write_version(&mut self, key: std::string::String, txn_id: u64) {
-        self.versions.entry(key).or_default().push(MvccVersion { txn_id, committed: false });
+        self.versions.entry(key).or_default().push(MvccVersion {
+            txn_id,
+            committed: false,
+        });
     }
 
     pub fn commit_txn(&mut self, txn_id: u64) {
         self.active_snapshots.retain(|&id| id != txn_id);
         for versions in self.versions.values_mut() {
-            for v in versions.iter_mut() { if v.txn_id == txn_id { v.committed = true; } }
+            for v in versions.iter_mut() {
+                if v.txn_id == txn_id {
+                    v.committed = true;
+                }
+            }
         }
     }
 
@@ -8151,7 +8388,15 @@ impl MvccChecker {
         for (key, versions) in &self.versions {
             let uncommitted: Vec<_> = versions.iter().filter(|v| !v.committed).collect();
             if uncommitted.len() > 1 {
-                errors.push(TypeError { code: "A35001".into(), message: format!("write-write conflict on key `{key}`: {} uncommitted versions", uncommitted.len()), span: 0..1, secondary: None });
+                errors.push(TypeError {
+                    code: "A35001".into(),
+                    message: format!(
+                        "write-write conflict on key `{key}`: {} uncommitted versions",
+                        uncommitted.len()
+                    ),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
@@ -8160,8 +8405,19 @@ impl MvccChecker {
     pub fn check_snapshot_read(&self, key: &str, reader_txn: u64) -> Option<TypeError> {
         if let Some(versions) = self.versions.get(key) {
             for v in versions {
-                if v.txn_id != reader_txn && !v.committed && self.active_snapshots.contains(&v.txn_id) {
-                    return Some(TypeError { code: "A35002".into(), message: format!("snapshot isolation violation: txn {reader_txn} reads uncommitted from txn {} on `{key}`", v.txn_id), span: 0..1, secondary: None });
+                if v.txn_id != reader_txn
+                    && !v.committed
+                    && self.active_snapshots.contains(&v.txn_id)
+                {
+                    return Some(TypeError {
+                        code: "A35002".into(),
+                        message: format!(
+                            "snapshot isolation violation: txn {reader_txn} reads uncommitted from txn {} on `{key}`",
+                            v.txn_id
+                        ),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -8182,7 +8438,9 @@ impl MvccChecker {
 }
 
 impl Default for MvccChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8198,21 +8456,38 @@ pub struct RollbackChecker {
 
 impl RollbackChecker {
     pub fn new() -> Self {
-        Self { savepoints: Vec::new(), resources_acquired: Vec::new(), rolled_back: false }
+        Self {
+            savepoints: Vec::new(),
+            resources_acquired: Vec::new(),
+            rolled_back: false,
+        }
     }
 
-    pub fn create_savepoint(&mut self, name: std::string::String) { self.savepoints.push(name); }
+    pub fn create_savepoint(&mut self, name: std::string::String) {
+        self.savepoints.push(name);
+    }
 
-    pub fn acquire_resource(&mut self, name: std::string::String) { self.resources_acquired.push(name); }
+    pub fn acquire_resource(&mut self, name: std::string::String) {
+        self.resources_acquired.push(name);
+    }
 
-    pub fn release_resource(&mut self, name: &str) { self.resources_acquired.retain(|r| r != name); }
+    pub fn release_resource(&mut self, name: &str) {
+        self.resources_acquired.retain(|r| r != name);
+    }
 
     pub fn rollback_to(&mut self, savepoint: &str) -> Option<TypeError> {
         if !self.savepoints.contains(&savepoint.to_string()) {
-            return Some(TypeError { code: "A36001".into(), message: format!("rollback to unknown savepoint `{savepoint}`"), span: 0..1, secondary: None });
+            return Some(TypeError {
+                code: "A36001".into(),
+                message: format!("rollback to unknown savepoint `{savepoint}`"),
+                span: 0..1,
+                secondary: None,
+            });
         }
         self.rolled_back = true;
-        if let Some(pos) = self.savepoints.iter().position(|s| s == savepoint) { self.savepoints.truncate(pos + 1); }
+        if let Some(pos) = self.savepoints.iter().position(|s| s == savepoint) {
+            self.savepoints.truncate(pos + 1);
+        }
         None
     }
 
@@ -8220,7 +8495,12 @@ impl RollbackChecker {
         let mut errors = Vec::new();
         if self.rolled_back {
             for r in &self.resources_acquired {
-                errors.push(TypeError { code: "A36002".into(), message: format!("resource `{r}` not released after rollback"), span: 0..1, secondary: None });
+                errors.push(TypeError {
+                    code: "A36002".into(),
+                    message: format!("resource `{r}` not released after rollback"),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
@@ -8231,7 +8511,12 @@ impl RollbackChecker {
         let mut seen = std::collections::HashSet::new();
         for sp in &self.savepoints {
             if !seen.insert(sp.clone()) {
-                errors.push(TypeError { code: "A36003".into(), message: format!("duplicate savepoint name `{sp}`"), span: 0..1, secondary: None });
+                errors.push(TypeError {
+                    code: "A36003".into(),
+                    message: format!("duplicate savepoint name `{sp}`"),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
@@ -8239,7 +8524,9 @@ impl RollbackChecker {
 }
 
 impl Default for RollbackChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8266,10 +8553,27 @@ pub enum MonotonicDirection {
 }
 
 impl MonotonicStateChecker {
-    pub fn new() -> Self { Self { monotonic_vars: std::collections::HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            monotonic_vars: std::collections::HashMap::new(),
+        }
+    }
 
-    pub fn declare(&mut self, name: std::string::String, direction: MonotonicDirection, initial: i64, span: std::ops::Range<usize>) {
-        self.monotonic_vars.insert(name, MonotonicInfo { current_value: initial, direction, span });
+    pub fn declare(
+        &mut self,
+        name: std::string::String,
+        direction: MonotonicDirection,
+        initial: i64,
+        span: std::ops::Range<usize>,
+    ) {
+        self.monotonic_vars.insert(
+            name,
+            MonotonicInfo {
+                current_value: initial,
+                direction,
+                span,
+            },
+        );
     }
 
     pub fn update(&mut self, name: &str, new_value: i64) -> Option<TypeError> {
@@ -8280,7 +8584,15 @@ impl MonotonicStateChecker {
                 MonotonicDirection::Decreasing => new_value > info.current_value,
             };
             if violation {
-                return Some(TypeError { code: "A37001".into(), message: format!("monotonicity violation: `{name}` changed from {} to {new_value}", info.current_value), span: info.span.clone(), secondary: None });
+                return Some(TypeError {
+                    code: "A37001".into(),
+                    message: format!(
+                        "monotonicity violation: `{name}` changed from {} to {new_value}",
+                        info.current_value
+                    ),
+                    span: info.span.clone(),
+                    secondary: None,
+                });
             }
             info.current_value = new_value;
         }
@@ -8289,21 +8601,39 @@ impl MonotonicStateChecker {
 
     pub fn check_reset(&self, name: &str) -> Option<TypeError> {
         if self.monotonic_vars.contains_key(name) {
-            Some(TypeError { code: "A37002".into(), message: format!("illegal reset of monotonic variable `{name}`"), span: 0..1, secondary: None })
-        } else { None }
+            Some(TypeError {
+                code: "A37002".into(),
+                message: format!("illegal reset of monotonic variable `{name}`"),
+                span: 0..1,
+                secondary: None,
+            })
+        } else {
+            None
+        }
     }
 
     pub fn check_access(&self, name: &str) -> Option<TypeError> {
         if !self.monotonic_vars.contains_key(name) {
-            Some(TypeError { code: "A37003".into(), message: format!("access to undeclared monotonic variable `{name}`"), span: 0..1, secondary: None })
-        } else { None }
+            Some(TypeError {
+                code: "A37003".into(),
+                message: format!("access to undeclared monotonic variable `{name}`"),
+                span: 0..1,
+                secondary: None,
+            })
+        } else {
+            None
+        }
     }
 
-    pub fn current_value(&self, name: &str) -> Option<i64> { self.monotonic_vars.get(name).map(|i| i.current_value) }
+    pub fn current_value(&self, name: &str) -> Option<i64> {
+        self.monotonic_vars.get(name).map(|i| i.current_value)
+    }
 }
 
 impl Default for MonotonicStateChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8328,46 +8658,90 @@ pub enum FailureMode {
 impl FailureMode {
     pub fn name(&self) -> &str {
         match self {
-            Self::PartialWrite => "partial_write", Self::TornPage => "torn_page",
-            Self::BitRot => "bit_rot", Self::DiskFull => "disk_full", Self::IoTimeout => "io_timeout",
+            Self::PartialWrite => "partial_write",
+            Self::TornPage => "torn_page",
+            Self::BitRot => "bit_rot",
+            Self::DiskFull => "disk_full",
+            Self::IoTimeout => "io_timeout",
         }
     }
 }
 
 impl StorageFailureChecker {
-    pub fn new() -> Self { Self { failure_modes: Vec::new(), handled_modes: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            failure_modes: Vec::new(),
+            handled_modes: Vec::new(),
+        }
+    }
 
-    pub fn declare_failure_mode(&mut self, mode: FailureMode) { self.failure_modes.push(mode); }
+    pub fn declare_failure_mode(&mut self, mode: FailureMode) {
+        self.failure_modes.push(mode);
+    }
 
     pub fn mark_handled(&mut self, mode_name: &str) {
-        if !self.handled_modes.contains(&mode_name.to_string()) { self.handled_modes.push(mode_name.to_string()); }
+        if !self.handled_modes.contains(&mode_name.to_string()) {
+            self.handled_modes.push(mode_name.to_string());
+        }
     }
 
     pub fn check_unhandled(&self) -> Vec<TypeError> {
-        self.failure_modes.iter().filter(|m| !self.handled_modes.contains(&m.name().to_string()))
-            .map(|m| TypeError { code: "A38001".into(), message: format!("storage failure mode `{}` has no handler", m.name()), span: 0..1, secondary: None })
+        self.failure_modes
+            .iter()
+            .filter(|m| !self.handled_modes.contains(&m.name().to_string()))
+            .map(|m| TypeError {
+                code: "A38001".into(),
+                message: format!("storage failure mode `{}` has no handler", m.name()),
+                span: 0..1,
+                secondary: None,
+            })
             .collect()
     }
 
     pub fn check_spurious_handlers(&self) -> Vec<TypeError> {
-        let declared: Vec<_> = self.failure_modes.iter().map(|m| m.name().to_string()).collect();
-        self.handled_modes.iter().filter(|h| !declared.contains(h))
-            .map(|h| TypeError { code: "A38002".into(), message: format!("handler for undeclared failure mode `{h}`"), span: 0..1, secondary: None })
+        let declared: Vec<_> = self
+            .failure_modes
+            .iter()
+            .map(|m| m.name().to_string())
+            .collect();
+        self.handled_modes
+            .iter()
+            .filter(|h| !declared.contains(h))
+            .map(|h| TypeError {
+                code: "A38002".into(),
+                message: format!("handler for undeclared failure mode `{h}`"),
+                span: 0..1,
+                secondary: None,
+            })
             .collect()
     }
 
     pub fn check_critical_coverage(&self) -> Vec<TypeError> {
         let critical = [FailureMode::PartialWrite, FailureMode::TornPage];
-        critical.iter().filter(|m| self.failure_modes.contains(m) && !self.handled_modes.contains(&m.name().to_string()))
-            .map(|m| TypeError { code: "A38003".into(), message: format!("critical failure mode `{}` must have a handler", m.name()), span: 0..1, secondary: None })
+        critical
+            .iter()
+            .filter(|m| {
+                self.failure_modes.contains(m)
+                    && !self.handled_modes.contains(&m.name().to_string())
+            })
+            .map(|m| TypeError {
+                code: "A38003".into(),
+                message: format!("critical failure mode `{}` must have a handler", m.name()),
+                span: 0..1,
+                secondary: None,
+            })
             .collect()
     }
 
-    pub fn failure_count(&self) -> usize { self.failure_modes.len() }
+    pub fn failure_count(&self) -> usize {
+        self.failure_modes.len()
+    }
 }
 
 impl Default for StorageFailureChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8387,42 +8761,84 @@ pub struct PrecisionInfo {
 }
 
 impl NumericalPrecisionChecker {
-    pub fn new() -> Self { Self { variables: std::collections::HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            variables: std::collections::HashMap::new(),
+        }
+    }
 
-    pub fn declare(&mut self, name: std::string::String, bits: u32, min_ulp: f64, span: std::ops::Range<usize>) {
-        self.variables.insert(name, PrecisionInfo { bits, min_ulp, span });
+    pub fn declare(
+        &mut self,
+        name: std::string::String,
+        bits: u32,
+        min_ulp: f64,
+        span: std::ops::Range<usize>,
+    ) {
+        self.variables.insert(
+            name,
+            PrecisionInfo {
+                bits,
+                min_ulp,
+                span,
+            },
+        );
     }
 
     pub fn check_precision_loss(&self, name: &str, result_bits: u32) -> Option<TypeError> {
-        if let Some(info) = self.variables.get(name) {
-            if result_bits < info.bits {
-                return Some(TypeError { code: "A42001".into(), message: format!("precision loss: `{name}` requires {}-bit but operation produces {result_bits}-bit", info.bits), span: info.span.clone(), secondary: None });
-            }
+        if let Some(info) = self.variables.get(name)
+            && result_bits < info.bits
+        {
+            return Some(TypeError {
+                code: "A42001".into(),
+                message: format!(
+                    "precision loss: `{name}` requires {}-bit but operation produces {result_bits}-bit",
+                    info.bits
+                ),
+                span: info.span.clone(),
+                secondary: None,
+            });
         }
         None
     }
 
     pub fn check_ulp_bound(&self, name: &str, actual_ulp: f64) -> Option<TypeError> {
-        if let Some(info) = self.variables.get(name) {
-            if actual_ulp > info.min_ulp {
-                return Some(TypeError { code: "A42002".into(), message: format!("ULP violation: `{name}` requires ULP <= {} but got {actual_ulp}", info.min_ulp), span: info.span.clone(), secondary: None });
-            }
+        if let Some(info) = self.variables.get(name)
+            && actual_ulp > info.min_ulp
+        {
+            return Some(TypeError {
+                code: "A42002".into(),
+                message: format!(
+                    "ULP violation: `{name}` requires ULP <= {} but got {actual_ulp}",
+                    info.min_ulp
+                ),
+                span: info.span.clone(),
+                secondary: None,
+            });
         }
         None
     }
 
     pub fn check_cancellation(&self, name: &str, operand_ratio: f64) -> Option<TypeError> {
-        if operand_ratio > 0.999 {
-            if let Some(info) = self.variables.get(name) {
-                return Some(TypeError { code: "A42003".into(), message: format!("potential catastrophic cancellation in `{name}` (operand ratio: {operand_ratio})"), span: info.span.clone(), secondary: None });
-            }
+        if operand_ratio > 0.999
+            && let Some(info) = self.variables.get(name)
+        {
+            return Some(TypeError {
+                code: "A42003".into(),
+                message: format!(
+                    "potential catastrophic cancellation in `{name}` (operand ratio: {operand_ratio})"
+                ),
+                span: info.span.clone(),
+                secondary: None,
+            });
         }
         None
     }
 }
 
 impl Default for NumericalPrecisionChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8444,39 +8860,83 @@ pub struct TableDecl {
 }
 
 impl PrecomputedTableChecker {
-    pub fn new() -> Self { Self { tables: Vec::new() } }
+    pub fn new() -> Self {
+        Self { tables: Vec::new() }
+    }
 
-    pub fn declare_table(&mut self, name: std::string::String, size: usize, generator_fn: std::string::String, span: std::ops::Range<usize>) {
-        self.tables.push(TableDecl { name, size, verified_entries: 0, generator_fn, span });
+    pub fn declare_table(
+        &mut self,
+        name: std::string::String,
+        size: usize,
+        generator_fn: std::string::String,
+        span: std::ops::Range<usize>,
+    ) {
+        self.tables.push(TableDecl {
+            name,
+            size,
+            verified_entries: 0,
+            generator_fn,
+            span,
+        });
     }
 
     pub fn mark_entries_verified(&mut self, name: &str, count: usize) {
-        if let Some(t) = self.tables.iter_mut().find(|t| t.name == name) { t.verified_entries = count; }
+        if let Some(t) = self.tables.iter_mut().find(|t| t.name == name) {
+            t.verified_entries = count;
+        }
     }
 
     pub fn check_coverage(&self) -> Vec<TypeError> {
-        self.tables.iter().filter(|t| t.verified_entries < t.size)
-            .map(|t| TypeError { code: "A43001".into(), message: format!("table `{}` has only {}/{} entries verified", t.name, t.verified_entries, t.size), span: t.span.clone(), secondary: None })
+        self.tables
+            .iter()
+            .filter(|t| t.verified_entries < t.size)
+            .map(|t| TypeError {
+                code: "A43001".into(),
+                message: format!(
+                    "table `{}` has only {}/{} entries verified",
+                    t.name, t.verified_entries, t.size
+                ),
+                span: t.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
     pub fn check_generator(&self) -> Vec<TypeError> {
-        self.tables.iter().filter(|t| t.generator_fn.is_empty())
-            .map(|t| TypeError { code: "A43002".into(), message: format!("table `{}` has no generator function", t.name), span: t.span.clone(), secondary: None })
+        self.tables
+            .iter()
+            .filter(|t| t.generator_fn.is_empty())
+            .map(|t| TypeError {
+                code: "A43002".into(),
+                message: format!("table `{}` has no generator function", t.name),
+                span: t.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
     pub fn check_non_empty(&self) -> Vec<TypeError> {
-        self.tables.iter().filter(|t| t.size == 0)
-            .map(|t| TypeError { code: "A43003".into(), message: format!("table `{}` has zero size", t.name), span: t.span.clone(), secondary: None })
+        self.tables
+            .iter()
+            .filter(|t| t.size == 0)
+            .map(|t| TypeError {
+                code: "A43003".into(),
+                message: format!("table `{}` has zero size", t.name),
+                span: t.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
-    pub fn table_count(&self) -> usize { self.tables.len() }
+    pub fn table_count(&self) -> usize {
+        self.tables.len()
+    }
 }
 
 impl Default for PrecomputedTableChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8490,13 +8950,24 @@ pub struct PlatformAbstractionChecker {
 }
 
 impl PlatformAbstractionChecker {
-    pub fn new() -> Self { Self { platforms: Vec::new(), abstractions: std::collections::HashMap::new() } }
-
-    pub fn add_platform(&mut self, name: std::string::String) {
-        if !self.platforms.contains(&name) { self.platforms.push(name); }
+    pub fn new() -> Self {
+        Self {
+            platforms: Vec::new(),
+            abstractions: std::collections::HashMap::new(),
+        }
     }
 
-    pub fn declare_abstraction(&mut self, name: std::string::String, supported: Vec<std::string::String>) {
+    pub fn add_platform(&mut self, name: std::string::String) {
+        if !self.platforms.contains(&name) {
+            self.platforms.push(name);
+        }
+    }
+
+    pub fn declare_abstraction(
+        &mut self,
+        name: std::string::String,
+        supported: Vec<std::string::String>,
+    ) {
         self.abstractions.insert(name, supported);
     }
 
@@ -8505,7 +8976,14 @@ impl PlatformAbstractionChecker {
         for (name, supported) in &self.abstractions {
             for platform in &self.platforms {
                 if !supported.contains(platform) {
-                    errors.push(TypeError { code: "A44001".into(), message: format!("abstraction `{name}` missing impl for platform `{platform}`"), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A44001".into(),
+                        message: format!(
+                            "abstraction `{name}` missing impl for platform `{platform}`"
+                        ),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -8514,8 +8992,15 @@ impl PlatformAbstractionChecker {
 
     pub fn check_direct_platform_use(&self, used_platform: &str) -> Option<TypeError> {
         if self.platforms.contains(&used_platform.to_string()) {
-            Some(TypeError { code: "A44002".into(), message: format!("direct platform reference `{used_platform}` without abstraction"), span: 0..1, secondary: None })
-        } else { None }
+            Some(TypeError {
+                code: "A44002".into(),
+                message: format!("direct platform reference `{used_platform}` without abstraction"),
+                span: 0..1,
+                secondary: None,
+            })
+        } else {
+            None
+        }
     }
 
     pub fn check_unknown_platforms(&self) -> Vec<TypeError> {
@@ -8523,7 +9008,12 @@ impl PlatformAbstractionChecker {
         for (name, supported) in &self.abstractions {
             for p in supported {
                 if !self.platforms.contains(p) {
-                    errors.push(TypeError { code: "A44003".into(), message: format!("abstraction `{name}` references unknown platform `{p}`"), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A44003".into(),
+                        message: format!("abstraction `{name}` references unknown platform `{p}`"),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -8532,7 +9022,9 @@ impl PlatformAbstractionChecker {
 }
 
 impl Default for PlatformAbstractionChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8553,19 +9045,45 @@ pub struct FeatureFlagInfo {
 }
 
 impl FeatureFlagChecker {
-    pub fn new() -> Self { Self { flags: std::collections::HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            flags: std::collections::HashMap::new(),
+        }
+    }
 
-    pub fn declare(&mut self, name: std::string::String, default_enabled: bool, conflicts_with: Vec<std::string::String>) {
-        self.flags.insert(name.clone(), FeatureFlagInfo { name, default_enabled, used: false, conflicts_with });
+    pub fn declare(
+        &mut self,
+        name: std::string::String,
+        default_enabled: bool,
+        conflicts_with: Vec<std::string::String>,
+    ) {
+        self.flags.insert(
+            name.clone(),
+            FeatureFlagInfo {
+                name,
+                default_enabled,
+                used: false,
+                conflicts_with,
+            },
+        );
     }
 
     pub fn mark_used(&mut self, name: &str) {
-        if let Some(f) = self.flags.get_mut(name) { f.used = true; }
+        if let Some(f) = self.flags.get_mut(name) {
+            f.used = true;
+        }
     }
 
     pub fn check_unused(&self) -> Vec<TypeError> {
-        self.flags.iter().filter(|(_, i)| !i.used)
-            .map(|(n, _)| TypeError { code: "A45001".into(), message: format!("feature flag `{n}` is declared but never used"), span: 0..1, secondary: None })
+        self.flags
+            .iter()
+            .filter(|(_, i)| !i.used)
+            .map(|(n, _)| TypeError {
+                code: "A45001".into(),
+                message: format!("feature flag `{n}` is declared but never used"),
+                span: 0..1,
+                secondary: None,
+            })
             .collect()
     }
 
@@ -8574,10 +9092,17 @@ impl FeatureFlagChecker {
         for (name, info) in &self.flags {
             if info.default_enabled {
                 for conflict in &info.conflicts_with {
-                    if let Some(other) = self.flags.get(conflict) {
-                        if other.default_enabled {
-                            errors.push(TypeError { code: "A45002".into(), message: format!("conflicting flags: `{name}` and `{conflict}` both enabled"), span: 0..1, secondary: None });
-                        }
+                    if let Some(other) = self.flags.get(conflict)
+                        && other.default_enabled
+                    {
+                        errors.push(TypeError {
+                            code: "A45002".into(),
+                            message: format!(
+                                "conflicting flags: `{name}` and `{conflict}` both enabled"
+                            ),
+                            span: 0..1,
+                            secondary: None,
+                        });
                     }
                 }
             }
@@ -8587,13 +9112,22 @@ impl FeatureFlagChecker {
 
     pub fn check_undeclared(&self, flag_name: &str) -> Option<TypeError> {
         if !self.flags.contains_key(flag_name) {
-            Some(TypeError { code: "A45003".into(), message: format!("reference to undeclared feature flag `{flag_name}`"), span: 0..1, secondary: None })
-        } else { None }
+            Some(TypeError {
+                code: "A45003".into(),
+                message: format!("reference to undeclared feature flag `{flag_name}`"),
+                span: 0..1,
+                secondary: None,
+            })
+        } else {
+            None
+        }
     }
 }
 
 impl Default for FeatureFlagChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8614,28 +9148,57 @@ pub struct ResourceLimit {
 }
 
 impl ResourceLimitChecker {
-    pub fn new() -> Self { Self { limits: std::collections::HashMap::new(), usage: std::collections::HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            limits: std::collections::HashMap::new(),
+            usage: std::collections::HashMap::new(),
+        }
+    }
 
-    pub fn declare_limit(&mut self, name: std::string::String, max_value: u64, unit: std::string::String) {
-        self.limits.insert(name.clone(), ResourceLimit { name: name.clone(), max_value, unit });
+    pub fn declare_limit(
+        &mut self,
+        name: std::string::String,
+        max_value: u64,
+        unit: std::string::String,
+    ) {
+        self.limits.insert(
+            name.clone(),
+            ResourceLimit {
+                name: name.clone(),
+                max_value,
+                unit,
+            },
+        );
         self.usage.insert(name, 0);
     }
 
     pub fn record_usage(&mut self, name: &str, amount: u64) {
-        if let Some(u) = self.usage.get_mut(name) { *u += amount; }
+        if let Some(u) = self.usage.get_mut(name) {
+            *u += amount;
+        }
     }
 
     pub fn release_usage(&mut self, name: &str, amount: u64) {
-        if let Some(u) = self.usage.get_mut(name) { *u = u.saturating_sub(amount); }
+        if let Some(u) = self.usage.get_mut(name) {
+            *u = u.saturating_sub(amount);
+        }
     }
 
     pub fn check_limits(&self) -> Vec<TypeError> {
         let mut errors = Vec::new();
         for (name, limit) in &self.limits {
-            if let Some(&current) = self.usage.get(name) {
-                if current > limit.max_value {
-                    errors.push(TypeError { code: "A46001".into(), message: format!("resource `{name}` usage {current} exceeds limit {} {}", limit.max_value, limit.unit), span: 0..1, secondary: None });
-                }
+            if let Some(&current) = self.usage.get(name)
+                && current > limit.max_value
+            {
+                errors.push(TypeError {
+                    code: "A46001".into(),
+                    message: format!(
+                        "resource `{name}` usage {current} exceeds limit {} {}",
+                        limit.max_value, limit.unit
+                    ),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
@@ -8643,27 +9206,47 @@ impl ResourceLimitChecker {
 
     pub fn check_unbounded(&self, name: &str) -> Option<TypeError> {
         if !self.limits.contains_key(name) {
-            Some(TypeError { code: "A46002".into(), message: format!("resource `{name}` used without declared limit"), span: 0..1, secondary: None })
-        } else { None }
+            Some(TypeError {
+                code: "A46002".into(),
+                message: format!("resource `{name}` used without declared limit"),
+                span: 0..1,
+                secondary: None,
+            })
+        } else {
+            None
+        }
     }
 
     pub fn check_near_limit(&self) -> Vec<TypeError> {
         let mut errors = Vec::new();
         for (name, limit) in &self.limits {
-            if let Some(&current) = self.usage.get(name) {
-                if limit.max_value > 0 && current > limit.max_value * 9 / 10 {
-                    errors.push(TypeError { code: "A46003".into(), message: format!("resource `{name}` at {}% of limit", current * 100 / limit.max_value), span: 0..1, secondary: None });
-                }
+            if let Some(&current) = self.usage.get(name)
+                && limit.max_value > 0
+                && current > limit.max_value * 9 / 10
+            {
+                errors.push(TypeError {
+                    code: "A46003".into(),
+                    message: format!(
+                        "resource `{name}` at {}% of limit",
+                        current * 100 / limit.max_value
+                    ),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
     }
 
-    pub fn current_usage(&self, name: &str) -> Option<u64> { self.usage.get(name).copied() }
+    pub fn current_usage(&self, name: &str) -> Option<u64> {
+        self.usage.get(name).copied()
+    }
 }
 
 impl Default for ResourceLimitChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8685,23 +9268,49 @@ pub struct UnsafeBlock {
 }
 
 impl UnsafeEscapeChecker {
-    pub fn new() -> Self { Self { unsafe_blocks: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            unsafe_blocks: Vec::new(),
+        }
+    }
 
-    pub fn declare_unsafe(&mut self, name: std::string::String, obligations: Vec<std::string::String>, span: std::ops::Range<usize>) {
-        self.unsafe_blocks.push(UnsafeBlock { name, has_safety_proof: false, proof_obligations: obligations, obligations_discharged: Vec::new(), span });
+    pub fn declare_unsafe(
+        &mut self,
+        name: std::string::String,
+        obligations: Vec<std::string::String>,
+        span: std::ops::Range<usize>,
+    ) {
+        self.unsafe_blocks.push(UnsafeBlock {
+            name,
+            has_safety_proof: false,
+            proof_obligations: obligations,
+            obligations_discharged: Vec::new(),
+            span,
+        });
     }
 
     pub fn attach_proof(&mut self, name: &str) {
-        if let Some(b) = self.unsafe_blocks.iter_mut().find(|b| b.name == name) { b.has_safety_proof = true; }
+        if let Some(b) = self.unsafe_blocks.iter_mut().find(|b| b.name == name) {
+            b.has_safety_proof = true;
+        }
     }
 
     pub fn discharge_obligation(&mut self, block_name: &str, obligation: std::string::String) {
-        if let Some(b) = self.unsafe_blocks.iter_mut().find(|b| b.name == block_name) { b.obligations_discharged.push(obligation); }
+        if let Some(b) = self.unsafe_blocks.iter_mut().find(|b| b.name == block_name) {
+            b.obligations_discharged.push(obligation);
+        }
     }
 
     pub fn check_unproven(&self) -> Vec<TypeError> {
-        self.unsafe_blocks.iter().filter(|b| !b.has_safety_proof)
-            .map(|b| TypeError { code: "A47001".into(), message: format!("unsafe block `{}` has no safety proof", b.name), span: b.span.clone(), secondary: None })
+        self.unsafe_blocks
+            .iter()
+            .filter(|b| !b.has_safety_proof)
+            .map(|b| TypeError {
+                code: "A47001".into(),
+                message: format!("unsafe block `{}` has no safety proof", b.name),
+                span: b.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
@@ -8710,7 +9319,15 @@ impl UnsafeEscapeChecker {
         for b in &self.unsafe_blocks {
             for obl in &b.proof_obligations {
                 if !b.obligations_discharged.contains(obl) {
-                    errors.push(TypeError { code: "A47002".into(), message: format!("obligation `{obl}` in unsafe block `{}` not discharged", b.name), span: b.span.clone(), secondary: None });
+                    errors.push(TypeError {
+                        code: "A47002".into(),
+                        message: format!(
+                            "obligation `{obl}` in unsafe block `{}` not discharged",
+                            b.name
+                        ),
+                        span: b.span.clone(),
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -8718,16 +9335,27 @@ impl UnsafeEscapeChecker {
     }
 
     pub fn check_empty_obligations(&self) -> Vec<TypeError> {
-        self.unsafe_blocks.iter().filter(|b| b.proof_obligations.is_empty())
-            .map(|b| TypeError { code: "A47003".into(), message: format!("unsafe block `{}` declares no proof obligations", b.name), span: b.span.clone(), secondary: None })
+        self.unsafe_blocks
+            .iter()
+            .filter(|b| b.proof_obligations.is_empty())
+            .map(|b| TypeError {
+                code: "A47003".into(),
+                message: format!("unsafe block `{}` declares no proof obligations", b.name),
+                span: b.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
-    pub fn unsafe_count(&self) -> usize { self.unsafe_blocks.len() }
+    pub fn unsafe_count(&self) -> usize {
+        self.unsafe_blocks.len()
+    }
 }
 
 impl Default for UnsafeEscapeChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8741,7 +9369,13 @@ pub struct ComplexityBoundChecker {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComplexityClass {
-    Constant, Logarithmic, Linear, NLogN, Quadratic, Cubic, Exponential,
+    Constant,
+    Logarithmic,
+    Linear,
+    NLogN,
+    Quadratic,
+    Cubic,
+    Exponential,
 }
 
 #[derive(Debug, Clone)]
@@ -8753,47 +9387,98 @@ pub struct ComplexityBound {
 }
 
 impl ComplexityBoundChecker {
-    pub fn new() -> Self { Self { bounds: std::collections::HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            bounds: std::collections::HashMap::new(),
+        }
+    }
 
-    pub fn declare_bound(&mut self, fn_name: std::string::String, declared: ComplexityClass, span: std::ops::Range<usize>) {
-        self.bounds.insert(fn_name.clone(), ComplexityBound { fn_name, declared, measured: None, span });
+    pub fn declare_bound(
+        &mut self,
+        fn_name: std::string::String,
+        declared: ComplexityClass,
+        span: std::ops::Range<usize>,
+    ) {
+        self.bounds.insert(
+            fn_name.clone(),
+            ComplexityBound {
+                fn_name,
+                declared,
+                measured: None,
+                span,
+            },
+        );
     }
 
     pub fn record_measured(&mut self, fn_name: &str, measured: ComplexityClass) {
-        if let Some(b) = self.bounds.get_mut(fn_name) { b.measured = Some(measured); }
+        if let Some(b) = self.bounds.get_mut(fn_name) {
+            b.measured = Some(measured);
+        }
     }
 
     fn class_rank(c: &ComplexityClass) -> u8 {
-        match c { ComplexityClass::Constant => 0, ComplexityClass::Logarithmic => 1, ComplexityClass::Linear => 2, ComplexityClass::NLogN => 3, ComplexityClass::Quadratic => 4, ComplexityClass::Cubic => 5, ComplexityClass::Exponential => 6 }
+        match c {
+            ComplexityClass::Constant => 0,
+            ComplexityClass::Logarithmic => 1,
+            ComplexityClass::Linear => 2,
+            ComplexityClass::NLogN => 3,
+            ComplexityClass::Quadratic => 4,
+            ComplexityClass::Cubic => 5,
+            ComplexityClass::Exponential => 6,
+        }
     }
 
     pub fn check_bounds(&self) -> Vec<TypeError> {
         let mut errors = Vec::new();
         for (name, bound) in &self.bounds {
-            if let Some(ref measured) = bound.measured {
-                if Self::class_rank(measured) > Self::class_rank(&bound.declared) {
-                    errors.push(TypeError { code: "A48001".into(), message: format!("function `{name}` declared as {:?} but measured as {measured:?}", bound.declared), span: bound.span.clone(), secondary: None });
-                }
+            if let Some(ref measured) = bound.measured
+                && Self::class_rank(measured) > Self::class_rank(&bound.declared)
+            {
+                errors.push(TypeError {
+                    code: "A48001".into(),
+                    message: format!(
+                        "function `{name}` declared as {:?} but measured as {measured:?}",
+                        bound.declared
+                    ),
+                    span: bound.span.clone(),
+                    secondary: None,
+                });
             }
         }
         errors
     }
 
     pub fn check_unverified(&self) -> Vec<TypeError> {
-        self.bounds.iter().filter(|(_, b)| b.measured.is_none())
-            .map(|(n, b)| TypeError { code: "A48002".into(), message: format!("complexity bound for `{n}` is not verified"), span: b.span.clone(), secondary: None })
+        self.bounds
+            .iter()
+            .filter(|(_, b)| b.measured.is_none())
+            .map(|(n, b)| TypeError {
+                code: "A48002".into(),
+                message: format!("complexity bound for `{n}` is not verified"),
+                span: b.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
     pub fn check_expensive(&self) -> Vec<TypeError> {
-        self.bounds.iter().filter(|(_, b)| b.declared == ComplexityClass::Exponential)
-            .map(|(n, b)| TypeError { code: "A48003".into(), message: format!("function `{n}` has exponential complexity bound"), span: b.span.clone(), secondary: None })
+        self.bounds
+            .iter()
+            .filter(|(_, b)| b.declared == ComplexityClass::Exponential)
+            .map(|(n, b)| TypeError {
+                code: "A48003".into(),
+                message: format!("function `{n}` has exponential complexity bound"),
+                span: b.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 }
 
 impl Default for ComplexityBoundChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8816,37 +9501,86 @@ pub struct EquivalenceDecl {
 }
 
 impl BehavioralEquivalenceChecker {
-    pub fn new() -> Self { Self { equivalences: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            equivalences: Vec::new(),
+        }
+    }
 
-    pub fn declare(&mut self, name: std::string::String, impl_a: std::string::String, impl_b: std::string::String, contract: std::string::String, span: std::ops::Range<usize>) {
-        self.equivalences.push(EquivalenceDecl { name, impl_a, impl_b, contract, verified: false, span });
+    pub fn declare(
+        &mut self,
+        name: std::string::String,
+        impl_a: std::string::String,
+        impl_b: std::string::String,
+        contract: std::string::String,
+        span: std::ops::Range<usize>,
+    ) {
+        self.equivalences.push(EquivalenceDecl {
+            name,
+            impl_a,
+            impl_b,
+            contract,
+            verified: false,
+            span,
+        });
     }
 
     pub fn mark_verified(&mut self, name: &str) {
-        if let Some(e) = self.equivalences.iter_mut().find(|e| e.name == name) { e.verified = true; }
+        if let Some(e) = self.equivalences.iter_mut().find(|e| e.name == name) {
+            e.verified = true;
+        }
     }
 
     pub fn check_unverified(&self) -> Vec<TypeError> {
-        self.equivalences.iter().filter(|e| !e.verified)
-            .map(|e| TypeError { code: "A49001".into(), message: format!("behavioral equivalence `{}` between `{}` and `{}` not verified", e.name, e.impl_a, e.impl_b), span: e.span.clone(), secondary: None })
+        self.equivalences
+            .iter()
+            .filter(|e| !e.verified)
+            .map(|e| TypeError {
+                code: "A49001".into(),
+                message: format!(
+                    "behavioral equivalence `{}` between `{}` and `{}` not verified",
+                    e.name, e.impl_a, e.impl_b
+                ),
+                span: e.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
     pub fn check_self_equivalence(&self) -> Vec<TypeError> {
-        self.equivalences.iter().filter(|e| e.impl_a == e.impl_b)
-            .map(|e| TypeError { code: "A49002".into(), message: format!("trivial self-equivalence in `{}`: both sides are `{}`", e.name, e.impl_a), span: e.span.clone(), secondary: None })
+        self.equivalences
+            .iter()
+            .filter(|e| e.impl_a == e.impl_b)
+            .map(|e| TypeError {
+                code: "A49002".into(),
+                message: format!(
+                    "trivial self-equivalence in `{}`: both sides are `{}`",
+                    e.name, e.impl_a
+                ),
+                span: e.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
     pub fn check_contract_ref(&self) -> Vec<TypeError> {
-        self.equivalences.iter().filter(|e| e.contract.is_empty())
-            .map(|e| TypeError { code: "A49003".into(), message: format!("equivalence `{}` has no contract reference", e.name), span: e.span.clone(), secondary: None })
+        self.equivalences
+            .iter()
+            .filter(|e| e.contract.is_empty())
+            .map(|e| TypeError {
+                code: "A49003".into(),
+                message: format!("equivalence `{}` has no contract reference", e.name),
+                span: e.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 }
 
 impl Default for BehavioralEquivalenceChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8869,19 +9603,47 @@ pub struct RefinementPass {
 }
 
 impl MultiPassRefinementChecker {
-    pub fn new() -> Self { Self { passes: Vec::new() } }
+    pub fn new() -> Self {
+        Self { passes: Vec::new() }
+    }
 
-    pub fn add_pass(&mut self, name: std::string::String, from_level: std::string::String, to_level: std::string::String, obligations: usize, span: std::ops::Range<usize>) {
-        self.passes.push(RefinementPass { name, from_level, to_level, obligations_total: obligations, obligations_discharged: 0, span });
+    pub fn add_pass(
+        &mut self,
+        name: std::string::String,
+        from_level: std::string::String,
+        to_level: std::string::String,
+        obligations: usize,
+        span: std::ops::Range<usize>,
+    ) {
+        self.passes.push(RefinementPass {
+            name,
+            from_level,
+            to_level,
+            obligations_total: obligations,
+            obligations_discharged: 0,
+            span,
+        });
     }
 
     pub fn discharge(&mut self, pass_name: &str, count: usize) {
-        if let Some(p) = self.passes.iter_mut().find(|p| p.name == pass_name) { p.obligations_discharged += count; }
+        if let Some(p) = self.passes.iter_mut().find(|p| p.name == pass_name) {
+            p.obligations_discharged += count;
+        }
     }
 
     pub fn check_complete(&self) -> Vec<TypeError> {
-        self.passes.iter().filter(|p| p.obligations_discharged < p.obligations_total)
-            .map(|p| TypeError { code: "A50001".into(), message: format!("refinement `{}` ({} -> {}): {}/{} obligations discharged", p.name, p.from_level, p.to_level, p.obligations_discharged, p.obligations_total), span: p.span.clone(), secondary: None })
+        self.passes
+            .iter()
+            .filter(|p| p.obligations_discharged < p.obligations_total)
+            .map(|p| TypeError {
+                code: "A50001".into(),
+                message: format!(
+                    "refinement `{}` ({} -> {}): {}/{} obligations discharged",
+                    p.name, p.from_level, p.to_level, p.obligations_discharged, p.obligations_total
+                ),
+                span: p.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
@@ -8889,23 +9651,45 @@ impl MultiPassRefinementChecker {
         let mut errors = Vec::new();
         for i in 1..self.passes.len() {
             if self.passes[i].from_level != self.passes[i - 1].to_level {
-                errors.push(TypeError { code: "A50002".into(), message: format!("refinement chain gap: `{}` starts at `{}` but `{}` ends at `{}`", self.passes[i].name, self.passes[i].from_level, self.passes[i-1].name, self.passes[i-1].to_level), span: self.passes[i].span.clone(), secondary: None });
+                errors.push(TypeError {
+                    code: "A50002".into(),
+                    message: format!(
+                        "refinement chain gap: `{}` starts at `{}` but `{}` ends at `{}`",
+                        self.passes[i].name,
+                        self.passes[i].from_level,
+                        self.passes[i - 1].name,
+                        self.passes[i - 1].to_level
+                    ),
+                    span: self.passes[i].span.clone(),
+                    secondary: None,
+                });
             }
         }
         errors
     }
 
     pub fn check_non_trivial(&self) -> Vec<TypeError> {
-        self.passes.iter().filter(|p| p.obligations_total == 0)
-            .map(|p| TypeError { code: "A50003".into(), message: format!("refinement pass `{}` has zero obligations", p.name), span: p.span.clone(), secondary: None })
+        self.passes
+            .iter()
+            .filter(|p| p.obligations_total == 0)
+            .map(|p| TypeError {
+                code: "A50003".into(),
+                message: format!("refinement pass `{}` has zero obligations", p.name),
+                span: p.span.clone(),
+                secondary: None,
+            })
             .collect()
     }
 
-    pub fn pass_count(&self) -> usize { self.passes.len() }
+    pub fn pass_count(&self) -> usize {
+        self.passes.len()
+    }
 }
 
 impl Default for MultiPassRefinementChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8931,11 +9715,31 @@ pub struct ContractVersionEntry {
 }
 
 impl IncrementalContractChecker {
-    pub fn new() -> Self { Self { contracts: std::collections::HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            contracts: std::collections::HashMap::new(),
+        }
+    }
 
-    pub fn add_version(&mut self, name: std::string::String, version: u32, requires_count: usize, ensures_count: usize) {
-        let history = self.contracts.entry(name.clone()).or_insert_with(|| ContractHistoryEntry { name, versions: Vec::new() });
-        history.versions.push(ContractVersionEntry { version, requires_count, ensures_count });
+    pub fn add_version(
+        &mut self,
+        name: std::string::String,
+        version: u32,
+        requires_count: usize,
+        ensures_count: usize,
+    ) {
+        let history = self
+            .contracts
+            .entry(name.clone())
+            .or_insert_with(|| ContractHistoryEntry {
+                name,
+                versions: Vec::new(),
+            });
+        history.versions.push(ContractVersionEntry {
+            version,
+            requires_count,
+            ensures_count,
+        });
     }
 
     pub fn check_precondition_weakening(&self) -> Vec<TypeError> {
@@ -8943,7 +9747,15 @@ impl IncrementalContractChecker {
         for (name, history) in &self.contracts {
             for i in 1..history.versions.len() {
                 if history.versions[i].requires_count > history.versions[i - 1].requires_count {
-                    errors.push(TypeError { code: "A51001".into(), message: format!("contract `{name}` v{} strengthens preconditions", history.versions[i].version), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A51001".into(),
+                        message: format!(
+                            "contract `{name}` v{} strengthens preconditions",
+                            history.versions[i].version
+                        ),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -8955,7 +9767,15 @@ impl IncrementalContractChecker {
         for (name, history) in &self.contracts {
             for i in 1..history.versions.len() {
                 if history.versions[i].ensures_count < history.versions[i - 1].ensures_count {
-                    errors.push(TypeError { code: "A51002".into(), message: format!("contract `{name}` v{} weakens postconditions", history.versions[i].version), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A51002".into(),
+                        message: format!(
+                            "contract `{name}` v{} weakens postconditions",
+                            history.versions[i].version
+                        ),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -8967,7 +9787,16 @@ impl IncrementalContractChecker {
         for (name, history) in &self.contracts {
             for i in 1..history.versions.len() {
                 if history.versions[i].version != history.versions[i - 1].version + 1 {
-                    errors.push(TypeError { code: "A51003".into(), message: format!("contract `{name}` has version gap: v{} to v{}", history.versions[i-1].version, history.versions[i].version), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A51003".into(),
+                        message: format!(
+                            "contract `{name}` has version gap: v{} to v{}",
+                            history.versions[i - 1].version,
+                            history.versions[i].version
+                        ),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -8976,7 +9805,9 @@ impl IncrementalContractChecker {
 }
 
 impl Default for IncrementalContractChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -8997,7 +9828,12 @@ pub enum InvariantState {
 }
 
 impl ScopedInvariantChecker {
-    pub fn new() -> Self { Self { invariants: std::collections::HashMap::new(), suspension_depth: 0 } }
+    pub fn new() -> Self {
+        Self {
+            invariants: std::collections::HashMap::new(),
+            suspension_depth: 0,
+        }
+    }
 
     pub fn declare_invariant(&mut self, name: std::string::String) {
         self.invariants.insert(name, InvariantState::Active);
@@ -9006,30 +9842,56 @@ impl ScopedInvariantChecker {
     pub fn suspend(&mut self, name: &str) -> Option<TypeError> {
         if let Some(state) = self.invariants.get_mut(name) {
             if *state == InvariantState::Suspended {
-                return Some(TypeError { code: "A52001".into(), message: format!("invariant `{name}` is already suspended"), span: 0..1, secondary: None });
+                return Some(TypeError {
+                    code: "A52001".into(),
+                    message: format!("invariant `{name}` is already suspended"),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
             *state = InvariantState::Suspended;
             self.suspension_depth += 1;
             None
         } else {
-            Some(TypeError { code: "A52002".into(), message: format!("cannot suspend undeclared invariant `{name}`"), span: 0..1, secondary: None })
+            Some(TypeError {
+                code: "A52002".into(),
+                message: format!("cannot suspend undeclared invariant `{name}`"),
+                span: 0..1,
+                secondary: None,
+            })
         }
     }
 
     pub fn restore(&mut self, name: &str) -> Option<TypeError> {
         if let Some(state) = self.invariants.get_mut(name) {
             if *state != InvariantState::Suspended {
-                return Some(TypeError { code: "A52003".into(), message: format!("invariant `{name}` is not currently suspended"), span: 0..1, secondary: None });
+                return Some(TypeError {
+                    code: "A52003".into(),
+                    message: format!("invariant `{name}` is not currently suspended"),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
             *state = InvariantState::Restored;
-            if self.suspension_depth > 0 { self.suspension_depth -= 1; }
+            if self.suspension_depth > 0 {
+                self.suspension_depth -= 1;
+            }
             None
-        } else { None }
+        } else {
+            None
+        }
     }
 
     pub fn check_all_restored(&self) -> Vec<TypeError> {
-        self.invariants.iter().filter(|(_, s)| **s == InvariantState::Suspended)
-            .map(|(n, _)| TypeError { code: "A52001".into(), message: format!("invariant `{n}` still suspended at scope exit"), span: 0..1, secondary: None })
+        self.invariants
+            .iter()
+            .filter(|(_, s)| **s == InvariantState::Suspended)
+            .map(|(n, _)| TypeError {
+                code: "A52001".into(),
+                message: format!("invariant `{n}` still suspended at scope exit"),
+                span: 0..1,
+                secondary: None,
+            })
             .collect()
     }
 
@@ -9037,11 +9899,15 @@ impl ScopedInvariantChecker {
         self.invariants.get(name) == Some(&InvariantState::Suspended)
     }
 
-    pub fn suspension_depth(&self) -> u32 { self.suspension_depth }
+    pub fn suspension_depth(&self) -> u32 {
+        self.suspension_depth
+    }
 }
 
 impl Default for ScopedInvariantChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -9065,44 +9931,84 @@ pub struct StdlibTypeDef {
 impl StdlibTypes {
     pub fn new() -> Self {
         let mut types = std::collections::HashMap::new();
-        types.insert("Pos".into(), StdlibTypeDef {
-            name: "Pos".into(), base_type: Type::Int,
-            refinement: "v > 0".into(), description: "Positive integer".into(),
-        });
-        types.insert("NonNeg".into(), StdlibTypeDef {
-            name: "NonNeg".into(), base_type: Type::Int,
-            refinement: "v >= 0".into(), description: "Non-negative integer".into(),
-        });
-        types.insert("Email".into(), StdlibTypeDef {
-            name: "Email".into(), base_type: Type::String,
-            refinement: "contains(v, @)".into(), description: "Email address".into(),
-        });
-        types.insert("Uuid".into(), StdlibTypeDef {
-            name: "Uuid".into(), base_type: Type::String,
-            refinement: "len(v) == 36".into(), description: "UUID string".into(),
-        });
-        types.insert("Port".into(), StdlibTypeDef {
-            name: "Port".into(), base_type: Type::Int,
-            refinement: "v >= 0 && v <= 65535".into(), description: "Network port".into(),
-        });
-        types.insert("Percentage".into(), StdlibTypeDef {
-            name: "Percentage".into(), base_type: Type::Float,
-            refinement: "v >= 0.0 && v <= 100.0".into(), description: "Percentage value".into(),
-        });
+        types.insert(
+            "Pos".into(),
+            StdlibTypeDef {
+                name: "Pos".into(),
+                base_type: Type::Int,
+                refinement: "v > 0".into(),
+                description: "Positive integer".into(),
+            },
+        );
+        types.insert(
+            "NonNeg".into(),
+            StdlibTypeDef {
+                name: "NonNeg".into(),
+                base_type: Type::Int,
+                refinement: "v >= 0".into(),
+                description: "Non-negative integer".into(),
+            },
+        );
+        types.insert(
+            "Email".into(),
+            StdlibTypeDef {
+                name: "Email".into(),
+                base_type: Type::String,
+                refinement: "contains(v, @)".into(),
+                description: "Email address".into(),
+            },
+        );
+        types.insert(
+            "Uuid".into(),
+            StdlibTypeDef {
+                name: "Uuid".into(),
+                base_type: Type::String,
+                refinement: "len(v) == 36".into(),
+                description: "UUID string".into(),
+            },
+        );
+        types.insert(
+            "Port".into(),
+            StdlibTypeDef {
+                name: "Port".into(),
+                base_type: Type::Int,
+                refinement: "v >= 0 && v <= 65535".into(),
+                description: "Network port".into(),
+            },
+        );
+        types.insert(
+            "Percentage".into(),
+            StdlibTypeDef {
+                name: "Percentage".into(),
+                base_type: Type::Float,
+                refinement: "v >= 0.0 && v <= 100.0".into(),
+                description: "Percentage value".into(),
+            },
+        );
         Self { types }
     }
 
-    pub fn lookup(&self, name: &str) -> Option<&StdlibTypeDef> { self.types.get(name) }
+    pub fn lookup(&self, name: &str) -> Option<&StdlibTypeDef> {
+        self.types.get(name)
+    }
 
-    pub fn all_types(&self) -> Vec<&StdlibTypeDef> { self.types.values().collect() }
+    pub fn all_types(&self) -> Vec<&StdlibTypeDef> {
+        self.types.values().collect()
+    }
 
-    pub fn type_count(&self) -> usize { self.types.len() }
+    pub fn type_count(&self) -> usize {
+        self.types.len()
+    }
 
-    pub fn is_stdlib_type(&self, name: &str) -> bool { self.types.contains_key(name) }
+    pub fn is_stdlib_type(&self, name: &str) -> bool {
+        self.types.contains_key(name)
+    }
 }
 
 impl Default for StdlibTypes {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -9127,32 +10033,60 @@ pub struct CollectionContract {
 
 impl CollectionContracts {
     pub fn new() -> Self {
-        let mut contracts = Vec::new();
-        contracts.push(CollectionContract {
-            name: "sort".into(), collection_type: "List<T>".into(),
-            preconditions: vec![], postconditions: vec!["is_sorted(result)".into(), "len(result) == len(input)".into()],
-            preserves_length: true, preserves_elements: true,
-        });
-        contracts.push(CollectionContract {
-            name: "filter".into(), collection_type: "List<T>".into(),
-            preconditions: vec![], postconditions: vec!["len(result) <= len(input)".into(), "forall x in result: pred(x)".into()],
-            preserves_length: false, preserves_elements: true,
-        });
-        contracts.push(CollectionContract {
-            name: "map".into(), collection_type: "List<T>".into(),
-            preconditions: vec![], postconditions: vec!["len(result) == len(input)".into()],
-            preserves_length: true, preserves_elements: false,
-        });
-        contracts.push(CollectionContract {
-            name: "reverse".into(), collection_type: "List<T>".into(),
-            preconditions: vec![], postconditions: vec!["len(result) == len(input)".into(), "result[0] == input[len(input)-1]".into()],
-            preserves_length: true, preserves_elements: true,
-        });
-        contracts.push(CollectionContract {
-            name: "deduplicate".into(), collection_type: "List<T>".into(),
-            preconditions: vec![], postconditions: vec!["len(result) <= len(input)".into(), "all_unique(result)".into()],
-            preserves_length: false, preserves_elements: true,
-        });
+        let contracts = vec![
+            CollectionContract {
+                name: "sort".into(),
+                collection_type: "List<T>".into(),
+                preconditions: vec![],
+                postconditions: vec![
+                    "is_sorted(result)".into(),
+                    "len(result) == len(input)".into(),
+                ],
+                preserves_length: true,
+                preserves_elements: true,
+            },
+            CollectionContract {
+                name: "filter".into(),
+                collection_type: "List<T>".into(),
+                preconditions: vec![],
+                postconditions: vec![
+                    "len(result) <= len(input)".into(),
+                    "forall x in result: pred(x)".into(),
+                ],
+                preserves_length: false,
+                preserves_elements: true,
+            },
+            CollectionContract {
+                name: "map".into(),
+                collection_type: "List<T>".into(),
+                preconditions: vec![],
+                postconditions: vec!["len(result) == len(input)".into()],
+                preserves_length: true,
+                preserves_elements: false,
+            },
+            CollectionContract {
+                name: "reverse".into(),
+                collection_type: "List<T>".into(),
+                preconditions: vec![],
+                postconditions: vec![
+                    "len(result) == len(input)".into(),
+                    "result[0] == input[len(input)-1]".into(),
+                ],
+                preserves_length: true,
+                preserves_elements: true,
+            },
+            CollectionContract {
+                name: "deduplicate".into(),
+                collection_type: "List<T>".into(),
+                preconditions: vec![],
+                postconditions: vec![
+                    "len(result) <= len(input)".into(),
+                    "all_unique(result)".into(),
+                ],
+                preserves_length: false,
+                preserves_elements: true,
+            },
+        ];
         Self { contracts }
     }
 
@@ -9160,13 +10094,19 @@ impl CollectionContracts {
         self.contracts.iter().find(|c| c.name == name)
     }
 
-    pub fn all_contracts(&self) -> &[CollectionContract] { &self.contracts }
+    pub fn all_contracts(&self) -> &[CollectionContract] {
+        &self.contracts
+    }
 
-    pub fn contract_count(&self) -> usize { self.contracts.len() }
+    pub fn contract_count(&self) -> usize {
+        self.contracts.len()
+    }
 }
 
 impl Default for CollectionContracts {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -9190,7 +10130,12 @@ pub struct CrudOperation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum CrudType { Create, Read, Update, Delete }
+pub enum CrudType {
+    Create,
+    Read,
+    Update,
+    Delete,
+}
 
 #[derive(Debug, Clone)]
 pub struct AuthPolicy {
@@ -9201,18 +10146,33 @@ pub struct AuthPolicy {
 
 impl CrudAuthContracts {
     pub fn new() -> Self {
-        Self { crud_ops: Vec::new(), auth_policies: Vec::new() }
+        Self {
+            crud_ops: Vec::new(),
+            auth_policies: Vec::new(),
+        }
     }
 
     pub fn add_crud(&mut self, name: std::string::String, op_type: CrudType, requires_auth: bool) {
         self.crud_ops.push(CrudOperation {
-            name, op_type, requires_auth,
-            preconditions: Vec::new(), postconditions: Vec::new(),
+            name,
+            op_type,
+            requires_auth,
+            preconditions: Vec::new(),
+            postconditions: Vec::new(),
         });
     }
 
-    pub fn add_auth_policy(&mut self, name: std::string::String, required_role: std::string::String, allow_self: bool) {
-        self.auth_policies.push(AuthPolicy { name, required_role, allow_self });
+    pub fn add_auth_policy(
+        &mut self,
+        name: std::string::String,
+        required_role: std::string::String,
+        allow_self: bool,
+    ) {
+        self.auth_policies.push(AuthPolicy {
+            name,
+            required_role,
+            allow_self,
+        });
     }
 
     pub fn check_auth_coverage(&self) -> Vec<TypeError> {
@@ -9221,7 +10181,15 @@ impl CrudAuthContracts {
             if op.requires_auth {
                 let has_policy = self.auth_policies.iter().any(|p| p.name == op.name);
                 if !has_policy {
-                    errors.push(TypeError { code: "A53001".into(), message: format!("CRUD operation `{}` requires auth but has no policy", op.name), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A53001".into(),
+                        message: format!(
+                            "CRUD operation `{}` requires auth but has no policy",
+                            op.name
+                        ),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -9232,18 +10200,32 @@ impl CrudAuthContracts {
         let mut errors = Vec::new();
         for op in &self.crud_ops {
             if op.op_type == CrudType::Delete && !op.requires_auth {
-                errors.push(TypeError { code: "A53002".into(), message: format!("delete operation `{}` should require authentication", op.name), span: 0..1, secondary: None });
+                errors.push(TypeError {
+                    code: "A53002".into(),
+                    message: format!(
+                        "delete operation `{}` should require authentication",
+                        op.name
+                    ),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
     }
 
-    pub fn crud_count(&self) -> usize { self.crud_ops.len() }
-    pub fn policy_count(&self) -> usize { self.auth_policies.len() }
+    pub fn crud_count(&self) -> usize {
+        self.crud_ops.len()
+    }
+    pub fn policy_count(&self) -> usize {
+        self.auth_policies.len()
+    }
 }
 
 impl Default for CrudAuthContracts {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -9264,10 +10246,26 @@ pub struct ComposableContract {
 }
 
 impl ContractCompositionChecker {
-    pub fn new() -> Self { Self { contracts: std::collections::HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            contracts: std::collections::HashMap::new(),
+        }
+    }
 
-    pub fn declare(&mut self, name: std::string::String, extends: Vec<std::string::String>, own_clauses: usize) {
-        self.contracts.insert(name.clone(), ComposableContract { name, extends, own_clauses });
+    pub fn declare(
+        &mut self,
+        name: std::string::String,
+        extends: Vec<std::string::String>,
+        own_clauses: usize,
+    ) {
+        self.contracts.insert(
+            name.clone(),
+            ComposableContract {
+                name,
+                extends,
+                own_clauses,
+            },
+        );
     }
 
     /// Check that all extended contracts exist.
@@ -9276,7 +10274,12 @@ impl ContractCompositionChecker {
         for (name, contract) in &self.contracts {
             for parent in &contract.extends {
                 if !self.contracts.contains_key(parent) {
-                    errors.push(TypeError { code: "A54001".into(), message: format!("contract `{name}` extends unknown contract `{parent}`"), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A54001".into(),
+                        message: format!("contract `{name}` extends unknown contract `{parent}`"),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -9289,7 +10292,12 @@ impl ContractCompositionChecker {
         for name in self.contracts.keys() {
             let mut visited = vec![name.clone()];
             if self.has_extends_cycle(name, &mut visited) {
-                errors.push(TypeError { code: "A54002".into(), message: format!("circular extends chain involving `{name}`"), span: 0..1, secondary: None });
+                errors.push(TypeError {
+                    code: "A54002".into(),
+                    message: format!("circular extends chain involving `{name}`"),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
@@ -9298,9 +10306,13 @@ impl ContractCompositionChecker {
     fn has_extends_cycle(&self, current: &str, visited: &mut Vec<std::string::String>) -> bool {
         if let Some(contract) = self.contracts.get(current) {
             for parent in &contract.extends {
-                if visited.contains(parent) { return true; }
+                if visited.contains(parent) {
+                    return true;
+                }
                 visited.push(parent.clone());
-                if self.has_extends_cycle(parent, visited) { return true; }
+                if self.has_extends_cycle(parent, visited) {
+                    return true;
+                }
                 visited.pop();
             }
         }
@@ -9316,7 +10328,14 @@ impl ContractCompositionChecker {
                 let ancestors = self.collect_ancestors(parent);
                 for a in &ancestors {
                     if all_ancestors.contains(a) {
-                        errors.push(TypeError { code: "A54003".into(), message: format!("diamond inheritance in `{name}`: `{a}` reached via multiple paths"), span: 0..1, secondary: None });
+                        errors.push(TypeError {
+                            code: "A54003".into(),
+                            message: format!(
+                                "diamond inheritance in `{name}`: `{a}` reached via multiple paths"
+                            ),
+                            span: 0..1,
+                            secondary: None,
+                        });
                     }
                 }
                 all_ancestors.extend(ancestors);
@@ -9335,11 +10354,15 @@ impl ContractCompositionChecker {
         result
     }
 
-    pub fn contract_count(&self) -> usize { self.contracts.len() }
+    pub fn contract_count(&self) -> usize {
+        self.contracts.len()
+    }
 }
 
 impl Default for ContractCompositionChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -9367,10 +10390,19 @@ pub struct LibraryDep {
 }
 
 impl ContractLibraryChecker {
-    pub fn new() -> Self { Self { libraries: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            libraries: Vec::new(),
+        }
+    }
 
     pub fn declare_library(&mut self, name: std::string::String, version: std::string::String) {
-        self.libraries.push(ContractLibrary { name, version, exported_contracts: Vec::new(), dependencies: Vec::new() });
+        self.libraries.push(ContractLibrary {
+            name,
+            version,
+            exported_contracts: Vec::new(),
+            dependencies: Vec::new(),
+        });
     }
 
     pub fn add_export(&mut self, lib_name: &str, contract: std::string::String) {
@@ -9387,8 +10419,15 @@ impl ContractLibraryChecker {
 
     /// Check for libraries with no exports.
     pub fn check_empty_exports(&self) -> Vec<TypeError> {
-        self.libraries.iter().filter(|l| l.exported_contracts.is_empty())
-            .map(|l| TypeError { code: "A55001".into(), message: format!("library `{}` has no exported contracts", l.name), span: 0..1, secondary: None })
+        self.libraries
+            .iter()
+            .filter(|l| l.exported_contracts.is_empty())
+            .map(|l| TypeError {
+                code: "A55001".into(),
+                message: format!("library `{}` has no exported contracts", l.name),
+                span: 0..1,
+                secondary: None,
+            })
             .collect()
     }
 
@@ -9398,7 +10437,12 @@ impl ContractLibraryChecker {
         for lib in &self.libraries {
             for dep in &lib.dependencies {
                 if dep.name == lib.name {
-                    errors.push(TypeError { code: "A55002".into(), message: format!("library `{}` depends on itself", lib.name), span: 0..1, secondary: None });
+                    errors.push(TypeError {
+                        code: "A55002".into(),
+                        message: format!("library `{}` depends on itself", lib.name),
+                        span: 0..1,
+                        secondary: None,
+                    });
                 }
             }
         }
@@ -9411,17 +10455,26 @@ impl ContractLibraryChecker {
         let mut errors = Vec::new();
         for lib in &self.libraries {
             if !seen.insert(lib.name.clone()) {
-                errors.push(TypeError { code: "A55003".into(), message: format!("duplicate library name `{}`", lib.name), span: 0..1, secondary: None });
+                errors.push(TypeError {
+                    code: "A55003".into(),
+                    message: format!("duplicate library name `{}`", lib.name),
+                    span: 0..1,
+                    secondary: None,
+                });
             }
         }
         errors
     }
 
-    pub fn library_count(&self) -> usize { self.libraries.len() }
+    pub fn library_count(&self) -> usize {
+        self.libraries.len()
+    }
 }
 
 impl Default for ContractLibraryChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -14851,7 +15904,7 @@ ghost fn bad_ghost(x: Int) -> Bool
         checker.register_extern("read".into(), TrustBoundary::Untrusted);
         checker.register_extern("write".into(), TrustBoundary::Audited);
         let externs = vec![
-            ("read".into(), true, false, 0..5),  // untrusted, no contract -> A11002
+            ("read".into(), true, false, 0..5), // untrusted, no contract -> A11002
             ("write".into(), true, true, 10..15), // audited, has contract -> ok
             ("unknown".into(), false, false, 20..25), // no boundary -> A11001
         ];
@@ -14888,12 +15941,7 @@ ghost fn bad_ghost(x: Int) -> Bool
         });
 
         // Only implement serialize, not deserialize
-        let errors = checker.check_impl(
-            "MyType",
-            "Serializable",
-            &["serialize".into()],
-            &(0..1),
-        );
+        let errors = checker.check_impl("MyType", "Serializable", &["serialize".into()], &(0..1));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A13001");
         assert!(errors[0].message.contains("deserialize"));
@@ -14915,8 +15963,7 @@ ghost fn bad_ghost(x: Int) -> Bool
             extends: vec![],
         });
 
-        let errors =
-            checker.check_impl("MyType", "Hashable", &["hash".into()], &(0..1));
+        let errors = checker.check_impl("MyType", "Hashable", &["hash".into()], &(0..1));
         assert!(errors.is_empty());
     }
 
@@ -14939,7 +15986,7 @@ ghost fn bad_ghost(x: Int) -> Bool
         let errors = checker.check_method_signature(
             "Comparable",
             "compare",
-            &[Type::Int],        // only 1 param
+            &[Type::Int], // only 1 param
             &Type::Bool,
             &(0..1),
         );
@@ -14991,8 +16038,7 @@ ghost fn bad_ghost(x: Int) -> Bool
             extends: vec![],
         });
 
-        let errors =
-            checker.check_reentrancy("Callback", "on_event", true, &(0..1));
+        let errors = checker.check_reentrancy("Callback", "on_event", true, &(0..1));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A13003");
     }
@@ -15013,8 +16059,7 @@ ghost fn bad_ghost(x: Int) -> Bool
             extends: vec![],
         });
 
-        let errors =
-            checker.check_reentrancy("Callback", "on_event", true, &(0..1));
+        let errors = checker.check_reentrancy("Callback", "on_event", true, &(0..1));
         assert!(errors.is_empty(), "method allows reentrancy");
     }
 
@@ -15047,12 +16092,7 @@ ghost fn bad_ghost(x: Int) -> Bool
         });
 
         // Implement compare_to but not equals -> A13001 for missing super method
-        let errors = checker.check_impl(
-            "MyType",
-            "Ord",
-            &["compare_to".into()],
-            &(0..1),
-        );
+        let errors = checker.check_impl("MyType", "Ord", &["compare_to".into()], &(0..1));
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("equals"));
         assert!(errors[0].message.contains("Eq"));
@@ -15155,10 +16195,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn struct_inv_tree_balance_valid() {
         let mut checker = StructuralInvariantChecker::new();
-        checker.register_recursive_type(
-            "AVLTree".into(),
-            vec!["left".into(), "right".into()],
-        );
+        checker.register_recursive_type("AVLTree".into(), vec!["left".into(), "right".into()]);
         let errors = checker.check_invariant_applicability(
             "AVLTree",
             &InvariantKind::TreeBalance { max_diff: 1 },
@@ -15195,10 +16232,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn struct_inv_sort_on_tree_a15003() {
         let mut checker = StructuralInvariantChecker::new();
-        checker.register_recursive_type(
-            "BTree".into(),
-            vec!["left".into(), "right".into()],
-        );
+        checker.register_recursive_type("BTree".into(), vec!["left".into(), "right".into()]);
         let errors = checker.check_invariant_applicability(
             "BTree",
             &InvariantKind::Sorted { descending: false },
@@ -15212,21 +16246,15 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn struct_inv_acyclic_valid_for_any_recursive() {
         let mut checker = StructuralInvariantChecker::new();
         checker.register_recursive_type("Graph".into(), vec!["children".into()]);
-        let errors = checker.check_invariant_applicability(
-            "Graph",
-            &InvariantKind::Acyclic,
-            &(0..1),
-        );
+        let errors =
+            checker.check_invariant_applicability("Graph", &InvariantKind::Acyclic, &(0..1));
         assert!(errors.is_empty());
     }
 
     #[test]
     fn struct_inv_operation_no_proof_a15004() {
         let mut checker = StructuralInvariantChecker::new();
-        checker.register_recursive_type(
-            "BST".into(),
-            vec!["left".into(), "right".into()],
-        );
+        checker.register_recursive_type("BST".into(), vec!["left".into(), "right".into()]);
         checker.register_invariant(StructuralInvariant {
             name: "bst_order".into(),
             type_name: "BST".into(),
@@ -15246,10 +16274,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn struct_inv_operation_with_proof_ok() {
         let mut checker = StructuralInvariantChecker::new();
-        checker.register_recursive_type(
-            "BST".into(),
-            vec!["left".into(), "right".into()],
-        );
+        checker.register_recursive_type("BST".into(), vec!["left".into(), "right".into()]);
         checker.register_invariant(StructuralInvariant {
             name: "bst_order".into(),
             type_name: "BST".into(),
@@ -15268,10 +16293,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn struct_inv_readonly_trivially_preserves() {
         let mut checker = StructuralInvariantChecker::new();
-        checker.register_recursive_type(
-            "BST".into(),
-            vec!["left".into(), "right".into()],
-        );
+        checker.register_recursive_type("BST".into(), vec!["left".into(), "right".into()]);
         checker.register_invariant(StructuralInvariant {
             name: "bst_order".into(),
             type_name: "BST".into(),
@@ -15308,10 +16330,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn struct_inv_get_invariants() {
         let mut checker = StructuralInvariantChecker::new();
-        checker.register_recursive_type(
-            "AVL".into(),
-            vec!["left".into(), "right".into()],
-        );
+        checker.register_recursive_type("AVL".into(), vec!["left".into(), "right".into()]);
         checker.register_invariant(StructuralInvariant {
             name: "balance".into(),
             type_name: "AVL".into(),
@@ -15558,11 +16577,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn determinism_hashmap_a20001() {
         let mut checker = DeterminismChecker::new();
         checker.mark_deterministic("compute".into());
-        let errors = checker.check_fn_body(
-            "compute",
-            &["HashMap".into(), "Vec".into()],
-            &(0..1),
-        );
+        let errors = checker.check_fn_body("compute", &["HashMap".into(), "Vec".into()], &(0..1));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A20001");
     }
@@ -15571,11 +16586,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn determinism_btreemap_ok() {
         let mut checker = DeterminismChecker::new();
         checker.mark_deterministic("compute".into());
-        let errors = checker.check_fn_body(
-            "compute",
-            &["BTreeMap".into(), "Vec".into()],
-            &(0..1),
-        );
+        let errors = checker.check_fn_body("compute", &["BTreeMap".into(), "Vec".into()], &(0..1));
         assert!(errors.is_empty());
     }
 
@@ -15583,11 +16594,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn determinism_non_det_fn_ok() {
         let mut checker = DeterminismChecker::new();
         // Not marked deterministic
-        let errors = checker.check_fn_body(
-            "random_pick",
-            &["random".into()],
-            &(0..1),
-        );
+        let errors = checker.check_fn_body("random_pick", &["random".into()], &(0..1));
         assert!(errors.is_empty(), "non-deterministic fn allows random");
     }
 
@@ -15612,11 +16619,7 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn determinism_random_a20001() {
         let mut checker = DeterminismChecker::new();
         checker.mark_deterministic("seed_fn".into());
-        let errors = checker.check_fn_body(
-            "seed_fn",
-            &["thread_rng".into()],
-            &(0..1),
-        );
+        let errors = checker.check_fn_body("seed_fn", &["thread_rng".into()], &(0..1));
         assert_eq!(errors.len(), 1);
     }
 
@@ -16935,7 +17938,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn deadline_operation_exceeds() {
         let mut checker = TemporalDeadlineChecker::new();
         checker.register_bound("heavy_compute".into(), 500);
-        assert!(checker.enter_deadline("fast".into(), 100, &(0..1)).is_none());
+        assert!(
+            checker
+                .enter_deadline("fast".into(), 100, &(0..1))
+                .is_none()
+        );
         let err = checker.check_operation("heavy_compute", &(5..6));
         assert!(err.is_some());
         assert_eq!(err.unwrap().code, "A25001");
@@ -16945,14 +17952,22 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn deadline_operation_ok() {
         let mut checker = TemporalDeadlineChecker::new();
         checker.register_bound("quick".into(), 10);
-        assert!(checker.enter_deadline("normal".into(), 100, &(0..1)).is_none());
+        assert!(
+            checker
+                .enter_deadline("normal".into(), 100, &(0..1))
+                .is_none()
+        );
         assert!(checker.check_operation("quick", &(5..6)).is_none());
     }
 
     #[test]
     fn deadline_unbounded_operation() {
         let mut checker = TemporalDeadlineChecker::new();
-        assert!(checker.enter_deadline("strict".into(), 50, &(0..1)).is_none());
+        assert!(
+            checker
+                .enter_deadline("strict".into(), 50, &(0..1))
+                .is_none()
+        );
         let err = checker.check_operation("unknown_op", &(5..6));
         assert!(err.is_some());
         assert_eq!(err.unwrap().code, "A25003");
@@ -16961,7 +17976,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn deadline_nested_violation() {
         let mut checker = TemporalDeadlineChecker::new();
-        assert!(checker.enter_deadline("outer".into(), 100, &(0..1)).is_none());
+        assert!(
+            checker
+                .enter_deadline("outer".into(), 100, &(0..1))
+                .is_none()
+        );
         let err = checker.enter_deadline("inner".into(), 200, &(5..6));
         assert!(err.is_some());
         assert_eq!(err.unwrap().code, "A25002");
@@ -16970,8 +17989,16 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn deadline_nested_ok() {
         let mut checker = TemporalDeadlineChecker::new();
-        assert!(checker.enter_deadline("outer".into(), 100, &(0..1)).is_none());
-        assert!(checker.enter_deadline("inner".into(), 50, &(5..6)).is_none());
+        assert!(
+            checker
+                .enter_deadline("outer".into(), 100, &(0..1))
+                .is_none()
+        );
+        assert!(
+            checker
+                .enter_deadline("inner".into(), 50, &(5..6))
+                .is_none()
+        );
     }
 
     #[test]
@@ -17005,8 +18032,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn binary_fmt_bounds_ok() {
         let mut checker = BinaryFormatChecker::new();
         checker.add_field(BinaryField {
-            name: "magic".into(), offset: 0, size: 4,
-            endianness: Some(Endianness::Big), span: 0..1,
+            name: "magic".into(),
+            offset: 0,
+            size: 4,
+            endianness: Some(Endianness::Big),
+            span: 0..1,
         });
         assert!(checker.check_bounds(100).is_empty());
     }
@@ -17015,8 +18045,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn binary_fmt_bounds_overflow() {
         let mut checker = BinaryFormatChecker::new();
         checker.add_field(BinaryField {
-            name: "data".into(), offset: 96, size: 8,
-            endianness: Some(Endianness::Little), span: 0..1,
+            name: "data".into(),
+            offset: 96,
+            size: 8,
+            endianness: Some(Endianness::Little),
+            span: 0..1,
         });
         let errors = checker.check_bounds(100);
         assert_eq!(errors.len(), 1);
@@ -17027,8 +18060,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn binary_fmt_no_endianness() {
         let mut checker = BinaryFormatChecker::new();
         checker.add_field(BinaryField {
-            name: "len".into(), offset: 0, size: 4,
-            endianness: None, span: 0..1,
+            name: "len".into(),
+            offset: 0,
+            size: 4,
+            endianness: None,
+            span: 0..1,
         });
         let errors = checker.check_endianness();
         assert_eq!(errors.len(), 1);
@@ -17039,8 +18075,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn binary_fmt_single_byte_no_endianness_ok() {
         let mut checker = BinaryFormatChecker::new();
         checker.add_field(BinaryField {
-            name: "flags".into(), offset: 0, size: 1,
-            endianness: None, span: 0..1,
+            name: "flags".into(),
+            offset: 0,
+            size: 1,
+            endianness: None,
+            span: 0..1,
         });
         assert!(checker.check_endianness().is_empty());
     }
@@ -17049,12 +18088,18 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn binary_fmt_overlap() {
         let mut checker = BinaryFormatChecker::new();
         checker.add_field(BinaryField {
-            name: "a".into(), offset: 0, size: 4,
-            endianness: Some(Endianness::Big), span: 0..1,
+            name: "a".into(),
+            offset: 0,
+            size: 4,
+            endianness: Some(Endianness::Big),
+            span: 0..1,
         });
         checker.add_field(BinaryField {
-            name: "b".into(), offset: 2, size: 4,
-            endianness: Some(Endianness::Big), span: 0..1,
+            name: "b".into(),
+            offset: 2,
+            size: 4,
+            endianness: Some(Endianness::Big),
+            span: 0..1,
         });
         let errors = checker.check_overlaps();
         assert_eq!(errors.len(), 1);
@@ -17065,12 +18110,18 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn binary_fmt_no_overlap() {
         let mut checker = BinaryFormatChecker::new();
         checker.add_field(BinaryField {
-            name: "a".into(), offset: 0, size: 4,
-            endianness: Some(Endianness::Big), span: 0..1,
+            name: "a".into(),
+            offset: 0,
+            size: 4,
+            endianness: Some(Endianness::Big),
+            span: 0..1,
         });
         checker.add_field(BinaryField {
-            name: "b".into(), offset: 4, size: 4,
-            endianness: Some(Endianness::Big), span: 0..1,
+            name: "b".into(),
+            offset: 4,
+            size: 4,
+            endianness: Some(Endianness::Big),
+            span: 0..1,
         });
         assert!(checker.check_overlaps().is_empty());
     }
@@ -17079,8 +18130,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn binary_fmt_check_all() {
         let mut checker = BinaryFormatChecker::new();
         checker.add_field(BinaryField {
-            name: "header".into(), offset: 0, size: 4,
-            endianness: None, span: 0..1, // missing endianness
+            name: "header".into(),
+            offset: 0,
+            size: 4,
+            endianness: None,
+            span: 0..1, // missing endianness
         });
         let errors = checker.check_all(100);
         assert_eq!(errors.len(), 1); // endianness only
@@ -17100,8 +18154,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn bit_level_bounds_ok() {
         let mut checker = BitLevelChecker::new(32);
         checker.add_field(BitField {
-            name: "version".into(), bit_offset: 0, bit_width: 4,
-            span: 0..1, cross_byte_ok: false,
+            name: "version".into(),
+            bit_offset: 0,
+            bit_width: 4,
+            span: 0..1,
+            cross_byte_ok: false,
         });
         assert!(checker.check_bounds().is_empty());
     }
@@ -17110,8 +18167,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn bit_level_bounds_overflow() {
         let mut checker = BitLevelChecker::new(8);
         checker.add_field(BitField {
-            name: "big".into(), bit_offset: 4, bit_width: 8,
-            span: 0..1, cross_byte_ok: true,
+            name: "big".into(),
+            bit_offset: 4,
+            bit_width: 8,
+            span: 0..1,
+            cross_byte_ok: true,
         });
         let errors = checker.check_bounds();
         assert_eq!(errors.len(), 1);
@@ -17122,8 +18182,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn bit_level_byte_crossing() {
         let mut checker = BitLevelChecker::new(16);
         checker.add_field(BitField {
-            name: "cross".into(), bit_offset: 6, bit_width: 4,
-            span: 0..1, cross_byte_ok: false,
+            name: "cross".into(),
+            bit_offset: 6,
+            bit_width: 4,
+            span: 0..1,
+            cross_byte_ok: false,
         });
         let errors = checker.check_byte_crossing();
         assert_eq!(errors.len(), 1);
@@ -17134,8 +18197,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn bit_level_byte_crossing_allowed() {
         let mut checker = BitLevelChecker::new(16);
         checker.add_field(BitField {
-            name: "cross".into(), bit_offset: 6, bit_width: 4,
-            span: 0..1, cross_byte_ok: true,
+            name: "cross".into(),
+            bit_offset: 6,
+            bit_width: 4,
+            span: 0..1,
+            cross_byte_ok: true,
         });
         assert!(checker.check_byte_crossing().is_empty());
     }
@@ -17144,12 +18210,18 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn bit_level_total_width_match() {
         let mut checker = BitLevelChecker::new(8);
         checker.add_field(BitField {
-            name: "a".into(), bit_offset: 0, bit_width: 4,
-            span: 0..1, cross_byte_ok: false,
+            name: "a".into(),
+            bit_offset: 0,
+            bit_width: 4,
+            span: 0..1,
+            cross_byte_ok: false,
         });
         checker.add_field(BitField {
-            name: "b".into(), bit_offset: 4, bit_width: 4,
-            span: 0..1, cross_byte_ok: false,
+            name: "b".into(),
+            bit_offset: 4,
+            bit_width: 4,
+            span: 0..1,
+            cross_byte_ok: false,
         });
         assert!(checker.check_total_width(8).is_none());
     }
@@ -17158,8 +18230,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn bit_level_total_width_mismatch() {
         let mut checker = BitLevelChecker::new(8);
         checker.add_field(BitField {
-            name: "a".into(), bit_offset: 0, bit_width: 3,
-            span: 0..1, cross_byte_ok: false,
+            name: "a".into(),
+            bit_offset: 0,
+            bit_width: 3,
+            span: 0..1,
+            cross_byte_ok: false,
         });
         let err = checker.check_total_width(8);
         assert!(err.is_some());
@@ -17170,12 +18245,18 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn bit_level_check_all() {
         let mut checker = BitLevelChecker::new(16);
         checker.add_field(BitField {
-            name: "a".into(), bit_offset: 0, bit_width: 8,
-            span: 0..1, cross_byte_ok: false,
+            name: "a".into(),
+            bit_offset: 0,
+            bit_width: 8,
+            span: 0..1,
+            cross_byte_ok: false,
         });
         checker.add_field(BitField {
-            name: "b".into(), bit_offset: 8, bit_width: 8,
-            span: 0..1, cross_byte_ok: false,
+            name: "b".into(),
+            bit_offset: 8,
+            bit_width: 8,
+            span: 0..1,
+            cross_byte_ok: false,
         });
         assert!(checker.check_all(16).is_empty());
     }
@@ -17214,7 +18295,11 @@ ghost fn bad_ghost(x: Int) -> Bool
         let mut checker = StringEncodingChecker::new();
         checker.declare("ascii_str".into(), StringEncoding::Ascii);
         // ASCII is compatible with everything
-        assert!(checker.check_encoding_compat("ascii_str", &StringEncoding::Utf8, &(0..1)).is_none());
+        assert!(
+            checker
+                .check_encoding_compat("ascii_str", &StringEncoding::Utf8, &(0..1))
+                .is_none()
+        );
     }
 
     #[test]
@@ -17265,7 +18350,11 @@ ghost fn bad_ghost(x: Int) -> Bool
         let mut checker = ChecksumChecker::new();
         checker.declare_region("payload".into(), ChecksumAlgorithm::Crc32, 0, 100);
         checker.mark_verified("payload");
-        assert!(checker.check_use_before_verify("payload", &(0..1)).is_none());
+        assert!(
+            checker
+                .check_use_before_verify("payload", &(0..1))
+                .is_none()
+        );
     }
 
     #[test]
@@ -17281,7 +18370,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn checksum_algorithm_match_ok() {
         let mut checker = ChecksumChecker::new();
         checker.declare_region("data".into(), ChecksumAlgorithm::Sha256, 0, 100);
-        assert!(checker.check_algorithm_match("data", &ChecksumAlgorithm::Sha256, &(0..1)).is_none());
+        assert!(
+            checker
+                .check_algorithm_match("data", &ChecksumAlgorithm::Sha256, &(0..1))
+                .is_none()
+        );
     }
 
     #[test]
@@ -17297,7 +18390,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn checksum_range_covered_ok() {
         let mut checker = ChecksumChecker::new();
         checker.declare_region("data".into(), ChecksumAlgorithm::Adler32, 0, 100);
-        assert!(checker.check_range_coverage("data", 10, 50, &(0..1)).is_none());
+        assert!(
+            checker
+                .check_range_coverage("data", 10, 50, &(0..1))
+                .is_none()
+        );
     }
 
     #[test]
@@ -17868,7 +18965,12 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn monotonic_strictly_increasing() {
         let mut mc = MonotonicStateChecker::new();
-        mc.declare("ts".into(), MonotonicDirection::StrictlyIncreasing, 10, 0..1);
+        mc.declare(
+            "ts".into(),
+            MonotonicDirection::StrictlyIncreasing,
+            10,
+            0..1,
+        );
         let err = mc.update("ts", 10); // equal not allowed
         assert!(err.is_some());
         assert_eq!(err.unwrap().code, "A37001");
@@ -18236,7 +19338,11 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn unsafe_undischarged_obligation() {
         let mut ue = UnsafeEscapeChecker::new();
-        ue.declare_unsafe("cast".into(), vec!["valid_repr".into(), "aligned".into()], 0..1);
+        ue.declare_unsafe(
+            "cast".into(),
+            vec!["valid_repr".into(), "aligned".into()],
+            0..1,
+        );
         ue.discharge_obligation("cast", "valid_repr".into());
         let errs = ue.check_obligations();
         assert_eq!(errs.len(), 1);
@@ -18319,7 +19425,13 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn equiv_unverified() {
         let mut be = BehavioralEquivalenceChecker::new();
-        be.declare("eq1".into(), "sort_a".into(), "sort_b".into(), "Sortable".into(), 0..1);
+        be.declare(
+            "eq1".into(),
+            "sort_a".into(),
+            "sort_b".into(),
+            "Sortable".into(),
+            0..1,
+        );
         let errs = be.check_unverified();
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "A49001");
@@ -18328,7 +19440,13 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn equiv_verified_ok() {
         let mut be = BehavioralEquivalenceChecker::new();
-        be.declare("eq1".into(), "sort_a".into(), "sort_b".into(), "Sortable".into(), 0..1);
+        be.declare(
+            "eq1".into(),
+            "sort_a".into(),
+            "sort_b".into(),
+            "Sortable".into(),
+            0..1,
+        );
         be.mark_verified("eq1");
         assert!(be.check_unverified().is_empty());
     }
@@ -18336,7 +19454,13 @@ ghost fn bad_ghost(x: Int) -> Bool
     #[test]
     fn equiv_self_equivalence() {
         let mut be = BehavioralEquivalenceChecker::new();
-        be.declare("eq1".into(), "sort_a".into(), "sort_a".into(), "Sortable".into(), 0..1);
+        be.declare(
+            "eq1".into(),
+            "sort_a".into(),
+            "sort_a".into(),
+            "Sortable".into(),
+            0..1,
+        );
         let errs = be.check_self_equivalence();
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "A49002");
@@ -18531,7 +19655,6 @@ ghost fn bad_ghost(x: Int) -> Bool
         assert_eq!(si.suspension_depth(), 0);
     }
 
-
     // =======================================================================
     // T107: StdlibTypes tests
     // =======================================================================
@@ -18725,7 +19848,13 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn library_self_dependency() {
         let mut lc = ContractLibraryChecker::new();
         lc.declare_library("mylib".into(), "1.0.0".into());
-        lc.add_dependency("mylib", LibraryDep { name: "mylib".into(), version_req: ">=1.0".into() });
+        lc.add_dependency(
+            "mylib",
+            LibraryDep {
+                name: "mylib".into(),
+                version_req: ">=1.0".into(),
+            },
+        );
         let errs = lc.check_circular_deps();
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "A55002");
@@ -18746,5 +19875,4 @@ ghost fn bad_ghost(x: Int) -> Bool
         let lc = ContractLibraryChecker::default();
         assert_eq!(lc.library_count(), 0);
     }
-
 }

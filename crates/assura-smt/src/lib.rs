@@ -3172,7 +3172,9 @@ impl Layer2Verifier {
     }
 
     pub fn obligation_count(&self) -> usize {
-        self.invariants.len() + self.termination_obligations.len() + self.roundtrip_obligations.len()
+        self.invariants.len()
+            + self.termination_obligations.len()
+            + self.roundtrip_obligations.len()
     }
 }
 
@@ -3237,9 +3239,14 @@ impl TriggerManager {
     pub fn validate_trigger(&self, pattern: &TriggerPattern) -> Vec<String> {
         let mut warnings = Vec::new();
         for term in &pattern.terms {
-            let has_known = self.known_functions.iter().any(|f| term.contains(f.as_str()));
+            let has_known = self
+                .known_functions
+                .iter()
+                .any(|f| term.contains(f.as_str()));
             if !has_known {
-                warnings.push(format!("trigger term `{term}` does not reference any known function"));
+                warnings.push(format!(
+                    "trigger term `{term}` does not reference any known function"
+                ));
             }
         }
         warnings
@@ -3378,13 +3385,29 @@ pub struct WeakMemoryChecker {
 
 impl WeakMemoryChecker {
     pub fn new() -> Self {
-        Self { accesses: Vec::new(), happens_before: Vec::new(), next_seq: 0 }
+        Self {
+            accesses: Vec::new(),
+            happens_before: Vec::new(),
+            next_seq: 0,
+        }
     }
 
-    pub fn record_access(&mut self, thread_id: u64, variable: String, is_write: bool, ordering: MemoryOrdering) -> u64 {
+    pub fn record_access(
+        &mut self,
+        thread_id: u64,
+        variable: String,
+        is_write: bool,
+        ordering: MemoryOrdering,
+    ) -> u64 {
         let seq = self.next_seq;
         self.next_seq += 1;
-        self.accesses.push(MemoryAccess { thread_id, variable, is_write, ordering, sequence_num: seq });
+        self.accesses.push(MemoryAccess {
+            thread_id,
+            variable,
+            is_write,
+            ordering,
+            sequence_num: seq,
+        });
         seq
     }
 
@@ -3404,10 +3427,16 @@ impl WeakMemoryChecker {
             for j in (i + 1)..self.accesses.len() {
                 let a = &self.accesses[i];
                 let b = &self.accesses[j];
-                if a.variable == b.variable && a.thread_id != b.thread_id && (a.is_write || b.is_write) {
-                    if !self.is_ordered(a.sequence_num, b.sequence_num) && !self.is_ordered(b.sequence_num, a.sequence_num) {
-                        races.push(format!("data race on `{}` between thread {} and thread {}", a.variable, a.thread_id, b.thread_id));
-                    }
+                if a.variable == b.variable
+                    && a.thread_id != b.thread_id
+                    && (a.is_write || b.is_write)
+                    && !self.is_ordered(a.sequence_num, b.sequence_num)
+                    && !self.is_ordered(b.sequence_num, a.sequence_num)
+                {
+                    races.push(format!(
+                        "data race on `{}` between thread {} and thread {}",
+                        a.variable, a.thread_id, b.thread_id
+                    ));
                 }
             }
         }
@@ -3420,11 +3449,16 @@ impl WeakMemoryChecker {
         for a in &self.accesses {
             if a.ordering == MemoryOrdering::Release && a.is_write {
                 let has_acquire = self.accesses.iter().any(|b| {
-                    b.variable == a.variable && !b.is_write && b.thread_id != a.thread_id
+                    b.variable == a.variable
+                        && !b.is_write
+                        && b.thread_id != a.thread_id
                         && b.ordering == MemoryOrdering::Acquire
                 });
                 if !has_acquire {
-                    warnings.push(format!("release write on `{}` (thread {}) has no matching acquire read", a.variable, a.thread_id));
+                    warnings.push(format!(
+                        "release write on `{}` (thread {}) has no matching acquire read",
+                        a.variable, a.thread_id
+                    ));
                 }
             }
         }
@@ -3436,7 +3470,10 @@ impl WeakMemoryChecker {
         let mut warnings = Vec::new();
         for a in &self.accesses {
             if a.ordering == MemoryOrdering::Relaxed && a.is_write {
-                let read_by_other = self.accesses.iter().any(|b| b.variable == a.variable && b.thread_id != a.thread_id && !b.is_write);
+                let read_by_other = self
+                    .accesses
+                    .iter()
+                    .any(|b| b.variable == a.variable && b.thread_id != a.thread_id && !b.is_write);
                 if read_by_other {
                     warnings.push(format!("relaxed write on `{}` (thread {}) is read by another thread; consider Release ordering", a.variable, a.thread_id));
                 }
@@ -3445,11 +3482,15 @@ impl WeakMemoryChecker {
         warnings
     }
 
-    pub fn access_count(&self) -> usize { self.accesses.len() }
+    pub fn access_count(&self) -> usize {
+        self.accesses.len()
+    }
 }
 
 impl Default for WeakMemoryChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -3473,13 +3514,21 @@ pub struct ProphecyManager {
 
 impl ProphecyManager {
     pub fn new() -> Self {
-        Self { variables: std::collections::HashMap::new() }
+        Self {
+            variables: std::collections::HashMap::new(),
+        }
     }
 
     pub fn declare(&mut self, name: String) {
-        self.variables.insert(name.clone(), ProphecyVariable {
-            name, resolved: false, resolution_value: None, constraints: Vec::new(),
-        });
+        self.variables.insert(
+            name.clone(),
+            ProphecyVariable {
+                name,
+                resolved: false,
+                resolution_value: None,
+                constraints: Vec::new(),
+            },
+        );
     }
 
     pub fn add_constraint(&mut self, name: &str, constraint: String) {
@@ -3503,7 +3552,8 @@ impl ProphecyManager {
 
     /// Check that all prophecy variables are eventually resolved.
     pub fn check_all_resolved(&self) -> Vec<String> {
-        self.variables.iter()
+        self.variables
+            .iter()
             .filter(|(_, v)| !v.resolved)
             .map(|(n, _)| format!("prophecy variable `{n}` was never resolved"))
             .collect()
@@ -3511,17 +3561,22 @@ impl ProphecyManager {
 
     /// Check for prophecy variables with no constraints (useless).
     pub fn check_unconstrained(&self) -> Vec<String> {
-        self.variables.iter()
+        self.variables
+            .iter()
             .filter(|(_, v)| v.constraints.is_empty())
             .map(|(n, _)| format!("prophecy variable `{n}` has no constraints"))
             .collect()
     }
 
-    pub fn variable_count(&self) -> usize { self.variables.len() }
+    pub fn variable_count(&self) -> usize {
+        self.variables.len()
+    }
 }
 
 impl Default for ProphecyManager {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -3555,11 +3610,26 @@ pub struct LivenessChecker {
 
 impl LivenessChecker {
     pub fn new() -> Self {
-        Self { obligations: Vec::new(), fairness_assumptions: Vec::new() }
+        Self {
+            obligations: Vec::new(),
+            fairness_assumptions: Vec::new(),
+        }
     }
 
-    pub fn add_obligation(&mut self, name: String, kind: LivenessKind, premise: String, conclusion: String) {
-        self.obligations.push(LivenessObligation { name, kind, premise, conclusion, verified: false });
+    pub fn add_obligation(
+        &mut self,
+        name: String,
+        kind: LivenessKind,
+        premise: String,
+        conclusion: String,
+    ) {
+        self.obligations.push(LivenessObligation {
+            name,
+            kind,
+            premise,
+            conclusion,
+            verified: false,
+        });
     }
 
     pub fn add_fairness(&mut self, assumption: String) {
@@ -3574,15 +3644,22 @@ impl LivenessChecker {
 
     /// Check for unverified liveness obligations.
     pub fn check_unverified(&self) -> Vec<String> {
-        self.obligations.iter()
+        self.obligations
+            .iter()
             .filter(|o| !o.verified)
-            .map(|o| format!("liveness obligation `{}` ({:?}) not verified", o.name, o.kind))
+            .map(|o| {
+                format!(
+                    "liveness obligation `{}` ({:?}) not verified",
+                    o.name, o.kind
+                )
+            })
             .collect()
     }
 
     /// Check that eventually_within obligations have reasonable bounds.
     pub fn check_bounded(&self) -> Vec<String> {
-        self.obligations.iter()
+        self.obligations
+            .iter()
             .filter(|o| matches!(o.kind, LivenessKind::EventuallyWithin(t) if t == 0))
             .map(|o| format!("liveness obligation `{}` has zero time bound", o.name))
             .collect()
@@ -3591,21 +3668,29 @@ impl LivenessChecker {
     /// Check that leads_to obligations have fairness assumptions.
     pub fn check_fairness(&self) -> Vec<String> {
         if self.fairness_assumptions.is_empty() {
-            let leads_to: Vec<_> = self.obligations.iter()
+            let leads_to: Vec<_> = self
+                .obligations
+                .iter()
                 .filter(|o| o.kind == LivenessKind::LeadsTo)
                 .collect();
             if !leads_to.is_empty() {
-                return vec!["leads_to obligations present but no fairness assumptions declared".into()];
+                return vec![
+                    "leads_to obligations present but no fairness assumptions declared".into(),
+                ];
             }
         }
         vec![]
     }
 
-    pub fn obligation_count(&self) -> usize { self.obligations.len() }
+    pub fn obligation_count(&self) -> usize {
+        self.obligations.len()
+    }
 }
 
 impl Default for LivenessChecker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -3620,11 +3705,26 @@ pub struct IrParser {
 
 #[derive(Debug, Clone)]
 pub enum IrNode {
-    FnDecl { name: String, params: Vec<(String, String)>, body: Vec<IrNode> },
-    VarDecl { name: String, ty: String, value: Option<Box<IrNode>> },
-    Call { target: String, args: Vec<IrNode> },
+    FnDecl {
+        name: String,
+        params: Vec<(String, String)>,
+        body: Vec<IrNode>,
+    },
+    VarDecl {
+        name: String,
+        ty: String,
+        value: Option<Box<IrNode>>,
+    },
+    Call {
+        target: String,
+        args: Vec<IrNode>,
+    },
     Literal(IrLiteral),
-    BinOp { op: String, left: Box<IrNode>, right: Box<IrNode> },
+    BinOp {
+        op: String,
+        left: Box<IrNode>,
+        right: Box<IrNode>,
+    },
     Return(Box<IrNode>),
 }
 
@@ -3637,25 +3737,44 @@ pub enum IrLiteral {
 }
 
 impl IrParser {
-    pub fn new() -> Self { Self { nodes: Vec::new() } }
+    pub fn new() -> Self {
+        Self { nodes: Vec::new() }
+    }
 
     /// Parse a text IR into nodes.
     pub fn parse_text(&mut self, source: &str) -> Result<(), String> {
         for line in source.lines() {
             let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with("//") { continue; }
+            if trimmed.is_empty() || trimmed.starts_with("//") {
+                continue;
+            }
             if trimmed.starts_with("fn ") {
-                let name = trimmed.strip_prefix("fn ").unwrap_or("")
-                    .split('(').next().unwrap_or("").trim().to_string();
-                self.nodes.push(IrNode::FnDecl { name, params: Vec::new(), body: Vec::new() });
+                let name = trimmed
+                    .strip_prefix("fn ")
+                    .unwrap_or("")
+                    .split('(')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                self.nodes.push(IrNode::FnDecl {
+                    name,
+                    params: Vec::new(),
+                    body: Vec::new(),
+                });
             } else if trimmed.starts_with("let ") {
                 let rest = trimmed.strip_prefix("let ").unwrap_or("");
                 let name = rest.split(':').next().unwrap_or("").trim().to_string();
-                self.nodes.push(IrNode::VarDecl { name, ty: "auto".into(), value: None });
+                self.nodes.push(IrNode::VarDecl {
+                    name,
+                    ty: "auto".into(),
+                    value: None,
+                });
             } else if trimmed.starts_with("return ") {
                 let val = trimmed.strip_prefix("return ").unwrap_or("").trim();
                 if let Ok(n) = val.parse::<i64>() {
-                    self.nodes.push(IrNode::Return(Box::new(IrNode::Literal(IrLiteral::Int(n)))));
+                    self.nodes
+                        .push(IrNode::Return(Box::new(IrNode::Literal(IrLiteral::Int(n)))));
                 }
             }
         }
@@ -3668,20 +3787,36 @@ impl IrParser {
         buf.extend_from_slice(&(self.nodes.len() as u32).to_le_bytes());
         for node in &self.nodes {
             match node {
-                IrNode::FnDecl { name, .. } => { buf.push(0x01); buf.extend(name.as_bytes()); buf.push(0x00); }
-                IrNode::VarDecl { name, .. } => { buf.push(0x02); buf.extend(name.as_bytes()); buf.push(0x00); }
-                IrNode::Return(_) => { buf.push(0x03); }
-                _ => { buf.push(0xFF); }
+                IrNode::FnDecl { name, .. } => {
+                    buf.push(0x01);
+                    buf.extend(name.as_bytes());
+                    buf.push(0x00);
+                }
+                IrNode::VarDecl { name, .. } => {
+                    buf.push(0x02);
+                    buf.extend(name.as_bytes());
+                    buf.push(0x00);
+                }
+                IrNode::Return(_) => {
+                    buf.push(0x03);
+                }
+                _ => {
+                    buf.push(0xFF);
+                }
             }
         }
         buf
     }
 
-    pub fn node_count(&self) -> usize { self.nodes.len() }
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
 }
 
 impl Default for IrParser {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -3704,11 +3839,22 @@ pub struct CacheEntry {
 
 impl VerificationCache {
     pub fn new() -> Self {
-        Self { entries: std::collections::HashMap::new(), hits: 0, misses: 0 }
+        Self {
+            entries: std::collections::HashMap::new(),
+            hits: 0,
+            misses: 0,
+        }
     }
 
     pub fn insert(&mut self, hash: String, result: String, timestamp: u64) {
-        self.entries.insert(hash.clone(), CacheEntry { hash, result, timestamp });
+        self.entries.insert(
+            hash.clone(),
+            CacheEntry {
+                hash,
+                result,
+                timestamp,
+            },
+        );
     }
 
     pub fn lookup(&mut self, hash: &str) -> Option<&CacheEntry> {
@@ -3721,20 +3867,34 @@ impl VerificationCache {
         }
     }
 
-    pub fn invalidate(&mut self, hash: &str) { self.entries.remove(hash); }
+    pub fn invalidate(&mut self, hash: &str) {
+        self.entries.remove(hash);
+    }
 
-    pub fn clear(&mut self) { self.entries.clear(); self.hits = 0; self.misses = 0; }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.hits = 0;
+        self.misses = 0;
+    }
 
     pub fn hit_rate(&self) -> f64 {
         let total = self.hits + self.misses;
-        if total == 0 { 0.0 } else { self.hits as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            self.hits as f64 / total as f64
+        }
     }
 
-    pub fn entry_count(&self) -> usize { self.entries.len() }
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 impl Default for VerificationCache {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ===========================================================================
@@ -3756,20 +3916,39 @@ pub struct VerificationJob {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum JobStatus { Pending, Running, Completed, Failed }
+pub enum JobStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
 
 impl ParallelVerifier {
     pub fn new(max_parallelism: usize) -> Self {
-        Self { jobs: Vec::new(), max_parallelism }
+        Self {
+            jobs: Vec::new(),
+            max_parallelism,
+        }
     }
 
     pub fn add_job(&mut self, contract_name: String, clause: String) {
-        self.jobs.push(VerificationJob { contract_name, clause, status: JobStatus::Pending, result: None });
+        self.jobs.push(VerificationJob {
+            contract_name,
+            clause,
+            status: JobStatus::Pending,
+            result: None,
+        });
     }
 
     pub fn start_next(&mut self) -> Option<usize> {
-        let running = self.jobs.iter().filter(|j| j.status == JobStatus::Running).count();
-        if running >= self.max_parallelism { return None; }
+        let running = self
+            .jobs
+            .iter()
+            .filter(|j| j.status == JobStatus::Running)
+            .count();
+        if running >= self.max_parallelism {
+            return None;
+        }
         for (i, job) in self.jobs.iter_mut().enumerate() {
             if job.status == JobStatus::Pending {
                 job.status = JobStatus::Running;
@@ -3787,20 +3966,38 @@ impl ParallelVerifier {
     }
 
     pub fn fail_job(&mut self, index: usize) {
-        if let Some(job) = self.jobs.get_mut(index) { job.status = JobStatus::Failed; }
+        if let Some(job) = self.jobs.get_mut(index) {
+            job.status = JobStatus::Failed;
+        }
     }
 
     pub fn all_complete(&self) -> bool {
-        self.jobs.iter().all(|j| j.status == JobStatus::Completed || j.status == JobStatus::Failed)
+        self.jobs
+            .iter()
+            .all(|j| j.status == JobStatus::Completed || j.status == JobStatus::Failed)
     }
 
-    pub fn pending_count(&self) -> usize { self.jobs.iter().filter(|j| j.status == JobStatus::Pending).count() }
-    pub fn completed_count(&self) -> usize { self.jobs.iter().filter(|j| j.status == JobStatus::Completed).count() }
-    pub fn job_count(&self) -> usize { self.jobs.len() }
+    pub fn pending_count(&self) -> usize {
+        self.jobs
+            .iter()
+            .filter(|j| j.status == JobStatus::Pending)
+            .count()
+    }
+    pub fn completed_count(&self) -> usize {
+        self.jobs
+            .iter()
+            .filter(|j| j.status == JobStatus::Completed)
+            .count()
+    }
+    pub fn job_count(&self) -> usize {
+        self.jobs.len()
+    }
 }
 
 impl Default for ParallelVerifier {
-    fn default() -> Self { Self::new(4) }
+    fn default() -> Self {
+        Self::new(4)
+    }
 }
 
 // ===========================================================================
@@ -3823,11 +4020,22 @@ pub struct ModuleState {
 
 impl IncrementalCompiler {
     pub fn new() -> Self {
-        Self { modules: std::collections::HashMap::new(), dependencies: Vec::new() }
+        Self {
+            modules: std::collections::HashMap::new(),
+            dependencies: Vec::new(),
+        }
     }
 
     pub fn register_module(&mut self, name: String, hash: String) {
-        self.modules.insert(name.clone(), ModuleState { name, hash, last_checked: 0, dirty: true });
+        self.modules.insert(
+            name.clone(),
+            ModuleState {
+                name,
+                hash,
+                last_checked: 0,
+                dirty: true,
+            },
+        );
     }
 
     pub fn add_dependency(&mut self, from: String, to: String) {
@@ -3835,29 +4043,46 @@ impl IncrementalCompiler {
     }
 
     pub fn mark_changed(&mut self, name: &str) {
-        if let Some(m) = self.modules.get_mut(name) { m.dirty = true; }
-        let dependents: Vec<_> = self.dependencies.iter()
+        if let Some(m) = self.modules.get_mut(name) {
+            m.dirty = true;
+        }
+        let dependents: Vec<_> = self
+            .dependencies
+            .iter()
             .filter(|(_, to)| to == name)
             .map(|(from, _)| from.clone())
             .collect();
         for dep in dependents {
-            if let Some(m) = self.modules.get_mut(&dep) { m.dirty = true; }
+            if let Some(m) = self.modules.get_mut(&dep) {
+                m.dirty = true;
+            }
         }
     }
 
     pub fn mark_checked(&mut self, name: &str, timestamp: u64) {
-        if let Some(m) = self.modules.get_mut(name) { m.dirty = false; m.last_checked = timestamp; }
+        if let Some(m) = self.modules.get_mut(name) {
+            m.dirty = false;
+            m.last_checked = timestamp;
+        }
     }
 
     pub fn dirty_modules(&self) -> Vec<&str> {
-        self.modules.values().filter(|m| m.dirty).map(|m| m.name.as_str()).collect()
+        self.modules
+            .values()
+            .filter(|m| m.dirty)
+            .map(|m| m.name.as_str())
+            .collect()
     }
 
-    pub fn module_count(&self) -> usize { self.modules.len() }
+    pub fn module_count(&self) -> usize {
+        self.modules.len()
+    }
 }
 
 impl Default for IncrementalCompiler {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -4018,9 +4243,15 @@ mod measure_unit_tests {
         });
         let results = verifier.check_structural();
         assert_eq!(results.len(), 3);
-        assert!(matches!(&results[0], Layer2Result::Verified { invariant, .. } if invariant == "inv1"));
-        assert!(matches!(&results[1], Layer2Result::Verified { invariant, .. } if invariant == "termination:fib"));
-        assert!(matches!(&results[2], Layer2Result::Verified { invariant, .. } if invariant == "roundtrip:Message"));
+        assert!(
+            matches!(&results[0], Layer2Result::Verified { invariant, .. } if invariant == "inv1")
+        );
+        assert!(
+            matches!(&results[1], Layer2Result::Verified { invariant, .. } if invariant == "termination:fib")
+        );
+        assert!(
+            matches!(&results[2], Layer2Result::Verified { invariant, .. } if invariant == "roundtrip:Message")
+        );
     }
 
     #[test]
@@ -4033,7 +4264,9 @@ mod measure_unit_tests {
             triggers: vec![],
         });
         let results = verifier.check_structural();
-        assert!(matches!(&results[0], Layer2Result::Unknown { reason, .. } if reason.contains("no bound variables")));
+        assert!(
+            matches!(&results[0], Layer2Result::Unknown { reason, .. } if reason.contains("no bound variables"))
+        );
     }
 
     #[test]
@@ -4045,7 +4278,9 @@ mod measure_unit_tests {
             recursive_calls: vec![],
         });
         let results = verifier.check_structural();
-        assert!(matches!(&results[0], Layer2Result::Unknown { reason, .. } if reason.contains("no measure")));
+        assert!(
+            matches!(&results[0], Layer2Result::Unknown { reason, .. } if reason.contains("no measure"))
+        );
     }
 
     #[test]
@@ -4053,11 +4288,15 @@ mod measure_unit_tests {
         let mut verifier = Layer2Verifier::new(Layer2Config::default());
         assert_eq!(verifier.obligation_count(), 0);
         verifier.add_invariant(QuantifiedInvariant {
-            name: "a".into(), bound_vars: vec![("x".into(), "Int".into())],
-            body: "true".into(), triggers: vec![],
+            name: "a".into(),
+            bound_vars: vec![("x".into(), "Int".into())],
+            body: "true".into(),
+            triggers: vec![],
         });
         verifier.add_termination(TerminationObligation {
-            fn_name: "f".into(), measure: "n".into(), recursive_calls: vec![],
+            fn_name: "f".into(),
+            measure: "n".into(),
+            recursive_calls: vec![],
         });
         assert_eq!(verifier.obligation_count(), 2);
     }
@@ -4108,10 +4347,13 @@ mod measure_unit_tests {
     #[test]
     fn trigger_add_and_get() {
         let mut mgr = TriggerManager::new();
-        mgr.add_trigger("forall_sorted".into(), TriggerPattern {
-            terms: vec!["a[i]".into()],
-            is_user_provided: true,
-        });
+        mgr.add_trigger(
+            "forall_sorted".into(),
+            TriggerPattern {
+                terms: vec!["a[i]".into()],
+                is_user_provided: true,
+            },
+        );
         assert!(mgr.get_triggers("forall_sorted").is_some());
         assert_eq!(mgr.get_triggers("forall_sorted").unwrap().len(), 1);
         assert!(mgr.get_triggers("other").is_none());
@@ -4202,7 +4444,6 @@ mod measure_unit_tests {
         let data = vec![0x01, 0x02]; // too short
         assert_eq!(disp.dispatch(&data), DispatchResult::Unknown);
     }
-
 
     // =======================================================================
     // T092: WeakMemoryChecker tests
@@ -4317,7 +4558,12 @@ mod measure_unit_tests {
     #[test]
     fn liveness_unverified() {
         let mut lc = LivenessChecker::new();
-        lc.add_obligation("progress".into(), LivenessKind::Eventually, "true".into(), "done".into());
+        lc.add_obligation(
+            "progress".into(),
+            LivenessKind::Eventually,
+            "true".into(),
+            "done".into(),
+        );
         let errs = lc.check_unverified();
         assert_eq!(errs.len(), 1);
     }
@@ -4325,7 +4571,12 @@ mod measure_unit_tests {
     #[test]
     fn liveness_verified_ok() {
         let mut lc = LivenessChecker::new();
-        lc.add_obligation("progress".into(), LivenessKind::Eventually, "true".into(), "done".into());
+        lc.add_obligation(
+            "progress".into(),
+            LivenessKind::Eventually,
+            "true".into(),
+            "done".into(),
+        );
         lc.mark_verified("progress");
         assert!(lc.check_unverified().is_empty());
     }
@@ -4333,7 +4584,12 @@ mod measure_unit_tests {
     #[test]
     fn liveness_zero_bound() {
         let mut lc = LivenessChecker::new();
-        lc.add_obligation("deadline".into(), LivenessKind::EventuallyWithin(0), "start".into(), "end".into());
+        lc.add_obligation(
+            "deadline".into(),
+            LivenessKind::EventuallyWithin(0),
+            "start".into(),
+            "end".into(),
+        );
         let errs = lc.check_bounded();
         assert_eq!(errs.len(), 1);
     }
@@ -4341,7 +4597,12 @@ mod measure_unit_tests {
     #[test]
     fn liveness_no_fairness() {
         let mut lc = LivenessChecker::new();
-        lc.add_obligation("l2r".into(), LivenessKind::LeadsTo, "req".into(), "resp".into());
+        lc.add_obligation(
+            "l2r".into(),
+            LivenessKind::LeadsTo,
+            "req".into(),
+            "resp".into(),
+        );
         let errs = lc.check_fairness();
         assert_eq!(errs.len(), 1);
     }
@@ -4349,7 +4610,12 @@ mod measure_unit_tests {
     #[test]
     fn liveness_with_fairness_ok() {
         let mut lc = LivenessChecker::new();
-        lc.add_obligation("l2r".into(), LivenessKind::LeadsTo, "req".into(), "resp".into());
+        lc.add_obligation(
+            "l2r".into(),
+            LivenessKind::LeadsTo,
+            "req".into(),
+            "resp".into(),
+        );
         lc.add_fairness("scheduler_fair".into());
         assert!(lc.check_fairness().is_empty());
     }
@@ -4359,8 +4625,6 @@ mod measure_unit_tests {
         let lc = LivenessChecker::default();
         assert_eq!(lc.obligation_count(), 0);
     }
-
-
 
     // =======================================================================
     // T112: IrParser tests
@@ -4549,5 +4813,4 @@ mod measure_unit_tests {
         let ic = IncrementalCompiler::default();
         assert_eq!(ic.module_count(), 0);
     }
-
 }

@@ -4,22 +4,32 @@ pub mod pb {
 
 use pb::assura_service_server::{AssuraService, AssuraServiceServer};
 use pb::*;
-use tonic::{Request, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::{Request, Response, Status};
 
 #[derive(Debug, Default)]
 pub struct AssuraServer;
 
 #[tonic::async_trait]
 impl AssuraService for AssuraServer {
-    async fn check(&self, request: Request<CheckRequest>) -> Result<Response<CheckResponse>, Status> {
+    async fn check(
+        &self,
+        request: Request<CheckRequest>,
+    ) -> Result<Response<CheckResponse>, Status> {
         let req = request.into_inner();
         let (diagnostics, verifications) = run_check(&req.source, &req.filename, req.layer);
         let success = diagnostics.iter().all(|d| d.severity != "error");
-        Ok(Response::new(CheckResponse { success, diagnostics, verifications }))
+        Ok(Response::new(CheckResponse {
+            success,
+            diagnostics,
+            verifications,
+        }))
     }
 
-    async fn build(&self, request: Request<BuildRequest>) -> Result<Response<BuildResponse>, Status> {
+    async fn build(
+        &self,
+        request: Request<BuildRequest>,
+    ) -> Result<Response<BuildResponse>, Status> {
         let req = request.into_inner();
         let (diagnostics, _) = run_check(&req.source, &req.filename, 1);
         let success = diagnostics.iter().all(|d| d.severity != "error");
@@ -30,19 +40,32 @@ impl AssuraService for AssuraServer {
             std::collections::HashMap::new()
         };
 
-        Ok(Response::new(BuildResponse { success, diagnostics, generated_files }))
+        Ok(Response::new(BuildResponse {
+            success,
+            diagnostics,
+            generated_files,
+        }))
     }
 
-    async fn explain(&self, request: Request<ExplainRequest>) -> Result<Response<ExplainResponse>, Status> {
+    async fn explain(
+        &self,
+        request: Request<ExplainRequest>,
+    ) -> Result<Response<ExplainResponse>, Status> {
         let req = request.into_inner();
         let (title, description, example, fix) = lookup_error_code(&req.error_code);
         Ok(Response::new(ExplainResponse {
             error_code: req.error_code,
-            title, description, example, fix,
+            title,
+            description,
+            example,
+            fix,
         }))
     }
 
-    async fn health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         Ok(Response::new(HealthResponse {
             status: "serving".into(),
             version: env!("CARGO_PKG_VERSION").into(),
@@ -51,7 +74,10 @@ impl AssuraService for AssuraServer {
 
     type CheckStreamStream = ReceiverStream<Result<CheckEvent, Status>>;
 
-    async fn check_stream(&self, request: Request<CheckRequest>) -> Result<Response<Self::CheckStreamStream>, Status> {
+    async fn check_stream(
+        &self,
+        request: Request<CheckRequest>,
+    ) -> Result<Response<Self::CheckStreamStream>, Status> {
         let req = request.into_inner();
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
@@ -59,31 +85,41 @@ impl AssuraService for AssuraServer {
             let (diagnostics, verifications) = run_check(&req.source, &req.filename, req.layer);
 
             for d in &diagnostics {
-                let _ = tx.send(Ok(CheckEvent {
-                    event: Some(check_event::Event::Diagnostic(d.clone())),
-                })).await;
+                let _ = tx
+                    .send(Ok(CheckEvent {
+                        event: Some(check_event::Event::Diagnostic(d.clone())),
+                    }))
+                    .await;
             }
 
             for v in &verifications {
-                let _ = tx.send(Ok(CheckEvent {
-                    event: Some(check_event::Event::Verification(v.clone())),
-                })).await;
+                let _ = tx
+                    .send(Ok(CheckEvent {
+                        event: Some(check_event::Event::Verification(v.clone())),
+                    }))
+                    .await;
             }
 
-            let _ = tx.send(Ok(CheckEvent {
-                event: Some(check_event::Event::Complete(CheckComplete {
-                    success: diagnostics.iter().all(|d| d.severity != "error"),
-                    total_diagnostics: diagnostics.len() as u32,
-                    total_verifications: verifications.len() as u32,
-                })),
-            })).await;
+            let _ = tx
+                .send(Ok(CheckEvent {
+                    event: Some(check_event::Event::Complete(CheckComplete {
+                        success: diagnostics.iter().all(|d| d.severity != "error"),
+                        total_diagnostics: diagnostics.len() as u32,
+                        total_verifications: verifications.len() as u32,
+                    })),
+                }))
+                .await;
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 
-fn run_check(source: &str, _filename: &str, _layer: i32) -> (Vec<Diagnostic>, Vec<VerificationResult>) {
+fn run_check(
+    source: &str,
+    _filename: &str,
+    _layer: i32,
+) -> (Vec<Diagnostic>, Vec<VerificationResult>) {
     let (ast, parse_errors) = assura_parser::parse(source);
 
     let mut diagnostics = Vec::new();
@@ -92,7 +128,10 @@ fn run_check(source: &str, _filename: &str, _layer: i32) -> (Vec<Diagnostic>, Ve
             code: "E0001".into(),
             message: format!("{err:?}"),
             severity: "error".into(),
-            line: 0, column: 0, end_line: 0, end_column: 0,
+            line: 0,
+            column: 0,
+            end_line: 0,
+            end_column: 0,
         });
     }
 
@@ -109,7 +148,10 @@ fn run_check(source: &str, _filename: &str, _layer: i32) -> (Vec<Diagnostic>, Ve
                                 code: te.code,
                                 message: te.message,
                                 severity: "error".into(),
-                                line: 0, column: 0, end_line: 0, end_column: 0,
+                                line: 0,
+                                column: 0,
+                                end_line: 0,
+                                end_column: 0,
                             });
                         }
                     }
@@ -121,7 +163,10 @@ fn run_check(source: &str, _filename: &str, _layer: i32) -> (Vec<Diagnostic>, Ve
                         code: re.code.to_string(),
                         message: re.message,
                         severity: "error".into(),
-                        line: 0, column: 0, end_line: 0, end_column: 0,
+                        line: 0,
+                        column: 0,
+                        end_line: 0,
+                        end_column: 0,
                     });
                 }
             }
@@ -135,14 +180,13 @@ fn run_codegen(source: &str) -> std::collections::HashMap<String, String> {
     let (ast, _) = assura_parser::parse(source);
 
     let mut files = std::collections::HashMap::new();
-    if let Some(ast) = ast {
-        if let Ok(resolved) = assura_resolve::resolve(&ast) {
-            if let Ok(typed) = assura_types::type_check(&resolved) {
-                let generated = assura_codegen::codegen(&typed);
-                for (path, content) in generated.files {
-                    files.insert(path, content);
-                }
-            }
+    if let Some(ast) = ast
+        && let Ok(resolved) = assura_resolve::resolve(&ast)
+        && let Ok(typed) = assura_types::type_check(&resolved)
+    {
+        let generated = assura_codegen::codegen(&typed);
+        for (path, content) in generated.files {
+            files.insert(path, content);
         }
     }
     files
@@ -171,7 +215,9 @@ mod http {
         pub layer: i32,
     }
 
-    fn default_layer() -> i32 { 1 }
+    fn default_layer() -> i32 {
+        1
+    }
 
     #[derive(Serialize)]
     pub struct HttpCheckResponse {
@@ -211,15 +257,26 @@ mod http {
         let success = diagnostics.iter().all(|d| d.severity != "error");
         Json(HttpCheckResponse {
             success,
-            diagnostics: diagnostics.into_iter().map(|d| HttpDiagnostic {
-                code: d.code, message: d.message, severity: d.severity,
-            }).collect(),
+            diagnostics: diagnostics
+                .into_iter()
+                .map(|d| HttpDiagnostic {
+                    code: d.code,
+                    message: d.message,
+                    severity: d.severity,
+                })
+                .collect(),
         })
     }
 
     async fn explain_handler(Json(req): Json<HttpExplainRequest>) -> Json<HttpExplainResponse> {
         let (title, description, example, fix) = super::lookup_error_code(&req.error_code);
-        Json(HttpExplainResponse { error_code: req.error_code, title, description, example, fix })
+        Json(HttpExplainResponse {
+            error_code: req.error_code,
+            title,
+            description,
+            example,
+            fix,
+        })
     }
 
     async fn health_handler() -> Json<HttpHealthResponse> {
@@ -246,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Assura HTTP server listening on {http_addr}");
 
     let grpc_server = tonic::transport::Server::builder()
-        .add_service(AssuraServiceServer::new(AssuraServer::default()))
+        .add_service(AssuraServiceServer::new(AssuraServer))
         .serve(grpc_addr);
 
     let http_server = axum::serve(
