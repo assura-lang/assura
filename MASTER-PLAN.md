@@ -478,7 +478,7 @@
   - Error codes: A54001-A54005
   - Spec reference: Section 14.CORE.1
 
-- [ ] **T044**: Implement CORE.2 Lemmas
+- [x] **T044**: Implement CORE.2 Lemmas
   - Depends on: T043 (lemmas use ghost infrastructure)
   - Proof functions that generate no runtime code
   - `apply lemma_name(args)` adds the lemma's ensures as an assumption
@@ -496,7 +496,7 @@
 
 ### 1.6 MEM.1 + SEC.1 (4 weeks) -- THE MVP FEATURES
 
-- [ ] **T046**: Implement MEM.1 Memory region contracts
+- [x] **T046**: Implement MEM.1 Memory region contracts
   - Depends on: T041, T043 (uses ghost regions)
   - Buffer bounds contracts: `requires offset + len <= buf.capacity`
   - Ghost regions tracking valid index ranges
@@ -505,7 +505,7 @@
   - Spec reference: Section 14.MEM.1
   - Test: parse and verify the libwebp-huffman.assura demo
 
-- [ ] **T047**: Implement SEC.1 Untrusted data taint tracking
+- [x] **T047**: Implement SEC.1 Untrusted data taint tracking
   - Depends on: T041, T043
   - Taint labels on data from external sources
   - Taint propagation through operations
