@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use assura_parser::ast::{BinOp, Decl, Expr, Literal, ServiceItem, UnaryOp};
+use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, Literal, ServiceItem, UnaryOp};
 use assura_resolve::{ResolvedFile, SymbolKind, SymbolTable};
 
 // ---------------------------------------------------------------------------
@@ -278,6 +278,151 @@ impl std::fmt::Display for Type {
             Type::Refined { base, predicate } => write!(f, "{base}{{{predicate}}}"),
             Type::Unknown => write!(f, "Unknown"),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generic type instantiation (T015)
+// ---------------------------------------------------------------------------
+
+/// Expected number of type arguments for built-in generic types.
+fn builtin_generic_arity(name: &str) -> Option<usize> {
+    match name {
+        "List" | "Set" | "Option" | "Sequence" => Some(1),
+        "Map" | "Result" => Some(2),
+        _ => None,
+    }
+}
+
+/// Check that a generic type instantiation has the correct number of type
+/// arguments.
+///
+/// For built-in generic types (`List`, `Map`, `Set`, `Option`, `Result`,
+/// `Sequence`), the expected arity is hardcoded. For user-defined generic
+/// types, the expected arity is taken from the `type_params` count in the
+/// symbol table (looked up from the source AST declarations).
+///
+/// Returns `Ok(())` on success, or `Err(TypeError)` with code A03003 if the
+/// argument count does not match.
+pub fn check_generic_instantiation(
+    type_name: &str,
+    type_args: &[Type],
+    span: &Range<usize>,
+    source: &assura_parser::ast::SourceFile,
+) -> Result<(), TypeError> {
+    // Try built-in generic arity first
+    if let Some(expected) = builtin_generic_arity(type_name) {
+        let actual = type_args.len();
+        if actual != expected {
+            return Err(TypeError {
+                code: "A03003".into(),
+                message: format!(
+                    "wrong number of type arguments for `{type_name}`: \
+                     expected {expected}, found {actual}"
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        return Ok(());
+    }
+
+    // Look up user-defined type parameter count from source AST
+    if let Some(expected) = user_defined_type_param_count(type_name, source) {
+        let actual = type_args.len();
+        if actual != expected {
+            return Err(TypeError {
+                code: "A03003".into(),
+                message: format!(
+                    "wrong number of type arguments for `{type_name}`: \
+                     expected {expected}, found {actual}"
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        return Ok(());
+    }
+
+    // Unknown type name; not our problem here (name resolution handles it)
+    Ok(())
+}
+
+/// Look up the number of type parameters for a user-defined type, contract,
+/// or enum by scanning the source AST declarations.
+fn user_defined_type_param_count(
+    name: &str,
+    source: &assura_parser::ast::SourceFile,
+) -> Option<usize> {
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::TypeDef(t) if t.name == name => return Some(t.type_params.len()),
+            Decl::EnumDef(e) if e.name == name => return Some(e.type_params.len()),
+            Decl::Contract(c) if c.name == name => return Some(c.type_params.len()),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Substitute type parameters with concrete types in a `Type`.
+///
+/// Given a mapping from type parameter names to concrete types, recursively
+/// replaces every `Type::TypeParam(name)` that appears in `bindings` with
+/// the corresponding concrete type. Types not in the bindings map are left
+/// unchanged.
+pub fn substitute(ty: &Type, bindings: &HashMap<std::string::String, Type>) -> Type {
+    match ty {
+        Type::TypeParam(name) => bindings.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        Type::List(inner) => Type::List(Box::new(substitute(inner, bindings))),
+        Type::Set(inner) => Type::Set(Box::new(substitute(inner, bindings))),
+        Type::Option(inner) => Type::Option(Box::new(substitute(inner, bindings))),
+        Type::Sequence(inner) => Type::Sequence(Box::new(substitute(inner, bindings))),
+        Type::Map(k, v) => Type::Map(
+            Box::new(substitute(k, bindings)),
+            Box::new(substitute(v, bindings)),
+        ),
+        Type::Result(t, e) => Type::Result(
+            Box::new(substitute(t, bindings)),
+            Box::new(substitute(e, bindings)),
+        ),
+        Type::Fn { params, ret } => Type::Fn {
+            params: params.iter().map(|p| substitute(p, bindings)).collect(),
+            ret: Box::new(substitute(ret, bindings)),
+        },
+        Type::Refined { base, predicate } => Type::Refined {
+            base: Box::new(substitute(base, bindings)),
+            predicate: predicate.clone(),
+        },
+        // All other types are leaves; no substitution needed
+        _ => ty.clone(),
+    }
+}
+
+/// Instantiate a built-in generic type with concrete type arguments.
+///
+/// Given a built-in generic name and validated type arguments, returns the
+/// fully instantiated `Type`. Panics if the argument count is wrong (caller
+/// should validate via `check_generic_instantiation` first).
+pub fn instantiate_builtin_generic(name: &str, args: Vec<Type>) -> Option<Type> {
+    match name {
+        "List" => Some(Type::List(Box::new(args.into_iter().next()?))),
+        "Set" => Some(Type::Set(Box::new(args.into_iter().next()?))),
+        "Option" => Some(Type::Option(Box::new(args.into_iter().next()?))),
+        "Sequence" => Some(Type::Sequence(Box::new(args.into_iter().next()?))),
+        "Map" => {
+            let mut it = args.into_iter();
+            let k = it.next()?;
+            let v = it.next()?;
+            Some(Type::Map(Box::new(k), Box::new(v)))
+        }
+        "Result" => {
+            let mut it = args.into_iter();
+            let t = it.next()?;
+            let e = it.next()?;
+            Some(Type::Result(Box::new(t), Box::new(e)))
+        }
+        _ => None,
     }
 }
 
@@ -682,17 +827,17 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
         match &decl.node {
             Decl::Contract(c) => {
                 for clause in &c.clauses {
-                    collect_expr_errors(&clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
                 }
             }
             Decl::FnDef(f) => {
                 for clause in &f.clauses {
-                    collect_expr_errors(&clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
                 }
             }
             Decl::Extern(ex) => {
                 for clause in &ex.clauses {
-                    collect_expr_errors(&clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
                 }
             }
             Decl::Service(s) => {
@@ -701,7 +846,8 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                         ServiceItem::Operation { clauses, .. }
                         | ServiceItem::Query { clauses, .. } => clauses.as_slice(),
                         ServiceItem::Invariant(expr) => {
-                            collect_expr_errors(expr, env, &mut errors);
+                            // Service-level invariants are always Bool-typed
+                            check_clause_expr(&ClauseKind::Invariant, expr, env, &mut errors);
                             continue;
                         }
                         ServiceItem::Other { body, .. } => {
@@ -711,13 +857,13 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                         _ => continue,
                     };
                     for clause in clauses {
-                        collect_expr_errors(&clause.body, env, &mut errors);
+                        check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
                     }
                 }
             }
             Decl::Block { body, .. } => {
                 for clause in body {
-                    collect_expr_errors(&clause.body, env, &mut errors);
+                    check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
                 }
             }
             // TypeDef and EnumDef don't have expression bodies
@@ -733,6 +879,47 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
 fn collect_expr_errors(expr: &Expr, env: &TypeEnv, errors: &mut Vec<TypeError>) {
     match infer_expr(expr, env) {
         Ok(_) => {}
+        Err(e) => errors.push(e),
+    }
+}
+
+/// Returns `true` if the clause kind requires a Bool-typed body.
+fn clause_requires_bool(kind: &ClauseKind) -> bool {
+    matches!(
+        kind,
+        ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant | ClauseKind::Rule
+    )
+}
+
+/// Human-readable label for a clause kind (used in error messages).
+fn clause_kind_label(kind: &ClauseKind) -> &'static str {
+    match kind {
+        ClauseKind::Requires => "requires",
+        ClauseKind::Ensures => "ensures",
+        ClauseKind::Invariant => "invariant",
+        ClauseKind::Rule => "rule",
+        _ => "clause",
+    }
+}
+
+/// Check a single clause expression. Infer its type, push any inference
+/// errors, and additionally emit A03006 if the clause kind demands Bool
+/// but the body has a definitively non-Bool type.
+fn check_clause_expr(kind: &ClauseKind, body: &Expr, env: &TypeEnv, errors: &mut Vec<TypeError>) {
+    match infer_expr(body, env) {
+        Ok(ty) => {
+            if clause_requires_bool(kind) && ty != Type::Unknown && ty != Type::Bool {
+                errors.push(TypeError {
+                    code: "A03006".into(),
+                    message: format!(
+                        "{} clause must be Bool, found `{ty}`",
+                        clause_kind_label(kind),
+                    ),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+        }
         Err(e) => errors.push(e),
     }
 }
@@ -1722,6 +1909,170 @@ type Point {
         ];
         let missing = check_exhaustiveness(&patterns, &variants).unwrap();
         assert_eq!(missing, vec!["Alpha", "Gamma", "Epsilon"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // T018: Contract clause type checking tests
+    // -----------------------------------------------------------------------
+
+    use assura_parser::ast::ClauseKind as AstClauseKind;
+
+    #[test]
+    fn clause_requires_bool_body_ok() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Literal(AstLit::Bool(true));
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_requires_int_body_error() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Literal(AstLit::Int("42".into()));
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03006");
+        assert!(errors[0].message.contains("requires"));
+        assert!(errors[0].message.contains("Bool"));
+        assert!(errors[0].message.contains("Int"));
+    }
+
+    #[test]
+    fn clause_ensures_bool_body_ok() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Literal(AstLit::Bool(false));
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_ensures_string_body_error() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Literal(AstLit::Str("hello".into()));
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03006");
+        assert!(errors[0].message.contains("ensures"));
+    }
+
+    #[test]
+    fn clause_invariant_bool_body_ok() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Literal(AstLit::Bool(true));
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_invariant_float_body_error() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Literal(AstLit::Float("3.14".into()));
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03006");
+        assert!(errors[0].message.contains("invariant"));
+    }
+
+    #[test]
+    fn clause_rule_bool_body_ok() {
+        let env = TypeEnv::new();
+        let body = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            op: AstBinOp::And,
+            rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
+        };
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_rule_int_body_error() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Literal(AstLit::Int("99".into()));
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03006");
+        assert!(errors[0].message.contains("rule"));
+    }
+
+    #[test]
+    fn clause_effects_any_body_ok() {
+        let env = TypeEnv::new();
+        // Effects clause accepts any type (lenient)
+        let body = AstExpr::Ident("pure".into());
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Effects, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_modifies_any_body_ok() {
+        let env = TypeEnv::new();
+        let body = AstExpr::Ident("buffer".into());
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Modifies, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_unknown_body_no_error() {
+        let env = TypeEnv::new();
+        // Unknown ident in requires clause should not emit A03006
+        let body = AstExpr::Ident("unknown_predicate".into());
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_comparison_in_requires_ok() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        // x > 0 should infer as Bool, valid in requires
+        let body = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::Gt,
+            rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        let mut errors = Vec::new();
+        check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn clause_requires_int_body_integration() {
+        // Integration test: a contract whose requires clause has an Int body
+        // should produce an A03006 error through the full type_check pipeline.
+        let src = r#"
+contract Bad {
+  requires { 42 }
+}
+"#;
+        let resolved = resolve_ok(src);
+        let result = type_check(&resolved);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "A03006"));
+    }
+
+    #[test]
+    fn clause_requires_bool_integration() {
+        // A contract with a Bool requires clause should type-check fine.
+        let src = r#"
+contract Good {
+  requires { true }
+}
+"#;
+        let resolved = resolve_ok(src);
+        type_check(&resolved).expect("should type-check successfully");
     }
 
     #[test]
