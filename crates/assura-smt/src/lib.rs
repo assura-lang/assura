@@ -745,6 +745,40 @@ mod z3_backend {
             }
         }
 
+        /// Bind pattern variables as fresh Z3 integer constants so they
+        /// are available in the arm body.
+        fn bind_pattern_vars(
+            &mut self,
+            pattern: &assura_parser::ast::Pattern,
+            _scrutinee: &Z3Value<'ctx>,
+        ) {
+            match pattern {
+                assura_parser::ast::Pattern::Ident(name) => {
+                    // Ident patterns in match bind the variable to the scrutinee,
+                    // but for SMT we use a fresh variable since we cannot always
+                    // decompose the scrutinee.
+                    if !self.vars.contains_key(name) {
+                        let v = ast::Int::new_const(self.ctx, name.as_str());
+                        self.vars.insert(name.clone(), Z3Value::Int(v));
+                    }
+                }
+                assura_parser::ast::Pattern::Constructor { fields, .. } => {
+                    // Each field in the constructor is an uninterpreted extraction
+                    // from the scrutinee; bind as fresh int variables.
+                    for field in fields {
+                        self.bind_pattern_vars(field, _scrutinee);
+                    }
+                }
+                assura_parser::ast::Pattern::Tuple(pats) => {
+                    for pat in pats {
+                        self.bind_pattern_vars(pat, _scrutinee);
+                    }
+                }
+                assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Literal(_) => {
+                }
+            }
+        }
+
         /// Encode an AST expression into a Z3 value.
         fn encode_expr(&mut self, expr: &Expr) -> Z3Value<'ctx> {
             match expr {
@@ -912,6 +946,8 @@ mod z3_backend {
                     // else if scrut == pattern2 then body2 ... else default
                     let default = Z3Value::Int(self.fresh_int());
                     arms.iter().rev().fold(default, |else_val, arm| {
+                        // Bind pattern variables before encoding the body
+                        self.bind_pattern_vars(&arm.pattern, &scrut);
                         let body = self.encode_expr(&arm.body);
                         // For wildcard patterns, the arm always matches
                         if matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard) {
@@ -936,6 +972,12 @@ mod z3_backend {
                                     (Z3Value::Bool(a), Z3Value::Bool(b)) => a._eq(b),
                                     _ => ast::Bool::from_bool(self.ctx, false),
                                 }
+                            }
+                            // Constructor and Tuple patterns bind variables
+                            // but always match in this overapproximation.
+                            assura_parser::ast::Pattern::Constructor { .. }
+                            | assura_parser::ast::Pattern::Tuple(_) => {
+                                ast::Bool::from_bool(self.ctx, true)
                             }
                             _ => ast::Bool::from_bool(self.ctx, true),
                         };
