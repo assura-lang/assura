@@ -147,6 +147,8 @@ pub enum Expr {
     Cast { expr: Box<Expr>, ty: String },
     /// Sequence of space-separated expressions (e.g., `pure incremental Foo`)
     Block(Vec<Expr>),
+    /// Ghost block: verified but erased at runtime
+    Ghost(Box<Expr>),
     /// Unparsed token sequence (fallback)
     Raw(Vec<String>),
 }
@@ -241,6 +243,7 @@ pub struct ExternDecl {
 #[derive(Debug, Clone)]
 pub struct FnDef {
     pub name: String,
+    pub is_ghost: bool,
     pub params: Vec<Param>,
     pub return_ty: Vec<String>,
     pub clauses: Vec<Clause>,

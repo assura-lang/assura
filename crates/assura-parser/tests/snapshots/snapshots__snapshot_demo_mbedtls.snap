@@ -72,6 +72,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "read_from_wire",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "conn",
@@ -114,6 +115,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "read_u16_from_wire",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "conn",
@@ -150,6 +152,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "read_u24_from_wire",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "conn",
@@ -232,6 +235,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "validate_peer_key",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "raw_data",
@@ -334,6 +338,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "parse_x509_length",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "raw_len",
@@ -381,6 +386,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "safe_alloc_size",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "header_len",
@@ -478,6 +484,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "ecdh_compute_shared",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "our_private",
@@ -547,6 +554,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "ecdh_derive_secret",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "private_key",
@@ -638,6 +646,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "process_incoming_record",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "conn",

@@ -72,7 +72,12 @@ pub fn codegen(typed: &TypedFile) -> GeneratedProject {
             Decl::EnumDef(e) => generate_enum_def(e, &mut code),
             Decl::Contract(c) => generate_contract(c, &mut code),
             Decl::Extern(ex) => generate_extern(ex, &mut code),
-            Decl::FnDef(f) => generate_fn_def(f, &mut code),
+            Decl::FnDef(f) => {
+                // T043 CORE.1: ghost functions are erased at runtime
+                if !f.is_ghost {
+                    generate_fn_def(f, &mut code);
+                }
+            }
             Decl::Service(s) => generate_service(s, &mut code),
             Decl::Block { kind, name, body } => {
                 generate_block(kind, name, body, &mut code);
@@ -269,6 +274,10 @@ fn expr_to_rust(expr: &Expr) -> String {
             let strs: Vec<String> = exprs.iter().map(expr_to_rust).collect();
             strs.join(" ")
         }
+        Expr::Ghost(_inner) => {
+            // Ghost blocks are erased at runtime; emit nothing.
+            "/* ghost erased */()".to_string()
+        }
         Expr::Raw(tokens) => tokens.join(" "),
     }
 }
@@ -357,6 +366,11 @@ fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String)>) {
             for item in items {
                 collect_old_exprs_inner(item, out);
             }
+        }
+        Expr::Ghost(inner) => {
+            // Ghost blocks are erased but may reference old() in
+            // their verification expressions.
+            collect_old_exprs_inner(inner, out);
         }
         // Leaf nodes: no old() inside
         Expr::Literal(_) | Expr::Ident(_) | Expr::Raw(_) => {}
@@ -1463,5 +1477,43 @@ type Marker {
 
         // Verify the generated Rust parses as valid syntax via syn
         syn::parse_file(lib).expect("generated Rust should be valid syntax");
+    }
+
+    // -----------------------------------------------------------------------
+    // T043 CORE.1: Ghost code erasure tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ghost_fn_produces_no_output() {
+        // A ghost function should be completely erased in generated code.
+        let project =
+            codegen_ok("ghost fn spec_helper(x: Int) -> Bool\n    ensures { result == true }\n");
+        let lib = &project.files[0].1;
+        assert!(
+            !lib.contains("fn spec_helper"),
+            "ghost fn should not appear in generated Rust code"
+        );
+    }
+
+    #[test]
+    fn non_ghost_fn_still_generated() {
+        // A normal (non-ghost) function should still be generated.
+        let project = codegen_ok("fn normal_helper(x: Int) -> Int\n    ensures { result >= 0 }\n");
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("fn normal_helper"),
+            "non-ghost fn should appear in generated Rust code"
+        );
+    }
+
+    #[test]
+    fn ghost_block_erased_in_expr() {
+        // A ghost block expression should produce erased output.
+        let expr = Expr::Ghost(Box::new(Expr::Literal(Literal::Bool(true))));
+        let rust = expr_to_rust(&expr);
+        assert!(
+            rust.contains("ghost erased"),
+            "ghost block should generate erased marker, got: {rust}"
+        );
     }
 }

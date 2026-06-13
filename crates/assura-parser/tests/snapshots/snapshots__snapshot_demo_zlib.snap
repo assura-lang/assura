@@ -125,6 +125,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "read_u16_le",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "stream",
@@ -200,6 +201,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "validate_xlen",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "raw_xlen",
@@ -253,6 +255,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "zmemcpy_safe",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "dst",
@@ -343,6 +346,7 @@ SourceFile {
             node: FnDef(
                 FnDef {
                     name: "inflate_extra_field_step",
+                    is_ghost: false,
                     params: [
                         Param {
                             name: "state",

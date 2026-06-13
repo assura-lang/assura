@@ -543,6 +543,14 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
                 else_branch: else_branch.map(Box::new),
             });
 
+        // ghost { expr } — ghost block expression
+        let ghost_block = just(Token::Ghost)
+            .ignore_then(
+                expr.clone()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map(|e| Expr::Ghost(Box::new(e)));
+
         // Identifier (plain)
         let ident_expr = ident().map(Expr::Ident);
 
@@ -585,6 +593,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             if_expr,
             paren_expr,
             list_expr,
+            ghost_block,
             keyword_as_value,
             ident_expr,
         ))
@@ -1153,7 +1162,7 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
         .then(body_tokens(CLAUSE_STOPS).delimited_by(just(Token::LBracket), just(Token::RBracket)))
         .repeated();
 
-    // Optional modifiers: pure, ghost, opaque
+    // Optional modifiers: pure, ghost, opaque — collect them to detect ghost fns
     let modifiers = choice((just(Token::Pure), just(Token::Ghost), just(Token::Opaque))).repeated();
 
     // fn, axiom, lemma all have function-like syntax
@@ -1215,8 +1224,8 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
         .or_not();
 
     attr.ignore_then(modifiers)
-        .ignore_then(fn_keyword)
-        .ignore_then(ident())
+        .then_ignore(fn_keyword)
+        .then(ident())
         .then(type_params())
         .then(param_list())
         .then(choice((ret_arrow, ret_colon)).or_not())
@@ -1228,11 +1237,15 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
                 .or_not(),
         )
         .map(
-            |((((((name, _tps), params), ret), _eq_body), clauses), _body)| FnDef {
-                name,
-                params,
-                return_ty: ret.unwrap_or_default(),
-                clauses,
+            |(((((((mods, name), _tps), params), ret), _eq_body), clauses), _body)| {
+                let is_ghost = mods.iter().any(|t| matches!(t, Token::Ghost));
+                FnDef {
+                    name,
+                    is_ghost,
+                    params,
+                    return_ty: ret.unwrap_or_default(),
+                    clauses,
+                }
             },
         )
 }
