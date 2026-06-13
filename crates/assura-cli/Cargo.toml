@@ -14,6 +14,7 @@ path = "src/main.rs"
 assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
+assura-codegen = { path = "../assura-codegen" }
 logos = "0.15"
 chumsky = "0.9"
 ariadne = "0.4"

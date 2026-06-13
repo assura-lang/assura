@@ -2,6 +2,7 @@
 
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::process;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
@@ -58,11 +59,14 @@ fn main() {
         .filter(|a| !a.starts_with('-'))
         .collect();
 
-    // Detect "check" subcommand: `assura check <file> [--json|--human]`
+    // Detect subcommands: `assura check <file>` or `assura build <file>`
     let is_check = non_flag_args.first().is_some_and(|a| a.as_str() == "check");
+    let is_build = non_flag_args.first().is_some_and(|a| a.as_str() == "build");
 
     if is_check {
         run_check(&args);
+    } else if is_build {
+        run_build(&args);
     } else {
         run_legacy(&args);
     }
@@ -276,6 +280,196 @@ fn report_diagnostics_human(diagnostics: &[DiagnosticJson], filename: &str, sour
 }
 
 // ---------------------------------------------------------------------------
+// `assura build <file.assura>` — codegen to generated/
+// ---------------------------------------------------------------------------
+
+fn run_build(args: &[String]) {
+    // The file is the first non-flag arg after "build"
+    let filename = args
+        .iter()
+        .skip(1) // skip binary name
+        .filter(|a| !a.starts_with('-'))
+        .nth(1) // skip "build" itself
+        .unwrap_or_else(|| {
+            eprintln!("Usage: assura build <file.assura>");
+            process::exit(2);
+        });
+
+    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
+        eprintln!("Error: {filename}: {e}");
+        process::exit(2);
+    });
+
+    // --- Lex ---
+    let lex = Token::lexer(&source);
+    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
+    let mut lex_errors = Vec::new();
+
+    for (tok, span) in lex.spanned() {
+        match tok {
+            Ok(t) => tokens.push((t, span)),
+            Err(()) => lex_errors.push(span),
+        }
+    }
+
+    for span in &lex_errors {
+        let snippet = &source[span.clone()];
+        Report::build(ReportKind::Error, filename.as_str(), span.start)
+            .with_message(format!("unexpected character: {snippet:?}"))
+            .with_label(
+                Label::new((filename.as_str(), span.clone()))
+                    .with_message("invalid token")
+                    .with_color(Color::Red),
+            )
+            .finish()
+            .eprint((filename.as_str(), Source::from(&source)))
+            .ok();
+    }
+
+    if !lex_errors.is_empty() {
+        process::exit(1);
+    }
+
+    // --- Parse ---
+    let len = source.len();
+    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
+    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
+
+    for e in &parse_errors {
+        let span = e.span();
+        let found = e
+            .found()
+            .map(|t| format!("{t}"))
+            .unwrap_or_else(|| "end of file".to_string());
+        let expected: Vec<String> = e
+            .expected()
+            .map(|ex| match ex {
+                Some(t) => format!("{t}"),
+                None => "end of input".to_string(),
+            })
+            .collect();
+        let msg = if expected.is_empty() {
+            format!("unexpected {found}")
+        } else {
+            format!("expected {}, found {found}", expected.join(" or "))
+        };
+        Report::build(ReportKind::Error, filename.as_str(), span.start)
+            .with_message(&msg)
+            .with_label(
+                Label::new((filename.as_str(), span.clone()))
+                    .with_message(&msg)
+                    .with_color(Color::Red),
+            )
+            .finish()
+            .eprint((filename.as_str(), Source::from(&source)))
+            .ok();
+    }
+
+    let Some(file) = file else {
+        eprintln!("{filename}: parse failed");
+        process::exit(1);
+    };
+
+    if !parse_errors.is_empty() {
+        process::exit(1);
+    }
+
+    // --- Resolve ---
+    let resolved = match assura_resolve::resolve(&file) {
+        Ok(r) => r,
+        Err(errs) => {
+            for e in &errs {
+                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
+                    .with_message(format!("[{}] {}", e.code, e.message))
+                    .with_label(
+                        Label::new((filename.as_str(), e.span.clone()))
+                            .with_message(&e.message)
+                            .with_color(Color::Red),
+                    );
+                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
+                    builder = builder.with_label(
+                        Label::new((filename.as_str(), sec_span.clone()))
+                            .with_message(sec_msg)
+                            .with_color(Color::Blue),
+                    );
+                }
+                builder
+                    .finish()
+                    .eprint((filename.as_str(), Source::from(&source)))
+                    .ok();
+            }
+            eprintln!("{filename}: {} resolution error(s)", errs.len());
+            process::exit(1);
+        }
+    };
+
+    // --- Type check ---
+    let typed = match assura_types::type_check(&resolved) {
+        Ok(t) => t,
+        Err(errs) => {
+            for e in &errs {
+                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
+                    .with_message(format!("[{}] {}", e.code, e.message))
+                    .with_label(
+                        Label::new((filename.as_str(), e.span.clone()))
+                            .with_message(&e.message)
+                            .with_color(Color::Red),
+                    );
+                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
+                    builder = builder.with_label(
+                        Label::new((filename.as_str(), sec_span.clone()))
+                            .with_message(sec_msg)
+                            .with_color(Color::Blue),
+                    );
+                }
+                builder
+                    .finish()
+                    .eprint((filename.as_str(), Source::from(&source)))
+                    .ok();
+            }
+            eprintln!("{filename}: {} type error(s)", errs.len());
+            process::exit(1);
+        }
+    };
+
+    // --- Codegen ---
+    let project = assura_codegen::codegen(&typed);
+
+    // --- Write to generated/ ---
+    let out_dir = Path::new("generated");
+    fs::create_dir_all(out_dir).unwrap_or_else(|e| {
+        eprintln!("Error: cannot create generated/ directory: {e}");
+        process::exit(1);
+    });
+
+    // Write Cargo.toml
+    let cargo_path = out_dir.join("Cargo.toml");
+    fs::write(&cargo_path, &project.cargo_toml).unwrap_or_else(|e| {
+        eprintln!("Error: cannot write {}: {e}", cargo_path.display());
+        process::exit(1);
+    });
+    println!("  wrote {}", cargo_path.display());
+
+    // Write source files
+    for (rel_path, content) in &project.files {
+        let full_path = out_dir.join(rel_path);
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent).unwrap_or_else(|e| {
+                eprintln!("Error: cannot create directory {}: {e}", parent.display());
+                process::exit(1);
+            });
+        }
+        fs::write(&full_path, content).unwrap_or_else(|e| {
+            eprintln!("Error: cannot write {}: {e}", full_path.display());
+            process::exit(1);
+        });
+        println!("  wrote {}", full_path.display());
+    }
+
+    println!("OK  {filename} -> generated/");
+}
+
+// ---------------------------------------------------------------------------
 // Legacy mode: `assura [--ast|--tokens] <file>`
 // ---------------------------------------------------------------------------
 
@@ -290,6 +484,7 @@ fn run_legacy(args: &[String]) {
         .unwrap_or_else(|| {
             eprintln!("Usage: assura [--ast|--tokens] <file.assura>");
             eprintln!("       assura check <file.assura> [--json|--human]");
+            eprintln!("       assura build <file.assura>");
             process::exit(2);
         });
 

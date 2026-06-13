@@ -209,7 +209,7 @@
 
 > Generate valid Rust source code from type-checked contracts.
 
-- [ ] **T019**: Create `assura-codegen` crate AND wire into CLI
+- [x] **T019**: Create `assura-codegen` crate AND wire into CLI
   - Depends on: T018
   - New crate: `crates/assura-codegen/`
   - Depends on: `assura-parser`, `assura-resolve`, `assura-types`
