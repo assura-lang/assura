@@ -181,8 +181,8 @@ fn builtin_type(name: &str) -> Option<Type> {
         "I64" => Some(Type::I64),
         "F32" => Some(Type::F32),
         "F64" => Some(Type::F64),
-        // Generic container types get `Unknown` as their type argument
-        // until T014+ refines this with actual type argument resolution.
+        // Generic container types with no type arguments (bare names).
+        // Full `List<Int>` etc. is handled by parse_type_tokens above.
         "List" => Some(Type::List(Box::new(Type::Unknown))),
         "Map" => Some(Type::Map(Box::new(Type::Unknown), Box::new(Type::Unknown))),
         "Set" => Some(Type::Set(Box::new(Type::Unknown))),
@@ -811,7 +811,7 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 let else_ty = infer_expr(else_br, env)?;
                 if then_ty == Type::Unknown {
                     Ok(else_ty)
-                } else if else_ty == Type::Unknown || then_ty == else_ty {
+                } else if else_ty == Type::Unknown || types_compatible(&then_ty, &else_ty) {
                     Ok(then_ty)
                 } else {
                     Err(TypeError {
@@ -13867,6 +13867,21 @@ extern fn read_bytes(n: U32) -> Bytes
         let err = infer_expr(&expr, &env).unwrap_err();
         assert_eq!(err.code, "A03001");
         assert!(err.message.contains("Bool"));
+    }
+
+    #[test]
+    fn infer_if_nat_int_branches_compatible() {
+        // Nat and Int in different branches should be compatible
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Nat);
+        env.insert("y".into(), Type::Int);
+        let expr = AstExpr::If {
+            cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            then_branch: Box::new(AstExpr::Ident("x".into())),
+            else_branch: Some(Box::new(AstExpr::Ident("y".into()))),
+        };
+        // Should succeed (Nat and Int are compatible)
+        assert!(infer_expr(&expr, &env).is_ok());
     }
 
     #[test]
