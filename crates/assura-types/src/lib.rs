@@ -1008,12 +1008,15 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             Ok(Type::Unit)
         }
 
-        // --- Match: infer all arm types, return first non-Unknown ---
+        // --- Match: bind pattern variables and infer all arm types ---
         Expr::Match { scrutinee, arms } => {
-            let _ = infer_expr(scrutinee, env)?;
+            let scrut_ty = infer_expr(scrutinee, env)?;
             let mut result_ty = Type::Unknown;
             for arm in arms {
-                let arm_ty = infer_expr(&arm.body, env)?;
+                // Create a new env with pattern bindings
+                let mut arm_env = env.clone();
+                bind_pattern_vars(&arm.pattern, &scrut_ty, &mut arm_env);
+                let arm_ty = infer_expr(&arm.body, &arm_env)?;
                 if result_ty == Type::Unknown {
                     result_ty = arm_ty;
                 }
@@ -1412,6 +1415,36 @@ fn check_ghost_fn_effects(
 /// Walk all clause bodies in a source file, infer expression types, and
 /// collect type errors. Lenient: errors involving `Unknown` are suppressed.
 /// Create a copy of the type environment with `result` bound to the given type.
+/// Bind pattern variables into a type environment.
+///
+/// For `Ident` patterns, the variable is bound to the scrutinee type.
+/// For `Constructor` patterns, nested fields get `Unknown` (we don't
+/// know field types without full ADT info). For `Tuple` patterns, elements
+/// get `Unknown`. Wildcards and literals don't bind variables.
+fn bind_pattern_vars(
+    pattern: &assura_parser::ast::Pattern,
+    scrutinee_ty: &Type,
+    env: &mut TypeEnv,
+) {
+    match pattern {
+        assura_parser::ast::Pattern::Ident(name) => {
+            // Bind the pattern variable to the scrutinee type
+            env.insert(name.clone(), scrutinee_ty.clone());
+        }
+        assura_parser::ast::Pattern::Constructor { fields, .. } => {
+            for field in fields {
+                bind_pattern_vars(field, &Type::Unknown, env);
+            }
+        }
+        assura_parser::ast::Pattern::Tuple(pats) => {
+            for pat in pats {
+                bind_pattern_vars(pat, &Type::Unknown, env);
+            }
+        }
+        assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Literal(_) => {}
+    }
+}
+
 fn env_with_result(env: &TypeEnv, result_ty: &Type) -> TypeEnv {
     let mut new_env = env.clone();
     new_env.insert("result".to_string(), result_ty.clone());
@@ -23063,5 +23096,60 @@ fn square(x: Int) -> Int
             args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unit);
+    }
+
+    // -----------------------------------------------------------------------
+    // Match pattern variable binding
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn match_binds_ident_pattern_to_scrutinee_type() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        // match x { val => val + 1 } should bind `val` to Int
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("x".into())),
+            arms: vec![assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Ident("val".into()),
+                body: AstExpr::BinOp {
+                    lhs: Box::new(AstExpr::Ident("val".into())),
+                    op: AstBinOp::Add,
+                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                },
+            }],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn match_wildcard_does_not_bind() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+            arms: vec![assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Wildcard,
+                body: AstExpr::Literal(AstLit::Bool(true)),
+            }],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn match_literal_pattern_does_not_bind() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
+                    body: AstExpr::Literal(AstLit::Str("one".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Wildcard,
+                    body: AstExpr::Literal(AstLit::Str("other".into())),
+                },
+            ],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
     }
 }

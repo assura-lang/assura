@@ -865,6 +865,15 @@ mod z3_backend {
                             (Z3Value::Bool(t), Z3Value::Bool(e)) => {
                                 Z3Value::Bool(cond_bool.ite(t, e))
                             }
+                            (Z3Value::Real(t), Z3Value::Real(e)) => {
+                                Z3Value::Real(cond_bool.ite(t, e))
+                            }
+                            (Z3Value::Int(t), Z3Value::Real(e)) => {
+                                Z3Value::Real(cond_bool.ite(&ast::Real::from_int(t), e))
+                            }
+                            (Z3Value::Real(t), Z3Value::Int(e)) => {
+                                Z3Value::Real(cond_bool.ite(t, &ast::Real::from_int(e)))
+                            }
                             _ => {
                                 let t = then_val.as_bool(self.ctx);
                                 let e = else_val.as_bool(self.ctx);
@@ -934,6 +943,13 @@ mod z3_backend {
                         match (&body, &else_val) {
                             (Z3Value::Bool(b), Z3Value::Bool(e)) => Z3Value::Bool(cond.ite(b, e)),
                             (Z3Value::Int(b), Z3Value::Int(e)) => Z3Value::Int(cond.ite(b, e)),
+                            (Z3Value::Real(b), Z3Value::Real(e)) => Z3Value::Real(cond.ite(b, e)),
+                            (Z3Value::Int(b), Z3Value::Real(e)) => {
+                                Z3Value::Real(cond.ite(&ast::Real::from_int(b), e))
+                            }
+                            (Z3Value::Real(b), Z3Value::Int(e)) => {
+                                Z3Value::Real(cond.ite(b, &ast::Real::from_int(e)))
+                            }
                             _ => body, // type mismatch fallback
                         }
                     })
