@@ -1418,17 +1418,20 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
             Ok(Type::Bool)
         }
 
-        // Concat: both same type, result same type
+        // Concat: both same type or compatible (String, List, Bytes), result same type
         BinOp::Concat => {
-            if lhs_ty != rhs_ty {
-                return Err(TypeError {
+            if types_compatible(&lhs_ty, &rhs_ty) {
+                Ok(lhs_ty)
+            } else {
+                Err(TypeError {
                     code: "A03001".into(),
-                    message: format!("concat requires same types, found `{lhs_ty}` vs `{rhs_ty}`"),
+                    message: format!(
+                        "concat requires compatible types, found `{lhs_ty}` vs `{rhs_ty}`"
+                    ),
                     span: 0..0,
                     secondary: None,
-                });
+                })
             }
-            Ok(lhs_ty)
         }
 
         // Range: both Int/Nat, result is a List<Int> (iterable range)
@@ -1452,8 +1455,29 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
             Ok(Type::List(Box::new(Type::Int)))
         }
 
-        // In/NotIn: result Bool
-        BinOp::In | BinOp::NotIn => Ok(Type::Bool),
+        // In/NotIn: rhs should be a collection type, result Bool
+        BinOp::In | BinOp::NotIn => {
+            match &rhs_ty {
+                Type::List(_)
+                | Type::Set(_)
+                | Type::Sequence(_)
+                | Type::Map(_, _)
+                | Type::String
+                | Type::Named(_)
+                | Type::Unknown => {}
+                _ => {
+                    return Err(TypeError {
+                        code: "A03001".into(),
+                        message: format!(
+                            "`in` requires a collection on the right side, found `{rhs_ty}`"
+                        ),
+                        span: 0..0,
+                        secondary: None,
+                    });
+                }
+            }
+            Ok(Type::Bool)
+        }
     }
 }
 
@@ -23809,6 +23833,46 @@ fn square(x: Int) -> Int
             rhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
         };
         assert!(infer_expr(&expr, &env).is_err());
+    }
+
+    #[test]
+    fn in_operator_rejects_non_collection_rhs() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        env.insert("y".into(), Type::Int);
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::In,
+            rhs: Box::new(AstExpr::Ident("y".into())),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert!(err.message.contains("collection"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn in_operator_accepts_list() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::In,
+            rhs: Box::new(AstExpr::Ident("xs".into())),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn in_operator_accepts_set() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        env.insert("s".into(), Type::Set(Box::new(Type::Int)));
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::In,
+            rhs: Box::new(AstExpr::Ident("s".into())),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
     }
 
     // -----------------------------------------------------------------------
