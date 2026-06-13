@@ -1209,6 +1209,56 @@ fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Use a valid effect name from the built-in effect hierarchy. Check \
                  the documentation for the complete list of effects.",
         },
+        // -- A02006: Duplicate import --
+        ErrorInfo {
+            code: "A02006",
+            name: "Duplicate import",
+            description: "The same module is imported more than once. Duplicate \
+                          imports are redundant and may indicate a copy-paste error.",
+            example: r#"  import std.collections;
+  import std.collections;  // duplicate"#,
+            fix: "Remove the duplicate import statement.",
+        },
+        // -- A02007: Unused import --
+        ErrorInfo {
+            code: "A02007",
+            name: "Unused import",
+            description: "An import was declared but none of its symbols are used \
+                          in the file. This is a warning, not an error.",
+            example: r#"  import std.math;  // unused
+
+  contract Foo {
+      input { x: Int }  // does not use std.math
+  }"#,
+            fix: "Remove the unused import, or use a symbol from the imported module.",
+        },
+        // -- A03010: Division by zero --
+        ErrorInfo {
+            code: "A03010",
+            name: "Division by zero",
+            description: "A division or modulo operation has a constant zero divisor, \
+                          which would cause a runtime panic.",
+            example: r#"  contract DivZero {
+      input { x: Int }
+      ensures { x / 0 == 0 }  // A03010: division by zero
+  }"#,
+            fix: "Use a non-zero divisor, or add a requires clause that the \
+                 divisor is non-zero.",
+        },
+        // -- A08001: Taint flow violation --
+        ErrorInfo {
+            code: "A08001",
+            name: "Taint flow violation",
+            description: "A value with an untrusted taint label flows to a \
+                          sink that requires a higher trust level. This \
+                          indicates a potential information flow vulnerability.",
+            example: r#"  contract TaintViolation {
+      input { user_data: @Untrusted String }
+      ensures { db.write(user_data) }  // needs @Trusted
+  }"#,
+            fix: "Validate or sanitize the untrusted input before passing it \
+                 to the trusted sink, or adjust the taint labels.",
+        },
         // -- Phase 1: SMT verification (A05100) --
         ErrorInfo {
             code: "A05100",
