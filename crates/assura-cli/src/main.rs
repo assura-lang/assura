@@ -11,10 +11,275 @@ use assura_parser::parser;
 use chumsky::Stream;
 use chumsky::prelude::*;
 use logos::Logos;
+use serde::Serialize;
+
+// ---------------------------------------------------------------------------
+// Structured diagnostic for JSON output
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+struct DiagnosticJson {
+    code: String,
+    message: String,
+    file: String,
+    start: usize,
+    end: usize,
+    severity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secondary: Option<SecondaryJson>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SecondaryJson {
+    message: String,
+    start: usize,
+    end: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Output mode
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputMode {
+    Human,
+    Json,
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let non_flag_args: Vec<&String> = args
+        .iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .collect();
 
+    // Detect "check" subcommand: `assura check <file> [--json|--human]`
+    let is_check = non_flag_args.first().is_some_and(|a| a.as_str() == "check");
+
+    if is_check {
+        run_check(&args);
+    } else {
+        run_legacy(&args);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `assura check <file> [--json|--human]`
+// ---------------------------------------------------------------------------
+
+fn run_check(args: &[String]) {
+    let output_mode = if args.contains(&"--json".to_string()) {
+        OutputMode::Json
+    } else {
+        OutputMode::Human
+    };
+
+    // The file is the first non-flag arg after "check"
+    let filename = args
+        .iter()
+        .skip(1) // skip binary name
+        .filter(|a| !a.starts_with('-'))
+        .nth(1) // skip "check" itself
+        .unwrap_or_else(|| {
+            eprintln!("Usage: assura check <file.assura> [--json|--human]");
+            process::exit(2);
+        });
+
+    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
+        if output_mode == OutputMode::Json {
+            let diag = DiagnosticJson {
+                code: "A01000".to_string(),
+                message: format!("{e}"),
+                file: filename.clone(),
+                start: 0,
+                end: 0,
+                severity: "error".to_string(),
+                secondary: None,
+            };
+            println!("{}", serde_json::to_string_pretty(&[diag]).unwrap());
+        } else {
+            eprintln!("Error: {filename}: {e}");
+        }
+        process::exit(2);
+    });
+
+    let mut diagnostics: Vec<DiagnosticJson> = Vec::new();
+    let mut has_errors = false;
+
+    // --- Lex ---
+    let lex = Token::lexer(&source);
+    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
+
+    for (tok, span) in lex.spanned() {
+        match tok {
+            Ok(t) => tokens.push((t, span)),
+            Err(()) => {
+                has_errors = true;
+                diagnostics.push(DiagnosticJson {
+                    code: "A01001".to_string(),
+                    message: format!("unexpected character: {:?}", &source[span.clone()]),
+                    file: filename.clone(),
+                    start: span.start,
+                    end: span.end,
+                    severity: "error".to_string(),
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    // If lex errors, still try to continue for maximum diagnostics,
+    // but we'll exit 1 at the end.
+    if has_errors && output_mode == OutputMode::Human {
+        report_diagnostics_human(&diagnostics, filename, &source);
+    }
+
+    // --- Parse ---
+    let len = source.len();
+    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
+    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
+
+    for e in &parse_errors {
+        has_errors = true;
+        let span = e.span();
+        let found = e
+            .found()
+            .map(|t| format!("{t}"))
+            .unwrap_or_else(|| "end of file".to_string());
+        let expected: Vec<String> = e
+            .expected()
+            .map(|ex| match ex {
+                Some(t) => format!("{t}"),
+                None => "end of input".to_string(),
+            })
+            .collect();
+
+        let msg = if expected.is_empty() {
+            format!("unexpected {found}")
+        } else {
+            format!("expected {}, found {found}", expected.join(" or "))
+        };
+
+        diagnostics.push(DiagnosticJson {
+            code: "A01002".to_string(),
+            message: msg,
+            file: filename.clone(),
+            start: span.start,
+            end: span.end,
+            severity: "error".to_string(),
+            secondary: None,
+        });
+    }
+
+    // --- Resolve (only if we have a parsed file) ---
+    let resolved = if let Some(ref file) = file {
+        match assura_resolve::resolve(file) {
+            Ok(r) => Some(r),
+            Err(errs) => {
+                has_errors = true;
+                for e in &errs {
+                    diagnostics.push(DiagnosticJson {
+                        code: e.code.to_string(),
+                        message: e.message.clone(),
+                        file: filename.clone(),
+                        start: e.span.start,
+                        end: e.span.end,
+                        severity: "error".to_string(),
+                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
+                            message: msg.clone(),
+                            start: span.start,
+                            end: span.end,
+                        }),
+                    });
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // --- Type check (only if resolution succeeded) ---
+    if let Some(ref resolved) = resolved
+        && let Err(errs) = assura_types::type_check(resolved)
+    {
+        has_errors = true;
+        for e in &errs {
+            diagnostics.push(DiagnosticJson {
+                code: e.code.clone(),
+                message: e.message.clone(),
+                file: filename.clone(),
+                start: e.span.start,
+                end: e.span.end,
+                severity: "error".to_string(),
+                secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
+                    message: msg.clone(),
+                    start: span.start,
+                    end: span.end,
+                }),
+            });
+        }
+    }
+
+    // --- Report ---
+    match output_mode {
+        OutputMode::Json => {
+            println!("{}", serde_json::to_string_pretty(&diagnostics).unwrap());
+        }
+        OutputMode::Human => {
+            // Lex errors already reported above; report the rest.
+            let non_lex: Vec<_> = diagnostics
+                .iter()
+                .filter(|d| d.code != "A01001")
+                .cloned()
+                .collect();
+            report_diagnostics_human(&non_lex, filename, &source);
+
+            if !has_errors {
+                eprintln!("{filename}: check passed (no errors)");
+            } else {
+                eprintln!("{filename}: {} error(s) found", diagnostics.len());
+            }
+        }
+    }
+
+    process::exit(if has_errors { 1 } else { 0 });
+}
+
+/// Render diagnostics using ariadne for human-readable terminal output.
+fn report_diagnostics_human(diagnostics: &[DiagnosticJson], filename: &str, source: &str) {
+    for d in diagnostics {
+        let mut builder = Report::build(ReportKind::Error, filename, d.start)
+            .with_message(format!("[{}] {}", d.code, d.message))
+            .with_label(
+                Label::new((filename, d.start..d.end))
+                    .with_message(&d.message)
+                    .with_color(Color::Red),
+            );
+        if let Some(ref sec) = d.secondary {
+            builder = builder.with_label(
+                Label::new((filename, sec.start..sec.end))
+                    .with_message(&sec.message)
+                    .with_color(Color::Blue),
+            );
+        }
+        builder
+            .finish()
+            .eprint((filename, Source::from(source)))
+            .ok();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy mode: `assura [--ast|--tokens] <file>`
+// ---------------------------------------------------------------------------
+
+fn run_legacy(args: &[String]) {
     let show_ast = args.contains(&"--ast".to_string());
     let show_tokens = args.contains(&"--tokens".to_string());
 
@@ -24,6 +289,7 @@ fn main() {
         .nth(1)
         .unwrap_or_else(|| {
             eprintln!("Usage: assura [--ast|--tokens] <file.assura>");
+            eprintln!("       assura check <file.assura> [--json|--human]");
             process::exit(2);
         });
 
