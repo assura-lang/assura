@@ -48,6 +48,165 @@ enum OutputMode {
 }
 
 // ---------------------------------------------------------------------------
+// Shared compilation pipeline
+// ---------------------------------------------------------------------------
+
+/// Result of running the full compilation pipeline (lex -> parse -> resolve -> typecheck).
+struct CompilationResult {
+    file: Option<SourceFile>,
+    resolved: Option<assura_resolve::ResolvedFile>,
+    typed: Option<assura_types::TypedFile>,
+    diagnostics: Vec<DiagnosticJson>,
+    has_errors: bool,
+}
+
+/// Run lex -> parse -> resolve -> typecheck on source text, collecting all diagnostics.
+fn compile(source: &str, filename: &str) -> CompilationResult {
+    let mut diagnostics: Vec<DiagnosticJson> = Vec::new();
+    let mut has_errors = false;
+
+    // --- Lex ---
+    let lex = Token::lexer(source);
+    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
+
+    for (tok, span) in lex.spanned() {
+        match tok {
+            Ok(t) => tokens.push((t, span)),
+            Err(()) => {
+                has_errors = true;
+                diagnostics.push(DiagnosticJson {
+                    code: "A01001".to_string(),
+                    message: format!("unexpected character: {:?}", &source[span.clone()]),
+                    file: filename.to_string(),
+                    start: span.start,
+                    end: span.end,
+                    severity: "error".to_string(),
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    // --- Parse ---
+    let len = source.len();
+    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
+    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
+
+    for e in &parse_errors {
+        has_errors = true;
+        let span = e.span();
+        let found = e
+            .found()
+            .map(|t| format!("{t}"))
+            .unwrap_or_else(|| "end of file".to_string());
+        let expected: Vec<String> = e
+            .expected()
+            .map(|ex| match ex {
+                Some(t) => format!("{t}"),
+                None => "end of input".to_string(),
+            })
+            .collect();
+
+        let msg = if expected.is_empty() {
+            format!("unexpected {found}")
+        } else {
+            format!("expected {}, found {found}", expected.join(" or "))
+        };
+
+        diagnostics.push(DiagnosticJson {
+            code: "A01002".to_string(),
+            message: msg,
+            file: filename.to_string(),
+            start: span.start,
+            end: span.end,
+            severity: "error".to_string(),
+            secondary: None,
+        });
+    }
+
+    // --- Resolve (only if we have a parsed file) ---
+    let resolved = if let Some(ref file) = file {
+        match assura_resolve::resolve(file) {
+            Ok(r) => {
+                for w in &r.warnings {
+                    diagnostics.push(DiagnosticJson {
+                        code: w.code.to_string(),
+                        message: w.message.clone(),
+                        file: filename.to_string(),
+                        start: w.span.start,
+                        end: w.span.end,
+                        severity: "warning".to_string(),
+                        secondary: w.secondary.as_ref().map(|(span, msg)| SecondaryJson {
+                            message: msg.clone(),
+                            start: span.start,
+                            end: span.end,
+                        }),
+                    });
+                }
+                Some(r)
+            }
+            Err(errs) => {
+                has_errors = true;
+                for e in &errs {
+                    diagnostics.push(DiagnosticJson {
+                        code: e.code.to_string(),
+                        message: e.message.clone(),
+                        file: filename.to_string(),
+                        start: e.span.start,
+                        end: e.span.end,
+                        severity: "error".to_string(),
+                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
+                            message: msg.clone(),
+                            start: span.start,
+                            end: span.end,
+                        }),
+                    });
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // --- Type check (only if resolution succeeded) ---
+    let typed = if let Some(ref resolved) = resolved {
+        match assura_types::type_check(resolved) {
+            Ok(t) => Some(t),
+            Err(errs) => {
+                has_errors = true;
+                for e in &errs {
+                    diagnostics.push(DiagnosticJson {
+                        code: e.code.clone(),
+                        message: e.message.clone(),
+                        file: filename.to_string(),
+                        start: e.span.start,
+                        end: e.span.end,
+                        severity: "error".to_string(),
+                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
+                            message: msg.clone(),
+                            start: span.start,
+                            end: span.end,
+                        }),
+                    });
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    CompilationResult {
+        file,
+        resolved,
+        typed,
+        diagnostics,
+        has_errors,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -190,147 +349,14 @@ fn run_check(args: &[String]) {
         process::exit(2);
     });
 
-    let mut diagnostics: Vec<DiagnosticJson> = Vec::new();
-    let mut has_errors = false;
-
-    // --- Lex ---
-    let lex = Token::lexer(&source);
-    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
-
-    for (tok, span) in lex.spanned() {
-        match tok {
-            Ok(t) => tokens.push((t, span)),
-            Err(()) => {
-                has_errors = true;
-                diagnostics.push(DiagnosticJson {
-                    code: "A01001".to_string(),
-                    message: format!("unexpected character: {:?}", &source[span.clone()]),
-                    file: filename.clone(),
-                    start: span.start,
-                    end: span.end,
-                    severity: "error".to_string(),
-                    secondary: None,
-                });
-            }
-        }
-    }
-
-    // If lex errors, still try to continue for maximum diagnostics,
-    // but we'll exit 1 at the end.
-    if has_errors && output_mode == OutputMode::Human {
-        report_diagnostics_human(&diagnostics, &filename, &source);
-    }
-
-    // --- Parse ---
-    let len = source.len();
-    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
-    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
-
-    for e in &parse_errors {
-        has_errors = true;
-        let span = e.span();
-        let found = e
-            .found()
-            .map(|t| format!("{t}"))
-            .unwrap_or_else(|| "end of file".to_string());
-        let expected: Vec<String> = e
-            .expected()
-            .map(|ex| match ex {
-                Some(t) => format!("{t}"),
-                None => "end of input".to_string(),
-            })
-            .collect();
-
-        let msg = if expected.is_empty() {
-            format!("unexpected {found}")
-        } else {
-            format!("expected {}, found {found}", expected.join(" or "))
-        };
-
-        diagnostics.push(DiagnosticJson {
-            code: "A01002".to_string(),
-            message: msg,
-            file: filename.clone(),
-            start: span.start,
-            end: span.end,
-            severity: "error".to_string(),
-            secondary: None,
-        });
-    }
-
-    // --- Resolve (only if we have a parsed file) ---
-    let resolved = if let Some(ref file) = file {
-        match assura_resolve::resolve(file) {
-            Ok(r) => {
-                // Report resolution warnings (e.g., unused imports)
-                for w in &r.warnings {
-                    diagnostics.push(DiagnosticJson {
-                        code: w.code.to_string(),
-                        message: w.message.clone(),
-                        file: filename.clone(),
-                        start: w.span.start,
-                        end: w.span.end,
-                        severity: "warning".to_string(),
-                        secondary: w.secondary.as_ref().map(|(span, msg)| SecondaryJson {
-                            message: msg.clone(),
-                            start: span.start,
-                            end: span.end,
-                        }),
-                    });
-                }
-                Some(r)
-            }
-            Err(errs) => {
-                has_errors = true;
-                for e in &errs {
-                    diagnostics.push(DiagnosticJson {
-                        code: e.code.to_string(),
-                        message: e.message.clone(),
-                        file: filename.clone(),
-                        start: e.span.start,
-                        end: e.span.end,
-                        severity: "error".to_string(),
-                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
-                            message: msg.clone(),
-                            start: span.start,
-                            end: span.end,
-                        }),
-                    });
-                }
-                None
-            }
-        }
-    } else {
-        None
-    };
-
-    // --- Type check (only if resolution succeeded) ---
-    let typed = if let Some(ref resolved) = resolved {
-        match assura_types::type_check(resolved) {
-            Ok(t) => Some(t),
-            Err(errs) => {
-                has_errors = true;
-                for e in &errs {
-                    diagnostics.push(DiagnosticJson {
-                        code: e.code.clone(),
-                        message: e.message.clone(),
-                        file: filename.clone(),
-                        start: e.span.start,
-                        end: e.span.end,
-                        severity: "error".to_string(),
-                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
-                            message: msg.clone(),
-                            start: span.start,
-                            end: span.end,
-                        }),
-                    });
-                }
-                None
-            }
-        }
-    } else {
-        None
-    };
+    // --- Run shared pipeline ---
+    let CompilationResult {
+        file,
+        resolved,
+        typed,
+        mut diagnostics,
+        mut has_errors,
+    } = compile(&source, &filename);
 
     // --- Verify (only if type check succeeded and layer >= 1) ---
     let verification_results = if layer >= 1 {
@@ -576,167 +602,41 @@ fn report_diagnostics_human(diagnostics: &[DiagnosticJson], filename: &str, sour
 // ---------------------------------------------------------------------------
 
 fn run_build(args: &[String]) {
-    // The file is the first non-flag arg after "build"
-    let filename = args
-        .iter()
-        .skip(1) // skip binary name
-        .filter(|a| !a.starts_with('-'))
-        .nth(1) // skip "build" itself
-        .unwrap_or_else(|| {
-            eprintln!("Usage: assura build <file.assura>");
-            process::exit(2);
-        });
+    let pos = positional_args(args);
+
+    let filename = pos.get(1).unwrap_or_else(|| {
+        eprintln!("Usage: assura build <file.assura> [--output <dir>]");
+        process::exit(2);
+    });
+
+    // Output directory: --output <dir> or default "generated"
+    let out_dir_str = args
+        .windows(2)
+        .find(|w| w[0] == "--output")
+        .map(|w| w[1].as_str())
+        .unwrap_or("generated");
 
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
         process::exit(2);
     });
 
-    // --- Lex ---
-    let lex = Token::lexer(&source);
-    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
-    let mut lex_errors = Vec::new();
+    // --- Run shared pipeline ---
+    let CompilationResult {
+        diagnostics,
+        has_errors,
+        typed,
+        ..
+    } = compile(&source, filename);
 
-    for (tok, span) in lex.spanned() {
-        match tok {
-            Ok(t) => tokens.push((t, span)),
-            Err(()) => lex_errors.push(span),
-        }
-    }
-
-    for span in &lex_errors {
-        let snippet = &source[span.clone()];
-        Report::build(ReportKind::Error, filename.as_str(), span.start)
-            .with_message(format!("unexpected character: {snippet:?}"))
-            .with_label(
-                Label::new((filename.as_str(), span.clone()))
-                    .with_message("invalid token")
-                    .with_color(Color::Red),
-            )
-            .finish()
-            .eprint((filename.as_str(), Source::from(&source)))
-            .ok();
-    }
-
-    if !lex_errors.is_empty() {
+    // Report errors in human mode
+    if has_errors {
+        report_diagnostics_human(&diagnostics, filename, &source);
+        eprintln!("{filename}: {} error(s) found", diagnostics.len());
         process::exit(1);
     }
 
-    // --- Parse ---
-    let len = source.len();
-    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
-    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
-
-    for e in &parse_errors {
-        let span = e.span();
-        let found = e
-            .found()
-            .map(|t| format!("{t}"))
-            .unwrap_or_else(|| "end of file".to_string());
-        let expected: Vec<String> = e
-            .expected()
-            .map(|ex| match ex {
-                Some(t) => format!("{t}"),
-                None => "end of input".to_string(),
-            })
-            .collect();
-        let msg = if expected.is_empty() {
-            format!("unexpected {found}")
-        } else {
-            format!("expected {}, found {found}", expected.join(" or "))
-        };
-        Report::build(ReportKind::Error, filename.as_str(), span.start)
-            .with_message(&msg)
-            .with_label(
-                Label::new((filename.as_str(), span.clone()))
-                    .with_message(&msg)
-                    .with_color(Color::Red),
-            )
-            .finish()
-            .eprint((filename.as_str(), Source::from(&source)))
-            .ok();
-    }
-
-    let Some(file) = file else {
-        eprintln!("{filename}: parse failed");
-        process::exit(1);
-    };
-
-    if !parse_errors.is_empty() {
-        process::exit(1);
-    }
-
-    // --- Resolve ---
-    let resolved = match assura_resolve::resolve(&file) {
-        Ok(r) => {
-            for w in &r.warnings {
-                Report::build(ReportKind::Warning, filename.as_str(), w.span.start)
-                    .with_message(format!("[{}] {}", w.code, w.message))
-                    .with_label(
-                        Label::new((filename.as_str(), w.span.clone()))
-                            .with_message(&w.message)
-                            .with_color(Color::Yellow),
-                    )
-                    .finish()
-                    .eprint((filename.as_str(), Source::from(&source)))
-                    .ok();
-            }
-            r
-        }
-        Err(errs) => {
-            for e in &errs {
-                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
-                    .with_message(format!("[{}] {}", e.code, e.message))
-                    .with_label(
-                        Label::new((filename.as_str(), e.span.clone()))
-                            .with_message(&e.message)
-                            .with_color(Color::Red),
-                    );
-                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
-                    builder = builder.with_label(
-                        Label::new((filename.as_str(), sec_span.clone()))
-                            .with_message(sec_msg)
-                            .with_color(Color::Blue),
-                    );
-                }
-                builder
-                    .finish()
-                    .eprint((filename.as_str(), Source::from(&source)))
-                    .ok();
-            }
-            eprintln!("{filename}: {} resolution error(s)", errs.len());
-            process::exit(1);
-        }
-    };
-
-    // --- Type check ---
-    let typed = match assura_types::type_check(&resolved) {
-        Ok(t) => t,
-        Err(errs) => {
-            for e in &errs {
-                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
-                    .with_message(format!("[{}] {}", e.code, e.message))
-                    .with_label(
-                        Label::new((filename.as_str(), e.span.clone()))
-                            .with_message(&e.message)
-                            .with_color(Color::Red),
-                    );
-                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
-                    builder = builder.with_label(
-                        Label::new((filename.as_str(), sec_span.clone()))
-                            .with_message(sec_msg)
-                            .with_color(Color::Blue),
-                    );
-                }
-                builder
-                    .finish()
-                    .eprint((filename.as_str(), Source::from(&source)))
-                    .ok();
-            }
-            eprintln!("{filename}: {} type error(s)", errs.len());
-            process::exit(1);
-        }
-    };
+    let typed = typed.expect("type check should succeed if has_errors is false");
 
     // --- Verify ---
     let verification_results = assura_smt::verify(&typed);
@@ -770,10 +670,10 @@ fn run_build(args: &[String]) {
     // --- Codegen ---
     let project = assura_codegen::codegen(&typed);
 
-    // --- Write to generated/ ---
-    let out_dir = Path::new("generated");
+    // --- Write to output directory ---
+    let out_dir = Path::new(out_dir_str);
     fs::create_dir_all(out_dir).unwrap_or_else(|e| {
-        eprintln!("Error: cannot create generated/ directory: {e}");
+        eprintln!("Error: cannot create {out_dir_str}/ directory: {e}");
         process::exit(1);
     });
 
@@ -801,7 +701,7 @@ fn run_build(args: &[String]) {
         println!("  wrote {}", full_path.display());
     }
 
-    println!("OK  {filename} -> generated/");
+    println!("OK  {filename} -> {out_dir_str}/");
 }
 
 // ---------------------------------------------------------------------------
@@ -1335,7 +1235,7 @@ fn run_legacy(args: &[String]) {
         .unwrap_or_else(|| {
             eprintln!("Usage: assura [--ast|--tokens] <file.assura>");
             eprintln!("       assura check <file.assura> [--json|--human]");
-            eprintln!("       assura build <file.assura>");
+            eprintln!("       assura build <file.assura> [--output <dir>]");
             eprintln!("       assura init <project-name>");
             eprintln!("       assura explain <error-code>");
             process::exit(2);
@@ -1346,163 +1246,37 @@ fn run_legacy(args: &[String]) {
         process::exit(2);
     });
 
-    // --- Lex ---
-    let lex = Token::lexer(&source);
-    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
-    let mut lex_errors = Vec::new();
-
-    for (tok, span) in lex.spanned() {
-        match tok {
-            Ok(t) => tokens.push((t, span)),
-            Err(()) => lex_errors.push(span),
-        }
-    }
-
+    // --tokens mode: lex only, dump tokens, exit early
     if show_tokens {
-        for (tok, span) in &tokens {
-            let line = source[..span.start].lines().count();
-            let col = span.start - source[..span.start].rfind('\n').map_or(0, |p| p + 1) + 1;
-            println!("{line}:{col}  {tok:?}");
+        let lex = Token::lexer(&source);
+        for (tok, span) in lex.spanned() {
+            if let Ok(t) = tok {
+                let line = source[..span.start].lines().count();
+                let col = span.start - source[..span.start].rfind('\n').map_or(0, |p| p + 1) + 1;
+                println!("{line}:{col}  {t:?}");
+            }
         }
         return;
     }
 
-    for span in &lex_errors {
-        let snippet = &source[span.clone()];
-        Report::build(ReportKind::Error, filename.as_str(), span.start)
-            .with_message(format!("unexpected character: {snippet:?}"))
-            .with_label(
-                Label::new((filename.as_str(), span.clone()))
-                    .with_message("invalid token")
-                    .with_color(Color::Red),
-            )
-            .finish()
-            .eprint((filename.as_str(), Source::from(&source)))
-            .ok();
-    }
+    // --- Run shared pipeline ---
+    let CompilationResult {
+        file,
+        resolved,
+        typed,
+        diagnostics,
+        has_errors,
+    } = compile(&source, filename);
 
-    if !lex_errors.is_empty() {
+    if has_errors {
+        report_diagnostics_human(&diagnostics, filename, &source);
+        eprintln!("{filename}: {} error(s) found", diagnostics.len());
         process::exit(1);
     }
 
-    // --- Parse ---
-    let len = source.len();
-    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
-
-    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
-
-    for e in &parse_errors {
-        let span = e.span();
-        let found = e
-            .found()
-            .map(|t| format!("{t}"))
-            .unwrap_or_else(|| "end of file".to_string());
-        let expected: Vec<String> = e
-            .expected()
-            .map(|ex| match ex {
-                Some(t) => format!("{t}"),
-                None => "end of input".to_string(),
-            })
-            .collect();
-
-        let msg = if expected.is_empty() {
-            format!("unexpected {found}")
-        } else {
-            format!("expected {}, found {found}", expected.join(" or "))
-        };
-
-        Report::build(ReportKind::Error, filename.as_str(), span.start)
-            .with_message(&msg)
-            .with_label(
-                Label::new((filename.as_str(), span.clone()))
-                    .with_message(&msg)
-                    .with_color(Color::Red),
-            )
-            .finish()
-            .eprint((filename.as_str(), Source::from(&source)))
-            .ok();
-    }
-
-    let Some(file) = file else {
-        eprintln!("{filename}: parse failed");
-        process::exit(1);
-    };
-
-    if !parse_errors.is_empty() {
-        process::exit(1);
-    }
-
-    // --- Resolve ---
-    let resolved = match assura_resolve::resolve(&file) {
-        Ok(r) => {
-            for w in &r.warnings {
-                Report::build(ReportKind::Warning, filename.as_str(), w.span.start)
-                    .with_message(format!("[{}] {}", w.code, w.message))
-                    .with_label(
-                        Label::new((filename.as_str(), w.span.clone()))
-                            .with_message(&w.message)
-                            .with_color(Color::Yellow),
-                    )
-                    .finish()
-                    .eprint((filename.as_str(), Source::from(&source)))
-                    .ok();
-            }
-            r
-        }
-        Err(errs) => {
-            for e in &errs {
-                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
-                    .with_message(format!("[{}] {}", e.code, e.message))
-                    .with_label(
-                        Label::new((filename.as_str(), e.span.clone()))
-                            .with_message(&e.message)
-                            .with_color(Color::Red),
-                    );
-                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
-                    builder = builder.with_label(
-                        Label::new((filename.as_str(), sec_span.clone()))
-                            .with_message(sec_msg)
-                            .with_color(Color::Blue),
-                    );
-                }
-                builder
-                    .finish()
-                    .eprint((filename.as_str(), Source::from(&source)))
-                    .ok();
-            }
-            eprintln!("{filename}: {} resolution error(s)", errs.len());
-            process::exit(1);
-        }
-    };
-
-    // --- Type check ---
-    let typed = match assura_types::type_check(&resolved) {
-        Ok(t) => t,
-        Err(errs) => {
-            for e in &errs {
-                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
-                    .with_message(format!("[{}] {}", e.code, e.message))
-                    .with_label(
-                        Label::new((filename.as_str(), e.span.clone()))
-                            .with_message(&e.message)
-                            .with_color(Color::Red),
-                    );
-                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
-                    builder = builder.with_label(
-                        Label::new((filename.as_str(), sec_span.clone()))
-                            .with_message(sec_msg)
-                            .with_color(Color::Blue),
-                    );
-                }
-                builder
-                    .finish()
-                    .eprint((filename.as_str(), Source::from(&source)))
-                    .ok();
-            }
-            eprintln!("{filename}: {} type error(s)", errs.len());
-            process::exit(1);
-        }
-    };
+    let file = file.expect("file should exist if has_errors is false");
+    let resolved = resolved.expect("resolved should exist if has_errors is false");
+    let typed = typed.expect("typed should exist if has_errors is false");
 
     // --- Verify ---
     let verification_results = assura_smt::verify(&typed);
