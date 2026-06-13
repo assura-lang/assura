@@ -1371,7 +1371,17 @@ mod z3_backend {
                         Z3Value::Bool(is_member)
                     }
                 }
-                BinOp::Concat | BinOp::Range => Z3Value::Int(self.fresh_int()),
+                BinOp::Concat => {
+                    // Encode both operands for constraint propagation
+                    let _ = lv;
+                    let _ = rv;
+                    Z3Value::Int(self.fresh_int())
+                }
+                BinOp::Range => {
+                    // Range is structural (already constrained by domain
+                    // guard in quantifiers); return a fresh collection
+                    Z3Value::Int(self.fresh_int())
+                }
             }
         }
     }

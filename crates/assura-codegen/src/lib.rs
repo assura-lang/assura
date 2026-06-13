@@ -397,10 +397,11 @@ fn expr_to_rust(expr: &Expr) -> String {
                     return format!("(!{} || {})", expr_to_rust(lhs), expr_to_rust(rhs));
                 }
                 BinOp::In => {
-                    return format!("{}.contains(&{})", expr_to_rust(lhs), expr_to_rust(rhs));
+                    // `x in S` means S.contains(&x)
+                    return format!("{}.contains(&{})", expr_to_rust(rhs), expr_to_rust(lhs));
                 }
                 BinOp::NotIn => {
-                    return format!("!{}.contains(&{})", expr_to_rust(lhs), expr_to_rust(rhs));
+                    return format!("!{}.contains(&{})", expr_to_rust(rhs), expr_to_rust(lhs));
                 }
                 BinOp::Concat => {
                     return format!("[{}, {}].concat()", expr_to_rust(lhs), expr_to_rust(rhs));
