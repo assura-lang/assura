@@ -183,14 +183,82 @@ fn map_type_token(tok: &str) -> &str {
 }
 
 /// Convert an Assura type token sequence (e.g., `["List", "<", "Int", ">"]`)
-/// to a Rust type string.
+/// to a valid Rust type string.
+///
+/// Handles Assura-specific syntax that is not valid Rust:
+/// - Refinement types: `{ x : T | P }` -> base type `T`
+/// - Taint annotations: `T @ taint : label` -> just `T`
+/// - Union error types: `T | E` -> `Result<T, E>`
+/// - Smart joining: `Vec < i64 >` -> `Vec<i64>`
 fn map_type_tokens(tokens: &[String]) -> String {
     if tokens.is_empty() {
         return "()".to_string();
     }
 
-    let mapped: Vec<&str> = tokens.iter().map(|t| map_type_token(t)).collect();
-    mapped.join(" ")
+    // Phase 1: Strip taint annotations (everything from "@" onward)
+    let clean: Vec<&str> = tokens
+        .iter()
+        .map(|s| s.as_str())
+        .take_while(|t| *t != "@")
+        .collect();
+    if clean.is_empty() {
+        return "()".to_string();
+    }
+
+    // Phase 2: Strip refinement predicates: { x : T | P } -> just the base type
+    if clean.first() == Some(&"{") {
+        return extract_base_type_from_refined(tokens);
+    }
+
+    // Phase 3: Handle union error types: T | E -> Result<T, E>
+    // Find a "|" not inside angle brackets
+    let mut depth = 0i32;
+    let mut pipe_pos = None;
+    for (i, tok) in clean.iter().enumerate() {
+        match *tok {
+            "<" => depth += 1,
+            ">" => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            "|" if depth == 0 => {
+                pipe_pos = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(pos) = pipe_pos {
+        let ok_tokens: Vec<String> = clean[..pos].iter().map(|s| s.to_string()).collect();
+        let err_tokens: Vec<String> = clean[pos + 1..].iter().map(|s| s.to_string()).collect();
+        let ok_type = map_type_tokens(&ok_tokens);
+        let err_type = map_type_tokens(&err_tokens);
+        return format!("Result<{ok_type}, {err_type}>");
+    }
+
+    // Phase 4: Map each token and join smartly (no extra spaces around < > & etc.)
+    let mapped: Vec<&str> = clean.iter().map(|t| map_type_token(t)).collect();
+    smart_join_type_tokens(&mapped)
+}
+
+/// Join type tokens without spurious spaces around angle brackets, ampersands, etc.
+fn smart_join_type_tokens(tokens: &[&str]) -> String {
+    let mut result = String::new();
+    for (i, tok) in tokens.iter().enumerate() {
+        if i > 0 {
+            let prev = tokens[i - 1];
+            let no_space = matches!(*tok, ">" | "," | ")" | ".")
+                || matches!(prev, "<" | "(" | "&" | ".")
+                || (*tok == "mut" && prev == "&");
+            if !no_space {
+                result.push(' ');
+            }
+        }
+        result.push_str(tok);
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +311,9 @@ fn expr_to_rust(expr: &Expr) -> String {
                 BinOp::Gte => ">=",
                 BinOp::And => "&&",
                 BinOp::Or => "||",
-                BinOp::Implies => "||", // P => Q  ~  !P || Q (simplified)
+                BinOp::Implies => {
+                    return format!("(!{} || {})", expr_to_rust(lhs), expr_to_rust(rhs));
+                }
                 BinOp::In => "/* in */==",
                 BinOp::NotIn => "/* not in */!=",
                 BinOp::Concat => "/* ++ */+",
@@ -314,7 +384,10 @@ fn expr_to_rust(expr: &Expr) -> String {
             // Lemma applications are erased at runtime; emit comment.
             format!("/* lemma {lemma_name} applied */")
         }
-        Expr::Raw(tokens) => tokens.join(" "),
+        Expr::Raw(tokens) => {
+            let mapped: Vec<&str> = tokens.iter().map(|t| map_type_token(t)).collect();
+            smart_join_type_tokens(&mapped)
+        }
     }
 }
 
@@ -917,12 +990,9 @@ fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
 fn format_rust(code: &str) -> String {
     match syn::parse_file(code) {
         Ok(syntax_tree) => prettyplease::unparse(&syntax_tree),
-        Err(_e) => {
-            // Return unformatted with a note; the code may have syntax
-            // issues that T020-T023 will fix as codegen matures.
-            format!(
-                "// NOTE: prettyplease formatting skipped (parse error in generated code)\n\n{code}"
-            )
+        Err(e) => {
+            eprintln!("warning: generated Rust has syntax errors, skipping formatting: {e}");
+            format!("// WARNING: prettyplease formatting skipped (parse error: {e})\n\n{code}")
         }
     }
 }
