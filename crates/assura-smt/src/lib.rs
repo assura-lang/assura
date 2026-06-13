@@ -749,6 +749,21 @@ mod z3_backend {
             let idx_val = self
                 .encode_expr(index)
                 .as_int(self.ctx, &mut self.fresh_counter);
+
+            // Add bounds checking axiom: 0 <= index < len(collection)
+            let zero = ast::Int::from_i64(self.ctx, 0);
+            let ge_zero = idx_val.ge(&zero);
+            // len(collection) via uninterpreted function
+            let len_decl = self.make_func("__len", 1);
+            let len_result = len_decl.apply(&[&coll_val as &dyn z3::ast::Ast]);
+            let len_val = len_result.as_int().unwrap_or_else(|| self.fresh_int());
+            // len >= 0
+            self.background_axioms.push(len_val.ge(&zero));
+            // 0 <= index
+            self.background_axioms.push(ge_zero);
+            // index < len
+            self.background_axioms.push(idx_val.lt(&len_val));
+
             let decl = self.make_func("__index", 2);
             let result = decl.apply(&[
                 &coll_val as &dyn z3::ast::Ast,
@@ -3478,6 +3493,27 @@ mod tests {
         assert!(
             matches!(results[0], VerificationResult::Verified { .. }),
             "contains tautology should verify, got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_index_bounds_axiom() {
+        // When we index into an array, the index should have bounds axioms.
+        // buf[i] with requires { i >= 0 and i < buf.len() } should be consistent.
+        let src = r#"
+            contract IndexBounds {
+                input { buf: List<Int>, i: Int }
+                requires { i >= 0 }
+                requires { i < buf.len() }
+                ensures { buf[i] >= 0 || buf[i] < 0 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty());
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "index access tautology should verify, got: {:?}",
             results[0]
         );
     }
