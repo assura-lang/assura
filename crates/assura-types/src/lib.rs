@@ -14277,10 +14277,7 @@ extern fn read_bytes(n: U32) -> Bytes
 
     #[test]
     fn element_type_of_returns_correct_types() {
-        assert_eq!(
-            element_type_of(&Type::List(Box::new(Type::Int))),
-            Type::Int
-        );
+        assert_eq!(element_type_of(&Type::List(Box::new(Type::Int))), Type::Int);
         assert_eq!(
             element_type_of(&Type::Set(Box::new(Type::String))),
             Type::String
