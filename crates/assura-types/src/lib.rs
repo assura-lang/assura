@@ -2568,29 +2568,94 @@ fn run_linearity_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
 }
 
 /// Helper: declare linear parameters from an input clause expression.
+///
+/// Handles multiple Expr patterns where `linear` can appear:
+/// - `Expr::Raw`: token sequences like `x : linear Int, y : Int`
+/// - `Expr::Call`: `input(x as linear Int)` produces Call with Cast args
+/// - `Expr::Cast`: single param `x as linear Int`
+/// - `Expr::Block`/`Expr::Tuple`: sequences containing linear-annotated items
+/// - `Expr::Paren`: unwrap and recurse
 fn declare_linear_params_from_expr(
     expr: &Expr,
     tracker: &mut UsageTracker,
     span: &std::ops::Range<usize>,
 ) {
-    if let Expr::Raw(tokens) = expr {
-        // Input clauses are often Raw token sequences like: x : linear Int, y : Int
-        let mut i = 0;
-        while i < tokens.len() {
-            // Look for pattern: name : linear Type
-            if i + 2 < tokens.len()
-                && tokens[i + 1] == ":"
-                && tokens[i + 2..].iter().any(|t| t == "linear")
-            {
-                let name = &tokens[i];
-                tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
-                // Skip to the next parameter (past comma)
-                while i < tokens.len() && tokens[i] != "," {
-                    i += 1;
-                }
-            }
-            i += 1;
+    match expr {
+        Expr::Raw(tokens) => {
+            declare_linear_params_from_raw(tokens, tracker, span);
         }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                declare_linear_single_param(arg, tracker, span);
+            }
+        }
+        Expr::Cast { expr: inner, ty } => {
+            if ty.contains("linear")
+                && let Expr::Ident(name) = inner.as_ref()
+            {
+                tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
+            }
+        }
+        Expr::Ident(_) => {
+            // Single untyped param, no linear annotation possible
+        }
+        Expr::Paren(inner) => declare_linear_params_from_expr(inner, tracker, span),
+        Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                declare_linear_single_param(item, tracker, span);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Declare a single input parameter as linear if it has a linear annotation.
+fn declare_linear_single_param(
+    expr: &Expr,
+    tracker: &mut UsageTracker,
+    span: &std::ops::Range<usize>,
+) {
+    match expr {
+        Expr::Cast { expr: inner, ty } => {
+            if ty.contains("linear")
+                && let Expr::Ident(name) = inner.as_ref()
+            {
+                tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
+            }
+        }
+        Expr::Paren(inner) => declare_linear_single_param(inner, tracker, span),
+        Expr::Raw(tokens) => {
+            declare_linear_params_from_raw(tokens, tracker, span);
+        }
+        _ => {}
+    }
+}
+
+/// Parse raw tokens for linear parameter declarations.
+fn declare_linear_params_from_raw(
+    tokens: &[String],
+    tracker: &mut UsageTracker,
+    span: &std::ops::Range<usize>,
+) {
+    let mut i = 0;
+    while i < tokens.len() {
+        // Look for pattern: name : linear Type  OR  name as linear Type
+        let sep = tokens.get(i + 1).map(|s| s.as_str());
+        if i + 2 < tokens.len()
+            && matches!(sep, Some(":" | "as"))
+            && tokens[i + 2..]
+                .iter()
+                .take_while(|t| *t != ",")
+                .any(|t| t == "linear")
+        {
+            let name = &tokens[i];
+            tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
+            // Skip to the next parameter (past comma)
+            while i < tokens.len() && tokens[i] != "," {
+                i += 1;
+            }
+        }
+        i += 1;
     }
 }
 
@@ -25002,5 +25067,117 @@ service Guardian {
         let mut out = Vec::new();
         collect_input_param_types(&body, &mut out);
         assert_eq!(out, vec![Type::Unknown, Type::Unknown]);
+    }
+
+    // ---- declare_linear_params_from_expr coverage ----
+
+    #[test]
+    fn linear_from_cast() {
+        // input(handle as linear FileHandle)
+        let mut tracker = UsageTracker::new();
+        let body = Expr::Cast {
+            expr: Box::new(Expr::Ident("handle".into())),
+            ty: "linear FileHandle".into(),
+        };
+        declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
+        assert_eq!(
+            tracker.get_count("handle"),
+            Some(0),
+            "handle should be declared as linear"
+        );
+    }
+
+    #[test]
+    fn linear_from_call_args() {
+        // input(h as linear File, n as Int) — only h is linear
+        let mut tracker = UsageTracker::new();
+        let body = Expr::Call {
+            func: Box::new(Expr::Ident("input".into())),
+            args: vec![
+                Expr::Cast {
+                    expr: Box::new(Expr::Ident("h".into())),
+                    ty: "linear File".into(),
+                },
+                Expr::Cast {
+                    expr: Box::new(Expr::Ident("n".into())),
+                    ty: "Int".into(),
+                },
+            ],
+        };
+        declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
+        assert_eq!(
+            tracker.get_count("h"),
+            Some(0),
+            "h should be declared as linear"
+        );
+        assert_eq!(
+            tracker.get_count("n"),
+            None,
+            "n should NOT be declared as linear"
+        );
+    }
+
+    #[test]
+    fn linear_from_raw_with_colon() {
+        // Raw tokens: "x : linear Int , y : Int"
+        let mut tracker = UsageTracker::new();
+        let tokens = vec![
+            "x".into(),
+            ":".into(),
+            "linear".into(),
+            "Int".into(),
+            ",".into(),
+            "y".into(),
+            ":".into(),
+            "Int".into(),
+        ];
+        let body = Expr::Raw(tokens);
+        declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
+        assert_eq!(
+            tracker.get_count("x"),
+            Some(0),
+            "x should be declared as linear"
+        );
+        assert_eq!(
+            tracker.get_count("y"),
+            None,
+            "y should NOT be declared as linear"
+        );
+    }
+
+    #[test]
+    fn linear_from_raw_with_as() {
+        // Raw tokens: "handle as linear Resource"
+        let mut tracker = UsageTracker::new();
+        let tokens = vec![
+            "handle".into(),
+            "as".into(),
+            "linear".into(),
+            "Resource".into(),
+        ];
+        let body = Expr::Raw(tokens);
+        declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
+        assert_eq!(
+            tracker.get_count("handle"),
+            Some(0),
+            "handle should be declared as linear"
+        );
+    }
+
+    #[test]
+    fn linear_from_paren_wrapped() {
+        // Paren-wrapped Cast
+        let mut tracker = UsageTracker::new();
+        let inner = Expr::Cast {
+            expr: Box::new(Expr::Ident("buf".into())),
+            ty: "linear Buffer".into(),
+        };
+        let body = Expr::Paren(Box::new(inner));
+        declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
+        assert_eq!(
+            tracker.get_count("buf"),
+            Some(0),
+            "buf should be declared as linear via Paren unwrap"
+        );
     }
 }
