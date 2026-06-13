@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package assura.v1;
+
+service AssuraService {
+  // Check a single .assura source for type errors and verification results
+  rpc Check(CheckRequest) returns (CheckResponse);
+
+  // Build: check + generate Rust code
+  rpc Build(BuildRequest) returns (BuildResponse);
+
+  // Explain an error code
+  rpc Explain(ExplainRequest) returns (ExplainResponse);
+
+  // Health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+
+  // Streaming check: yields results as they are produced
+  rpc CheckStream(CheckRequest) returns (stream CheckEvent);
+}
+
+message CheckRequest {
+  string source = 1;
+  string filename = 2;
+  int32 layer = 3; // 0 = structural, 1 = SMT (default), 2 = full
+}
+
+message CheckResponse {
+  bool success = 1;
+  repeated Diagnostic diagnostics = 2;
+  repeated VerificationResult verifications = 3;
+}
+
+message Diagnostic {
+  string code = 1;
+  string message = 2;
+  string severity = 3; // "error", "warning", "info"
+  uint32 line = 4;
+  uint32 column = 5;
+  uint32 end_line = 6;
+  uint32 end_column = 7;
+}
+
+message VerificationResult {
+  string contract_name = 1;
+  string clause = 2;
+  string status = 3; // "verified", "counterexample", "timeout", "unknown"
+  string counterexample = 4; // JSON if status == "counterexample"
+  uint64 time_ms = 5;
+}
+
+message BuildRequest {
+  string source = 1;
+  string filename = 2;
+}
+
+message BuildResponse {
+  bool success = 1;
+  repeated Diagnostic diagnostics = 2;
+  map<string, string> generated_files = 3; // path -> content
+}
+
+message ExplainRequest {
+  string error_code = 1;
+}
+
+message ExplainResponse {
+  string error_code = 1;
+  string title = 2;
+  string description = 3;
+  string example = 4;
+  string fix = 5;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1; // "serving"
+  string version = 2;
+}
+
+message CheckEvent {
+  oneof event {
+    Diagnostic diagnostic = 1;
+    VerificationResult verification = 2;
+    CheckComplete complete = 3;
+  }
+}
+
+message CheckComplete {
+  bool success = 1;
+  uint32 total_diagnostics = 2;
+  uint32 total_verifications = 3;
+}

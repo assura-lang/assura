@@ -803,7 +803,7 @@
 
 ### 3.4 AI Agent API (2 weeks)
 
-- [ ] **T106**: gRPC service implementation
+- [x] **T106**: gRPC service implementation
   - Depends on: T041
   - RPCs: Check, Build, Explain, Health, CheckStream
   - JSON-over-HTTP fallback
