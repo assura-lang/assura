@@ -660,7 +660,13 @@ impl std::fmt::Display for Type {
                 }
                 write!(f, ")")
             }
-            Type::Refined { base, predicate } => write!(f, "{base}{{{predicate}}}"),
+            Type::Refined { base, predicate } => {
+                if predicate.is_empty() {
+                    write!(f, "{base}")
+                } else {
+                    write!(f, "{{ x : {base} | {predicate} }}")
+                }
+            }
             Type::Unknown => write!(f, "Unknown"),
         }
     }
@@ -17458,7 +17464,7 @@ contract Good {
             base: Box::new(Type::Int),
             predicate: "v > 0".into(),
         };
-        assert_eq!(format!("{ty}"), "Int{v > 0}");
+        assert_eq!(format!("{ty}"), "{ x : Int | v > 0 }");
     }
 
     // -- Test Case 4: Linear + Effect (Resource-Scoped Effects) --------------
@@ -18038,7 +18044,7 @@ contract Good {
             base: Box::new(Type::Named("Connection".into())),
             predicate: "capacity > 0".into(),
         };
-        assert_eq!(format!("{ty}"), "Connection{capacity > 0}");
+        assert_eq!(format!("{ty}"), "{ x : Connection | capacity > 0 }");
     }
 
     #[test]
