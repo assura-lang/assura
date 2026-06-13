@@ -1511,3 +1511,160 @@ pub fn source_file() -> impl Parser<Token, SourceFile, Error = Simple<Token>> {
             decls,
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chumsky::Stream;
+    use logos::Logos;
+
+    /// Helper: lex source text into a token stream and parse an expression.
+    fn parse_expr(src: &str) -> Result<Expr, Vec<Simple<Token>>> {
+        let tokens: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(src)
+            .spanned()
+            .filter_map(|(tok, span)| tok.ok().map(|t| (t, span)))
+            .collect();
+        let len = src.len();
+        let stream = Stream::from_iter(len..len + 1, tokens.into_iter());
+        expr_parser().then_ignore(end()).parse(stream)
+    }
+
+    /// Helper: lex and parse a full source file.
+    fn parse_source(src: &str) -> Result<SourceFile, Vec<Simple<Token>>> {
+        let tokens: Vec<(Token, std::ops::Range<usize>)> = Token::lexer(src)
+            .spanned()
+            .filter_map(|(tok, span)| tok.ok().map(|t| (t, span)))
+            .collect();
+        let len = src.len();
+        let stream = Stream::from_iter(len..len + 1, tokens.into_iter());
+        source_file().parse(stream)
+    }
+
+    #[test]
+    fn parse_match_expr_simple() {
+        let expr = parse_expr("match x { A => 1, B => 2 }").unwrap();
+        if let Expr::Match { scrutinee, arms } = &expr {
+            assert!(matches!(scrutinee.as_ref(), Expr::Ident(n) if n == "x"));
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(&arms[0].pattern, Pattern::Ident(n) if n == "A"));
+            assert!(matches!(&arms[1].pattern, Pattern::Ident(n) if n == "B"));
+        } else {
+            panic!("expected Match expression, got {expr:?}");
+        }
+    }
+
+    #[test]
+    fn parse_match_expr_wildcard() {
+        let expr = parse_expr("match x { A => 1, _ => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = &expr {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(&arms[1].pattern, Pattern::Wildcard));
+        } else {
+            panic!("expected Match expression");
+        }
+    }
+
+    #[test]
+    fn parse_match_expr_literal_patterns() {
+        let expr = parse_expr("match x { 42 => true, 0 => false }").unwrap();
+        if let Expr::Match { arms, .. } = &expr {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(&arms[0].pattern, Pattern::Literal(Literal::Int(s)) if s == "42"));
+            assert!(matches!(&arms[1].pattern, Pattern::Literal(Literal::Int(s)) if s == "0"));
+        } else {
+            panic!("expected Match expression");
+        }
+    }
+
+    #[test]
+    fn parse_match_expr_trailing_comma() {
+        let expr = parse_expr("match x { A => 1, B => 2, }").unwrap();
+        if let Expr::Match { arms, .. } = &expr {
+            assert_eq!(arms.len(), 2);
+        } else {
+            panic!("expected Match expression");
+        }
+    }
+
+    #[test]
+    fn parse_match_expr_complex_body() {
+        let expr = parse_expr("match x { A => a + b, B => c * d }").unwrap();
+        if let Expr::Match { arms, .. } = &expr {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(&arms[0].body, Expr::BinOp { op: BinOp::Add, .. }));
+            assert!(matches!(&arms[1].body, Expr::BinOp { op: BinOp::Mul, .. }));
+        } else {
+            panic!("expected Match expression");
+        }
+    }
+
+    #[test]
+    fn parse_match_in_clause_body() {
+        // Match expressions in clause bodies must use braced body syntax
+        // because `{` is a stopper for inline clause bodies.
+        let src = r#"
+            contract Foo {
+                ensures {
+                    match status {
+                        Active => result > 0,
+                        Inactive => result == 0,
+                        _ => true,
+                    }
+                }
+            }
+        "#;
+        let sf = parse_source(src).unwrap();
+        assert_eq!(sf.decls.len(), 1);
+        if let Decl::Contract(c) = &sf.decls[0].node {
+            assert_eq!(c.clauses.len(), 1);
+            assert_eq!(c.clauses[0].kind, ClauseKind::Ensures);
+            assert!(matches!(&c.clauses[0].body, Expr::Match { .. }));
+        } else {
+            panic!("expected Contract");
+        }
+    }
+
+    #[test]
+    fn parse_decreases_clause() {
+        let src = r#"
+            fn factorial(n: Nat) -> Nat
+                requires n >= 0
+                decreases n
+                ensures result >= 1
+        "#;
+        let sf = parse_source(src).unwrap();
+        assert_eq!(sf.decls.len(), 1);
+        if let Decl::FnDef(f) = &sf.decls[0].node {
+            assert_eq!(f.name, "factorial");
+            let has_decreases = f.clauses.iter().any(|c| c.kind == ClauseKind::Decreases);
+            assert!(has_decreases, "expected a decreases clause");
+        } else {
+            panic!("expected FnDef");
+        }
+    }
+
+    #[test]
+    fn parse_match_keyword_token() {
+        // Verify `match` is lexed as Token::Match, not an ident
+        let tokens: Vec<Token> = Token::lexer("match").filter_map(|r| r.ok()).collect();
+        assert_eq!(tokens, vec![Token::Match]);
+    }
+
+    #[test]
+    fn parse_decreases_keyword_token() {
+        let tokens: Vec<Token> = Token::lexer("decreases").filter_map(|r| r.ok()).collect();
+        assert_eq!(tokens, vec![Token::Decreases]);
+    }
+
+    #[test]
+    fn parse_extends_keyword_token() {
+        let tokens: Vec<Token> = Token::lexer("extends").filter_map(|r| r.ok()).collect();
+        assert_eq!(tokens, vec![Token::Extends]);
+    }
+
+    #[test]
+    fn parse_partial_keyword_token() {
+        let tokens: Vec<Token> = Token::lexer("partial").filter_map(|r| r.ok()).collect();
+        assert_eq!(tokens, vec![Token::Partial]);
+    }
+}

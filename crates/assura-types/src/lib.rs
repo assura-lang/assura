@@ -2246,31 +2246,29 @@ fn check_match_exhaustiveness_expr(
             if let Expr::Ident(name) = scrutinee.as_ref()
                 && let Some(variants) = enum_variants.get(name)
             {
-                    let patterns: Vec<Pattern> = arms
-                        .iter()
-                        .map(|arm| match &arm.pattern {
-                            assura_parser::ast::Pattern::Ident(n) => Pattern::Variant(n.clone()),
-                            assura_parser::ast::Pattern::Wildcard => Pattern::Wildcard,
-                            assura_parser::ast::Pattern::Literal(lit) => {
-                                Pattern::Literal(lit.clone())
-                            }
-                            assura_parser::ast::Pattern::Constructor { name, .. } => {
-                                Pattern::Variant(name.clone())
-                            }
-                        })
-                        .collect();
+                let patterns: Vec<Pattern> = arms
+                    .iter()
+                    .map(|arm| match &arm.pattern {
+                        assura_parser::ast::Pattern::Ident(n) => Pattern::Variant(n.clone()),
+                        assura_parser::ast::Pattern::Wildcard => Pattern::Wildcard,
+                        assura_parser::ast::Pattern::Literal(lit) => Pattern::Literal(lit.clone()),
+                        assura_parser::ast::Pattern::Constructor { name, .. } => {
+                            Pattern::Variant(name.clone())
+                        }
+                    })
+                    .collect();
 
-                    if let Some(missing) = check_exhaustiveness(&patterns, variants) {
-                        errors.push(TypeError {
-                            code: "A10001".into(),
-                            message: format!(
-                                "non-exhaustive match: missing variants {}",
-                                missing.join(", ")
-                            ),
-                            span: span.clone(),
-                            secondary: None,
-                        });
-                    }
+                if let Some(missing) = check_exhaustiveness(&patterns, variants) {
+                    errors.push(TypeError {
+                        code: "A10001".into(),
+                        message: format!(
+                            "non-exhaustive match: missing variants {}",
+                            missing.join(", ")
+                        ),
+                        span: span.clone(),
+                        secondary: None,
+                    });
+                }
             }
 
             // Even without known enum type, check that there is at least
@@ -17921,7 +17919,7 @@ ghost fn bad_ghost(x: Int) -> Bool
 
     #[test]
     fn determinism_non_det_fn_ok() {
-        let mut checker = DeterminismChecker::new();
+        let checker = DeterminismChecker::new();
         // Not marked deterministic
         let errors = checker.check_fn_body("random_pick", &["random".into()], &(0..1));
         assert!(errors.is_empty(), "non-deterministic fn allows random");
@@ -21203,5 +21201,55 @@ ghost fn bad_ghost(x: Int) -> Bool
     fn library_default() {
         let lc = ContractLibraryChecker::default();
         assert_eq!(lc.library_count(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Match expression exhaustiveness wiring tests (T017)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn match_infer_type_from_first_arm() {
+        // match x { A => 42, B => 0 } should infer Int from the first arm
+        let env = TypeEnv::new();
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("x".into())),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Ident("A".into()),
+                    body: AstExpr::Literal(AstLit::Int("42".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Ident("B".into()),
+                    body: AstExpr::Literal(AstLit::Int("0".into())),
+                },
+            ],
+        };
+        let result = infer_expr(&expr, &env);
+        assert_eq!(result.unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn match_empty_arms_infers_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("x".into())),
+            arms: vec![],
+        };
+        let result = infer_expr(&expr, &env);
+        assert_eq!(result.unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn match_expr_references_var() {
+        let expr = AstExpr::Match {
+            scrutinee: Box::new(AstExpr::Ident("status".into())),
+            arms: vec![assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Ident("A".into()),
+                body: AstExpr::Ident("result".into()),
+            }],
+        };
+        assert!(expr_references_var(&expr, "status"));
+        assert!(expr_references_var(&expr, "result"));
+        assert!(!expr_references_var(&expr, "other"));
     }
 }

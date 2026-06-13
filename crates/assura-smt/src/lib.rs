@@ -536,6 +536,33 @@ mod z3_backend {
             ast::Int::new_const(self.ctx, format!("__fresh_{}", self.fresh_counter))
         }
 
+        /// Hash a pattern name to a stable i64 for Z3 encoding.
+        fn pattern_hash(&self, name: &str) -> i64 {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            name.hash(&mut hasher);
+            hasher.finish() as i64
+        }
+
+        /// Encode a literal value to Z3.
+        fn encode_literal(&self, lit: &Literal) -> Z3Value<'ctx> {
+            match lit {
+                Literal::Int(s) => {
+                    let n: i64 = s.parse().unwrap_or(0);
+                    Z3Value::Int(ast::Int::from_i64(self.ctx, n))
+                }
+                Literal::Float(s) => {
+                    let n: i64 = s.parse::<f64>().unwrap_or(0.0) as i64;
+                    Z3Value::Int(ast::Int::from_i64(self.ctx, n))
+                }
+                Literal::Bool(b) => Z3Value::Bool(ast::Bool::from_bool(self.ctx, *b)),
+                Literal::Str(_) => {
+                    Z3Value::Int(ast::Int::from_i64(self.ctx, self.fresh_counter as i64))
+                }
+            }
+        }
+
         /// Encode an AST expression into a Z3 value.
         fn encode_expr(&mut self, expr: &Expr) -> Z3Value<'ctx> {
             match expr {
@@ -661,6 +688,49 @@ mod z3_backend {
                 // --- Apply lemma: encode as true (assumption injected elsewhere) ---
                 Expr::Apply { .. } => Z3Value::Bool(ast::Bool::from_bool(self.ctx, true)),
 
+                // --- Match: encode as ITE chain over arm bodies ---
+                Expr::Match { scrutinee, arms } => {
+                    let scrut = self.encode_expr(scrutinee);
+                    // Build an if-then-else chain: if scrut == pattern1 then body1
+                    // else if scrut == pattern2 then body2 ... else default
+                    let default = Z3Value::Int(self.fresh_int());
+                    arms.iter().rev().fold(default, |else_val, arm| {
+                        let body = self.encode_expr(&arm.body);
+                        // For wildcard patterns, the arm always matches
+                        if matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard) {
+                            return body;
+                        }
+                        // For ident patterns, check scrut == pattern_name
+                        let cond = match &arm.pattern {
+                            assura_parser::ast::Pattern::Ident(name) => {
+                                let pat_val = Z3Value::Int(ast::Int::from_i64(
+                                    self.ctx,
+                                    self.pattern_hash(name),
+                                ));
+                                match (&scrut, &pat_val) {
+                                    (Z3Value::Int(a), Z3Value::Int(b)) => a._eq(b),
+                                    _ => ast::Bool::from_bool(self.ctx, false),
+                                }
+                            }
+                            assura_parser::ast::Pattern::Literal(lit) => {
+                                let lit_val = self.encode_literal(lit);
+                                match (&scrut, &lit_val) {
+                                    (Z3Value::Int(a), Z3Value::Int(b)) => a._eq(b),
+                                    (Z3Value::Bool(a), Z3Value::Bool(b)) => a._eq(b),
+                                    _ => ast::Bool::from_bool(self.ctx, false),
+                                }
+                            }
+                            _ => ast::Bool::from_bool(self.ctx, true),
+                        };
+                        // Build ITE: if cond then body else else_val
+                        match (&body, &else_val) {
+                            (Z3Value::Bool(b), Z3Value::Bool(e)) => Z3Value::Bool(cond.ite(b, e)),
+                            (Z3Value::Int(b), Z3Value::Int(e)) => Z3Value::Int(cond.ite(b, e)),
+                            _ => body, // type mismatch fallback
+                        }
+                    })
+                }
+
                 // --- Complex expressions: return fresh unconstrained value ---
                 Expr::Field(..)
                 | Expr::MethodCall { .. }
@@ -668,7 +738,6 @@ mod z3_backend {
                 | Expr::Index { .. }
                 | Expr::Cast { .. }
                 | Expr::List(_)
-                | Expr::Match { .. }
                 | Expr::Block(_) => Z3Value::Int(self.fresh_int()),
             }
         }

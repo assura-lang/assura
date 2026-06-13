@@ -1704,6 +1704,34 @@ type Marker {
     }
 
     #[test]
+    fn match_expr_codegen() {
+        // match expression should generate Rust match syntax
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("status".into())),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Ident("Active".into()),
+                    body: Expr::Literal(Literal::Int("1".into())),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: assura_parser::ast::Pattern::Wildcard,
+                    body: Expr::Literal(Literal::Int("0".into())),
+                },
+            ],
+        };
+        let rust = expr_to_rust(&expr);
+        assert!(
+            rust.contains("match status"),
+            "should have match keyword: {rust}"
+        );
+        assert!(
+            rust.contains("Active => 1"),
+            "should have Active arm: {rust}"
+        );
+        assert!(rust.contains("_ => 0"), "should have wildcard arm: {rust}");
+    }
+
+    #[test]
     fn non_lemma_fn_still_generated() {
         // A normal (non-lemma) function should still be generated.
         let project = codegen_ok("fn helper(n: Int) -> Int\n    ensures { result >= 0 }\n");
