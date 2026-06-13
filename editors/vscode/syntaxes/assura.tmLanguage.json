@@ -1,0 +1,161 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Assura",
+  "scopeName": "source.assura",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#constants" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.assura",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.assura",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.assura",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.assura",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.assura",
+          "match": "-?[0-9][0-9_]*\\.[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.assura",
+          "match": "-?[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.assura",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "variable.language.result.assura",
+          "match": "\\b(result)\\b"
+        },
+        {
+          "name": "variable.language.self.assura",
+          "match": "\\b(self)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.declaration.assura",
+          "match": "\\b(contract|service|type|enum|fn|module|project|interface|impl)\\b"
+        },
+        {
+          "name": "keyword.modifier.assura",
+          "match": "\\b(ghost|lemma|extern|pub|opaque|partial|pure|linear|unique|shared|atomic|secret|frozen)\\b"
+        },
+        {
+          "name": "keyword.clause.assura",
+          "match": "\\b(requires|ensures|effects|invariant|modifies|input|output|errors|states|reads)\\b"
+        },
+        {
+          "name": "keyword.control.assura",
+          "match": "\\b(if|then|else|match|where|in|is|as|apply|cases)\\b"
+        },
+        {
+          "name": "keyword.quantifier.assura",
+          "match": "\\b(forall|exists)\\b"
+        },
+        {
+          "name": "keyword.builtin.assura",
+          "match": "\\b(old|import|operation|query|transition|callback)\\b"
+        },
+        {
+          "name": "keyword.effect.assura",
+          "match": "\\b(io|mem|net|fs)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.assura",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.verification.assura",
+          "match": "\\b(axiom|define|ghost|lemma|trigger|auto_trigger|induction|reveal|property|liveness|eventually|eventually_always|eventually_within|fair|leads_to|prophecy|resolve)\\b"
+        },
+        {
+          "name": "keyword.other.assura",
+          "match": "\\b(rule|profile|bind|observe|audit|compliance|performance|privacy|protocol|serialization|evolution|retention|concurrency|data-flow|transaction|idempotent|must-not|api_compat)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.assura",
+          "match": "\\b(Int|Nat|Float|Bool|String|Bytes|Unit|Never)\\b"
+        },
+        {
+          "name": "support.type.sized.assura",
+          "match": "\\b(U8|U16|U32|U64|I8|I16|I32|I64|F32|F64)\\b"
+        },
+        {
+          "name": "support.type.collection.assura",
+          "match": "\\b(List|Map|Set|Option|Result)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.assura",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.arrow.assura",
+          "match": "=>|->|\\.\\."
+        },
+        {
+          "name": "keyword.operator.logical.symbol.assura",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.arithmetic.assura",
+          "match": "\\+\\+|[+\\-*/%^]"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.type.assura",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

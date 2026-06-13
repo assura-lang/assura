@@ -1,0 +1,69 @@
+{
+  "name": "assura-lang",
+  "displayName": "Assura",
+  "description": "Language support for the Assura contract-first verification language",
+  "version": "0.1.0",
+  "publisher": "assura-lang",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sebastientardif/assura"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:assura"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "assura",
+        "aliases": [
+          "Assura",
+          "assura"
+        ],
+        "extensions": [
+          ".assura"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "assura",
+        "scopeName": "source.assura",
+        "path": "./syntaxes/assura.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Assura",
+      "properties": {
+        "assura.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the assura-lsp binary. If empty, the extension searches PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}
