@@ -349,7 +349,7 @@
 
 ### 1.1 Linear Types (2 weeks)
 
-- [ ] **T031**: Implement usage tracking in type checker
+- [x] **T031**: Implement usage tracking in type checker
   - Depends on: T018
   - Extend `assura-types` with usage grades:
     - Grade 0: erased (ghost)
@@ -359,7 +359,7 @@
   - Track how many times each variable is used
   - Spec reference: Section 2.5
 
-- [ ] **T032**: Implement context splitting
+- [x] **T032**: Implement context splitting
   - Depends on: T031
   - At each branch point (if/match), split the linear context
   - Variables used in one branch cannot be used in the other
