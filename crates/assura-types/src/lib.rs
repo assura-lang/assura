@@ -62,6 +62,9 @@ pub enum Type {
         ret: Box<Type>,
     },
 
+    // --- Tuple type ---
+    Tuple(Vec<Type>),
+
     // --- Refined type: base type with predicate ---
     Refined {
         base: Box<Type>,
@@ -537,6 +540,16 @@ impl std::fmt::Display for Type {
                     write!(f, "{p}")?;
                 }
                 write!(f, ") -> {ret}")
+            }
+            Type::Tuple(elems) => {
+                write!(f, "(")?;
+                for (i, t) in elems.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{t}")?;
+                }
+                write!(f, ")")
             }
             Type::Refined { base, predicate } => write!(f, "{base}{{{predicate}}}"),
             Type::Unknown => write!(f, "Unknown"),
@@ -1108,12 +1121,11 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
 
         // --- Tuple: infer element types ---
         Expr::Tuple(elems) => {
-            // Infer each element for error reporting; return first known type
-            // as an approximation (full tuple types would need a Tuple(Vec<Type>))
+            let mut elem_types = Vec::with_capacity(elems.len());
             for elem in elems {
-                let _ = infer_expr(elem, env)?;
+                elem_types.push(infer_expr(elem, env)?);
             }
-            Ok(Type::Unknown)
+            Ok(Type::Tuple(elem_types))
         }
 
         // --- Block: infer type of last expression ---
@@ -1169,6 +1181,14 @@ fn types_compatible(a: &Type, b: &Type) -> bool {
     // Both numeric types are compatible (e.g., U32 vs Int in mixed arithmetic)
     if is_numeric(a) && is_numeric(b) {
         return true;
+    }
+    // Tuple types are compatible if they have the same arity and element types match
+    if let (Type::Tuple(a_elems), Type::Tuple(b_elems)) = (a, b) {
+        return a_elems.len() == b_elems.len()
+            && a_elems
+                .iter()
+                .zip(b_elems.iter())
+                .all(|(ea, eb)| types_compatible(ea, eb));
     }
     false
 }
@@ -23151,15 +23171,54 @@ fn square(x: Int) -> Int
     }
 
     #[test]
-    fn tuple_infers_elements() {
-        // Tuple inference should check element types for errors
+    fn tuple_infers_element_types() {
         let env = TypeEnv::new();
         let expr = AstExpr::Tuple(vec![
             AstExpr::Literal(AstLit::Int("1".into())),
             AstExpr::Literal(AstLit::Bool(true)),
         ]);
-        // Should succeed (no type error in elements)
-        assert!(infer_expr(&expr, &env).is_ok());
+        let ty = infer_expr(&expr, &env).unwrap();
+        assert_eq!(ty, Type::Tuple(vec![Type::Int, Type::Bool]));
+    }
+
+    #[test]
+    fn tuple_single_element() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Tuple(vec![AstExpr::Literal(AstLit::Int("42".into()))]);
+        let ty = infer_expr(&expr, &env).unwrap();
+        assert_eq!(ty, Type::Tuple(vec![Type::Int]));
+    }
+
+    #[test]
+    fn tuple_empty() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Tuple(vec![]);
+        let ty = infer_expr(&expr, &env).unwrap();
+        assert_eq!(ty, Type::Tuple(vec![]));
+    }
+
+    #[test]
+    fn tuple_display() {
+        let ty = Type::Tuple(vec![Type::Int, Type::Bool, Type::String]);
+        assert_eq!(format!("{ty}"), "(Int, Bool, String)");
+    }
+
+    #[test]
+    fn tuple_compatibility() {
+        assert!(types_compatible(
+            &Type::Tuple(vec![Type::Int, Type::Bool]),
+            &Type::Tuple(vec![Type::Int, Type::Bool])
+        ));
+        // Different arities are incompatible
+        assert!(!types_compatible(
+            &Type::Tuple(vec![Type::Int]),
+            &Type::Tuple(vec![Type::Int, Type::Bool])
+        ));
+        // Int/Nat are compatible within tuples
+        assert!(types_compatible(
+            &Type::Tuple(vec![Type::Nat]),
+            &Type::Tuple(vec![Type::Int])
+        ));
     }
 
     #[test]
