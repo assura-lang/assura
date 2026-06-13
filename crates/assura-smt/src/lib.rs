@@ -628,6 +628,7 @@ mod z3_backend {
         }
 
         /// Encode a function call as an uninterpreted function application.
+        /// Known boolean methods return Bool; everything else returns Int.
         fn encode_call(&mut self, func_name: &str, args: &[Expr]) -> Z3Value<'ctx> {
             let arg_vals: Vec<ast::Int<'ctx>> = args
                 .iter()
@@ -636,6 +637,32 @@ mod z3_backend {
                         .as_int(self.ctx, &mut self.fresh_counter)
                 })
                 .collect();
+            // Methods known to return Bool
+            if matches!(
+                func_name,
+                "contains"
+                    | "is_empty"
+                    | "is_some"
+                    | "is_none"
+                    | "is_ok"
+                    | "is_err"
+                    | "any"
+                    | "all"
+                    | "contains_key"
+                    | "starts_with"
+                    | "ends_with"
+                    | "is_subset"
+                    | "is_superset"
+            ) {
+                let bool_sort = z3::Sort::bool(self.ctx);
+                let int_sort = z3::Sort::int(self.ctx);
+                let param_sorts: Vec<&z3::Sort> = (0..arg_vals.len()).map(|_| &int_sort).collect();
+                let decl = z3::FuncDecl::new(self.ctx, func_name, &param_sorts, &bool_sort);
+                let arg_refs: Vec<&dyn z3::ast::Ast> =
+                    arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+                let result = decl.apply(&arg_refs);
+                return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
+            }
             let decl = self.make_func(func_name, arg_vals.len());
             let arg_refs: Vec<&dyn z3::ast::Ast> =
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
@@ -644,11 +671,32 @@ mod z3_backend {
         }
 
         /// Encode field access as uninterpreted function: field_name(object).
+        /// Known boolean fields return Bool; size fields return non-negative Int.
         fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value<'ctx> {
             let obj_val = self
                 .encode_expr(obj)
                 .as_int(self.ctx, &mut self.fresh_counter);
             let func_name = format!("__field_{field}");
+            // Boolean-valued fields
+            if matches!(
+                field,
+                "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
+            ) {
+                let bool_sort = z3::Sort::bool(self.ctx);
+                let int_sort = z3::Sort::int(self.ctx);
+                let decl =
+                    z3::FuncDecl::new(self.ctx, func_name.as_str(), &[&int_sort], &bool_sort);
+                let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
+                return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
+            }
+            // Size fields: return Int (non-negative in principle, but
+            // constraining requires solver access; the uninterpreted function
+            // already provides correct equality semantics)
+            if matches!(field, "len" | "length" | "size" | "capacity" | "count") {
+                let decl = self.make_func(&func_name, 1);
+                let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
+                return Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()));
+            }
             let decl = self.make_func(&func_name, 1);
             let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
             Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
