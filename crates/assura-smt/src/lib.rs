@@ -853,16 +853,52 @@ mod z3_backend {
                     }
                 }
 
-                // --- old(expr): encode inner with __old suffix for idents ---
-                Expr::Old(inner) => {
-                    if let Expr::Ident(name) = inner.as_ref() {
+                // --- old(expr): encode inner with __old suffix ---
+                Expr::Old(inner) => match inner.as_ref() {
+                    // old(x) -> x__old
+                    Expr::Ident(name) => {
                         let old_name = format!("{name}__old");
                         let v = self.get_or_create_int(&old_name);
                         Z3Value::Int(v)
-                    } else {
-                        self.encode_expr(inner)
                     }
-                }
+                    // old(obj.field) -> encode obj as old, then access field
+                    Expr::Field(obj, field) => {
+                        let old_obj = self.encode_expr(&Expr::Old(obj.clone()));
+                        let old_obj_int = old_obj.as_int(self.ctx, &mut self.fresh_counter);
+                        let func_name = format!("__field_{field}");
+                        if matches!(
+                            field.as_str(),
+                            "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
+                        ) {
+                            let bool_sort = z3::Sort::bool(self.ctx);
+                            let int_sort = z3::Sort::int(self.ctx);
+                            let decl = z3::FuncDecl::new(
+                                self.ctx,
+                                func_name.as_str(),
+                                &[&int_sort],
+                                &bool_sort,
+                            );
+                            let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
+                            Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()))
+                        } else {
+                            let decl = self.make_func(&func_name, 1);
+                            let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
+                            Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
+                        }
+                    }
+                    // old(obj.method(args)) -> encode obj as old, then call
+                    Expr::MethodCall {
+                        receiver, method, ..
+                    } => {
+                        let old_recv = self.encode_expr(&Expr::Old(receiver.clone()));
+                        let old_int = old_recv.as_int(self.ctx, &mut self.fresh_counter);
+                        let decl = self.make_func(method, 1);
+                        let result = decl.apply(&[&old_int as &dyn z3::ast::Ast]);
+                        Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
+                    }
+                    // Fallback: encode the inner expression directly
+                    _ => self.encode_expr(inner),
+                },
 
                 // --- Forall quantifier ---
                 Expr::Forall { var, domain, body } => {
@@ -2980,6 +3016,33 @@ mod tests {
                 "contract {i} should verify, got: {r:?}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // old(expr.field) encoding
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_old_unmodified_var_verified() {
+        // For an unmodified variable, old(y) == y via frame axiom.
+        // requires { y > 0 } modifies { x } ensures { old(y) > 0 }
+        // y is NOT modified, so frame axiom asserts y == y__old.
+        // requires constrains y > 0, so old(y) > 0 holds.
+        let src = r#"
+            contract OldUnmod {
+                input { x: Int, y: Int }
+                modifies { x }
+                requires { y > 0 }
+                ensures { old(y) > 0 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(!results.is_empty(), "should produce verification results");
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "old(y) > 0 should verify for unmodified y, got: {:?}",
+            results[0]
+        );
     }
 
     // -----------------------------------------------------------------------
