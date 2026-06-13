@@ -118,15 +118,44 @@ fn main() {
         process::exit(1);
     }
 
+    // --- Resolve ---
+    let resolved = match assura_resolve::resolve(&file) {
+        Ok(r) => r,
+        Err(errs) => {
+            for e in &errs {
+                let mut builder = Report::build(ReportKind::Error, filename.as_str(), e.span.start)
+                    .with_message(format!("[{}] {}", e.code, e.message))
+                    .with_label(
+                        Label::new((filename.as_str(), e.span.clone()))
+                            .with_message(&e.message)
+                            .with_color(Color::Red),
+                    );
+                if let Some((ref sec_span, ref sec_msg)) = e.secondary {
+                    builder = builder.with_label(
+                        Label::new((filename.as_str(), sec_span.clone()))
+                            .with_message(sec_msg)
+                            .with_color(Color::Blue),
+                    );
+                }
+                builder
+                    .finish()
+                    .eprint((filename.as_str(), Source::from(&source)))
+                    .ok();
+            }
+            eprintln!("{filename}: {} resolution error(s)", errs.len());
+            process::exit(1);
+        }
+    };
+
     // --- Output ---
     if show_ast {
         print_ast(&file);
     } else {
-        print_summary(filename, &file);
+        print_summary(filename, &file, &resolved.symbols);
     }
 }
 
-fn print_summary(filename: &str, file: &SourceFile) {
+fn print_summary(filename: &str, file: &SourceFile, symbols: &assura_resolve::SymbolTable) {
     let mut contracts = 0u32;
     let mut types = 0u32;
     let mut enums = 0u32;
@@ -190,6 +219,12 @@ fn print_summary(filename: &str, file: &SourceFile) {
             parts.join(", ")
         }
     );
+    let user_symbols = symbols
+        .symbols
+        .iter()
+        .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
+        .count();
+    println!("    resolve:   OK ({user_symbols} symbols)");
 }
 
 fn print_ast(file: &SourceFile) {

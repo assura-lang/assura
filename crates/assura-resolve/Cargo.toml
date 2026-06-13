@@ -1,0 +1,10 @@
+[package]
+name = "assura-resolve"
+description = "Name resolution and symbol table for the Assura contract language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+assura-parser = { path = "../assura-parser" }

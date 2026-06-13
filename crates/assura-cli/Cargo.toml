@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 assura-parser = { path = "../assura-parser" }
+assura-resolve = { path = "../assura-resolve" }
 logos = "0.15"
 chumsky = "0.9"
 ariadne = "0.4"
