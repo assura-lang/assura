@@ -1088,16 +1088,20 @@ fn extract_state_comparison(body: &Expr) -> Option<String> {
             lhs.as_ref(),
             Expr::Field(recv, field) if matches!(recv.as_ref(), Expr::Ident(s) if s == "self") && field == "state"
         );
-        if is_self_state
-            && let Expr::Ident(state_name) = rhs.as_ref()
-        {
+        if is_self_state && let Expr::Ident(state_name) = rhs.as_ref() {
             return Some(state_name.clone());
         }
     }
     None
 }
 
-fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is_mutation: bool) {
+fn generate_service_method(
+    code: &mut String,
+    name: &str,
+    clauses: &[Clause],
+    is_mutation: bool,
+    has_invariants: bool,
+) {
     // Extract input/output from clauses
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
@@ -1173,6 +1177,11 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
         "        pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
     ));
 
+    // Invariant check at entry
+    if has_invariants {
+        code.push_str("            self.check_invariant();\n");
+    }
+
     // State pre-condition guard
     if let Some(ref state) = pre_state {
         code.push_str(&format!(
@@ -1188,14 +1197,16 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
     if output_type == "()" {
         // State transition
         if let Some(ref state) = post_state {
-            code.push_str(&format!(
-                "            self.state = State::{state};\n"
-            ));
+            code.push_str(&format!("            self.state = State::{state};\n"));
         }
         code.push_str(&format!(
             "            todo!(\"{} implementation\")\n",
             kind_label.to_lowercase()
         ));
+        // Invariant check at exit (for void operations)
+        if has_invariants {
+            code.push_str("            self.check_invariant();\n");
+        }
     } else {
         code.push_str(&format!(
             "            let __result: {output_type} = todo!(\"{} implementation\");\n",
@@ -1207,9 +1218,11 @@ fn generate_service_method(code: &mut String, name: &str, clauses: &[Clause], is
         }
         // State transition
         if let Some(ref state) = post_state {
-            code.push_str(&format!(
-                "            self.state = State::{state};\n"
-            ));
+            code.push_str(&format!("            self.state = State::{state};\n"));
+        }
+        // Invariant check at exit
+        if has_invariants {
+            code.push_str("            self.check_invariant();\n");
         }
         code.push_str("            __result\n");
     }
@@ -1287,13 +1300,19 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
         code.push_str("        pub fn new() -> Self {\n            Self { }\n        }\n\n");
     }
 
+    // Check if the service has any invariants
+    let has_invariants = s
+        .items
+        .iter()
+        .any(|i| matches!(i, ServiceItem::Invariant(_)));
+
     for item in &s.items {
         match item {
             ServiceItem::Operation { name, clauses } => {
-                generate_service_method(code, name, clauses, true);
+                generate_service_method(code, name, clauses, true, has_invariants);
             }
             ServiceItem::Query { name, clauses } => {
-                generate_service_method(code, name, clauses, false);
+                generate_service_method(code, name, clauses, false, has_invariants);
             }
             ServiceItem::Invariant(expr) => {
                 let rust_expr = expr_to_rust(expr);
