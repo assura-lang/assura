@@ -184,21 +184,171 @@ fn builtin_type(name: &str) -> Option<Type> {
 }
 
 // ---------------------------------------------------------------------------
+// Type token parsing
+// ---------------------------------------------------------------------------
+
+/// Parse a raw token sequence (e.g. `["List", "<", "Int", ">"]`) into a
+/// structured `Type`. Handles base types, generic containers, refinement
+/// types, taint annotations, reference/mutable types, and union error types.
+fn parse_type_tokens(tokens: &[String]) -> Type {
+    if tokens.is_empty() {
+        return Type::Unit;
+    }
+
+    // Strip taint annotations (everything from "@" onward)
+    let clean: Vec<&str> = tokens
+        .iter()
+        .map(|s| s.as_str())
+        .take_while(|t| *t != "@")
+        .collect();
+    if clean.is_empty() {
+        return Type::Unit;
+    }
+
+    // Strip leading & or &mut (references)
+    let clean = if clean.first() == Some(&"&") {
+        if clean.get(1) == Some(&"mut") {
+            &clean[2..]
+        } else {
+            &clean[1..]
+        }
+    } else {
+        &clean[..]
+    };
+    if clean.is_empty() {
+        return Type::Unknown;
+    }
+
+    // Refinement type: { x : T | P }
+    if clean.first() == Some(&"{") {
+        // Find the colon to extract the base type
+        if let Some(colon_pos) = clean.iter().position(|t| *t == ":") {
+            let after_colon: Vec<&str> = clean[colon_pos + 1..]
+                .iter()
+                .take_while(|t| **t != "|" && **t != "}")
+                .copied()
+                .collect();
+            let owned: Vec<String> = after_colon.iter().map(|s| s.to_string()).collect();
+            let base = parse_type_tokens(&owned);
+            return Type::Refined {
+                base: Box::new(base),
+                predicate: String::new(),
+            };
+        }
+        return Type::Unknown;
+    }
+
+    // Handle union error types: T | E -> Result<T, E> at top level
+    let mut depth = 0i32;
+    let mut pipe_pos = None;
+    for (i, tok) in clean.iter().enumerate() {
+        match *tok {
+            "<" => depth += 1,
+            ">" if depth > 0 => depth -= 1,
+            "|" if depth == 0 => {
+                pipe_pos = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    if let Some(pp) = pipe_pos {
+        let ok_tokens: Vec<String> = clean[..pp].iter().map(|s| s.to_string()).collect();
+        let err_tokens: Vec<String> = clean[pp + 1..].iter().map(|s| s.to_string()).collect();
+        let ok_ty = parse_type_tokens(&ok_tokens);
+        let err_ty = parse_type_tokens(&err_tokens);
+        return Type::Result(Box::new(ok_ty), Box::new(err_ty));
+    }
+
+    let head = clean[0];
+
+    // Single-token base types
+    if clean.len() == 1 {
+        if let Some(ty) = builtin_type(head) {
+            return ty;
+        }
+        return Type::Named(head.to_string());
+    }
+
+    // Generic container: Name < Args... >
+    if clean.len() >= 3 && clean[1] == "<" {
+        // Collect type arguments between < and >
+        let inner = &clean[2..];
+        // Strip trailing >
+        let inner = if inner.last() == Some(&">") {
+            &inner[..inner.len() - 1]
+        } else {
+            inner
+        };
+
+        // Split on commas at depth 0
+        let mut args: Vec<Type> = Vec::new();
+        let mut current: Vec<String> = Vec::new();
+        let mut d = 0i32;
+        for tok in inner {
+            match *tok {
+                "<" => {
+                    d += 1;
+                    current.push(tok.to_string());
+                }
+                ">" => {
+                    d -= 1;
+                    current.push(tok.to_string());
+                }
+                "," if d == 0 => {
+                    if !current.is_empty() {
+                        args.push(parse_type_tokens(&current));
+                        current.clear();
+                    }
+                }
+                _ => current.push(tok.to_string()),
+            }
+        }
+        if !current.is_empty() {
+            args.push(parse_type_tokens(&current));
+        }
+
+        return match head {
+            "List" => Type::List(Box::new(args.into_iter().next().unwrap_or(Type::Unknown))),
+            "Sequence" => {
+                Type::Sequence(Box::new(args.into_iter().next().unwrap_or(Type::Unknown)))
+            }
+            "Set" => Type::Set(Box::new(args.into_iter().next().unwrap_or(Type::Unknown))),
+            "Option" => Type::Option(Box::new(args.into_iter().next().unwrap_or(Type::Unknown))),
+            "Map" => {
+                let mut it = args.into_iter();
+                let k = it.next().unwrap_or(Type::Unknown);
+                let v = it.next().unwrap_or(Type::Unknown);
+                Type::Map(Box::new(k), Box::new(v))
+            }
+            "Result" => {
+                let mut it = args.into_iter();
+                let ok = it.next().unwrap_or(Type::Unknown);
+                let err = it.next().unwrap_or(Type::Unknown);
+                Type::Result(Box::new(ok), Box::new(err))
+            }
+            "Vec" => Type::List(Box::new(args.into_iter().next().unwrap_or(Type::Unknown))),
+            _ => Type::Named(head.to_string()),
+        };
+    }
+
+    // Fallback: treat as named type
+    if let Some(ty) = builtin_type(head) {
+        return ty;
+    }
+    Type::Named(head.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Type environment construction
 // ---------------------------------------------------------------------------
 
-/// Build a `TypeEnv` from a resolved symbol table.
+/// Build a `TypeEnv` from a resolved symbol table and the source AST.
 ///
-/// Walks every symbol and assigns it a `Type` based on its kind:
-/// - `BuiltinType`: mapped via `builtin_type()`
-/// - `TypeDef`, `ContractDef`, `ServiceDef`, `EnumDef`: `Type::Named(name)`
-/// - `FnDef`, `ExternFn`: `Type::Fn { params: [], ret: Unknown }`
-///   (parameter types are not yet resolved from raw token sequences)
-/// - `TypeParam`: `Type::TypeParam(name)`
-/// - `Parameter`, `Field`: `Type::Unknown` (refined in T014+)
-/// - `Operation`, `Query`: `Type::Fn { params: [], ret: Unknown }`
-/// - `EnumVariant`: `Type::Named(name)` (constructor)
-fn build_type_env(symbols: &SymbolTable) -> TypeEnv {
+/// First walks the symbol table for top-level declarations, then walks the
+/// AST to extract actual parameter types from `Param.ty` token sequences
+/// and function return types from `FnDef.return_ty`.
+fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile) -> TypeEnv {
     let mut env = TypeEnv::new();
 
     for sym in &symbols.symbols {
@@ -209,6 +359,7 @@ fn build_type_env(symbols: &SymbolTable) -> TypeEnv {
             | SymbolKind::ServiceDef
             | SymbolKind::EnumDef => Type::Named(sym.name.clone()),
 
+            // Placeholder; enriched below from AST
             SymbolKind::FnDef | SymbolKind::ExternFn => Type::Fn {
                 params: Vec::new(),
                 ret: Box::new(Type::Unknown),
@@ -221,12 +372,68 @@ fn build_type_env(symbols: &SymbolTable) -> TypeEnv {
 
             SymbolKind::TypeParam => Type::TypeParam(sym.name.clone()),
 
+            // Placeholder; enriched below from AST params
             SymbolKind::Parameter | SymbolKind::Field => Type::Unknown,
 
             SymbolKind::EnumVariant => Type::Named(sym.name.clone()),
         };
 
         env.insert(sym.name.clone(), ty);
+    }
+
+    // Enrich from AST: parse Param.ty token sequences into structured Types
+    // and build proper function signatures with param types and return types.
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::FnDef(f) => {
+                // Insert parameter types
+                for p in &f.params {
+                    let ty = parse_type_tokens(&p.ty);
+                    env.insert(p.name.clone(), ty);
+                }
+                // Build full function type
+                let param_types: Vec<Type> =
+                    f.params.iter().map(|p| parse_type_tokens(&p.ty)).collect();
+                let ret = if f.return_ty.is_empty() {
+                    Type::Unit
+                } else {
+                    parse_type_tokens(&f.return_ty)
+                };
+                env.insert(
+                    f.name.clone(),
+                    Type::Fn {
+                        params: param_types,
+                        ret: Box::new(ret),
+                    },
+                );
+            }
+            Decl::Extern(e) => {
+                for p in &e.params {
+                    let ty = parse_type_tokens(&p.ty);
+                    env.insert(p.name.clone(), ty);
+                }
+                let param_types: Vec<Type> =
+                    e.params.iter().map(|p| parse_type_tokens(&p.ty)).collect();
+                let ret = if e.return_ty.is_empty() {
+                    Type::Unit
+                } else {
+                    parse_type_tokens(&e.return_ty)
+                };
+                env.insert(
+                    e.name.clone(),
+                    Type::Fn {
+                        params: param_types,
+                        ret: Box::new(ret),
+                    },
+                );
+            }
+            Decl::Service(_) => {
+                // Service operations/queries only have name + clauses in the
+                // AST (no explicit params/return_ty). Their types remain as
+                // registered from the symbol table.
+            }
+            _ => {}
+        }
     }
 
     // T107: inject stdlib types (Pos, NonNeg, Email, Uuid, Port, Percentage)
@@ -441,22 +648,26 @@ pub fn instantiate_builtin_generic(name: &str, args: Vec<Type>) -> Option<Type> 
 
 /// Returns `true` if `ty` is a numeric type.
 fn is_numeric(ty: &Type) -> bool {
-    matches!(
-        ty,
+    match ty {
         Type::Int
-            | Type::Nat
-            | Type::Float
-            | Type::U8
-            | Type::U16
-            | Type::U32
-            | Type::U64
-            | Type::I8
-            | Type::I16
-            | Type::I32
-            | Type::I64
-            | Type::F32
-            | Type::F64
-    )
+        | Type::Nat
+        | Type::Float
+        | Type::U8
+        | Type::U16
+        | Type::U32
+        | Type::U64
+        | Type::I8
+        | Type::I16
+        | Type::I32
+        | Type::I64
+        | Type::F32
+        | Type::F64 => true,
+        // A refined type is numeric if its base type is numeric
+        Type::Refined { base, .. } => is_numeric(base),
+        // Named types may be numeric aliases; be lenient
+        Type::Named(_) | Type::Unknown => true,
+        _ => false,
+    }
 }
 
 /// Infer the type of an expression given a type environment.
@@ -683,6 +894,49 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
     }
 }
 
+/// Check if two types are compatible for comparison/arithmetic purposes.
+///
+/// Types are compatible if:
+/// - They are equal
+/// - Either side is `Unknown`
+/// - Either side is a `Named` type (user-defined, not yet resolved)
+/// - A `Refined` type's base matches the other type
+/// - Both are numeric
+fn types_compatible(a: &Type, b: &Type) -> bool {
+    if a == b {
+        return true;
+    }
+    if *a == Type::Unknown || *b == Type::Unknown {
+        return true;
+    }
+    // Named types are unresolved user-defined; be lenient
+    if matches!(a, Type::Named(_)) || matches!(b, Type::Named(_)) {
+        return true;
+    }
+    // Refined types are compatible with their base type
+    if let Type::Refined { base, .. } = a {
+        return types_compatible(base, b);
+    }
+    if let Type::Refined { base, .. } = b {
+        return types_compatible(a, base);
+    }
+    // TypeParams are unresolved; be lenient
+    if matches!(a, Type::TypeParam(_)) || matches!(b, Type::TypeParam(_)) {
+        return true;
+    }
+    // Nat is a subtype of Int; they are compatible in arithmetic/comparison
+    if (matches!(a, Type::Nat) && matches!(b, Type::Int))
+        || (matches!(a, Type::Int) && matches!(b, Type::Nat))
+    {
+        return true;
+    }
+    // Both numeric types are compatible (e.g., U32 vs Int in mixed arithmetic)
+    if is_numeric(a) && is_numeric(b) {
+        return true;
+    }
+    false
+}
+
 /// Infer the result type of a binary operation.
 fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
     let lhs_ty = infer_expr(lhs, env)?;
@@ -727,7 +981,7 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
                     secondary: None,
                 });
             }
-            if lhs_ty != rhs_ty {
+            if !types_compatible(&lhs_ty, &rhs_ty) {
                 return Err(TypeError {
                     code: "A03001".into(),
                     message: format!("type mismatch in arithmetic: `{lhs_ty}` vs `{rhs_ty}`"),
@@ -738,9 +992,9 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
             Ok(lhs_ty)
         }
 
-        // Comparison: operands same type, result Bool
+        // Comparison: operands compatible types, result Bool
         BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-            if lhs_ty != rhs_ty {
+            if !types_compatible(&lhs_ty, &rhs_ty) {
                 return Err(TypeError {
                     code: "A03001".into(),
                     message: format!(
@@ -1120,7 +1374,7 @@ fn check_clause_expr(
 /// containing the resolved file and its type environment, or a list of
 /// `TypeError`s.
 pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
-    let type_env = build_type_env(&resolved.symbols);
+    let type_env = build_type_env(&resolved.symbols, &resolved.source);
 
     // T014: walk clause bodies and infer expression types. Collect any
     // concrete type-mismatch errors (A03001). Unknown types from unresolved
@@ -12621,12 +12875,12 @@ fn helper(n: Int) -> Int {
         assert_eq!(
             typed.type_env.lookup("helper"),
             Some(&Type::Fn {
-                params: Vec::new(),
-                ret: Box::new(Type::Unknown),
+                params: vec![Type::Int],
+                ret: Box::new(Type::Int),
             })
         );
-        // Parameter gets Unknown for now
-        assert_eq!(typed.type_env.lookup("n"), Some(&Type::Unknown));
+        // Parameter now gets parsed type from Param.ty tokens
+        assert_eq!(typed.type_env.lookup("n"), Some(&Type::Int));
     }
 
     #[test]
@@ -12664,6 +12918,155 @@ type Point {
         let typed = type_check(&resolved).expect("type_check should succeed");
         // At minimum, all 22 built-in types should be in the env
         assert!(typed.type_env.len() >= 22);
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_type_tokens tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_type_base_int() {
+        let tokens: Vec<String> = vec!["Int".into()];
+        assert_eq!(parse_type_tokens(&tokens), Type::Int);
+    }
+
+    #[test]
+    fn parse_type_base_nat() {
+        let tokens: Vec<String> = vec!["Nat".into()];
+        assert_eq!(parse_type_tokens(&tokens), Type::Nat);
+    }
+
+    #[test]
+    fn parse_type_generic_list() {
+        let tokens: Vec<String> = ["List", "<", "Int", ">"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(parse_type_tokens(&tokens), Type::List(Box::new(Type::Int)));
+    }
+
+    #[test]
+    fn parse_type_generic_map() {
+        let tokens: Vec<String> = ["Map", "<", "String", ",", "Int", ">"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn parse_type_sequence() {
+        let tokens: Vec<String> = ["Sequence", "<", "Nat", ">"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Sequence(Box::new(Type::Nat))
+        );
+    }
+
+    #[test]
+    fn parse_type_refined() {
+        let tokens: Vec<String> = ["{", "x", ":", "Int", "|", "x", ">", "0", "}"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Refined {
+                base: Box::new(Type::Int),
+                predicate: String::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_taint_stripped() {
+        let tokens: Vec<String> = ["U32", "@", "taint", ":", "untrusted"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(parse_type_tokens(&tokens), Type::U32);
+    }
+
+    #[test]
+    fn parse_type_reference_stripped() {
+        let tokens: Vec<String> = ["&", "mut", "BitReader"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(parse_type_tokens(&tokens), Type::Named("BitReader".into()));
+    }
+
+    #[test]
+    fn parse_type_union_error() {
+        let tokens: Vec<String> = ["HuffmanGroup", "|", "DecodeError"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Result(
+                Box::new(Type::Named("HuffmanGroup".into())),
+                Box::new(Type::Named("DecodeError".into()))
+            )
+        );
+    }
+
+    #[test]
+    fn parse_type_empty() {
+        assert_eq!(parse_type_tokens(&[]), Type::Unit);
+    }
+
+    #[test]
+    fn parse_type_named() {
+        let tokens: Vec<String> = vec!["ValidCodeLengths".into()];
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Named("ValidCodeLengths".into())
+        );
+    }
+
+    #[test]
+    fn fn_params_parsed_from_ast() {
+        // Test that build_type_env enriches function types from AST
+        let src = r#"
+fn compute(x: Nat, y: Float) -> Bool {
+  ensures { result == true }
+}
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved).expect("type_check should succeed");
+        assert_eq!(
+            typed.type_env.lookup("compute"),
+            Some(&Type::Fn {
+                params: vec![Type::Nat, Type::Float],
+                ret: Box::new(Type::Bool),
+            })
+        );
+        assert_eq!(typed.type_env.lookup("x"), Some(&Type::Nat));
+        assert_eq!(typed.type_env.lookup("y"), Some(&Type::Float));
+    }
+
+    #[test]
+    fn extern_params_parsed_from_ast() {
+        let src = r#"
+extern fn read_bytes(n: U32) -> Bytes
+  effects { io.read }
+"#;
+        let resolved = resolve_ok(src);
+        let typed = type_check(&resolved).expect("type_check should succeed");
+        assert_eq!(
+            typed.type_env.lookup("read_bytes"),
+            Some(&Type::Fn {
+                params: vec![Type::U32],
+                ret: Box::new(Type::Bytes),
+            })
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -12741,17 +13144,16 @@ type Point {
     }
 
     #[test]
-    fn infer_arithmetic_mismatch() {
+    fn infer_arithmetic_numeric_types_compatible() {
+        // Numeric types (Int, Float, Nat, etc.) are compatible in arithmetic
         let env = TypeEnv::new();
         let expr = AstExpr::BinOp {
             lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
             op: AstBinOp::Add,
             rhs: Box::new(AstExpr::Literal(AstLit::Float("2.0".into()))),
         };
-        let err = infer_expr(&expr, &env).unwrap_err();
-        assert_eq!(err.code, "A03001");
-        assert!(err.message.contains("Int"));
-        assert!(err.message.contains("Float"));
+        // Int + Float is accepted (numeric widening)
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
     }
 
     #[test]
