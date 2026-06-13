@@ -340,7 +340,7 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::TypeParam => CompletionItemKind::TYPE_PARAMETER,
                     SymbolKind::Field => CompletionItemKind::FIELD,
                     SymbolKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
-                    SymbolKind::BuiltinType => unreachable!(),
+                    SymbolKind::BuiltinType => CompletionItemKind::CLASS,
                 };
                 let detail = match sym.kind {
                     SymbolKind::ContractDef => "contract",
@@ -355,7 +355,7 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::TypeParam => "type parameter",
                     SymbolKind::Field => "field",
                     SymbolKind::EnumVariant => "enum variant",
-                    SymbolKind::BuiltinType => unreachable!(),
+                    SymbolKind::BuiltinType => "builtin type",
                 };
                 items.push(CompletionItem {
                     label: sym.name.clone(),

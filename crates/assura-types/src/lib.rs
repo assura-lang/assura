@@ -1069,8 +1069,17 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             Ok(Type::Unknown)
         }
 
-        // --- Block / Raw: cannot infer ---
-        Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
+        // --- Block: infer type of last expression ---
+        Expr::Block(exprs) => {
+            let mut last_ty = Type::Unknown;
+            for e in exprs {
+                last_ty = infer_expr(e, env)?;
+            }
+            Ok(last_ty)
+        }
+
+        // --- Raw: cannot infer from token sequence ---
+        Expr::Raw(_) => Ok(Type::Unknown),
     }
 }
 
