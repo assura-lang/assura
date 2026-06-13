@@ -820,6 +820,38 @@ mod z3_backend {
                 }
                 _ => {}
             }
+            // Map get/put with read-over-write axioms
+            // get(map, key) -> value (uninterpreted with consistency)
+            // put(map, key, value) -> new_map with axiom:
+            //   get(put(m, k, v), k) == v  (write-then-read)
+            if func_name == "put" && arg_vals.len() == 3 {
+                // put(map, key, value) returns a new map
+                let map_val = &arg_vals[0];
+                let key = &arg_vals[1];
+                let value = &arg_vals[2];
+                let new_map = self.fresh_int();
+                // Read-over-write axiom: get(put(m, k, v), k) == v
+                let get_decl = self.make_func("get", 2);
+                let get_result = get_decl
+                    .apply(&[&new_map as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                self.background_axioms.push(get_result._eq(value));
+                // size(new_map) >= size(map)
+                let size_decl = self.make_func("size", 1);
+                let old_size = size_decl
+                    .apply(&[map_val as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let new_size = size_decl
+                    .apply(&[&new_map as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let zero = ast::Int::from_i64(self.ctx, 0);
+                self.background_axioms.push(new_size.ge(&old_size));
+                self.background_axioms.push(new_size.ge(&zero));
+                return Z3Value::Int(new_map);
+            }
             // Size-like methods get non-negativity axiom
             if matches!(func_name, "len" | "length" | "size" | "count" | "capacity") {
                 let decl = self.make_func(func_name, arg_vals.len());
@@ -2216,6 +2248,12 @@ mod z3_backend {
                 let req_bool = req_val.as_bool(ctx);
                 solver.assert(&req_bool);
             }
+            // Assert background axioms from requires encoding (e.g., map
+            // read-over-write, string length axioms)
+            for axiom in &encoder.background_axioms {
+                solver.assert(axiom);
+            }
+            encoder.background_axioms.clear();
 
             // T044: Inject lemma ensures as assumptions for any `apply` refs
             let apply_refs = collect_apply_refs(clauses);
@@ -4718,6 +4756,42 @@ contract ChainedFalse {
             matches!(&results[0], VerificationResult::Counterexample { .. }),
             "false chained claim should produce counterexample, got: {:?}",
             results[0]
+        );
+    }
+
+    #[test]
+    fn map_put_get_read_over_write() {
+        // get(put(m, k, v), k) == v should verify
+        let source = r#"
+contract MapReadWrite {
+  requires { put(m, k, v) == m2 }
+  ensures { get(m2, k) == v }
+}
+"#;
+        let results = verify_source(source);
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r, VerificationResult::Verified { .. })),
+            "map read-over-write should verify, got: {results:?}"
+        );
+    }
+
+    #[test]
+    fn map_put_size_nonneg() {
+        // size of map after put is non-negative
+        let source = r#"
+contract MapSizeNonneg {
+  requires { put(m, k, v) == m2 }
+  ensures { size(m2) >= 0 }
+}
+"#;
+        let results = verify_source(source);
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r, VerificationResult::Verified { .. })),
+            "map size non-neg should verify, got: {results:?}"
         );
     }
 }

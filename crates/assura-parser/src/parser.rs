@@ -656,7 +656,21 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
                 arms,
             });
 
-        // Identifier (plain)
+        // Function call: ident(expr, expr, ...)
+        // Must come before bare ident in the atom choice to parse calls.
+        let call_expr = ident()
+            .then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map(|(func, args)| Expr::Call {
+                func: Box::new(Expr::Ident(func)),
+                args,
+            });
+
+        // Identifier (plain, no parens following)
         let ident_expr = ident().map(Expr::Ident);
 
         // Keywords that can appear as value-position identifiers in expressions
@@ -702,6 +716,7 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
             apply_expr,
             match_expr,
             keyword_as_value,
+            call_expr,
             ident_expr,
         ))
         .boxed();

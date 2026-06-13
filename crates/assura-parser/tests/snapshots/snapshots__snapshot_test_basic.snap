@@ -89,19 +89,29 @@ SourceFile {
                         },
                         Clause {
                             kind: Ensures,
-                            body: Raw(
-                                [
-                                    "abs",
-                                    "(",
-                                    "result",
-                                    ")",
-                                    "<=",
-                                    "abs",
-                                    "(",
-                                    "a",
-                                    ")",
-                                ],
-                            ),
+                            body: BinOp {
+                                lhs: Call {
+                                    func: Ident(
+                                        "abs",
+                                    ),
+                                    args: [
+                                        Ident(
+                                            "result",
+                                        ),
+                                    ],
+                                },
+                                op: Lte,
+                                rhs: Call {
+                                    func: Ident(
+                                        "abs",
+                                    ),
+                                    args: [
+                                        Ident(
+                                            "a",
+                                        ),
+                                    ],
+                                },
+                            },
                         },
                         Clause {
                             kind: Effects,

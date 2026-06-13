@@ -597,45 +597,63 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: Raw(
-                                [
+                            body: MethodCall {
+                                receiver: Ident(
                                     "NIST_SP_800_56A_ECDH",
-                                    ".",
-                                    "valid_computation",
-                                    "(",
-                                    "private_key",
-                                    ",",
-                                    "to_curve_point",
-                                    "(",
-                                    "peer_point",
-                                    ")",
-                                    ",",
-                                    "curve",
-                                    ")",
+                                ),
+                                method: "valid_computation",
+                                args: [
+                                    Ident(
+                                        "private_key",
+                                    ),
+                                    Call {
+                                        func: Ident(
+                                            "to_curve_point",
+                                        ),
+                                        args: [
+                                            Ident(
+                                                "peer_point",
+                                            ),
+                                        ],
+                                    },
+                                    Ident(
+                                        "curve",
+                                    ),
                                 ],
-                            ),
+                            },
                         },
                         Clause {
                             kind: Ensures,
-                            body: Raw(
-                                [
-                                    "result",
-                                    ".",
+                            body: BinOp {
+                                lhs: Field(
+                                    Ident(
+                                        "result",
+                                    ),
                                     "value",
-                                    "==",
-                                    "NIST_SP_800_56A_ECDH",
-                                    ".",
-                                    "shared_secret",
-                                    "(",
-                                    "private_key",
-                                    ",",
-                                    "to_curve_point",
-                                    "(",
-                                    "peer_point",
-                                    ")",
-                                    ")",
-                                ],
-                            ),
+                                ),
+                                op: Eq,
+                                rhs: MethodCall {
+                                    receiver: Ident(
+                                        "NIST_SP_800_56A_ECDH",
+                                    ),
+                                    method: "shared_secret",
+                                    args: [
+                                        Ident(
+                                            "private_key",
+                                        ),
+                                        Call {
+                                            func: Ident(
+                                                "to_curve_point",
+                                            ),
+                                            args: [
+                                                Ident(
+                                                    "peer_point",
+                                                ),
+                                            ],
+                                        },
+                                    ],
+                                },
+                            },
                         },
                         Clause {
                             kind: Effects,
