@@ -452,6 +452,7 @@ mod z3_backend {
     enum Z3Value<'ctx> {
         Bool(ast::Bool<'ctx>),
         Int(ast::Int<'ctx>),
+        Real(ast::Real<'ctx>),
     }
 
     /// Binary operator kind for raw token parsing.
@@ -479,16 +480,30 @@ mod z3_backend {
             match self {
                 Z3Value::Bool(b) => b.clone(),
                 Z3Value::Int(i) => i._eq(&ast::Int::from_i64(ctx, 0)).not(),
+                Z3Value::Real(r) => r._eq(&ast::Real::from_real(ctx, 0, 1)).not(),
             }
         }
 
-        /// Extract as Int. If Bool, return a fresh uninterpreted int.
+        /// Extract as Int. If Bool or Real, return a fresh uninterpreted int.
         fn as_int(&self, ctx: &'ctx Context, counter: &mut u32) -> ast::Int<'ctx> {
             match self {
                 Z3Value::Int(i) => i.clone(),
-                Z3Value::Bool(_) => {
+                Z3Value::Bool(_) | Z3Value::Real(_) => {
                     *counter += 1;
                     ast::Int::new_const(ctx, format!("__coerce_{counter}"))
+                }
+            }
+        }
+
+        /// Extract as Real. If Int, convert via `int2real`. If Bool, return
+        /// a fresh uninterpreted real.
+        fn as_real(&self, ctx: &'ctx Context, counter: &mut u32) -> ast::Real<'ctx> {
+            match self {
+                Z3Value::Real(r) => r.clone(),
+                Z3Value::Int(i) => ast::Real::from_int(i),
+                Z3Value::Bool(_) => {
+                    *counter += 1;
+                    ast::Real::new_const(ctx, format!("__coerce_real_{counter}"))
                 }
             }
         }
@@ -690,9 +705,14 @@ mod z3_backend {
                     let n: i64 = s.parse().unwrap_or(0);
                     Z3Value::Int(ast::Int::from_i64(self.ctx, n))
                 }
-                Expr::Literal(Literal::Float(_)) => {
-                    // Approximate as fresh int for Layer 1
-                    Z3Value::Int(self.fresh_int())
+                Expr::Literal(Literal::Float(s)) => {
+                    // Encode as Z3 Real. Parse the float string and convert
+                    // to a rational (numerator/denominator) for exact encoding.
+                    let f: f64 = s.parse().unwrap_or(0.0);
+                    // Use a large denominator for precision
+                    let denom = 1_000_000i32;
+                    let numer = (f * denom as f64) as i32;
+                    Z3Value::Real(ast::Real::from_real(self.ctx, numer, denom))
                 }
                 Expr::Literal(Literal::Str(_)) => Z3Value::Bool(self.fresh_bool()),
                 Expr::Literal(Literal::Bool(b)) => {
@@ -724,8 +744,13 @@ mod z3_backend {
                     let val = self.encode_expr(inner);
                     match op {
                         UnaryOp::Neg => {
-                            let i = val.as_int(self.ctx, &mut self.fresh_counter);
-                            Z3Value::Int(i.unary_minus())
+                            if Self::is_real(&val) {
+                                let r = val.as_real(self.ctx, &mut self.fresh_counter);
+                                Z3Value::Real(r.unary_minus())
+                            } else {
+                                let i = val.as_int(self.ctx, &mut self.fresh_counter);
+                                Z3Value::Int(i.unary_minus())
+                            }
                         }
                         UnaryOp::Not => {
                             let b = val.as_bool(self.ctx);
@@ -1020,6 +1045,18 @@ mod z3_backend {
                 return (Z3Value::Int(ast::Int::from_i64(self.ctx, n)), start + 1);
             }
 
+            // --- Float literal ---
+            if tok.contains('.')
+                && let Ok(f) = tok.parse::<f64>()
+            {
+                let denom = 1_000_000i32;
+                let numer = (f * denom as f64) as i32;
+                return (
+                    Z3Value::Real(ast::Real::from_real(self.ctx, numer, denom)),
+                    start + 1,
+                );
+            }
+
             // --- Identifier (possibly with dot-separated field access) ---
             let mut name = tok.clone();
             let mut next = start + 1;
@@ -1137,32 +1174,61 @@ mod z3_backend {
             }
         }
 
+        /// Returns true if the value is a Real.
+        fn is_real(v: &Z3Value) -> bool {
+            matches!(v, Z3Value::Real(_))
+        }
+
         /// Encode a binary operation.
         fn encode_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> Z3Value<'ctx> {
             let lv = self.encode_expr(lhs);
             let rv = self.encode_expr(rhs);
 
             match op {
-                // --- Arithmetic: produce Int ---
+                // --- Arithmetic: produce Int or Real depending on operands ---
                 BinOp::Add => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Int(ast::Int::add(self.ctx, &[&l, &r]))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Real(ast::Real::add(self.ctx, &[&l, &r]))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Int(ast::Int::add(self.ctx, &[&l, &r]))
+                    }
                 }
                 BinOp::Sub => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Int(ast::Int::sub(self.ctx, &[&l, &r]))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Real(ast::Real::sub(self.ctx, &[&l, &r]))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Int(ast::Int::sub(self.ctx, &[&l, &r]))
+                    }
                 }
                 BinOp::Mul => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Int(ast::Int::mul(self.ctx, &[&l, &r]))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Real(ast::Real::mul(self.ctx, &[&l, &r]))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Int(ast::Int::mul(self.ctx, &[&l, &r]))
+                    }
                 }
                 BinOp::Div => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Int(l.div(&r))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Real(l.div(&r))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Int(l.div(&r))
+                    }
                 }
                 BinOp::Mod => {
                     let l = lv.as_int(self.ctx, &mut self.fresh_counter);
@@ -1170,10 +1236,16 @@ mod z3_backend {
                     Z3Value::Int(l.rem(&r))
                 }
 
-                // --- Comparison: produce Bool ---
+                // --- Comparison: produce Bool (promote to Real if needed) ---
                 BinOp::Eq => match (&lv, &rv) {
                     (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l._eq(r)),
                     (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l._eq(r)),
+                    (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l._eq(r)),
+                    _ if Self::is_real(&lv) || Self::is_real(&rv) => {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l._eq(&r))
+                    }
                     _ => {
                         let l = lv.as_int(self.ctx, &mut self.fresh_counter);
                         let r = rv.as_int(self.ctx, &mut self.fresh_counter);
@@ -1183,6 +1255,12 @@ mod z3_backend {
                 BinOp::Neq => match (&lv, &rv) {
                     (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l._eq(r).not()),
                     (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l._eq(r).not()),
+                    (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l._eq(r).not()),
+                    _ if Self::is_real(&lv) || Self::is_real(&rv) => {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l._eq(&r).not())
+                    }
                     _ => {
                         let l = lv.as_int(self.ctx, &mut self.fresh_counter);
                         let r = rv.as_int(self.ctx, &mut self.fresh_counter);
@@ -1190,24 +1268,48 @@ mod z3_backend {
                     }
                 },
                 BinOp::Lt => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l.lt(&r))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.lt(&r))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.lt(&r))
+                    }
                 }
                 BinOp::Lte => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l.le(&r))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.le(&r))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.le(&r))
+                    }
                 }
                 BinOp::Gt => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l.gt(&r))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.gt(&r))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.gt(&r))
+                    }
                 }
                 BinOp::Gte => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l.ge(&r))
+                    if Self::is_real(&lv) || Self::is_real(&rv) {
+                        let l = lv.as_real(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.ge(&r))
+                    } else {
+                        let l = lv.as_int(self.ctx, &mut self.fresh_counter);
+                        let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                        Z3Value::Bool(l.ge(&r))
+                    }
                 }
 
                 // --- Logical: produce Bool ---
