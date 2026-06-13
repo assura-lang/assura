@@ -442,14 +442,52 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             Ok(Type::List(Box::new(first_ty)))
         }
 
-        // --- Field access, method calls, function calls, indexing, casts ---
-        // These require more context (struct field types, function
-        // signatures) that will be implemented in T016+. Return Unknown.
-        Expr::Field(..)
-        | Expr::MethodCall { .. }
-        | Expr::Call { .. }
-        | Expr::Index { .. }
-        | Expr::Cast { .. } => Ok(Type::Unknown),
+        // --- Field access ---
+        Expr::Field(receiver, _field) => {
+            // Infer the receiver type. If it is Unknown or a Named type
+            // (user-defined struct) we cannot resolve fields without a
+            // richer TypeEnv that stores struct field info, so return
+            // Unknown. We never emit A03004 here because we cannot
+            // confirm whether the field exists or not yet.
+            let _recv_ty = infer_expr(receiver, env)?;
+            Ok(Type::Unknown)
+        }
+
+        // --- Method call ---
+        Expr::MethodCall {
+            receiver,
+            method: _,
+            args,
+        } => {
+            // Infer receiver and argument types (to surface errors
+            // inside them) but return Unknown since full method
+            // resolution requires struct/service context.
+            let _recv_ty = infer_expr(receiver, env)?;
+            for arg in args {
+                let _ = infer_expr(arg, env)?;
+            }
+            Ok(Type::Unknown)
+        }
+
+        // --- Function call ---
+        Expr::Call { func, args } => infer_call(func, args, env),
+
+        // --- Index access ---
+        Expr::Index { expr: base, index } => {
+            let base_ty = infer_expr(base, env)?;
+            // Infer index type to surface errors inside it.
+            let _index_ty = infer_expr(index, env)?;
+            match base_ty {
+                Type::List(elem) => Ok(*elem),
+                Type::Map(_key, val) => Ok(*val),
+                Type::Sequence(elem) => Ok(*elem),
+                // Unknown or user-defined types: return Unknown.
+                _ => Ok(Type::Unknown),
+            }
+        }
+
+        // --- Cast: cannot infer target type from string yet ---
+        Expr::Cast { .. } => Ok(Type::Unknown),
 
         // --- Block / Raw: cannot infer ---
         Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
@@ -586,6 +624,51 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
     }
 }
 
+/// Infer the result type of a function call expression.
+fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv) -> Result<Type, TypeError> {
+    let func_ty = infer_expr(func, env)?;
+
+    // Infer argument types eagerly so errors inside arguments are surfaced
+    // even when the callee type is Unknown.
+    let mut arg_types = Vec::with_capacity(args.len());
+    for arg in args {
+        arg_types.push(infer_expr(arg, env)?);
+    }
+
+    match func_ty {
+        Type::Fn { params, ret } => {
+            // If params is non-empty, check argument count.
+            // (params may be empty when the function was registered with
+            // placeholder params from the symbol table.)
+            if !params.is_empty() && params.len() != arg_types.len() {
+                return Err(TypeError {
+                    code: "A03002".into(),
+                    message: format!(
+                        "function expects {} argument(s), but {} were provided",
+                        params.len(),
+                        arg_types.len()
+                    ),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            Ok(*ret)
+        }
+        // Unknown callee: be lenient, propagate Unknown.
+        Type::Unknown => Ok(Type::Unknown),
+        // Named type: could be a constructor or unresolved callable.
+        // Be lenient and return Unknown.
+        Type::Named(_) | Type::TypeParam(_) => Ok(Type::Unknown),
+        // Definitely not callable.
+        other => Err(TypeError {
+            code: "A03005".into(),
+            message: format!("type `{other}` is not callable"),
+            span: 0..0,
+            secondary: None,
+        }),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Clause body type checking
 // ---------------------------------------------------------------------------
@@ -679,6 +762,66 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
         resolved: resolved.clone(),
         type_env,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Pattern exhaustiveness checking (T017)
+// ---------------------------------------------------------------------------
+
+/// A pattern in a match arm, used for exhaustiveness checking.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    /// Matches a specific enum variant by name.
+    Variant(std::string::String),
+    /// Wildcard `_` pattern that matches anything.
+    Wildcard,
+    /// Matches a specific literal value.
+    Literal(assura_parser::ast::Literal),
+}
+
+/// Check whether a set of patterns exhaustively covers all variants of an enum.
+///
+/// Implements a simplified Maranget-style coverage check: collects the set of
+/// variant names covered by the patterns (a `Wildcard` covers everything) and
+/// compares against `enum_variants`.
+///
+/// Returns `None` if the patterns are exhaustive, or `Some(missing)` with the
+/// list of uncovered variant names. The missing list preserves the declaration
+/// order from `enum_variants`.
+///
+/// # Error code
+///
+/// When this returns `Some(_)`, the caller should report error **A10001**
+/// (non-exhaustive match) and include the missing variants in the diagnostic.
+pub fn check_exhaustiveness(
+    patterns: &[Pattern],
+    enum_variants: &[std::string::String],
+) -> Option<Vec<std::string::String>> {
+    // A wildcard covers all variants immediately.
+    if patterns.iter().any(|p| matches!(p, Pattern::Wildcard)) {
+        return None;
+    }
+
+    // Collect the set of variant names explicitly covered.
+    let covered: std::collections::HashSet<&str> = patterns
+        .iter()
+        .filter_map(|p| match p {
+            Pattern::Variant(name) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    let missing: Vec<std::string::String> = enum_variants
+        .iter()
+        .filter(|v| !covered.contains(v.as_str()))
+        .cloned()
+        .collect();
+
+    if missing.is_empty() {
+        None
+    } else {
+        Some(missing)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1196,12 +1339,389 @@ type Point {
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
     }
 
+    // -----------------------------------------------------------------------
+    // T016: Field access and function call type checking tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn infer_field_on_named_type_is_unknown() {
+        let mut env = TypeEnv::new();
+        env.insert("p".into(), Type::Named("Point".into()));
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "x".into());
+        // Named type field access returns Unknown (no struct field info yet)
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_field_surfaces_receiver_error() {
+        let env = TypeEnv::new();
+        // Field access on an expression that has an error inside:
+        // (!42).field -> error inside unary !
+        let expr = AstExpr::Field(
+            Box::new(AstExpr::UnaryOp {
+                op: AstUnOp::Not,
+                expr: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+            }),
+            "field".into(),
+        );
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn infer_call_fn_type_returns_ret() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "add".into(),
+            Type::Fn {
+                params: vec![Type::Int, Type::Int],
+                ret: Box::new(Type::Int),
+            },
+        );
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("add".into())),
+            args: vec![
+                AstExpr::Literal(AstLit::Int("1".into())),
+                AstExpr::Literal(AstLit::Int("2".into())),
+            ],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_call_wrong_arg_count_a03002() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "inc".into(),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Int),
+            },
+        );
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("inc".into())),
+            args: vec![
+                AstExpr::Literal(AstLit::Int("1".into())),
+                AstExpr::Literal(AstLit::Int("2".into())),
+            ],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03002");
+        assert!(err.message.contains("1"));
+        assert!(err.message.contains("2"));
+    }
+
+    #[test]
+    fn infer_call_not_callable_a03005() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("x".into())),
+            args: vec![],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
+        assert!(err.message.contains("Int"));
+        assert!(err.message.contains("not callable"));
+    }
+
+    #[test]
+    fn infer_call_bool_not_callable_a03005() {
+        let mut env = TypeEnv::new();
+        env.insert("flag".into(), Type::Bool);
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("flag".into())),
+            args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
+    }
+
+    #[test]
+    fn infer_call_unknown_callee_is_lenient() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("unknown_fn".into())),
+            args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_call_named_type_is_lenient() {
+        let mut env = TypeEnv::new();
+        env.insert("MyType".into(), Type::Named("MyType".into()));
+        // Calling a Named type is lenient (could be a constructor)
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("MyType".into())),
+            args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_call_fn_empty_params_skips_count_check() {
+        let mut env = TypeEnv::new();
+        // Functions from symbol table have empty params (not yet resolved)
+        env.insert(
+            "f".into(),
+            Type::Fn {
+                params: vec![],
+                ret: Box::new(Type::Bool),
+            },
+        );
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("f".into())),
+            args: vec![
+                AstExpr::Literal(AstLit::Int("1".into())),
+                AstExpr::Literal(AstLit::Int("2".into())),
+            ],
+        };
+        // Empty params means we skip count check, return ret type
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_call_surfaces_arg_error() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "f".into(),
+            Type::Fn {
+                params: vec![],
+                ret: Box::new(Type::Unknown),
+            },
+        );
+        // Argument has a type error inside it: true + false
+        let expr = AstExpr::Call {
+            func: Box::new(AstExpr::Ident("f".into())),
+            args: vec![AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
+            }],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn infer_method_call_is_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("obj".into())),
+            method: "do_something".into(),
+            args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_method_call_surfaces_receiver_error() {
+        let env = TypeEnv::new();
+        // receiver has a type error: true + 1
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            }),
+            method: "m".into(),
+            args: vec![],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn infer_index_list_returns_element_type() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("xs".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn infer_index_map_returns_value_type() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "m".into(),
+            Type::Map(Box::new(Type::String), Box::new(Type::Bool)),
+        );
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("m".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Str("key".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn infer_index_sequence_returns_element_type() {
+        let mut env = TypeEnv::new();
+        env.insert("seq".into(), Type::Sequence(Box::new(Type::Float)));
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("seq".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
+    }
+
+    #[test]
+    fn infer_index_unknown_base_is_unknown() {
+        let env = TypeEnv::new();
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("unknown".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_index_named_type_is_unknown() {
+        let mut env = TypeEnv::new();
+        env.insert("arr".into(), Type::Named("CustomArray".into()));
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("arr".into())),
+            index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        };
+        // Named type indexing returns Unknown (could be user-defined indexable)
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn infer_index_surfaces_index_error() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        // Index expr has a type error: true && 42
+        let expr = AstExpr::Index {
+            expr: Box::new(AstExpr::Ident("xs".into())),
+            index: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+                op: AstBinOp::And,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+            }),
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
     #[test]
     fn type_display_basic() {
         assert_eq!(format!("{}", Type::Int), "Int");
         assert_eq!(format!("{}", Type::Bool), "Bool");
         assert_eq!(format!("{}", Type::List(Box::new(Type::Int))), "List<Int>");
         assert_eq!(format!("{}", Type::Unknown), "Unknown");
+    }
+
+    // -----------------------------------------------------------------------
+    // T017: Pattern exhaustiveness checking tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn exhaustive_all_variants_covered() {
+        let variants = vec!["Red".into(), "Green".into(), "Blue".into()];
+        let patterns = vec![
+            Pattern::Variant("Red".into()),
+            Pattern::Variant("Green".into()),
+            Pattern::Variant("Blue".into()),
+        ];
+        assert_eq!(check_exhaustiveness(&patterns, &variants), None);
+    }
+
+    #[test]
+    fn exhaustive_wildcard_covers_all() {
+        let variants = vec!["Red".into(), "Green".into(), "Blue".into()];
+        let patterns = vec![Pattern::Wildcard];
+        assert_eq!(check_exhaustiveness(&patterns, &variants), None);
+    }
+
+    #[test]
+    fn exhaustive_wildcard_with_explicit() {
+        let variants = vec!["Red".into(), "Green".into(), "Blue".into()];
+        let patterns = vec![Pattern::Variant("Red".into()), Pattern::Wildcard];
+        assert_eq!(check_exhaustiveness(&patterns, &variants), None);
+    }
+
+    #[test]
+    fn non_exhaustive_missing_one() {
+        let variants = vec!["Red".into(), "Green".into(), "Blue".into()];
+        let patterns = vec![
+            Pattern::Variant("Red".into()),
+            Pattern::Variant("Green".into()),
+        ];
+        let missing = check_exhaustiveness(&patterns, &variants);
+        assert_eq!(missing, Some(vec!["Blue".into()]));
+    }
+
+    #[test]
+    fn non_exhaustive_missing_multiple() {
+        let variants = vec!["Red".into(), "Green".into(), "Blue".into(), "Yellow".into()];
+        let patterns = vec![Pattern::Variant("Green".into())];
+        let missing = check_exhaustiveness(&patterns, &variants).unwrap();
+        assert_eq!(missing, vec!["Red", "Blue", "Yellow"]);
+    }
+
+    #[test]
+    fn non_exhaustive_empty_patterns() {
+        let variants = vec!["A".into(), "B".into(), "C".into()];
+        let patterns: Vec<Pattern> = vec![];
+        let missing = check_exhaustiveness(&patterns, &variants).unwrap();
+        assert_eq!(missing, vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn exhaustive_empty_enum() {
+        let variants: Vec<String> = vec![];
+        let patterns: Vec<Pattern> = vec![];
+        assert_eq!(check_exhaustiveness(&patterns, &variants), None);
+    }
+
+    #[test]
+    fn exhaustive_duplicate_patterns_ignored() {
+        let variants = vec!["X".into(), "Y".into()];
+        let patterns = vec![
+            Pattern::Variant("X".into()),
+            Pattern::Variant("X".into()),
+            Pattern::Variant("Y".into()),
+        ];
+        assert_eq!(check_exhaustiveness(&patterns, &variants), None);
+    }
+
+    #[test]
+    fn non_exhaustive_literal_does_not_cover_variant() {
+        let variants = vec!["Red".into(), "Green".into()];
+        let patterns = vec![
+            Pattern::Variant("Red".into()),
+            Pattern::Literal(AstLit::Int("42".into())),
+        ];
+        let missing = check_exhaustiveness(&patterns, &variants).unwrap();
+        assert_eq!(missing, vec!["Green"]);
+    }
+
+    #[test]
+    fn exhaustive_single_variant_enum() {
+        let variants = vec!["Only".into()];
+        let patterns = vec![Pattern::Variant("Only".into())];
+        assert_eq!(check_exhaustiveness(&patterns, &variants), None);
+    }
+
+    #[test]
+    fn non_exhaustive_preserves_declaration_order() {
+        let variants = vec![
+            "Alpha".into(),
+            "Beta".into(),
+            "Gamma".into(),
+            "Delta".into(),
+            "Epsilon".into(),
+        ];
+        let patterns = vec![
+            Pattern::Variant("Beta".into()),
+            Pattern::Variant("Delta".into()),
+        ];
+        let missing = check_exhaustiveness(&patterns, &variants).unwrap();
+        assert_eq!(missing, vec!["Alpha", "Gamma", "Epsilon"]);
     }
 
     #[test]
