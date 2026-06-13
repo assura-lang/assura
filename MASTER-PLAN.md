@@ -308,7 +308,7 @@
 
 ### 0.6 Phase 0 Integration (1 week)
 
-- [ ] **T028**: End-to-end test: SafeDivision contract
+- [x] **T028**: End-to-end test: SafeDivision contract
   - Depends on: T025
   - Write `tests/e2e/safe_division.assura`:
     ```assura

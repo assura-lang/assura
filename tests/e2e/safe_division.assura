@@ -1,0 +1,14 @@
+// End-to-end test: SafeDivision contract (T028)
+//
+// Verifies:
+// - assura check passes (parse, resolve, type-check)
+// - assura build generates valid Rust with debug_assert!(b != 0)
+// - Generated Rust compiles via cargo build
+
+contract SafeDivision {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+    ensures  { result * b + (a % b) == a }
+    effects  { pure }
+}
