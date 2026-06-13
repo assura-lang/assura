@@ -261,6 +261,49 @@ pub fn resolve_with_modules(
     // --- Resolve imports ---
     let resolved_imports = resolve_imports(&source.imports, module_map, visited, &mut errors);
 
+    // --- Inject imported symbols into module scope ---
+    // Selective imports (`import X { A, B }`) inject each named item.
+    // Aliased imports (`import X as Y`) inject the alias as a module reference.
+    // Unselective imports (`import X`) inject the last path segment.
+    for imp in &resolved_imports {
+        if imp.status == ImportStatus::Circular {
+            continue;
+        }
+        if !imp.items.is_empty() {
+            // Selective: inject each named item as a BuiltinType (external type)
+            for item in &imp.items {
+                try_insert(
+                    &mut table,
+                    &mut errors,
+                    module,
+                    item,
+                    SymbolKind::BuiltinType,
+                    0..0,
+                );
+            }
+        } else if let Some(alias) = &imp.alias {
+            // Aliased: inject the alias as a module-level symbol
+            try_insert(
+                &mut table,
+                &mut errors,
+                module,
+                alias,
+                SymbolKind::BuiltinType,
+                0..0,
+            );
+        } else if let Some(last) = imp.path.last() {
+            // Bare import: inject the last path segment
+            try_insert(
+                &mut table,
+                &mut errors,
+                module,
+                last,
+                SymbolKind::BuiltinType,
+                0..0,
+            );
+        }
+    }
+
     // --- Walk top-level declarations ---
     for decl in &source.decls {
         match &decl.node {
@@ -1928,6 +1971,68 @@ enum MyResult {
         assert!(
             errs.iter().any(|e| e.code == "A02001"),
             "should report A02001 for unknown type"
+        );
+    }
+
+    #[test]
+    fn selective_import_injects_symbols() {
+        let src = r#"
+import std.collections { List, Map };
+type MyData {
+  items: List
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("should resolve with imported types");
+        // List and Map should be in the symbol table as BuiltinType
+        let names: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(
+            names.contains(&"List"),
+            "List should be injected from import"
+        );
+        assert!(names.contains(&"Map"), "Map should be injected from import");
+    }
+
+    #[test]
+    fn aliased_import_injects_alias() {
+        let src = r#"
+import crypto.hash as hash;
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("should resolve");
+        let names: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(
+            names.contains(&"hash"),
+            "alias should be injected from import"
+        );
+    }
+
+    #[test]
+    fn bare_import_injects_last_segment() {
+        let src = r#"
+import std.math;
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("should resolve");
+        let names: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(
+            names.contains(&"math"),
+            "last path segment should be injected from import"
         );
     }
 }

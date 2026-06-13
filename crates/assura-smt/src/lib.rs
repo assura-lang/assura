@@ -839,8 +839,14 @@ mod z3_backend {
                 // --- Ghost block: encode inner for verification ---
                 Expr::Ghost(inner) => self.encode_expr(inner),
 
-                // --- Apply lemma: encode as true (assumption injected elsewhere) ---
-                Expr::Apply { .. } => Z3Value::Bool(ast::Bool::from_bool(self.ctx, true)),
+                // --- Apply lemma: encode args for constraint propagation,
+                //     result is true (the lemma's postcondition is assumed) ---
+                Expr::Apply { args, .. } => {
+                    for arg in args {
+                        let _ = self.encode_expr(arg);
+                    }
+                    Z3Value::Bool(ast::Bool::from_bool(self.ctx, true))
+                }
 
                 // --- Match: encode as ITE chain over arm bodies ---
                 Expr::Match { scrutinee, arms } => {
@@ -961,7 +967,9 @@ mod z3_backend {
         /// operators over identifiers and integer literals.
         fn encode_raw_tokens(&mut self, tokens: &[String]) -> Z3Value<'ctx> {
             if tokens.is_empty() {
-                return Z3Value::Bool(self.fresh_bool());
+                // Empty clause body is vacuously true (e.g. an ensures
+                // clause with no expression defaults to trivially satisfied).
+                return Z3Value::Bool(ast::Bool::from_bool(self.ctx, true));
             }
 
             // Try to parse as a structured expression
@@ -1013,7 +1021,8 @@ mod z3_backend {
         /// Parse a single atom from raw tokens.
         fn parse_raw_atom(&mut self, tokens: &[String], start: usize) -> (Z3Value<'ctx>, usize) {
             if start >= tokens.len() {
-                return (Z3Value::Bool(self.fresh_bool()), start);
+                // Past end of tokens: treat as vacuously true.
+                return (Z3Value::Bool(ast::Bool::from_bool(self.ctx, true)), start);
             }
 
             let tok = &tokens[start];
