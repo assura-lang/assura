@@ -144,7 +144,7 @@
 
 > Check types without SMT. Structural checks only.
 
-- [ ] **T013**: Create `assura-types` crate AND wire into CLI
+- [x] **T013**: Create `assura-types` crate AND wire into CLI
   - Depends on: T012
   - New crate: `crates/assura-types/`
   - Depends on: `assura-parser`, `assura-resolve`
