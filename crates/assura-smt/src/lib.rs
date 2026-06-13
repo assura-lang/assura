@@ -854,9 +854,12 @@ mod z3_backend {
                     })
                 }
 
-                // --- Complex expressions: return fresh unconstrained value ---
-                // --- Let binding: encode body (value binding is implicit) ---
-                Expr::Let { body, .. } => self.encode_expr(body),
+                // --- Let binding: bind value, then encode body ---
+                Expr::Let { name, value, body } => {
+                    let val = self.encode_expr(value);
+                    self.vars.insert(name.clone(), val);
+                    self.encode_expr(body)
+                }
 
                 // --- Field access: uninterpreted function field_name(obj) ---
                 Expr::Field(obj, field) => self.encode_field_access(obj, field),
@@ -888,10 +891,11 @@ mod z3_backend {
                 // --- Tuple: no meaningful SMT encoding, use fresh ---
                 Expr::Tuple(_) => Z3Value::Int(self.fresh_int()),
 
-                // --- Cast/List/Block: still fresh (no meaningful SMT encoding) ---
-                Expr::Cast { .. } | Expr::List(_) | Expr::Block(_) => {
-                    Z3Value::Int(self.fresh_int())
-                }
+                // --- Cast: encode inner (the value doesn't change, only its type) ---
+                Expr::Cast { expr, .. } => self.encode_expr(expr),
+
+                // --- List/Block: no meaningful SMT encoding, use fresh ---
+                Expr::List(_) | Expr::Block(_) => Z3Value::Int(self.fresh_int()),
             }
         }
 
