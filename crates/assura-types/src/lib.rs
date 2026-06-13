@@ -832,6 +832,20 @@ fn is_literal_zero(expr: &Expr) -> bool {
     }
 }
 
+/// Extract the element type from a collection type.
+///
+/// Used to type quantifier variables: `forall x in xs` where `xs: List<T>`
+/// binds `x` to `T`. For range domains (`a..b` parsed as `BinOp::Range`),
+/// the element type is `Int`. For non-collection types, returns `Unknown`.
+fn element_type_of(domain_ty: &Type) -> Type {
+    match domain_ty {
+        Type::List(elem) | Type::Set(elem) | Type::Sequence(elem) => *elem.clone(),
+        Type::Map(key, _) => *key.clone(),
+        Type::Int | Type::Nat => Type::Int, // range domain
+        _ => Type::Unknown,
+    }
+}
+
 fn is_numeric(ty: &Type) -> bool {
     match ty {
         Type::Int
@@ -954,11 +968,15 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
         }
 
         // --- Quantifiers ---
-        Expr::Forall { body, .. } | Expr::Exists { body, .. } => {
-            // The body should be Bool but we don't enforce that strictly
-            // here (domain might introduce Unknown bindings). The overall
-            // result of a quantifier is always Bool.
-            let _body_ty = infer_expr(body, env)?;
+        Expr::Forall { var, domain, body } | Expr::Exists { var, domain, body } => {
+            // Infer the domain type to determine the quantified variable's type.
+            let domain_ty = infer_expr(domain, env)?;
+            let elem_ty = element_type_of(&domain_ty);
+            // Bind the quantified variable in a child environment so the
+            // body can reference it with the correct type.
+            let mut child_env = env.clone();
+            child_env.insert(var.clone(), elem_ty);
+            let _body_ty = infer_expr(body, &child_env)?;
             Ok(Type::Bool)
         }
 
@@ -14207,6 +14225,76 @@ extern fn read_bytes(n: U32) -> Bytes
             body: Box::new(AstExpr::Literal(AstLit::Bool(true))),
         };
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn forall_binds_variable_from_list_domain() {
+        let mut env = TypeEnv::new();
+        // xs: List<Int>
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        // forall x in xs: x > 0  -- x should be inferred as Int
+        let expr = AstExpr::Forall {
+            var: "x".into(),
+            domain: Box::new(AstExpr::Ident("xs".into())),
+            body: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Ident("x".into())),
+                op: assura_parser::ast::BinOp::Gt,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+            }),
+        };
+        // Should not error because x is bound as Int in the body
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn exists_binds_variable_from_set_domain() {
+        let mut env = TypeEnv::new();
+        // s: Set<String>
+        env.insert("s".into(), Type::Set(Box::new(Type::String)));
+        let expr = AstExpr::Exists {
+            var: "elem".into(),
+            domain: Box::new(AstExpr::Ident("s".into())),
+            body: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn forall_binds_variable_from_map_domain() {
+        let mut env = TypeEnv::new();
+        // m: Map<String, Int>  -- iterating over a map yields keys
+        env.insert(
+            "m".into(),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+        );
+        let expr = AstExpr::Forall {
+            var: "k".into(),
+            domain: Box::new(AstExpr::Ident("m".into())),
+            body: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        };
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn element_type_of_returns_correct_types() {
+        assert_eq!(
+            element_type_of(&Type::List(Box::new(Type::Int))),
+            Type::Int
+        );
+        assert_eq!(
+            element_type_of(&Type::Set(Box::new(Type::String))),
+            Type::String
+        );
+        assert_eq!(
+            element_type_of(&Type::Sequence(Box::new(Type::Bool))),
+            Type::Bool
+        );
+        assert_eq!(
+            element_type_of(&Type::Map(Box::new(Type::String), Box::new(Type::Int))),
+            Type::String
+        );
+        assert_eq!(element_type_of(&Type::Int), Type::Int);
+        assert_eq!(element_type_of(&Type::Named("Foo".into())), Type::Unknown);
     }
 
     #[test]
