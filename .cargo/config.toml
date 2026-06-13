@@ -1,0 +1,4 @@
+[env]
+Z3_SYS_Z3_HEADER = "/opt/homebrew/opt/z3/include/z3.h"
+CPATH = "/opt/homebrew/opt/z3/include"
+LIBRARY_PATH = "/opt/homebrew/opt/z3/lib"

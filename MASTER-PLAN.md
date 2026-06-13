@@ -366,7 +366,7 @@
   - After branches merge, variables used in both branches are consumed
   - Emit A05001-A05005 (linearity errors)
 
-- [ ] **T033**: Test cases for linear types
+- [x] **T033**: Test cases for linear types
   - Depends on: T032
   - Test Case 1 from Section 13 of spec:
     refinement predicate on a linear variable should NOT count as a use
@@ -376,7 +376,7 @@
 
 ### 1.2 Typestate (1 week)
 
-- [ ] **T034**: Implement typestate checker
+- [x] **T034**: Implement typestate checker
   - Depends on: T032 (typestate requires linearity)
   - Build DFA per typestate variable from `states:` declaration
   - Track current state through control flow
@@ -385,7 +385,7 @@
   - Emit A06001-A06004 (typestate errors)
   - Spec reference: Section 2.6
 
-- [ ] **T035**: Test cases for typestate
+- [x] **T035**: Test cases for typestate
   - Depends on: T034
   - Test: valid state transition sequence -> passes
   - Test: operation called in wrong state -> A06001
@@ -394,7 +394,7 @@
 
 ### 1.3 Effect System (1 week)
 
-- [ ] **T036**: Implement effect checker
+- [x] **T036**: Implement effect checker
   - Depends on: T032 (effect system uses linearity for resource effects)
   - Each function declares an effect row: `effects { io, mem }`
   - Function body's actual effects must be subset of declared effects
@@ -403,7 +403,7 @@
   - Emit A07001-A07005
   - Spec reference: Section 3.5
 
-- [ ] **T037**: Test cases for effects
+- [x] **T037**: Test cases for effects
   - Depends on: T036
   - Test: pure function calling effectful function -> A07001
   - Test: function with correct effect declaration -> passes
@@ -414,7 +414,7 @@
 > This is the hardest and most important milestone. Everything after
 > this depends on having a working SMT solver connection.
 
-- [ ] **T038**: Create `assura-smt` crate with Z3 bindings AND wire into CLI
+- [x] **T038**: Create `assura-smt` crate with Z3 bindings AND wire into CLI
   - Depends on: T018
   - New crate: `crates/assura-smt/`
   - Add `z3` crate dependency (Rust bindings to libz3)
