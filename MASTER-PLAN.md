@@ -486,7 +486,7 @@
   - Error codes: A55001-A55005
   - Spec reference: Section 14.CORE.2
 
-- [ ] **T045**: Implement CORE.3 Frame conditions
+- [x] **T045**: Implement CORE.3 Frame conditions
   - Depends on: T041
   - `modifies` clause declares what a function changes
   - Everything not listed is implicitly unchanged
@@ -1064,3 +1064,14 @@ added a new pass, the pass is not connected. Fix it.
 - Code copied to assura-lang/assura with proper workspace structure
 - AGENTS.md and MASTER-PLAN.md created
 - Parser verified: all 4 demo/test files parse successfully
+
+### T045 (2026-06-12)
+- T045 CORE.3 Frame Conditions completed
+- Added FrameChecker to assura-types: modifies clause target extraction,
+  scope checking (A14001), frame axiom variable computation
+- Added frame axiom injection to SMT encoder: for ensures clauses with
+  a modifies set, unmodified variables get var == old(var) axioms
+- 18 new tests: 14 in assura-types (unit), 4 in assura-smt (integration)
+- Note: inline clause syntax (ensures: expr) parses old() as raw tokens;
+  block syntax (ensures { expr }) parses old() as Expr::Old. Tests use
+  block syntax for correctness.

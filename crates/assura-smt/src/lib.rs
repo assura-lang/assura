@@ -1503,13 +1503,13 @@ mod tests {
 
     #[test]
     fn test_frame_axiom_unmodified_var_verified() {
-        // modifies { x }, ensures: y == old(y)
+        // modifies { x }, ensures { y == old(y) }
         // y is NOT modified, so frame axiom y == old(y) is injected.
         // This should VERIFY because the axiom makes it trivially true.
         let src = r#"
             contract FrameUnmodified {
-                modifies: y
-                ensures: y == old(y)
+                modifies { x }
+                ensures { y == old(y) }
             }
         "#;
         let results = verify_source(src);
@@ -1523,14 +1523,14 @@ mod tests {
 
     #[test]
     fn test_frame_no_axiom_for_modified_var() {
-        // modifies { x }, ensures: x == old(x)
+        // modifies { x }, ensures { x == old(x) }
         // x IS modified, so no frame axiom is injected.
         // Without a requires binding x to old(x), this should produce
         // a COUNTEREXAMPLE because x is unconstrained.
         let src = r#"
             contract FrameModified {
-                modifies: x
-                ensures: x == old(x)
+                modifies { x }
+                ensures { x == old(x) }
             }
         "#;
         let results = verify_source(src);
@@ -1544,13 +1544,13 @@ mod tests {
 
     #[test]
     fn test_frame_axiom_with_requires() {
-        // modifies { x }, requires: x > 0, ensures: y == old(y) and x > 0
+        // modifies { x }, requires { x > 0 }, ensures { y == old(y) }
         // Frame axiom for y, requires assumed for x.
         let src = r#"
             contract FrameWithReq {
-                modifies: x
-                requires: x > 0
-                ensures: y == old(y)
+                modifies { x }
+                requires { x > 0 }
+                ensures { y == old(y) }
             }
         "#;
         let results = verify_source(src);
@@ -1568,7 +1568,7 @@ mod tests {
         // because no frame axiom is injected.
         let src = r#"
             contract NoModifies {
-                ensures: y == old(y)
+                ensures { y == old(y) }
             }
         "#;
         let results = verify_source(src);

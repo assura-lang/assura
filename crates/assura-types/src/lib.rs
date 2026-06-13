@@ -634,6 +634,15 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
         // --- Cast: cannot infer target type from string yet ---
         Expr::Cast { .. } => Ok(Type::Unknown),
 
+        // --- Ghost block: type-check inner, result is Unit (erased at runtime) ---
+        Expr::Ghost(inner) => {
+            // Type-check the inner expression (it must be valid in the
+            // verification domain) but the ghost block itself evaluates
+            // to Unit since it is erased at runtime.
+            let _inner_ty = infer_expr(inner, env)?;
+            Ok(Type::Unit)
+        }
+
         // --- Block / Raw: cannot infer ---
         Expr::Block(_) | Expr::Raw(_) => Ok(Type::Unknown),
     }
@@ -815,6 +824,82 @@ fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv) -> Result<Type, TypeErr
 }
 
 // ---------------------------------------------------------------------------
+// Ghost function effect checking (T043 CORE.1)
+// ---------------------------------------------------------------------------
+
+/// Extract the declared effect set from an `effects` clause on a function.
+///
+/// If no `effects` clause exists, returns `None` (meaning no explicit
+/// declaration, which is NOT the same as pure).
+fn extract_fn_effects(f: &assura_parser::ast::FnDef) -> Option<Vec<std::string::String>> {
+    for clause in &f.clauses {
+        if clause.kind == ClauseKind::Effects {
+            // Extract effect names from the clause body
+            let mut names = Vec::new();
+            extract_effect_names(&clause.body, &mut names);
+            return Some(names);
+        }
+    }
+    None
+}
+
+/// Recursively extract effect name strings from an expression.
+fn extract_effect_names(expr: &Expr, names: &mut Vec<std::string::String>) {
+    match expr {
+        Expr::Ident(s) => names.push(s.clone()),
+        Expr::Raw(tokens) => {
+            for tok in tokens {
+                let trimmed = tok.trim().to_string();
+                if !trimmed.is_empty() && trimmed != "," {
+                    names.push(trimmed);
+                }
+            }
+        }
+        Expr::Block(items) => {
+            for item in items {
+                extract_effect_names(item, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Check that a ghost function has pure effects.
+///
+/// Ghost functions exist only for verification; they cannot perform side
+/// effects. If an `effects` clause is present and declares non-pure effects,
+/// emit A54001.
+fn check_ghost_fn_effects(
+    f: &assura_parser::ast::FnDef,
+    span: &Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    if let Some(effects) = extract_fn_effects(f) {
+        // "pure" or an empty list means no effects: that's fine for ghost fns.
+        let has_non_pure = effects.iter().any(|e| e != "pure");
+        if has_non_pure {
+            let effect_list = effects
+                .iter()
+                .filter(|e| *e != "pure")
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            errors.push(TypeError {
+                code: "A54001".into(),
+                message: format!(
+                    "ghost function `{}` has non-pure effects: {effect_list}; \
+                     ghost functions must be pure (no side effects)",
+                    f.name,
+                ),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+    }
+    // If no effects clause is present, ghost fns are implicitly pure: OK.
+}
+
+// ---------------------------------------------------------------------------
 // Clause body type checking
 // ---------------------------------------------------------------------------
 
@@ -831,6 +916,10 @@ fn check_clause_bodies(source: &assura_parser::ast::SourceFile, env: &TypeEnv) -
                 }
             }
             Decl::FnDef(f) => {
+                // T043 CORE.1: ghost functions must have pure effects
+                if f.is_ghost {
+                    check_ghost_fn_effects(f, &decl.span, &mut errors);
+                }
                 for clause in &f.clauses {
                     check_clause_expr(&clause.kind, &clause.body, env, &mut errors);
                 }
@@ -1369,6 +1458,10 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
                 check_expr_linearity_inner(e, ctx, errors);
             }
         }
+        Expr::Ghost(_inner) => {
+            // Ghost blocks are erased at runtime. Variable references
+            // inside ghost blocks do NOT count as linear uses.
+        }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
         }
@@ -1692,6 +1785,9 @@ pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
                 expr_usages(e, tracker);
             }
         }
+        Expr::Ghost(_) => {
+            // Ghost blocks are erased at runtime; do not count usages.
+        }
         Expr::Raw(_) => {
             // Cannot extract variable references from raw token sequences.
         }
@@ -2009,6 +2105,406 @@ impl EffectChecker {
 impl Default for EffectChecker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Frame condition checking (T045 - CORE.3)
+// ---------------------------------------------------------------------------
+
+/// Extract the set of variable/field names from a `modifies` clause body.
+///
+/// The modifies clause body is typically:
+/// - `Expr::Ident("x")` for a single variable
+/// - `Expr::Block([Expr::Ident("x"), Expr::Ident("y")])` for multiple
+/// - `Expr::Field(Expr::Ident("obj"), "field")` for `obj.field`
+/// - `Expr::List([...])` for comma-separated list
+///
+/// Returns a set of string representations (e.g., `"x"`, `"node.keys"`).
+pub fn extract_modifies_targets(expr: &Expr) -> Vec<std::string::String> {
+    let mut targets = Vec::new();
+    collect_modifies_targets(expr, &mut targets);
+    targets
+}
+
+/// Recursively collect modifies targets from an expression.
+fn collect_modifies_targets(expr: &Expr, targets: &mut Vec<std::string::String>) {
+    match expr {
+        Expr::Ident(name) => {
+            targets.push(name.clone());
+        }
+        Expr::Field(receiver, field) => {
+            // Build dotted path: "obj.field"
+            let mut path = std::string::String::new();
+            build_field_path(receiver, &mut path);
+            if !path.is_empty() {
+                path.push('.');
+            }
+            path.push_str(field);
+            targets.push(path);
+        }
+        Expr::Block(exprs) => {
+            for e in exprs {
+                collect_modifies_targets(e, targets);
+            }
+        }
+        Expr::List(items) => {
+            for item in items {
+                collect_modifies_targets(item, targets);
+            }
+        }
+        Expr::Paren(inner) => {
+            collect_modifies_targets(inner, targets);
+        }
+        Expr::Raw(tokens) => {
+            // Parse comma-separated identifiers from raw tokens
+            for tok in tokens {
+                let trimmed = tok.trim();
+                if !trimmed.is_empty() && trimmed != "," {
+                    targets.push(trimmed.to_string());
+                }
+            }
+        }
+        // Other expression types are not valid modifies targets
+        _ => {}
+    }
+}
+
+/// Build a dotted field path from nested Field expressions.
+fn build_field_path(expr: &Expr, path: &mut std::string::String) {
+    match expr {
+        Expr::Ident(name) => {
+            path.push_str(name);
+        }
+        Expr::Field(receiver, field) => {
+            build_field_path(receiver, path);
+            path.push('.');
+            path.push_str(field);
+        }
+        _ => {}
+    }
+}
+
+/// Collect all variable names referenced via `old(expr)` in an expression.
+///
+/// Walks the expression tree and whenever it finds `Expr::Old(inner)`,
+/// extracts the variable/field name from `inner`. This is used to find
+/// which pre-state variables an `ensures` clause references.
+pub fn collect_old_references(expr: &Expr) -> Vec<std::string::String> {
+    let mut refs = Vec::new();
+    collect_old_refs_inner(expr, &mut refs);
+    refs
+}
+
+fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
+    match expr {
+        Expr::Old(inner) => {
+            // Extract the name from the inner expression
+            match inner.as_ref() {
+                Expr::Ident(name) => {
+                    refs.push(name.clone());
+                }
+                Expr::Field(receiver, field) => {
+                    let mut path = std::string::String::new();
+                    build_field_path(receiver, &mut path);
+                    if !path.is_empty() {
+                        path.push('.');
+                    }
+                    path.push_str(field);
+                    refs.push(path);
+                }
+                _ => {}
+            }
+            // Also recurse into the inner expression
+            collect_old_refs_inner(inner, refs);
+        }
+        Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
+        Expr::Field(receiver, _) => collect_old_refs_inner(receiver, refs),
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_old_refs_inner(receiver, refs);
+            for arg in args {
+                collect_old_refs_inner(arg, refs);
+            }
+        }
+        Expr::Call { func, args } => {
+            collect_old_refs_inner(func, refs);
+            for arg in args {
+                collect_old_refs_inner(arg, refs);
+            }
+        }
+        Expr::Index { expr: base, index } => {
+            collect_old_refs_inner(base, refs);
+            collect_old_refs_inner(index, refs);
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_old_refs_inner(lhs, refs);
+            collect_old_refs_inner(rhs, refs);
+        }
+        Expr::UnaryOp { expr: inner, .. } => collect_old_refs_inner(inner, refs),
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_old_refs_inner(domain, refs);
+            collect_old_refs_inner(body, refs);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_old_refs_inner(cond, refs);
+            collect_old_refs_inner(then_branch, refs);
+            if let Some(else_br) = else_branch {
+                collect_old_refs_inner(else_br, refs);
+            }
+        }
+        Expr::Paren(inner) => collect_old_refs_inner(inner, refs),
+        Expr::List(items) => {
+            for item in items {
+                collect_old_refs_inner(item, refs);
+            }
+        }
+        Expr::Cast { expr: inner, .. } => collect_old_refs_inner(inner, refs),
+        Expr::Ghost(inner) => collect_old_refs_inner(inner, refs),
+        Expr::Block(exprs) => {
+            for e in exprs {
+                collect_old_refs_inner(e, refs);
+            }
+        }
+    }
+}
+
+/// Collect all identifier names referenced in an expression (non-recursive
+/// into old()).
+///
+/// Used to find which variables an ensures clause mentions so we can
+/// determine which frame axioms to inject.
+pub fn collect_ident_references(expr: &Expr) -> Vec<std::string::String> {
+    let mut refs = Vec::new();
+    collect_idents_inner(expr, &mut refs);
+    refs
+}
+
+fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
+    match expr {
+        Expr::Ident(name) => {
+            if name != "true" && name != "false" && name != "result" && name != "self" {
+                refs.push(name.clone());
+            }
+        }
+        Expr::Literal(_) | Expr::Raw(_) => {}
+        Expr::Old(inner) => collect_idents_inner(inner, refs),
+        Expr::Field(receiver, field) => {
+            let mut path = std::string::String::new();
+            build_field_path(receiver, &mut path);
+            if !path.is_empty() {
+                path.push('.');
+            }
+            path.push_str(field);
+            refs.push(path);
+            collect_idents_inner(receiver, refs);
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_idents_inner(receiver, refs);
+            for arg in args {
+                collect_idents_inner(arg, refs);
+            }
+        }
+        Expr::Call { func, args } => {
+            collect_idents_inner(func, refs);
+            for arg in args {
+                collect_idents_inner(arg, refs);
+            }
+        }
+        Expr::Index { expr: base, index } => {
+            collect_idents_inner(base, refs);
+            collect_idents_inner(index, refs);
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_idents_inner(lhs, refs);
+            collect_idents_inner(rhs, refs);
+        }
+        Expr::UnaryOp { expr: inner, .. } => collect_idents_inner(inner, refs),
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_idents_inner(domain, refs);
+            collect_idents_inner(body, refs);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_idents_inner(cond, refs);
+            collect_idents_inner(then_branch, refs);
+            if let Some(else_br) = else_branch {
+                collect_idents_inner(else_br, refs);
+            }
+        }
+        Expr::Paren(inner) => collect_idents_inner(inner, refs),
+        Expr::List(items) => {
+            for item in items {
+                collect_idents_inner(item, refs);
+            }
+        }
+        Expr::Cast { expr: inner, .. } => collect_idents_inner(inner, refs),
+        Expr::Ghost(inner) => collect_idents_inner(inner, refs),
+        Expr::Block(exprs) => {
+            for e in exprs {
+                collect_idents_inner(e, refs);
+            }
+        }
+    }
+}
+
+/// Frame condition checker for modifies clauses (CORE.3).
+///
+/// Validates that:
+/// 1. Names in the `modifies` clause exist in scope (A14001)
+/// 2. Computes which variables are NOT in the modifies set (the "frame")
+///    so that the SMT encoder can inject `var == old(var)` axioms
+///
+/// # Error codes
+///
+/// - **A14001**: Variable in modifies clause does not exist in scope
+/// - **A14002**: Assignment to variable not in modifies set (future, when
+///   we have assignment analysis in the implementation IR)
+pub struct FrameChecker {
+    /// The set of variables/fields declared in the modifies clause.
+    modified: std::collections::HashSet<std::string::String>,
+}
+
+impl FrameChecker {
+    /// Create a new frame checker from modifies clause body expressions.
+    ///
+    /// Extracts variable/field names from the modifies clause and stores
+    /// them as the "modified" set.
+    pub fn new(modifies_clauses: &[&Expr]) -> Self {
+        let mut modified = std::collections::HashSet::new();
+        for body in modifies_clauses {
+            for target in extract_modifies_targets(body) {
+                modified.insert(target);
+            }
+        }
+        Self { modified }
+    }
+
+    /// Create an empty frame checker (no modifies clause present).
+    ///
+    /// When there is no modifies clause, the function may modify anything;
+    /// no frame axioms are injected.
+    pub fn empty() -> Self {
+        Self {
+            modified: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Returns true if this checker has a non-empty modifies set.
+    ///
+    /// When false, no frame axioms should be injected (the function
+    /// did not declare what it modifies).
+    pub fn has_modifies(&self) -> bool {
+        !self.modified.is_empty()
+    }
+
+    /// Get the set of modified variable names.
+    pub fn modified_set(&self) -> &std::collections::HashSet<std::string::String> {
+        &self.modified
+    }
+
+    /// Check that all names in the modifies clause exist in scope.
+    ///
+    /// Returns A14001 errors for any name that is not found in the
+    /// symbol table or type environment.
+    pub fn check_scope(
+        &self,
+        env: &TypeEnv,
+        symbols: &assura_resolve::SymbolTable,
+        span: &Range<usize>,
+    ) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+
+        for name in &self.modified {
+            // Extract the root variable name (before any dots)
+            let root = name.split('.').next().unwrap_or(name);
+
+            // Check if the root variable exists in the type env or symbol table
+            let in_env = env.lookup(root).is_some();
+            let in_symbols = symbols.symbols.iter().any(|s| s.name == root);
+
+            if !in_env && !in_symbols {
+                errors.push(TypeError {
+                    code: "A14001".into(),
+                    message: format!(
+                        "variable `{name}` in modifies clause does not exist in scope"
+                    ),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+
+        errors.sort_by(|a, b| a.message.cmp(&b.message));
+        errors
+    }
+
+    /// Compute the frame variables for an ensures clause.
+    ///
+    /// Given an ensures clause body, finds all variables referenced via
+    /// `old(x)` that are NOT in the modifies set. For each such variable,
+    /// the SMT encoder should assert `x == old(x)` as a frame axiom.
+    ///
+    /// Returns the list of variable names for which frame axioms should
+    /// be injected.
+    pub fn frame_axiom_vars(&self, ensures_body: &Expr) -> Vec<std::string::String> {
+        if !self.has_modifies() {
+            return Vec::new();
+        }
+
+        let old_refs = collect_old_references(ensures_body);
+        let ident_refs = collect_ident_references(ensures_body);
+
+        // Collect all referenced variables (both in old() and directly)
+        let mut all_refs: std::collections::HashSet<std::string::String> =
+            std::collections::HashSet::new();
+        for r in &old_refs {
+            all_refs.insert(r.clone());
+        }
+        for r in &ident_refs {
+            all_refs.insert(r.clone());
+        }
+
+        // Variables NOT in the modifies set get frame axioms
+        let mut frame_vars: Vec<std::string::String> = all_refs
+            .into_iter()
+            .filter(|name| !self.modified.contains(name))
+            .filter(|name| {
+                // Also check if any prefix is in the modified set
+                // e.g., if "node" is modified, "node.keys" is also modified
+                !self
+                    .modified
+                    .iter()
+                    .any(|m| name.starts_with(&format!("{m}.")))
+                    && !self
+                        .modified
+                        .iter()
+                        .any(|m| m.starts_with(&format!("{name}.")))
+            })
+            .collect();
+
+        frame_vars.sort();
+        frame_vars.dedup();
+        frame_vars
+    }
+
+    /// Returns true if a variable name is in the modifies set.
+    pub fn is_modified(&self, name: &str) -> bool {
+        self.modified.contains(name)
+    }
+}
+
+impl std::fmt::Debug for FrameChecker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FrameChecker")
+            .field("modified", &self.modified)
+            .finish()
     }
 }
 
@@ -5492,8 +5988,7 @@ contract Good {
             ("unlock".into(), "Locked".into(), "Unlocked".into()),
             ("lock".into(), "Unlocked".into(), "Locked".into()),
         ];
-        let mut checker =
-            TypestateChecker::new(states, transitions, "Locked".into(), 0..6);
+        let mut checker = TypestateChecker::new(states, transitions, "Locked".into(), 0..6);
 
         // Linear check passes
         assert!(checker.validate_linear(true).is_none());
@@ -5536,12 +6031,8 @@ contract Good {
         // Both the typestate transition and effect containment must pass.
         let states = vec!["Disconnected".into(), "Connected".into()];
         let transitions = vec![("connect".into(), "Disconnected".into(), "Connected".into())];
-        let mut ts_checker = TypestateChecker::new(
-            states,
-            transitions,
-            "Disconnected".into(),
-            0..12,
-        );
+        let mut ts_checker =
+            TypestateChecker::new(states, transitions, "Disconnected".into(), 0..12);
 
         // Typestate: connect() in Disconnected => Connected (OK)
         assert!(ts_checker.transition("connect", 20..27).is_ok());
@@ -5561,8 +6052,7 @@ contract Good {
         // Effect check passes, but typestate check must fail with A06001.
         let states = vec!["Closed".into(), "Open".into()];
         let transitions = vec![("write".into(), "Open".into(), "Open".into())];
-        let mut ts_checker =
-            TypestateChecker::new(states, transitions, "Closed".into(), 0..6);
+        let mut ts_checker = TypestateChecker::new(states, transitions, "Closed".into(), 0..6);
 
         // Typestate: write() requires Open but we are in Closed => A06001
         let ts_err = ts_checker.transition("write", 10..15);
@@ -5586,8 +6076,7 @@ contract Good {
         // effects. Typestate check passes, effect check fails with A07001.
         let states = vec!["Init".into(), "Running".into()];
         let transitions = vec![("start".into(), "Init".into(), "Running".into())];
-        let mut ts_checker =
-            TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+        let mut ts_checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
 
         // Typestate: start() in Init => Running (OK)
         assert!(ts_checker.transition("start", 5..10).is_ok());
@@ -5617,25 +6106,16 @@ contract Good {
         ];
 
         // Branch A: activate => Active
-        let mut checker_a = TypestateChecker::new(
-            states.clone(),
-            transitions.clone(),
-            "Idle".into(),
-            0..4,
-        );
+        let mut checker_a =
+            TypestateChecker::new(states.clone(), transitions.clone(), "Idle".into(), 0..4);
         checker_a.transition("activate", 10..18).unwrap();
 
         // Branch B: fail => Error
-        let mut checker_b =
-            TypestateChecker::new(states, transitions, "Idle".into(), 0..4);
+        let mut checker_b = TypestateChecker::new(states, transitions, "Idle".into(), 0..4);
         checker_b.transition("fail", 10..14).unwrap();
 
         // Post-branch: Active vs Error => A06004
-        let err = TypestateChecker::check_branch_consistency(
-            &checker_a,
-            &checker_b,
-            20..25,
-        );
+        let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 20..25);
         assert!(err.is_some());
         let err = err.unwrap();
         assert_eq!(err.code, "A06004");
@@ -5652,23 +6132,14 @@ contract Good {
             ("complete_b".into(), "Pending".into(), "Done".into()),
         ];
 
-        let mut checker_a = TypestateChecker::new(
-            states.clone(),
-            transitions.clone(),
-            "Pending".into(),
-            0..7,
-        );
+        let mut checker_a =
+            TypestateChecker::new(states.clone(), transitions.clone(), "Pending".into(), 0..7);
         checker_a.transition("complete_a", 10..20).unwrap();
 
-        let mut checker_b =
-            TypestateChecker::new(states, transitions, "Pending".into(), 0..7);
+        let mut checker_b = TypestateChecker::new(states, transitions, "Pending".into(), 0..7);
         checker_b.transition("complete_b", 10..20).unwrap();
 
-        let err = TypestateChecker::check_branch_consistency(
-            &checker_a,
-            &checker_b,
-            20..25,
-        );
+        let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 20..25);
         assert!(err.is_none());
     }
 
@@ -5679,24 +6150,15 @@ contract Good {
         let states = vec!["Idle".into(), "Active".into()];
         let transitions = vec![("start".into(), "Idle".into(), "Active".into())];
 
-        let mut checker_a = TypestateChecker::new(
-            states.clone(),
-            transitions.clone(),
-            "Idle".into(),
-            0..4,
-        );
+        let mut checker_a =
+            TypestateChecker::new(states.clone(), transitions.clone(), "Idle".into(), 0..4);
         checker_a.transition("start", 10..15).unwrap();
         // checker_a: Active
 
-        let checker_b =
-            TypestateChecker::new(states, transitions, "Idle".into(), 0..4);
+        let checker_b = TypestateChecker::new(states, transitions, "Idle".into(), 0..4);
         // checker_b: still Idle (no transition in this branch)
 
-        let err = TypestateChecker::check_branch_consistency(
-            &checker_a,
-            &checker_b,
-            20..25,
-        );
+        let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 20..25);
         assert!(err.is_some());
         let err = err.unwrap();
         assert_eq!(err.code, "A06004");
@@ -5740,20 +6202,14 @@ contract Good {
             ("activate".into(), "Idle".into(), "Active".into()),
             ("deactivate".into(), "Idle".into(), "Stopped".into()),
         ];
-        let mut ts_a = TypestateChecker::new(
-            states.clone(),
-            transitions.clone(),
-            "Idle".into(),
-            0..4,
-        );
+        let mut ts_a =
+            TypestateChecker::new(states.clone(), transitions.clone(), "Idle".into(), 0..4);
         ts_a.transition("activate", 10..18).unwrap();
 
-        let mut ts_b =
-            TypestateChecker::new(states, transitions, "Idle".into(), 0..4);
+        let mut ts_b = TypestateChecker::new(states, transitions, "Idle".into(), 0..4);
         ts_b.transition("deactivate", 10..20).unwrap();
 
-        let ts_err =
-            TypestateChecker::check_branch_consistency(&ts_a, &ts_b, 0..25);
+        let ts_err = TypestateChecker::check_branch_consistency(&ts_a, &ts_b, 0..25);
         assert!(ts_err.is_some());
         assert_eq!(ts_err.unwrap().code, "A06004");
     }
@@ -5796,8 +6252,7 @@ contract Good {
         // and `database.write` (sub-effects of the database group).
         let checker = EffectChecker::new();
         let declared = EffectSet::from_effect_names(["database"]);
-        let actual =
-            EffectSet::from_effect_names(["database.read", "database.write"]);
+        let actual = EffectSet::from_effect_names(["database.read", "database.write"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -5936,12 +6391,7 @@ contract Good {
             ("open".into(), "Init".into(), "Open".into()),
             ("close".into(), "Open".into(), "Closed".into()),
         ];
-        let mut ts = TypestateChecker::new(
-            states,
-            transitions,
-            "Init".into(),
-            0..4,
-        );
+        let mut ts = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
 
         // Typestate transitions
         assert!(ts.transition("open", 10..14).is_ok());
@@ -5977,12 +6427,7 @@ contract Good {
         // This tests that each checker operates independently.
         let states = vec!["Ready".into(), "Done".into()];
         let transitions = vec![("execute".into(), "Ready".into(), "Done".into())];
-        let mut ts = TypestateChecker::new(
-            states,
-            transitions,
-            "Ready".into(),
-            0..5,
-        );
+        let mut ts = TypestateChecker::new(states, transitions, "Ready".into(), 0..5);
 
         // Typestate OK
         assert!(ts.transition("execute", 10..17).is_ok());
@@ -6065,11 +6510,8 @@ contract Good {
         // Declaring both {io, database} covers sub-effects of both.
         let checker = EffectChecker::new();
         let declared = EffectSet::from_effect_names(["io", "database"]);
-        let actual = EffectSet::from_effect_names([
-            "console.write",
-            "network.send",
-            "database.read",
-        ]);
+        let actual =
+            EffectSet::from_effect_names(["console.write", "network.send", "database.read"]);
         let errors = checker.check_containment(&declared, &actual, &(0..10));
         assert!(errors.is_empty());
     }
@@ -6114,19 +6556,10 @@ contract Good {
                 "Connected".into(),
                 "InTransaction".into(),
             ),
-            (
-                "commit".into(),
-                "InTransaction".into(),
-                "Connected".into(),
-            ),
+            ("commit".into(), "InTransaction".into(), "Connected".into()),
             ("close".into(), "Connected".into(), "Closed".into()),
         ];
-        let mut ts = TypestateChecker::new(
-            states,
-            transitions,
-            "Disconnected".into(),
-            0..12,
-        );
+        let mut ts = TypestateChecker::new(states, transitions, "Disconnected".into(), 0..12);
 
         assert!(ts.transition("connect", 10..17).is_ok());
         assert!(ts.transition("begin_tx", 18..26).is_ok());
@@ -6139,11 +6572,8 @@ contract Good {
         // --- Effect tracking ---
         let eff = EffectChecker::new();
         let declared = EffectSet::from_effect_names(["database", "io"]);
-        let actual = EffectSet::from_effect_names([
-            "database.read",
-            "database.write",
-            "network.connect",
-        ]);
+        let actual =
+            EffectSet::from_effect_names(["database.read", "database.write", "network.connect"]);
         let eff_errors = eff.check_containment(&declared, &actual, &(0..39));
         assert!(eff_errors.is_empty(), "effects: {eff_errors:?}");
     }
@@ -6167,8 +6597,7 @@ contract Good {
         // --- Typestate: wrong state ---
         let states = vec!["Off".into(), "On".into()];
         let transitions = vec![("turn_off".into(), "On".into(), "Off".into())];
-        let mut ts =
-            TypestateChecker::new(states, transitions, "Off".into(), 0..3);
+        let mut ts = TypestateChecker::new(states, transitions, "Off".into(), 0..3);
         let ts_err = ts.transition("turn_off", 5..13);
         assert!(ts_err.is_err());
         assert_eq!(ts_err.unwrap_err().code, "A06001");
@@ -6180,5 +6609,337 @@ contract Good {
         let eff_errors = eff.check_containment(&declared, &actual, &(0..10));
         assert_eq!(eff_errors.len(), 1);
         assert_eq!(eff_errors[0].code, "A07002");
+    }
+
+    // -----------------------------------------------------------------------
+    // T045: Frame condition tests (CORE.3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn extract_modifies_single_ident() {
+        let body = AstExpr::Ident("x".into());
+        let targets = extract_modifies_targets(&body);
+        assert_eq!(targets, vec!["x"]);
+    }
+
+    #[test]
+    fn extract_modifies_block_of_idents() {
+        let body = AstExpr::Block(vec![AstExpr::Ident("x".into()), AstExpr::Ident("y".into())]);
+        let targets = extract_modifies_targets(&body);
+        assert_eq!(targets, vec!["x", "y"]);
+    }
+
+    #[test]
+    fn extract_modifies_field_access() {
+        let body = AstExpr::Field(Box::new(AstExpr::Ident("node".into())), "keys".into());
+        let targets = extract_modifies_targets(&body);
+        assert_eq!(targets, vec!["node.keys"]);
+    }
+
+    #[test]
+    fn extract_modifies_nested_field() {
+        let body = AstExpr::Field(
+            Box::new(AstExpr::Field(
+                Box::new(AstExpr::Ident("state".into())),
+                "head".into(),
+            )),
+            "data".into(),
+        );
+        let targets = extract_modifies_targets(&body);
+        assert_eq!(targets, vec!["state.head.data"]);
+    }
+
+    #[test]
+    fn extract_modifies_list() {
+        let body = AstExpr::List(vec![
+            AstExpr::Ident("a".into()),
+            AstExpr::Ident("b".into()),
+            AstExpr::Ident("c".into()),
+        ]);
+        let targets = extract_modifies_targets(&body);
+        assert_eq!(targets, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn extract_modifies_raw_tokens() {
+        let body = AstExpr::Raw(vec!["x".into(), ",".into(), "y".into()]);
+        let targets = extract_modifies_targets(&body);
+        assert_eq!(targets, vec!["x", "y"]);
+    }
+
+    #[test]
+    fn collect_old_refs_simple() {
+        // old(x)
+        let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+        let refs = collect_old_references(&expr);
+        assert_eq!(refs, vec!["x"]);
+    }
+
+    #[test]
+    fn collect_old_refs_in_binop() {
+        // old(x) == old(y) + 1
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("x".into())))),
+            op: AstBinOp::Eq,
+            rhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("y".into())))),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            }),
+        };
+        let refs = collect_old_references(&expr);
+        assert!(refs.contains(&"x".to_string()));
+        assert!(refs.contains(&"y".to_string()));
+    }
+
+    #[test]
+    fn collect_old_refs_field() {
+        // old(node.count)
+        let expr = AstExpr::Old(Box::new(AstExpr::Field(
+            Box::new(AstExpr::Ident("node".into())),
+            "count".into(),
+        )));
+        let refs = collect_old_references(&expr);
+        assert_eq!(refs, vec!["node.count"]);
+    }
+
+    #[test]
+    fn collect_old_refs_none() {
+        // x + y (no old() references)
+        let expr = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Ident("y".into())),
+        };
+        let refs = collect_old_references(&expr);
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn frame_checker_valid_modifies_clause() {
+        // modifies { x } with x in scope -> no errors
+        let body = AstExpr::Ident("x".into());
+        let checker = FrameChecker::new(&[&body]);
+
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        let symbols = assura_resolve::SymbolTable {
+            symbols: vec![],
+            scopes: vec![],
+        };
+
+        let errors = checker.check_scope(&env, &symbols, &(0..10));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn frame_checker_unknown_var_a14001() {
+        // modifies { nonexistent } -> A14001
+        let body = AstExpr::Ident("nonexistent".into());
+        let checker = FrameChecker::new(&[&body]);
+
+        let env = TypeEnv::new();
+        let symbols = assura_resolve::SymbolTable {
+            symbols: vec![],
+            scopes: vec![],
+        };
+
+        let errors = checker.check_scope(&env, &symbols, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A14001");
+        assert!(errors[0].message.contains("nonexistent"));
+    }
+
+    #[test]
+    fn frame_checker_mixed_scope_check() {
+        // modifies { x, unknown_y } -> 1 error for unknown_y
+        let body = AstExpr::Block(vec![
+            AstExpr::Ident("x".into()),
+            AstExpr::Ident("unknown_y".into()),
+        ]);
+        let checker = FrameChecker::new(&[&body]);
+
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        let symbols = assura_resolve::SymbolTable {
+            symbols: vec![],
+            scopes: vec![],
+        };
+
+        let errors = checker.check_scope(&env, &symbols, &(0..10));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A14001");
+        assert!(errors[0].message.contains("unknown_y"));
+    }
+
+    #[test]
+    fn frame_checker_frame_axiom_vars() {
+        // modifies { x }, ensures: y == old(y)
+        // y is NOT in the modifies set, so it gets a frame axiom
+        let modifies_body = AstExpr::Ident("x".into());
+        let checker = FrameChecker::new(&[&modifies_body]);
+
+        let ensures_body = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("y".into())),
+            op: AstBinOp::Eq,
+            rhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("y".into())))),
+        };
+
+        let frame_vars = checker.frame_axiom_vars(&ensures_body);
+        assert!(frame_vars.contains(&"y".to_string()));
+        // x IS modified, so it should NOT appear
+        assert!(!frame_vars.contains(&"x".to_string()));
+    }
+
+    #[test]
+    fn frame_checker_modified_var_no_axiom() {
+        // modifies { x }, ensures: x == old(x) + 1
+        // x IS in the modifies set, so it should NOT get a frame axiom
+        let modifies_body = AstExpr::Ident("x".into());
+        let checker = FrameChecker::new(&[&modifies_body]);
+
+        let ensures_body = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("x".into())),
+            op: AstBinOp::Eq,
+            rhs: Box::new(AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("x".into())))),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            }),
+        };
+
+        let frame_vars = checker.frame_axiom_vars(&ensures_body);
+        assert!(!frame_vars.contains(&"x".to_string()));
+    }
+
+    #[test]
+    fn frame_checker_empty_no_axioms() {
+        // No modifies clause -> no frame axioms
+        let checker = FrameChecker::empty();
+        assert!(!checker.has_modifies());
+
+        let ensures_body = AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("y".into())),
+            op: AstBinOp::Eq,
+            rhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("y".into())))),
+        };
+
+        let frame_vars = checker.frame_axiom_vars(&ensures_body);
+        assert!(frame_vars.is_empty());
+    }
+
+    #[test]
+    fn frame_checker_has_modifies() {
+        let body = AstExpr::Ident("x".into());
+        let checker = FrameChecker::new(&[&body]);
+        assert!(checker.has_modifies());
+    }
+
+    #[test]
+    fn frame_checker_is_modified() {
+        let body = AstExpr::Block(vec![AstExpr::Ident("x".into()), AstExpr::Ident("y".into())]);
+        let checker = FrameChecker::new(&[&body]);
+        assert!(checker.is_modified("x"));
+        assert!(checker.is_modified("y"));
+        assert!(!checker.is_modified("z"));
+    }
+
+    // -----------------------------------------------------------------------
+    // T043 CORE.1: Ghost code tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ghost_fn_pure_effects_passes() {
+        // A ghost function with effects: pure should type-check fine.
+        let src = r#"
+ghost fn invariant_helper(x: Int) -> Bool
+    effects: pure
+    ensures { result == true }
+"#;
+        let resolved = resolve_ok(src);
+        let result = type_check(&resolved);
+        assert!(
+            result.is_ok(),
+            "ghost fn with pure effects should pass: {result:?}"
+        );
+    }
+
+    #[test]
+    fn ghost_fn_no_effects_clause_passes() {
+        // A ghost function with no explicit effects clause is implicitly pure.
+        let src = r#"
+ghost fn spec_helper(x: Int) -> Bool
+    ensures { result == true }
+"#;
+        let resolved = resolve_ok(src);
+        let result = type_check(&resolved);
+        assert!(
+            result.is_ok(),
+            "ghost fn without effects clause should pass: {result:?}"
+        );
+    }
+
+    #[test]
+    fn ghost_fn_non_pure_effects_a54001() {
+        // A ghost function with io effects should produce A54001.
+        let src = r#"
+ghost fn bad_ghost(x: Int) -> Bool
+    effects: io
+    ensures { result == true }
+"#;
+        let resolved = resolve_ok(src);
+        let result = type_check(&resolved);
+        assert!(result.is_err(), "ghost fn with io effects should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.code == "A54001"),
+            "should produce A54001, got: {errors:?}"
+        );
+        assert!(
+            errors[0].message.contains("ghost function"),
+            "error message should mention ghost function"
+        );
+    }
+
+    #[test]
+    fn ghost_block_type_checks_inner() {
+        // A ghost block should type-check its inner expression.
+        let env = TypeEnv::new();
+        let expr = AstExpr::Ghost(Box::new(AstExpr::Literal(AstLit::Bool(true))));
+        // Ghost block type is Unit (erased at runtime)
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unit);
+    }
+
+    #[test]
+    fn ghost_block_propagates_inner_error() {
+        // A ghost block with a type error in its body should propagate the error.
+        let env = TypeEnv::new();
+        let expr = AstExpr::Ghost(Box::new(AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+            op: AstBinOp::Add,
+            rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
+        }));
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03001");
+    }
+
+    #[test]
+    fn ghost_var_not_counted_as_linear_use() {
+        // References inside a ghost block should NOT count as linear uses.
+        let mut tracker = UsageTracker::new();
+        tracker.declare("resource".into(), UsageGrade::Linear, 0..1);
+
+        let ghost_expr = AstExpr::Ghost(Box::new(AstExpr::Ident("resource".into())));
+
+        // Walk with linearity checker: ghost blocks should not count
+        let mut ctx = LinearContext::new(tracker);
+        let errors = check_expr_linearity(&ghost_expr, &mut ctx);
+        assert!(
+            errors.is_empty(),
+            "ghost block should not cause linearity errors"
+        );
+
+        // The variable should still show 0 uses (ghost use does not count)
+        assert_eq!(ctx.get_count("resource"), Some(0));
     }
 }
