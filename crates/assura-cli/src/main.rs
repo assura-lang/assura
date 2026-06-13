@@ -414,7 +414,77 @@ fn run_check(args: &[String]) {
                 })
                 .collect();
 
+            // Build file metadata
+            let mut file_info = serde_json::json!({
+                "file": filename,
+                "success": !has_errors,
+            });
+            if let Some(ref f) = file {
+                if let Some(ref p) = f.project {
+                    file_info["project"] = serde_json::json!({
+                        "name": p.name,
+                        "profile": p.profile,
+                    });
+                }
+                if let Some(ref m) = f.module {
+                    file_info["module"] = serde_json::json!(m.path.join("."));
+                }
+                file_info["imports"] = serde_json::json!(f.imports.len());
+                let mut decl_counts = serde_json::Map::new();
+                let (mut contracts, mut types, mut enums, mut externs, mut fns, mut services) =
+                    (0u32, 0, 0, 0, 0, 0);
+                for d in &f.decls {
+                    match &d.node {
+                        Decl::Contract(_) => contracts += 1,
+                        Decl::TypeDef(_) => types += 1,
+                        Decl::EnumDef(_) => enums += 1,
+                        Decl::Extern(_) => externs += 1,
+                        Decl::FnDef(_) => fns += 1,
+                        Decl::Service(_) => services += 1,
+                        Decl::Block { .. } => {}
+                    }
+                }
+                if contracts > 0 {
+                    decl_counts.insert("contracts".into(), contracts.into());
+                }
+                if types > 0 {
+                    decl_counts.insert("types".into(), types.into());
+                }
+                if enums > 0 {
+                    decl_counts.insert("enums".into(), enums.into());
+                }
+                if externs > 0 {
+                    decl_counts.insert("externs".into(), externs.into());
+                }
+                if fns > 0 {
+                    decl_counts.insert("functions".into(), fns.into());
+                }
+                if services > 0 {
+                    decl_counts.insert("services".into(), services.into());
+                }
+                file_info["declarations"] = serde_json::Value::Object(decl_counts);
+            }
+            if let Some(ref r) = resolved {
+                let user_symbols = r
+                    .symbols
+                    .symbols
+                    .iter()
+                    .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
+                    .count();
+                file_info["resolve"] = serde_json::json!({
+                    "status": "ok",
+                    "symbols": user_symbols,
+                });
+            }
+            if let Some(ref t) = typed {
+                file_info["typecheck"] = serde_json::json!({
+                    "status": "ok",
+                    "bindings": t.type_env.len(),
+                });
+            }
+
             let output = serde_json::json!({
+                "file_info": file_info,
                 "diagnostics": diagnostics,
                 "verification": verification_json,
                 "layer": layer,
