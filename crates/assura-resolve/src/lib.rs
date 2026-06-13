@@ -9,8 +9,8 @@
 use std::collections::{HashMap, HashSet};
 
 use assura_parser::ast::{
-    Decl, EnumDef, ExternDecl, FieldDef, FnDef, ImportDecl, Param, ServiceItem, SourceFile, Span,
-    TypeBody, TypeDef,
+    ClauseKind, Decl, EnumDef, Expr, ExternDecl, FieldDef, FnDef, ImportDecl, Param, ServiceItem,
+    SourceFile, Span, TypeBody, TypeDef,
 };
 
 // ---------------------------------------------------------------------------
@@ -213,6 +213,134 @@ const BUILTIN_TYPES: &[&str] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// Built-in value/function names (always in scope for clause bodies)
+// ---------------------------------------------------------------------------
+
+/// Names that are always available inside contract/function clause bodies.
+/// These include keywords-as-values and common built-in functions.
+const BUILTIN_VALUE_NAMES: &[&str] = &[
+    "result",
+    "self",
+    "true",
+    "false",
+    // Common built-in functions / measures (spec Section 9)
+    "len",
+    "size",
+    "abs",
+    "min",
+    "max",
+    "contains",
+    "keys",
+    "values",
+    "get",
+    "put",
+    "set",
+    "push",
+    "pop",
+    "head",
+    "tail",
+    "first",
+    "last",
+    "map",
+    "filter",
+    "fold",
+    "sum",
+    "count",
+    "any",
+    "all",
+    "concat",
+    "split",
+    "trim",
+    "substring",
+    "index_of",
+    "capacity",
+    "length",
+    "is_empty",
+    // Quantifier / logic
+    "forall",
+    "exists",
+    "old",
+    "ghost",
+    // Effects (commonly appear as clause body identifiers)
+    "pure",
+    "io",
+    "mem",
+    "db",
+    "net",
+    "audit",
+    "crypto",
+    "read",
+    "write",
+    "alloc",
+    "free",
+    "log",
+    // Other keywords that may appear as values
+    "deterministic",
+    "taint",
+    "untrusted",
+    "validated",
+    "secret",
+    "incremental",
+    "monotonic",
+];
+
+// ---------------------------------------------------------------------------
+// Input clause parameter extraction
+// ---------------------------------------------------------------------------
+
+/// Extract parameter names from an `input` clause body.
+///
+/// Input clauses are parsed as either:
+/// - `Expr::Raw(["a", ":", "Int", ",", "b", ":", "Nat", ...])` (common)
+/// - `Expr::Call { args: [Cast{Ident("a"), "Int"}, ...] }` (less common)
+fn extract_input_param_names(body: &Expr) -> Vec<String> {
+    let mut names = Vec::new();
+    match body {
+        Expr::Call { args, .. } => {
+            for arg in args {
+                match arg {
+                    Expr::Cast { expr: inner, .. } => {
+                        if let Expr::Ident(name) = inner.as_ref() {
+                            names.push(name.clone());
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        names.push(name.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Expr::Raw(tokens) => {
+            // Parse "name: Type" pairs from raw tokens.
+            let mut i = 0;
+            while i + 2 <= tokens.len() {
+                if tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
+                    names.push(tokens[i].clone());
+                    // Skip type tokens until comma at depth 0 or end
+                    let mut j = i + 2;
+                    let mut depth = 0i32;
+                    while j < tokens.len() {
+                        match tokens[j].as_str() {
+                            "<" => depth += 1,
+                            ">" if depth > 0 => depth -= 1,
+                            "," if depth == 0 => break,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    i = j + 1; // skip comma
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        _ => {}
+    }
+    names
+}
+
+// ---------------------------------------------------------------------------
 // Resolver
 // ---------------------------------------------------------------------------
 
@@ -330,6 +458,21 @@ pub fn resolve_with_modules(
                             SymbolKind::TypeParam,
                             decl.span.clone(),
                         );
+                    }
+                    // Register input clause parameters in the contract scope
+                    for clause in &c.clauses {
+                        if clause.kind == ClauseKind::Input {
+                            for param_name in extract_input_param_names(&clause.body) {
+                                try_insert(
+                                    &mut table,
+                                    &mut errors,
+                                    contract_scope,
+                                    &param_name,
+                                    SymbolKind::Parameter,
+                                    decl.span.clone(),
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -530,7 +673,7 @@ pub fn resolve_with_modules(
                                     }
                                 }
                             }
-                            ServiceItem::Operation { name, .. } => {
+                            ServiceItem::Operation { name, clauses, .. } => {
                                 let ins = try_insert(
                                     &mut table,
                                     &mut errors,
@@ -540,11 +683,27 @@ pub fn resolve_with_modules(
                                     decl.span.clone(),
                                 );
                                 if ins {
-                                    // Scope for future clause-level resolution.
-                                    table.push_scope(name, Some(svc_scope));
+                                    let op_scope = table.push_scope(name, Some(svc_scope));
+                                    // Register input clause params
+                                    for clause in clauses {
+                                        if clause.kind == ClauseKind::Input {
+                                            for param_name in
+                                                extract_input_param_names(&clause.body)
+                                            {
+                                                try_insert(
+                                                    &mut table,
+                                                    &mut errors,
+                                                    op_scope,
+                                                    &param_name,
+                                                    SymbolKind::Parameter,
+                                                    decl.span.clone(),
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            ServiceItem::Query { name, .. } => {
+                            ServiceItem::Query { name, clauses, .. } => {
                                 let ins = try_insert(
                                     &mut table,
                                     &mut errors,
@@ -554,8 +713,24 @@ pub fn resolve_with_modules(
                                     decl.span.clone(),
                                 );
                                 if ins {
-                                    // Scope for future clause-level resolution.
-                                    table.push_scope(name, Some(svc_scope));
+                                    let q_scope = table.push_scope(name, Some(svc_scope));
+                                    // Register input clause params
+                                    for clause in clauses {
+                                        if clause.kind == ClauseKind::Input {
+                                            for param_name in
+                                                extract_input_param_names(&clause.body)
+                                            {
+                                                try_insert(
+                                                    &mut table,
+                                                    &mut errors,
+                                                    q_scope,
+                                                    &param_name,
+                                                    SymbolKind::Parameter,
+                                                    decl.span.clone(),
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             // States / Invariant / Other don't introduce named symbols.
@@ -588,6 +763,11 @@ pub fn resolve_with_modules(
     let referenced_names = collect_referenced_names(source);
     let mut warnings = Vec::new();
     check_unused_imports(&resolved_imports, &referenced_names, &mut warnings);
+
+    // --- Expression-level name resolution in clause bodies ---
+    // These produce warnings, not hard errors, since we may not know about
+    // all names in scope (external modules, built-in functions, etc.).
+    resolve_clause_body_names(source, &table, &resolved_imports, module, &mut warnings);
 
     // Remove this module from the visited set now that resolution is done.
     visited.remove(&module_name);
@@ -1050,6 +1230,337 @@ fn check_enum_variant_types(
         if !variant.fields.is_empty() {
             check_type_tokens(&variant.fields, table, scope_id, span, lenient, errors);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Expression-level name resolution in clause bodies
+// ---------------------------------------------------------------------------
+
+/// Walk all clause bodies (requires, ensures, invariant, etc.) and check
+/// that `Expr::Ident` references resolve to a known name in scope.
+///
+/// This catches typos in contract bodies like `requires { c > 0 }` when the
+/// input clause only declares `a` and `b`. In lenient mode (files with
+/// imports/modules/projects), unknown names are skipped since they may
+/// come from imported modules.
+fn resolve_clause_body_names(
+    source: &SourceFile,
+    table: &SymbolTable,
+    imports: &[ResolvedImport],
+    module_scope: usize,
+    errors: &mut Vec<ResolutionError>,
+) {
+    let lenient = should_be_lenient(source, imports);
+
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::Contract(c) => {
+                let scope = find_scope_for(table, &c.name, module_scope).unwrap_or(module_scope);
+                for clause in &c.clauses {
+                    if is_body_clause(&clause.kind) {
+                        check_expr_idents(
+                            &clause.body,
+                            table,
+                            scope,
+                            &decl.span,
+                            lenient,
+                            &mut Vec::new(),
+                            errors,
+                        );
+                    }
+                }
+            }
+            Decl::FnDef(f) => {
+                let scope = find_scope_for(table, &f.name, module_scope).unwrap_or(module_scope);
+                for clause in &f.clauses {
+                    if is_body_clause(&clause.kind) {
+                        check_expr_idents(
+                            &clause.body,
+                            table,
+                            scope,
+                            &decl.span,
+                            lenient,
+                            &mut Vec::new(),
+                            errors,
+                        );
+                    }
+                }
+            }
+            Decl::Extern(ex) => {
+                let scope = find_scope_for(table, &ex.name, module_scope).unwrap_or(module_scope);
+                for clause in &ex.clauses {
+                    if is_body_clause(&clause.kind) {
+                        check_expr_idents(
+                            &clause.body,
+                            table,
+                            scope,
+                            &decl.span,
+                            lenient,
+                            &mut Vec::new(),
+                            errors,
+                        );
+                    }
+                }
+            }
+            Decl::Service(s) => {
+                let svc_scope =
+                    find_scope_for(table, &s.name, module_scope).unwrap_or(module_scope);
+                for item in &s.items {
+                    match item {
+                        ServiceItem::Operation { name, clauses, .. }
+                        | ServiceItem::Query { name, clauses, .. } => {
+                            let op_scope =
+                                find_scope_for(table, name, svc_scope).unwrap_or(svc_scope);
+                            for clause in clauses {
+                                if is_body_clause(&clause.kind) {
+                                    check_expr_idents(
+                                        &clause.body,
+                                        table,
+                                        op_scope,
+                                        &Span::default(),
+                                        lenient,
+                                        &mut Vec::new(),
+                                        errors,
+                                    );
+                                }
+                            }
+                        }
+                        ServiceItem::Invariant(expr) => {
+                            check_expr_idents(
+                                expr,
+                                table,
+                                svc_scope,
+                                &Span::default(),
+                                lenient,
+                                &mut Vec::new(),
+                                errors,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Decl::Block { body, .. } => {
+                for clause in body {
+                    if is_body_clause(&clause.kind) {
+                        check_expr_idents(
+                            &clause.body,
+                            table,
+                            module_scope,
+                            &decl.span,
+                            lenient,
+                            &mut Vec::new(),
+                            errors,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Returns `true` for clause kinds whose bodies contain expressions that
+/// should be checked for name resolution (predicates, not declarations).
+fn is_body_clause(kind: &ClauseKind) -> bool {
+    matches!(
+        kind,
+        ClauseKind::Requires
+            | ClauseKind::Ensures
+            | ClauseKind::Invariant
+            | ClauseKind::Modifies
+            | ClauseKind::Decreases
+    )
+}
+
+/// Recursively check `Expr::Ident` references in an expression tree.
+///
+/// The `locals` parameter tracks locally-bound names (quantifier variables,
+/// let bindings) that are valid within their subtree.
+fn check_expr_idents(
+    expr: &Expr,
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    locals: &mut Vec<String>,
+    errors: &mut Vec<ResolutionError>,
+) {
+    match expr {
+        Expr::Ident(name) => {
+            // Skip if it resolves in the symbol table
+            if table.lookup(name, scope_id).is_some() {
+                return;
+            }
+            // Skip if it's a locally-bound variable (quantifier/let)
+            if locals.contains(name) {
+                return;
+            }
+            // Skip if it's a built-in value/function name
+            if BUILTIN_VALUE_NAMES.contains(&name.as_str()) {
+                return;
+            }
+            // Skip numeric-looking tokens
+            if name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                return;
+            }
+            // In lenient mode, skip all unknown names
+            if lenient {
+                return;
+            }
+            errors.push(ResolutionError {
+                code: "A02001",
+                message: format!("undefined name `{name}` in clause body"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+        Expr::Field(receiver, _field) => {
+            // Only check the receiver; the field name is resolved structurally
+            check_expr_idents(receiver, table, scope_id, span, lenient, locals, errors);
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            check_expr_idents(receiver, table, scope_id, span, lenient, locals, errors);
+            for arg in args {
+                check_expr_idents(arg, table, scope_id, span, lenient, locals, errors);
+            }
+        }
+        Expr::Call { func, args } => {
+            check_expr_idents(func, table, scope_id, span, lenient, locals, errors);
+            for arg in args {
+                check_expr_idents(arg, table, scope_id, span, lenient, locals, errors);
+            }
+        }
+        Expr::Index { expr: base, index } => {
+            check_expr_idents(base, table, scope_id, span, lenient, locals, errors);
+            check_expr_idents(index, table, scope_id, span, lenient, locals, errors);
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            check_expr_idents(lhs, table, scope_id, span, lenient, locals, errors);
+            check_expr_idents(rhs, table, scope_id, span, lenient, locals, errors);
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Paren(inner)
+        | Expr::Old(inner)
+        | Expr::Ghost(inner) => {
+            check_expr_idents(inner, table, scope_id, span, lenient, locals, errors);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            check_expr_idents(cond, table, scope_id, span, lenient, locals, errors);
+            check_expr_idents(then_branch, table, scope_id, span, lenient, locals, errors);
+            if let Some(e) = else_branch {
+                check_expr_idents(e, table, scope_id, span, lenient, locals, errors);
+            }
+        }
+        Expr::Forall {
+            var, domain, body, ..
+        }
+        | Expr::Exists {
+            var, domain, body, ..
+        } => {
+            check_expr_idents(domain, table, scope_id, span, lenient, locals, errors);
+            locals.push(var.clone());
+            check_expr_idents(body, table, scope_id, span, lenient, locals, errors);
+            locals.pop();
+        }
+        Expr::Let { name, value, body } => {
+            check_expr_idents(value, table, scope_id, span, lenient, locals, errors);
+            locals.push(name.clone());
+            check_expr_idents(body, table, scope_id, span, lenient, locals, errors);
+            locals.pop();
+        }
+        Expr::Match { scrutinee, arms } => {
+            check_expr_idents(scrutinee, table, scope_id, span, lenient, locals, errors);
+            for arm in arms {
+                let mut arm_locals = locals.clone();
+                collect_pattern_bindings(&arm.pattern, &mut arm_locals);
+                check_expr_idents(
+                    &arm.body,
+                    table,
+                    scope_id,
+                    span,
+                    lenient,
+                    &mut arm_locals,
+                    errors,
+                );
+            }
+        }
+        Expr::Apply { lemma_name, args } => {
+            // The lemma name should resolve as a function/declaration
+            if table.lookup(lemma_name, scope_id).is_none()
+                && !locals.contains(lemma_name)
+                && !BUILTIN_VALUE_NAMES.contains(&lemma_name.as_str())
+                && !lenient
+            {
+                errors.push(ResolutionError {
+                    code: "A02001",
+                    message: format!("undefined lemma `{lemma_name}`"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+            for arg in args {
+                check_expr_idents(arg, table, scope_id, span, lenient, locals, errors);
+            }
+        }
+        Expr::Cast { expr: inner, .. } => {
+            check_expr_idents(inner, table, scope_id, span, lenient, locals, errors);
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                check_expr_idents(item, table, scope_id, span, lenient, locals, errors);
+            }
+        }
+        Expr::Raw(tokens) => {
+            // For raw tokens, check identifiers that look like value references
+            for tok in tokens {
+                if tok
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+                    && table.lookup(tok, scope_id).is_none()
+                    && !locals.contains(tok)
+                    && !BUILTIN_VALUE_NAMES.contains(&tok.as_str())
+                    && !TYPE_SYNTAX_TOKENS.contains(&tok.as_str())
+                    && !is_type_name_candidate(tok)
+                    && !lenient
+                {
+                    errors.push(ResolutionError {
+                        code: "A02001",
+                        message: format!("undefined name `{tok}` in clause body"),
+                        span: span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        Expr::Literal(_) => {}
+    }
+}
+
+/// Collect names bound by a pattern (for match arm local scope).
+fn collect_pattern_bindings(pattern: &assura_parser::ast::Pattern, locals: &mut Vec<String>) {
+    use assura_parser::ast::Pattern;
+    match pattern {
+        Pattern::Ident(name) if name != "_" => {
+            locals.push(name.clone());
+        }
+        Pattern::Constructor { fields, .. } => {
+            for f in fields {
+                collect_pattern_bindings(f, locals);
+            }
+        }
+        Pattern::Tuple(pats) => {
+            for p in pats {
+                collect_pattern_bindings(p, locals);
+            }
+        }
+        Pattern::Wildcard | Pattern::Literal(_) | Pattern::Ident(_) => {}
     }
 }
 
@@ -2466,5 +2977,256 @@ import crypto.hash_utils;
         assert!(!is_valid_path_segment("123"));
         assert!(!is_valid_path_segment(""));
         assert!(!is_valid_path_segment("foo-bar"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Input param extraction tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn extract_input_params_raw_tokens() {
+        use assura_parser::ast::Expr;
+        let body = Expr::Raw(vec![
+            "a".to_string(),
+            ":".to_string(),
+            "Int".to_string(),
+            ",".to_string(),
+            "b".to_string(),
+            ":".to_string(),
+            "Nat".to_string(),
+        ]);
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn extract_input_params_generic_type() {
+        use assura_parser::ast::Expr;
+        // input(items: List<Int>, count: Nat)
+        let body = Expr::Raw(vec![
+            "items".into(),
+            ":".into(),
+            "List".into(),
+            "<".into(),
+            "Int".into(),
+            ">".into(),
+            ",".into(),
+            "count".into(),
+            ":".into(),
+            "Nat".into(),
+        ]);
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["items", "count"]);
+    }
+
+    #[test]
+    fn extract_input_params_call_expr() {
+        use assura_parser::ast::Expr;
+        let body = Expr::Call {
+            func: Box::new(Expr::Ident("input".to_string())),
+            args: vec![
+                Expr::Cast {
+                    expr: Box::new(Expr::Ident("x".to_string())),
+                    ty: "Int".to_string(),
+                },
+                Expr::Ident("y".to_string()),
+            ],
+        };
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["x", "y"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Contract input params registered in scope
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn contract_input_params_in_scope() {
+        let src = r#"
+contract Foo {
+  input(a: Int, b: Int)
+  requires { a > 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        // Parameters a and b should be in the contract's scope
+        let params: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(params.contains(&"a"), "param a not found");
+        assert!(params.contains(&"b"), "param b not found");
+    }
+
+    #[test]
+    fn contract_input_params_accessible_from_ensures() {
+        // Params declared in input should be usable in ensures
+        let src = r#"
+contract Div {
+  input(a: Int, b: Int)
+  output(result: Int)
+  requires { b != 0 }
+  ensures  { result * b <= a }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let contract_scope = resolved
+            .symbols
+            .scopes
+            .iter()
+            .position(|s| s.name == "Div")
+            .expect("Div scope not found");
+        // a, b, result should all be accessible from the contract scope
+        assert!(resolved.symbols.lookup("a", contract_scope).is_some());
+        assert!(resolved.symbols.lookup("b", contract_scope).is_some());
+        // result is a built-in value name, not in the symbol table,
+        // but won't produce a warning in clause body checks
+    }
+
+    // -----------------------------------------------------------------------
+    // Expression-level name resolution warnings
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn undefined_name_in_clause_body_warns() {
+        // No imports, no module => strict mode. 'c' is undefined.
+        let src = r#"
+contract Foo {
+  input(a: Int, b: Int)
+  requires { c > 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve succeeds (warnings, not errors)");
+        let body_warnings: Vec<_> = resolved
+            .warnings
+            .iter()
+            .filter(|w| w.code == "A02001" && w.message.contains("undefined name"))
+            .collect();
+        assert!(
+            body_warnings.iter().any(|w| w.message.contains("`c`")),
+            "should warn about undefined `c`: {body_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn defined_name_in_clause_body_no_warning() {
+        // 'a' is defined in input clause, should not produce a warning
+        let src = r#"
+contract Foo {
+  input(a: Int, b: Int)
+  requires { a > 0 }
+  ensures  { result >= 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let body_warnings: Vec<_> = resolved
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("undefined name"))
+            .collect();
+        assert!(
+            body_warnings.is_empty(),
+            "should not warn about defined params: {body_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn fn_param_in_clause_body_no_warning() {
+        let src = r#"
+fn helper(n: Int) -> Int {
+  requires { n > 0 }
+  ensures  { result >= n }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let body_warnings: Vec<_> = resolved
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("undefined name"))
+            .collect();
+        assert!(
+            body_warnings.is_empty(),
+            "fn params should not trigger warnings: {body_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn quantifier_var_in_scope_no_warning() {
+        // Quantifier variable 'x' should be locally scoped
+        let src = r#"
+contract ListCheck {
+  input(items: List)
+  ensures { forall x in items: x > 0 }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        let body_warnings: Vec<_> = resolved
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("`x`"))
+            .collect();
+        assert!(
+            body_warnings.is_empty(),
+            "quantifier var should not trigger warnings: {body_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn lenient_mode_skips_unknown_names() {
+        // With imports, lenient mode skips unknown names
+        let src = r#"
+import std.math;
+
+contract Foo {
+  input(a: Int)
+  requires { external_check(a) }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed in lenient mode");
+        let body_warnings: Vec<_> = resolved
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("undefined name"))
+            .collect();
+        assert!(
+            body_warnings.is_empty(),
+            "lenient mode should not warn: {body_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn service_operation_params_in_scope() {
+        let src = r#"
+service Svc {
+  operation doStuff {
+    input { name: String }
+    requires { name.length() > 0 }
+  }
+}
+"#;
+        let file = parse_ok(src);
+        let resolved = resolve(&file).expect("resolve should succeed");
+        // 'name' should be registered as a parameter in the operation scope
+        let params: Vec<&str> = resolved
+            .symbols
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Parameter && s.name == "name")
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(
+            !params.is_empty(),
+            "service operation input params should be in scope"
+        );
     }
 }
