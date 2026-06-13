@@ -912,7 +912,36 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 },
                 _ => {}
             }
-            // Cannot resolve field; return Unknown (no false positive A03004)
+            // If the receiver type is known and concrete (struct with
+            // registered fields, or a built-in type), emit A03005.
+            // For Named types without registered fields we stay lenient.
+            if let Some(sname) = struct_name
+                && env.struct_fields.contains_key(sname)
+            {
+                return Err(TypeError {
+                    code: "A03005".into(),
+                    message: format!("unknown field `{field}` in type `{recv_ty}`"),
+                    span: 0..0,
+                    secondary: None,
+                });
+            }
+            match &recv_ty {
+                Type::List(_)
+                | Type::Sequence(_)
+                | Type::Bytes
+                | Type::Set(_)
+                | Type::Option(_)
+                | Type::Result(_, _)
+                | Type::Map(_, _) => {
+                    return Err(TypeError {
+                        code: "A03005".into(),
+                        message: format!("unknown field `{field}` on type `{recv_ty}`"),
+                        span: 0..0,
+                        secondary: None,
+                    });
+                }
+                _ => {}
+            }
             Ok(Type::Unknown)
         }
 
@@ -986,6 +1015,24 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     }
                     _ => {}
                 },
+                _ => {}
+            }
+            // Emit A03005 for unknown methods on concrete built-in types
+            match &recv_ty {
+                Type::List(_)
+                | Type::Sequence(_)
+                | Type::String
+                | Type::Set(_)
+                | Type::Option(_)
+                | Type::Result(_, _)
+                | Type::Map(_, _) => {
+                    return Err(TypeError {
+                        code: "A03005".into(),
+                        message: format!("unknown method `{method}` on type `{recv_ty}`"),
+                        span: 0..0,
+                        secondary: None,
+                    });
+                }
                 _ => {}
             }
             Ok(Type::Unknown)
@@ -13875,8 +13922,52 @@ extern fn read_bytes(n: U32) -> Bytes
         env.insert("p".into(), Type::Named("Point".into()));
         env.struct_fields
             .insert("Point".into(), vec![("x".into(), Type::Int)]);
-        // Accessing unknown field returns Unknown (lenient, no A03004 yet)
+        // Accessing unknown field on registered struct emits A03005
         let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "z".into());
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
+        assert!(err.message.contains("unknown field `z`"));
+    }
+
+    #[test]
+    fn unknown_field_on_list_emits_a03005() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "bogus".into());
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
+        assert!(err.message.contains("unknown field `bogus`"));
+    }
+
+    #[test]
+    fn unknown_method_on_list_emits_a03005() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = AstExpr::MethodCall {
+            receiver: Box::new(AstExpr::Ident("xs".into())),
+            method: "bogus_method".into(),
+            args: vec![],
+        };
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
+        assert!(err.message.contains("unknown method `bogus_method`"));
+    }
+
+    #[test]
+    fn unknown_field_on_option_emits_a03005() {
+        let mut env = TypeEnv::new();
+        env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("opt".into())), "nope".into());
+        let err = infer_expr(&expr, &env).unwrap_err();
+        assert_eq!(err.code, "A03005");
+    }
+
+    #[test]
+    fn unknown_field_on_named_without_struct_fields_is_unknown() {
+        // Named type with NO registered struct_fields stays lenient
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Named("SomeExternalType".into()));
+        let expr = AstExpr::Field(Box::new(AstExpr::Ident("x".into())), "anything".into());
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
     }
 
