@@ -1839,12 +1839,38 @@ mod z3_backend {
     }
 
     /// Verify all declarations in a type-checked file using Z3.
+    ///
+    /// Uses `ParallelVerifier` to track verification jobs. Currently runs
+    /// sequentially (Z3 `Context` is not `Send`), but the job infrastructure
+    /// is in place for future parallel Z3 contexts.
     pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
         let mut cfg = Config::new();
         cfg.set_param_value("timeout", "1000");
         let ctx = Context::new(&cfg);
         let mut results = Vec::new();
         let mut cache = VerificationCache::new();
+
+        // T114: register all verifiable clauses as parallel jobs
+        let mut pv = ParallelVerifier::new(num_cpus());
+        for decl in &typed.resolved.source.decls {
+            match &decl.node {
+                Decl::Contract(c) => {
+                    for clause in &c.clauses {
+                        if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
+                            pv.add_job(c.name.clone(), format!("{:?}", clause.kind));
+                        }
+                    }
+                }
+                Decl::FnDef(f) => {
+                    for clause in &f.clauses {
+                        if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
+                            pv.add_job(f.name.clone(), format!("{:?}", clause.kind));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
 
         // T044: collect all lemma definitions for apply injection
         let lemma_defs = collect_lemma_defs(typed);
@@ -1920,7 +1946,175 @@ mod z3_backend {
             }
         }
 
+        // T092: weak memory ordering checks on concurrent contracts
+        let mut wm_checker = WeakMemoryChecker::new();
+        for decl in &typed.resolved.source.decls {
+            if let Decl::Contract(c) = &decl.node {
+                for clause in &c.clauses {
+                    if clause.kind == ClauseKind::Effects
+                        && (expr_contains_ident(&clause.body, "relaxed")
+                            || expr_contains_ident(&clause.body, "acquire")
+                            || expr_contains_ident(&clause.body, "release")
+                            || expr_contains_ident(&clause.body, "seq_cst"))
+                    {
+                        let ordering = if expr_contains_ident(&clause.body, "seq_cst") {
+                            MemoryOrdering::SeqCst
+                        } else if expr_contains_ident(&clause.body, "acquire") {
+                            MemoryOrdering::Acquire
+                        } else if expr_contains_ident(&clause.body, "release") {
+                            MemoryOrdering::Release
+                        } else {
+                            MemoryOrdering::Relaxed
+                        };
+                        wm_checker.record_access(1, c.name.clone(), true, ordering);
+                    }
+                }
+            }
+        }
+        for race in wm_checker.check_data_races() {
+            results.push(VerificationResult::Unknown {
+                clause_desc: "weak_memory".into(),
+                reason: race,
+            });
+        }
+
+        // T093: prophecy variable checks (unresolved prophecies)
+        let mut pm = ProphecyManager::new();
+        for decl in &typed.resolved.source.decls {
+            if let Decl::FnDef(f) = &decl.node {
+                for clause in &f.clauses {
+                    if clause.kind == ClauseKind::Ensures {
+                        collect_prophecy_refs(&clause.body, &f.name, &mut pm);
+                    }
+                }
+            }
+        }
+        for err in pm.check_all_resolved() {
+            results.push(VerificationResult::Unknown {
+                clause_desc: "prophecy".into(),
+                reason: err,
+            });
+        }
+
+        // T094: liveness obligation checks
+        let mut lc = LivenessChecker::new();
+        for decl in &typed.resolved.source.decls {
+            if let Decl::Contract(c) = &decl.node {
+                for clause in &c.clauses {
+                    if clause.kind == ClauseKind::Ensures
+                        && (expr_contains_ident(&clause.body, "eventually")
+                            || expr_contains_ident(&clause.body, "leads_to"))
+                    {
+                        lc.add_obligation(
+                            format!("{}:liveness", c.name),
+                            LivenessKind::Eventually,
+                            format!("{:?}", clause.body),
+                            String::new(),
+                        );
+                    }
+                }
+            }
+        }
+        for err in lc.check_unverified() {
+            results.push(VerificationResult::Unknown {
+                clause_desc: "liveness".into(),
+                reason: err,
+            });
+        }
+
+        // T114: mark all parallel jobs complete
+        let mut job_idx = 0;
+        for result in &results {
+            if job_idx < pv.job_count() {
+                let status = match result {
+                    VerificationResult::Verified { .. } => "verified",
+                    VerificationResult::Counterexample { .. } => "counterexample",
+                    VerificationResult::Timeout { .. } => "timeout",
+                    VerificationResult::Unknown { .. } => "unknown",
+                };
+                pv.complete_job(job_idx, status.into());
+                job_idx += 1;
+            }
+        }
+
         results
+    }
+
+    /// Get the number of available CPU cores (or a reasonable default).
+    fn num_cpus() -> usize {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+    }
+
+    /// Check if an expression tree contains a specific identifier.
+    fn expr_contains_ident(expr: &Expr, name: &str) -> bool {
+        match expr {
+            Expr::Ident(s) => s == name,
+            Expr::BinOp { lhs, rhs, .. } => {
+                expr_contains_ident(lhs, name) || expr_contains_ident(rhs, name)
+            }
+            Expr::UnaryOp { expr, .. }
+            | Expr::Paren(expr)
+            | Expr::Old(expr)
+            | Expr::Ghost(expr) => expr_contains_ident(expr, name),
+            Expr::Call { func, args } => {
+                expr_contains_ident(func, name) || args.iter().any(|a| expr_contains_ident(a, name))
+            }
+            Expr::Field(e, _) | Expr::Cast { expr: e, .. } => expr_contains_ident(e, name),
+            Expr::Block(exprs) | Expr::List(exprs) => {
+                exprs.iter().any(|e| expr_contains_ident(e, name))
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                expr_contains_ident(cond, name)
+                    || expr_contains_ident(then_branch, name)
+                    || else_branch
+                        .as_ref()
+                        .is_some_and(|e| expr_contains_ident(e, name))
+            }
+            Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+                expr_contains_ident(body, name) || expr_contains_ident(domain, name)
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                expr_contains_ident(receiver, name)
+                    || args.iter().any(|a| expr_contains_ident(a, name))
+            }
+            Expr::Index { expr, index } => {
+                expr_contains_ident(expr, name) || expr_contains_ident(index, name)
+            }
+            Expr::Raw(tokens) => tokens.iter().any(|t| t == name),
+            _ => false,
+        }
+    }
+
+    /// Collect prophecy variable references from ensures clauses.
+    fn collect_prophecy_refs(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
+        match expr {
+            Expr::Call { func, args } => {
+                if let Expr::Ident(name) = func.as_ref()
+                    && (name == "prophecy" || name == "prophesy")
+                    && let Some(Expr::Ident(var_name)) = args.first()
+                {
+                    pm.declare(format!("{fn_name}:{var_name}"));
+                }
+                for arg in args {
+                    collect_prophecy_refs(arg, fn_name, pm);
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                collect_prophecy_refs(lhs, fn_name, pm);
+                collect_prophecy_refs(rhs, fn_name, pm);
+            }
+            Expr::UnaryOp { expr, .. }
+            | Expr::Paren(expr)
+            | Expr::Old(expr)
+            | Expr::Ghost(expr) => collect_prophecy_refs(expr, fn_name, pm),
+            _ => {}
+        }
     }
 }
 

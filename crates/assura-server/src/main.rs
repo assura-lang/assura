@@ -141,7 +141,7 @@ fn span_to_line_col(source: &str, span: &std::ops::Range<usize>) -> (u32, u32, u
 fn run_check(
     source: &str,
     _filename: &str,
-    _layer: i32,
+    layer: i32,
 ) -> (Vec<Diagnostic>, Vec<VerificationResult>) {
     let (ast, parse_errors) = assura_parser::parse(source);
 
@@ -169,7 +169,11 @@ fn run_check(
                 let type_result = assura_types::type_check(&resolved);
                 match type_result {
                     Ok(typed) => {
-                        // Run SMT verification on the type-checked file
+                        // Layer 0 = structural checks only (type checker),
+                        // Layer 1+ = also run SMT verification
+                        if layer < 1 {
+                            return (diagnostics, verifications);
+                        }
                         for vr in assura_smt::verify(&typed) {
                             let (clause, status, cex) = match &vr {
                                 assura_smt::VerificationResult::Verified { clause_desc } => {

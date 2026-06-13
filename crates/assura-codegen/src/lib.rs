@@ -68,6 +68,15 @@ impl Default for BackendConfig {
 /// Walks the AST, maps Assura declarations to Rust source code, and
 /// formats the result with `prettyplease`. Returns a `GeneratedProject`
 /// with a `Cargo.toml` and generated `.rs` files.
+pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> GeneratedProject {
+    let _ = config; // T119: backend selection will influence Cargo.toml and build flags
+    codegen(typed)
+}
+
+/// Generate a Rust project from a type-checked Assura file.
+///
+/// Uses default backend configuration (`Rustc`, opt-level 2, no debug info).
+/// For custom configuration, use [`codegen_with_config`].
 pub fn codegen(typed: &TypedFile) -> GeneratedProject {
     let source = &typed.resolved.source;
 

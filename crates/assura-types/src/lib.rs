@@ -229,6 +229,15 @@ fn build_type_env(symbols: &SymbolTable) -> TypeEnv {
         env.insert(sym.name.clone(), ty);
     }
 
+    // T107: inject stdlib types (Pos, NonNeg, Email, Uuid, Port, Percentage)
+    // so they are available for type resolution even without explicit imports
+    let stdlib = StdlibTypes::new();
+    for sdef in stdlib.all_types() {
+        if env.lookup(&sdef.name).is_none() {
+            env.insert(sdef.name.clone(), sdef.base_type.clone());
+        }
+    }
+
     env
 }
 
@@ -1116,6 +1125,9 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     // T055: fixed-width integer overflow detection
     errors.extend(run_fixed_width_checks(&resolved.source, &type_env));
 
+    // T108: collection contracts validation (sort, filter, map, reverse, deduplicate)
+    errors.extend(run_collection_contract_checks(&resolved.source));
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -1501,15 +1513,88 @@ fn extract_effect_names_from_expr(expr: &Expr) -> Vec<String> {
 }
 
 /// Infer effects from expression content (look for IO-related identifiers).
+///
+/// Recognizes the full effect hierarchy from Section 3.6 of the spec:
+/// - `io` sub-effects: console, file, network, process, env, time, random
+/// - `mem` effects: alloc, dealloc, resize
+/// - `panic` effects: panic, abort, unreachable
 fn infer_effects_from_expr(expr: &Expr, effects: &mut EffectSet) {
     match expr {
         Expr::Ident(name) => {
-            if name.contains("read") || name.contains("write") || name.contains("io") {
-                // Only infer if the name clearly implies IO
-                if name.starts_with("console") || name.starts_with("file") {
-                    effects.insert("io".to_string());
+            // IO sub-effects: console, file, network, socket, http, process, env, time, random
+            let io_prefixes = [
+                "console",
+                "file",
+                "stdin",
+                "stdout",
+                "stderr",
+                "network",
+                "socket",
+                "http",
+                "tcp",
+                "udp",
+                "process",
+                "env",
+                "time",
+                "random",
+                "rand",
+                "print",
+                "read_line",
+                "write_file",
+                "read_file",
+                "open",
+                "close",
+                "flush",
+                "seek",
+            ];
+            for prefix in &io_prefixes {
+                if name.starts_with(prefix) || name == *prefix {
+                    effects.insert("io".into());
+                    return;
                 }
             }
+            // Memory effects
+            if name.starts_with("alloc")
+                || name.starts_with("dealloc")
+                || name.starts_with("malloc")
+                || name.starts_with("free")
+                || name.starts_with("realloc")
+                || name.starts_with("resize")
+            {
+                effects.insert("mem".into());
+            }
+            // Panic/divergence effects
+            if name == "panic"
+                || name == "abort"
+                || name == "unreachable"
+                || name == "exit"
+                || name == "todo"
+            {
+                effects.insert("panic".into());
+            }
+        }
+        Expr::Field(base, field) => {
+            // Detect `obj.read()`, `obj.write()`, etc.
+            let io_methods = [
+                "read",
+                "write",
+                "flush",
+                "close",
+                "open",
+                "seek",
+                "send",
+                "recv",
+                "connect",
+                "listen",
+                "accept",
+                "print",
+                "println",
+                "read_line",
+            ];
+            if io_methods.contains(&field.as_str()) {
+                effects.insert("io".into());
+            }
+            infer_effects_from_expr(base, effects);
         }
         Expr::Call { func, args } => {
             infer_effects_from_expr(func, effects);
@@ -1517,9 +1602,57 @@ fn infer_effects_from_expr(expr: &Expr, effects: &mut EffectSet) {
                 infer_effects_from_expr(a, effects);
             }
         }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let io_methods = [
+                "read",
+                "write",
+                "flush",
+                "close",
+                "open",
+                "seek",
+                "send",
+                "recv",
+                "connect",
+                "listen",
+                "accept",
+                "print",
+                "println",
+                "read_line",
+            ];
+            if io_methods.contains(&method.as_str()) {
+                effects.insert("io".into());
+            }
+            infer_effects_from_expr(receiver, effects);
+            for a in args {
+                infer_effects_from_expr(a, effects);
+            }
+        }
         Expr::BinOp { lhs, rhs, .. } => {
             infer_effects_from_expr(lhs, effects);
             infer_effects_from_expr(rhs, effects);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) => {
+            infer_effects_from_expr(expr, effects);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            infer_effects_from_expr(cond, effects);
+            infer_effects_from_expr(then_branch, effects);
+            if let Some(e) = else_branch {
+                infer_effects_from_expr(e, effects);
+            }
+        }
+        Expr::Block(items) | Expr::List(items) => {
+            for item in items {
+                infer_effects_from_expr(item, effects);
+            }
         }
         _ => {}
     }
@@ -1563,7 +1696,7 @@ fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
         return Vec::new();
     }
 
-    checker
+    let mut errors: Vec<TypeError> = checker
         .check_file(&externs)
         .into_iter()
         .map(|fe| TypeError {
@@ -1572,7 +1705,33 @@ fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
             span: fe.span,
             secondary: None,
         })
-        .collect()
+        .collect();
+
+    // Additional check: externs calling into unsafe without any contract clauses
+    for decl in &source.decls {
+        if let Decl::Extern(e) = &decl.node {
+            let has_requires = e.clauses.iter().any(|c| c.kind == ClauseKind::Requires);
+            let has_ensures = e.clauses.iter().any(|c| c.kind == ClauseKind::Ensures);
+            // Externs with boundary annotations but no requires/ensures
+            let has_boundary = e.clauses.iter().any(
+                |c| matches!(c.kind, ClauseKind::Other(ref k) if k == "trust" || k == "boundary"),
+            );
+            if has_boundary && !has_requires && !has_ensures {
+                errors.push(TypeError {
+                    code: "A11005".into(),
+                    message: format!(
+                        "extern `{}` has trust boundary but no requires/ensures contracts; \
+                         add preconditions and postconditions to validate the trust boundary",
+                        e.name
+                    ),
+                    span: decl.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    errors
 }
 
 /// T064: Run error propagation checks on functions that return error types.
@@ -1864,6 +2023,84 @@ fn token_to_fixed_width_type(ty: &str) -> Option<Type> {
         "I32" | "i32" => Some(Type::I32),
         "I64" | "i64" => Some(Type::I64),
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Collection contract checks (T108)
+// ---------------------------------------------------------------------------
+
+/// Validate that contracts referencing standard collection operations
+/// (sort, filter, map, reverse, deduplicate) declare postconditions
+/// consistent with the operation's semantics.
+fn run_collection_contract_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let cc = CollectionContracts::new();
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        let (name, clauses) = match &decl.node {
+            Decl::Contract(c) => (&c.name, &c.clauses),
+            Decl::FnDef(f) => (&f.name, &f.clauses),
+            _ => continue,
+        };
+
+        // Check if the contract/function name matches a known collection op
+        let lower_name = name.to_lowercase();
+        if let Some(cc_def) = cc.lookup(&lower_name) {
+            // Verify length-preserving operations declare it
+            if cc_def.preserves_length {
+                let has_length_postcondition = clauses
+                    .iter()
+                    .any(|c| c.kind == ClauseKind::Ensures && expr_mentions_len(&c.body));
+                if !has_length_postcondition {
+                    errors.push(TypeError {
+                        code: "A03007".into(),
+                        message: format!(
+                            "collection operation `{name}` preserves length; \
+                             consider adding a `len(result) == len(input)` postcondition"
+                        ),
+                        span: decl.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+/// Check if an expression mentions `len` (used by collection contract checks).
+fn expr_mentions_len(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref()
+                && name == "len"
+            {
+                return true;
+            }
+            args.iter().any(expr_mentions_len)
+        }
+        Expr::Ident(name) => name == "len",
+        Expr::BinOp { lhs, rhs, .. } => expr_mentions_len(lhs) || expr_mentions_len(rhs),
+        Expr::UnaryOp { expr, .. } => expr_mentions_len(expr),
+        Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => expr_mentions_len(e),
+        Expr::Field(e, _) => expr_mentions_len(e),
+        Expr::Block(exprs) | Expr::List(exprs) => exprs.iter().any(expr_mentions_len),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_mentions_len(cond)
+                || expr_mentions_len(then_branch)
+                || else_branch.as_ref().is_some_and(|e| expr_mentions_len(e))
+        }
+        Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+            expr_mentions_len(body) || expr_mentions_len(domain)
+        }
+        Expr::Raw(tokens) => tokens.iter().any(|t| t == "len"),
+        _ => false,
     }
 }
 
