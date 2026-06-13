@@ -533,7 +533,7 @@
     counterexample (when SMT), suggested fixes with confidence scores
   - `assura explain` works for all Phase 1 error codes
 
-- [ ] **T050**: Section 13 type interaction tests
+- [x] **T050**: Section 13 type interaction tests
   - Depends on: T032, T034, T036
   - Implement all 11 test cases from Section 13 of the spec
   - These cover pairwise interactions between:
