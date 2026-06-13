@@ -520,6 +520,9 @@ mod z3_backend {
         /// Tracks known function arities for uninterpreted function encoding
         func_arities: HashMap<String, usize>,
         fresh_counter: u32,
+        /// Background axioms collected during encoding (e.g., len >= 0).
+        /// These are asserted into the solver before each verification check.
+        background_axioms: Vec<z3::ast::Bool<'ctx>>,
     }
 
     impl<'ctx> Encoder<'ctx> {
@@ -529,6 +532,7 @@ mod z3_backend {
                 vars: HashMap::new(),
                 func_arities: HashMap::new(),
                 fresh_counter: 0,
+                background_axioms: Vec::new(),
             }
         }
 
@@ -689,13 +693,15 @@ mod z3_backend {
                 let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
                 return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
             }
-            // Size fields: return Int (non-negative in principle, but
-            // constraining requires solver access; the uninterpreted function
-            // already provides correct equality semantics)
+            // Size fields: return Int with non-negativity axiom
             if matches!(field, "len" | "length" | "size" | "capacity" | "count") {
                 let decl = self.make_func(&func_name, 1);
                 let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
-                return Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()));
+                let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
+                // Assert len >= 0 as a background axiom
+                let zero = ast::Int::from_i64(self.ctx, 0);
+                self.background_axioms.push(len_val.ge(&zero));
+                return Z3Value::Int(len_val);
             }
             let decl = self.make_func(&func_name, 1);
             let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
@@ -1745,6 +1751,11 @@ mod z3_backend {
             // Encode the clause body
             let clause_val = encoder.encode_expr(&clause.body);
             let clause_bool = clause_val.as_bool(ctx);
+
+            // Assert background axioms (e.g., len >= 0) collected during encoding
+            for axiom in &encoder.background_axioms {
+                solver.assert(axiom);
+            }
 
             let result_before = results.len();
             match clause.kind {
@@ -2969,6 +2980,34 @@ mod tests {
                 "contract {i} should verify, got: {r:?}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Field access len >= 0 axiom
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_field_len_nonneg_axiom() {
+        // The encoder should inject `buf.len >= 0` as a background axiom
+        // when encoding `.len` field access. This test verifies that
+        // a contract using buf.len >= 0 in ensures is verified.
+        let src = r#"
+            contract LenNonNeg {
+                input { buf: List<Int> }
+                requires { buf.len > 0 }
+                ensures { buf.len >= 0 }
+            }
+        "#;
+        let results = verify_source(src);
+        assert!(
+            !results.is_empty(),
+            "should have at least one verification result"
+        );
+        assert!(
+            matches!(results[0], VerificationResult::Verified { .. }),
+            "buf.len >= 0 should verify with non-negativity axiom, got: {:?}",
+            results[0]
+        );
     }
 
     // -----------------------------------------------------------------------
