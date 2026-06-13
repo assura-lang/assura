@@ -614,7 +614,7 @@
   - Depends on: T041
   - Tree balance, list sortedness, graph acyclicity
 
-- [ ] **T064**: TYPE.3 Error propagation
+- [x] **T064**: TYPE.3 Error propagation
   - Depends on: T018
   - `must_propagate` on error types, detect silently swallowed errors
 
