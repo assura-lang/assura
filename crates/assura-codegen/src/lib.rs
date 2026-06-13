@@ -1527,4 +1527,45 @@ type Marker {
             "ghost block should generate erased marker, got: {rust}"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // T044 CORE.2: Lemma erasure tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn lemma_fn_produces_no_output() {
+        // A lemma function should be completely erased in generated code.
+        let project =
+            codegen_ok("lemma add_comm(a: Int, b: Int)\n    ensures { a + b == b + a }\n");
+        let lib = &project.files[0].1;
+        assert!(
+            !lib.contains("fn add_comm"),
+            "lemma fn should not appear in generated Rust code"
+        );
+    }
+
+    #[test]
+    fn apply_expr_erased_in_codegen() {
+        // apply lemma_name(args) should produce a comment, not code.
+        let expr = Expr::Apply {
+            lemma_name: "my_lemma".into(),
+            args: vec![Expr::Literal(Literal::Int("42".into()))],
+        };
+        let rust = expr_to_rust(&expr);
+        assert!(
+            rust.contains("lemma my_lemma applied"),
+            "apply should generate erased comment, got: {rust}"
+        );
+    }
+
+    #[test]
+    fn non_lemma_fn_still_generated() {
+        // A normal (non-lemma) function should still be generated.
+        let project = codegen_ok("fn helper(n: Int) -> Int\n    ensures { result >= 0 }\n");
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("fn helper"),
+            "non-lemma fn should appear in generated Rust code"
+        );
+    }
 }

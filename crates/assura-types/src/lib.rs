@@ -7968,7 +7968,10 @@ ghost fn bad_ghost(x: Int) -> Bool
         let file = file.unwrap();
         let resolved = assura_resolve::resolve(&file).unwrap();
         let result = type_check(&resolved);
-        assert!(result.is_ok(), "lemma with pure effects should pass type check");
+        assert!(
+            result.is_ok(),
+            "lemma with pure effects should pass type check"
+        );
     }
 
     #[test]
