@@ -756,6 +756,33 @@ fn generate_enum_def(e: &EnumDef, code: &mut String) {
         }
     }
     code.push_str("}\n\n");
+
+    // Generate Display implementation for non-generic enums
+    if e.type_params.is_empty() {
+        code.push_str(&format!("impl std::fmt::Display for {} {{\n", e.name));
+        code.push_str("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n");
+        code.push_str("        match self {\n");
+        for v in &e.variants {
+            if v.fields.is_empty() {
+                code.push_str(&format!(
+                    "            {}::{} => write!(f, \"{}\"),\n",
+                    e.name, v.name, v.name
+                ));
+            } else {
+                let underscores: Vec<&str> = (0..v.fields.len()).map(|_| "_").collect();
+                code.push_str(&format!(
+                    "            {}::{}({}) => write!(f, \"{}(...)\"),\n",
+                    e.name,
+                    v.name,
+                    underscores.join(", "),
+                    v.name
+                ));
+            }
+        }
+        code.push_str("        }\n");
+        code.push_str("    }\n");
+        code.push_str("}\n\n");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1673,6 +1700,28 @@ enum Color {
         assert!(lib.contains("Red"), "should contain Red variant");
         assert!(lib.contains("Green"), "should contain Green variant");
         assert!(lib.contains("Blue"), "should contain Blue variant");
+    }
+
+    #[test]
+    fn enum_generates_display_impl() {
+        let project = codegen_ok(
+            r#"
+enum Status {
+    Active,
+    Inactive,
+    Pending
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("impl std::fmt::Display for Status"),
+            "should generate Display impl: {lib}"
+        );
+        assert!(
+            lib.contains("Status::Active => write!(f, \"Active\")"),
+            "should have Active display arm: {lib}"
+        );
     }
 
     #[test]
