@@ -1,0 +1,6 @@
+// MUST COMPILE
+// Function with decreases clause for termination.
+fn factorial(n: Nat) -> Nat
+    requires { n >= 0 }
+    decreases n
+    ensures { result >= 1 }

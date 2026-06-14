@@ -1,0 +1,18 @@
+// MUST COMPILE
+// Multiple contracts in a single file.
+contract First {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result > x }
+}
+
+contract Second {
+    input(y: Int, z: Int)
+    requires { y != z }
+    ensures { result != 0 }
+}
+
+contract Third {
+    input(a: Nat)
+    requires { a >= 0 }
+}

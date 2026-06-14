@@ -1,0 +1,8 @@
+// MUST COMPILE
+// Complex nested expressions in clauses.
+contract Complex {
+    input(a: Int, b: Int, c: Int)
+    requires { (a + b) * c > 0 }
+    requires { a > 0 && b > 0 || c > 0 }
+    ensures { result > a + b + c }
+}

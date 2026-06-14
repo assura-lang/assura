@@ -619,7 +619,7 @@
     4. Asserts the expected error code appears in the diagnostics
   - Target: 20+ negative test files
 
-- [ ] **T204**: Add positive test suite (MUST COMPILE files)
+- [x] **T204**: Add positive test suite (MUST COMPILE files)
   - Depends on: R001
   - Create `tests/fixtures/must_compile/` with valid .assura files:
     - `simple_contract.assura` with `// MUST COMPILE`
@@ -1228,6 +1228,17 @@ compiler passes can emit unified diagnostics. CLI gains
 `render_diagnostic()` (ariadne renderer for Diagnostic) and
 `DiagnosticJson::from_diagnostic()` (JSON conversion). 6 new
 diagnostic tests. 1,296 total tests passing.
+
+### T204 completed (2026-06-13)
+Created `tests/fixtures/must_compile/` with 15 valid .assura files:
+simple_contract, multiple_contracts, service_with_states,
+function_definition, enum_declaration, extern_function,
+effects_declared, module_and_import, invariant_clause,
+decreases_clause, nested_expressions, quantifier_contract,
+output_clause, bool_contract, string_contract. Added
+`test_must_compile_fixtures` harness that runs the full pipeline
+(parse, resolve, type_check, codegen) and validates generated Rust
+via `syn::parse_file()`. 1,297 total tests passing.
 
 ### T203 completed (2026-06-13)
 Added 15 MUST REJECT fixture files in `tests/fixtures/must_reject/`

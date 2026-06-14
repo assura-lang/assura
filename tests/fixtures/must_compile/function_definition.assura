@@ -1,0 +1,9 @@
+// MUST COMPILE
+// Function definitions with requires and ensures.
+fn abs(x: Int) -> Int
+    requires { true }
+    ensures { result >= 0 }
+
+fn max(a: Int, b: Int) -> Int
+    ensures { result >= a }
+    ensures { result >= b }

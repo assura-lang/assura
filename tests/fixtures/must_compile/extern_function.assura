@@ -1,0 +1,10 @@
+// MUST COMPILE
+// Extern function declarations with contracts.
+extern fn read_bytes(fd: Int, count: Nat) -> Bytes
+    requires { count > 0 }
+    ensures { result.length() <= count }
+    effects: io
+
+extern fn write_bytes(fd: Int, data: Bytes) -> Nat
+    requires { data.length() > 0 }
+    effects: io

@@ -1,0 +1,10 @@
+// MUST COMPILE
+// Functions with declared effects.
+fn log_message(msg: String) -> Unit
+    effects: io
+    requires { msg.length() > 0 }
+
+fn allocate(size: Nat) -> Bytes
+    effects: mem
+    requires { size > 0 }
+    ensures { result.length() == size }

@@ -1,0 +1,15 @@
+// MUST COMPILE
+// Enum and type declarations.
+enum Direction {
+    North,
+    South,
+    East,
+    West
+}
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+type PositiveInt = { n: Int | n > 0 };

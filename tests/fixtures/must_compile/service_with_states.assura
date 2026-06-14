@@ -1,0 +1,17 @@
+// MUST COMPILE
+// A service with states and operations.
+service Connection {
+    states: Disconnected -> Connected -> Authenticated
+
+    operation Connect {
+        input: { host: String }
+        requires: host.length() > 0
+        effects: net
+    }
+
+    query IsAlive {
+        effects: net
+    }
+
+    invariant { true }
+}

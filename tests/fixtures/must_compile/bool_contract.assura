@@ -1,0 +1,7 @@
+// MUST COMPILE
+// Contract with boolean type inputs and logic.
+contract Validator {
+    input(x: Bool, y: Bool)
+    requires { x || y }
+    ensures { result == true }
+}

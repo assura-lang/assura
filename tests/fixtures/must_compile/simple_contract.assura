@@ -1,0 +1,9 @@
+// MUST COMPILE
+// A simple contract with input, output, requires, and ensures.
+contract SafeAdd {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { a > 0 }
+    requires { b > 0 }
+    ensures { result == a + b }
+}

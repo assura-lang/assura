@@ -1,0 +1,8 @@
+// MUST COMPILE
+// Contract with explicit output clause.
+contract Transform {
+    input(data: Bytes)
+    output(result: Bytes)
+    requires { data.length() > 0 }
+    ensures { result.length() == data.length() }
+}

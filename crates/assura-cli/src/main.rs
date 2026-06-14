@@ -2646,6 +2646,81 @@ contract Typed {
         );
     }
 
+    /// T204: Positive test suite. Files annotated with `// MUST COMPILE` must
+    /// parse, resolve, type-check, and produce valid generated Rust (verified
+    /// via `syn::parse_file`).
+    #[test]
+    fn test_must_compile_fixtures() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tests/fixtures/must_compile");
+
+        let mut tested = 0;
+        for entry in std::fs::read_dir(&dir).expect("cannot read must_compile fixtures dir") {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("assura") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).unwrap();
+
+            // Verify annotation
+            let has_annotation = source.lines().any(|l| l.trim() == "// MUST COMPILE");
+            assert!(
+                has_annotation,
+                "{}: missing // MUST COMPILE annotation",
+                path.display()
+            );
+
+            // Parse
+            let (file, parse_errors) = assura_parser::parse(&source);
+            assert!(
+                parse_errors.is_empty(),
+                "{}: unexpected parse errors: {:?}",
+                path.display(),
+                parse_errors
+            );
+            let file = file.unwrap_or_else(|| {
+                panic!("{}: parse returned None", path.display());
+            });
+
+            // Resolve
+            let resolved = assura_resolve::resolve(&file).unwrap_or_else(|errs| {
+                panic!("{}: resolution errors: {:?}", path.display(), errs);
+            });
+
+            // Type check
+            let typed = assura_types::type_check(&resolved).unwrap_or_else(|errs| {
+                panic!("{}: type errors: {:?}", path.display(), errs);
+            });
+
+            // Codegen
+            let project = assura_codegen::codegen(&typed);
+
+            // Verify generated Rust is syntactically valid
+            for (file_path, rust_source) in &project.files {
+                syn::parse_file(rust_source).unwrap_or_else(|err| {
+                    panic!(
+                        "{}: generated {} is not valid Rust: {}\n--- source ---\n{}",
+                        path.display(),
+                        file_path,
+                        err,
+                        rust_source
+                    );
+                });
+            }
+
+            tested += 1;
+        }
+        assert!(
+            tested >= 15,
+            "expected at least 15 MUST COMPILE fixtures, found {tested}"
+        );
+    }
+
     // =======================================================================
     // Build --output flag tests
     // =======================================================================

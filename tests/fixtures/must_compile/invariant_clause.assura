@@ -1,0 +1,11 @@
+// MUST COMPILE
+// Contracts with invariant clauses.
+contract Bounded {
+    input(x: Int, low: Int, high: Int)
+    requires { low <= high }
+    requires { x >= low }
+    requires { x <= high }
+    invariant { low <= high }
+    ensures { result >= low }
+    ensures { result <= high }
+}

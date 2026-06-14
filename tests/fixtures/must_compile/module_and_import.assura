@@ -1,0 +1,11 @@
+// MUST COMPILE
+// Module declaration and imports.
+module test.compile;
+
+import std.math { abs, max };
+
+contract UsesImport {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result >= 0 }
+}

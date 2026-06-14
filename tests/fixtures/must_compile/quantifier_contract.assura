@@ -1,0 +1,7 @@
+// MUST COMPILE
+// Contract with quantifier expressions.
+contract Sorted {
+    input(arr: List<Int>)
+    requires { arr.length() > 0 }
+    ensures { forall i in 0..arr.length() - 1: arr[i] <= arr[i + 1] }
+}

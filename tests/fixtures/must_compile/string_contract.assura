@@ -1,0 +1,7 @@
+// MUST COMPILE
+// Contract with string type inputs.
+contract Greeting {
+    input(name: String)
+    requires { name.length() > 0 }
+    ensures { result.length() > name.length() }
+}
