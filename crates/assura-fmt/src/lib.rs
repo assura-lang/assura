@@ -315,7 +315,15 @@ pub fn format_block(
     out.push(' ');
     out.push_str(name);
     if let Some(v) = value {
-        out.push_str(&format!(": {}", v.join(" ")));
+        // The value tokens may already start with ':' or '=' from the parser.
+        // Only add a separator if the tokens don't already begin with one.
+        let starts_with_sep = v.first().is_some_and(|t| t == ":" || t == "=");
+        if starts_with_sep {
+            out.push(' ');
+            out.push_str(&v.join(" "));
+        } else {
+            out.push_str(&format!(": {}", v.join(" ")));
+        }
     }
     // Blocks without a value or clauses that could be mistaken for clause
     // keywords (spec, define, etc.) need explicit { } to be parsed as

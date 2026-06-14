@@ -870,9 +870,24 @@ fn is_numeric_expr(expr: &Expr) -> bool {
         Expr::UnaryOp {
             op: UnaryOp::Neg, ..
         } => true,
-        Expr::Paren(e) => is_numeric_expr(e),
-        Expr::Call { .. } | Expr::MethodCall { .. } => true,
-        _ => false,
+        Expr::Paren(e) | Expr::Old(e) | Expr::Cast { expr: e, .. } => is_numeric_expr(e),
+        Expr::Call { .. } | Expr::MethodCall { .. } | Expr::Index { .. } => true,
+        Expr::Let { body, .. } => is_numeric_expr(body),
+        Expr::If { then_branch, .. } => is_numeric_expr(then_branch),
+        Expr::Match { arms, .. } => arms.first().is_some_and(|a| is_numeric_expr(&a.body)),
+        // These are definitively not numeric expressions
+        Expr::Literal(Literal::Str(_) | Literal::Bool(_))
+        | Expr::UnaryOp {
+            op: UnaryOp::Not, ..
+        }
+        | Expr::Forall { .. }
+        | Expr::Exists { .. }
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Ghost(_)
+        | Expr::Apply { .. }
+        | Expr::Block(_)
+        | Expr::Raw(_) => false,
     }
 }
 
@@ -1688,8 +1703,10 @@ fn collect_type_refs_from_tokens(tokens: &[String], out: &mut std::collections::
 /// Collect type names referenced in expressions (e.g., constructor calls).
 fn collect_type_refs_from_expr(expr: &Expr, out: &mut std::collections::HashSet<String>) {
     match expr {
-        Expr::Ident(name) if is_user_type_name(name) => {
-            out.insert(name.clone());
+        Expr::Ident(name) => {
+            if is_user_type_name(name) {
+                out.insert(name.clone());
+            }
         }
         Expr::Call { func, args } => {
             collect_type_refs_from_expr(func, out);
@@ -1697,12 +1714,32 @@ fn collect_type_refs_from_expr(expr: &Expr, out: &mut std::collections::HashSet<
                 collect_type_refs_from_expr(a, out);
             }
         }
+        Expr::MethodCall {
+            receiver,
+            method: _,
+            args,
+        } => {
+            collect_type_refs_from_expr(receiver, out);
+            for a in args {
+                collect_type_refs_from_expr(a, out);
+            }
+        }
         Expr::Field(recv, _) => collect_type_refs_from_expr(recv, out),
+        Expr::Index { expr: e, index } => {
+            collect_type_refs_from_expr(e, out);
+            collect_type_refs_from_expr(index, out);
+        }
         Expr::BinOp { lhs, rhs, .. } => {
             collect_type_refs_from_expr(lhs, out);
             collect_type_refs_from_expr(rhs, out);
         }
-        Expr::UnaryOp { expr: e, .. } => collect_type_refs_from_expr(e, out),
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Paren(e)
+        | Expr::Cast { expr: e, .. }
+        | Expr::Ghost(e) => {
+            collect_type_refs_from_expr(e, out);
+        }
         Expr::If {
             cond,
             then_branch,
@@ -1714,7 +1751,39 @@ fn collect_type_refs_from_expr(expr: &Expr, out: &mut std::collections::HashSet<
                 collect_type_refs_from_expr(eb, out);
             }
         }
-        _ => {}
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_type_refs_from_expr(domain, out);
+            collect_type_refs_from_expr(body, out);
+        }
+        Expr::Let { value, body, .. } => {
+            collect_type_refs_from_expr(value, out);
+            collect_type_refs_from_expr(body, out);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_type_refs_from_expr(scrutinee, out);
+            for arm in arms {
+                collect_type_refs_from_expr(&arm.body, out);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for a in args {
+                collect_type_refs_from_expr(a, out);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_type_refs_from_expr(item, out);
+            }
+        }
+        Expr::Raw(tokens) => {
+            for tok in tokens {
+                if is_user_type_name(tok) {
+                    out.insert(tok.clone());
+                }
+            }
+        }
+        // Literals never contain type references
+        Expr::Literal(_) => {}
     }
 }
 
@@ -1753,8 +1822,9 @@ fn find_feature_max_value(source: &assura_parser::ast::SourceFile, name: &str) -
             }
         }
     }
-    // Default: 0 if no value found
-    "0".to_string()
+    // No value found: emit a compile_error! so generated code fails to
+    // build rather than silently using 0, which hides missing definitions.
+    format!("compile_error!(\"feature_max `{name}` has no value\")")
 }
 
 /// Convert an Expr to a Rust expression for use in const context.

@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 66
 expression: ast
 ---
 SourceFile {
@@ -29,7 +28,14 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_ALPHABET_SIZE",
-                value: None,
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "280",
+                    ],
+                ),
                 body: [],
             },
             span: 66..102,
@@ -38,7 +44,14 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_CODE_LENGTH",
-                value: None,
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "15",
+                    ],
+                ),
                 body: [],
             },
             span: 102..135,
@@ -47,7 +60,14 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "ROOT_BITS",
-                value: None,
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "8",
+                    ],
+                ),
                 body: [],
             },
             span: 135..161,
@@ -173,7 +193,37 @@ SourceFile {
             node: Block {
                 kind: "table",
                 name: "K_TABLE_SIZE",
-                value: None,
+                value: Some(
+                    [
+                        ":",
+                        "[",
+                        "U32",
+                        ";",
+                        "MAX_ALPHABET_SIZE",
+                        "+",
+                        "1",
+                        "]",
+                        "=",
+                        "precompute",
+                        "(",
+                        "for",
+                        "i",
+                        "in",
+                        "0",
+                        "..",
+                        "MAX_ALPHABET_SIZE",
+                        "+",
+                        "1",
+                        "=>",
+                        "worst_case_table_size",
+                        "(",
+                        "i",
+                        "as",
+                        "U16",
+                        ")",
+                        ")",
+                    ],
+                ),
                 body: [
                     Clause {
                         kind: Other(

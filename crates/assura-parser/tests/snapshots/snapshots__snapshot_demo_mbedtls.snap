@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 78
 expression: ast
 ---
 SourceFile {
@@ -30,7 +29,12 @@ SourceFile {
             node: Block {
                 kind: "feature",
                 name: "ecdsa",
-                value: None,
+                value: Some(
+                    [
+                        "=",
+                        "enabled",
+                    ],
+                ),
                 body: [],
             },
             span: 72..92,
@@ -39,7 +43,12 @@ SourceFile {
             node: Block {
                 kind: "feature",
                 name: "x509",
-                value: None,
+                value: Some(
+                    [
+                        "=",
+                        "enabled",
+                    ],
+                ),
                 body: [
                     Clause {
                         kind: Requires,
@@ -55,7 +64,12 @@ SourceFile {
             node: Block {
                 kind: "feature",
                 name: "ecdh",
-                value: None,
+                value: Some(
+                    [
+                        "=",
+                        "enabled",
+                    ],
+                ),
                 body: [],
             },
             span: 125..144,
@@ -64,7 +78,12 @@ SourceFile {
             node: Block {
                 kind: "feature",
                 name: "rsa",
-                value: None,
+                value: Some(
+                    [
+                        "=",
+                        "enabled",
+                    ],
+                ),
                 body: [],
             },
             span: 144..162,
@@ -73,7 +92,14 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_CONTENT_LEN",
-                value: None,
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "16384",
+                    ],
+                ),
                 body: [],
             },
             span: 162..198,
@@ -82,7 +108,14 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_HANDSHAKE_LEN",
-                value: None,
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "65535",
+                    ],
+                ),
                 body: [],
             },
             span: 198..236,
@@ -91,7 +124,14 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_EC_POINT_SIZE",
-                value: None,
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "256",
+                    ],
+                ),
                 body: [],
             },
             span: 236..272,

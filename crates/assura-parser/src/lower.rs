@@ -1342,6 +1342,18 @@ fn lower_generic_block(n: &SyntaxNode) -> Decl {
         .map(|t| t.text().to_string())
         .unwrap_or_default();
 
+    // Collect remaining tokens as the inline value (e.g., ": Nat = 280").
+    // These are the tokens between the name and any brace-delimited body.
+    let value_tokens: Vec<String> = tokens_iter
+        .take_while(|t| t.kind() != SyntaxKind::L_BRACE && t.kind() != SyntaxKind::R_BRACE)
+        .map(|t| t.text().to_string())
+        .collect();
+    let value = if value_tokens.is_empty() {
+        None
+    } else {
+        Some(value_tokens)
+    };
+
     let clauses: Vec<Clause> = n
         .children()
         .filter(|c| c.kind() == SyntaxKind::CLAUSE)
@@ -1351,7 +1363,7 @@ fn lower_generic_block(n: &SyntaxNode) -> Decl {
     Decl::Block {
         kind,
         name,
-        value: None, // TODO: extract inline values
+        value,
         body: clauses,
     }
 }
