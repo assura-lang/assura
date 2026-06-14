@@ -677,7 +677,7 @@
   - GitHub Action: on tag push, build and upload release artifacts
   - This gives users `assura` binaries without building from source
 
-- [ ] **E002**: Set up Homebrew tap
+- [x] **E002**: Set up Homebrew tap
   - Depends on: E001
   - Create `assura-lang/homebrew-tap` repository
   - Generate Homebrew formula from cargo-dist output
