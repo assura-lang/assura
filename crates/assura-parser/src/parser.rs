@@ -361,7 +361,10 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
         just(Token::Decreases).to(ClauseKind::Decreases),
         // Keywords that now have dedicated tokens but act as clause kinds
         just(Token::Ghost).to(ClauseKind::Other("ghost".into())),
-        just(Token::Spec).to(ClauseKind::Other("spec".into())),
+        // Token::Spec is NOT a clause kind -- it's a block declaration keyword
+        // (e.g., `spec NIST_SP_800_56A_ECDH { ... }`). Including it here would
+        // cause `clause().repeated()` in fn_def() to consume standalone spec
+        // blocks as clauses of the previous function.
         just(Token::Define).to(ClauseKind::Other("define".into())),
         just(Token::Property).to(ClauseKind::Other("property".into())),
         just(Token::ConstantTime).to(ClauseKind::Other("constant_time".into())),
@@ -454,6 +457,9 @@ fn is_clause_stopper(t: &Token) -> bool {
             | Token::Interface
             | Token::Extends
             | Token::Impl
+            // Generic block keywords (now proper tokens)
+            | Token::Table
+            | Token::Feature
     ) || matches!(t, Token::Ident(s) if matches!(s.as_str(),
             "step" | "resume" | "assume" | "prove"
                 | "validate" | "taint" | "verify"
@@ -461,9 +467,8 @@ fn is_clause_stopper(t: &Token) -> bool {
                 | "bound" | "writes"
                 | "operation" | "query" | "states"
                 | "method" | "implements"
-                | "feature_max" | "feature" | "incremental"
-                | "liveness" | "safety" | "security"
-                | "table"))
+                | "feature_max" | "incremental"
+                | "liveness" | "safety" | "security"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1339,6 +1344,7 @@ fn return_type() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
             !matches!(
                 t,
                 Token::LBrace
+                    | Token::RBrace
                     | Token::Requires
                     | Token::Ensures
                     | Token::Effects
@@ -1351,8 +1357,20 @@ fn return_type() -> impl Parser<Token, Vec<String>, Error = Simple<Token>> + Clo
                     | Token::MustNot
                     | Token::MustBe
                     | Token::Bounds
+                    | Token::Semicolon
+                    // Declaration-starting keywords: stop return type
+                    // so bare fn signatures don't eat the next decl.
+                    | Token::Contract
+                    | Token::Type
+                    | Token::Enum
+                    | Token::Extern
+                    | Token::Fn
+                    | Token::Service
+                    | Token::Axiom
+                    | Token::Lemma
             ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
-                    "promise" | "bound"))
+                    "promise" | "bound" | "feature" | "feature_max"
+                    | "table" | "incremental" | "liveness" | "safety" | "security"))
         })
         .map(|t| tok_to_str(&t))
         .repeated()
@@ -1429,8 +1447,20 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
                     | Token::MustNot
                     | Token::MustBe
                     | Token::Bounds
+                    | Token::Semicolon
+                    // Declaration-starting keywords: stop return type
+                    // so bare fn signatures don't eat the next decl.
+                    | Token::Contract
+                    | Token::Type
+                    | Token::Enum
+                    | Token::Extern
+                    | Token::Fn
+                    | Token::Service
+                    | Token::Axiom
+                    | Token::Lemma
             ) && !matches!(t, Token::Ident(s) if matches!(s.as_str(),
-                    "promise" | "bound"))
+                    "promise" | "bound" | "feature" | "feature_max"
+                    | "table" | "incremental" | "liveness" | "safety" | "security"))
         })
         .map(|t| vec![tok_to_str(&t)]);
 

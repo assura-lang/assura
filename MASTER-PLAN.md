@@ -763,7 +763,7 @@
   - Re-parse only changed files, re-resolve affected modules,
     re-typecheck affected contracts
 
-- [ ] **P003**: Implement `assura fmt` command
+- [x] **P003**: Implement `assura fmt` command
   - Depends on: none
   - Format `.assura` source files with consistent style
   - Use the parser's AST to re-emit formatted source
@@ -1331,3 +1331,29 @@ runs the full check pipeline and returns error status, used by both the
 one-shot and watch code paths. Help text updated. No new tests needed
 since the watch loop is an interactive feature; the extraction of
 `check_file_once()` is covered by the existing test suite.
+
+### P003: `assura fmt` (2026-06-13)
+
+Implemented `assura fmt <file.assura> [--check]`. The formatter parses the
+source file and re-emits it with consistent style: 4-space indentation,
+braced clause bodies for expression-type clauses (requires, ensures,
+invariant, decreases, rule, must_not, effects, modifies), function-call
+syntax for input/output params, colon syntax for inline values (feature
+blocks), and semicolons after type definitions and struct fields.
+
+Parser fixes for round-trip correctness:
+- Return type parsers now stop at declaration keywords (fn, contract, type,
+  enum, extern, service, axiom, lemma, feature_max) preventing greedy
+  consumption of the next declaration.
+- `Token::Table` and `Token::Feature` added to `is_clause_stopper` so
+  inline clause bodies don't consume standalone block declarations.
+- `Token::Spec` removed from `clause_kind()` since `spec` is a block
+  declaration keyword, not a clause keyword.
+- Updated 2 snapshots (expected token list, mbedtls feature parsing).
+
+Formatter features:
+- `join_raw_tokens()` collapses dotted paths (io.read, db.write)
+- Empty blocks get explicit `{ }` to prevent misparse as clauses
+- `--check` mode exits 0 if already formatted, 1 if not
+- 9 new tests covering idempotency, contracts, types, enums, extern fns,
+  services, features, and dotted effects

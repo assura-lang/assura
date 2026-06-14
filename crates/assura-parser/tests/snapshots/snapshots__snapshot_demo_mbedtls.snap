@@ -32,9 +32,18 @@ SourceFile {
                 value: Some(
                     [
                         "enabled",
-                        "feature",
-                        "x509",
-                        "=",
+                    ],
+                ),
+                body: [],
+            },
+            span: 1961..1984,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature",
+                name: "x509",
+                value: Some(
+                    [
                         "enabled",
                     ],
                 ),
@@ -47,7 +56,7 @@ SourceFile {
                     },
                 ],
             },
-            span: 1961..2025,
+            span: 1985..2025,
         },
         Spanned {
             node: Block {
@@ -56,15 +65,24 @@ SourceFile {
                 value: Some(
                     [
                         "enabled",
-                        "feature",
-                        "rsa",
-                        "=",
+                    ],
+                ),
+                body: [],
+            },
+            span: 2158..2180,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature",
+                name: "rsa",
+                value: Some(
+                    [
                         "enabled",
                     ],
                 ),
                 body: [],
             },
-            span: 2158..2202,
+            span: 2181..2202,
         },
         Spanned {
             node: Block {
