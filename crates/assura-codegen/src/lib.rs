@@ -8,6 +8,8 @@
 //! codegen (T021), project generation (T022), and struct/enum codegen
 //! (T023) extend this foundation.
 
+pub mod type_map;
+
 use assura_parser::ast::{
     BinOp, BindDecl, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef,
     Literal, ServiceDecl, ServiceItem, TypeBody, TypeDef, UnaryOp,
