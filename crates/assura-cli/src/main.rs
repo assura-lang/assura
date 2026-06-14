@@ -504,7 +504,7 @@ fn print_help() {
          \x20   assura <file.assura>                Parse and check a contract file\n\
          \x20   assura check <file> [OPTIONS]       Full pipeline: parse, resolve, type-check, verify\n\
          \x20   assura check <file> --watch         Watch file and re-check on changes\n\
-         \x20   assura build <file> [--output <dir>]  Generate Rust code from a contract file\n\
+         \x20   assura build <file> [--output <dir>] [--target <native|wasm>]  Generate Rust code\n\
          \x20   assura init <name>                   Create a new Assura project\n\
          \x20   assura fmt <file> [--check]           Format an .assura source file\n\
          \x20   assura explain <code>                Explain an error code (e.g., A03001)\n\
@@ -517,6 +517,7 @@ fn print_help() {
          \x20   --layer <0|1>                       Verification layer (0=structural, 1=SMT)\n\
          \x20   --solver <z3|cvc5|portfolio>        SMT solver backend (default: z3)\n\
          \x20   --output <dir>                      Output directory for generated code (build)\n\
+         \x20   --target <native|wasm>               Compilation target (default: native) (build)\n\
          \x20   --no-check                          Skip cargo check on generated code (build)\n\
          \x20   -w, --watch                         Watch for file changes and re-check (check)\n\
          \x20   -v, --verbose                       Show timing, intermediate results, Z3 stats\n\
@@ -539,7 +540,7 @@ fn print_help() {
 /// Extract positional arguments, skipping flags and their values.
 /// Flags with values: --layer, --output. Simple flags: --json, --human, --ast, --tokens.
 fn positional_args(args: &[String]) -> Vec<String> {
-    let flags_with_values = ["--layer", "--output", "--solver"];
+    let flags_with_values = ["--layer", "--output", "--solver", "--target"];
     let mut result = Vec::new();
     let mut skip_next = false;
     for arg in args.iter().skip(1) {
@@ -1481,7 +1482,7 @@ fn run_build(args: &[String]) {
     let verbosity = parse_verbosity(args);
 
     let filename = pos.get(1).unwrap_or_else(|| {
-        eprintln!("Usage: assura build <file.assura> [--output <dir>]");
+        eprintln!("Usage: assura build <file.assura> [--output <dir>] [--target <native|wasm>]");
         process::exit(2);
     });
 
@@ -1511,6 +1512,18 @@ fn run_build(args: &[String]) {
         })
         .unwrap_or(assura_smt::SolverChoice::Z3);
 
+    // Target: CLI flag > config file > default (native)
+    let compile_target = args
+        .windows(2)
+        .find(|w| w[0] == "--target")
+        .and_then(|w| assura_codegen::CompileTarget::from_str_loose(&w[1]))
+        .or_else(|| {
+            config
+                .as_ref()
+                .and_then(|(c, _)| assura_codegen::CompileTarget::from_str_loose(&c.build.target))
+        })
+        .unwrap_or(assura_codegen::CompileTarget::Native);
+
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
         process::exit(2);
@@ -1536,8 +1549,8 @@ fn run_build(args: &[String]) {
                 root.display()
             );
             eprintln!(
-                "  config: output={}, solver={}, timeout={}ms",
-                cfg.build.output, cfg.verify.smt_solver, cfg.verify.timeout
+                "  config: output={}, target={}, solver={}, timeout={}ms",
+                cfg.build.output, cfg.build.target, cfg.verify.smt_solver, cfg.verify.timeout
             );
             eprintln!();
         }
@@ -1624,7 +1637,11 @@ fn run_build(args: &[String]) {
 
     // --- Codegen ---
     let codegen_start = Instant::now();
-    let project = assura_codegen::codegen(&typed);
+    let backend_config = assura_codegen::BackendConfig {
+        target: compile_target.clone(),
+        ..assura_codegen::BackendConfig::default()
+    };
+    let project = assura_codegen::codegen_with_config(&typed, &backend_config);
 
     // --- Write to output directory ---
     let out_dir = Path::new(out_dir_str);
@@ -1677,12 +1694,32 @@ fn run_build(args: &[String]) {
         }
     }
 
+    // --- Generate .cargo/config.toml for WASM target ---
+    if matches!(compile_target, assura_codegen::CompileTarget::Wasm) {
+        let cargo_dir = out_dir.join(".cargo");
+        fs::create_dir_all(&cargo_dir).unwrap_or_else(|e| {
+            eprintln!("Error: cannot create {}: {e}", cargo_dir.display());
+            process::exit(1);
+        });
+        let config_toml = cargo_dir.join("config.toml");
+        fs::write(&config_toml, "[build]\ntarget = \"wasm32-wasip1\"\n").unwrap_or_else(|e| {
+            eprintln!("Error: cannot write {}: {e}", config_toml.display());
+            process::exit(1);
+        });
+        if verbosity != Verbosity::Quiet {
+            println!("  wrote {}", config_toml.display());
+        }
+    }
+
     // --- Validate generated Rust compiles ---
     let skip_check = args.contains(&"--no-check".to_string());
     if !skip_check {
-        let cargo_check = process::Command::new("cargo")
-            .arg("check")
-            .current_dir(out_dir)
+        let mut cmd = process::Command::new("cargo");
+        cmd.arg("check").current_dir(out_dir);
+        if let Some(triple) = compile_target.rust_target() {
+            cmd.arg("--target").arg(triple);
+        }
+        let cargo_check = cmd
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .output();
@@ -4277,6 +4314,7 @@ contract CraneliftTest {
             backend: assura_codegen::CodegenBackend::Cranelift,
             opt_level: 0,
             debug_info: true,
+            target: assura_codegen::CompileTarget::Native,
         };
         let project = assura_codegen::codegen_with_config(&typed, &config);
         assert!(
@@ -4957,5 +4995,77 @@ timeout = 2000
         let _ = super::load_project_config(&file);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_cli_wasm_target_generates_config() {
+        // Build with --target wasm should produce .cargo/config.toml
+        let tmp = std::env::temp_dir().join("assura_i003_wasm");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let out = std::process::Command::new(assura_bin())
+            .args([
+                "build",
+                "demos/libwebp-huffman.assura",
+                "--output",
+                tmp.to_str().unwrap(),
+                "--target",
+                "wasm",
+                "--no-check",
+            ])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura build");
+        assert!(
+            out.status.success(),
+            "build --target wasm should succeed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // Should have .cargo/config.toml with wasm target
+        let cargo_config = tmp.join(".cargo/config.toml");
+        assert!(
+            cargo_config.exists(),
+            ".cargo/config.toml should exist for WASM target"
+        );
+        let content = std::fs::read_to_string(&cargo_config).unwrap();
+        assert!(
+            content.contains("wasm32-wasip1"),
+            ".cargo/config.toml should set wasm32-wasip1 target"
+        );
+        // Cargo.toml should have WASM comment
+        let cargo_toml = std::fs::read_to_string(tmp.join("Cargo.toml")).unwrap();
+        assert!(
+            cargo_toml.contains("wasm32-wasip1"),
+            "Cargo.toml should mention WASM target"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn build_cli_native_target_no_cargo_config() {
+        // Build without --target (or --target native) should not create .cargo/config.toml
+        let tmp = std::env::temp_dir().join("assura_i003_native");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let out = std::process::Command::new(assura_bin())
+            .args([
+                "build",
+                "demos/libwebp-huffman.assura",
+                "--output",
+                tmp.to_str().unwrap(),
+                "--no-check",
+            ])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura build");
+        assert!(
+            out.status.success(),
+            "build should succeed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let cargo_config = tmp.join(".cargo/config.toml");
+        assert!(
+            !cargo_config.exists(),
+            ".cargo/config.toml should NOT exist for native target"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

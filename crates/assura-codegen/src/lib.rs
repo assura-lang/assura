@@ -41,12 +41,42 @@ pub enum CodegenBackend {
     Cranelift,
 }
 
+/// Compilation target for the generated Rust project.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum CompileTarget {
+    /// Native host target (default).
+    #[default]
+    Native,
+    /// WebAssembly via wasm32-wasip1 (formerly wasm32-wasi).
+    Wasm,
+}
+
+impl CompileTarget {
+    /// Parse a target string from CLI/config (e.g. "native", "wasm32-wasi").
+    pub fn from_str_loose(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "native" => Some(Self::Native),
+            "wasm" | "wasm32-wasi" | "wasm32-wasip1" => Some(Self::Wasm),
+            _ => None,
+        }
+    }
+
+    /// The Rust target triple for cargo commands.
+    pub fn rust_target(&self) -> Option<&'static str> {
+        match self {
+            Self::Native => None, // use host default
+            Self::Wasm => Some("wasm32-wasip1"),
+        }
+    }
+}
+
 /// Configuration for code generation.
 #[derive(Debug, Clone)]
 pub struct BackendConfig {
     pub backend: CodegenBackend,
     pub opt_level: u8,
     pub debug_info: bool,
+    pub target: CompileTarget,
 }
 
 impl Default for BackendConfig {
@@ -55,6 +85,7 @@ impl Default for BackendConfig {
             backend: CodegenBackend::Rustc,
             opt_level: 2,
             debug_info: false,
+            target: CompileTarget::Native,
         }
     }
 }
@@ -624,6 +655,14 @@ edition = "2024"
         toml.push_str(
             "\n# Using Cranelift backend for fast compilation\n\
              # Install: rustup component add rustc-codegen-cranelift\n",
+        );
+    }
+
+    // WASM target: add .cargo/config.toml hint and note
+    if matches!(config.target, CompileTarget::Wasm) {
+        toml.push_str(
+            "\n# WASM target: build with `cargo build --target wasm32-wasip1`\n\
+             # Install target: `rustup target add wasm32-wasip1`\n",
         );
     }
 
@@ -4393,6 +4432,7 @@ type Marker {
             backend: super::CodegenBackend::Cranelift,
             opt_level: 0,
             debug_info: true,
+            target: super::CompileTarget::Native,
         };
         assert_eq!(config.backend, super::CodegenBackend::Cranelift);
         assert_eq!(config.opt_level, 0);
@@ -4476,6 +4516,7 @@ fn clamp(x: Int, lo: Int, hi: Int) -> Int
             backend: super::CodegenBackend::Rustc,
             opt_level: 3,
             debug_info: true,
+            target: super::CompileTarget::Native,
         };
         let project = {
             let (file, errs) = assura_parser::parse("");
@@ -5688,5 +5729,66 @@ contract NoErrors {
             "Cargo.toml should not include thiserror: {}",
             project.cargo_toml
         );
+    }
+
+    // --- WASM target tests ---
+
+    fn codegen_wasm(source: &str) -> GeneratedProject {
+        let (file, errs) = assura_parser::parse(source);
+        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
+        let file = file.expect("parse returned None");
+        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+        let typed = assura_types::type_check(&resolved).expect("type check failed");
+        let config = BackendConfig {
+            target: CompileTarget::Wasm,
+            ..BackendConfig::default()
+        };
+        codegen_with_config(&typed, &config)
+    }
+
+    #[test]
+    fn wasm_target_cargo_toml_has_comment() {
+        let project = codegen_wasm("");
+        assert!(
+            project.cargo_toml.contains("wasm32-wasip1"),
+            "WASM Cargo.toml should mention wasm32-wasip1: {}",
+            project.cargo_toml
+        );
+    }
+
+    #[test]
+    fn native_target_no_wasm_comment() {
+        let project = codegen_ok("");
+        assert!(
+            !project.cargo_toml.contains("wasm32-wasip1"),
+            "Native Cargo.toml should not mention wasm32-wasip1"
+        );
+    }
+
+    #[test]
+    fn compile_target_from_str() {
+        assert_eq!(
+            CompileTarget::from_str_loose("native"),
+            Some(CompileTarget::Native)
+        );
+        assert_eq!(
+            CompileTarget::from_str_loose("wasm"),
+            Some(CompileTarget::Wasm)
+        );
+        assert_eq!(
+            CompileTarget::from_str_loose("wasm32-wasi"),
+            Some(CompileTarget::Wasm)
+        );
+        assert_eq!(
+            CompileTarget::from_str_loose("wasm32-wasip1"),
+            Some(CompileTarget::Wasm)
+        );
+        assert_eq!(CompileTarget::from_str_loose("unknown"), None);
+    }
+
+    #[test]
+    fn compile_target_rust_target() {
+        assert_eq!(CompileTarget::Native.rust_target(), None);
+        assert_eq!(CompileTarget::Wasm.rust_target(), Some("wasm32-wasip1"));
     }
 }

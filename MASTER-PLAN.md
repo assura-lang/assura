@@ -543,7 +543,7 @@
   - Add CI job: run benchmarks on every PR, compare to baseline
   - Close issue #2
 
-- [ ] **I003**: Implement WASM compilation target (GitHub issue #3)
+- [x] **I003**: Implement WASM compilation target (GitHub issue #3)
   - Depends on: R001, A003
   - The spec defines `--target wasm32-wasi` and the investigation
     lists WASM as a key differentiator
