@@ -1,967 +1,873 @@
-# Assura Master Plan
+# Assura Master Plan v2
 
-> Actionable task list for building the Assura compiler from current state
-> to v1.0. Each task has a checkbox, estimated effort, dependencies, and
-> enough detail for an AI agent to pick up and execute without prior context.
+> Comprehensive rebuild plan treating Assura as a greenfield compiler.
+> The original T001-T119 tasks established initial scaffolding. This v2
+> plan addresses what actually needs to be done: fix broken pipelines,
+> refactor architecture, close open issues, deepen feature implementations
+> from structural stubs to real semantic analyzers, and build toward a
+> production-quality compiler.
 >
 > **How to use**: Read top to bottom. Pick the next `[ ]` task whose
 > `depends-on` tasks are all `[x]`. Complete it. Mark it `[x]`. Commit
-> MASTER-PLAN.md with the change. Continue.
+> MASTER-PLAN.md with the change. Continue to the next task.
 >
-> **Parallelization**: Tasks with the same `depends-on` can run in
-> parallel. The dependency graph is documented at the end of this file.
+> **Session protocol**: At the start of every session, read this file,
+> find the next uncompleted task, work on it, mark it done, commit, push,
+> and continue. Before ending, update the Progress Notes section.
+>
+> **Scope limit**: Never plan more than 5 tasks ahead. This plan is long
+> by necessity (it covers years of work), but agents should focus on the
+> next 1-3 tasks only. Do not load the entire plan into working memory.
 
 ---
 
-## Phase 0: Foundation (Target: compiler parses, type-checks, generates Rust)
+## Current State Assessment (2026-06-13)
 
-### 0.1 Parser Hardening (1 week)
+### What works
 
-> The parser exists and handles the demo files. These tasks make it
-> production-quality with tests and full grammar coverage.
+| Component | LOC | Tests | Status |
+|-----------|-----|-------|--------|
+| assura-parser | 2,775 | 33 (14 snapshot + 19 parser) | Solid. All demos parse. |
+| assura-resolve | 3,368 | 77 | Working scope analysis, import resolution. |
+| assura-types | 25,183 | 838 | Massive monolith. Many checkers are structural stubs. |
+| assura-codegen | 3,261 | 90 | Generates syntactically valid Rust (syn::parse_file passes), but generated code does NOT compile (undefined types, missing imports). |
+| assura-smt | 7,069 | 0 in-crate (tested via assura-types) | Z3 backend exists behind feature flag. 91 uses of Z3 API. No standalone tests. |
+| assura-cli | 2,409 | 15 | Pipeline works: lex -> parse -> resolve -> typecheck -> codegen. |
+| assura-lsp | 835 | 9 | Basic diagnostics, hover, go-to-def. Minimal. |
+| assura-server | 496 | 0 | gRPC service compiles. Zero tests. |
 
-- [x] **T001**: Lexer with logos (50+ keywords, operators, literals)
-  - Crate: `assura-parser`, file: `src/lexer.rs`
-  - Done: 233 lines, all demos parse
+**Total: 45,579 LOC, ~1,062 tests**
 
-- [x] **T002**: Parser with chumsky 0.9 (contracts, services, types, enums, externs, fns, generics)
-  - Crate: `assura-parser`, file: `src/parser.rs`
-  - Done: ~620 lines, handles 12 edge cases
+### Critical problems
 
-- [x] **T003**: AST types (SourceFile, ContractDecl, ServiceDecl, TypeDef, etc.)
-  - Crate: `assura-parser`, file: `src/ast.rs`
-  - Done: 173 lines
+1. **Generated Rust does not compile** (missing types: `BitReader`, `Region`, `HuffmanGroup`, etc.)
+2. **assura-types is a 25K-line single file** (unmaintainable, impossible to review)
+3. **Refinement predicates lost during type parsing** (GitHub issue #6)
+4. **Duplicate param extraction across 3 crates** (GitHub issue #5)
+5. **SMT verification reports nothing per-clause** (just "check passed")
+6. **Parser errors lack expected-token info** (GitHub issue #7)
+7. **No `assura.toml` project config** (spec Section 10.3)
+8. **No multi-file compilation** (only single-file mode)
+9. **Wildcard catch-alls in match arms** (GitHub issue #9)
+10. **No CLI build --output tests** (GitHub issue #8)
 
-- [x] **T004**: CLI with --ast, --tokens, error reporting via ariadne
-  - Crate: `assura-cli`, file: `src/main.rs`
-  - Done: ~300 lines
+### Missing from spec/roadmap/market-research
 
-- [x] **T005**: Add snapshot tests for parser (insta crate)
-  - Depends on: T001-T004
-  - Crate: `assura-parser`
-  - Add `insta` to dev-dependencies
-  - For each file in `demos/` and `tests/fixtures/`:
-    - Parse it, serialize AST to debug format, snapshot it
-  - Create `tests/fixtures/` directory with targeted test cases:
-    - `empty.assura`: empty file
-    - `imports_only.assura`: just imports
-    - `contract_minimal.assura`: simplest valid contract
-    - `all_clause_kinds.assura`: every clause kind (requires, ensures, effects, etc.)
-    - `nested_types.assura`: refinement types, generic types, bounded type params
-    - `service_full.assura`: service with states, operations, queries
-  - Run: `cargo test --workspace` must pass
-
-- [x] **T006**: Add error recovery test cases
-  - Depends on: T005
-  - Create `tests/fixtures/errors/` directory with invalid .assura files:
-    - `missing_brace.assura`: unclosed block
-    - `bad_token.assura`: invalid characters
-    - `duplicate_clause.assura`: contract with same clause twice
-  - Each file has a `// EXPECT ERROR` comment
-  - Test that parser produces errors (not panics) with meaningful messages
-  - Test that `parse_recovery()` returns partial AST + error list
-
-- [x] **T007**: Expand lexer to cover full spec keywords
-  - Depends on: T001
-  - Read Appendix A of `docs/SPECIFICATION.md` for all ~199 keywords
-  - Add missing keyword tokens to `lexer.rs`
-  - Current lexer has ~50 keywords; spec defines ~199
-  - Group additions by category (verification, types, effects, etc.)
-  - Update `keyword_or_ident()` in parser.rs for any new keywords
-    that can appear in identifier position
-
-- [x] **T008**: Add expression parser
-  - Depends on: T002
-  - Currently, clause bodies and type bodies are collected as raw tokens
-  - Implement a proper expression AST and parser for predicates:
-    - Binary ops: `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`
-    - Unary ops: `!`, `-`
-    - Field access: `a.b.c`
-    - Function calls: `f(x, y)`
-    - Quantifiers: `forall x in S: P`, `exists x in S: P`
-    - `old(expr)` for postconditions
-    - `result` keyword in ensures clauses
-    - Conditional: `if P then E1 else E2`
-    - Set/list comprehensions
-  - Add `Expr` enum to `ast.rs`
-  - Replace `Vec<String>` token lists in `Clause.tokens` with `Expr`
-  - Spec reference: Sections 1.4-1.7 (Predicate, Expr, Term, Atom)
-  - All existing demo files must still parse after this change
-
-### 0.2 Name Resolution (2 weeks)
-
-> Build a symbol table. Resolve all names. Detect errors.
-
-- [x] **T009**: Create `assura-resolve` crate AND wire into CLI
-  - Depends on: T008
-  - New crate: `crates/assura-resolve/`
-  - Cargo.toml: depends on `assura-parser`
-  - Exports: `resolve(SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>>`
-  - Data structures:
-    - `SymbolTable`: maps names to definitions (type, span, visibility)
-    - `Scope`: nested scopes (module > service > operation > block)
-    - `Symbol`: enum of TypeDef, ContractDef, ServiceDef, FnDef, EnumDef, etc.
-  - **MUST**: Update `assura-cli/src/main.rs` to call `resolve()` after
-    parsing. Print resolution errors via ariadne. Exit 1 on errors.
-  - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` output must
-    change (e.g., "0 resolution errors" or new diagnostic output)
-
-- [x] **T010**: Implement scope analysis
-  - Depends on: T009
-  - Walk the AST top-down, building scopes:
-    - Module scope: all top-level declarations
-    - Service scope: types, operations, queries, invariants
-    - Contract scope: clauses, nested types/fns
-    - Function scope: parameters, local bindings
-  - Detect and report:
-    - A02001: Undefined name
-    - A02002: Ambiguous name (multiple imports)
-    - A02003: Duplicate definition
-    - A02004: Visibility violation (accessing non-pub field)
-  - Spec reference: Section 8.1 (Module System)
-
-- [x] **T011**: Implement import resolution
-  - Depends on: T010
-  - Resolve `import a.b.c` to the corresponding module
-  - Support: `import a.b.c`, `import a.b.c as alias`, `import a.b { X, Y }`
-  - Module paths correspond to file paths (Section 8.1)
-  - Detect A02005: circular imports (topological sort)
-  - For now, multi-file resolution can use a simple in-memory file map
-    (no need for actual filesystem resolution yet)
-
-- [x] **T012**: Resolve type references
-  - Depends on: T010
-  - Every type name in the AST must resolve to a TypeDef, EnumDef,
-    or built-in type
-  - Built-in types (hardcoded in symbol table):
-    Int, Nat, Float, Bool, String, Bytes, Unit, Never,
-    List<T>, Map<K,V>, Set<T>, Option<T>, Result<T,E>
-  - Generic type parameter resolution: `T` in `Contract<T>` resolves
-    to the type parameter, not a concrete type
-  - Detect A02001 for unknown type names
-
-### 0.3 Type Checker - Layer 0 (3 weeks)
-
-> Check types without SMT. Structural checks only.
-
-- [x] **T013**: Create `assura-types` crate AND wire into CLI
-  - Depends on: T012
-  - New crate: `crates/assura-types/`
-  - Depends on: `assura-parser`, `assura-resolve`
-  - Core data structures:
-    - `Type`: enum representing all Assura types (base, generic, refined, function, etc.)
-    - `TypeEnv`: typing environment (maps names to types)
-    - `TypeError`: structured error with code, span, message
-  - Entry point: `type_check(ResolvedFile) -> Result<TypedFile, Vec<TypeError>>`
-  - **MUST**: Update `assura-cli/src/main.rs` to call `type_check()` after
-    resolve. Print type errors via ariadne. Exit 1 on errors.
-  - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` must now
-    report type checking results (pass or errors with codes)
-
-- [x] **T014**: Implement base type checking
-  - Depends on: T013
-  - Type-check expressions against expected types:
-    - Integer literals -> Int (or Nat if non-negative)
-    - Float literals -> Float
-    - String literals -> String
-    - Boolean literals -> Bool
-    - Variable references -> look up in TypeEnv
-    - Binary operations: check operand types match, determine result type
-    - Comparison operations: operands same type, result Bool
-    - Logical operations: operands Bool, result Bool
-  - Emit A03001 (type mismatch), A03002 (argument count mismatch)
-  - Spec reference: Sections 2.1-2.2
-
-- [x] **T015**: Implement generic type instantiation
-  - Depends on: T014
-  - Check `List<Int>`, `Map<String, Int>`, `Option<Bool>`, etc.
-  - Verify type argument count matches type parameter count
-  - Substitute type parameters in the body
-  - Emit A03003 (wrong number of type arguments)
-
-- [x] **T016**: Implement field access and function call type checking
-  - Depends on: T014
-  - Field access `x.field`: look up field in struct type, return field type
-  - Function call `f(args)`: check argument types against parameter types,
-    return the function's return type
-  - Method-style calls on services: `service.operation(args)`
-  - Emit A03004 (unknown field), A03005 (not callable)
-
-- [x] **T017**: Implement pattern exhaustiveness checking
-  - Depends on: T014
-  - For match expressions over enum types:
-    - Build a pattern matrix (Maranget's algorithm)
-    - Check that all variants are covered
-    - Report A10001 (non-exhaustive match) with missing variants
-  - Spec reference: Section 2.9
-
-- [x] **T018**: Implement contract clause type checking
-  - Depends on: T014
-  - `requires` and `ensures` clauses must be Bool-typed expressions
-  - `input` clause: declare parameter names and types
-  - `output` clause: declare return type
-  - `effects` clause: validate effect names against known effects
-  - `modifies` clause: validate that named variables exist
-  - `old(expr)` in ensures: expr must be valid in the pre-state
-  - `result` in ensures: type matches the output type
-
-### 0.4 Rust Code Generation (2 weeks)
-
-> Generate valid Rust source code from type-checked contracts.
-
-- [x] **T019**: Create `assura-codegen` crate AND wire into CLI
-  - Depends on: T018
-  - New crate: `crates/assura-codegen/`
-  - Depends on: `assura-parser`, `assura-resolve`, `assura-types`
-  - Add `prettyplease` dependency for Rust code formatting
-  - Entry point: `codegen(TypedFile) -> GeneratedProject`
-  - `GeneratedProject`: Cargo.toml content + Vec<(path, rust_source)>
-  - **MUST**: Update `assura-cli/src/main.rs` to call `codegen()` when
-    `assura build` is invoked. Write generated files to `generated/`.
-  - **VERIFY**: `cargo run -- build demos/libwebp-huffman.assura` must
-    produce a `generated/` directory with valid Rust source
-
-- [x] **T020**: Implement type mapping
-  - Depends on: T019
-  - Assura -> Rust type translations (Section 6.1 of spec):
-    - `Int` -> `i64`
-    - `Nat` -> `u64`
-    - `Float` -> `f64`
-    - `Bool` -> `bool`
-    - `String` -> `String`
-    - `Bytes` -> `Vec<u8>`
-    - `Unit` -> `()`
-    - `Never` -> `!`
-    - `List<T>` -> `Vec<T>`
-    - `Map<K,V>` -> `BTreeMap<K,V>`
-    - `Set<T>` -> `BTreeSet<T>`
-    - `Option<T>` -> `Option<T>`
-    - `Result<T,E>` -> `Result<T,E>`
-  - Generate newtype wrappers for refined types (Section 6.2):
-    `type Pos = { v: Int | v > 0 }` -> `struct Pos(i64);`
-
-- [x] **T021**: Implement contract codegen
-  - Depends on: T020
-  - `requires { P }` -> `debug_assert!(P, "requires: P");` at function entry
-  - `ensures { Q }` -> `debug_assert!(Q, "ensures: Q");` before return
-  - `old(expr)` -> save expr value in a local before the body executes
-  - Generate function signatures from input/output clauses
-  - Spec reference: Section 6.7
-
-- [x] **T022**: Implement Cargo project generation
-  - Depends on: T021
-  - Generate a complete Cargo workspace:
-    ```
-    generated/
-      Cargo.toml          # [package] with dependencies
-      src/
-        lib.rs            # All generated Rust code
-    ```
-  - Cargo.toml includes `edition = "2024"` and any needed deps
-  - Format all generated .rs files with prettyplease
-  - Spec reference: Section 10.3
-
-- [x] **T023**: Implement struct and enum codegen
-  - Depends on: T020
-  - Assura `type Foo { field: Int }` -> Rust `struct Foo { field: i64 }`
-  - Assura `enum Bar { A, B(Int) }` -> Rust `enum Bar { A, B(i64) }`
-  - Generate `#[derive(Debug, Clone, PartialEq)]` on all generated types
-  - Handle visibility: `pub field` -> `pub field`
-
-### 0.5 CLI Completion (1 week)
-
-> Wire up the full compilation pipeline in the CLI.
-
-- [x] **T024**: Implement `assura check` command
-  - Depends on: T018
-  - Parse -> resolve -> type-check
-  - Report all errors with codes and source spans
-  - Exit 0 if no errors, exit 1 if errors
-  - Support `--json` output mode (structured errors as JSON)
-  - Support `--human` output mode (ariadne-formatted, default)
-
-- [x] **T025**: Implement `assura build` command
-  - Depends on: T022, T024
-  - Parse -> resolve -> type-check -> codegen
-  - Write generated Rust project to `generated/` directory
-  - Invoke `cargo build` on the generated project
-  - Forward cargo's stdout/stderr
-  - Exit with cargo's exit code
-
-- [x] **T026**: Implement `assura init` command
-  - Depends on: T024
-  - Create a new Assura project:
-    ```
-    project-name/
-      assura.toml         # Project configuration
-      contracts/
-        lib.assura        # Starter contract
-    ```
-  - `assura.toml` format per Section 10.3 of spec
-  - Starter contract: SafeDivision example from ROADMAP.md
-
-- [x] **T027**: Implement `assura explain <error-code>` command
-  - Depends on: T024
-  - Look up error code in the error catalog
-  - Print: description, example code that triggers it, how to fix
-  - Spec reference: Section 10.2
-
-### 0.6 Phase 0 Integration (1 week)
-
-- [x] **T028**: End-to-end test: SafeDivision contract
-  - Depends on: T025
-  - Write `tests/e2e/safe_division.assura`:
-    ```assura
-    contract SafeDivision {
-      input(a: Int, b: Int)
-      output(result: Int)
-      requires { b != 0 }
-      ensures  { result * b + (a mod b) == a }
-      effects  { pure }
-    }
-    ```
-  - `assura check` passes
-  - `assura build` generates valid Rust
-  - `cargo build` on generated code succeeds
-  - Generated code contains `debug_assert!(b != 0)`
-
-- [x] **T029**: CI setup (GitHub Actions)
-  - Depends on: T005
-  - `.github/workflows/ci.yml`:
-    - Trigger: push to main, pull requests
-    - Jobs: `cargo build`, `cargo test --workspace`,
-      `cargo clippy --workspace -- -D warnings`, `cargo fmt --check --all`
-    - Matrix: stable Rust on ubuntu-latest
-    - Cache: `Swatinem/rust-cache`
-    - Timeout: 15 minutes
-
-- [x] **T030**: Add README.md
-  - Depends on: T028
-  - Project description (from LANDING.md)
-  - Quick start (install, init, check, build)
-  - Example contract
-  - Link to SPECIFICATION.md, ROADMAP.md
-  - License badge, CI badge
+| Feature | Source | Status |
+|---------|--------|--------|
+| CVC5 fallback solver | Spec, Roadmap, Issue #1 | Not started |
+| WASM compilation target | Spec, Investigation, Issue #3 | Not started |
+| Performance benchmarks | Issue #2 | Not started |
+| `assura.toml` configuration | Spec Section 10.3 | Not started |
+| Multi-file/module compilation | Spec Section 8 | Not started |
+| Fuzzing infrastructure | AGENTS.md, Roadmap | Not started |
+| Release pipeline (crates.io, Homebrew) | Market research | Not started |
 
 ---
 
-## Phase 1: Alpha - Verification Pipeline (Target: Z3-powered proofs)
+## Phase R: Rework (Architecture + Critical Fixes)
 
-### 1.1 Linear Types (2 weeks)
+> Treat the codebase as a greenfield project with existing code as
+> reference material. Rework should not matter since there are no
+> users yet. Fix foundations before adding features.
 
-- [x] **T031**: Implement usage tracking in type checker
-  - Depends on: T018
-  - Extend `assura-types` with usage grades:
-    - Grade 0: erased (ghost)
-    - Grade 1: linear (use exactly once)
-    - Grade n: exact count
-    - Grade omega: unlimited
-  - Track how many times each variable is used
-  - Spec reference: Section 2.5
+### R.1 Generated Rust Must Compile
 
-- [x] **T032**: Implement context splitting
-  - Depends on: T031
-  - At each branch point (if/match), split the linear context
-  - Variables used in one branch cannot be used in the other
-  - After branches merge, variables used in both branches are consumed
-  - Emit A05001-A05005 (linearity errors)
+- [ ] **R001**: Fix codegen to produce compilable Rust for all demo files
+  - Depends on: none (blocking everything)
+  - The generated `lib.rs` for `demos/libwebp-huffman.assura` fails
+    `cargo build` with: undefined `BitReader`, `Region`, `HuffmanGroup`,
+    `DecodeError`, `ValidCodeLengths`, `MAX_ALPHABET_SIZE`, etc.
+  - **Root cause**: codegen emits function signatures referencing types
+    from the contract, but does not generate struct/enum definitions for
+    those types. `feature_max` constants are emitted as empty modules.
+  - **Fix**:
+    1. Collect all user-defined type names from the AST (TypeDef, EnumDef,
+       extern type declarations, feature_max constants)
+    2. Generate Rust struct/enum stubs for every referenced type that has
+       a definition in the AST
+    3. Generate `const` declarations for `feature_max` values
+    4. Add `use` imports for types from other modules
+    5. For types with no AST definition (extern types), generate a
+       placeholder struct with a `_phantom` field
+  - **Validation**: `cargo run --bin assura -- build demos/libwebp-huffman.assura`
+    followed by `cd generated && cargo check` must succeed (not `cargo build`,
+    since function bodies are `todo!()`, but types must resolve)
+  - Run `cargo check` on all three demo outputs:
+    - `demos/libwebp-huffman.assura`
+    - `demos/zlib-inflate.assura`
+    - `demos/mbedtls-x509.assura`
+  - Add integration test: `cargo test` verifies generated code passes
+    `cargo check` (not just `syn::parse_file`)
+  - Crate: `assura-codegen/src/lib.rs`
 
-- [x] **T033**: Test cases for linear types
-  - Depends on: T032
-  - Test Case 1 from Section 13 of spec:
-    refinement predicate on a linear variable should NOT count as a use
-  - Test: double-use of linear variable -> A05001
-  - Test: unused linear variable -> A05002
-  - Test: linear variable correctly used once -> passes
+- [ ] **R002**: Fix codegen module structure for multi-contract files
+  - Depends on: R001
+  - Currently all generated code goes into one flat `lib.rs`
+  - Multi-contract files should generate:
+    ```
+    generated/src/lib.rs        // pub mod declarations
+    generated/src/contract_a.rs // per-contract modules
+    generated/src/contract_b.rs
+    generated/src/types.rs      // shared type definitions
+    ```
+  - This also fixes name collision issues when two contracts define
+    types with the same name
+  - Crate: `assura-codegen/src/lib.rs`
 
-### 1.2 Typestate (1 week)
+### R.2 Split assura-types Monolith
 
-- [x] **T034**: Implement typestate checker
-  - Depends on: T032 (typestate requires linearity)
-  - Build DFA per typestate variable from `states:` declaration
-  - Track current state through control flow
-  - At each operation call, verify the object is in the required state
-  - After operation, transition to the declared next state
-  - Emit A06001-A06004 (typestate errors)
-  - Spec reference: Section 2.6
+- [ ] **R003**: Split assura-types into domain modules (file-level)
+  - Depends on: none
+  - The current `assura-types/src/lib.rs` is 25,183 lines in ONE file.
+    This is the single biggest maintainability problem in the codebase.
+  - **Target structure**:
+    ```
+    assura-types/src/
+      lib.rs              # Re-exports, TypedFile, type_check() entry point
+      types.rs            # Type enum, TypeEnv, display impls
+      checker.rs          # Core expression type checking (T014)
+      generics.rs         # Generic instantiation, substitution (T015)
+      patterns.rs         # Pattern exhaustiveness (T017)
+      clauses.rs          # Contract clause checking (T018)
+      linearity.rs        # Usage tracking, context splitting (T031-T032)
+      typestate.rs        # DFA state tracking (T034)
+      effects.rs          # Effect set checking (T036)
+      taint.rs            # Taint tracking, info flow (T047, T051)
+      measures.rs         # Totality, decreases (T053-T054)
+      stdlib.rs           # Built-in type definitions, method signatures
+      errors.rs           # TypeError, error codes, formatting
+    ```
+  - **Approach**: Pure mechanical refactoring. Move functions and types
+    to the appropriate module file. Use `pub(crate)` for internal items.
+    Re-export the public API from `lib.rs`.
+  - **Constraint**: Zero behavior changes. The test count (838) must not
+    change. No test should need modification beyond `use` path changes.
+  - Run `cargo test --workspace` after each module extraction to ensure
+    nothing breaks.
 
-- [x] **T035**: Test cases for typestate
-  - Depends on: T034
-  - Test: valid state transition sequence -> passes
-  - Test: operation called in wrong state -> A06001
-  - Test: ambiguous state after diverging branches -> A06004
-  - Test: typestate variable must be linear -> A06002
+### R.3 Close Open GitHub Issues
 
-### 1.3 Effect System (1 week)
+- [ ] **R004**: Deduplicate raw-token param/type extraction (issue #5)
+  - Depends on: none
+  - Three crates independently parse `name: Type` pairs from raw tokens:
+    - `assura-types/src/lib.rs`: `register_input_clause_params()`
+    - `assura-codegen/src/lib.rs`: `extract_input_params()`
+    - `assura-resolve/src/lib.rs`: `extract_input_param_names()`
+  - Extract to `assura-parser::ast::parse_clause_params()` with a
+    shared `ParsedParam { name: String, ty: Vec<Token> }` return type
+  - Update all three call sites
+  - Close issue #5 with `Closes #5` in commit message
 
-- [x] **T036**: Implement effect checker
-  - Depends on: T032 (effect system uses linearity for resource effects)
-  - Each function declares an effect row: `effects { io, mem }`
-  - Function body's actual effects must be subset of declared effects
-  - Effect hierarchy: `io` = union of all IO sub-effects (Section 3.6)
-  - `pure` = empty effect set
-  - Emit A07001-A07005
-  - Spec reference: Section 3.5
+- [ ] **R005**: Preserve refinement predicates during type parsing (issue #6)
+  - Depends on: none
+  - When `parse_type_tokens` encounters `{ x: Int | x > 0 }`, the
+    refinement predicate is lost. Downstream sees `Type::Int` instead
+    of `Type::Refined { base: Int, predicate: "x > 0" }`
+  - Fix `parse_type_tokens()` in assura-types to detect the `{`, parse
+    the base type, detect `|`, and capture the predicate tokens
+  - This is critical for SMT: without the predicate, Z3 cannot verify
+    refinement subtyping
+  - Close issue #6
 
-- [x] **T037**: Test cases for effects
-  - Depends on: T036
-  - Test: pure function calling effectful function -> A07001
-  - Test: function with correct effect declaration -> passes
-  - Test: effect containment across call chain -> A07002
+- [ ] **R006**: Improve parser error messages with expected tokens (issue #7)
+  - Depends on: none
+  - chumsky 0.9's `Simple` error has an `expected()` method returning
+    the set of expected tokens. The CLI currently ignores this.
+  - Update error rendering in `assura-cli/src/main.rs` to show:
+    `error[A01001]: unexpected 'foo', expected one of: '{', 'requires'`
+  - Close issue #7
 
-### 1.4 Z3 Integration (3 weeks) -- CRITICAL PATH
+- [ ] **R007**: Add integration tests for CLI build --output flag (issue #8)
+  - Depends on: R001
+  - Tests:
+    - Custom output directory is created and receives files
+    - Default `generated/` works when `--output` omitted
+    - Error on invalid output path
+  - Close issue #8
 
-> This is the hardest and most important milestone. Everything after
-> this depends on having a working SMT solver connection.
+- [ ] **R008**: Convert wildcard catch-alls to explicit match arms (issue #9)
+  - Depends on: none
+  - Locations:
+    - `assura-codegen/src/lib.rs`, `generate_service`: two `_ => {}` arms
+    - `assura-resolve/src/lib.rs`: similar catch-alls
+  - Replace with explicit variant lists so rustc warns on new variants
+  - Close issue #9
 
-- [x] **T038**: Create `assura-smt` crate with Z3 bindings AND wire into CLI
-  - Depends on: T018
-  - New crate: `crates/assura-smt/`
-  - Add `z3` crate dependency (Rust bindings to libz3)
-  - Set up: solver context, sort declarations, function declarations
-  - Implement timeout mechanism: 1s default for Layer 1
-  - Entry point: `verify(TypedFile) -> Vec<VerificationResult>`
-  - `VerificationResult`: `Verified | Counterexample(Model) | Timeout | Unknown`
-  - Spec reference: Section 5.1
-  - **MUST**: Update `assura-cli/src/main.rs` to call `verify()` after
-    type checking. Print verification results (verified/counterexample/
-    timeout) via ariadne. Even if only trivial contracts verify at first.
-  - **VERIFY**: `cargo run -- demos/libwebp-huffman.assura` must now
-    print verification status for each contract clause
+### R.4 Fix Pipeline Integrity
 
-- [x] **T039**: Encode refinement type subtyping as SMT queries
-  - Depends on: T038
-  - Core encoding (Section 5.2):
-    `{v: T | P} <: {v: T | Q}` becomes:
-    `(assert P) (assert (not Q)) (check-sat)`
-    UNSAT = subtyping holds, SAT = counterexample exists
-  - SMT theories for Layer 1:
-    - QF_UFLIA: quantifier-free linear integer arithmetic + uninterpreted fns
-    - QF_UFLRA: same with reals (float contracts)
-    - QF_DT: datatypes (info flow labels, typestate)
-  - Start with integer arithmetic predicates only
+- [ ] **R009**: Show per-clause verification results in CLI output
+  - Depends on: none
+  - Currently `assura check` just says "check passed (no errors)".
+    It should show, for each contract:
+    ```
+    contract SafeDivision:
+      requires { b != 0 }         ... verified
+      ensures { result * b ... }  ... verified (0.02s)
+    ```
+  - When Z3 is not available (feature not enabled), show:
+    ```
+      requires { b != 0 }         ... skipped (no SMT solver)
+    ```
+  - Crate: `assura-cli/src/main.rs`
 
-- [x] **T040**: Implement counterexample extraction
-  - Depends on: T039
-  - When Z3 returns SAT, extract the model:
-    - Variable names and their concrete values
-    - Format as structured JSON (Section 5.3)
+- [ ] **R010**: Make Z3 feature enabled by default in workspace builds
+  - Depends on: none
+  - Currently `z3-verify` is behind an optional feature flag, so the
+    default `cargo build` produces a compiler with no verification.
+    That defeats the purpose of the project.
+  - Change `assura-smt/Cargo.toml`: `default = ["z3-verify"]`
+  - Update `assura-cli/Cargo.toml` to depend on `assura-smt` with
+    default features (not `default-features = false`)
+  - CI already installs libz3-dev, so this should work in CI
+  - For users without Z3: document `--no-default-features` as the
+    opt-out, and gracefully degrade with "Z3 not installed" messages
+  - Add `cargo build --no-default-features` to CI to test graceful fallback
+
+- [ ] **R011**: Add standalone tests to assura-smt
+  - Depends on: none
+  - The SMT crate has 7,069 lines and ZERO in-crate tests. Everything
+    is tested indirectly through assura-types.
+  - Add tests for:
+    - `check_refinement_subtype()` with trivial predicates
+    - `verify()` on a minimal TypedFile
+    - `verify_buffer_bounds()` with concrete expressions
+    - `verify_taint_safety()` with known-safe and known-unsafe inputs
+    - Counterexample extraction format
+    - Timeout behavior
+  - These must work with both `z3-verify` enabled and disabled (test
+    the graceful fallback too)
+
+- [ ] **R012**: Fix `assura build` to verify generated code compiles
+  - Depends on: R001
+  - Currently `assura build` writes files and says "OK" even though
+    the generated Rust does not compile. It should:
+    1. Write generated files
+    2. Run `cargo check` on the generated project
+    3. Report any `rustc` errors as Assura diagnostics
+    4. Exit 1 if generated code fails to compile
+  - The original T025 spec said "invoke `cargo build` on the generated
+    project" but this was never implemented
+
+### R.5 Clause Body Consistency
+
+- [ ] **R013**: Eliminate raw token fallback in clause bodies
+  - Depends on: R005
+  - Currently some clause bodies are parsed as `Expr` (the expression
+    AST) and some fall back to `Vec<String>` (raw token text). This
+    dual representation causes:
+    - codegen to have two code paths (one for Expr, one for raw tokens)
+    - SMT encoder to skip raw-token clauses
+    - resolve to skip name checking in raw-token clauses
+  - Audit all clause kinds and their current body representation:
+    - `requires`, `ensures`: should be `Expr` (most already are)
+    - `input`, `output`: parameter lists (different structure, OK)
+    - `invariant`: should be `Expr`
+    - `modifies`, `reads`, `writes`: identifier lists (OK as-is)
+    - `effects`: effect name lists (OK as-is)
+    - `decreases`: should be `Expr`
+  - For any clause kind still using raw tokens where `Expr` is
+    appropriate, update the parser to emit `Expr`
+  - Remove the raw-token fallback code paths from codegen and SMT
+  - This is a prerequisite for correct SMT encoding of all clauses
+
+---
+
+## Phase S: Strengthen (Deepen Existing Features)
+
+> Many "checkers" in assura-types are structural pattern matchers
+> that check syntactic properties but do not perform real semantic
+> analysis. This phase deepens them into real analyzers.
+
+### S.1 Real Semantic Analysis
+
+- [ ] **S001**: Implement real termination checking (not just measure parsing)
+  - Depends on: R003
+  - Currently the totality checker (T053) extracts `decreases` clauses
+    and checks structural properties (measure exists, is well-founded),
+    but does not verify that the measure actually decreases across
+    recursive calls
+  - Implement:
+    1. Detect recursive calls in function/contract bodies
+    2. For each recursive call, compute the decreases argument at the
+       call site
+    3. Generate SMT obligation: `decreases(call_args) < decreases(fn_args)`
+    4. Report A09002 if the obligation cannot be discharged
+  - Test with: factorial, fibonacci, list append, tree traversal
+  - The `partial` escape hatch must suppress the check
+
+- [ ] **S002**: Implement real effect inference (not just declared-vs-used)
+  - Depends on: R003
+  - Currently the effect checker validates that declared effects are
+    from the known set, but does not infer which effects a function
+    body actually requires by analyzing its call graph
+  - Implement:
+    1. For each function call in a body, look up the callee's declared
+       effects
+    2. Compute the union of all callee effects
+    3. Check that the union is a subset of the function's own declaration
+    4. Report A07001 with the specific undeclared effect and the call
+       site that introduced it
+  - Currently A07001 only fires on direct name mismatch, not on
+    transitive effect propagation through call chains
+
+- [ ] **S003**: Implement real information flow tracking
+  - Depends on: R003
+  - Currently the info flow checker (T051) has the lattice structure
+    and declassification tracking, but does not actually trace
+    information flow through expressions
+  - Implement:
+    1. Assign security labels to all input parameters
+    2. Propagate labels through assignments, function calls, and
+       control flow (implicit flows from branch conditions)
+    3. Check that output labels satisfy the declared flow policy
+    4. Report A08001 for direct flow violations, A08002 for implicit
+       flow through branching
+  - Test with: secret data leaked through return value, secret data
+    used as branch condition affecting public output
+
+- [ ] **S004**: Implement real context splitting for linear types
+  - Depends on: R003
+  - The current linearity checker tracks usage counts but does not
+    implement full context splitting at branch points
+  - Implement the algorithm from Section 2.5 of the spec:
+    1. At `if/match`, split the linear context into two copies
+    2. Type-check each branch with its own copy
+    3. After the branch, merge: variables used in both branches are
+       consumed (count = sum), variables used in neither are preserved
+    4. Report A05001 if a linear variable is used in both branches
+       (double use)
+  - Test with Section 13 Test Case 1: refinement predicate on a linear
+    variable should NOT count as a use
+
+### S.2 SMT Encoding Depth
+
+- [ ] **S005**: Wire per-clause SMT verification into the CLI pipeline
+  - Depends on: R009
+  - Currently `verify()` in assura-smt runs on the whole TypedFile
+    and returns aggregate results. The CLI does not display per-clause
+    status.
+  - Restructure to:
+    1. Iterate over each contract in the TypedFile
+    2. For each requires/ensures pair, generate a separate SMT query
+    3. Report individual results: verified, counterexample, timeout, unknown
+    4. The CLI formats these as the per-clause output from R009
+  - This enables the user to see exactly which clause failed and why
+
+- [ ] **S006**: Implement counterexample display in CLI
+  - Depends on: S005
+  - When Z3 returns SAT (counterexample), the current output is just
+    a generic "counterexample found" message
+  - Display concrete values:
+    ```
+    contract SafeDivision:
+      ensures { result > 0 }  ... COUNTEREXAMPLE
+        | a = 0, b = 1
+        | result = 0
+        | The ensures clause is falsified when a=0, b=1.
+    ```
   - This is critical for AI iteration: the counterexample tells the AI
     exactly what input breaks the contract
 
-- [x] **T041**: Wire Z3 into the compilation pipeline
-  - Depends on: T039, T024
-  - After type checking, run SMT verification on all contracts
-  - Report results: verified, counterexample, timeout
-  - `assura check` reports verification results alongside type errors
-  - `assura check --layer 0` skips SMT (structural checks only)
-  - `assura check --layer 1` runs Layer 1 SMT (default)
+- [ ] **S007**: Implement Layer 2 real quantifier verification
+  - Depends on: S005
+  - The current Layer2Verifier has structural checks but does not
+    actually send quantified formulas to Z3
+  - Implement:
+    1. `forall x in S: P(x)` -> Z3 universal quantifier with trigger
+    2. `exists x in S: P(x)` -> Z3 existential quantifier
+    3. Use the AUFLIA theory (arrays + uninterpreted functions + LIA)
+    4. Implement the 10s timeout from Layer 2 (vs 1s for Layer 1)
+  - Test with: sorted list invariant, binary tree balance property
 
-- [x] **T042**: Test Z3 integration with simple contracts
-  - Depends on: T041
-  - Test: `requires { x > 0 } ensures { result > 0 }` with body
-    `result = x + 1` -> VERIFIED
-  - Test: `requires { true } ensures { result > 0 }` with body
-    `result = x` -> COUNTEREXAMPLE (x = 0 or x = -1)
-  - Test: contract with timeout -> TIMEOUT result
-  - Test: SafeDivision contract -> VERIFIED
+### S.3 Codegen Quality
 
-### 1.5 CORE Features (3 weeks)
+- [ ] **S008**: Generate compilable Rust for service declarations
+  - Depends on: R001
+  - Services with typestate should generate:
+    ```rust
+    pub struct ServiceName<State> {
+        _state: std::marker::PhantomData<State>,
+        // fields
+    }
+    pub struct StateA;
+    pub struct StateB;
+    impl ServiceName<StateA> {
+        pub fn transition(self) -> ServiceName<StateB> { ... }
+    }
+    ```
+  - Currently services generate modules with functions, but no typestate
+    encoding in the Rust output
+  - Test: generated service code passes `cargo check`
 
-- [x] **T043**: Implement CORE.1 Ghost code
-  - Depends on: T041
-  - Ghost variables, functions, and blocks: exist in logic, erased at runtime
-  - Enforce: ghost code cannot affect runtime values
-  - Ghost functions must be pure
-  - Ghost assertions become SMT proof obligations
-  - Codegen: completely erased (or debug_assert in debug mode)
-  - Error codes: A54001-A54005
-  - Spec reference: Section 14.CORE.1
-
-- [x] **T044**: Implement CORE.2 Lemmas
-  - Depends on: T043 (lemmas use ghost infrastructure)
-  - Proof functions that generate no runtime code
-  - `apply lemma_name(args)` adds the lemma's ensures as an assumption
-  - `induction var` generates base case + inductive case
-  - Error codes: A55001-A55005
-  - Spec reference: Section 14.CORE.2
-
-- [x] **T045**: Implement CORE.3 Frame conditions
-  - Depends on: T041
-  - `modifies` clause declares what a function changes
-  - Everything not listed is implicitly unchanged
-  - Critical for modular verification: without this, the verifier
-    must re-prove all invariants after every call
-  - Spec reference: Section 14.CORE.3
-
-### 1.6 MEM.1 + SEC.1 (4 weeks) -- THE MVP FEATURES
-
-- [x] **T046**: Implement MEM.1 Memory region contracts
-  - Depends on: T041, T043 (uses ghost regions)
-  - Buffer bounds contracts: `requires offset + len <= buf.capacity`
-  - Ghost regions tracking valid index ranges
-  - SMT encoding of region containment (region_a subset region_b)
-  - Error codes for: buffer overread, overwrite, out-of-bounds
-  - Spec reference: Section 14.MEM.1
-  - Test: parse and verify the libwebp-huffman.assura demo
-
-- [x] **T047**: Implement SEC.1 Untrusted data taint tracking
-  - Depends on: T041, T043
-  - Taint labels on data from external sources
-  - Taint propagation through operations
-  - Taint must be explicitly validated before use in sensitive positions
-    (array indices, allocation sizes, SQL queries)
-  - Information flow lattice (Section 2.7)
-  - Spec reference: Section 14.SEC.1
-  - Test: tainted index used without validation -> error
-
-- [x] **T048**: End-to-end: libwebp CVE-2023-4863 prevention demo
-  - Depends on: T046, T047
-  - Parse `demos/libwebp-huffman.assura`
-  - Type-check it
-  - Verify with Z3: prove buffer overflow is impossible
-  - Generate Rust code
-  - Compile generated Rust
-  - This is THE demo that proves Assura works
-
-### 1.7 Phase 1 Polish (1 week)
-
-- [x] **T049**: Error catalog for Phase 1
-  - Depends on: T032, T034, T036, T041
-  - Implement all error codes: A01xxx-A08xxx, A10xxx, A11xxx
-  - Each error: location, secondary locations, contract reference,
-    counterexample (when SMT), suggested fixes with confidence scores
-  - `assura explain` works for all Phase 1 error codes
-
-- [x] **T050**: Section 13 type interaction tests
-  - Depends on: T032, T034, T036
-  - Implement all 11 test cases from Section 13 of the spec
-  - These cover pairwise interactions between:
-    refinement, linear, typestate, effects, info-flow, dependent
-  - Each test is both a specification and a regression test
+- [ ] **S009**: Generate proptest/quickcheck tests from contracts
+  - Depends on: R001
+  - For each contract with `requires`/`ensures`, generate:
+    ```rust
+    #[cfg(test)]
+    mod tests {
+        use proptest::prelude::*;
+        proptest! {
+            fn test_safe_division(a in any::<i64>(), b in 1i64..=i64::MAX) {
+                // requires: b != 0 is encoded in the generator (b in 1..=MAX)
+                let result = safe_division(a, b);
+                // ensures: result * b + (a % b) == a
+                prop_assert_eq!(result * b + (a % b), a);
+            }
+        }
+    }
+    ```
+  - The `requires` clause constrains the proptest generator
+  - The `ensures` clause becomes `prop_assert!`
+  - Add `proptest` to the generated Cargo.toml dev-dependencies
+  - This was T083 but was never actually implemented as code generation
 
 ---
 
-## Phase 2: Beta - Feature Completeness (Target: all primary features)
+## Phase A: Architecture (Proper Compiler Pipeline)
 
-### 2.1 Remaining Type System (4 weeks)
+> Build the missing architectural layers that a real compiler needs.
 
-> These tasks are independent of each other and can run in parallel.
-> All depend on T041 (Z3 integration).
+### A.1 HIR (High-Level IR)
 
-- [x] **T051**: Information flow checker (A08001-A08005)
-  - Depends on: T041
-  - Security lattice: Public < Internal < Confidential < Restricted
-  - Declassification tracking
-  - Purpose labels for GDPR (Section 2.7)
+- [ ] **A001**: Design and implement a HIR between AST and type checker
+  - Depends on: R003, R013
+  - Currently the type checker operates directly on the parser AST.
+    This couples the type checker to parser implementation details
+    (raw tokens, span representations, syntactic sugar).
+  - The HIR should:
+    1. Desugar syntactic sugar (e.g., `a.b.c` -> nested field access)
+    2. Resolve all names (from assura-resolve) into unique IDs
+    3. Replace raw token sequences with structured expressions
+    4. Normalize clause representations
+  - New crate: `crates/assura-hir/`
+  - Input: `ResolvedFile` (from assura-resolve)
+  - Output: `HirFile` with fully resolved, desugared AST
+  - The type checker then operates on `HirFile` instead of raw AST
+  - This is a large refactoring task. Approach:
+    1. Define HIR types in the new crate
+    2. Write the lowering pass (AST -> HIR)
+    3. Update assura-types to accept HIR input
+    4. Keep AST input as a compatibility layer during migration
 
-- [x] **T052**: Dependent types (restricted)
-  - Depends on: T041
-  - Types depending on Nat, Bool, finite enums
-  - `Vec<T, n>` with index arithmetic
-  - Index erasure at runtime
-  - A03006
+### A.2 Multi-File Compilation
 
-- [x] **T053**: Totality checker (A09001-A09004)
-  - Depends on: T041
-  - Termination checking via `decreases` measures
-  - `partial` escape hatch
+- [ ] **A002**: Implement filesystem-based module resolution
+  - Depends on: A001
+  - Currently the compiler only handles single files
+  - `import a.b.c` should resolve to `a/b/c.assura` relative to the
+    project root (defined by `assura.toml`)
+  - Implement:
+    1. `assura.toml` parser (TOML format per spec Section 10.3)
+    2. Project root discovery (walk up from the file being compiled
+       until `assura.toml` is found)
+    3. Module path -> file path resolution
+    4. Compile all imported files, build a module graph
+    5. Detect circular imports via topological sort (already partially
+       implemented in assura-resolve)
+  - Support: `assura check .` to check all `.assura` files in the project
 
-- [x] **T054**: Measures
-  - Depends on: T041
-  - `len`, `elems`, `keys`, `values`, `size`
-  - Encode as uninterpreted functions in SMT
+- [ ] **A003**: Implement `assura.toml` project configuration
+  - Depends on: A002
+  - Parse `assura.toml` with these fields (from spec Section 10.3):
+    ```toml
+    [package]
+    name = "my-project"
+    version = "0.1.0"
 
-### 2.2 MEM Features (3 weeks, parallelizable)
+    [build]
+    target = "native"          # or "wasm32-wasi"
+    output = "generated"
 
-- [x] **T055**: MEM.2 Fixed-width integers
-  - Depends on: T041
-  - Overflow detection, checked_add/checked_mul
+    [verify]
+    smt-solver = "z3"          # or "cvc5" or "portfolio"
+    layer = 1                  # default verification layer
+    timeout = 1000             # SMT timeout in ms
 
-- [x] **T056**: MEM.3 Allocator contracts
-  - Depends on: T046
-  - Allocation/deallocation pairing, size tracking, arena lifetime
+    [profile]
+    type = "parser"            # minimal, parser, database, etc.
+    ```
+  - Wire into CLI: `assura check` reads config from `assura.toml`
+  - `assura init` generates a default `assura.toml`
 
-- [x] **T057**: MEM.4 Circular buffer contracts
-  - Depends on: T046
-  - Wrap-around indexing, logical-to-physical mapping
+### A.3 Error System Rework
 
-### 2.3 SEC Features (4 weeks, parallelizable)
-
-- [x] **T058**: SEC.2 FFI boundary contracts
-  - Depends on: T041
-  - extern/bind declarations, trust boundaries
-
-- [x] **T059**: SEC.3 Constant-time execution
-  - Depends on: T047
-  - Reject branches on secret data
-
-- [x] **T060**: SEC.4 Secure erasure
-  - Depends on: T032, T047
-  - Linear type consumed via zeroize
-
-- [x] **T061**: SEC.5 Cryptographic conformance
-  - Depends on: T041
-  - Top-level theorem connecting code to math spec
-
-### 2.4 TYPE Features (3 weeks, parallelizable)
-
-- [x] **T062**: TYPE.1 Interface contracts
-  - Depends on: T041
-  - Trait-like contracts, callback re-entrancy restrictions
-
-- [x] **T063**: TYPE.2 Recursive structural invariants
-  - Depends on: T041
-  - Tree balance, list sortedness, graph acyclicity
-
-- [x] **T064**: TYPE.3 Error propagation
-  - Depends on: T018
-  - `must_propagate` on error types, detect silently swallowed errors
-
-### 2.5 CONC Features (5 weeks, partially parallelizable)
-
-- [x] **T065**: CONC.1 Shared memory protocols
-  - Depends on: T032, T041
-  - Per-object access modes, data race detection
-
-- [x] **T066**: CONC.2 Callback re-entrancy
-  - Depends on: T062
-  - Prevent re-entrant calls through callback chains
-
-- [x] **T067**: CONC.3 Determinism contracts
-  - Depends on: T041
-  - Ban HashMap, ban random, enforce ordering
-
-- [x] **T068**: CONC.4 Lock ordering
-  - Depends on: T041
-  - Static lock hierarchy, deadlock prevention
-
-- [x] **T069**: CONC.5 Temporal deadlines
-  - Depends on: T041
-  - Bounded response time
-
-### 2.6 FMT Features (5 weeks, parallelizable)
-
-- [x] **T070**: FMT.1 Binary format contracts
-  - Depends on: T041
-  - Byte-aligned format contracts
-
-- [x] **T071**: FMT.2 Bit-level format contracts
-  - Depends on: T043, T041
-  - Sub-byte parsing, ghost bit cursor
-
-- [x] **T072**: FMT.3 String encoding contracts
-  - Depends on: T041
-  - UTF-8/UTF-16 safety
-
-- [x] **T073**: FMT.4 Codec dispatch
-  - Depends on: T070
-  - Magic-byte routing
-
-- [x] **T074**: FMT.5 Checksum integrity
-  - Depends on: T041
-  - CRC32, Adler-32, SHA verification
-
-- [x] **T075**: FMT.6 Protocol grammar
-  - Depends on: T034, T041
-  - RFC conformance, state machine
-
-### 2.7 Layer 2 Verification (2 weeks)
-
-- [x] **T076**: Implement Layer 2 SMT encoding
-  - Depends on: T041
-  - Quantified invariants (AUFLIA)
-  - Functional correctness (AUFLIA + UF)
-  - Termination proofs
-  - Serialization roundtrip
-  - Timeout: 10s default, configurable
-
-- [x] **T077**: CORE.4 Axiomatic definitions
-  - Depends on: T041
-  - Abstract mathematical concepts
-
-- [x] **T078**: CORE.5 Quantifier triggers
-  - Depends on: T076
-  - E-matching hints for SMT solver
-
-- [x] **T079**: CORE.6 Opaque functions
-  - Depends on: T041
-  - Hide implementation from verifier
-
-### 2.8 Tooling (4 weeks, parallelizable with everything above)
-
-> These do NOT depend on the verification features. They can be built
-> in parallel with Phase 2.1-2.7.
-
-- [x] **T080**: LSP server
-  - Depends on: T012, T018
-  - New crate: `crates/assura-lsp/`
-  - Language Server Protocol implementation
-  - Features: completions, go-to-definition, hover, inline diagnostics
-  - Use `tower-lsp` crate
-
-- [x] **T081**: VS Code extension
-  - Depends on: T080
-  - TextMate grammar for syntax highlighting
-  - LSP client configuration
-  - Publish to VS Code Marketplace (name already claimed? check)
-
-- [x] **T082**: tree-sitter grammar
-  - Depends on: T007
-  - Separate grammar for editor support (NOT the compiler parser)
-  - Error-tolerant by design
-  - Can be used by neovim, helix, zed, etc.
-
-- [x] **T083**: TEST.1 Test generation from contracts
-  - Depends on: T041
-  - Generate property-based tests from requires/ensures
-  - Use proptest or quickcheck in generated Rust
-  - Generate boundary value tests from refinement predicates
-
-### 2.9 Phase 2 Integration (2 weeks)
-
-- [x] **T084**: End-to-end: zlib CVE-2022-37434 demo
-  - Depends on: T070, T074, T046
-  - Parse, verify, codegen `demos/zlib-inflate.assura`
-
-- [x] **T085**: End-to-end: mbedTLS 4-CVE demo
-  - Depends on: T047, T059, T061
-  - Parse, verify, codegen `demos/mbedtls-x509.assura`
+- [ ] **A004**: Implement structured error types across all crates
+  - Depends on: R003
+  - Currently each crate has its own error representation (strings,
+    ad-hoc structs, tuples). Unify on:
+    ```rust
+    pub struct Diagnostic {
+        pub code: ErrorCode,        // e.g., A03001
+        pub severity: Severity,     // Error, Warning, Info
+        pub message: String,
+        pub primary: Span,
+        pub secondary: Vec<(Span, String)>,
+        pub suggestion: Option<Suggestion>,
+    }
+    ```
+  - New crate: `crates/assura-diagnostics/` (or just a module in parser)
+  - All compiler passes emit `Vec<Diagnostic>` instead of pass-specific
+    error types
+  - The CLI renders diagnostics uniformly (ariadne for human, serde for JSON)
+  - This eliminates the ad-hoc error formatting scattered across main.rs
 
 ---
 
-## Phase 3: Advanced Features (Target: research-adjacent capabilities)
+## Phase I: Issues (GitHub Issues + Market Research Gaps)
 
-### 3.1 STOR Features (6 weeks, parallelizable)
+### I.1 Enhancement Issues
 
-- [x] **T086**: STOR.1 Crash recovery contracts
-  - Depends on: T034, T041
+- [ ] **I001**: Implement CVC5 fallback solver (GitHub issue #1)
+  - Depends on: S005
+  - The spec defines `--solver cvc5` and `assura.toml` supports
+    `smt-solver = "cvc5"`, but only Z3 is implemented
+  - Implement:
+    1. Add `cvc5` crate dependency (or shell out to `cvc5` binary)
+    2. Create a solver trait: `trait SmtSolver { fn check_sat(...) }`
+    3. Implement for Z3 (refactor existing code) and CVC5
+    4. Add portfolio mode: try Z3 first, fall back to CVC5 on timeout
+    5. CLI: `--solver z3|cvc5|portfolio`
+  - Test: run the same contracts on both solvers, compare results
+  - Close issue #1
 
-- [x] **T087**: STOR.2 Page cache contracts
-  - Depends on: T034, T041
+- [ ] **I002**: Add performance profiling and benchmarks (GitHub issue #2)
+  - Depends on: S005
+  - No benchmarks exist. The compiler needs:
+    1. `cargo bench` infrastructure using `criterion`
+    2. Benchmark: parse all demo files (measure throughput)
+    3. Benchmark: type-check all demo files
+    4. Benchmark: Z3 verification of all demo files
+    5. Benchmark: codegen for all demo files
+  - Create synthetic large contracts (100+ clauses) to test scaling
+  - Add CI job: run benchmarks on every PR, compare to baseline
+  - Close issue #2
 
-- [x] **T088**: STOR.3 MVCC / snapshot isolation
-  - Depends on: T041
+- [ ] **I003**: Implement WASM compilation target (GitHub issue #3)
+  - Depends on: R001, A003
+  - The spec defines `--target wasm32-wasi` and the investigation
+    lists WASM as a key differentiator
+  - Implement:
+    1. In codegen, detect target from `assura.toml` or `--target` flag
+    2. Generate WASM-compatible Rust (no std features that require OS)
+    3. Add `wasm32-wasip1` target to generated `Cargo.toml`
+    4. Test: `assura build --target wasm32-wasi` produces a `.wasm` file
+  - Prerequisite: install `wasm32-wasip1` target via rustup
+  - Close issue #3
 
-- [x] **T089**: STOR.4 Transactional rollback
-  - Depends on: T034
+### I.2 Fuzzing and Robustness
 
-- [x] **T090**: STOR.5 Monotonic state
-  - Depends on: T043, T041
+- [ ] **I004**: Set up cargo-fuzz for the parser
+  - Depends on: none
+  - The parser should never panic on any input. Fuzzing finds inputs
+    that cause panics or infinite loops.
+  - Create `fuzz/` directory with:
+    - `fuzz_targets/parse.rs`: feed random bytes to `assura_parser::parse()`
+    - `fuzz_targets/lex.rs`: feed random bytes to the lexer
+  - Run for at least 10 minutes. Fix any panics found.
+  - Add CI job: run fuzzing for 60 seconds on each PR
 
-- [x] **T091**: STOR.6 Storage failure model
-  - Depends on: T041
-
-### 3.2 Advanced Verification (8 weeks)
-
-> These are the hardest features. Each needs dedicated focus.
-
-- [x] **T092**: CONC.6 Weak memory ordering
-  - Depends on: T065, T076
-  - Per-thread ghost views (GPS/RSL approach)
-  - Model all 5 C++ memory orderings
-  - Effort: 3 weeks. Budget for dead ends.
-
-- [x] **T093**: CORE.7 Prophecy variables
-  - Depends on: T043, T076
-  - Ghost state with deferred resolution
-  - SMT encoding uses Skolemization
-  - Effort: 2 weeks
-
-- [x] **T094**: CORE.8 Liveness contracts
-  - Depends on: T076
-  - `eventually`, `leads_to`, `eventually_within`
-  - BMC with lasso detection (Layer 2)
-  - K-induction (Layer 3)
-  - Fairness encoding
-  - Effort: 3 weeks
-
-### 3.3 Remaining Features (6 weeks, parallelizable)
-
-- [x] **T095**: NUM.1 Numerical precision
-  - Depends on: T041
-- [x] **T096**: NUM.2 Precomputed table verification
-  - Depends on: T041
-- [x] **T097**: PLAT.1 Platform abstraction
-  - Depends on: T041
-- [x] **T098**: PLAT.2 Feature flags
-  - Depends on: T041
-- [x] **T099**: PLAT.3 Resource limits
-  - Depends on: T041
-- [x] **T100**: PERF.1 Unsafe escape with proof
-  - Depends on: T041
-- [x] **T101**: PERF.2 Complexity bounds (AARA)
-  - Depends on: T076
-- [x] **T102**: TEST.2 Behavioral equivalence
-  - Depends on: T041
-- [x] **T103**: TEST.3 Multi-pass refinement
-  - Depends on: T041
-- [x] **T104**: MISC.1 Incremental contracts
-  - Depends on: T034
-- [x] **T105**: MISC.2 Scoped invariant suspension
-  - Depends on: T041
-
-### 3.4 AI Agent API (2 weeks)
-
-- [x] **T106**: gRPC service implementation
-  - Depends on: T041
-  - RPCs: Check, Build, Explain, Health, CheckStream
-  - JSON-over-HTTP fallback
-  - Spec reference: Section 11.2
+- [ ] **I005**: Set up cargo-fuzz for the type checker
+  - Depends on: I004
+  - Fuzz the pipeline: parse -> resolve -> type_check
+  - The type checker should never panic, only return errors
+  - Use structured fuzzing: generate random ASTs that are syntactically
+    valid but may be type-incorrect
 
 ---
 
-## Phase 4: v1.0 (Target: production release)
+## Phase T: Testing (Comprehensive Test Coverage)
 
-### 4.1 Standard Library (3 weeks)
+### T.1 Missing Test Coverage
 
-- [x] **T107**: Core types (Pos, NonNeg, Email, Uuid)
-  - Depends on: T041
-- [x] **T108**: Collection contracts (ListOps, sort, filter)
-  - Depends on: T041
-- [x] **T109**: CRUD patterns, auth contracts
-  - Depends on: T041
+- [ ] **T201**: Add tests to assura-server (currently 0)
+  - Depends on: none
+  - The gRPC server has zero tests despite 496 lines of code
+  - Add tests for:
+    - `Check` RPC: valid source returns success, invalid returns errors
+    - `Build` RPC: valid source returns generated files
+    - `Explain` RPC: valid error code returns description
+    - `Health` RPC: returns "serving"
+    - `CheckStream` RPC: streams events for a valid source
+  - Use `tonic`'s test utilities (in-process channel, no network)
 
-### 4.2 Module System Completion (2 weeks)
+- [ ] **T202**: Expand LSP tests (currently 9)
+  - Depends on: none
+  - The LSP needs tests for:
+    - `textDocument/completion`: keyword completions, type completions
+    - `textDocument/hover`: hover on type names, function names
+    - `textDocument/definition`: go to definition for symbols
+    - `textDocument/documentSymbol`: contract/service/function symbols
+    - `textDocument/diagnostic`: parse errors, type errors, resolution errors
+    - Incremental edits: edit a document, verify diagnostics update
+  - Target: 30+ tests for LSP
 
-- [x] **T110**: Contract composition with `extends`
-  - Depends on: T011
-- [x] **T111**: Contract libraries as publishable packages
-  - Depends on: T110
+- [ ] **T203**: Add negative test suite (MUST REJECT files)
+  - Depends on: none
+  - Create `tests/fixtures/must_reject/` with .assura files that must
+    produce specific error codes:
+    - `type_mismatch.assura` with `// MUST REJECT A03001`
+    - `undefined_name.assura` with `// MUST REJECT A02001`
+    - `linear_double_use.assura` with `// MUST REJECT A05001`
+    - `wrong_state.assura` with `// MUST REJECT A06001`
+    - `effect_violation.assura` with `// MUST REJECT A07001`
+    - etc.
+  - Write a test harness that:
+    1. Reads each file in the directory
+    2. Parses the `MUST REJECT` annotation
+    3. Runs the full pipeline
+    4. Asserts the expected error code appears in the diagnostics
+  - Target: 20+ negative test files
 
-### 4.3 IR Format (2 weeks)
+- [ ] **T204**: Add positive test suite (MUST COMPILE files)
+  - Depends on: R001
+  - Create `tests/fixtures/must_compile/` with valid .assura files:
+    - `simple_contract.assura` with `// MUST COMPILE`
+    - `generic_contract.assura` with `// MUST COMPILE`
+    - `service_with_state.assura` with `// MUST COMPILE`
+    - `effects_declared.assura` with `// MUST COMPILE`
+  - Test harness runs full pipeline AND verifies generated Rust compiles
+  - Target: 15+ positive test files
 
-- [x] **T112**: Implementation IR parser (Section 4)
-  - Depends on: T008
-  - Text format parser
-  - Binary (MessagePack) serializer
-  - This is what AI agents generate
+- [ ] **T205**: Add end-to-end round-trip tests
+  - Depends on: R001
+  - For each demo file:
+    1. Parse -> resolve -> type-check -> codegen
+    2. Write generated Rust
+    3. `cargo check` the generated project
+    4. Verify the generated code contains expected `debug_assert!` calls
+    5. Verify function signatures match the contract
+  - These tests catch regressions where any pipeline stage breaks the
+    round-trip
 
-### 4.4 Performance (3 weeks)
+### T.2 tree-sitter and VS Code Testing
 
-- [x] **T113**: Verification caching
-  - Depends on: T041
-  - Hash contract + implementation, skip if unchanged
+- [ ] **T206**: Add tree-sitter grammar tests
+  - Depends on: none
+  - The `editors/tree-sitter-assura/` directory exists but has an empty
+    `test/corpus/` directory
+  - Add test corpus files (tree-sitter's standard test format):
+    - `contracts.txt`: basic contract parsing
+    - `services.txt`: service with operations
+    - `expressions.txt`: arithmetic, comparisons, quantifiers
+    - `types.txt`: refinement types, generic types
+  - Run: `tree-sitter test` must pass
+  - Ensure the grammar handles error recovery (partial parses)
 
-- [x] **T114**: Parallel SMT queries
-  - Depends on: T041
-  - Independent contracts verified in parallel
-
-- [x] **T115**: Incremental compilation
-  - Depends on: T011
-  - Only re-check changed modules
-
-### 4.5 Ecosystem (4 weeks)
-
-- [x] **T116**: GitHub Action (assura-lang/verify-action)
-  - Depends on: T025
-
-- [x] **T117**: Documentation (tutorial, internals, API reference)
-  - Depends on: T106
-
-- [x] **T118**: Showcase builds (full CVE demos with differential testing)
-  - Depends on: T048, T084, T085
-
-- [x] **T119**: Cranelift backend for fast dev builds
-  - Depends on: T022
+- [ ] **T207**: VS Code extension test infrastructure
+  - Depends on: none
+  - The extension at `editors/vscode/` has no tests
+  - Add basic tests:
+    - Extension activates on `.assura` files
+    - Syntax highlighting applies (TextMate grammar test)
+    - LSP client connects to server
+  - Use `@vscode/test-electron` for integration tests
 
 ---
 
-## Dependency Graph
+## Phase E: Ecosystem (Distribution, CI, Documentation)
+
+### E.1 Release Pipeline
+
+- [ ] **E001**: Set up cargo-dist for binary releases
+  - Depends on: none
+  - Configure `cargo-dist` in workspace `Cargo.toml`
+  - Generate release binaries for: Linux x86_64, macOS x86_64, macOS
+    aarch64, Windows x86_64
+  - GitHub Action: on tag push, build and upload release artifacts
+  - This gives users `assura` binaries without building from source
+
+- [ ] **E002**: Set up Homebrew tap
+  - Depends on: E001
+  - Create `assura-lang/homebrew-tap` repository
+  - Generate Homebrew formula from cargo-dist output
+  - Users can: `brew install assura-lang/tap/assura`
+
+- [ ] **E003**: Publish to crates.io
+  - Depends on: E001
+  - The `assura` name is already claimed on crates.io
+  - Publish all workspace crates in dependency order:
+    `assura-parser` -> `assura-resolve` -> `assura-types` ->
+    `assura-smt` -> `assura-codegen` -> `assura-cli`
+  - Set up CI: publish on tag push (after cargo-dist)
+
+### E.2 CI Hardening
+
+- [ ] **E004**: Add CI jobs for editors
+  - Depends on: T206
+  - Add GitHub Action jobs:
+    - `tree-sitter test` for the grammar
+    - `npm run compile` for the VS Code extension
+    - `npm test` for VS Code extension tests (if T207 is done)
+
+- [ ] **E005**: Add CI job for generated code validation
+  - Depends on: R001
+  - CI should run `assura build` on all demo files and then
+    `cargo check` on each generated project
+  - This prevents regressions where codegen produces invalid Rust
+  - Install Z3 and Rust stable in the CI job
+
+- [ ] **E006**: Add security scanning (CodeQL, cargo-audit)
+  - Depends on: none
+  - Add `.github/workflows/security.yml`:
+    - `cargo audit` for known vulnerable dependencies
+    - CodeQL analysis for Rust
+    - Dependabot configuration for automated dependency updates
+
+### E.3 Documentation
+
+- [ ] **E007**: Write getting-started tutorial
+  - Depends on: R001, A003
+  - Currently `docs/TUTORIAL.md` exists but may be outdated
+  - Write/update a tutorial that a developer can follow:
+    1. Install Assura (from binary or source)
+    2. Create a project with `assura init`
+    3. Write a simple contract
+    4. Run `assura check`
+    5. Run `assura build`
+    6. Run the generated Rust code
+  - Include screenshots/terminal output
+  - Test the tutorial end-to-end (every command must work)
+
+- [ ] **E008**: Write compiler internals documentation
+  - Depends on: R003, A001
+  - `docs/INTERNALS.md` should cover:
+    1. Pipeline overview (lex -> parse -> resolve -> HIR -> typecheck
+       -> SMT -> codegen)
+    2. Each crate's responsibility and public API
+    3. How to add a new checker to assura-types
+    4. How to add a new SMT encoding to assura-smt
+    5. How to add a new codegen pass
+  - This enables other developers to contribute
+
+---
+
+## Phase P: Production (Toward v1.0)
+
+> These tasks bring the compiler to production quality.
+
+### P.1 CLI Polish
+
+- [ ] **P001**: Implement `--verbose` and `--quiet` modes
+  - Depends on: R009
+  - `--verbose`: show timing information, Z3 solver statistics,
+    intermediate results
+  - `--quiet`: suppress all output except errors
+  - Default: current behavior (summary line per file)
+
+- [ ] **P002**: Implement `--watch` mode
+  - Depends on: none
+  - `assura check --watch .` watches for file changes and re-runs
+    the pipeline incrementally
+  - Use `notify` crate for filesystem watching
+  - Re-parse only changed files, re-resolve affected modules,
+    re-typecheck affected contracts
+
+- [ ] **P003**: Implement `assura fmt` command
+  - Depends on: none
+  - Format `.assura` source files with consistent style
+  - Use the parser's AST to re-emit formatted source
+  - Enforce: consistent indentation, brace placement, clause ordering
+  - This is important for code review and collaboration
+
+### P.2 Advanced Codegen
+
+- [ ] **P004**: Generate Rust with proper error handling
+  - Depends on: R001
+  - Currently all function bodies are `todo!("implementation provided by AI agent")`
+  - When an implementation is provided (via IR or inline), generate
+    proper error handling:
+    - `Result<T, E>` return types
+    - `?` operator for propagation
+    - Custom error types from contract error clauses
+
+- [ ] **P005**: Implement the Implementation IR parser (Section 4)
+  - Depends on: A001
+  - The IR is what AI agents generate (not the contract language)
+  - Parse IR text format into HIR
+  - Validate IR against the contract it implements
+  - Generate Rust from validated IR
+  - This completes the AI-in-the-loop workflow:
+    contract -> AI generates IR -> compiler verifies -> Rust output
+
+### P.3 Performance
+
+- [ ] **P006**: Implement verification caching
+  - Depends on: S005
+  - Hash each contract (AST + implementation) as a cache key
+  - Store verification results in `.assura-cache/`
+  - On re-run, skip re-verification for unchanged contracts
+  - Invalidate cache when the contract or its dependencies change
+  - This is critical for large projects: SMT queries are expensive
+
+- [ ] **P007**: Implement parallel SMT queries
+  - Depends on: S005
+  - Independent contracts can be verified in parallel
+  - Use `rayon` for work-stealing parallelism
+  - Each Z3 context must be thread-local (Z3 contexts are not Sync)
+  - Target: linear speedup on multi-core machines for projects with
+    many independent contracts
+
+---
+
+## Dependency Graph (v2)
 
 ```
-T001-T004 (parser, DONE)
-  │
-  ├─► T005 (snapshot tests)
-  │     └─► T006 (error tests)
-  │     └─► T029 (CI) ──────────────────────────────────┐
-  │                                                       │
-  ├─► T007 (full keywords)                                │
-  │     └─► T082 (tree-sitter) ─► T081 (VS Code ext)     │ PARALLEL
-  │                                                       │ TRACK
-  ├─► T008 (expression parser)                            │
-  │     └─► T009 (resolve crate)                          │
-  │           └─► T010 (scope analysis)                   │
-  │                 ├─► T011 (imports)                     │
-  │                 └─► T012 (type refs)                   │
-  │                       └─► T013 (types crate)          │
-  │                             └─► T014 (base types)     │
-  │                                   ├─► T015 (generics) │
-  │                                   ├─► T016 (fields)   │
-  │                                   ├─► T017 (patterns) │
-  │                                   └─► T018 (clauses)  │
-  │                                         │              │
-  │                    ┌──────────┬─────────┤              │
-  │                    │          │         │              │
-  │                    ▼          ▼         ▼              │
-  │               T031-T033  T034-T035  T036-T037         │
-  │               (linear)   (typestate) (effects)        │
-  │                    │          │         │              │
-  │                    └──────────┴─────────┘              │
-  │                              │                         │
-  │                    ┌─────────┤                         │
-  │                    │         │                         │
-  │                    ▼         ▼                         │
-  │               T019-T023  T038-T042                    │
-  │               (codegen)  (Z3 / SMT) ◄── CRITICAL     │
-  │                    │         │                         │
-  │                    ▼         │                         │
-  │               T024-T027  T043-T045 (CORE.1-3)        │
-  │               (CLI)        │                          │
-  │                    │       ▼                           │
-  │                    ▼   T046-T047 (MEM.1 + SEC.1)      │
-  │               T028       │                            │
-  │               (e2e)      ▼                            │
-  │                    └─► T048 (libwebp demo) ◄── MVP    │
-  │                                                       │
-  │               T080-T081 (LSP + VS Code) ◄─────────────┘
-  │                                           PARALLEL TRACK
-  │
-  ▼
-Phase 2: T051-T085 (all depend on T041, many parallelizable)
-  │
-  ▼
-Phase 3: T086-T106 (STOR, advanced verification, AI API)
-  │
-  ▼
-Phase 4: T107-T119 (stdlib, perf, ecosystem)
+Phase R (Rework) - No dependencies, start immediately
+  R001 (codegen compiles) ──► R002 (multi-file codegen)
+  R003 (split monolith) ──► S001-S004 (deepen checkers)
+  R004-R008 (close issues) - Independent
+  R009 (per-clause output) ──► S005 (per-clause SMT)
+  R010 (Z3 default) - Independent
+  R011 (SMT tests) - Independent
+  R012 (build validates) ──► depends on R001
+  R013 (clause consistency) ──► depends on R005
+
+Phase S (Strengthen)
+  S005 (per-clause SMT) ──► S006 (counterexample display)
+  S005 ──► S007 (Layer 2 quantifiers)
+  S005 ──► I001 (CVC5), I002 (benchmarks)
+
+Phase A (Architecture)
+  A001 (HIR) ──► A002 (multi-file) ──► A003 (assura.toml)
+  A004 (error rework) - Independent
+
+Phase I (Issues)
+  I001 (CVC5) ──► depends on S005
+  I003 (WASM) ──► depends on R001, A003
+  I004-I005 (fuzzing) - Independent
+
+Phase T (Testing) - Mostly independent, start anytime
+  T201-T207 - All independent of each other
+
+Phase E (Ecosystem) - Mostly independent
+  E001 (cargo-dist) ──► E002 (Homebrew) ──► E003 (crates.io)
+  E004-E006 - Independent
+
+Phase P (Production)
+  P005 (IR parser) ──► depends on A001
+  P006-P007 (performance) ──► depends on S005
 ```
 
-### Key Parallelization Opportunities
+### Recommended Execution Order
 
-1. **T029 (CI) + T007 (keywords) + T008 (expressions)**: All depend
-   only on T001-T004 (done). Start all three simultaneously.
+The phases are designed so agents can start immediately with Phase R
+(no dependencies), then interleave work from other phases as
+dependencies are met.
 
-2. **T082 (tree-sitter) + T080 (LSP)**: Entire editor tooling track
-   is independent of the verification pipeline. Can be built by a
-   separate person/agent from Month 1.
+**Priority order within a session**:
+1. Pick the next `[ ]` task from Phase R (if any remain)
+2. If all Phase R tasks are done, pick from Phase S
+3. Interleave Phase T tasks (testing) between any other tasks
+4. Phase A tasks can start once R003 and R013 are done
+5. Phase I tasks can start once their dependencies are met
+6. Phase E and P tasks are lower priority but have few dependencies
 
-3. **T019-T023 (codegen) + T038-T042 (Z3)**: Codegen depends on T018,
-   Z3 depends on T018. Both can start as soon as type checking works.
-
-4. **Phase 2 features (T051-T079)**: Most features only depend on T041
-   (Z3 integration). Once Z3 works, 20+ features can be built in
-   parallel by multiple agents.
-
-5. **Phase 3 STOR (T086-T091)**: All 6 features are independent of
-   each other once T041 is done.
-
-### Sequential Bottlenecks (cannot parallelize)
-
-1. **T008 -> T009 -> T010 -> T012 -> T013 -> T014 -> T018**: Parser
-   expressions through type checking. Each step needs the previous.
-
-2. **T038 -> T039 -> T040 -> T041**: Z3 integration is inherently
-   sequential (each step builds on the solver connection).
-
-3. **T031 -> T032 -> T034**: Linear types -> context splitting ->
-   typestate. Typestate requires linearity.
-
----
-
-## Progress Notes
-
-> Agents: write a brief note here when completing a task or ending a session.
+**Parallelization opportunities**:
+- R001-R002 (codegen) is independent of R003 (monolith split)
+- R004-R008 (issue fixes) are all independent of each other
+- T201-T207 (tests) are all independent of each other
+- E001-E003 (releases) are independent of compiler work
 
 ---
 
@@ -970,7 +876,7 @@ Phase 4: T107-T119 (stdlib, perf, ecosystem)
 ### If a task is too large for one session
 
 Split it. Mark the original task as `[x]` with a note saying "partially
-done, continued in Tyyy". Add new sub-tasks Tyyy with clear scope.
+done, continued in Xxxx". Add new sub-tasks with clear scope.
 Update the Progress Notes with what was and was not completed.
 
 ### If a task seems wrong or impossible
@@ -981,10 +887,10 @@ task. The user will review and adjust the plan.
 
 ### If dependencies are wrong
 
-The dependency graph may have errors. If you discover that task Txxx
-does NOT actually need Tyyy to be done first, note it in Progress Notes
-and proceed. If you discover a MISSING dependency (Txxx actually needs
-Tzzz which isn't listed), note it and do Tzzz first.
+The dependency graph may have errors. If you discover that task Xxxx
+does NOT actually need Yyyy to be done first, note it in Progress Notes
+and proceed. If you discover a MISSING dependency, note it and do the
+prerequisite first.
 
 ### If the spec is ambiguous
 
@@ -1009,47 +915,46 @@ The `z3` Rust crate needs libz3. If installation fails:
 These are the "prove it works" checkpoints. Each milestone must be
 demonstrated, not just claimed.
 
-**The pipeline test**: After every task that creates or modifies a
-compiler pass, run this exact command and paste the output into the
-Progress Notes:
+**The pipeline test**: After every task that modifies a compiler pass,
+run this and verify the output:
 
 ```bash
-cargo run -- demos/libwebp-huffman.assura 2>&1
+cargo run --bin assura -- check demos/libwebp-huffman.assura
+cargo run --bin assura -- build demos/libwebp-huffman.assura
+cd generated && cargo check
 ```
 
-This is the integration test. If the output doesn't change after you
-added a new pass, the pass is not connected. Fix it.
+### MR1: Generated Rust Compiles (R001-R002)
+- All three demo files generate Rust that passes `cargo check`
+- Integration test verifies this automatically
 
-### M1: Parser Complete (T001-T008)
-- All demo files parse with zero errors
-- Snapshot tests exist for all demo files
-- Expression parser handles arithmetic, comparisons, field access,
-  function calls, quantifiers
-- CI runs on every push
+### MR2: Monolith Eliminated (R003)
+- No source file exceeds 3,000 lines
+- All 838 type checker tests still pass
 
-### M2: Type Checker Works (T009-T018)
-- `assura check` reports type errors with codes and spans
-- Known-bad .assura files are rejected with correct error codes
-- Known-good .assura files pass
-- All demo files pass type checking
+### MR3: All GitHub Issues Closed (R004-R008)
+- Issues #5, #6, #7, #8, #9 closed with commits
 
-### M3: End-to-End Without SMT (T019-T028)
-- SafeDivision contract: `assura build` generates Rust,
-  `cargo build` on generated code succeeds
-- Generated code contains `debug_assert!` for requires/ensures
-- Round-trip: .assura -> Rust -> compiled binary
+### MR4: Pipeline Shows Real Results (R009-R012, S005-S006)
+- `assura check` shows per-clause verification status
+- Counterexamples display concrete values
+- `assura build` fails if generated Rust doesn't compile
 
-### M4: SMT Verification Works (T038-T042)
-- Simple contracts verified: `requires { x > 0 } ensures { result > 0 }`
-- Counterexamples extracted and displayed
-- Timeouts handled gracefully (not crashes)
-- `assura check --layer 1` works
+### MS1: Real Semantic Analysis (S001-S004)
+- Termination checker rejects non-terminating recursion
+- Effect checker traces through call chains
+- Information flow catches secret leaks
+- Linear type checker splits context at branches
 
-### M5: MVP Demo (T043-T048)
-- libwebp CVE-2023-4863 demo: full pipeline works
-- Z3 proves the buffer overflow is impossible
-- Generated Rust compiles and runs
-- This is the demo you show to the world
+### MA1: Multi-File Projects (A001-A003)
+- `assura check .` works on a multi-file project
+- `assura.toml` configures project settings
+- Imports resolve to files on disk
+
+### ME1: Installable Release (E001-E003)
+- `brew install assura-lang/tap/assura` works
+- `cargo install assura` works
+- GitHub Releases has binaries for all platforms
 
 ---
 
@@ -1059,66 +964,14 @@ added a new pass, the pass is not connected. Fix it.
 > Include: date, tasks completed, tasks attempted but not finished,
 > any issues or spec questions encountered.
 
-### Session 1 (2026-06-12)
-- T001-T004 completed in prior sessions (market-research repo)
-- Code copied to assura-lang/assura with proper workspace structure
-- AGENTS.md and MASTER-PLAN.md created
-- Parser verified: all 4 demo/test files parse successfully
+### Prior work (T001-T119, 2026-06-12 to 2026-06-13)
+All original 119 tasks were completed, establishing the initial compiler
+scaffolding. See git history for details. Key stats: 45,579 LOC across
+8 crates, 1,062 tests, all demo files parse and type-check, basic Z3
+integration exists behind feature flag, generated Rust is syntactically
+valid but does not compile.
 
-### T045 (2026-06-12)
-- T045 CORE.3 Frame Conditions completed
-- Added FrameChecker to assura-types: modifies clause target extraction,
-  scope checking (A14001), frame axiom variable computation
-- Added frame axiom injection to SMT encoder: for ensures clauses with
-  a modifies set, unmodified variables get var == old(var) axioms
-- 18 new tests: 14 in assura-types (unit), 4 in assura-smt (integration)
-- Note: inline clause syntax (ensures: expr) parses old() as raw tokens;
-  block syntax (ensures { expr }) parses old() as Expr::Old. Tests use
-  block syntax for correctness.
-
-### Remediation Session 2 (2026-06-13)
-Continued comprehensive audit remediation. Changes:
-- **codegen: compilation validity tests** (6 tests using syn::parse_file)
-  verify generated Rust is syntactically valid for contracts, functions,
-  services, and all demo files
-- **smt: quantifier domain guards** encode `forall x in lo..hi: P` as
-  `forall x: (lo<=x && x<hi) => P` instead of ignoring the domain;
-  similar for exists (conjunction instead of implication); non-range
-  domains use uninterpreted `contains(domain, x)` predicate
-- **types: Cast inference** returns target type instead of Unknown
-- **types: match arm checking** infers all arm bodies (not just first)
-  to surface errors in all branches
-- **types: let binding scoping** binds variable type in body environment
-- **smt: let binding encoding** binds variable value in Z3 encoder
-- **smt: cast encoding** passes through inner value instead of fresh int
-- **codegen: taint/decreases leak fixes** strips `#[secret]` annotations
-  and `decreases` clauses from generated Rust type signatures; wraps
-  multi-line expressions (match blocks) in `{ ... }` blocks inside
-  debug_assert! macros
-- **cli: full pipeline integration tests** (10 tests) exercise parse ->
-  resolve -> type-check -> codegen -> syn::parse_file for all demo files
-- **types: builtin call inference** `len()`, `contains()`, `is_empty()`
-  etc. return correct types; Named type constructor calls return the
-  Named type instead of Unknown
-- Test count: 731 -> 739+ across crates
-- All 4 demo files pass full pipeline validation
-
-### Session: 2026-06-13 (quality improvements continued)
-
-- **resolve: expression-level name resolution** walks all Expr::Ident in
-  clause bodies, warns on undefined names (strict mode), skips in lenient
-  mode (files with imports/modules). 11 new resolve tests.
-- **resolve: contract input/output params in scope** registers input and
-  output clause parameters so cross-clause references resolve correctly.
-- **smt: fix unsound match pattern encoding** overapproximates instead of
-  defaulting to false (sound: may produce spurious counterexamples but
-  never hides real ones). Cross-sort Int/Real promotion added.
-- **codegen: fix param/type extraction** handles Expr::Cast for typed
-  params, multi-token types with angle-bracket depth tracking in Raw tokens.
-- **types: enrich service operation/query types** registers each
-  operation/query as Type::Fn with proper param types from input clauses
-  and return type from output clauses. Previously a no-op placeholder.
-- Created GitHub issues #4 (pending quality improvements) and #5
-  (deduplicate raw-token param extraction across 3 crates).
-- Test count: 1171 -> 1175 across crates
-- All 4 demo files pass full pipeline validation
+### Plan v2 created (2026-06-13)
+Comprehensive audit identified 10 critical problems and 7 missing
+features. Plan v2 has 50+ tasks across 7 phases (R, S, A, I, T, E, P)
+to take the compiler from "initial scaffolding" to production quality.
