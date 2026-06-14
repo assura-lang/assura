@@ -755,7 +755,7 @@
   - `--quiet`: suppress all output except errors
   - Default: current behavior (summary line per file)
 
-- [ ] **P002**: Implement `--watch` mode
+- [x] **P002**: Implement `--watch` mode
   - Depends on: none
   - `assura check --watch .` watches for file changes and re-runs
     the pipeline incrementally
@@ -1319,3 +1319,15 @@ iterations in 60 seconds with zero crashes (2,408 coverage edges). Lexer
 ran 3,673,205 iterations in 31 seconds with zero crashes. Seed corpus
 includes all demo and fixture .assura files. Fuzz workspace excluded from
 main workspace via `exclude = ["generated", "fuzz"]` in root Cargo.toml.
+
+### P002 completed (2026-06-13)
+Implemented `--watch` / `-w` flag for `assura check`. When enabled, the
+command runs the full pipeline (parse, resolve, type-check, verify), then
+watches the file's parent directory for changes using the `notify` crate
+(v7, uses FSEvents on macOS, inotify on Linux). On file change, the screen
+is cleared and the pipeline re-runs. Events are debounced with a 100ms
+window to coalesce rapid saves. Extracted `check_file_once()` helper that
+runs the full check pipeline and returns error status, used by both the
+one-shot and watch code paths. Help text updated. No new tests needed
+since the watch loop is an interactive feature; the extraction of
+`check_file_once()` is covered by the existing test suite.

@@ -4,7 +4,8 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process;
-use std::time::Instant;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use assura_parser::ast::*;
@@ -380,6 +381,7 @@ fn print_help() {
          USAGE:\n\
          \x20   assura <file.assura>                Parse and check a contract file\n\
          \x20   assura check <file> [OPTIONS]       Full pipeline: parse, resolve, type-check, verify\n\
+         \x20   assura check <file> --watch         Watch file and re-check on changes\n\
          \x20   assura build <file> [--output <dir>]  Generate Rust code from a contract file\n\
          \x20   assura init <name>                   Create a new Assura project\n\
          \x20   assura explain <code>                Explain an error code (e.g., A03001)\n\
@@ -392,6 +394,7 @@ fn print_help() {
          \x20   --layer <0|1>                       Verification layer (0=structural, 1=SMT)\n\
          \x20   --output <dir>                      Output directory for generated code (build)\n\
          \x20   --no-check                          Skip cargo check on generated code (build)\n\
+         \x20   -w, --watch                         Watch for file changes and re-check (check)\n\
          \x20   -v, --verbose                       Show timing, intermediate results, Z3 stats\n\
          \x20   -q, --quiet                         Suppress all output except errors\n\
          \x20   -h, --help                          Show this help message\n\
@@ -438,6 +441,7 @@ fn run_check(args: &[String]) {
         OutputMode::Human
     };
     let verbosity = parse_verbosity(args);
+    let watch = args.contains(&"--watch".to_string()) || args.contains(&"-w".to_string());
 
     // Verification layer: --layer 0 = structural only, --layer 1 = SMT (default)
     let layer: u8 = args
@@ -451,9 +455,14 @@ fn run_check(args: &[String]) {
         .into_iter()
         .nth(1) // skip "check" itself
         .unwrap_or_else(|| {
-            eprintln!("Usage: assura check <file.assura> [--json|--human] [--layer 0|1]");
+            eprintln!("Usage: assura check <file.assura> [--json|--human] [--layer 0|1] [--watch]");
             process::exit(2);
         });
+
+    if watch {
+        run_watch_loop(&filename, output_mode, verbosity, layer);
+        // run_watch_loop never returns (loops until interrupted)
+    }
 
     let source = fs::read_to_string(&filename).unwrap_or_else(|e| {
         if output_mode == OutputMode::Json {
@@ -774,6 +783,217 @@ fn run_check(args: &[String]) {
 
     process::exit(if has_errors { 1 } else { 0 });
 }
+
+// ---------------------------------------------------------------------------
+// Watch mode
+// ---------------------------------------------------------------------------
+
+/// Check a single file and print results. Returns true if there were errors.
+fn check_file_once(
+    filename: &str,
+    output_mode: OutputMode,
+    verbosity: Verbosity,
+    layer: u8,
+) -> bool {
+    let source = match fs::read_to_string(filename) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error: {filename}: {e}");
+            return true;
+        }
+    };
+
+    let CompilationResult {
+        file,
+        resolved,
+        typed,
+        mut diagnostics,
+        mut has_errors,
+        timing,
+    } = compile(&source, filename);
+
+    if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
+        eprintln!("Pipeline timing for {filename}:");
+        eprintln!(
+            "  lex:       {} tokens ({:.2}ms)",
+            timing.token_count, timing.lex_ms
+        );
+        if let Some(ref f) = file {
+            eprintln!(
+                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                f.decls.len(),
+                f.imports.len(),
+                timing.parse_ms
+            );
+        } else {
+            eprintln!("  parse:     failed ({:.2}ms)", timing.parse_ms);
+        }
+        if let Some(resolve_ms) = timing.resolve_ms {
+            if let Some(ref r) = resolved {
+                let user_symbols = r
+                    .symbols
+                    .symbols
+                    .iter()
+                    .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
+                    .count();
+                eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
+            } else {
+                eprintln!("  resolve:   failed ({resolve_ms:.2}ms)");
+            }
+        }
+        if let Some(typecheck_ms) = timing.typecheck_ms {
+            if let Some(ref td) = typed {
+                eprintln!(
+                    "  typecheck: {} binding(s) ({typecheck_ms:.2}ms)",
+                    td.type_env.len()
+                );
+            } else {
+                eprintln!("  typecheck: failed ({typecheck_ms:.2}ms)");
+            }
+        }
+        eprintln!();
+    }
+
+    // Verify
+    let mut verification_results = if layer >= 1 {
+        if let Some(ref typed) = typed {
+            assura_smt::verify(typed)
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    if let Some(ref typed) = typed {
+        verification_results.extend(dispatch_decrease_checks(typed));
+    }
+
+    if let Some(ref typed) = typed {
+        let qwarnings = assura_smt::validate_quantifier_bounds(typed);
+        for w in &qwarnings {
+            diagnostics.push(DiagnosticJson {
+                code: "A05200".to_string(),
+                message: format!(
+                    "unbounded quantifier in {}: {} ({})",
+                    w.context, w.domain_desc, w.reason
+                ),
+                file: filename.to_string(),
+                start: 0,
+                end: 0,
+                severity: "warning".to_string(),
+                secondary: None,
+            });
+        }
+    }
+
+    for vr in &verification_results {
+        if let assura_smt::VerificationResult::Counterexample {
+            clause_desc, model, ..
+        } = vr
+        {
+            has_errors = true;
+            diagnostics.push(DiagnosticJson {
+                code: "A05100".to_string(),
+                message: format!("verification failed for {clause_desc}: {model}"),
+                file: filename.to_string(),
+                start: 0,
+                end: 0,
+                severity: "error".to_string(),
+                secondary: None,
+            });
+        }
+    }
+
+    if output_mode == OutputMode::Human {
+        let non_lex: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code != "A01001")
+            .cloned()
+            .collect();
+        if has_errors || verbosity != Verbosity::Quiet {
+            report_diagnostics_human(&non_lex, filename, &source);
+        }
+
+        if verbosity != Verbosity::Quiet {
+            if !verification_results.is_empty() {
+                eprintln!();
+                eprintln!("Verification ({} clause(s)):", verification_results.len());
+                print_grouped_verification(&verification_results);
+            }
+            if !has_errors {
+                eprintln!("{filename}: check passed (no errors)");
+            } else {
+                eprintln!("{filename}: {} error(s) found", diagnostics.len());
+            }
+        } else if has_errors {
+            eprintln!("{filename}: {} error(s) found", diagnostics.len());
+        }
+    }
+
+    has_errors
+}
+
+/// Run check in watch mode: check once, then watch for file changes.
+fn run_watch_loop(filename: &str, output_mode: OutputMode, verbosity: Verbosity, layer: u8) -> ! {
+    use notify::{Event, EventKind, RecursiveMode, Watcher};
+
+    let path = Path::new(filename).canonicalize().unwrap_or_else(|e| {
+        eprintln!("Error: cannot resolve path {filename}: {e}");
+        process::exit(2);
+    });
+
+    // Initial check
+    eprintln!("[watch] Checking {filename}...");
+    eprintln!();
+    let _ = check_file_once(filename, output_mode, verbosity, layer);
+    eprintln!();
+    eprintln!("[watch] Watching {filename} for changes. Press Ctrl+C to stop.");
+
+    let (tx, rx) = mpsc::channel();
+
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        if let Ok(event) = res {
+            // Only trigger on modify/create events
+            if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+                let _ = tx.send(());
+            }
+        }
+    })
+    .unwrap_or_else(|e| {
+        eprintln!("Error: failed to create file watcher: {e}");
+        process::exit(2);
+    });
+
+    // Watch the file's parent directory to catch renames/replacements
+    let watch_dir = path.parent().unwrap_or(&path);
+    watcher
+        .watch(watch_dir, RecursiveMode::NonRecursive)
+        .unwrap_or_else(|e| {
+            eprintln!("Error: failed to watch {}: {e}", watch_dir.display());
+            process::exit(2);
+        });
+
+    loop {
+        // Wait for a change event
+        let _ = rx.recv();
+
+        // Debounce: drain any additional events that arrive within 100ms
+        while rx.recv_timeout(Duration::from_millis(100)).is_ok() {}
+
+        // Clear screen and re-check
+        eprint!("\x1B[2J\x1B[H");
+        eprintln!("[watch] File changed, re-checking {filename}...");
+        eprintln!();
+        let _ = check_file_once(filename, output_mode, verbosity, layer);
+        eprintln!();
+        eprintln!("[watch] Watching for changes. Press Ctrl+C to stop.");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Verification output helpers
+// ---------------------------------------------------------------------------
 
 /// Extract the contract/service/function name prefix from a clause description.
 /// Clause descriptions have the form "ContractName::clause_kind" or
