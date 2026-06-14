@@ -21,4 +21,4 @@ rayon = "1"
 
 [dev-dependencies]
 logos = "0.15"
-chumsky = "0.9"
+chumsky = "0.13"

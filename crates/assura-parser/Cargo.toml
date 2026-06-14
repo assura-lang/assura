@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 logos = "0.15"
-chumsky = "0.9"
+chumsky = "0.13"
 
 [dev-dependencies]
 insta = "1"
