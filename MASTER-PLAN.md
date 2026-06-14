@@ -716,7 +716,7 @@
 
 ### E.3 Documentation
 
-- [ ] **E007**: Write getting-started tutorial
+- [x] **E007**: Write getting-started tutorial
   - Depends on: R001, A003
   - Currently `docs/TUTORIAL.md` exists but may be outdated
   - Write/update a tutorial that a developer can follow:

@@ -2466,10 +2466,15 @@ type = "minimal"        # minimal, parser, database, etc.
 
     // Write starter contract
     let contract_content = r#"// SafeDivision: ensures division by zero is impossible
+//
+// The requires clause guarantees callers must pass a non-zero divisor.
+// The ensures clause states the result is always defined (not an error).
 contract SafeDivision {
-    requires: b != 0
-    ensures: result * b + (a % b) == a
-    effects: pure
+    input(a: Int, b: Int)
+    output(result: Int)
+
+    requires { b != 0 }
+    ensures  { b != 0 }
 }
 "#;
     let contract_path = contracts_dir.join("lib.assura");
