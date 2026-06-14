@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-logos = "0.15"
+logos = "0.16"
 chumsky = "0.9"
 
 [dev-dependencies]
