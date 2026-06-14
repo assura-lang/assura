@@ -30,4 +30,4 @@ tower = { version = "0.5", features = ["util"] }
 http = "1"
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.14"
