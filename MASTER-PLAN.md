@@ -117,7 +117,7 @@
 
 ### R.2 Split assura-types Monolith
 
-- [ ] **R003**: Split assura-types into domain modules (file-level)
+- [x] **R003**: Split assura-types into domain modules (file-level)
   - Depends on: none
   - The current `assura-types/src/lib.rs` is 25,183 lines in ONE file.
     This is the single biggest maintainability problem in the codebase.
@@ -975,6 +975,16 @@ valid but does not compile.
 Comprehensive audit identified 10 critical problems and 7 missing
 features. Plan v2 has 50+ tasks across 7 phases (R, S, A, I, T, E, P)
 to take the compiler from "initial scaffolding" to production quality.
+
+### R003 completed (2026-06-13)
+Split assura-types 25,183-line monolith into 6 files:
+- lib.rs: 2,965 lines (core types, env construction, entry point, wiring)
+- checkers.rs: 5,736 lines (20+ analysis pass checker structs)
+- domain.rs: 3,837 lines (34 domain-specific checker structs)
+- inference.rs: 863 lines (expression type inference)
+- clauses.rs: 538 lines (clause body type checking)
+- tests.rs: 11,280 lines (all 838 unit tests)
+Zero behavior changes. All 1,220 tests pass unchanged.
 
 ### R001 completed (2026-06-13)
 Fixed codegen to produce compilable Rust for all three demo files.
