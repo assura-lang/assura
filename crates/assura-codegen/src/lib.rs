@@ -2865,7 +2865,12 @@ fn extract_output_type(body: &Expr) -> String {
                     Expr::Cast { ty, .. } => return map_type_token(ty).to_string(),
                     Expr::Ident(name) => return map_type_token(name).to_string(),
                     Expr::Paren(inner) => return extract_output_type(inner),
-                    _ => {}
+                    other => {
+                        let ty = extract_output_type(other);
+                        if ty != "()" {
+                            return ty;
+                        }
+                    }
                 }
             }
             "()".to_string()
@@ -2936,12 +2941,9 @@ fn extract_output_type(body: &Expr) -> String {
 fn extract_error_variants(body: &Expr) -> Vec<String> {
     match body {
         Expr::Ident(name) => vec![name.clone()],
-        Expr::Tuple(items) => items
+        Expr::Tuple(items) | Expr::List(items) | Expr::Block(items) => items
             .iter()
-            .filter_map(|e| match e {
-                Expr::Ident(n) => Some(n.clone()),
-                _ => None,
-            })
+            .flat_map(extract_error_variants)
             .collect(),
         Expr::Raw(tokens) => tokens
             .iter()
@@ -2951,7 +2953,24 @@ fn extract_error_variants(body: &Expr) -> Vec<String> {
             })
             .cloned()
             .collect(),
-        _ => vec![],
+        Expr::Paren(inner) | Expr::Ghost(inner) | Expr::Old(inner) => {
+            extract_error_variants(inner)
+        }
+        Expr::Call { args, .. } => args.iter().flat_map(extract_error_variants).collect(),
+        // These expression forms cannot meaningfully contain error variant names
+        Expr::Literal(_)
+        | Expr::Field(_, _)
+        | Expr::MethodCall { .. }
+        | Expr::Index { .. }
+        | Expr::BinOp { .. }
+        | Expr::UnaryOp { .. }
+        | Expr::Cast { .. }
+        | Expr::Forall { .. }
+        | Expr::Exists { .. }
+        | Expr::If { .. }
+        | Expr::Let { .. }
+        | Expr::Match { .. }
+        | Expr::Apply { .. } => vec![],
     }
 }
 
@@ -3962,8 +3981,31 @@ fn generate_trait_method(body: &Expr, code: &mut String) {
                 }
             }
         }
-        _ => {
-            code.push_str("    // unrecognized method declaration\n\n");
+        // These expression forms are not valid trait method declarations;
+        // emit a compile_error! so the generated Rust surfaces the issue.
+        Expr::Literal(_)
+        | Expr::Field(_, _)
+        | Expr::MethodCall { .. }
+        | Expr::Index { .. }
+        | Expr::BinOp { .. }
+        | Expr::UnaryOp { .. }
+        | Expr::Old(_)
+        | Expr::Forall { .. }
+        | Expr::Exists { .. }
+        | Expr::If { .. }
+        | Expr::Paren(_)
+        | Expr::List(_)
+        | Expr::Cast { .. }
+        | Expr::Block(_)
+        | Expr::Ghost(_)
+        | Expr::Apply { .. }
+        | Expr::Let { .. }
+        | Expr::Match { .. }
+        | Expr::Tuple(_) => {
+            code.push_str(&format!(
+                "    compile_error!(\"unsupported expression in trait method: {:?}\");\n\n",
+                std::mem::discriminant(body)
+            ));
         }
     }
 }
@@ -4008,8 +4050,41 @@ fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
                     expr.replace('"', "\\\"")
                 ));
             }
-            _ => {
-                code.push_str(&format!("    // {:?}: {expr}\n", clause.kind));
+            ClauseKind::Effects => {
+                code.push_str(&format!("    /// Effects: {expr}\n"));
+            }
+            ClauseKind::Modifies => {
+                code.push_str(&format!("    /// Modifies: {expr}\n"));
+            }
+            ClauseKind::Input => {
+                code.push_str(&format!("    /// Input: {expr}\n"));
+            }
+            ClauseKind::Output => {
+                code.push_str(&format!("    /// Output: {expr}\n"));
+            }
+            ClauseKind::Errors => {
+                code.push_str(&format!("    /// Errors: {expr}\n"));
+            }
+            ClauseKind::Rule => {
+                code.push_str(&format!(
+                    "    /// Rule: {expr}\n    pub fn check_rule_{name}() {{ debug_assert!({expr}); }}\n",
+                    name = name.to_lowercase()
+                ));
+            }
+            ClauseKind::DataFlow => {
+                code.push_str(&format!("    /// DataFlow: {expr}\n"));
+            }
+            ClauseKind::MustNot => {
+                code.push_str(&format!(
+                    "    /// MustNot: {expr}\n    pub fn check_must_not_{name}() {{ debug_assert!(!({expr})); }}\n",
+                    name = name.to_lowercase()
+                ));
+            }
+            ClauseKind::Decreases => {
+                code.push_str(&format!("    /// Decreases: {expr}\n"));
+            }
+            ClauseKind::Other(ref kind_name) => {
+                code.push_str(&format!("    /// {kind_name}: {expr}\n"));
             }
         }
     }
@@ -6309,6 +6384,91 @@ contract UseConst {
         assert!(
             lib.contains("compile_error!"),
             "missing feature_max value should produce compile_error!, got:\n{lib}"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Issue #54: catch-all wildcard elimination tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn extract_output_type_recurses_into_call_args() {
+        // Previously a Tuple arg inside Call was silently skipped via _ => {}
+        let body = Expr::Call {
+            func: Box::new(Expr::Ident("output".into())),
+            args: vec![Expr::Tuple(vec![Expr::Cast {
+                expr: Box::new(Expr::Ident("x".into())),
+                ty: "Int".into(),
+            }])],
+        };
+        let ty = extract_output_type(&body);
+        assert_eq!(ty, "i64", "should recurse into Tuple inside Call args");
+    }
+
+    #[test]
+    fn extract_error_variants_from_block() {
+        // Previously Block fell through to _ => vec![]
+        let body = Expr::Block(vec![
+            Expr::Ident("ErrA".into()),
+            Expr::Ident("ErrB".into()),
+        ]);
+        let variants = extract_error_variants(&body);
+        assert_eq!(variants, vec!["ErrA", "ErrB"]);
+    }
+
+    #[test]
+    fn extract_error_variants_from_list() {
+        let body = Expr::List(vec![
+            Expr::Ident("X".into()),
+            Expr::Ident("Y".into()),
+        ]);
+        let variants = extract_error_variants(&body);
+        assert_eq!(variants, vec!["X", "Y"]);
+    }
+
+    #[test]
+    fn extract_error_variants_from_paren() {
+        let body = Expr::Paren(Box::new(Expr::Ident("Wrapped".into())));
+        let variants = extract_error_variants(&body);
+        assert_eq!(variants, vec!["Wrapped"]);
+    }
+
+    #[test]
+    fn extract_error_variants_non_ident_returns_empty() {
+        // BinOp cannot contain error variant names
+        let body = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("a".into())),
+            op: assura_parser::ast::BinOp::Add,
+            rhs: Box::new(Expr::Ident("b".into())),
+        };
+        let variants = extract_error_variants(&body);
+        assert!(variants.is_empty());
+    }
+
+    #[test]
+    fn generate_trait_method_unsupported_emits_compile_error() {
+        // Previously unsupported Expr variants got a silent comment
+        let body = Expr::Literal(assura_parser::ast::Literal::Int("42".into()));
+        let mut code = String::new();
+        generate_trait_method(&body, &mut code);
+        assert!(
+            code.contains("compile_error!"),
+            "unsupported trait method body should emit compile_error!, got:\n{code}"
+        );
+    }
+
+    #[test]
+    fn generate_block_effects_clause_explicit() {
+        // Previously Effects fell through to _ => debug comment
+        let clauses = vec![Clause {
+            kind: ClauseKind::Effects,
+            body: Expr::Raw(vec!["io".into()]),
+        }];
+        let mut code = String::new();
+        generate_block("feature", "test", &clauses, &mut code);
+        assert!(
+            code.contains("/// Effects:"),
+            "Effects clause should produce doc comment, got:\n{code}"
         );
     }
 }

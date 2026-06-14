@@ -356,7 +356,51 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
             collect_vars(inner, vars);
         }
         Expr::Cast { expr: inner, .. } => collect_vars(inner, vars),
-        _ => {}
+        Expr::Field(receiver, _) => collect_vars(receiver, vars),
+        Expr::MethodCall {
+            receiver, args, ..
+        } => {
+            collect_vars(receiver, vars);
+            for arg in args {
+                collect_vars(arg, vars);
+            }
+        }
+        Expr::Index { expr, index } => {
+            collect_vars(expr, vars);
+            collect_vars(index, vars);
+        }
+        Expr::Let { value, body, .. } => {
+            collect_vars(value, vars);
+            collect_vars(body, vars);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_vars(scrutinee, vars);
+            for arm in arms {
+                collect_vars(&arm.body, vars);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_vars(item, vars);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for arg in args {
+                collect_vars(arg, vars);
+            }
+        }
+        Expr::Literal(_) => {}
+        Expr::Raw(tokens) => {
+            // Raw tokens may contain variable names; collect identifiers
+            for tok in tokens {
+                if tok.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+                    && tok != "true"
+                    && tok != "false"
+                {
+                    vars.insert(sanitize_smtlib_name(tok));
+                }
+            }
+        }
     }
 }
 
@@ -700,5 +744,105 @@ mod tests {
         let parsed = parse_smtlib_model(model).unwrap();
         assert_eq!(parsed.variables.len(), 1);
         assert_eq!(parsed.variables[0].0, "x");
+    }
+
+    // -------------------------------------------------------------------
+    // collect_vars exhaustive coverage (issue #54)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn collect_vars_field_access() {
+        let expr = Expr::Field(Box::new(Expr::Ident("obj".into())), "field".into());
+        let mut vars = HashSet::new();
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("obj"));
+    }
+
+    #[test]
+    fn collect_vars_method_call() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("list".into())),
+            method: "len".into(),
+            args: vec![Expr::Ident("idx".into())],
+        };
+        let mut vars = HashSet::new();
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("list"));
+        assert!(vars.contains("idx"));
+    }
+
+    #[test]
+    fn collect_vars_index() {
+        let expr = Expr::Index {
+            expr: Box::new(Expr::Ident("arr".into())),
+            index: Box::new(Expr::Ident("i".into())),
+        };
+        let mut vars = HashSet::new();
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("arr"));
+        assert!(vars.contains("i"));
+    }
+
+    #[test]
+    fn collect_vars_let_expr() {
+        let expr = Expr::Let {
+            name: "tmp".into(),
+            value: Box::new(Expr::Ident("a".into())),
+            body: Box::new(Expr::Ident("b".into())),
+        };
+        let mut vars = HashSet::new();
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("a"));
+        assert!(vars.contains("b"));
+    }
+
+    #[test]
+    fn collect_vars_match_expr() {
+        use assura_parser::ast::{MatchArm, Pattern};
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("x".into())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Ident("_".into()),
+                body: Expr::Ident("y".into()),
+            }],
+        };
+        let mut vars = HashSet::new();
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("x"));
+        assert!(vars.contains("y"));
+    }
+
+    #[test]
+    fn collect_vars_list_tuple_block() {
+        let list = Expr::List(vec![Expr::Ident("a".into()), Expr::Ident("b".into())]);
+        let tuple = Expr::Tuple(vec![Expr::Ident("c".into())]);
+        let block = Expr::Block(vec![Expr::Ident("d".into())]);
+        let mut vars = HashSet::new();
+        collect_vars(&list, &mut vars);
+        collect_vars(&tuple, &mut vars);
+        collect_vars(&block, &mut vars);
+        assert!(vars.contains("a"));
+        assert!(vars.contains("b"));
+        assert!(vars.contains("c"));
+        assert!(vars.contains("d"));
+    }
+
+    #[test]
+    fn collect_vars_apply() {
+        let expr = Expr::Apply {
+            lemma_name: "lem".into(),
+            args: vec![Expr::Ident("p".into())],
+        };
+        let mut vars = HashSet::new();
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("p"));
+    }
+
+    #[test]
+    fn collect_vars_literal_is_empty() {
+        let expr = Expr::Literal(Literal::Int("42".into()));
+        let mut vars = HashSet::new();
+        collect_vars(&expr, &mut vars);
+        assert!(vars.is_empty());
     }
 }
