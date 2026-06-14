@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 66
 expression: ast
 ---
 SourceFile {
@@ -28,46 +29,28 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_ALPHABET_SIZE",
-                value: Some(
-                    [
-                        "Nat",
-                        "=",
-                        "280",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 1233..1273,
+            span: 66..102,
         },
         Spanned {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_CODE_LENGTH",
-                value: Some(
-                    [
-                        "Nat",
-                        "=",
-                        "15",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 1274..1311,
+            span: 102..135,
         },
         Spanned {
             node: Block {
                 kind: "feature_max",
                 name: "ROOT_BITS",
-                value: Some(
-                    [
-                        "Nat",
-                        "=",
-                        "8",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 1379..1409,
+            span: 135..161,
         },
         Spanned {
             node: FnDef(
@@ -129,7 +112,7 @@ SourceFile {
                     clauses: [],
                 },
             ),
-            span: 1931..2907,
+            span: 161..612,
         },
         Spanned {
             node: FnDef(
@@ -184,42 +167,13 @@ SourceFile {
                     ],
                 },
             ),
-            span: 3425..3945,
+            span: 612..838,
         },
         Spanned {
             node: Block {
                 kind: "table",
                 name: "K_TABLE_SIZE",
-                value: Some(
-                    [
-                        "[",
-                        "U32",
-                        ";",
-                        "MAX_ALPHABET_SIZE",
-                        "+",
-                        "1",
-                        "]",
-                        "=",
-                        "precompute",
-                        "(",
-                        "for",
-                        "i",
-                        "in",
-                        "0",
-                        "..",
-                        "MAX_ALPHABET_SIZE",
-                        "+",
-                        "1",
-                        "=>",
-                        "worst_case_table_size",
-                        "(",
-                        "i",
-                        "as",
-                        "U16",
-                        ")",
-                        ")",
-                    ],
-                ),
+                value: None,
                 body: [
                     Clause {
                         kind: Other(
@@ -233,7 +187,7 @@ SourceFile {
                     },
                 ],
             },
-            span: 3947..4122,
+            span: 838..989,
         },
         Spanned {
             node: FnDef(
@@ -300,7 +254,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 4775..4893,
+            span: 989..1080,
         },
         Spanned {
             node: FnDef(
@@ -370,7 +324,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 4950..5403,
+            span: 1080..1328,
         },
         Spanned {
             node: FnDef(
@@ -443,7 +397,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 5719..6770,
+            span: 1328..1950,
         },
         Spanned {
             node: Contract(
@@ -453,7 +407,7 @@ SourceFile {
                     clauses: [],
                 },
             ),
-            span: 7300..8899,
+            span: 1950..2568,
         },
         Spanned {
             node: FnDef(
@@ -518,7 +472,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 9176..9853,
+            span: 2568..2877,
         },
     ],
 }

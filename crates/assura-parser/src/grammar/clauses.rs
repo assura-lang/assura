@@ -185,32 +185,32 @@ pub(crate) fn clause(p: &mut Parser) {
 
 /// Parse an expression clause body: try expression first, fall back to raw.
 fn clause_body_expr(p: &mut Parser) {
-    // Braced body: [:]{ expr }
+    // Braced body: [:]{ expr [, expr]* }
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_BRACE {
         p.bump(); // :
         p.bump(); // {
-        expressions::expr(p);
+        expr_list_until(p, SyntaxKind::R_BRACE);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
         p.bump(); // {
-        expressions::expr(p);
+        expr_list_until(p, SyntaxKind::R_BRACE);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
 
-    // Parened body: [:]( expr )
+    // Parened body: [:]( expr [, expr]* )
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_PAREN {
         p.bump(); // :
         p.bump(); // (
-        expressions::expr(p);
+        expr_list_until(p, SyntaxKind::R_PAREN);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
         p.bump(); // (
-        expressions::expr(p);
+        expr_list_until(p, SyntaxKind::R_PAREN);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
@@ -220,6 +220,25 @@ fn clause_body_expr(p: &mut Parser) {
     // Parse an inline expression
     if !p.eof() && !is_clause_stopper(p) {
         expressions::expr(p);
+    }
+}
+
+/// Parse a comma-separated list of expressions until `closer`.
+/// Handles tokens that aren't part of the expression grammar (like `@`)
+/// by consuming them as raw tokens.
+fn expr_list_until(p: &mut Parser, closer: SyntaxKind) {
+    while !p.eof() && !p.at(closer) {
+        let before = p.pos();
+        expressions::expr(p);
+        // If expr() made no progress, bump tokens until comma or closer
+        if p.pos() == before {
+            while !p.eof() && !p.at(closer) && !p.at(SyntaxKind::COMMA) {
+                p.bump();
+            }
+        }
+        if !p.at(closer) {
+            p.eat(SyntaxKind::COMMA);
+        }
     }
 }
 

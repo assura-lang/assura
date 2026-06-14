@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 40
 expression: ast
 ---
 SourceFile {
@@ -67,8 +68,10 @@ SourceFile {
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
                             ),
                         },
                         Clause {
@@ -87,8 +90,10 @@ SourceFile {
                         },
                         Clause {
                             kind: Modifies,
-                            body: Ident(
-                                "buf",
+                            body: Raw(
+                                [
+                                    "buf",
+                                ],
                             ),
                         },
                         Clause {
@@ -126,7 +131,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 65..336,
+            span: 0..197,
         },
     ],
 }

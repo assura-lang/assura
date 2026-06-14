@@ -128,8 +128,7 @@ fn find_child(n: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
 
 /// Check if a node contains a specific token kind.
 fn has_token(n: &SyntaxNode, kind: SyntaxKind) -> bool {
-    n.children_with_tokens()
-        .any(|el| el.kind() == kind)
+    n.children_with_tokens().any(|el| el.kind() == kind)
 }
 
 // -----------------------------------------------------------------
@@ -195,11 +194,7 @@ fn lower_import(n: &SyntaxNode) -> ImportDecl {
         })
         .unwrap_or_default();
 
-    ImportDecl {
-        path,
-        alias,
-        items,
-    }
+    ImportDecl { path, alias, items }
 }
 
 // -----------------------------------------------------------------
@@ -282,27 +277,39 @@ fn lower_clause_body(n: &SyntaxNode) -> Expr {
         }
     }
 
-    // Fall back to raw token collection (skip the clause keyword and delimiters)
+    // Fall back to raw token collection.
+    // Skip: the clause keyword, outer delimiters (parens/braces), whitespace.
+    // Keep: colons inside the body (they separate param names from types),
+    //       commas (they separate parameters), all other tokens.
+    // The leading colon (separator between keyword and body) is also skipped.
+    let mut saw_content = false;
     let tokens: Vec<String> = n
         .children_with_tokens()
         .skip(1) // skip clause keyword
         .filter_map(|el| match el {
             rowan::NodeOrToken::Token(t) => {
                 let k = t.kind();
-                if k == SyntaxKind::COLON
-                    || k == SyntaxKind::L_BRACE
+                if k == SyntaxKind::WHITESPACE || k == SyntaxKind::COMMENT {
+                    return None;
+                }
+                // Skip outer delimiters
+                if k == SyntaxKind::L_BRACE
                     || k == SyntaxKind::R_BRACE
                     || k == SyntaxKind::L_PAREN
                     || k == SyntaxKind::R_PAREN
-                    || k == SyntaxKind::WHITESPACE
-                    || k == SyntaxKind::COMMENT
                 {
-                    None
-                } else {
-                    Some(t.text().to_string())
+                    saw_content = true;
+                    return None;
                 }
+                // Skip leading colon (keyword: body separator)
+                if k == SyntaxKind::COLON && !saw_content {
+                    return None;
+                }
+                saw_content = true;
+                Some(t.text().to_string())
             }
             rowan::NodeOrToken::Node(n) => {
+                saw_content = true;
                 let texts = collect_token_texts(&n);
                 if texts.is_empty() {
                     None
@@ -771,17 +778,11 @@ fn lower_pattern(n: &SyntaxNode) -> Option<Pattern> {
         }
         SyntaxKind::CONSTRUCTOR_PAT => {
             let name = first_ident(n);
-            let fields: Vec<Pattern> = n
-                .children()
-                .filter_map(|c| lower_pattern(&c))
-                .collect();
+            let fields: Vec<Pattern> = n.children().filter_map(|c| lower_pattern(&c)).collect();
             Some(Pattern::Constructor { name, fields })
         }
         SyntaxKind::TUPLE_PAT => {
-            let items: Vec<Pattern> = n
-                .children()
-                .filter_map(|c| lower_pattern(&c))
-                .collect();
+            let items: Vec<Pattern> = n.children().filter_map(|c| lower_pattern(&c)).collect();
             Some(Pattern::Tuple(items))
         }
         _ => None,
@@ -866,8 +867,10 @@ fn collect_body_after_eq(n: &SyntaxNode) -> Vec<String> {
                     if depth > 0 {
                         depth -= 1;
                         tokens.push("}".to_string());
+                    } else {
+                        // Closing brace of the outermost pair; stop.
+                        inside_braces = false;
                     }
-                    // else: closing brace, stop
                 }
                 SyntaxKind::WHITESPACE | SyntaxKind::COMMENT => {}
                 _ if inside_braces => {
@@ -934,7 +937,10 @@ fn lower_field_def(n: &SyntaxNode) -> FieldDef {
             }
             if matches!(
                 t.kind(),
-                SyntaxKind::SEMICOLON | SyntaxKind::COMMA | SyntaxKind::WHITESPACE | SyntaxKind::COMMENT
+                SyntaxKind::SEMICOLON
+                    | SyntaxKind::COMMA
+                    | SyntaxKind::WHITESPACE
+                    | SyntaxKind::COMMENT
             ) {
                 return false;
             }
@@ -1039,8 +1045,30 @@ fn lower_extern(n: &SyntaxNode) -> ExternDecl {
 fn lower_fn_def(n: &SyntaxNode) -> FnDef {
     let name = first_ident(n);
 
-    let is_ghost = has_token(n, SyntaxKind::GHOST_KW);
-    let is_lemma = has_token(n, SyntaxKind::LEMMA_KW);
+    // Check modifiers: only tokens BEFORE the fn/axiom/lemma keyword count.
+    // Tokens inside the function body (e.g., `ghost { ... }`) must not
+    // set these flags.
+    let (is_ghost, is_lemma) = {
+        let mut ghost = false;
+        let mut lemma = false;
+        for el in n.children_with_tokens() {
+            let k = el.kind();
+            // Stop once we hit the function keyword or the name
+            if matches!(
+                k,
+                SyntaxKind::FN_KW | SyntaxKind::AXIOM_KW | SyntaxKind::LEMMA_KW
+            ) {
+                if k == SyntaxKind::LEMMA_KW {
+                    lemma = true;
+                }
+                break;
+            }
+            if k == SyntaxKind::GHOST_KW {
+                ghost = true;
+            }
+        }
+        (ghost, lemma)
+    };
 
     let params = lower_param_list(n);
     let return_ty = find_child(n, SyntaxKind::RETURN_TYPE)
@@ -1144,7 +1172,10 @@ fn lower_generic_block(n: &SyntaxNode) -> Decl {
         .filter_map(|el| el.into_token())
         .filter(|t| t.kind() != SyntaxKind::WHITESPACE && t.kind() != SyntaxKind::COMMENT);
 
-    let kind = tokens_iter.next().map(|t| t.text().to_string()).unwrap_or_default();
+    let kind = tokens_iter
+        .next()
+        .map(|t| t.text().to_string())
+        .unwrap_or_default();
     let name = tokens_iter
         .next()
         .filter(|t| t.kind() == SyntaxKind::IDENT || t.kind().is_keyword())
@@ -1172,11 +1203,27 @@ fn lower_generic_block(n: &SyntaxNode) -> Decl {
 fn lower_type_params(n: &SyntaxNode) -> Vec<String> {
     find_child(n, SyntaxKind::TYPE_PARAM_LIST)
         .map(|tpl| {
-            tpl.children_with_tokens()
-                .filter_map(|el| el.into_token())
-                .filter(|t| t.kind() == SyntaxKind::IDENT)
-                .map(|t| t.text().to_string())
-                .collect()
+            // Collect only param names (idents before colons), not bounds
+            // (idents after colons). Format: Name [: Bound], Name [: Bound]
+            let mut names = Vec::new();
+            let mut in_bound = false;
+            for el in tpl.children_with_tokens() {
+                if let Some(tok) = el.as_token() {
+                    match tok.kind() {
+                        SyntaxKind::COLON => {
+                            in_bound = true;
+                        }
+                        SyntaxKind::COMMA | SyntaxKind::R_ANGLE => {
+                            in_bound = false;
+                        }
+                        SyntaxKind::IDENT if !in_bound => {
+                            names.push(tok.text().to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            names
         })
         .unwrap_or_default()
 }
@@ -1199,23 +1246,31 @@ fn lower_param(n: &SyntaxNode) -> Param {
     let mut ty = Vec::new();
 
     for el in n.children_with_tokens() {
-        if let Some(tok) = el.as_token() {
-            if tok.kind() == SyntaxKind::COLON && !saw_colon {
-                saw_colon = true;
-                continue;
-            }
-            if tok.kind() == SyntaxKind::WHITESPACE || tok.kind() == SyntaxKind::COMMENT {
-                continue;
-            }
-            if tok.kind() == SyntaxKind::HASH {
-                continue; // skip attr
-            }
-            if !saw_colon {
-                if name.is_empty() && (tok.kind() == SyntaxKind::IDENT || tok.kind().is_keyword()) {
-                    name = tok.text().to_string();
+        match el {
+            rowan::NodeOrToken::Token(tok) => {
+                if tok.kind() == SyntaxKind::COLON && !saw_colon {
+                    saw_colon = true;
+                    continue;
                 }
-            } else {
-                ty.push(tok.text().to_string());
+                if tok.kind() == SyntaxKind::WHITESPACE || tok.kind() == SyntaxKind::COMMENT {
+                    continue;
+                }
+                if !saw_colon {
+                    if name.is_empty()
+                        && (tok.kind() == SyntaxKind::IDENT || tok.kind().is_keyword())
+                    {
+                        name = tok.text().to_string();
+                    }
+                } else {
+                    ty.push(tok.text().to_string());
+                }
+            }
+            rowan::NodeOrToken::Node(child) => {
+                // Flatten child nodes (e.g., ATTR nodes) into type tokens
+                if saw_colon {
+                    let texts = collect_token_texts(&child);
+                    ty.extend(texts);
+                }
             }
         }
     }
@@ -1224,13 +1279,21 @@ fn lower_param(n: &SyntaxNode) -> Param {
 }
 
 fn collect_return_type_tokens(n: &SyntaxNode) -> Vec<String> {
+    // Skip the leading arrow/colon (the `->` or `:` separator),
+    // then keep all remaining tokens including colons inside
+    // refinement types like `{ v : Nat | ... }`.
+    let mut skipped_leader = false;
     n.children_with_tokens()
         .filter_map(|el| el.into_token())
-        .filter(|t| {
-            !matches!(
-                t.kind(),
-                SyntaxKind::ARROW | SyntaxKind::COLON | SyntaxKind::WHITESPACE | SyntaxKind::COMMENT
-            )
+        .filter(move |t| {
+            if t.kind() == SyntaxKind::WHITESPACE || t.kind() == SyntaxKind::COMMENT {
+                return false;
+            }
+            if !skipped_leader && (t.kind() == SyntaxKind::ARROW || t.kind() == SyntaxKind::COLON) {
+                skipped_leader = true;
+                return false;
+            }
+            true
         })
         .map(|t| t.text().to_string())
         .collect()

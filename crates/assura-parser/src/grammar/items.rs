@@ -43,10 +43,16 @@ fn is_fn_ahead(p: &mut Parser) -> bool {
     let mut lookahead = 0usize;
     loop {
         let k = p.nth(lookahead);
-        if matches!(k, SyntaxKind::PURE_KW | SyntaxKind::GHOST_KW | SyntaxKind::OPAQUE_KW) {
+        if matches!(
+            k,
+            SyntaxKind::PURE_KW | SyntaxKind::GHOST_KW | SyntaxKind::OPAQUE_KW
+        ) {
             lookahead += 1;
         } else {
-            return matches!(k, SyntaxKind::FN_KW | SyntaxKind::AXIOM_KW | SyntaxKind::LEMMA_KW);
+            return matches!(
+                k,
+                SyntaxKind::FN_KW | SyntaxKind::AXIOM_KW | SyntaxKind::LEMMA_KW
+            );
         }
     }
 }
@@ -270,7 +276,11 @@ fn fn_def(p: &mut Parser) {
     }
 
     // fn | axiom | lemma
-    if p.at_any(&[SyntaxKind::FN_KW, SyntaxKind::AXIOM_KW, SyntaxKind::LEMMA_KW]) {
+    if p.at_any(&[
+        SyntaxKind::FN_KW,
+        SyntaxKind::AXIOM_KW,
+        SyntaxKind::LEMMA_KW,
+    ]) {
         p.bump();
     } else {
         p.error_at_current("expected fn, axiom, or lemma".into());
@@ -416,13 +426,13 @@ pub(crate) fn generic_block(p: &mut Parser) {
         p.bump();
         // Collect value tokens until brace, clause keyword, or decl
         while !p.eof() {
-            let cur = p.current();
-            if clauses::is_clause_stopper_kind(cur)
-                || cur == SyntaxKind::L_BRACE
-                || cur == SyntaxKind::R_BRACE
+            if clauses::is_clause_stopper(p)
+                || p.current() == SyntaxKind::L_BRACE
+                || p.current() == SyntaxKind::R_BRACE
             {
                 break;
             }
+            let cur = p.current();
             if cur == SyntaxKind::L_PAREN {
                 p.bump();
                 super::body_tokens_inner(p, &[]);
@@ -446,9 +456,18 @@ pub(crate) fn generic_block(p: &mut Parser) {
             } else if matches!(
                 p.current(),
                 SyntaxKind::FN_KW
+                    | SyntaxKind::AXIOM_KW
+                    | SyntaxKind::LEMMA_KW
+                    | SyntaxKind::PURE_KW
+                    | SyntaxKind::GHOST_KW
+                    | SyntaxKind::OPAQUE_KW
                     | SyntaxKind::TYPE_KW
                     | SyntaxKind::ENUM_KW
                     | SyntaxKind::EXTERN_KW
+                    | SyntaxKind::CONTRACT_KW
+                    | SyntaxKind::SERVICE_KW
+                    | SyntaxKind::HASH
+                    | SyntaxKind::SPEC_KW
             ) {
                 decl(p);
             } else {

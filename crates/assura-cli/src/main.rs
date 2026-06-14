@@ -10,9 +10,6 @@ use std::time::{Duration, Instant};
 use assura_config::{CompilerConfig, OutputMode, ProjectConfig, Verbosity};
 use assura_parser::ast::*;
 use assura_parser::lexer::Token;
-use assura_parser::parser;
-use chumsky::Stream;
-use chumsky::prelude::*;
 use logos::Logos;
 // ---------------------------------------------------------------------------
 // CLI argument definitions (clap 4)
@@ -233,76 +230,13 @@ fn compile_with_config(source: &str, filename: &str, config: &CompilerConfig) ->
 
     // --- Parse ---
     let parse_start = Instant::now();
-    let len = source.len();
-    let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
-    let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
+    let (file, parse_errors) = assura_parser::parse(source);
     let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
     for e in &parse_errors {
         has_errors = true;
-        let span = e.span();
-        let found = e
-            .found()
-            .map(|t| assura_parser::display::friendly_token_name(&format!("{t}")))
-            .unwrap_or_else(|| "end of file".to_string());
-        let expected: Vec<String> = e
-            .expected()
-            .filter_map(|ex| {
-                ex.as_ref()
-                    .map(|t| assura_parser::display::friendly_token_name(&format!("{t}")))
-            })
-            .collect();
-
-        // Deduplicate and sort for cleaner output
-        let mut expected: Vec<String> = expected
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        // Group into categories for large expected sets
-        let msg = if expected.is_empty() {
-            format!("unexpected {found}")
-        } else if expected.len() > 6 {
-            // Too many options; summarize by category
-            let has_clause = expected.iter().any(|e| {
-                matches!(
-                    e.as_str(),
-                    "requires"
-                        | "ensures"
-                        | "invariant"
-                        | "effects"
-                        | "modifies"
-                        | "input"
-                        | "output"
-                        | "errors"
-                        | "rule"
-                        | "decreases"
-                )
-            });
-            let has_decl = expected.iter().any(|e| {
-                matches!(
-                    e.as_str(),
-                    "contract" | "type" | "enum" | "fn" | "service" | "extern"
-                )
-            });
-            let mut summary: Vec<String> = Vec::new();
-            if has_decl {
-                summary.push("a declaration".to_string());
-            }
-            if has_clause {
-                summary.push("a clause keyword".to_string());
-            }
-            if !has_decl && !has_clause {
-                expected.truncate(5);
-                summary.push(expected.join(", "));
-            }
-            format!("expected {}, found {found}", summary.join(" or "))
-        } else {
-            format!("expected {}, found {found}", expected.join(" or "))
-        };
-
         diagnostics.push(
-            assura_diagnostics::Diagnostic::error("A01002", msg, span.start..span.end)
+            assura_diagnostics::Diagnostic::error("A01002", e.message.clone(), e.span.clone())
                 .with_file(filename),
         );
     }
@@ -1512,6 +1446,9 @@ fn run_fmt(filename: &str, check_only: bool) {
             "Error: cannot format {filename}: {} parse error(s)",
             errors.len()
         );
+        for e in &errors {
+            eprintln!("  {e}");
+        }
         process::exit(1);
     }
 
@@ -1895,18 +1832,21 @@ contract UsePoint {
     }
 
     #[test]
-    fn test_parse_error_includes_expected_tokens() {
-        // Syntax error should produce an error with a non-empty expected set
+    fn test_parse_error_includes_message() {
+        // Syntax error should produce an error with a meaningful message
         let (_file, errors) = assura_parser::parse("contract 123");
         assert!(!errors.is_empty(), "expected at least one parse error");
         let e = &errors[0];
-        let expected: Vec<_> = e.expected().collect();
         assert!(
-            !expected.is_empty(),
-            "parse error should include expected tokens, got: {e:?}"
+            !e.message.is_empty(),
+            "parse error should have a non-empty message, got: {e:?}"
         );
-        // The found token should be the integer 123
-        assert!(e.found().is_some(), "parse error should have a found token");
+        // The error span should point to a valid location
+        assert!(
+            e.span.start <= e.span.end,
+            "error span should be valid: {:?}",
+            e.span
+        );
     }
 
     #[test]

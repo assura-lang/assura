@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 52
 expression: ast
 ---
 SourceFile {
@@ -143,18 +144,19 @@ SourceFile {
                                         op: Eq,
                                         rhs: Literal(
                                             Str(
-                                                "Pending",
+                                                "\"Pending\"",
                                             ),
                                         ),
                                     },
                                 },
                                 Clause {
                                     kind: Effects,
-                                    body: Field(
-                                        Ident(
+                                    body: Raw(
+                                        [
                                             "db",
-                                        ),
-                                        "write",
+                                            ".",
+                                            "write",
+                                        ],
                                     ),
                                 },
                             ],
@@ -198,11 +200,12 @@ SourceFile {
                                 },
                                 Clause {
                                     kind: Effects,
-                                    body: Field(
-                                        Ident(
+                                    body: Raw(
+                                        [
                                             "db",
-                                        ),
-                                        "write",
+                                            ".",
+                                            "write",
+                                        ],
                                     ),
                                 },
                             ],
@@ -246,41 +249,36 @@ SourceFile {
                                 },
                                 Clause {
                                     kind: Effects,
-                                    body: Field(
-                                        Ident(
+                                    body: Raw(
+                                        [
                                             "db",
-                                        ),
-                                        "read",
+                                            ".",
+                                            "read",
+                                        ],
                                     ),
                                 },
                             ],
                         },
                         Invariant(
-                            Forall {
-                                var: "o",
-                                domain: Ident(
+                            Raw(
+                                [
+                                    "forall",
+                                    "o",
+                                    "in",
                                     "orders",
-                                ),
-                                body: BinOp {
-                                    lhs: Field(
-                                        Ident(
-                                            "o",
-                                        ),
-                                        "amount",
-                                    ),
-                                    op: Gt,
-                                    rhs: Literal(
-                                        Int(
-                                            "0",
-                                        ),
-                                    ),
-                                },
-                            },
+                                    ":",
+                                    "o",
+                                    ".",
+                                    "amount",
+                                    ">",
+                                    "0",
+                                ],
+                            ),
                         ),
                     ],
                 },
             ),
-            span: 73..786,
+            span: 0..495,
         },
     ],
 }

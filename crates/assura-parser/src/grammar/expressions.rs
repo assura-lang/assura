@@ -6,8 +6,6 @@
 use crate::cst::{CompletedMarker, Parser};
 use crate::syntax_kind::SyntaxKind;
 
-
-
 /// Parse an expression at the top level (lowest precedence).
 pub(crate) fn expr(p: &mut Parser) {
     // let expr has lowest precedence
@@ -53,9 +51,7 @@ fn expr_bp(p: &mut Parser, min_bp: u8) {
 fn atom(p: &mut Parser) -> Option<CompletedMarker> {
     match p.current() {
         // Literals
-        SyntaxKind::INT_LIT | SyntaxKind::FLOAT_LIT | SyntaxKind::STRING_LIT => {
-            Some(literal(p))
-        }
+        SyntaxKind::INT_LIT | SyntaxKind::FLOAT_LIT | SyntaxKind::STRING_LIT => Some(literal(p)),
         SyntaxKind::TRUE_KW | SyntaxKind::FALSE_KW => Some(literal(p)),
 
         // self
@@ -148,6 +144,7 @@ fn is_keyword_as_value(k: SyntaxKind) -> bool {
 
 /// Can this token start an atom expression?
 /// Used by clause body parsing to know when expression parsing would work.
+#[allow(dead_code)]
 pub(crate) fn at_expr_start(p: &mut Parser) -> bool {
     matches!(
         p.current(),
@@ -506,10 +503,11 @@ fn infix_bp(p: &mut Parser) -> Option<(u8, u8)> {
             Some((ADD_BP, ADD_BP + 1))
         }
 
-        // *, /, %
-        SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => {
-            Some((MUL_BP, MUL_BP + 1))
-        }
+        // *, /, %, mod
+        SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => Some((MUL_BP, MUL_BP + 1)),
+
+        // `mod` as infix modulo operator (lexed as IDENT)
+        SyntaxKind::IDENT if p.current_text() == "mod" => Some((MUL_BP, MUL_BP + 1)),
 
         _ => None,
     }
@@ -531,7 +529,7 @@ mod tests {
     use super::*;
     use crate::cst::{self, LexedToken, TokenSpan, build_tree};
     use crate::lexer::Token;
-    use crate::syntax_kind::{AssuraLanguage, SyntaxNode};
+    use crate::syntax_kind::SyntaxNode;
     use logos::Logos;
 
     fn parse_expr_to_tree(source: &str) -> (SyntaxNode, Vec<cst::ParseError>) {

@@ -17,12 +17,7 @@ pub(crate) fn type_params(p: &mut Parser) {
         if p.at(SyntaxKind::COLON) {
             p.bump(); // :
             // Consume bound tokens until comma or >
-            while !p.eof()
-                && !matches!(
-                    p.current(),
-                    SyntaxKind::COMMA | SyntaxKind::R_ANGLE
-                )
-            {
+            while !p.eof() && !matches!(p.current(), SyntaxKind::COMMA | SyntaxKind::R_ANGLE) {
                 p.bump();
             }
         }
@@ -152,7 +147,10 @@ fn balanced_inner_angle(p: &mut Parser) {
     while !p.eof() {
         let cur = p.current();
         match cur {
-            SyntaxKind::R_ANGLE | SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
+            SyntaxKind::R_ANGLE
+            | SyntaxKind::R_BRACE
+            | SyntaxKind::R_PAREN
+            | SyntaxKind::R_BRACKET => break,
             SyntaxKind::L_ANGLE => {
                 p.bump();
                 balanced_inner_angle(p);
@@ -242,8 +240,15 @@ fn is_return_type_stopper(k: SyntaxKind, p: &Parser) -> bool {
         let text = p.tokens.get(p.pos()).map(|t| t.text.as_str()).unwrap_or("");
         return matches!(
             text,
-            "promise" | "bound" | "feature" | "feature_max"
-                | "table" | "incremental" | "liveness" | "safety" | "security"
+            "promise"
+                | "bound"
+                | "feature"
+                | "feature_max"
+                | "table"
+                | "incremental"
+                | "liveness"
+                | "safety"
+                | "security"
         );
     }
     false

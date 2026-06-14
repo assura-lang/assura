@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 132
 expression: "&ast"
 ---
 Some(
@@ -40,25 +41,28 @@ Some(
                             },
                             Clause {
                                 kind: Ensures,
-                                body: Raw(
-                                    [
+                                body: BinOp {
+                                    lhs: Ident(
                                         "result",
-                                        "==",
+                                    ),
+                                    op: Eq,
+                                    rhs: Ident(
                                         "x",
-                                        "2",
-                                    ],
-                                ),
+                                    ),
+                                },
                             },
                             Clause {
                                 kind: Effects,
-                                body: Ident(
-                                    "pure",
+                                body: Raw(
+                                    [
+                                        "pure",
+                                    ],
                                 ),
                             },
                         ],
                     },
                 ),
-                span: 71..184,
+                span: 0..79,
             },
         ],
     },

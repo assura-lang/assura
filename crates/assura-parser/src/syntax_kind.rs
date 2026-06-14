@@ -363,6 +363,11 @@ pub enum SyntaxKind {
     /// Wrapper for error recovery: contains skipped tokens.
     ERROR,
 
+    /// Internal sentinel for `build_tree`: marks an event slot that
+    /// should be ignored. Never appears in a finished tree.
+    #[doc(hidden)]
+    TOMBSTONE,
+
     #[doc(hidden)]
     __LAST,
 }

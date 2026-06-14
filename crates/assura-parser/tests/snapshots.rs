@@ -94,7 +94,7 @@ fn parse_error_file(
     path: &str,
 ) -> (
     Option<assura_parser::ast::SourceFile>,
-    Vec<chumsky::error::Simple<assura_parser::lexer::Token>>,
+    Vec<assura_parser::ParseError>,
 ) {
     let source =
         std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));

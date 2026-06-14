@@ -138,12 +138,12 @@ fn at_decl_start(p: &mut Parser) -> bool {
         SyntaxKind::OPAQUE_KW,
         SyntaxKind::HASH,
         SyntaxKind::SPEC_KW,
-    ]) || (p.current() == SyntaxKind::IDENT || p.current().is_keyword())
-        && !p.eof()
+    ]) || (p.current() == SyntaxKind::IDENT || p.current().is_keyword()) && !p.eof()
 }
 
 /// Skip balanced tokens within braces/parens/brackets until we hit
 /// the matching closer or a stopper. Used for collecting raw body tokens.
+#[allow(dead_code)]
 pub(crate) fn body_tokens(p: &mut Parser, stoppers: &[SyntaxKind]) {
     let m = p.open();
     body_tokens_inner(p, stoppers);
@@ -186,7 +186,7 @@ mod tests {
     use super::*;
     use crate::cst::{self, LexedToken, TokenSpan, build_tree};
     use crate::lexer::Token;
-    use crate::syntax_kind::{AssuraLanguage, SyntaxNode};
+    use crate::syntax_kind::SyntaxNode;
     use logos::Logos;
 
     /// Lex source text, create a Parser, run a grammar function, build the tree.
@@ -244,7 +244,10 @@ mod tests {
         let kinds: Vec<_> = children.iter().map(|c| node_kind(c)).collect();
         assert!(kinds.contains(&SyntaxKind::PROJECT_DECL));
         assert!(kinds.contains(&SyntaxKind::MODULE_DECL));
-        let import_count = kinds.iter().filter(|k| **k == SyntaxKind::IMPORT_DECL).count();
+        let import_count = kinds
+            .iter()
+            .filter(|k| **k == SyntaxKind::IMPORT_DECL)
+            .count();
         assert_eq!(import_count, 2);
     }
 
@@ -259,7 +262,9 @@ mod tests {
         let (root, errors) = parse_to_tree(src);
         assert!(errors.is_empty(), "errors: {errors:?}");
 
-        let contract = root.children().find(|c| node_kind(c) == SyntaxKind::CONTRACT_DECL);
+        let contract = root
+            .children()
+            .find(|c| node_kind(c) == SyntaxKind::CONTRACT_DECL);
         assert!(contract.is_some(), "should have a CONTRACT_DECL");
     }
 
@@ -294,8 +299,12 @@ mod tests {
         let (root, errors) = parse_to_tree(src);
         assert!(errors.is_empty(), "errors: {errors:?}");
 
-        let type_node = root.children().find(|c| node_kind(c) == SyntaxKind::TYPE_DEF);
-        let enum_node = root.children().find(|c| node_kind(c) == SyntaxKind::ENUM_DEF);
+        let type_node = root
+            .children()
+            .find(|c| node_kind(c) == SyntaxKind::TYPE_DEF);
+        let enum_node = root
+            .children()
+            .find(|c| node_kind(c) == SyntaxKind::ENUM_DEF);
         assert!(type_node.is_some(), "should have a TYPE_DEF");
         assert!(enum_node.is_some(), "should have an ENUM_DEF");
     }

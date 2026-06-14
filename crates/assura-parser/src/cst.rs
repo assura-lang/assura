@@ -31,7 +31,7 @@ pub(crate) enum Event {
 
 /// Sentinel kind used as a placeholder in `Open` events before the
 /// real kind is known (patched by `Marker::complete`).
-const TOMBSTONE: SyntaxKind = SyntaxKind::ERROR;
+const TOMBSTONE: SyntaxKind = SyntaxKind::TOMBSTONE;
 
 // -----------------------------------------------------------------
 // Markers
@@ -57,6 +57,7 @@ impl Marker {
     }
 
     /// Abandon this marker without producing a node.
+    #[allow(dead_code)]
     pub(crate) fn abandon(mut self, p: &mut Parser) {
         self.completed = true;
         if self.pos as usize == p.events.len() - 1 {
@@ -104,7 +105,7 @@ impl CompletedMarker {
 
 /// A token from the lexer, ready for the parser.
 #[derive(Debug, Clone)]
-pub(crate) struct LexedToken {
+pub struct LexedToken {
     pub kind: SyntaxKind,
     pub text: String,
 }
@@ -130,6 +131,16 @@ pub struct ParseError {
     pub message: String,
 }
 
+impl ParseError {
+    /// Returns the byte-offset span of this error.
+    ///
+    /// This method exists for API compatibility with downstream crates
+    /// (LSP, gRPC server) that call `.span()` on parse errors.
+    pub fn span(&self) -> std::ops::Range<usize> {
+        self.span.clone()
+    }
+}
+
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -142,7 +153,7 @@ impl std::fmt::Display for ParseError {
 
 /// Source-span information carried alongside each token for error reporting.
 #[derive(Debug, Clone)]
-pub(crate) struct TokenSpan {
+pub struct TokenSpan {
     pub start: usize,
     pub end: usize,
 }
@@ -184,6 +195,7 @@ impl Parser {
     }
 
     /// Consume the current token regardless of kind (for error recovery).
+    #[allow(dead_code)]
     pub(crate) fn bump_any(&mut self) {
         if !self.eof() {
             self.bump();
@@ -204,6 +216,7 @@ impl Parser {
     }
 
     /// The text of the token `n` positions ahead.
+    #[allow(dead_code)]
     pub(crate) fn nth_text(&self, n: usize) -> &str {
         self.tokens
             .get(self.pos + n)
@@ -274,8 +287,14 @@ impl Parser {
     }
 
     /// Emit an error with a specific span.
+    #[allow(dead_code)]
     pub(crate) fn error(&mut self, message: String, span: std::ops::Range<usize>) {
         self.errors.push(ParseError { span, message });
+    }
+
+    /// Consume the parser, returning events, tokens, and collected errors.
+    pub(crate) fn finish(self) -> (Vec<Event>, Vec<LexedToken>, Vec<ParseError>) {
+        (self.events, self.tokens, self.errors)
     }
 
     /// The text of the current token.
@@ -295,6 +314,7 @@ impl Parser {
 
     /// Consume the current token as an identifier text, accepting both
     /// `IDENT` and keyword tokens. Returns the text or empty string.
+    #[allow(dead_code)]
     pub(crate) fn eat_keyword_or_ident(&mut self) -> Option<String> {
         if self.eof() {
             return None;
@@ -311,19 +331,20 @@ impl Parser {
 
     /// The source span of the current token (byte offsets).
     pub(crate) fn current_span(&self) -> TokenSpan {
-        self.spans
-            .get(self.pos)
-            .cloned()
-            .unwrap_or_else(|| {
-                // At EOF, point to end of last token
-                self.spans
-                    .last()
-                    .map(|s| TokenSpan { start: s.end, end: s.end })
-                    .unwrap_or(TokenSpan { start: 0, end: 0 })
-            })
+        self.spans.get(self.pos).cloned().unwrap_or_else(|| {
+            // At EOF, point to end of last token
+            self.spans
+                .last()
+                .map(|s| TokenSpan {
+                    start: s.end,
+                    end: s.end,
+                })
+                .unwrap_or(TokenSpan { start: 0, end: 0 })
+        })
     }
 
     /// The source span at a specific token index.
+    #[allow(dead_code)]
     pub(crate) fn span_at(&self, idx: usize) -> TokenSpan {
         self.spans
             .get(idx)
@@ -341,6 +362,7 @@ impl Parser {
 
     /// Skip tokens until we find one matching `kind` or EOF.
     /// Wraps skipped tokens in an ERROR node.
+    #[allow(dead_code)]
     pub(crate) fn err_recover(&mut self, message: &str, recovery: &[SyntaxKind]) {
         if self.at_any(recovery) || self.eof() {
             self.error_at_current(message.to_string());
@@ -367,6 +389,7 @@ pub(crate) fn build_tree(mut events: Vec<Event>, tokens: &[LexedToken]) -> rowan
     let mut builder = rowan::GreenNodeBuilder::new();
     let mut token_idx: usize = 0;
     let mut chain_buf = Vec::new();
+    let mut depth: u32 = 0;
 
     for idx in 0..events.len() {
         // Take the event, leaving a tombstone so forward-parent
@@ -415,10 +438,14 @@ pub(crate) fn build_tree(mut events: Vec<Event>, tokens: &[LexedToken]) -> rowan
                 // Open from outermost (last) to innermost (first).
                 for &k in chain_buf.iter().rev() {
                     builder.start_node(k.into());
+                    depth += 1;
                 }
             }
             Event::Close => {
-                builder.finish_node();
+                if depth > 0 {
+                    builder.finish_node();
+                    depth -= 1;
+                }
             }
             Event::Advance => {
                 if token_idx < tokens.len() {
@@ -428,6 +455,19 @@ pub(crate) fn build_tree(mut events: Vec<Event>, tokens: &[LexedToken]) -> rowan
                 }
             }
         }
+    }
+
+    // Emit any unconsumed tokens inside the current open node
+    while token_idx < tokens.len() {
+        let tok = &tokens[token_idx];
+        builder.token(tok.kind.into(), &tok.text);
+        token_idx += 1;
+    }
+
+    // Close any remaining open nodes
+    while depth > 0 {
+        builder.finish_node();
+        depth -= 1;
     }
 
     builder.finish()
