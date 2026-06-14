@@ -7,6 +7,28 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    ignore:
+      # Architectural pins -- see AGENTS.md "Crate Versioning (CRITICAL)"
+      # chumsky 0.10+ has a completely different API (Parser trait, error
+      # types, combinators). Upgrading requires a full parser rewrite.
+      - dependency-name: chumsky
+        versions: [">=0.10"]
+      # ariadne 0.5+ changes the Report/Label API.
+      - dependency-name: ariadne
+        versions: [">=0.5"]
+      # z3 0.13+ has significant API changes and must match the system
+      # libz3 version installed in CI.
+      - dependency-name: z3
+        versions: [">=0.13"]
+    groups:
+      # tonic, prost, and tonic-build must be upgraded together;
+      # individual PRs always fail because of version coupling.
+      grpc-stack:
+        patterns:
+          - "tonic"
+          - "tonic-*"
+          - "prost"
+          - "prost-*"
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -15,3 +37,9 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    groups:
+      # upload-artifact and download-artifact must move together.
+      artifact-actions:
+        patterns:
+          - "actions/upload-artifact"
+          - "actions/download-artifact"
