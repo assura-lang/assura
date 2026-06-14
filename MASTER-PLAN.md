@@ -567,7 +567,7 @@
   - Run for at least 10 minutes. Fix any panics found.
   - Add CI job: run fuzzing for 60 seconds on each PR
 
-- [ ] **I005**: Set up cargo-fuzz for the type checker
+- [x] **I005**: Set up cargo-fuzz for the type checker
   - Depends on: I004
   - Fuzz the pipeline: parse -> resolve -> type_check
   - The type checker should never panic, only return errors
@@ -1386,3 +1386,10 @@ Created `crates/assura-hir/` with HIR types and AST-to-HIR lowering pass.
 - Verbose mode (`-v`) shows HIR decl count and timing in all paths
 
 23 new tests (13 unit + 10 lowering integration). 1,395 total tests passing.
+
+### I005 completed (2026-06-14)
+Added `fuzz_typecheck` target to the fuzz workspace. The target runs the full
+parse -> resolve -> type_check pipeline on arbitrary UTF-8 input. Added
+assura-resolve and assura-types as fuzz workspace dependencies. Ran 72,782
+iterations in 60 seconds with zero crashes (3,345 coverage edges). Seed
+corpus includes all demo and fixture .assura files.

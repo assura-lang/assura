@@ -10,6 +10,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 assura-parser = { path = "../crates/assura-parser" }
+assura-resolve = { path = "../crates/assura-resolve" }
+assura-types = { path = "../crates/assura-types" }
 logos = "0.15"
 
 [[bin]]
@@ -22,6 +24,13 @@ bench = false
 [[bin]]
 name = "fuzz_lex"
 path = "fuzz_targets/fuzz_lex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_typecheck"
+path = "fuzz_targets/fuzz_typecheck.rs"
 test = false
 doc = false
 bench = false
