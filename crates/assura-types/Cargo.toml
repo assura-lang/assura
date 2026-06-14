@@ -9,4 +9,5 @@ repository.workspace = true
 [dependencies]
 assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
+assura-config = { path = "../assura-config" }
 assura-diagnostics = { path = "../assura-diagnostics" }

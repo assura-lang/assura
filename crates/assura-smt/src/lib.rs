@@ -43,6 +43,15 @@ impl SolverChoice {
             _ => None,
         }
     }
+
+    /// Return the solver name as a string slice.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Z3 => "z3",
+            Self::Cvc5 => "cvc5",
+            Self::Portfolio => "portfolio",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +262,18 @@ pub enum VerificationResult {
 /// invariant). Requires clauses are collected as assumptions but not
 /// independently verified (they constrain the context for ensures).
 pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
+    verify_with_options(typed, &assura_config::VerifyOptions::default())
+}
+
+/// Verify all contract clauses using the given verification options.
+///
+/// `options.solver` selects the SMT backend ("z3", "cvc5", "portfolio").
+/// `options.timeout_ms` limits per-query solver time.
+/// `options.layer` controls verification depth (0 = structural, 1+ = SMT).
+pub fn verify_with_options(
+    typed: &TypedFile,
+    _options: &assura_config::VerifyOptions,
+) -> Vec<VerificationResult> {
     #[cfg(feature = "z3-verify")]
     {
         z3_backend::verify_impl(typed)

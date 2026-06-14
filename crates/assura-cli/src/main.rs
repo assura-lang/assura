@@ -7,7 +7,7 @@ use std::process;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use assura_config::{OutputMode, ProjectConfig, Verbosity};
+use assura_config::{CompilerConfig, OutputMode, ProjectConfig, Verbosity};
 use assura_parser::ast::*;
 use assura_parser::lexer::Token;
 use assura_parser::parser;
@@ -191,6 +191,11 @@ struct CompilationResult {
 
 /// Run lex -> parse -> resolve -> typecheck on source text, collecting all diagnostics.
 fn compile(source: &str, filename: &str) -> CompilationResult {
+    compile_with_config(source, filename, &CompilerConfig::default())
+}
+
+/// Run the full pipeline with explicit configuration.
+fn compile_with_config(source: &str, filename: &str, config: &CompilerConfig) -> CompilationResult {
     let mut diagnostics: Vec<assura_diagnostics::Diagnostic> = Vec::new();
     let mut has_errors = false;
 
@@ -351,7 +356,7 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
     // --- Type check (only if resolution succeeded) ---
     let typecheck_start = Instant::now();
     let typed = if let Some(ref resolved) = resolved {
-        match assura_types::type_check(resolved) {
+        match assura_types::type_check_with_config(resolved, &config.type_check) {
             Ok(t) => Some(t),
             Err(errs) => {
                 has_errors = true;
@@ -460,8 +465,8 @@ fn run_check(
     watch: bool,
 ) {
     // Load project config (assura.toml) if available
-    let config = load_project_config(Path::new(filename));
-    let config_layer = config.as_ref().map(|(c, _)| c.verify.layer);
+    let project = load_project_config(Path::new(filename));
+    let config_layer = project.as_ref().map(|(c, _)| c.verify.layer);
 
     // Verification layer: CLI flag > config file > default (1)
     // 255 is the sentinel for "not specified on CLI"
@@ -472,11 +477,32 @@ fn run_check(
     };
 
     // Solver choice: CLI flag > config file > default (Z3)
-    let config_solver = config
+    let config_solver = project
         .as_ref()
         .and_then(|(c, _)| assura_smt::SolverChoice::from_str_loose(&c.verify.smt_solver));
     let solver =
         cli_solver.unwrap_or_else(|| config_solver.unwrap_or(assura_smt::SolverChoice::Z3));
+
+    // Build unified compiler config
+    let compiler_config = if let Some((ref proj, _)) = project {
+        let mut cc = CompilerConfig::from_project(proj, output_mode, verbosity);
+        cc.verify.layer = layer;
+        cc.verify.solver = solver.as_str().to_string();
+        cc
+    } else {
+        CompilerConfig {
+            output_mode,
+            verbosity,
+            verify: assura_config::VerifyOptions {
+                layer,
+                solver: solver.as_str().to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    };
+    // Keep the project config around for verbose display
+    let config = project;
 
     if watch {
         run_watch_loop(filename, output_mode, verbosity, layer);
@@ -503,7 +529,7 @@ fn run_check(
         mut diagnostics,
         mut has_errors,
         timing,
-    } = compile(&source, filename);
+    } = compile_with_config(&source, filename, &compiler_config);
 
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
         if let Some((ref cfg, ref root)) = config {
@@ -1068,8 +1094,8 @@ fn run_build(
     cli_solver: Option<assura_smt::SolverChoice>,
 ) {
     // Load project config (assura.toml) if available
-    let config = load_project_config(Path::new(filename));
-    let config_output = config
+    let project = load_project_config(Path::new(filename));
+    let config_output = project
         .as_ref()
         .map(|(c, _)| c.build.output.clone())
         .unwrap_or_else(|| "generated".to_string());
@@ -1084,7 +1110,7 @@ fn run_build(
     // Solver choice: CLI flag > config file > default (Z3)
     let build_solver = cli_solver
         .or_else(|| {
-            config
+            project
                 .as_ref()
                 .and_then(|(c, _)| assura_smt::SolverChoice::from_str_loose(&c.verify.smt_solver))
         })
@@ -1093,11 +1119,34 @@ fn run_build(
     // Target: CLI flag > config file > default (native)
     let compile_target = cli_target
         .or_else(|| {
-            config
+            project
                 .as_ref()
                 .and_then(|(c, _)| assura_codegen::CompileTarget::from_str_loose(&c.build.target))
         })
         .unwrap_or(assura_codegen::CompileTarget::Native);
+
+    // Build unified compiler config
+    let compiler_config = if let Some((ref proj, _)) = project {
+        let mut cc = CompilerConfig::from_project(proj, _output_mode, verbosity);
+        cc.verify.solver = build_solver.as_str().to_string();
+        cc.codegen.output_dir = out_dir_str.to_string();
+        cc
+    } else {
+        CompilerConfig {
+            output_mode: _output_mode,
+            verbosity,
+            verify: assura_config::VerifyOptions {
+                solver: build_solver.as_str().to_string(),
+                ..Default::default()
+            },
+            codegen: assura_config::CodegenConfig {
+                output_dir: out_dir_str.to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    };
+    let config = project;
 
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
@@ -1113,7 +1162,7 @@ fn run_build(
         file: parsed_file,
         resolved,
         hir: _hir,
-    } = compile(&source, filename);
+    } = compile_with_config(&source, filename, &compiler_config);
 
     if verbosity == Verbosity::Verbose {
         if let Some((ref cfg, ref root)) = config {

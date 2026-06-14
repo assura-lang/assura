@@ -90,6 +90,16 @@ impl Default for BackendConfig {
     }
 }
 
+impl From<&assura_config::CodegenConfig> for BackendConfig {
+    fn from(cfg: &assura_config::CodegenConfig) -> Self {
+        let target = CompileTarget::from_str_loose(&cfg.target).unwrap_or(CompileTarget::Native);
+        Self {
+            target,
+            ..Default::default()
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------

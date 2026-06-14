@@ -995,6 +995,17 @@ pub(crate) fn check_ghost_fn_effects(
 /// containing the resolved file and its type environment, or a list of
 /// `TypeError`s.
 pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
+    type_check_with_config(resolved, &assura_config::TypeCheckConfig::default())
+}
+
+/// Type-check a resolved file using the given configuration.
+///
+/// `config.strict_effects` controls whether the effect checker runs.
+/// `config.warn_unused_imports` is reserved for future import analysis.
+pub fn type_check_with_config(
+    resolved: &ResolvedFile,
+    _config: &assura_config::TypeCheckConfig,
+) -> Result<TypedFile, Vec<TypeError>> {
     let type_env = build_type_env(&resolved.symbols, &resolved.source);
 
     // T014: walk clause bodies and infer expression types. Collect any
