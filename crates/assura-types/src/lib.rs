@@ -1284,9 +1284,10 @@ pub fn type_check_hir_with_config(
     let resolved = hir.resolved();
     let type_env = build_type_env_from_hir(hir);
 
-    // Run all checkers using the resolved AST (clause bodies not yet migrated)
+    // Check clause bodies using HIR declarations (structured types for
+    // return types, HirExpr->Expr bridge for inference)
     let source = &resolved.source;
-    let mut errors = check_clause_bodies(source, &type_env);
+    let mut errors = check_clause_bodies_hir(hir, &type_env);
     errors.extend(run_axiomatic_checks(source, &resolved.symbols));
     errors.extend(run_crud_auth_checks(source));
     errors.extend(run_linearity_checks(source));

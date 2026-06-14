@@ -7,7 +7,7 @@ use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
 
 use crate::{
     Type, TypeEnv, TypeError, check_ghost_fn_effects, check_lemma_fn_effects, infer_expr,
-    parse_type_tokens,
+    parse_type_tokens, type_from_hir_type,
 };
 
 // ---------------------------------------------------------------------------
@@ -307,6 +307,185 @@ pub(crate) fn check_clause_bodies(
     }
 
     errors
+}
+
+/// Walk all clause bodies in an HIR file, converting clause bodies back to
+/// AST `Expr` for inference. Uses structured `HirType` for return types
+/// instead of raw token parsing.
+pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) -> Vec<TypeError> {
+    use assura_hir::{HirClauseKind, HirDeclKind, HirServiceItem as HirSI};
+
+    let mut errors = Vec::new();
+    let dummy_span = 0..0usize;
+
+    for decl in &hir.decls {
+        let span = &dummy_span;
+        match &decl.kind {
+            HirDeclKind::Contract(c) => {
+                // Find output type from clauses
+                let output_ty = hir_extract_contract_output_type(c);
+                let contract_env = env_with_result(env, &output_ty);
+                for clause in &c.clauses {
+                    let clause_env = if clause.kind == HirClauseKind::Ensures {
+                        &contract_env
+                    } else {
+                        env
+                    };
+                    let ast_kind = hir_clause_kind_to_ast(&clause.kind);
+                    let ast_body = clause.body.to_ast_expr();
+                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                }
+            }
+            HirDeclKind::FnDef(f) => {
+                // Ghost/lemma checks still use AST (these examine clause structure)
+                if let Some(ast_fn) = find_ast_fn_def(hir, &f.name) {
+                    if f.is_ghost {
+                        check_ghost_fn_effects(ast_fn, span, &mut errors);
+                    }
+                    if f.is_lemma {
+                        check_lemma_fn_effects(ast_fn, span, &mut errors);
+                    }
+                }
+                let ret_ty = type_from_hir_type(&f.return_ty);
+                let fn_env = env_with_result(env, &ret_ty);
+                for clause in &f.clauses {
+                    let clause_env = if clause.kind == HirClauseKind::Ensures {
+                        &fn_env
+                    } else {
+                        env
+                    };
+                    let ast_kind = hir_clause_kind_to_ast(&clause.kind);
+                    let ast_body = clause.body.to_ast_expr();
+                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                }
+            }
+            HirDeclKind::Extern(e) => {
+                let ret_ty = type_from_hir_type(&e.return_ty);
+                let ext_env = env_with_result(env, &ret_ty);
+                for clause in &e.clauses {
+                    let clause_env = if clause.kind == HirClauseKind::Ensures {
+                        &ext_env
+                    } else {
+                        env
+                    };
+                    let ast_kind = hir_clause_kind_to_ast(&clause.kind);
+                    let ast_body = clause.body.to_ast_expr();
+                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                }
+            }
+            HirDeclKind::Service(s) => {
+                let mut svc_env = env.clone();
+                svc_env.insert("self".to_string(), Type::Named(s.name.clone()));
+
+                for item in &s.items {
+                    let (clauses,) = match item {
+                        HirSI::Operation { clauses, .. } | HirSI::Query { clauses, .. } => {
+                            (clauses,)
+                        }
+                        HirSI::Invariant(expr) => {
+                            let ast_body = expr.to_ast_expr();
+                            check_clause_expr(
+                                &ClauseKind::Invariant,
+                                &ast_body,
+                                &svc_env,
+                                &mut errors,
+                                span,
+                            );
+                            continue;
+                        }
+                        _ => continue,
+                    };
+
+                    let mut op_env = svc_env.clone();
+                    let mut output_ty = Type::Unit;
+                    for clause in clauses {
+                        if clause.kind == HirClauseKind::Input {
+                            let ast_clause = clause.to_ast_clause();
+                            register_input_clause_params(&ast_clause.body, &mut op_env);
+                        }
+                        if clause.kind == HirClauseKind::Output {
+                            let ast_clause = clause.to_ast_clause();
+                            let ty = extract_output_type_from_body(&ast_clause.body);
+                            if ty != Type::Unknown {
+                                output_ty = ty;
+                            }
+                        }
+                    }
+                    let ensures_env = env_with_result(&op_env, &output_ty);
+
+                    for clause in clauses {
+                        let clause_env = if clause.kind == HirClauseKind::Ensures {
+                            &ensures_env
+                        } else {
+                            &op_env
+                        };
+                        let ast_kind = hir_clause_kind_to_ast(&clause.kind);
+                        let ast_body = clause.body.to_ast_expr();
+                        check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                    }
+                }
+            }
+            HirDeclKind::Block(b) => {
+                for clause in &b.clauses {
+                    let ast_kind = hir_clause_kind_to_ast(&clause.kind);
+                    let ast_body = clause.body.to_ast_expr();
+                    check_clause_expr(&ast_kind, &ast_body, env, &mut errors, span);
+                }
+            }
+            HirDeclKind::TypeDef(_) | HirDeclKind::EnumDef(_) => {}
+        }
+    }
+
+    errors
+}
+
+/// Convert HirClauseKind to parser ClauseKind.
+fn hir_clause_kind_to_ast(kind: &assura_hir::HirClauseKind) -> ClauseKind {
+    use assura_hir::HirClauseKind;
+    match kind {
+        HirClauseKind::Requires => ClauseKind::Requires,
+        HirClauseKind::Ensures => ClauseKind::Ensures,
+        HirClauseKind::Effects => ClauseKind::Effects,
+        HirClauseKind::Invariant => ClauseKind::Invariant,
+        HirClauseKind::Modifies => ClauseKind::Modifies,
+        HirClauseKind::Input => ClauseKind::Input,
+        HirClauseKind::Output => ClauseKind::Output,
+        HirClauseKind::Errors => ClauseKind::Errors,
+        HirClauseKind::Rule => ClauseKind::Rule,
+        HirClauseKind::DataFlow => ClauseKind::DataFlow,
+        HirClauseKind::MustNot => ClauseKind::MustNot,
+        HirClauseKind::Decreases => ClauseKind::Decreases,
+        HirClauseKind::Other(s) => ClauseKind::Other(s.clone()),
+    }
+}
+
+/// Extract the output type from a contract's HIR clauses.
+fn hir_extract_contract_output_type(c: &assura_hir::HirContract) -> Type {
+    for clause in &c.clauses {
+        if clause.kind == assura_hir::HirClauseKind::Output {
+            let ast_clause = clause.to_ast_clause();
+            let ty = extract_output_type_from_body(&ast_clause.body);
+            if ty != Type::Unknown {
+                return ty;
+            }
+        }
+    }
+    Type::Unit
+}
+
+/// Find a parser FnDef by name in the resolved source file (for ghost/lemma checks).
+fn find_ast_fn_def<'a>(
+    hir: &'a assura_hir::HirFile,
+    name: &str,
+) -> Option<&'a assura_parser::ast::FnDef> {
+    for decl in &hir.resolved().source.decls {
+        if let Decl::FnDef(f) = &decl.node
+            && f.name == name
+        {
+            return Some(f);
+        }
+    }
+    None
 }
 
 /// Try to infer the type of an expression; if a type error occurs, push
