@@ -400,7 +400,7 @@
     encoding in the Rust output
   - Test: generated service code passes `cargo check`
 
-- [ ] **S009**: Generate proptest/quickcheck tests from contracts
+- [x] **S009**: Generate proptest/quickcheck tests from contracts
   - Depends on: R001
   - For each contract with `requires`/`ensures`, generate:
     ```rust
@@ -1207,3 +1207,14 @@ Stateless services remain unchanged. Both `generate_service_contents()`
 (multi-file) and `generate_service()` (single-file) share the same
 typestate logic. 6 new tests, 3 existing tests updated. 1,283 total
 tests passing.
+
+### S009 completed (2026-06-13)
+Implemented proptest generation from contracts with input+ensures clauses.
+For each testable contract, generates a `#[cfg(test)]` module with a
+`proptest!` block: input types map to proptest strategies, requires
+constraints are either refined into generator ranges (e.g., `b != 0`
+becomes `1i64..=i64::MAX`) or fall back to `prop_assume!`, and ensures
+clauses become `prop_assert!`. Adds `proptest = "1"` to the generated
+Cargo.toml dev-dependencies only when testable contracts exist. Works
+in both single-file and multi-file codegen modes. 7 new tests, 1,290
+total tests passing.
