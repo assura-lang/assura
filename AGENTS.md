@@ -88,6 +88,10 @@ assura/
     libwebp-huffman.assura    # CVE-2023-4863 prevention demo
     zlib-inflate.assura       # CVE-2022-37434 prevention demo
     mbedtls-x509.assura       # 4 CVSS 9.8 CVE prevention demo
+  templates/                  # AI prompt templates for contract generation
+    single-function.md        # Template for single-function contracts
+    module-level.md           # Template for module-level contracts
+    cve-patterns.md           # Template for CVE prevention patterns
   editors/
     vscode/                   # VS Code extension (TextMate + LSP)
     tree-sitter-assura/       # tree-sitter grammar for editors
