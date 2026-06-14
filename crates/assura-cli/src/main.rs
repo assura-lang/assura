@@ -1160,7 +1160,16 @@ fn check_file_once(
     has_errors
 }
 
+/// Compute a simple content hash for incremental change detection.
+fn content_hash(source: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 /// Run check in watch mode: check once, then watch for file changes.
+/// Uses IncrementalCompiler to skip re-checks when file content is unchanged.
 fn run_watch_loop(filename: &str, output_mode: OutputMode, verbosity: Verbosity, layer: u8) -> ! {
     use notify::{Event, EventKind, RecursiveMode, Watcher};
 
@@ -1169,10 +1178,19 @@ fn run_watch_loop(filename: &str, output_mode: OutputMode, verbosity: Verbosity,
         process::exit(2);
     });
 
+    // Set up incremental compiler to track file hashes
+    let mut incremental = assura_smt::IncrementalCompiler::new();
+    let mut last_hash = String::new();
+
     // Initial check
     eprintln!("[watch] Checking {filename}...");
     eprintln!();
+    if let Ok(source) = fs::read_to_string(filename) {
+        last_hash = content_hash(&source);
+        incremental.register_module(filename.to_string(), last_hash.clone());
+    }
     let _ = check_file_once(filename, output_mode, verbosity, layer);
+    incremental.mark_checked(filename, 1);
     eprintln!();
     eprintln!("[watch] Watching {filename} for changes. Press Ctrl+C to stop.");
 
@@ -1200,6 +1218,7 @@ fn run_watch_loop(filename: &str, output_mode: OutputMode, verbosity: Verbosity,
             process::exit(2);
         });
 
+    let mut iteration: u64 = 2;
     loop {
         // Wait for a change event
         let _ = rx.recv();
@@ -1207,11 +1226,38 @@ fn run_watch_loop(filename: &str, output_mode: OutputMode, verbosity: Verbosity,
         // Debounce: drain any additional events that arrive within 100ms
         while rx.recv_timeout(Duration::from_millis(100)).is_ok() {}
 
+        // Check if content actually changed (saves without edits, editor auto-format, etc.)
+        let new_hash = fs::read_to_string(filename)
+            .map(|s| content_hash(&s))
+            .unwrap_or_default();
+
+        if new_hash == last_hash && !new_hash.is_empty() {
+            if verbosity == Verbosity::Verbose {
+                eprintln!("[watch] File saved but content unchanged, skipping re-check.");
+            }
+            continue;
+        }
+
+        // Content changed: update incremental state
+        last_hash = new_hash;
+        incremental.mark_changed(filename);
+
+        if verbosity == Verbosity::Verbose {
+            let dirty = incremental.dirty_modules();
+            eprintln!(
+                "[watch] {} dirty module(s): {}",
+                dirty.len(),
+                dirty.join(", ")
+            );
+        }
+
         // Clear screen and re-check
         eprint!("\x1B[2J\x1B[H");
         eprintln!("[watch] File changed, re-checking {filename}...");
         eprintln!();
         let _ = check_file_once(filename, output_mode, verbosity, layer);
+        incremental.mark_checked(filename, iteration);
+        iteration += 1;
         eprintln!();
         eprintln!("[watch] Watching for changes. Press Ctrl+C to stop.");
     }
