@@ -700,7 +700,7 @@
     - `npm run compile` for the VS Code extension
     - `npm test` for VS Code extension tests (if T207 is done)
 
-- [ ] **E005**: Add CI job for generated code validation
+- [x] **E005**: Add CI job for generated code validation
   - Depends on: R001
   - CI should run `assura build` on all demo files and then
     `cargo check` on each generated project
@@ -1414,3 +1414,10 @@ Added security scanning and Dependabot configuration:
   Concurrency groups and timeouts configured.
 - `.github/dependabot.yml`: weekly updates for cargo and github-actions
   ecosystems, 5 open PR limit each, labeled with `dependencies`.
+
+### E005 completed (2026-06-14)
+Added `codegen-validation` job to CI workflow. The job builds the compiler
+in release mode, then runs `assura build --no-check` on all demo files and
+`cargo check` on the generated Rust output. Runs after the main `check` job
+succeeds. Validated locally: all 3 demos (libwebp, mbedtls, zlib) generate
+Rust that passes `cargo check`.
