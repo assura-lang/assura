@@ -792,7 +792,7 @@
 
 ### P.3 Performance
 
-- [ ] **P006**: Implement verification caching
+- [x] **P006**: Implement verification caching
   - Depends on: S005
   - Hash each contract (AST + implementation) as a cache key
   - Store verification results in `.assura-cache/`

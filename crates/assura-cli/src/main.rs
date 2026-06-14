@@ -557,9 +557,13 @@ fn run_check(args: &[String]) {
 
     // --- Verify (only if type check succeeded and layer >= 1) ---
     let verify_start = Instant::now();
+    let cache_dir = std::path::Path::new(&filename)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let verify_cache = assura_smt::VerificationCache::new(cache_dir);
     let mut verification_results = if layer >= 1 {
         if let Some(ref typed) = typed {
-            assura_smt::verify(typed)
+            assura_smt::verify_with_cache(typed, &verify_cache)
         } else {
             Vec::new()
         }
@@ -884,9 +888,13 @@ fn check_file_once(
     }
 
     // Verify
+    let watch_cache_dir = std::path::Path::new(filename)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let watch_verify_cache = assura_smt::VerificationCache::new(watch_cache_dir);
     let mut verification_results = if layer >= 1 {
         if let Some(ref typed) = typed {
-            assura_smt::verify(typed)
+            assura_smt::verify_with_cache(typed, &watch_verify_cache)
         } else {
             Vec::new()
         }
@@ -1403,7 +1411,11 @@ fn run_build(args: &[String]) {
 
     // --- Verify ---
     let verify_start = Instant::now();
-    let mut verification_results = assura_smt::verify(&typed);
+    let build_cache_dir = std::path::Path::new(filename.as_str())
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let build_verify_cache = assura_smt::VerificationCache::new(build_cache_dir);
+    let mut verification_results = assura_smt::verify_with_cache(&typed, &build_verify_cache);
     verification_results.extend(dispatch_decrease_checks(&typed));
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -2982,7 +2994,11 @@ fn run_legacy(args: &[String]) {
 
     // --- Verify ---
     let verify_start = Instant::now();
-    let mut verification_results = assura_smt::verify(&typed);
+    let explain_cache_dir = std::path::Path::new(&filename)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let explain_verify_cache = assura_smt::VerificationCache::new(explain_cache_dir);
+    let mut verification_results = assura_smt::verify_with_cache(&typed, &explain_verify_cache);
     verification_results.extend(dispatch_decrease_checks(&typed));
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
