@@ -1501,3 +1501,30 @@ expression clauses without delimiters also try the expression parser.
 This converted `decreases n` from Raw to Ident and `ensures result >= 0`
 from Raw to BinOp{Gte}. Added 4 regression tests with budgets for 2
 known gaps (@ pattern syntax, mod operator). 1,491 total tests passing.
+
+### Issues #10, #11, #12 completed (2026-06-14)
+
+**Issue #10 (extern/bind codegen)**: Added `BindDecl` across the full
+compiler pipeline (17 files): parser grammar + CST lowering with
+param extraction from input/output clauses, resolver `SymbolKind::BindFn`,
+HIR `HirBind` struct, type checker env registration, codegen `generate_bind`
+producing checked wrappers that call the bound Rust function with
+`debug_assert!` for requires/ensures clauses, SMT clause verification,
+LSP hover/completion/document symbols, CLI stats, and formatter.
+4 tests added (2 parser, 2 codegen). 1,672 total tests.
+
+**Issue #11 (Rust-to-Assura type mapping)**: Phase 1: `type_map.rs` module
+with `rust_type_to_assura()` handling all primitive types, collections,
+Option/Result, references, smart pointer erasure, tuples, and nested
+generics (16 unit tests). Phase 2: three AI prompt templates
+(single-function, module-level, CVE-patterns) in `templates/`. Phase 3:
+`assura infer` CLI command that extracts public function signatures from
+.rs files, applies reverse type mapping, and generates skeleton bind
+declarations. Output parses as valid Assura syntax. 1,690 total tests.
+
+**Issue #12 (assura audit command)**: Scans a Cargo workspace, discovers
+public function signatures, generates skeleton Assura bind contracts with
+heuristic preconditions (medium depth: bounds checks for index params,
+non-empty checks for collection params), and verifies through the full
+pipeline. Supports human and JSON output, --focus/--max-functions/
+--unsafe-only filters. All open issues now closed.
