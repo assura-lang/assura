@@ -222,6 +222,74 @@ fn builtin_type(name: &str) -> Option<Type> {
 }
 
 // ---------------------------------------------------------------------------
+// TypeExpr -> Type conversion
+// ---------------------------------------------------------------------------
+
+/// Convert a structured `TypeExpr` (from the parser) to a type-checker `Type`.
+///
+/// This provides a cleaner, faster path than re-parsing raw tokens.
+pub(crate) fn type_from_expr(expr: &assura_parser::ast::TypeExpr) -> Type {
+    use assura_parser::ast::TypeExpr;
+    match expr {
+        TypeExpr::Unit => Type::Unit,
+        TypeExpr::Named(name) => builtin_type(name).unwrap_or_else(|| Type::Named(name.clone())),
+        TypeExpr::Generic(name, args) => {
+            let type_args: Vec<Type> = args.iter().map(type_from_expr).collect();
+            match name.as_str() {
+                "List" | "Vec" => Type::List(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Sequence" => Type::Sequence(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Set" => Type::Set(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Option" => Type::Option(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Map" => {
+                    let mut it = type_args.into_iter();
+                    Type::Map(
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                    )
+                }
+                "Result" => {
+                    let mut it = type_args.into_iter();
+                    Type::Result(
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                    )
+                }
+                _ => Type::Named(name.clone()),
+            }
+        }
+        TypeExpr::Tuple(elems) => Type::Tuple(elems.iter().map(type_from_expr).collect()),
+        TypeExpr::Fn { params, ret } => Type::Fn {
+            params: params.iter().map(type_from_expr).collect(),
+            ret: Box::new(type_from_expr(ret)),
+        },
+        TypeExpr::Refined { base, predicate } => Type::Refined {
+            base: Box::new(type_from_expr(base)),
+            predicate: predicate.clone(),
+        },
+    }
+}
+
+/// Try to resolve a type from a parsed_type first, falling back to raw token parsing.
+pub(crate) fn resolve_type(
+    parsed_type: Option<&assura_parser::ast::TypeExpr>,
+    tokens: &[String],
+) -> Type {
+    if let Some(te) = parsed_type {
+        type_from_expr(te)
+    } else {
+        parse_type_tokens(tokens)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Type token parsing
 // ---------------------------------------------------------------------------
 
@@ -533,14 +601,17 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
     for decl in &source.decls {
         match &decl.node {
             Decl::FnDef(f) => {
-                // Insert parameter types
+                // Insert parameter types (prefer parsed TypeExpr when available)
                 for p in &f.params {
-                    let ty = parse_type_tokens(&p.ty);
+                    let ty = resolve_type(p.parsed_type.as_ref(), &p.ty);
                     env.insert(p.name.clone(), ty);
                 }
                 // Build full function type
-                let param_types: Vec<Type> =
-                    f.params.iter().map(|p| parse_type_tokens(&p.ty)).collect();
+                let param_types: Vec<Type> = f
+                    .params
+                    .iter()
+                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .collect();
                 let ret = if f.return_ty.is_empty() {
                     Type::Unit
                 } else {
@@ -556,11 +627,14 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
             }
             Decl::Extern(e) => {
                 for p in &e.params {
-                    let ty = parse_type_tokens(&p.ty);
+                    let ty = resolve_type(p.parsed_type.as_ref(), &p.ty);
                     env.insert(p.name.clone(), ty);
                 }
-                let param_types: Vec<Type> =
-                    e.params.iter().map(|p| parse_type_tokens(&p.ty)).collect();
+                let param_types: Vec<Type> = e
+                    .params
+                    .iter()
+                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .collect();
                 let ret = if e.return_ty.is_empty() {
                     Type::Unit
                 } else {
@@ -3450,6 +3524,88 @@ fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
     }
 
     errors
+}
+
+#[cfg(test)]
+mod type_from_expr_tests {
+    use super::*;
+    use assura_parser::ast::TypeExpr;
+
+    #[test]
+    fn named_builtin() {
+        assert_eq!(type_from_expr(&TypeExpr::Named("Int".into())), Type::Int);
+        assert_eq!(type_from_expr(&TypeExpr::Named("Bool".into())), Type::Bool);
+    }
+
+    #[test]
+    fn named_user_defined() {
+        assert_eq!(
+            type_from_expr(&TypeExpr::Named("MyType".into())),
+            Type::Named("MyType".into())
+        );
+    }
+
+    #[test]
+    fn generic_list() {
+        let te = TypeExpr::Generic("List".into(), vec![TypeExpr::Named("Int".into())]);
+        assert_eq!(type_from_expr(&te), Type::List(Box::new(Type::Int)));
+    }
+
+    #[test]
+    fn generic_map() {
+        let te = TypeExpr::Generic(
+            "Map".into(),
+            vec![
+                TypeExpr::Named("String".into()),
+                TypeExpr::Named("Int".into()),
+            ],
+        );
+        assert_eq!(
+            type_from_expr(&te),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn unit_and_tuple() {
+        assert_eq!(type_from_expr(&TypeExpr::Unit), Type::Unit);
+        let te = TypeExpr::Tuple(vec![
+            TypeExpr::Named("Int".into()),
+            TypeExpr::Named("Bool".into()),
+        ]);
+        assert_eq!(
+            type_from_expr(&te),
+            Type::Tuple(vec![Type::Int, Type::Bool])
+        );
+    }
+
+    #[test]
+    fn fn_type() {
+        let te = TypeExpr::Fn {
+            params: vec![TypeExpr::Named("Int".into())],
+            ret: Box::new(TypeExpr::Named("Bool".into())),
+        };
+        assert_eq!(
+            type_from_expr(&te),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Bool),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_prefers_parsed() {
+        let te = TypeExpr::Named("Int".into());
+        let tokens = vec!["Bool".to_string()];
+        assert_eq!(resolve_type(Some(&te), &tokens), Type::Int);
+    }
+
+    #[test]
+    fn resolve_falls_back() {
+        let tokens = vec!["Bool".to_string()];
+        assert_eq!(resolve_type(None, &tokens), Type::Bool);
+    }
 }
 
 #[cfg(test)]
