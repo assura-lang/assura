@@ -29,6 +29,15 @@ SourceFile {
             node: Block {
                 kind: "feature",
                 name: "ecdsa",
+                value: Some(
+                    [
+                        "enabled",
+                        "feature",
+                        "x509",
+                        "=",
+                        "enabled",
+                    ],
+                ),
                 body: [
                     Clause {
                         kind: Requires,
@@ -43,30 +52,57 @@ SourceFile {
                                 "rsa",
                                 "=",
                                 "enabled",
-                                "feature_max",
-                                "MAX_CONTENT_LEN",
-                                ":",
-                                "Nat",
-                                "=",
-                                "16384",
-                                "feature_max",
-                                "MAX_HANDSHAKE_LEN",
-                                ":",
-                                "Nat",
-                                "=",
-                                "65535",
-                                "feature_max",
-                                "MAX_EC_POINT_SIZE",
-                                ":",
-                                "Nat",
-                                "=",
-                                "256",
                             ],
                         ),
                     },
                 ],
             },
-            span: 1961..2677,
+            span: 1961..2202,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature_max",
+                name: "MAX_CONTENT_LEN",
+                value: Some(
+                    [
+                        "Nat",
+                        "=",
+                        "16384",
+                    ],
+                ),
+                body: [],
+            },
+            span: 2262..2302,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature_max",
+                name: "MAX_HANDSHAKE_LEN",
+                value: Some(
+                    [
+                        "Nat",
+                        "=",
+                        "65535",
+                    ],
+                ),
+                body: [],
+            },
+            span: 2303..2345,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature_max",
+                name: "MAX_EC_POINT_SIZE",
+                value: Some(
+                    [
+                        "Nat",
+                        "=",
+                        "256",
+                    ],
+                ),
+                body: [],
+            },
+            span: 2637..2677,
         },
         Spanned {
             node: FnDef(
@@ -553,6 +589,7 @@ SourceFile {
             node: Block {
                 kind: "spec",
                 name: "NIST_SP_800_56A_ECDH",
+                value: None,
                 body: [],
             },
             span: 8446..8951,

@@ -459,7 +459,10 @@ fn is_clause_stopper(t: &Token) -> bool {
                 | "example" | "strategy" | "promise"
                 | "bound" | "writes"
                 | "operation" | "query" | "states"
-                | "method" | "implements"))
+                | "method" | "implements"
+                | "feature_max" | "feature" | "incremental"
+                | "liveness" | "safety" | "security"
+                | "table"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1513,9 +1516,10 @@ fn generic_block() -> impl Parser<Token, Decl, Error = Simple<Token>> + Clone {
                 .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             clause().map(Some).repeated(),
         )))
-        .map(|((((kind, name), _tps), _value), items)| Decl::Block {
+        .map(|((((kind, name), _tps), value), items)| Decl::Block {
             kind,
             name: name.unwrap_or_default(),
+            value,
             body: items.into_iter().flatten().collect(),
         })
 }

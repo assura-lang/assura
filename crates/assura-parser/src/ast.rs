@@ -52,6 +52,8 @@ pub enum Decl {
     Block {
         kind: String,
         name: String,
+        /// Optional inline value (e.g., `feature_max X: Nat = 280` stores `["280"]`).
+        value: Option<Vec<String>>,
         body: Vec<Clause>,
     },
 }

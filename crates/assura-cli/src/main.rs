@@ -1836,7 +1836,9 @@ fn print_decl(decl: &Decl, indent: usize) {
                 }
             }
         }
-        Decl::Block { kind, name, body } => {
+        Decl::Block {
+            kind, name, body, ..
+        } => {
             println!("{pad}{kind}: {name} ({} clause(s))", body.len());
         }
     }

@@ -73,7 +73,7 @@
 
 ### R.1 Generated Rust Must Compile
 
-- [ ] **R001**: Fix codegen to produce compilable Rust for all demo files
+- [x] **R001**: Fix codegen to produce compilable Rust for all demo files
   - Depends on: none (blocking everything)
   - The generated `lib.rs` for `demos/libwebp-huffman.assura` fails
     `cargo build` with: undefined `BitReader`, `Region`, `HuffmanGroup`,
@@ -975,3 +975,13 @@ valid but does not compile.
 Comprehensive audit identified 10 critical problems and 7 missing
 features. Plan v2 has 50+ tasks across 7 phases (R, S, A, I, T, E, P)
 to take the compiler from "initial scaffolding" to production quality.
+
+### R001 completed (2026-06-13)
+Fixed codegen to produce compilable Rust for all three demo files.
+Changes: added `value` field to `Decl::Block` in parser AST, added
+block keywords as clause stoppers, rewrote codegen with multi-phase
+architecture (collect types, detect generics, generate stubs, emit
+feature_max constants), fixed cross-integer-width comparisons via
+i128 casts, stripped typestate annotations, refined `has_deep_field_access`
+to allow method chains while blocking struct field access on stubs.
+All demos pass `cargo check` on generated output. 1,220 tests pass.

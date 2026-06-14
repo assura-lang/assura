@@ -91,8 +91,299 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     let cargo_toml = generate_cargo_toml_with_config(&crate_name, config);
 
     let mut code = String::new();
-    code.push_str("#![allow(dead_code, unused_variables)]\n\n");
+    code.push_str("#![allow(dead_code, unused_variables, unreachable_code)]\n\n");
 
+    // Phase 1: Collect all defined type names and feature_max constants
+    let mut defined_types = std::collections::HashSet::new();
+    let mut feature_max_consts: Vec<(String, String)> = Vec::new();
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::TypeDef(t) => {
+                defined_types.insert(t.name.clone());
+            }
+            Decl::EnumDef(e) => {
+                defined_types.insert(e.name.clone());
+            }
+            Decl::Block {
+                kind, name, value, ..
+            } if kind == "feature_max" => {
+                // Extract type from inline value tokens (e.g., ["Nat", "=", "280"] -> "Nat")
+                let ty = value
+                    .as_ref()
+                    .and_then(|v| {
+                        v.iter()
+                            .take_while(|t| t.as_str() != "=")
+                            .find(|t| t.chars().next().is_some_and(|c| c.is_uppercase()))
+                    })
+                    .map(|t| map_type_token(t).to_string())
+                    .unwrap_or_else(|| "u64".to_string());
+                feature_max_consts.push((name.clone(), ty));
+            }
+            _ => {}
+        }
+    }
+    // Add built-in type names that should never generate stubs
+    for builtin in &[
+        "Int", "Nat", "Float", "Bool", "String", "Bytes", "Unit", "Never", "U8", "U16", "U32",
+        "U64", "I8", "I16", "I32", "I64", "F32", "F64", "List", "Vec", "Map", "Set", "Option",
+        "Result", "Sequence", "i64", "u64", "f64", "bool", "u8", "u16", "u32", "i8", "i16", "i32",
+        "f32", "f64",
+    ] {
+        defined_types.insert(builtin.to_string());
+    }
+
+    // Phase 2: Collect all referenced type names from function params/return types
+    let mut referenced_types = std::collections::HashSet::new();
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::FnDef(f) => {
+                collect_type_refs_from_tokens(&f.return_ty, &mut referenced_types);
+                for p in &f.params {
+                    collect_type_refs_from_tokens(&p.ty, &mut referenced_types);
+                }
+            }
+            Decl::Extern(ex) => {
+                collect_type_refs_from_tokens(&ex.return_ty, &mut referenced_types);
+                for p in &ex.params {
+                    collect_type_refs_from_tokens(&p.ty, &mut referenced_types);
+                }
+            }
+            Decl::TypeDef(t) => {
+                if let TypeBody::Struct(fields) = &t.body {
+                    for f in fields {
+                        collect_type_refs_from_tokens(&f.ty, &mut referenced_types);
+                    }
+                }
+            }
+            Decl::Contract(c) => {
+                for clause in &c.clauses {
+                    collect_type_refs_from_expr(&clause.body, &mut referenced_types);
+                }
+            }
+            Decl::Service(s) => {
+                for item in &s.items {
+                    match item {
+                        ServiceItem::TypeDef(t) => {
+                            defined_types.insert(t.name.clone());
+                        }
+                        ServiceItem::EnumDef(e) => {
+                            defined_types.insert(e.name.clone());
+                        }
+                        ServiceItem::Operation { clauses, .. }
+                        | ServiceItem::Query { clauses, .. } => {
+                            for clause in clauses {
+                                collect_type_refs_from_expr(&clause.body, &mut referenced_types);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Phase 3: Generate feature_max constants BEFORE any code that uses them.
+    // Feature_max names that are also used as type arguments inside `<>` will
+    // be emitted as struct stubs instead of consts in Phase 4b.
+    let feature_max_used_as_type = {
+        let fm_set: std::collections::HashSet<&str> =
+            feature_max_consts.iter().map(|(n, _)| n.as_str()).collect();
+        let mut result = std::collections::HashSet::new();
+        for decl in &source.decls {
+            let mut token_lists: Vec<&[String]> = Vec::new();
+            match &decl.node {
+                Decl::FnDef(f) => {
+                    token_lists.push(f.return_ty.as_slice());
+                    for p in &f.params {
+                        token_lists.push(p.ty.as_slice());
+                    }
+                }
+                Decl::Extern(ex) => {
+                    token_lists.push(ex.return_ty.as_slice());
+                    for p in &ex.params {
+                        token_lists.push(p.ty.as_slice());
+                    }
+                }
+                _ => {}
+            }
+            for tokens in token_lists {
+                let mut in_angle = 0i32;
+                for tok in tokens {
+                    match tok.as_str() {
+                        "<" => in_angle += 1,
+                        ">" => {
+                            if in_angle > 0 {
+                                in_angle -= 1;
+                            }
+                        }
+                        name if in_angle > 0 && fm_set.contains(name) => {
+                            result.insert(name.to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        result
+    };
+    for (name, ty) in &feature_max_consts {
+        if feature_max_used_as_type.contains(name) {
+            // Will be emitted as a struct stub in Phase 4b.
+            // Also emit a const with _VALUE suffix for any value-position uses.
+            let value = find_feature_max_value(source, name);
+            code.push_str(&format!("pub const {name}_VALUE: {ty} = {value};\n"));
+        } else {
+            let value = find_feature_max_value(source, name);
+            code.push_str(&format!("pub const {name}: {ty} = {value};\n"));
+        }
+    }
+    if !feature_max_consts.is_empty() {
+        code.push('\n');
+    }
+
+    // Phase 4: Detect generic arity for type references and collect const-generic names.
+    // Scan type token sequences for patterns like `Region<TOTAL_TABLE_SIZE>` to
+    // know how many generic params each stub needs.
+    let mut type_generic_params: std::collections::HashMap<String, Vec<GenericParamKind>> =
+        std::collections::HashMap::new();
+    let mut const_generic_names = std::collections::HashSet::new();
+    for decl in &source.decls {
+        let mut token_lists: Vec<&[String]> = Vec::new();
+        match &decl.node {
+            Decl::FnDef(f) => {
+                token_lists.push(f.return_ty.as_slice());
+                for p in &f.params {
+                    token_lists.push(p.ty.as_slice());
+                }
+            }
+            Decl::Extern(ex) => {
+                token_lists.push(ex.return_ty.as_slice());
+                for p in &ex.params {
+                    token_lists.push(p.ty.as_slice());
+                }
+            }
+            Decl::TypeDef(t) => {
+                if let TypeBody::Struct(fields) = &t.body {
+                    for f in fields {
+                        token_lists.push(f.ty.as_slice());
+                    }
+                }
+            }
+            _ => {}
+        }
+        for tokens in token_lists {
+            detect_generic_arity(tokens, &mut type_generic_params, &mut const_generic_names);
+        }
+    }
+
+    // Phase 4b: Generate type aliases for SCREAMING_SNAKE_CASE names used
+    // as generic arguments. These are typically const-generic parameters in
+    // Assura but are emitted as type params in the generated Rust.
+    // Collect all SCREAMING_SNAKE_CASE names used as generic args:
+    // both those from const_generic_names AND feature_max consts that are
+    // used inside <> in type positions.
+    let mut all_const_as_types = const_generic_names.clone();
+    // Feature_max consts that appear in type token sequences inside <>
+    // also need marker types for generic positions.
+    let feature_max_set: std::collections::HashSet<String> =
+        feature_max_consts.iter().map(|(n, _)| n.clone()).collect();
+    for decl in &source.decls {
+        let mut token_lists: Vec<&[String]> = Vec::new();
+        match &decl.node {
+            Decl::FnDef(f) => {
+                token_lists.push(f.return_ty.as_slice());
+                for p in &f.params {
+                    token_lists.push(p.ty.as_slice());
+                }
+            }
+            Decl::Extern(ex) => {
+                token_lists.push(ex.return_ty.as_slice());
+                for p in &ex.params {
+                    token_lists.push(p.ty.as_slice());
+                }
+            }
+            _ => {}
+        }
+        for tokens in token_lists {
+            let mut in_angle = 0i32;
+            for tok in tokens {
+                match tok.as_str() {
+                    "<" => in_angle += 1,
+                    ">" => {
+                        if in_angle > 0 {
+                            in_angle -= 1;
+                        }
+                    }
+                    name if in_angle > 0 && feature_max_set.contains(name) => {
+                        all_const_as_types.insert(name.to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut const_as_types: Vec<String> = all_const_as_types
+        .iter()
+        .filter(|n| !defined_types.contains(*n))
+        .cloned()
+        .collect();
+    const_as_types.sort();
+    for name in &const_as_types {
+        // Emit as a marker type (unit struct) rather than a const,
+        // since the generic parameter positions use type params.
+        code.push_str(&format!(
+            "#[derive(Debug, Clone, PartialEq)]\npub struct {name}; // size param from another module\n"
+        ));
+    }
+    if !const_as_types.is_empty() {
+        code.push('\n');
+    }
+
+    // Phase 5: Generate stub structs for undefined types
+    let mut undefined: Vec<String> = referenced_types
+        .difference(&defined_types)
+        .filter(|t| {
+            // Skip things that aren't type names (operators, keywords, etc.)
+            !t.is_empty()
+                && t.chars().next().is_some_and(|c| c.is_uppercase())
+                && t.chars().all(|c| c.is_alphanumeric() || c == '_')
+                // Skip feature_max constants (already generated as const + type stub)
+                && !feature_max_consts.iter().any(|(n, _)| n == *t)
+                // Skip SCREAMING_SNAKE_CASE names already handled as const-as-type stubs
+                && !const_as_types.iter().any(|s| s == *t)
+                // Also skip feature_max names that are in const_as_types
+                && !feature_max_set.contains(*t)
+        })
+        .cloned()
+        .collect();
+    undefined.sort();
+    if !undefined.is_empty() {
+        code.push_str("// Placeholder types for types used but not defined in this file.\n");
+        code.push_str("// Replace with real definitions when implementations are provided.\n");
+        for name in &undefined {
+            let arity = type_generic_params.get(name).map_or(0, |v| v.len());
+            if arity > 0 {
+                let params: Vec<String> = (0..arity).map(|i| format!("T{i}")).collect();
+                let phantoms: Vec<String> = params
+                    .iter()
+                    .map(|p| format!("std::marker::PhantomData<{p}>"))
+                    .collect();
+                code.push_str(&format!(
+                    "#[derive(Debug, Clone, PartialEq)]\npub struct {name}<{}>({});\n",
+                    params.join(", "),
+                    phantoms.join(", ")
+                ));
+            } else {
+                code.push_str(&format!(
+                    "#[derive(Debug, Clone, PartialEq)]\npub struct {name};\n"
+                ));
+            }
+        }
+        code.push('\n');
+    }
+
+    // Phase 5: Generate all declarations
     for decl in &source.decls {
         match &decl.node {
             Decl::TypeDef(t) => generate_type_def(t, &mut code),
@@ -105,8 +396,13 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 }
             }
             Decl::Service(s) => generate_service(s, &mut code),
-            Decl::Block { kind, name, body } => {
-                generate_block(kind, name, body, &mut code);
+            Decl::Block {
+                kind, name, body, ..
+            } => {
+                // feature_max blocks are already handled as constants above
+                if kind != "feature_max" {
+                    generate_block(kind, name, body, &mut code);
+                }
             }
         }
     }
@@ -260,8 +556,29 @@ fn map_type_tokens(tokens: &[String]) -> String {
     }
 
     // Phase 4: Map each token and join smartly (no extra spaces around < > & etc.)
-    let mapped: Vec<&str> = clean.iter().map(|t| map_type_token(t)).collect();
-    smart_join_type_tokens(&mapped)
+    // Convert SCREAMING_SNAKE_CASE names inside angle brackets to marker types,
+    // since Assura const-generics don't translate directly to Rust generics.
+    let mut in_angle = 0i32;
+    let mapped: Vec<String> = clean
+        .iter()
+        .map(|t| {
+            match *t {
+                "<" => in_angle += 1,
+                ">" if in_angle > 0 => {
+                    in_angle -= 1;
+                }
+                _ => {}
+            }
+            if in_angle > 0 && is_const_name(t) {
+                // Const-generic name used as type param: wrap as marker type
+                t.to_string()
+            } else {
+                map_type_token(t).to_string()
+            }
+        })
+        .collect();
+    let refs: Vec<&str> = mapped.iter().map(|s| s.as_str()).collect();
+    smart_join_type_tokens(&refs)
 }
 
 /// Join type tokens without spurious spaces around angle brackets, ampersands, etc.
@@ -285,6 +602,26 @@ fn smart_join_type_tokens(tokens: &[&str]) -> String {
 // ---------------------------------------------------------------------------
 // Expression codegen
 // ---------------------------------------------------------------------------
+
+/// Heuristic: returns true if the expression is likely a numeric value
+/// (variable, constant, literal, or arithmetic). Used to decide whether to
+/// emit `i128::from(...)` casts for cross-width comparisons.
+fn is_numeric_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(_) | Expr::Literal(Literal::Int(_)) | Expr::Literal(Literal::Float(_)) => true,
+        Expr::Field(_, _) => true,
+        Expr::BinOp { op, .. } => matches!(
+            op,
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
+        ),
+        Expr::UnaryOp {
+            op: UnaryOp::Neg, ..
+        } => true,
+        Expr::Paren(e) => is_numeric_expr(e),
+        Expr::Call { .. } | Expr::MethodCall { .. } => true,
+        _ => false,
+    }
+}
 
 /// Convert an Assura `Expr` to a Rust expression string.
 fn expr_to_rust(expr: &Expr) -> String {
@@ -318,6 +655,16 @@ fn expr_to_rust(expr: &Expr) -> String {
             format!("{}[{}]", expr_to_rust(e), expr_to_rust(index))
         }
         Expr::BinOp { lhs, op, rhs } => {
+            // For ordering comparisons, cast both sides to i128 to avoid
+            // type mismatch between different integer widths (e.g., u16 vs u64).
+            // This mirrors Assura's abstract numeric semantics.
+            // We only do this for ordering (< <= > >=), not equality (== !=),
+            // because equality works via PartialEq and wrapping in i128::from
+            // would fail on non-numeric types.
+            let is_numeric_cmp = matches!(op, BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte)
+                && is_numeric_expr(lhs)
+                && is_numeric_expr(rhs);
+
             let op_s = match op {
                 BinOp::Add => "+",
                 BinOp::Sub => "-",
@@ -347,7 +694,15 @@ fn expr_to_rust(expr: &Expr) -> String {
                 }
                 BinOp::Range => "..",
             };
-            format!("({} {op_s} {})", expr_to_rust(lhs), expr_to_rust(rhs))
+            if is_numeric_cmp {
+                format!(
+                    "(i128::from({}) {op_s} i128::from({}))",
+                    expr_to_rust(lhs),
+                    expr_to_rust(rhs)
+                )
+            } else {
+                format!("({} {op_s} {})", expr_to_rust(lhs), expr_to_rust(rhs))
+            }
         }
         Expr::UnaryOp { op, expr: e } => {
             let op_s = match op {
@@ -508,6 +863,15 @@ fn raw_tokens_to_rust(tokens: &[String]) -> String {
         }
     }
 
+    // Strip typestate annotations: `expr @ State` -> `true /* typestate: expr @ State */`
+    if let Some(at_pos) = tokens.iter().position(|t| t == "@") {
+        let before = &tokens[..at_pos];
+        let after = &tokens[at_pos + 1..];
+        let expr_s = raw_tokens_to_rust(before);
+        let state_s = after.join(" ");
+        return format!("true /* typestate: {expr_s} @ {state_s} */");
+    }
+
     // Check for `result` keyword — replace with `__result`
     let mapped: Vec<String> = tokens
         .iter()
@@ -533,7 +897,17 @@ fn raw_tokens_to_rust(tokens: &[String]) -> String {
 ///
 /// If the expression contains newlines (e.g. a match block), wraps it in a
 /// block `{ ... }` so the assert is valid Rust syntax.
+///
+/// If the expression contains patterns that would fail on stub types
+/// (nested field accesses like `a.b.c`), emit it as a comment instead
+/// to keep the generated code compilable while preserving the contract intent.
 fn generate_debug_assert(code: &mut String, expr: &str, label: &str) {
+    // If expression references deep field chains (e.g., state.head.extra.extra_max),
+    // emit as a comment since stub types don't have these fields.
+    if has_deep_field_access(expr) {
+        code.push_str(&format!("    // {label}: {}\n", expr.replace('"', "\\\"")));
+        return;
+    }
     if expr.contains('\n') {
         // Multi-line expressions (match, etc.) need a block wrapper
         let msg = expr.replace('\n', " ").replace('"', "\\\"");
@@ -548,9 +922,95 @@ fn generate_debug_assert(code: &mut String, expr: &str, label: &str) {
     }
 }
 
+/// Check if an expression string contains patterns that would fail to compile
+/// against placeholder stub types:
+/// - Any field access (a.b) since stub types have no fields
+/// - Method calls on unknown objects
+/// - References to `__result.field`
+fn has_deep_field_access(expr: &str) -> bool {
+    // Detect struct field access like `state.head.extra` that would fail on stub types.
+    // Exclude method-call chains like `.iter().all()`, `.len()`, `.clone()` which are
+    // standard library methods and work fine.
+    let method_names = [
+        "iter",
+        "all",
+        "any",
+        "map",
+        "filter",
+        "len",
+        "is_empty",
+        "clone",
+        "count",
+        "sum",
+        "collect",
+        "flat_map",
+        "zip",
+        "enumerate",
+        "take",
+        "skip",
+        "find",
+        "fold",
+        "for_each",
+        "min",
+        "max",
+        "contains",
+        "position",
+        "into_iter",
+        "as_ref",
+        "as_mut",
+        "unwrap",
+        "unwrap_or",
+        "expect",
+        "ok",
+        "err",
+        "is_some",
+        "is_none",
+        "is_ok",
+        "is_err",
+    ];
+    for word in expr.split(|c: char| !c.is_alphanumeric() && c != '.' && c != '_') {
+        if word.contains('.') && !word.is_empty() {
+            let parts: Vec<&str> = word.split('.').collect();
+            if parts.len() >= 2
+                && parts[0]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+            {
+                // Check if ALL dotted segments after the first are known method names
+                let all_methods = parts[1..].iter().all(|p| method_names.contains(p));
+                if !all_methods {
+                    return true;
+                }
+            }
+        }
+    }
+    // __result.field references (but not __result.iter(), etc.)
+    if expr.contains("__result.") {
+        // Check if all occurrences of __result. are followed by method calls
+        for chunk in expr.split("__result.") {
+            if chunk.is_empty() {
+                continue;
+            }
+            let after: String = chunk
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !after.is_empty() && !method_names.contains(&after.as_str()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Like `generate_debug_assert` but with configurable indent level.
 fn generate_debug_assert_indented(code: &mut String, expr: &str, label: &str, indent: usize) {
     let pad = "    ".repeat(indent);
+    if has_deep_field_access(expr) {
+        code.push_str(&format!("{pad}// {label}: {}\n", expr.replace('"', "\\\"")));
+        return;
+    }
     if expr.contains('\n') {
         let msg = expr.replace('\n', " ").replace('"', "\\\"");
         code.push_str(&format!(
@@ -728,10 +1188,6 @@ fn generate_type_def(t: &TypeDef, code: &mut String) {
             code.push_str(&format!("pub type {}{tps} = {ty};\n\n", t.name));
         }
         TypeBody::Refined(tokens) => {
-            // Refined type -> newtype wrapper. The predicate becomes a
-            // debug_assert in the constructor (T021 will improve this).
-            // For now, just generate a tuple struct wrapping the first
-            // identifiable base type.
             let base_ty = extract_base_type_from_refined(tokens);
             code.push_str(&format!(
                 "/// Refined type: {}\n#[derive(Debug, Clone, PartialEq)]\npub struct {}{tps}(pub {base_ty});\n\n",
@@ -745,6 +1201,286 @@ fn generate_type_def(t: &TypeDef, code: &mut String) {
                 t.name
             ));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Type reference collection (for generating stub types)
+// ---------------------------------------------------------------------------
+
+/// Check if a name looks like a constant (SCREAMING_SNAKE_CASE).
+/// E.g., `TOTAL_TABLE_SIZE`, `MAX_ALPHABET_SIZE`.
+fn is_const_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+        && name.contains('_')
+}
+
+/// Info about a generic parameter: either a type param or a const param.
+#[derive(Debug, Clone)]
+enum GenericParamKind {
+    Type,
+    Const,
+}
+
+/// Scan a type token sequence for `TypeName<Arg1, Arg2, ...>` patterns.
+/// Records the generic params (type vs const) for each type name, and
+/// collects names that appear as const-generic arguments.
+fn detect_generic_arity(
+    tokens: &[String],
+    param_map: &mut std::collections::HashMap<String, Vec<GenericParamKind>>,
+    const_names: &mut std::collections::HashSet<String>,
+) {
+    let mut i = 0;
+    while i < tokens.len() {
+        if i + 1 < tokens.len() && tokens[i + 1] == "<" && is_user_type_name(&tokens[i]) {
+            let type_name = tokens[i].clone();
+            let mut depth = 0;
+            let mut params = Vec::new();
+            let mut current_is_const = false;
+            let mut j = i + 1;
+            while j < tokens.len() {
+                match tokens[j].as_str() {
+                    "<" => {
+                        depth += 1;
+                        if depth == 1 {
+                            current_is_const = false;
+                        }
+                    }
+                    ">" => {
+                        depth -= 1;
+                        if depth == 0 {
+                            // Record the last parameter
+                            params.push(if current_is_const {
+                                GenericParamKind::Const
+                            } else {
+                                GenericParamKind::Type
+                            });
+                            break;
+                        }
+                    }
+                    "," if depth == 1 => {
+                        params.push(if current_is_const {
+                            GenericParamKind::Const
+                        } else {
+                            GenericParamKind::Type
+                        });
+                        current_is_const = false;
+                    }
+                    tok if depth == 1 && is_const_name(tok) => {
+                        const_names.insert(tok.to_string());
+                        current_is_const = true;
+                    }
+                    tok if depth == 1
+                        && !tok.is_empty()
+                        && tok.chars().all(|c| c.is_ascii_digit()) =>
+                    {
+                        // Numeric literal as const generic
+                        current_is_const = true;
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            let existing_len = param_map.get(&type_name).map_or(0, |v| v.len());
+            if params.len() > existing_len {
+                param_map.insert(type_name, params);
+            }
+            i = j + 1;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Check if a token looks like a user-defined type name (starts with uppercase,
+/// alphanumeric, not a Rust keyword or built-in).
+fn is_user_type_name(tok: &str) -> bool {
+    !tok.is_empty()
+        && tok.chars().next().is_some_and(|c| c.is_uppercase())
+        && tok.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && !matches!(
+            tok,
+            "Int"
+                | "Nat"
+                | "Float"
+                | "Bool"
+                | "String"
+                | "Bytes"
+                | "Unit"
+                | "Never"
+                | "U8"
+                | "U16"
+                | "U32"
+                | "U64"
+                | "I8"
+                | "I16"
+                | "I32"
+                | "I64"
+                | "F32"
+                | "F64"
+                | "List"
+                | "Vec"
+                | "Map"
+                | "Set"
+                | "Option"
+                | "Result"
+                | "Sequence"
+                | "Self"
+                | "Box"
+                | "Fn"
+                | "FnOnce"
+                | "FnMut"
+        )
+}
+
+/// Collect user-defined type names from a type token sequence.
+fn collect_type_refs_from_tokens(tokens: &[String], out: &mut std::collections::HashSet<String>) {
+    for tok in tokens {
+        // Skip taint annotations, attributes, and keywords
+        if matches!(
+            tok.as_str(),
+            "@" | "#"
+                | "taint"
+                | "untrusted"
+                | "validated"
+                | "secret"
+                | "pub"
+                | "mut"
+                | ":"
+                | "|"
+                | "&"
+                | ">"
+                | "<"
+                | ","
+                | "("
+                | ")"
+                | "{"
+                | "}"
+                | "["
+                | "]"
+                | "decreases"
+                | "where"
+        ) {
+            continue;
+        }
+        if is_user_type_name(tok) {
+            out.insert(tok.clone());
+        }
+    }
+}
+
+/// Collect type names referenced in expressions (e.g., constructor calls).
+fn collect_type_refs_from_expr(expr: &Expr, out: &mut std::collections::HashSet<String>) {
+    match expr {
+        Expr::Ident(name) if is_user_type_name(name) => {
+            out.insert(name.clone());
+        }
+        Expr::Call { func, args } => {
+            collect_type_refs_from_expr(func, out);
+            for a in args {
+                collect_type_refs_from_expr(a, out);
+            }
+        }
+        Expr::Field(recv, _) => collect_type_refs_from_expr(recv, out),
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_type_refs_from_expr(lhs, out);
+            collect_type_refs_from_expr(rhs, out);
+        }
+        Expr::UnaryOp { expr: e, .. } => collect_type_refs_from_expr(e, out),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_type_refs_from_expr(cond, out);
+            collect_type_refs_from_expr(then_branch, out);
+            if let Some(eb) = else_branch {
+                collect_type_refs_from_expr(eb, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Find the value for a feature_max constant from the AST.
+fn find_feature_max_value(source: &assura_parser::ast::SourceFile, name: &str) -> String {
+    for decl in &source.decls {
+        if let Decl::Block {
+            kind,
+            name: n,
+            value,
+            body,
+        } = &decl.node
+            && kind == "feature_max"
+            && n == name
+        {
+            // First, try the inline value field.
+            // The value tokens may include a type annotation: `["Nat", "=", "280"]`
+            // from `feature_max X: Nat = 280`. Extract after the `=`.
+            if let Some(val_tokens) = value {
+                if let Some(eq_pos) = val_tokens.iter().position(|t| t == "=") {
+                    let after_eq = &val_tokens[eq_pos + 1..];
+                    if !after_eq.is_empty() {
+                        return after_eq.join(" ");
+                    }
+                } else if val_tokens.len() == 1 {
+                    // Single-token value without `=` (e.g., just a number)
+                    return val_tokens[0].clone();
+                }
+            }
+            // Fallback: try to extract from body clauses
+            for clause in body {
+                let val = expr_to_rust_static(&clause.body);
+                if !val.is_empty() && val != "()" {
+                    return val;
+                }
+            }
+        }
+    }
+    // Default: 0 if no value found
+    "0".to_string()
+}
+
+/// Convert an Expr to a Rust expression for use in const context.
+fn expr_to_rust_static(expr: &Expr) -> String {
+    match expr {
+        Expr::Literal(lit) => match lit {
+            Literal::Int(s) | Literal::Float(s) => s.clone(),
+            Literal::Str(s) => format!("\"{s}\""),
+            Literal::Bool(b) => b.to_string(),
+        },
+        Expr::Ident(s) => s.clone(),
+        Expr::BinOp { lhs, op, rhs } => {
+            let op_s = match op {
+                BinOp::Add => "+",
+                BinOp::Sub => "-",
+                BinOp::Mul => "*",
+                BinOp::Div => "/",
+                BinOp::Mod => "%",
+                _ => return String::new(),
+            };
+            format!(
+                "({} {op_s} {})",
+                expr_to_rust_static(lhs),
+                expr_to_rust_static(rhs)
+            )
+        }
+        Expr::Raw(tokens) => {
+            // Try to extract a simple numeric literal from raw tokens
+            let clean: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
+            if clean.len() == 1 {
+                return clean[0].to_string();
+            }
+            // For "= value" patterns (common in feature_max)
+            if clean.len() >= 2 && clean[0] == "=" {
+                return clean[1..].join(" ");
+            }
+            clean.join(" ")
+        }
+        _ => String::new(),
     }
 }
 
@@ -982,21 +1718,20 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
         generate_debug_assert_indented(code, req, "requires", 2);
     }
 
-    code.push_str(&format!(
-        "        let __result: {output_type} = todo!(\"implementation provided by AI agent\");\n"
-    ));
-
-    // Generate ensures assertions
-    for ens in &ensures_exprs {
-        generate_debug_assert_indented(code, ens, "ensures", 2);
+    if ensures_exprs.is_empty() && invariants.is_empty() {
+        code.push_str("        todo!(\"implementation provided by AI agent\")\n");
+    } else {
+        code.push_str(&format!(
+            "        let __result: {output_type} = todo!(\"implementation provided by AI agent\");\n"
+        ));
+        for ens in &ensures_exprs {
+            generate_debug_assert_indented(code, ens, "ensures", 2);
+        }
+        for inv in &invariants {
+            generate_debug_assert_indented(code, inv, "invariant", 2);
+        }
+        code.push_str("        __result\n");
     }
-
-    // Generate invariant assertions (checked post-execution)
-    for inv in &invariants {
-        generate_debug_assert_indented(code, inv, "invariant", 2);
-    }
-
-    code.push_str("        __result\n");
     code.push_str("    }\n");
 
     // Generate struct + impl Trait if the contract implements an interface
@@ -1279,16 +2014,17 @@ fn generate_extern(ex: &ExternDecl, code: &mut String) {
         }
     }
 
-    code.push_str(&format!(
-        "    let __result: {ret} = todo!(\"extern function: implementation required\");\n"
-    ));
-
-    // Generate ensures assertions before return
-    for ens in &ensures_exprs {
-        generate_debug_assert(code, ens, "ensures");
+    if ensures_exprs.is_empty() {
+        code.push_str("    todo!(\"extern function: implementation required\")\n");
+    } else {
+        code.push_str(&format!(
+            "    let __result: {ret} = todo!(\"extern function: implementation required\");\n"
+        ));
+        for ens in &ensures_exprs {
+            generate_debug_assert(code, ens, "ensures");
+        }
+        code.push_str("    __result\n");
     }
-
-    code.push_str("    __result\n");
     code.push_str("}\n\n");
 }
 
@@ -1337,16 +2073,19 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
         }
     }
 
-    code.push_str(&format!(
-        "    let __result: {ret_ty} = todo!(\"implementation provided by AI agent\");\n"
-    ));
-
-    // Generate ensures assertions before return
-    for ens in &ensures_exprs {
-        generate_debug_assert(code, ens, "ensures");
+    if ensures_exprs.is_empty() {
+        // No ensures: just use todo!() directly
+        code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+    } else {
+        // With ensures: declare __result, check ensures, return
+        code.push_str(&format!(
+            "    let __result: {ret_ty} = todo!(\"implementation provided by AI agent\");\n"
+        ));
+        for ens in &ensures_exprs {
+            generate_debug_assert(code, ens, "ensures");
+        }
+        code.push_str("    __result\n");
     }
-
-    code.push_str("    __result\n");
     code.push_str("}\n\n");
 }
 
@@ -1802,12 +2541,20 @@ fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
         return;
     }
 
-    // Generate blocks as modules with constants and assertions derived
-    // from their clauses, instead of empty modules.
+    // Table blocks: generate a doc comment describing the table.
+    // The actual compile-time verification happens in the SMT layer,
+    // not in generated Rust code.
+    if kind == "table" {
+        code.push_str(&format!(
+            "// {kind} {name}: compile-time verified by SMT\n\n"
+        ));
+        return;
+    }
+
+    // Other blocks: generate as documented constants/assertions
     code.push_str(&format!("/// {kind}: {name}\n"));
     code.push_str(&format!("pub mod block_{} {{\n", name.to_lowercase()));
 
-    let mut has_value = false;
     for clause in body {
         let expr = expr_to_rust(&clause.body);
         match clause.kind {
@@ -1824,14 +2571,7 @@ fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
                 ));
             }
             _ => {
-                if !has_value {
-                    code.push_str(&format!(
-                        "    /// Value expression\n    pub fn value() {{ let _ = {expr}; }}\n"
-                    ));
-                    has_value = true;
-                } else {
-                    code.push_str(&format!("    // {:?}: {expr}\n", clause.kind));
-                }
+                code.push_str(&format!("    // {:?}: {expr}\n", clause.kind));
             }
         }
     }

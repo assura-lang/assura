@@ -28,9 +28,46 @@ SourceFile {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_ALPHABET_SIZE",
+                value: Some(
+                    [
+                        "Nat",
+                        "=",
+                        "280",
+                    ],
+                ),
                 body: [],
             },
-            span: 1233..1409,
+            span: 1233..1273,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature_max",
+                name: "MAX_CODE_LENGTH",
+                value: Some(
+                    [
+                        "Nat",
+                        "=",
+                        "15",
+                    ],
+                ),
+                body: [],
+            },
+            span: 1274..1311,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature_max",
+                name: "ROOT_BITS",
+                value: Some(
+                    [
+                        "Nat",
+                        "=",
+                        "8",
+                    ],
+                ),
+                body: [],
+            },
+            span: 1379..1409,
         },
         Spanned {
             node: FnDef(
@@ -118,6 +155,36 @@ SourceFile {
             node: Block {
                 kind: "table",
                 name: "K_TABLE_SIZE",
+                value: Some(
+                    [
+                        "[",
+                        "U32",
+                        ";",
+                        "MAX_ALPHABET_SIZE",
+                        "+",
+                        "1",
+                        "]",
+                        "=",
+                        "precompute",
+                        "(",
+                        "for",
+                        "i",
+                        "in",
+                        "0",
+                        "..",
+                        "MAX_ALPHABET_SIZE",
+                        "+",
+                        "1",
+                        "=>",
+                        "worst_case_table_size",
+                        "(",
+                        "i",
+                        "as",
+                        "U16",
+                        ")",
+                        ")",
+                    ],
+                ),
                 body: [
                     Clause {
                         kind: Other(
