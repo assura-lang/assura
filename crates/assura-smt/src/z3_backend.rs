@@ -1649,6 +1649,315 @@ impl<'ctx> Encoder<'ctx> {
 }
 
 // -----------------------------------------------------------------------
+// Unmodelable feature detection
+// -----------------------------------------------------------------------
+
+/// Returns `true` if the expression tree contains features that the SMT
+/// encoder cannot faithfully represent (field-access chains on `self`,
+/// typestate annotations, taint annotations, validate blocks, region
+/// types, etc.).
+fn expr_has_unmodelable_features(expr: &Expr) -> bool {
+    match expr {
+        // Field access: `obj.field` is encoded as `__field_X(obj)`, an
+        // uninterpreted function. This is sound only for known fields
+        // (len, is_empty, etc.) where the encoder adds axioms. For all
+        // other fields, Z3 treats the result as completely unconstrained,
+        // leading to trivial counterexamples.
+        Expr::Field(obj, field) => {
+            if has_deep_field_chain(expr) || is_self_rooted(obj) {
+                return true;
+            }
+            // Known fields that the encoder constrains with axioms
+            let known = matches!(
+                field.as_str(),
+                "len"
+                    | "length"
+                    | "size"
+                    | "capacity"
+                    | "count"
+                    | "is_empty"
+                    | "is_some"
+                    | "is_none"
+                    | "is_ok"
+                    | "is_err"
+            );
+            if !known {
+                return true;
+            }
+            expr_has_unmodelable_features(obj)
+        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            // Known boolean methods are handled by the encoder with correct
+            // return types (Bool). Unknown methods produce unconstrained
+            // uninterpreted functions that lead to false counterexamples.
+            let known_method = matches!(
+                method.as_str(),
+                "contains"
+                    | "is_empty"
+                    | "is_some"
+                    | "is_none"
+                    | "is_ok"
+                    | "is_err"
+                    | "any"
+                    | "all"
+                    | "contains_key"
+                    | "starts_with"
+                    | "ends_with"
+                    | "is_subset"
+                    | "is_superset"
+                    | "len"
+                    | "length"
+                    | "size"
+                    | "substring"
+                    | "substr"
+                    | "min"
+                    | "max"
+                    | "abs"
+            );
+            if !known_method {
+                return true;
+            }
+            expr_has_unmodelable_features(receiver)
+                || args.iter().any(expr_has_unmodelable_features)
+        }
+        Expr::Raw(tokens) => {
+            // Check for specific unmodelable keywords
+            if tokens.iter().any(|t| {
+                matches!(
+                    t.as_str(),
+                    "@" | "taint" | "validate" | "Region" | "ghost" | "untrusted" | "validated"
+                )
+            }) {
+                return true;
+            }
+            // Check for dotted field access (e.g., `state.field`, `obj.a.b`).
+            // The raw token encoder collapses `x.y.z` into a single flat
+            // variable name with no structural constraints, so Z3 treats
+            // `state.extra_bytes_copied` and `state.head.extra.extra_max`
+            // as completely independent unconstrained integers.
+            tokens.iter().any(|t| t == ".")
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            expr_has_unmodelable_features(lhs) || expr_has_unmodelable_features(rhs)
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Paren(inner)
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. } => expr_has_unmodelable_features(inner),
+        Expr::Call { func, args } => {
+            expr_has_unmodelable_features(func) || args.iter().any(expr_has_unmodelable_features)
+        }
+        Expr::Index { expr: e, index } => {
+            expr_has_unmodelable_features(e) || expr_has_unmodelable_features(index)
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            expr_has_unmodelable_features(domain) || expr_has_unmodelable_features(body)
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_has_unmodelable_features(cond)
+                || expr_has_unmodelable_features(then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| expr_has_unmodelable_features(e))
+        }
+        Expr::Let { value, body, .. } => {
+            expr_has_unmodelable_features(value) || expr_has_unmodelable_features(body)
+        }
+        Expr::Match { scrutinee, arms } => {
+            expr_has_unmodelable_features(scrutinee)
+                || arms.iter().any(|a| expr_has_unmodelable_features(&a.body))
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            items.iter().any(expr_has_unmodelable_features)
+        }
+        Expr::Apply { args, .. } => args.iter().any(expr_has_unmodelable_features),
+        Expr::Literal(_) | Expr::Ident(_) => false,
+    }
+}
+
+fn is_self_rooted(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(name) => name == "self",
+        Expr::Field(obj, _) => is_self_rooted(obj),
+        Expr::Paren(inner) => is_self_rooted(inner),
+        _ => false,
+    }
+}
+
+/// Returns `true` if `expr` is a field access chain of depth >= 2
+/// (e.g., `state.head.extra`). Single-level field access (`buf.len`)
+/// is handled by the encoder, but deeper chains produce unconstrained
+/// nested uninterpreted functions that Z3 finds trivial counterexamples for.
+fn has_deep_field_chain(expr: &Expr) -> bool {
+    field_chain_depth(expr) >= 2
+}
+
+fn field_chain_depth(expr: &Expr) -> usize {
+    match expr {
+        Expr::Field(obj, _) => 1 + field_chain_depth(obj),
+        Expr::Paren(inner) => field_chain_depth(inner),
+        _ => 0,
+    }
+}
+
+fn collect_unmodelable_reasons(expr: &Expr) -> Vec<String> {
+    let mut reasons = Vec::new();
+    collect_unmodelable_reasons_inner(expr, &mut reasons);
+    reasons.sort();
+    reasons.dedup();
+    reasons
+}
+
+fn collect_unmodelable_reasons_inner(expr: &Expr, reasons: &mut Vec<String>) {
+    match expr {
+        Expr::Field(obj, field) => {
+            if is_self_rooted(obj) {
+                reasons.push("struct field access".into());
+            } else if has_deep_field_chain(expr) {
+                reasons.push("deep field chain".into());
+            } else {
+                let known = matches!(
+                    field.as_str(),
+                    "len"
+                        | "length"
+                        | "size"
+                        | "capacity"
+                        | "count"
+                        | "is_empty"
+                        | "is_some"
+                        | "is_none"
+                        | "is_ok"
+                        | "is_err"
+                );
+                if !known {
+                    reasons.push("unconstrained field access".into());
+                }
+            }
+        }
+        Expr::MethodCall { method, .. } => {
+            let known_method = matches!(
+                method.as_str(),
+                "contains"
+                    | "is_empty"
+                    | "is_some"
+                    | "is_none"
+                    | "is_ok"
+                    | "is_err"
+                    | "any"
+                    | "all"
+                    | "contains_key"
+                    | "starts_with"
+                    | "ends_with"
+                    | "is_subset"
+                    | "is_superset"
+                    | "len"
+                    | "length"
+                    | "size"
+                    | "substring"
+                    | "substr"
+                    | "min"
+                    | "max"
+                    | "abs"
+            );
+            if !known_method {
+                reasons.push("method call".into());
+            }
+        }
+        Expr::Raw(tokens) => {
+            for t in tokens {
+                match t.as_str() {
+                    "@" => reasons.push("typestate annotation".into()),
+                    "taint" | "untrusted" | "validated" => {
+                        reasons.push("taint annotation".into());
+                    }
+                    "validate" => reasons.push("validate block".into()),
+                    "Region" => reasons.push("region type".into()),
+                    "ghost" => reasons.push("ghost code".into()),
+                    "." => reasons.push("field access in raw clause".into()),
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    match expr {
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_unmodelable_reasons_inner(lhs, reasons);
+            collect_unmodelable_reasons_inner(rhs, reasons);
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Paren(inner)
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. }
+        | Expr::Field(inner, _) => {
+            collect_unmodelable_reasons_inner(inner, reasons);
+        }
+        Expr::Call { func, args } => {
+            collect_unmodelable_reasons_inner(func, reasons);
+            for a in args {
+                collect_unmodelable_reasons_inner(a, reasons);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_unmodelable_reasons_inner(receiver, reasons);
+            for a in args {
+                collect_unmodelable_reasons_inner(a, reasons);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            collect_unmodelable_reasons_inner(e, reasons);
+            collect_unmodelable_reasons_inner(index, reasons);
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_unmodelable_reasons_inner(domain, reasons);
+            collect_unmodelable_reasons_inner(body, reasons);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_unmodelable_reasons_inner(cond, reasons);
+            collect_unmodelable_reasons_inner(then_branch, reasons);
+            if let Some(eb) = else_branch {
+                collect_unmodelable_reasons_inner(eb, reasons);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_unmodelable_reasons_inner(value, reasons);
+            collect_unmodelable_reasons_inner(body, reasons);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_unmodelable_reasons_inner(scrutinee, reasons);
+            for a in arms {
+                collect_unmodelable_reasons_inner(&a.body, reasons);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_unmodelable_reasons_inner(item, reasons);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for a in args {
+                collect_unmodelable_reasons_inner(a, reasons);
+            }
+        }
+        _ => {}
+    }
+}
+
+// -----------------------------------------------------------------------
 // Clause description helper
 // -----------------------------------------------------------------------
 
@@ -1688,12 +1997,12 @@ fn extract_counter_model(model: &Model<'_>) -> CounterexampleModel {
     let mut variables: Vec<(String, String)> = Vec::new();
     for decl in model.iter() {
         // Skip non-constant declarations (uninterpreted functions with
-        // arity > 0 cannot be evaluated with apply(&[]))
+        // arity > 0 produce multi-line `{ value }` blocks in the model)
         if decl.arity() > 0 {
             continue;
         }
         let name = decl.name();
-        // Skip internal/fresh variables, but keep __result
+        // Skip internal/fresh/coercion variables, but keep __result
         if name.starts_with("__") && name != "__result" {
             continue;
         }
@@ -1702,7 +2011,9 @@ fn extract_counter_model(model: &Model<'_>) -> CounterexampleModel {
             .get_const_interp(&decl.apply(&[]))
             .map(|v| format!("{v}"))
             .unwrap_or_else(|| "?".into());
-        variables.push((name, value));
+        // Strip __field_ prefix from variable names leaked by the encoder
+        let clean_name = name.strip_prefix("__field_").unwrap_or(&name).to_string();
+        variables.push((clean_name, value));
     }
     // Sort for deterministic output
     variables.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1830,6 +2141,21 @@ fn verify_clauses(
 
     for clause in &verifiable {
         let desc = clause_desc(parent_name, &clause.kind);
+
+        // Skip clauses that reference features not yet encoded in SMT.
+        // Sending an incomplete encoding to Z3 produces false counterexamples
+        // (Z3 finds trivial models for unconstrained uninterpreted functions).
+        if expr_has_unmodelable_features(&clause.body) {
+            let reasons = collect_unmodelable_reasons(&clause.body);
+            results.push(VerificationResult::Unknown {
+                clause_desc: desc,
+                reason: format!(
+                    "clause uses features not yet encoded in SMT ({})",
+                    reasons.join(", ")
+                ),
+            });
+            continue;
+        }
 
         // T113: Check verification cache before invoking Z3
         let clause_hash = format!("{desc}:{:?}", clause.body);
@@ -2274,7 +2600,9 @@ fn assert_measure_axioms<'ctx>(
                 // forall xs: measure(xs) >= 0
                 let xs = ast::Int::new_const(ctx, format!("__ax_{}_xs", measure.name));
                 let app = func_decl.apply(&[&xs]);
-                let app_int = app.as_int().unwrap();
+                let Some(app_int) = app.as_int() else {
+                    continue;
+                };
                 let ge_zero = app_int.ge(&zero);
                 let forall = ast::forall_const(ctx, &[&xs], &[], &ge_zero);
                 solver.assert(&forall);
@@ -2284,7 +2612,9 @@ fn assert_measure_axioms<'ctx>(
                 // distinguished constant
                 let empty = ast::Int::new_const(ctx, "__empty");
                 let app = func_decl.apply(&[&empty]);
-                let app_int = app.as_int().unwrap();
+                let Some(app_int) = app.as_int() else {
+                    continue;
+                };
                 let eq_zero = app_int._eq(&zero);
                 solver.assert(&eq_zero);
             }
@@ -2304,8 +2634,12 @@ fn assert_measure_axioms<'ctx>(
                 let measure_appended = func_decl.apply(&[&appended]);
                 let measure_xs = func_decl.apply(&[&xs]);
                 let one = ast::Int::from_i64(ctx, 1);
-                let measure_appended_int = measure_appended.as_int().unwrap();
-                let measure_xs_int = measure_xs.as_int().unwrap();
+                let Some(measure_appended_int) = measure_appended.as_int() else {
+                    continue;
+                };
+                let Some(measure_xs_int) = measure_xs.as_int() else {
+                    continue;
+                };
                 let expected = ast::Int::add(ctx, &[&measure_xs_int, &one]);
                 let eq = measure_appended_int._eq(&expected);
                 let forall = ast::forall_const(ctx, &[&xs, &x], &[], &eq);
@@ -2317,8 +2651,12 @@ fn assert_measure_axioms<'ctx>(
                     let xs = ast::Int::new_const(ctx, format!("__ax_{}_eq_xs", measure.name));
                     let this_app = func_decl.apply(&[&xs]);
                     let other_app = other_decl.apply(&[&xs]);
-                    let this_int = this_app.as_int().unwrap();
-                    let other_int = other_app.as_int().unwrap();
+                    let Some(this_int) = this_app.as_int() else {
+                        continue;
+                    };
+                    let Some(other_int) = other_app.as_int() else {
+                        continue;
+                    };
                     let eq = this_int._eq(&other_int);
                     let forall = ast::forall_const(ctx, &[&xs], &[], &eq);
                     solver.assert(&forall);
@@ -2331,7 +2669,9 @@ fn assert_measure_axioms<'ctx>(
                 // measure(__empty) == 0 (using the empty constant).
                 let empty_map = ast::Int::new_const(ctx, "__empty_map");
                 let app = func_decl.apply(&[&empty_map]);
-                let app_int = app.as_int().unwrap();
+                let Some(app_int) = app.as_int() else {
+                    continue;
+                };
                 let eq_zero = app_int._eq(&zero);
                 solver.assert(&eq_zero);
             }

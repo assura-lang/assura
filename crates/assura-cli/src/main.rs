@@ -239,6 +239,28 @@ struct CompilationResult {
     timing: TimingInfo,
 }
 
+/// Format a counterexample as a clean single-line summary for diagnostics.
+///
+/// If a structured `CounterexampleModel` is available, produces a summary
+/// like `"counterexample: a = -2, b = 1"`. Otherwise, parses the raw Z3
+/// model string and formats it the same way.
+fn format_counterexample_summary(
+    counter_model: &Option<assura_smt::CounterexampleModel>,
+    raw_model: &str,
+) -> String {
+    // Use the display module's formatting to get clean lines
+    let lines = assura_smt::display::format_counterexample_lines(counter_model, raw_model);
+    // Each line starts with "| "; strip that and join into a single line
+    let pairs: Vec<&str> = lines
+        .iter()
+        .map(|l| l.strip_prefix("| ").unwrap_or(l.as_str()))
+        .collect();
+    if pairs.is_empty() {
+        return "counterexample found".to_string();
+    }
+    format!("counterexample: {}", pairs.join("; "))
+}
+
 /// Run lex -> parse -> resolve -> typecheck on source text, collecting all diagnostics.
 fn compile(source: &str, filename: &str) -> CompilationResult {
     compile_with_config(source, filename, &CompilerConfig::default())
@@ -753,14 +775,19 @@ fn run_check(
     // Convert counterexamples to diagnostics so they appear in both modes
     for vr in &verification_results {
         if let assura_smt::VerificationResult::Counterexample {
-            clause_desc, model, ..
+            clause_desc,
+            model,
+            counter_model,
         } = vr
         {
             has_errors = true;
+            // Format the counterexample as a clean single-line summary
+            // instead of dumping the raw Z3 model into the diagnostic.
+            let summary = format_counterexample_summary(counter_model, model);
             diagnostics.push(
                 assura_diagnostics::Diagnostic::error(
                     "A05100",
-                    format!("verification failed for {clause_desc}: {model}"),
+                    format!("verification failed for {clause_desc}: {summary}"),
                     0..0,
                 )
                 .with_file(filename),
@@ -1084,14 +1111,17 @@ fn check_file_once(
 
     for vr in &verification_results {
         if let assura_smt::VerificationResult::Counterexample {
-            clause_desc, model, ..
+            clause_desc,
+            model,
+            counter_model,
         } = vr
         {
             has_errors = true;
+            let summary = format_counterexample_summary(counter_model, model);
             diagnostics.push(
                 assura_diagnostics::Diagnostic::error(
                     "A05100",
-                    format!("verification failed for {clause_desc}: {model}"),
+                    format!("verification failed for {clause_desc}: {summary}"),
                     0..0,
                 )
                 .with_file(filename),
