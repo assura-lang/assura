@@ -326,7 +326,7 @@
   - Test with: secret data leaked through return value, secret data
     used as branch condition affecting public output
 
-- [ ] **S004**: Implement real context splitting for linear types
+- [x] **S004**: Implement real context splitting for linear types
   - Depends on: R003
   - The current linearity checker tracks usage counts but does not
     implement full context splitting at branch points
@@ -1140,3 +1140,19 @@ Added helper functions: `check_contract_info_flow`, `check_fn_info_flow`,
 Added 7 tests: no-labels-no-errors, secret-to-result A08001, implicit-flow
 A08004, same-level OK, upward-flow OK, label inference through BinOp,
 contract with secret input pipeline test.
+
+### S004 completed (2026-06-13)
+Implemented real context splitting for linear types at match arms and
+ghost-use exclusion per Spec Section 13 Test Case 1.
+- Match arms: `check_expr_linearity_inner` now forks the context for
+  each arm and uses `merge_arms()` to check consistency across all arms.
+  Previously all arms shared a single context, causing false positives
+  and missed double-use errors.
+- Ghost uses: `Forall`/`Exists` bodies and `Old()` expressions are now
+  treated as ghost (logical) context. Variable references inside them
+  do NOT count as computational uses, per the spec's Ghost Use Problem.
+- Added `merge_arms()` method to `LinearContext` for N-way branch merge
+  with per-variable delta comparison.
+- 9 new tests: match consistent OK, match inconsistent A05004, 3-arm
+  one-differs A05004, scrutinee + arm double-use A05001, forall/exists
+  ghost use, old() ghost use, ghost block confirmation, merge_arms unit.

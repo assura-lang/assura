@@ -11561,3 +11561,222 @@ contract SecureHash {
         "secret input not flowing to result should pass: {result:?}"
     );
 }
+
+// -----------------------------------------------------------------------
+// S004: Context splitting for linear types at match arms + ghost uses
+// -----------------------------------------------------------------------
+
+#[test]
+fn s004_match_consistent_usage_ok() {
+    // Linear var used once in each match arm: consistent, no error.
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    let expr = AstExpr::Match {
+        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        arms: vec![
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
+                body: AstExpr::Ident("x".into()),
+            },
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Wildcard,
+                body: AstExpr::Ident("x".into()),
+            },
+        ],
+    };
+    let branch_errors = check_expr_linearity(&expr, &mut ctx);
+    assert!(
+        branch_errors.is_empty(),
+        "consistent match arms should have no A05004: {branch_errors:?}"
+    );
+    let final_errors = ctx.check();
+    assert!(
+        final_errors.is_empty(),
+        "used exactly once from each arm: {final_errors:?}"
+    );
+}
+
+#[test]
+fn s004_match_inconsistent_usage_a05004() {
+    // Linear var used in first arm but not second: A05004.
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    let expr = AstExpr::Match {
+        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        arms: vec![
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
+                body: AstExpr::Ident("x".into()),
+            },
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Wildcard,
+                body: AstExpr::Literal(AstLit::Int("0".into())),
+            },
+        ],
+    };
+    let branch_errors = check_expr_linearity(&expr, &mut ctx);
+    assert_eq!(branch_errors.len(), 1);
+    assert_eq!(branch_errors[0].code, "A05004");
+    assert!(branch_errors[0].message.contains("x"));
+    assert!(branch_errors[0].message.contains("match arms"));
+}
+
+#[test]
+fn s004_match_three_arms_one_differs_a05004() {
+    // Three arms: first two use x, third does not.
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    let expr = AstExpr::Match {
+        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+        arms: vec![
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
+                body: AstExpr::Ident("x".into()),
+            },
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("2".into())),
+                body: AstExpr::Ident("x".into()),
+            },
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Wildcard,
+                body: AstExpr::Literal(AstLit::Int("0".into())),
+            },
+        ],
+    };
+    let branch_errors = check_expr_linearity(&expr, &mut ctx);
+    assert_eq!(branch_errors.len(), 1, "one error for x: {branch_errors:?}");
+    assert_eq!(branch_errors[0].code, "A05004");
+}
+
+#[test]
+fn s004_match_scrutinee_uses_linear_var() {
+    // Using a linear var in the scrutinee (always evaluated) plus in
+    // each arm: total 2 uses, should produce A05001 (used more than once).
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    let expr = AstExpr::Match {
+        scrutinee: Box::new(AstExpr::Ident("x".into())),
+        arms: vec![
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
+                body: AstExpr::Ident("x".into()),
+            },
+            assura_parser::ast::MatchArm {
+                pattern: assura_parser::ast::Pattern::Wildcard,
+                body: AstExpr::Ident("x".into()),
+            },
+        ],
+    };
+    let _branch_errors = check_expr_linearity(&expr, &mut ctx);
+    // Final check: 1 (scrutinee) + 1 (max from arms) = 2 total.
+    let final_errors = ctx.check();
+    assert!(
+        final_errors.iter().any(|e| e.code == "A05001"),
+        "x used twice (scrutinee + arm) should produce A05001: {final_errors:?}"
+    );
+}
+
+#[test]
+fn s004_forall_body_is_ghost_use() {
+    // A linear variable referenced in a forall body should NOT count
+    // as a computational use (ghost/logical context per Spec 13.1).
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    // forall i in range: i < x  (x is referenced but ghost)
+    let expr = AstExpr::Forall {
+        var: "i".into(),
+        domain: Box::new(AstExpr::Ident("range".into())),
+        body: Box::new(AstExpr::BinOp {
+            lhs: Box::new(AstExpr::Ident("i".into())),
+            op: AstBinOp::Lt,
+            rhs: Box::new(AstExpr::Ident("x".into())),
+        }),
+    };
+    let errors = check_expr_linearity(&expr, &mut ctx);
+    assert!(errors.is_empty(), "forall body should not produce errors");
+
+    // x is never used computationally, so count stays at 0.
+    assert_eq!(ctx.get_count("x"), Some(0));
+}
+
+#[test]
+fn s004_exists_body_is_ghost_use() {
+    // Same as forall: exists body is ghost.
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    let expr = AstExpr::Exists {
+        var: "i".into(),
+        domain: Box::new(AstExpr::Ident("range".into())),
+        body: Box::new(AstExpr::Ident("x".into())),
+    };
+    let errors = check_expr_linearity(&expr, &mut ctx);
+    assert!(errors.is_empty(), "exists body should not produce errors");
+    assert_eq!(ctx.get_count("x"), Some(0));
+}
+
+#[test]
+fn s004_old_expr_is_ghost_use() {
+    // old(x) references pre-state, which is ghost/logical.
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+    let errors = check_expr_linearity(&expr, &mut ctx);
+    assert!(errors.is_empty(), "old(x) should not count as a use");
+    assert_eq!(ctx.get_count("x"), Some(0));
+}
+
+#[test]
+fn s004_ghost_block_is_not_a_use() {
+    // Ghost blocks were already handled (existing behavior). Confirm.
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    let mut ctx = LinearContext::new(tracker);
+
+    let expr = AstExpr::Ghost(Box::new(AstExpr::Ident("x".into())));
+    let errors = check_expr_linearity(&expr, &mut ctx);
+    assert!(errors.is_empty());
+    assert_eq!(ctx.get_count("x"), Some(0));
+}
+
+#[test]
+fn s004_merge_arms_unit_test() {
+    // Direct test of merge_arms with 3 arms.
+    let mut tracker = UsageTracker::new();
+    tracker.declare("x".into(), UsageGrade::Linear, 0..1);
+    tracker.declare("y".into(), UsageGrade::Linear, 0..1);
+    let mut base = LinearContext::new(tracker);
+
+    // Arm 1: uses x once
+    let mut arm1 = base.clone();
+    arm1.use_var("x");
+
+    // Arm 2: uses x once (consistent with arm 1)
+    let mut arm2 = base.clone();
+    arm2.use_var("x");
+
+    // Arm 3: uses x once (all consistent)
+    let mut arm3 = base.clone();
+    arm3.use_var("x");
+
+    let errors = base.merge_arms(&[arm1, arm2, arm3]);
+    assert!(errors.is_empty(), "all arms consistent: {errors:?}");
+
+    // x should have count 1 after merge.
+    assert_eq!(base.get_count("x"), Some(1));
+    // y was not used in any arm; final check will catch it.
+    assert_eq!(base.get_count("y"), Some(0));
+}

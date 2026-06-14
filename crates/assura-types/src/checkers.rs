@@ -253,6 +253,62 @@ impl LinearContext {
         errors
     }
 
+    /// Merge multiple branch contexts (for match arms) back into this context.
+    ///
+    /// All arms must consume linear variables the same number of times.
+    /// If any arm differs, emits A05004. After merge, updates `self` with
+    /// the maximum usage count from any arm.
+    pub fn merge_arms(&mut self, arm_contexts: &[LinearContext]) -> Vec<TypeError> {
+        if arm_contexts.is_empty() {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+
+        let base_state: Vec<(String, UsageGrade, u32, Range<usize>)> = self
+            .tracker
+            .usages
+            .iter()
+            .map(|(name, (grade, count, span))| (name.clone(), grade.clone(), *count, span.clone()))
+            .collect();
+
+        for (name, grade, base_count, span) in &base_state {
+            let deltas: Vec<u32> = arm_contexts
+                .iter()
+                .map(|arm| {
+                    arm.tracker
+                        .get_count(name)
+                        .unwrap_or(*base_count)
+                        .saturating_sub(*base_count)
+                })
+                .collect();
+
+            // Check consistency: all deltas must be equal for linear/exact.
+            if matches!(grade, UsageGrade::Linear | UsageGrade::Exact(_)) {
+                let first = deltas[0];
+                for (i, &delta) in deltas.iter().enumerate().skip(1) {
+                    if delta != first {
+                        errors.push(TypeError {
+                            code: "A05004".into(),
+                            message: format!(
+                                "linear variable `{name}` used inconsistently across match arms: \
+                                 used {first} time(s) in arm 1, {delta} time(s) in arm {}",
+                                i + 1
+                            ),
+                            span: span.clone(),
+                            secondary: None,
+                        });
+                        break; // One error per variable is enough.
+                    }
+                }
+            }
+
+            let max_delta = deltas.iter().copied().max().unwrap_or(0);
+            self.tracker.set_count(name, base_count + max_delta);
+        }
+
+        errors
+    }
+
     /// Run the final usage check on this context.
     ///
     /// Delegates to `UsageTracker::check()`, producing A05001-A05003 errors
@@ -311,21 +367,23 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
         Expr::UnaryOp { expr: inner, .. } => {
             check_expr_linearity_inner(inner, ctx, errors);
         }
-        Expr::Old(inner) => {
-            check_expr_linearity_inner(inner, ctx, errors);
+        Expr::Old(_inner) => {
+            // old(x) references the pre-state (ghost/logical), not a
+            // computational use. Does NOT count as a linear use.
         }
         Expr::Forall {
             var: _,
-            domain,
-            body,
+            domain: _,
+            body: _,
         }
         | Expr::Exists {
             var: _,
-            domain,
-            body,
+            domain: _,
+            body: _,
         } => {
-            check_expr_linearity_inner(domain, ctx, errors);
-            check_expr_linearity_inner(body, ctx, errors);
+            // Quantifier bodies are ghost/logical (refinement predicates).
+            // References inside do NOT count as linear uses per Spec
+            // Section 13 Test Case 1 (Ghost Use Problem).
         }
         Expr::If {
             cond,
@@ -378,10 +436,24 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
             let _ = args;
         }
         Expr::Match { scrutinee, arms } => {
+            // Check scrutinee in current context (always evaluated).
             check_expr_linearity_inner(scrutinee, ctx, errors);
-            for arm in arms {
-                check_expr_linearity_inner(&arm.body, ctx, errors);
+
+            if arms.is_empty() {
+                return;
             }
+
+            // Fork context for each arm and check independently.
+            let mut arm_contexts: Vec<LinearContext> = Vec::new();
+            for arm in arms {
+                let mut arm_ctx = ctx.clone();
+                check_expr_linearity_inner(&arm.body, &mut arm_ctx, errors);
+                arm_contexts.push(arm_ctx);
+            }
+
+            // Merge: check consistency across all arms.
+            let merge_errs = ctx.merge_arms(&arm_contexts);
+            errors.extend(merge_errs);
         }
         Expr::Let { value, body, .. } => {
             check_expr_linearity_inner(value, ctx, errors);
