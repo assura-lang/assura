@@ -1613,7 +1613,7 @@ NOT called from the type-check or verification pipeline.
   - **Validation**: Verify a forall-heavy contract that previously timed
     out now verifies with triggers. Add test to e2e suite.
 
-- [ ] **G003**: Wire IncrementalCompiler into CLI --watch mode
+- [x] **G003**: Wire IncrementalCompiler into CLI --watch mode
   - Depends on: none
   - **Current state**: `IncrementalCompiler` at `incremental.rs` has
     module registration, dirty detection, dependency tracking, and 5
@@ -1631,7 +1631,7 @@ NOT called from the type-check or verification pipeline.
   - **Validation**: Run `assura check --watch` on a file, edit it, verify
     only the changed contract is re-verified (visible in verbose output)
 
-- [ ] **G004**: Wire TEST.1 TestGenerator into codegen and CLI
+- [x] **G004**: Wire TEST.1 TestGenerator into codegen and CLI
   - Depends on: none
   - **Current state**: `TestGenerator` at `domain.rs:1281` generates
     proptest/boundary/smoke test code strings, with 6 passing tests.
@@ -1768,7 +1768,7 @@ but lack real semantic analysis or parser integration.
 
 ### G.3 Architecture Gaps
 
-- [ ] **G009**: Complete HIR migration: eliminate to_ast_expr() bridge
+- [x] **G009**: Complete HIR migration: eliminate to_ast_expr() bridge
   - Depends on: none
   - **Current state**: `infer_hir_expr()` at `inference.rs:16` immediately
     calls `hir_expr.to_ast_expr()` and delegates to `infer_expr()`. The
