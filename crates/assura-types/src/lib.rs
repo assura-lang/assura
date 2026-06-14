@@ -1357,6 +1357,7 @@ pub fn type_check_hir_with_config(
     errors.extend(run_scoped_invariant_checks(source));
     errors.extend(run_contract_composition_checks(source));
     errors.extend(run_contract_library_checks(source));
+    errors.extend(run_crypto_conformance_checks(source));
 
     if !errors.is_empty() {
         return Err(errors);
@@ -1489,6 +1490,7 @@ pub fn type_check_with_config(
     errors.extend(run_scoped_invariant_checks(&resolved.source));
     errors.extend(run_contract_composition_checks(&resolved.source));
     errors.extend(run_contract_library_checks(&resolved.source));
+    errors.extend(run_crypto_conformance_checks(&resolved.source));
 
     if !errors.is_empty() {
         return Err(errors);
@@ -3277,6 +3279,158 @@ fn run_constant_time_checks(source: &assura_parser::ast::SourceFile) -> Vec<Type
                     span: err.span,
                     secondary: None,
                 });
+            }
+        }
+    }
+
+    all_errors
+}
+
+// ---------------------------------------------------------------------------
+// Crypto conformance wiring (G001)
+// ---------------------------------------------------------------------------
+
+/// Scan for contracts/functions with `conforms`, `crypto`, or `spec` clause
+/// annotations referencing a cryptographic algorithm. Extract algorithm name
+/// and any key_size/nonce_size literals from clause bodies, then run the
+/// CryptoConformanceChecker against the declared parameters.
+fn run_crypto_conformance_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut all_errors = Vec::new();
+    let checker = CryptoConformanceChecker::new();
+
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Extern(e) => &e.clauses,
+            _ => continue,
+        };
+
+        // Look for conforms/crypto/spec clauses
+        let mut algorithm: Option<String> = None;
+        let mut key_size: Option<u32> = None;
+        let mut nonce_size: Option<u32> = None;
+        let mut has_tag_check = false;
+        let mut nonce_source: Option<String> = None;
+        let mut is_counter_nonce = false;
+        let mut is_random_nonce = false;
+
+        for clause in clauses {
+            let kind_name = match &clause.kind {
+                ClauseKind::Other(k) => k.as_str(),
+                _ => continue,
+            };
+
+            match kind_name {
+                "conforms" | "spec" | "crypto" => {
+                    // Extract algorithm name from clause body
+                    // Note: Literal::Str includes source quotes (e.g. `"AES-128-GCM"`)
+                    if let Expr::Literal(assura_parser::ast::Literal::Str(name)) = &clause.body {
+                        algorithm = Some(name.trim_matches('"').to_string());
+                    } else if let Expr::Ident(name) = &clause.body {
+                        algorithm = Some(name.clone());
+                    } else if let Expr::Call { func, .. } = &clause.body {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            algorithm = Some(name.clone());
+                        }
+                    } else if let Expr::Raw(tokens) = &clause.body
+                        && let Some(t) = tokens.first()
+                    {
+                        // Fallback: extract from raw tokens (strip quotes)
+                        let name = t.trim_matches('"').to_string();
+                        if !name.is_empty() {
+                            algorithm = Some(name);
+                        }
+                    }
+                }
+                "key_size" => {
+                    if let Expr::Literal(assura_parser::ast::Literal::Int(s)) = &clause.body {
+                        key_size = s.parse().ok();
+                    } else if let Expr::Raw(tokens) = &clause.body
+                        && let Some(t) = tokens.first()
+                    {
+                        key_size = t.parse().ok();
+                    }
+                }
+                "nonce_size" => {
+                    if let Expr::Literal(assura_parser::ast::Literal::Int(s)) = &clause.body {
+                        nonce_size = s.parse().ok();
+                    } else if let Expr::Raw(tokens) = &clause.body
+                        && let Some(t) = tokens.first()
+                    {
+                        nonce_size = t.parse().ok();
+                    }
+                }
+                "tag_verified" | "tag_check" => {
+                    has_tag_check = true;
+                }
+                "nonce" => {
+                    if let Expr::Ident(src) = &clause.body {
+                        nonce_source = Some(src.clone());
+                        is_counter_nonce = src.contains("counter") || src.contains("ctr");
+                        is_random_nonce = src.contains("random") || src.contains("rng");
+                    } else if let Expr::Raw(tokens) = &clause.body
+                        && let Some(src) = tokens.first()
+                    {
+                        nonce_source = Some(src.clone());
+                        is_counter_nonce = src.contains("counter") || src.contains("ctr");
+                        is_random_nonce = src.contains("random") || src.contains("rng");
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Run checks if an algorithm was declared
+        if let Some(ref algo) = algorithm {
+            if let Some(ks) = key_size {
+                for err in checker.check_key_size(algo, ks, &decl.span) {
+                    all_errors.push(TypeError {
+                        code: err.code,
+                        message: err.message,
+                        span: err.span,
+                        secondary: None,
+                    });
+                }
+            }
+            if let Some(ns) = nonce_size {
+                for err in checker.check_nonce_size(algo, ns, &decl.span) {
+                    all_errors.push(TypeError {
+                        code: err.code,
+                        message: err.message,
+                        span: err.span,
+                        secondary: None,
+                    });
+                }
+            }
+            if let Some(ref ns_src) = nonce_source {
+                for err in checker.check_nonce_uniqueness(
+                    ns_src,
+                    is_counter_nonce,
+                    is_random_nonce,
+                    &decl.span,
+                ) {
+                    all_errors.push(TypeError {
+                        code: err.code,
+                        message: err.message,
+                        span: err.span,
+                        secondary: None,
+                    });
+                }
+            }
+            // Only check tag verification for decrypt-type operations
+            let has_decrypt_clause = clauses.iter().any(
+                |c| matches!(&c.kind, ClauseKind::Other(k) if k == "decrypt" || k == "decryption"),
+            );
+            if has_decrypt_clause {
+                for err in checker.check_tag_verification(has_tag_check, &decl.span) {
+                    all_errors.push(TypeError {
+                        code: err.code,
+                        message: err.message,
+                        span: err.span,
+                        secondary: None,
+                    });
+                }
             }
         }
     }

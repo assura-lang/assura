@@ -35,6 +35,7 @@ pub(crate) fn at_clause_start(p: &mut Parser) -> bool {
             | SyntaxKind::INTERFACE_KW
             | SyntaxKind::EXTENDS_KW
             | SyntaxKind::IMPL_KW
+            | SyntaxKind::CONFORMS_KW
     ) || is_ident_clause_start(p)
 }
 
@@ -59,6 +60,15 @@ fn is_ident_clause_start(p: &mut Parser) -> bool {
             | "writes"
             | "method"
             | "implements"
+            | "key_size"
+            | "nonce_size"
+            | "tag_verified"
+            | "tag_check"
+            | "nonce"
+            | "decrypt"
+            | "decryption"
+            | "spec"
+            | "crypto"
     )
 }
 
@@ -110,6 +120,8 @@ pub(crate) fn is_clause_stopper_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::INTERFACE_KW
             | SyntaxKind::EXTENDS_KW
             | SyntaxKind::IMPL_KW
+            // Crypto conformance
+            | SyntaxKind::CONFORMS_KW
             // Generic block keywords
             | SyntaxKind::TABLE_KW
             | SyntaxKind::FEATURE_KW
@@ -146,6 +158,15 @@ pub(crate) fn is_clause_stopper(p: &mut Parser) -> bool {
                 | "liveness"
                 | "safety"
                 | "security"
+                | "key_size"
+                | "nonce_size"
+                | "tag_verified"
+                | "tag_check"
+                | "nonce"
+                | "decrypt"
+                | "decryption"
+                | "spec"
+                | "crypto"
         );
     }
     false
@@ -161,6 +182,7 @@ fn is_expr_clause_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::DECREASES_KW
             | SyntaxKind::RULE_KW
             | SyntaxKind::MUST_NOT_KW
+            | SyntaxKind::CONFORMS_KW
     )
 }
 
@@ -168,7 +190,7 @@ fn is_expr_clause_kind(k: SyntaxKind) -> bool {
 pub(crate) fn clause(p: &mut Parser) {
     let m = p.open();
 
-    let is_expr = is_expr_clause_kind(p.current());
+    let is_expr = is_expr_clause_kind(p.current()) || is_ident_expr_clause(p);
 
     // Consume the clause keyword
     p.bump();
@@ -181,6 +203,17 @@ pub(crate) fn clause(p: &mut Parser) {
     }
 
     m.complete(p, SyntaxKind::CLAUSE);
+}
+
+/// True if this ident-based clause should have an expression body.
+fn is_ident_expr_clause(p: &mut Parser) -> bool {
+    if p.current() != SyntaxKind::IDENT {
+        return false;
+    }
+    matches!(
+        p.current_text(),
+        "key_size" | "nonce_size" | "nonce" | "spec" | "crypto"
+    )
 }
 
 /// Parse an expression clause body: try expression first, fall back to raw.

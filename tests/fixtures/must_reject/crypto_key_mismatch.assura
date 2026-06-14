@@ -1,0 +1,8 @@
+// MUST REJECT A17001
+// A contract that specifies AES-128-GCM but declares a 256-bit key
+contract WrongKeySize {
+    input(key: Bytes, data: Bytes)
+    output(ciphertext: Bytes)
+    conforms "AES-128-GCM"
+    key_size 256
+}

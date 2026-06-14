@@ -269,6 +269,7 @@ fn clause_kind_from_syntax(k: SyntaxKind, text: &str) -> Option<ClauseKind> {
         SyntaxKind::INTERFACE_KW => Some(ClauseKind::Other("interface".into())),
         SyntaxKind::EXTENDS_KW => Some(ClauseKind::Other("extends".into())),
         SyntaxKind::IMPL_KW => Some(ClauseKind::Other("implements".into())),
+        SyntaxKind::CONFORMS_KW => Some(ClauseKind::Other("conforms".into())),
         SyntaxKind::IDENT => Some(ClauseKind::Other(text.to_string())),
         _ => None,
     }
