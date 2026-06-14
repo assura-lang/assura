@@ -11341,3 +11341,115 @@ fn linear_from_paren_wrapped() {
         "buf should be declared as linear via Paren unwrap"
     );
 }
+
+// -----------------------------------------------------------------------
+// S002: Call-graph effect inference tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn effect_callgraph_caller_has_callee_effects_ok() {
+    // Contract read_data declares effects {io}
+    // Contract process declares effects {io} and calls read_data -> OK
+    let resolved = resolve_ok(
+        r#"
+contract ReadData {
+    effects { io }
+    input(path: String)
+    output(result: String)
+    ensures: result.length() > 0
+}
+
+contract Process {
+    effects { io }
+    input(path: String)
+    output(result: String)
+    ensures: ReadData(path).length() > 0
+}
+"#,
+    );
+    let result = type_check(&resolved);
+    // The call-graph check for contracts is based on names in the effect map.
+    // ReadData is a contract name with effects {io}, so if Process references
+    // ReadData in its ensures, the inferred callee effects include io.
+    // Since Process also declares io, this should pass.
+    assert!(
+        result.is_ok(),
+        "caller with io calling callee with io should pass: {result:?}"
+    );
+}
+
+#[test]
+fn effect_callgraph_unit_check_containment() {
+    // Direct unit test of EffectChecker::check_containment for call-graph scenario.
+    // fn outer() effects {pure} calls fn inner() effects {io} -> A07002
+    let checker = EffectChecker::new();
+    let outer_declared = EffectSet::pure(); // empty = pure
+    // The call-graph inference found that inner has io effects
+    let inferred_callee_effects = EffectSet::from_effect_names(["io"]);
+    let errors = checker.check_containment(&outer_declared, &inferred_callee_effects, &(0..10));
+    assert_eq!(errors.len(), 1, "should have 1 error: {errors:?}");
+    assert_eq!(errors[0].code, "A07002"); // pure function performs io
+}
+
+#[test]
+fn effect_callgraph_missing_subset() {
+    // fn outer() effects {database} calls fn inner() effects {io} -> A07001
+    let checker = EffectChecker::new();
+    let outer_declared = EffectSet::from_effect_names(["database"]);
+    let inferred_callee_effects = EffectSet::from_effect_names(["io"]);
+    let errors = checker.check_containment(&outer_declared, &inferred_callee_effects, &(0..10));
+    assert_eq!(errors.len(), 1, "should have 1 error: {errors:?}");
+    assert_eq!(errors[0].code, "A07001"); // undeclared effect
+}
+
+#[test]
+fn effect_callgraph_build_effect_map() {
+    // Verify build_effect_map collects effects from contracts
+    let resolved = resolve_ok(
+        r#"
+contract IoContract {
+    effects { io }
+    input(x: Int)
+    output(result: Int)
+    ensures: result >= 0
+}
+
+contract PureContract {
+    input(x: Int)
+    output(result: Int)
+    ensures: result >= 0
+}
+"#,
+    );
+    let checker = EffectChecker::new();
+    let map = super::build_effect_map(&resolved.source, &checker);
+    // IoContract should be in the map with expanded io effects
+    assert!(
+        map.contains_key("IoContract"),
+        "IoContract should be in effect map"
+    );
+    let io_effects = &map["IoContract"];
+    assert!(
+        !io_effects.is_pure(),
+        "IoContract should have non-pure effects"
+    );
+    // PureContract has no effects clause so should NOT be in the map
+    assert!(
+        !map.contains_key("PureContract"),
+        "PureContract without effects clause should not be in map"
+    );
+}
+
+#[test]
+fn effect_callgraph_pure_callee_ok() {
+    // Contract with no effects clause is implicitly pure
+    // Caller with effects {io} calling it -> OK
+    let checker = EffectChecker::new();
+    let caller_declared = EffectSet::from_effect_names(["io"]);
+    let callee_effects = EffectSet::pure(); // no effects = pure
+    let errors = checker.check_containment(&caller_declared, &callee_effects, &(0..10));
+    assert!(
+        errors.is_empty(),
+        "calling pure function from effectful context should pass"
+    );
+}

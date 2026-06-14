@@ -296,7 +296,7 @@
   - Test with: factorial, fibonacci, list append, tree traversal
   - The `partial` escape hatch must suppress the check
 
-- [ ] **S002**: Implement real effect inference (not just declared-vs-used)
+- [x] **S002**: Implement real effect inference (not just declared-vs-used)
   - Depends on: R003
   - Currently the effect checker validates that declared effects are
     from the known set, but does not infer which effects a function
@@ -1114,3 +1114,15 @@ Changes across 3 crates:
 Updated 11 existing totality tests for new tuple return type. Renamed
 `totality_non_decreasing_measure_a09002` to verify pending SMT check is
 created instead of immediate error. All 1,246 tests pass.
+
+### S002 completed (2026-06-14)
+Implemented call-graph-based effect inference. The effect checker now builds
+a `HashMap<String, EffectSet>` of all declared effects from functions,
+contracts, externs, and service operations (pass 1), then for each function
+with an effects clause, scans clause bodies for `Call` and `MethodCall`
+expressions, looks up the callee's effects, and checks that the caller
+declares all required effects (pass 2). Added `build_effect_map()`,
+`infer_callee_effects()`, and `collect_call_effects()` which recursively
+walks all Expr variants. Added 5 new tests (contract-level call-graph OK,
+unit containment for pure->io, missing subset, build_effect_map verification,
+pure callee OK). All 1,251 tests pass.
