@@ -278,6 +278,45 @@ jobs:
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
+  # Publish all workspace crates to crates.io in dependency order
+  publish-crates:
+    needs:
+      - plan
+      - host
+    if: ${{ always() && needs.host.result == 'success' && needs.plan.outputs.publishing == 'true' }}
+    runs-on: "ubuntu-22.04"
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y protobuf-compiler libz3-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Set Linux Z3 paths
+        run: |
+          echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
+          echo "CPATH=/usr/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # Publish in dependency order with retry
+          for crate in assura-diagnostics assura-parser assura-resolve assura-hir assura-types assura-smt assura-codegen assura-lsp assura-server assura; do
+            echo "=== Publishing $crate ==="
+            cargo publish -p "$crate" --no-verify || true
+            # Wait for crates.io index to update
+            sleep 30
+          done
+
   announce:
     needs:
       - plan

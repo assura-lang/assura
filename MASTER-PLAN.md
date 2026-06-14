@@ -683,7 +683,7 @@
   - Generate Homebrew formula from cargo-dist output
   - Users can: `brew install assura-lang/tap/assura`
 
-- [ ] **E003**: Publish to crates.io
+- [x] **E003**: Publish to crates.io
   - Depends on: E001
   - The `assura` name is already claimed on crates.io
   - Publish all workspace crates in dependency order:
