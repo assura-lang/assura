@@ -1,0 +1,83 @@
+===
+Basic match expression
+===
+
+contract MatchTest {
+  ensures {
+    match x {
+      0 => true,
+      _ => false,
+    }
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (match_expression
+          (expression (identifier))
+          (match_arm
+            (pattern (literal (number)))
+            (expression (literal (boolean))))
+          (match_arm
+            (pattern)
+            (expression (literal (boolean)))))))))
+
+===
+Match with constructor patterns
+===
+
+contract EnumMatch {
+  ensures {
+    match shape {
+      Circle(r) => r,
+      Rect(w, h) => w,
+    }
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (match_expression
+          (expression (identifier))
+          (match_arm
+            (pattern
+              (identifier)
+              (pattern (identifier)))
+            (expression (identifier)))
+          (match_arm
+            (pattern
+              (identifier)
+              (pattern (identifier))
+              (pattern (identifier)))
+            (expression (identifier))))))))
+
+===
+Let expression
+===
+
+contract LetTest {
+  ensures {
+    let x = 42
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (let_expression
+          (identifier)
+          (expression (literal (number))))))))

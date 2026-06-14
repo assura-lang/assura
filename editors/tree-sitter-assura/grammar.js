@@ -23,6 +23,7 @@ module.exports = grammar({
           $.enum_def,
           $.extern_decl,
           $.fn_def,
+          $.bind_decl,
           $.block_decl,
         ),
       ),
@@ -131,6 +132,18 @@ module.exports = grammar({
     fn_body: ($) => seq("{", repeat($.expression), "}"),
     param: ($) => seq($.identifier, ":", $.type_ref),
 
+    // Bind declarations
+    bind_decl: ($) =>
+      seq(
+        "bind",
+        $.string,
+        "as",
+        $.identifier,
+        "{",
+        repeat($.clause),
+        "}",
+      ),
+
     // Block declarations (feature, axiom, spec, etc.)
     block_decl: ($) =>
       seq($.identifier, $.identifier, optional($.block_body)),
@@ -171,6 +184,8 @@ module.exports = grammar({
         $.paren_expr,
         $.list_expr,
         $.if_expr,
+        $.match_expression,
+        $.let_expression,
         $.quantifier,
         $.old_expr,
         $.block_expr,
@@ -213,6 +228,19 @@ module.exports = grammar({
     quantifier: ($) =>
       seq(choice("forall", "exists"), $.identifier, "in", $.expression, ":", $.expression),
     old_expr: ($) => seq("old", "(", $.expression, ")"),
+    match_expression: ($) =>
+      seq("match", $.expression, "{", repeat($.match_arm), "}"),
+    match_arm: ($) =>
+      seq($.pattern, "=>", $.expression, optional(",")),
+    pattern: ($) =>
+      choice(
+        $.identifier,
+        $.literal,
+        "_",
+        seq($.identifier, "(", commaSep($.pattern), ")"),
+      ),
+    let_expression: ($) =>
+      seq("let", $.identifier, "=", $.expression),
     block_expr: ($) => seq("{", repeat($.expression), "}"),
 
     // Names

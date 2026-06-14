@@ -1,0 +1,51 @@
+===
+Basic bind declaration
+===
+
+bind "libc::malloc" as safe_alloc {
+  requires {
+    size > 0
+  }
+}
+
+---
+
+(source_file
+  (bind_decl
+    (string)
+    (identifier)
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))))
+
+===
+Bind with multiple clauses
+===
+
+bind "openssl::encrypt" as safe_encrypt {
+  requires {
+    key_len > 0
+  }
+  ensures {
+    result > 0
+  }
+}
+
+---
+
+(source_file
+  (bind_decl
+    (string)
+    (identifier)
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))))
