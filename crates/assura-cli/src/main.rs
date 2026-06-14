@@ -4,6 +4,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process;
+use std::time::Instant;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use assura_parser::ast::*;
@@ -72,6 +73,36 @@ enum OutputMode {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verbosity {
+    Quiet,
+    Normal,
+    Verbose,
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline timing
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy)]
+struct TimingInfo {
+    lex_ms: f64,
+    parse_ms: f64,
+    resolve_ms: Option<f64>,
+    typecheck_ms: Option<f64>,
+    token_count: usize,
+}
+
+fn parse_verbosity(args: &[String]) -> Verbosity {
+    if args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string()) {
+        Verbosity::Verbose
+    } else if args.contains(&"--quiet".to_string()) || args.contains(&"-q".to_string()) {
+        Verbosity::Quiet
+    } else {
+        Verbosity::Normal
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared compilation pipeline
 // ---------------------------------------------------------------------------
@@ -83,6 +114,7 @@ struct CompilationResult {
     typed: Option<assura_types::TypedFile>,
     diagnostics: Vec<DiagnosticJson>,
     has_errors: bool,
+    timing: TimingInfo,
 }
 
 /// Run lex -> parse -> resolve -> typecheck on source text, collecting all diagnostics.
@@ -91,6 +123,7 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
     let mut has_errors = false;
 
     // --- Lex ---
+    let lex_start = Instant::now();
     let lex = Token::lexer(source);
     let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
 
@@ -111,11 +144,15 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
             }
         }
     }
+    let lex_ms = lex_start.elapsed().as_secs_f64() * 1000.0;
+    let token_count = tokens.len();
 
     // --- Parse ---
+    let parse_start = Instant::now();
     let len = source.len();
     let token_stream = Stream::from_iter(len..len + 1, tokens.into_iter());
     let (file, parse_errors) = parser::source_file().parse_recovery(token_stream);
+    let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
     for e in &parse_errors {
         has_errors = true;
@@ -189,6 +226,7 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
     }
 
     // --- Resolve (only if we have a parsed file) ---
+    let resolve_start = Instant::now();
     let resolved = if let Some(ref file) = file {
         match assura_resolve::resolve(file) {
             Ok(r) => {
@@ -232,8 +270,14 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
     } else {
         None
     };
+    let resolve_ms = if file.is_some() {
+        Some(resolve_start.elapsed().as_secs_f64() * 1000.0)
+    } else {
+        None
+    };
 
     // --- Type check (only if resolution succeeded) ---
+    let typecheck_start = Instant::now();
     let typed = if let Some(ref resolved) = resolved {
         match assura_types::type_check(resolved) {
             Ok(t) => Some(t),
@@ -260,6 +304,11 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
     } else {
         None
     };
+    let typecheck_ms = if resolved.is_some() {
+        Some(typecheck_start.elapsed().as_secs_f64() * 1000.0)
+    } else {
+        None
+    };
 
     CompilationResult {
         file,
@@ -267,6 +316,13 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
         typed,
         diagnostics,
         has_errors,
+        timing: TimingInfo {
+            lex_ms,
+            parse_ms,
+            resolve_ms,
+            typecheck_ms,
+            token_count,
+        },
     }
 }
 
@@ -336,6 +392,8 @@ fn print_help() {
          \x20   --layer <0|1>                       Verification layer (0=structural, 1=SMT)\n\
          \x20   --output <dir>                      Output directory for generated code (build)\n\
          \x20   --no-check                          Skip cargo check on generated code (build)\n\
+         \x20   -v, --verbose                       Show timing, intermediate results, Z3 stats\n\
+         \x20   -q, --quiet                         Suppress all output except errors\n\
          \x20   -h, --help                          Show this help message\n\
          \x20   -V, --version                       Show version",
         env!("CARGO_PKG_VERSION")
@@ -379,6 +437,7 @@ fn run_check(args: &[String]) {
     } else {
         OutputMode::Human
     };
+    let verbosity = parse_verbosity(args);
 
     // Verification layer: --layer 0 = structural only, --layer 1 = SMT (default)
     let layer: u8 = args
@@ -421,9 +480,53 @@ fn run_check(args: &[String]) {
         typed,
         mut diagnostics,
         mut has_errors,
+        timing,
     } = compile(&source, &filename);
 
+    if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
+        eprintln!("Pipeline timing for {filename}:");
+        eprintln!(
+            "  lex:       {} tokens ({:.2}ms)",
+            timing.token_count, timing.lex_ms
+        );
+        if let Some(ref f) = file {
+            eprintln!(
+                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                f.decls.len(),
+                f.imports.len(),
+                timing.parse_ms
+            );
+        } else {
+            eprintln!("  parse:     failed ({:.2}ms)", timing.parse_ms);
+        }
+        if let Some(resolve_ms) = timing.resolve_ms {
+            if let Some(ref r) = resolved {
+                let user_symbols = r
+                    .symbols
+                    .symbols
+                    .iter()
+                    .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
+                    .count();
+                eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
+            } else {
+                eprintln!("  resolve:   failed ({resolve_ms:.2}ms)");
+            }
+        }
+        if let Some(typecheck_ms) = timing.typecheck_ms {
+            if let Some(ref td) = typed {
+                eprintln!(
+                    "  typecheck: {} binding(s) ({typecheck_ms:.2}ms)",
+                    td.type_env.len()
+                );
+            } else {
+                eprintln!("  typecheck: failed ({typecheck_ms:.2}ms)");
+            }
+        }
+        eprintln!();
+    }
+
     // --- Verify (only if type check succeeded and layer >= 1) ---
+    let verify_start = Instant::now();
     let mut verification_results = if layer >= 1 {
         if let Some(ref typed) = typed {
             assura_smt::verify(typed)
@@ -456,6 +559,21 @@ fn run_check(args: &[String]) {
                 secondary: None,
             });
         }
+    }
+
+    let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
+    if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
+        eprintln!(
+            "  verify:    {} clause(s) ({verify_ms:.2}ms)",
+            verification_results.len()
+        );
+        let total = timing.lex_ms
+            + timing.parse_ms
+            + timing.resolve_ms.unwrap_or(0.0)
+            + timing.typecheck_ms.unwrap_or(0.0)
+            + verify_ms;
+        eprintln!("  total:     {total:.2}ms");
+        eprintln!();
     }
 
     // Convert counterexamples to diagnostics so they appear in both modes
@@ -613,34 +731,42 @@ fn run_check(args: &[String]) {
                 .filter(|d| d.code != "A01001")
                 .cloned()
                 .collect();
-            report_diagnostics_human(&non_lex, &filename, &source);
+            // Always report error diagnostics, even in quiet mode
+            if has_errors || verbosity != Verbosity::Quiet {
+                report_diagnostics_human(&non_lex, &filename, &source);
+            }
 
             // Print verification results grouped by contract/function
-            if !verification_results.is_empty() {
-                eprintln!();
-                eprintln!("Verification ({} clause(s)):", verification_results.len());
-                print_grouped_verification(&verification_results);
-            } else if layer == 0 {
-                eprintln!();
-                eprintln!("Verification skipped (--layer 0: structural checks only)");
-            } else if layer >= 1 {
-                // Layer 1+ but no results: show what contracts exist
-                // and that they had no verifiable clauses
-                if let Some(ref f) = file {
-                    let contract_names = collect_contract_names(f);
-                    if !contract_names.is_empty() {
-                        eprintln!();
-                        eprintln!("Verification:");
-                        for name in &contract_names {
-                            eprintln!("  {name}:  (no verifiable clauses)");
+            if verbosity != Verbosity::Quiet {
+                if !verification_results.is_empty() {
+                    eprintln!();
+                    eprintln!("Verification ({} clause(s)):", verification_results.len());
+                    print_grouped_verification(&verification_results);
+                } else if layer == 0 {
+                    eprintln!();
+                    eprintln!("Verification skipped (--layer 0: structural checks only)");
+                } else if layer >= 1 {
+                    // Layer 1+ but no results: show what contracts exist
+                    // and that they had no verifiable clauses
+                    if let Some(ref f) = file {
+                        let contract_names = collect_contract_names(f);
+                        if !contract_names.is_empty() {
+                            eprintln!();
+                            eprintln!("Verification:");
+                            for name in &contract_names {
+                                eprintln!("  {name}:  (no verifiable clauses)");
+                            }
                         }
                     }
                 }
-            }
 
-            if !has_errors {
-                eprintln!("{filename}: check passed (no errors)");
-            } else {
+                if !has_errors {
+                    eprintln!("{filename}: check passed (no errors)");
+                } else {
+                    eprintln!("{filename}: {} error(s) found", diagnostics.len());
+                }
+            } else if has_errors {
+                // Quiet mode: only show error count
                 eprintln!("{filename}: {} error(s) found", diagnostics.len());
             }
         }
@@ -938,6 +1064,7 @@ fn report_diagnostics_human(diagnostics: &[DiagnosticJson], filename: &str, sour
 
 fn run_build(args: &[String]) {
     let pos = positional_args(args);
+    let verbosity = parse_verbosity(args);
 
     let filename = pos.get(1).unwrap_or_else(|| {
         eprintln!("Usage: assura build <file.assura> [--output <dir>]");
@@ -961,8 +1088,45 @@ fn run_build(args: &[String]) {
         diagnostics,
         has_errors,
         typed,
-        ..
+        timing,
+        file: parsed_file,
+        resolved,
     } = compile(&source, filename);
+
+    if verbosity == Verbosity::Verbose {
+        eprintln!("Pipeline timing for {filename}:");
+        eprintln!(
+            "  lex:       {} tokens ({:.2}ms)",
+            timing.token_count, timing.lex_ms
+        );
+        if let Some(ref f) = parsed_file {
+            eprintln!(
+                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                f.decls.len(),
+                f.imports.len(),
+                timing.parse_ms
+            );
+        }
+        if let Some(resolve_ms) = timing.resolve_ms
+            && let Some(ref r) = resolved
+        {
+            let user_symbols = r
+                .symbols
+                .symbols
+                .iter()
+                .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
+                .count();
+            eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
+        }
+        if let Some(typecheck_ms) = timing.typecheck_ms
+            && let Some(ref td) = typed
+        {
+            eprintln!(
+                "  typecheck: {} binding(s) ({typecheck_ms:.2}ms)",
+                td.type_env.len()
+            );
+        }
+    }
 
     // Report errors in human mode
     if has_errors {
@@ -975,23 +1139,36 @@ fn run_build(args: &[String]) {
 
     // --- Quantifier bound validation ---
     let qwarnings = assura_smt::validate_quantifier_bounds(&typed);
-    for w in &qwarnings {
-        eprintln!(
-            "warning: unbounded quantifier in {}: {} ({})",
-            w.context, w.domain_desc, w.reason
-        );
+    if verbosity != Verbosity::Quiet {
+        for w in &qwarnings {
+            eprintln!(
+                "warning: unbounded quantifier in {}: {} ({})",
+                w.context, w.domain_desc, w.reason
+            );
+        }
     }
 
     // --- Verify ---
+    let verify_start = Instant::now();
     let mut verification_results = assura_smt::verify(&typed);
     verification_results.extend(dispatch_decrease_checks(&typed));
-    if !verification_results.is_empty() {
+    let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
+
+    if verbosity == Verbosity::Verbose {
+        eprintln!(
+            "  verify:    {} clause(s) ({verify_ms:.2}ms)",
+            verification_results.len()
+        );
+    }
+
+    if verbosity != Verbosity::Quiet && !verification_results.is_empty() {
         eprintln!();
         eprintln!("Verification ({} clause(s)):", verification_results.len());
         print_grouped_verification(&verification_results);
     }
 
     // --- Codegen ---
+    let codegen_start = Instant::now();
     let project = assura_codegen::codegen(&typed);
 
     // --- Write to output directory ---
@@ -1001,13 +1178,31 @@ fn run_build(args: &[String]) {
         process::exit(1);
     });
 
+    let codegen_ms = codegen_start.elapsed().as_secs_f64() * 1000.0;
+    if verbosity == Verbosity::Verbose {
+        eprintln!(
+            "  codegen:   {} file(s) ({codegen_ms:.2}ms)",
+            project.files.len()
+        );
+        let total = timing.lex_ms
+            + timing.parse_ms
+            + timing.resolve_ms.unwrap_or(0.0)
+            + timing.typecheck_ms.unwrap_or(0.0)
+            + verify_ms
+            + codegen_ms;
+        eprintln!("  total:     {total:.2}ms");
+        eprintln!();
+    }
+
     // Write Cargo.toml
     let cargo_path = out_dir.join("Cargo.toml");
     fs::write(&cargo_path, &project.cargo_toml).unwrap_or_else(|e| {
         eprintln!("Error: cannot write {}: {e}", cargo_path.display());
         process::exit(1);
     });
-    println!("  wrote {}", cargo_path.display());
+    if verbosity != Verbosity::Quiet {
+        println!("  wrote {}", cargo_path.display());
+    }
 
     // Write source files
     for (rel_path, content) in &project.files {
@@ -1022,7 +1217,9 @@ fn run_build(args: &[String]) {
             eprintln!("Error: cannot write {}: {e}", full_path.display());
             process::exit(1);
         });
-        println!("  wrote {}", full_path.display());
+        if verbosity != Verbosity::Quiet {
+            println!("  wrote {}", full_path.display());
+        }
     }
 
     // --- Validate generated Rust compiles ---
@@ -1037,10 +1234,14 @@ fn run_build(args: &[String]) {
 
         match cargo_check {
             Ok(output) if output.status.success() => {
-                println!("OK  {filename} -> {out_dir_str}/ (generated Rust compiles)");
+                if verbosity != Verbosity::Quiet {
+                    println!("OK  {filename} -> {out_dir_str}/ (generated Rust compiles)");
+                }
             }
             Ok(output) => {
-                println!("OK  {filename} -> {out_dir_str}/");
+                if verbosity != Verbosity::Quiet {
+                    println!("OK  {filename} -> {out_dir_str}/");
+                }
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 eprintln!();
                 eprintln!("warning: generated Rust does not compile:");
@@ -1056,10 +1257,14 @@ fn run_build(args: &[String]) {
             }
             Err(_) => {
                 // cargo not found or other OS error; skip silently
-                println!("OK  {filename} -> {out_dir_str}/ (cargo check skipped: cargo not found)");
+                if verbosity != Verbosity::Quiet {
+                    println!(
+                        "OK  {filename} -> {out_dir_str}/ (cargo check skipped: cargo not found)"
+                    );
+                }
             }
         }
-    } else {
+    } else if verbosity != Verbosity::Quiet {
         println!("OK  {filename} -> {out_dir_str}/ (check skipped)");
     }
 }
@@ -1778,6 +1983,7 @@ fn run_explain(args: &[String]) {
 fn run_legacy(args: &[String]) {
     let show_ast = args.contains(&"--ast".to_string());
     let show_tokens = args.contains(&"--tokens".to_string());
+    let verbosity = parse_verbosity(args);
 
     let filename = args
         .iter()
@@ -1817,11 +2023,50 @@ fn run_legacy(args: &[String]) {
         typed,
         diagnostics,
         has_errors,
+        timing,
     } = compile(&source, filename);
+
+    if verbosity == Verbosity::Verbose {
+        eprintln!("Pipeline timing for {filename}:");
+        eprintln!(
+            "  lex:       {} tokens ({:.2}ms)",
+            timing.token_count, timing.lex_ms
+        );
+        if let Some(ref f) = file {
+            eprintln!(
+                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                f.decls.len(),
+                f.imports.len(),
+                timing.parse_ms
+            );
+        }
+        if let Some(resolve_ms) = timing.resolve_ms
+            && let Some(ref r) = resolved
+        {
+            let user_symbols = r
+                .symbols
+                .symbols
+                .iter()
+                .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
+                .count();
+            eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
+        }
+        if let Some(typecheck_ms) = timing.typecheck_ms
+            && let Some(ref td) = typed
+        {
+            eprintln!(
+                "  typecheck: {} binding(s) ({typecheck_ms:.2}ms)",
+                td.type_env.len()
+            );
+        }
+        eprintln!();
+    }
 
     if has_errors {
         report_diagnostics_human(&diagnostics, filename, &source);
-        eprintln!("{filename}: {} error(s) found", diagnostics.len());
+        if verbosity != Verbosity::Quiet {
+            eprintln!("{filename}: {} error(s) found", diagnostics.len());
+        }
         process::exit(1);
     }
 
@@ -1830,11 +2075,29 @@ fn run_legacy(args: &[String]) {
     let typed = typed.expect("typed should exist if has_errors is false");
 
     // --- Verify ---
+    let verify_start = Instant::now();
     let mut verification_results = assura_smt::verify(&typed);
     verification_results.extend(dispatch_decrease_checks(&typed));
+    let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
+
+    if verbosity == Verbosity::Verbose {
+        eprintln!(
+            "  verify:    {} clause(s) ({verify_ms:.2}ms)",
+            verification_results.len()
+        );
+        let total = timing.lex_ms
+            + timing.parse_ms
+            + timing.resolve_ms.unwrap_or(0.0)
+            + timing.typecheck_ms.unwrap_or(0.0)
+            + verify_ms;
+        eprintln!("  total:     {total:.2}ms");
+        eprintln!();
+    }
 
     // --- Output ---
-    if show_ast {
+    if verbosity == Verbosity::Quiet {
+        // Quiet mode: no output for success
+    } else if show_ast {
         print_ast(&file);
     } else {
         print_summary(
@@ -2904,5 +3167,179 @@ contract CraneliftTest {
             project.cargo_toml.contains("debug = true"),
             "should have debug info"
         );
+    }
+
+    // =======================================================================
+    // P001: Verbose and quiet mode tests
+    // =======================================================================
+
+    #[test]
+    fn verbose_check_shows_timing() {
+        let out = std::process::Command::new(assura_bin())
+            .args(["check", "--verbose", "demos/libwebp-huffman.assura"])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura check --verbose");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("Pipeline timing"),
+            "should show pipeline timing header: {stderr}"
+        );
+        assert!(stderr.contains("lex:"), "should show lex timing: {stderr}");
+        assert!(
+            stderr.contains("parse:"),
+            "should show parse timing: {stderr}"
+        );
+        assert!(
+            stderr.contains("resolve:"),
+            "should show resolve timing: {stderr}"
+        );
+        assert!(
+            stderr.contains("typecheck:"),
+            "should show typecheck timing: {stderr}"
+        );
+        assert!(
+            stderr.contains("ms"),
+            "should show millisecond units: {stderr}"
+        );
+        assert!(
+            stderr.contains("total:"),
+            "should show total timing: {stderr}"
+        );
+    }
+
+    #[test]
+    fn quiet_check_suppresses_summary() {
+        let out = std::process::Command::new(assura_bin())
+            .args(["check", "--quiet", "demos/libwebp-huffman.assura"])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura check --quiet");
+        assert!(out.status.success(), "check should succeed");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // Quiet mode should not show "check passed" or verification info
+        assert!(
+            !stderr.contains("check passed"),
+            "quiet mode should not show 'check passed': {stderr}"
+        );
+        assert!(
+            !stderr.contains("Verification"),
+            "quiet mode should not show verification summary: {stderr}"
+        );
+    }
+
+    #[test]
+    fn quiet_check_shows_errors() {
+        let out = std::process::Command::new(assura_bin())
+            .args([
+                "check",
+                "--quiet",
+                "tests/fixtures/must_reject/clause_type_error.assura",
+            ])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura check --quiet on invalid file");
+        assert!(!out.status.success(), "check should fail on invalid input");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // Even in quiet mode, errors must be visible
+        assert!(
+            stderr.contains("error"),
+            "quiet mode should still show errors: {stderr}"
+        );
+    }
+
+    #[test]
+    fn verbose_short_flag_works() {
+        let out = std::process::Command::new(assura_bin())
+            .args(["check", "-v", "demos/libwebp-huffman.assura"])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura check -v");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("Pipeline timing"),
+            "-v should work like --verbose: {stderr}"
+        );
+    }
+
+    #[test]
+    fn quiet_short_flag_works() {
+        let out = std::process::Command::new(assura_bin())
+            .args(["check", "-q", "demos/libwebp-huffman.assura"])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura check -q");
+        assert!(out.status.success(), "check should succeed");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !stderr.contains("check passed"),
+            "-q should work like --quiet: {stderr}"
+        );
+    }
+
+    #[test]
+    fn verbose_build_shows_codegen_timing() {
+        let tmp = std::env::temp_dir().join("assura_p001_verbose_build");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let out = std::process::Command::new(assura_bin())
+            .args([
+                "build",
+                "--verbose",
+                "demos/libwebp-huffman.assura",
+                "--output",
+                tmp.to_str().unwrap(),
+            ])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura build --verbose");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("Pipeline timing"),
+            "build --verbose should show timing: {stderr}"
+        );
+        assert!(
+            stderr.contains("codegen:"),
+            "build --verbose should show codegen timing: {stderr}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn quiet_build_suppresses_file_listing() {
+        let tmp = std::env::temp_dir().join("assura_p001_quiet_build");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let out = std::process::Command::new(assura_bin())
+            .args([
+                "build",
+                "--quiet",
+                "demos/libwebp-huffman.assura",
+                "--output",
+                tmp.to_str().unwrap(),
+                "--no-check",
+            ])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura build --quiet");
+        assert!(
+            out.status.success(),
+            "build should succeed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // Quiet mode should not list written files
+        assert!(
+            !stdout.contains("wrote"),
+            "quiet mode should not list files: {stdout}"
+        );
+        assert!(
+            !stdout.contains("OK"),
+            "quiet mode should not show OK: {stdout}"
+        );
+        // But the files should still be generated
+        assert!(
+            tmp.join("Cargo.toml").exists(),
+            "files should still be generated in quiet mode"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

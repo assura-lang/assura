@@ -748,7 +748,7 @@
 
 ### P.1 CLI Polish
 
-- [ ] **P001**: Implement `--verbose` and `--quiet` modes
+- [x] **P001**: Implement `--verbose` and `--quiet` modes
   - Depends on: R009
   - `--verbose`: show timing information, Z3 solver statistics,
     intermediate results
@@ -1258,3 +1258,17 @@ A03002, A03005, A03006, A03010, A05001, A07003, A08001. Updated the
 and `tests/fixtures/must_reject/` directories. Total 24 annotated
 negative test fixtures across both directories, all validated through
 the full pipeline (parse, resolve, type_check). 1,296 total tests passing.
+
+### P001 completed (2026-06-13)
+Implemented `--verbose` (`-v`) and `--quiet` (`-q`) CLI modes across
+all three command paths (check, build, legacy). Verbose mode shows
+per-phase pipeline timing (lex, parse, resolve, typecheck, verify,
+codegen) with token counts, declaration counts, symbol counts, type
+binding counts, and total elapsed time in milliseconds. Quiet mode
+suppresses all non-error output (no "check passed", no verification
+summary, no file listing in build mode) while still displaying error
+diagnostics and the error count. Added `Verbosity` enum, `TimingInfo`
+struct with `Clone`+`Copy`, and `parse_verbosity()` helper. Updated
+help text. 7 new CLI integration tests (verbose timing assertions,
+quiet suppression assertions, short flag variants, verbose build with
+codegen timing, quiet build file suppression). 1,330 total tests passing.
