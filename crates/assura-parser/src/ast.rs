@@ -228,6 +228,72 @@ pub enum Literal {
 }
 
 // ---------------------------------------------------------------------------
+// Structured type expressions
+// ---------------------------------------------------------------------------
+
+/// A structured type expression, replacing `Vec<String>` raw tokens.
+///
+/// Produced by the type parser and consumed by type checking, HIR
+/// lowering, and code generation without re-parsing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeExpr {
+    /// Simple named type: `Int`, `Bool`, `Foo`
+    Named(String),
+    /// Generic type application: `List<Int>`, `Map<String, Int>`
+    Generic(String, Vec<TypeExpr>),
+    /// Tuple type: `(Int, Bool)`
+    Tuple(Vec<TypeExpr>),
+    /// Function type: `fn(Int, Bool) -> String`
+    Fn {
+        params: Vec<TypeExpr>,
+        ret: Box<TypeExpr>,
+    },
+    /// Refined type: `{ x: Int | x > 0 }`
+    Refined {
+        base: Box<TypeExpr>,
+        /// The refinement predicate as raw token text.
+        predicate: String,
+    },
+    /// Unit type (empty tuple)
+    Unit,
+}
+
+impl TypeExpr {
+    /// Convert to a simple string representation for display purposes.
+    pub fn to_display_string(&self) -> String {
+        match self {
+            TypeExpr::Named(name) => name.clone(),
+            TypeExpr::Generic(name, args) => {
+                let args_s: Vec<String> = args.iter().map(|a| a.to_display_string()).collect();
+                format!("{}<{}>", name, args_s.join(", "))
+            }
+            TypeExpr::Tuple(elems) => {
+                let elems_s: Vec<String> = elems.iter().map(|e| e.to_display_string()).collect();
+                format!("({})", elems_s.join(", "))
+            }
+            TypeExpr::Fn { params, ret } => {
+                let params_s: Vec<String> = params.iter().map(|p| p.to_display_string()).collect();
+                format!("fn({}) -> {}", params_s.join(", "), ret.to_display_string())
+            }
+            TypeExpr::Refined { base, .. } => {
+                format!("{{ {} | ... }}", base.to_display_string())
+            }
+            TypeExpr::Unit => "()".to_string(),
+        }
+    }
+
+    /// Convenience: create a Named type.
+    pub fn named(s: impl Into<String>) -> Self {
+        TypeExpr::Named(s.into())
+    }
+
+    /// Convenience: create a Generic type.
+    pub fn generic(name: impl Into<String>, args: Vec<TypeExpr>) -> Self {
+        TypeExpr::Generic(name.into(), args)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Shared clause parameter extraction
 // ---------------------------------------------------------------------------
 

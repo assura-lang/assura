@@ -1708,6 +1708,106 @@ pub fn source_file() -> impl Parser<Token, SourceFile, Error = Simple<Token>> {
         })
 }
 
+// ---------------------------------------------------------------------------
+// Structured type expression parser
+// ---------------------------------------------------------------------------
+
+/// Parse a structured `TypeExpr` from a token stream.
+///
+/// Grammar:
+///   type_expr := type_atom (('<' type_list '>'))?
+///   type_atom := ident | '(' type_list ')' | '(' ')'
+///   type_list := type_expr (',' type_expr)* ','?
+///
+/// This is used alongside the existing raw-token type parser. Code that
+/// needs structured types can call `parse_type_expr()` on a token stream;
+/// the existing `Vec<String>` fields remain for backward compatibility
+/// until Phase 6.2 switches them over.
+pub fn type_expr() -> impl Parser<Token, TypeExpr, Error = Simple<Token>> + Clone {
+    recursive(|ty| {
+        // Unit type: ()
+        let unit = just(Token::LParen)
+            .then(just(Token::RParen))
+            .map(|_| TypeExpr::Unit);
+
+        // Tuple type: (T1, T2, ...)
+        let tuple = ty
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .map(|elems| {
+                if elems.len() == 1 {
+                    // Single-element parens is just grouping, not a tuple
+                    elems.into_iter().next().unwrap()
+                } else {
+                    TypeExpr::Tuple(elems)
+                }
+            });
+
+        // Type argument list: <T1, T2>
+        let type_args = ty
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .delimited_by(just(Token::LAngle), just(Token::RAngle));
+
+        // Named type with optional generic args: Foo, List<Int>, Map<K, V>
+        let named = keyword_or_ident()
+            .then(type_args.or_not())
+            .map(|(name, args)| match args {
+                Some(args) if !args.is_empty() => TypeExpr::Generic(name, args),
+                _ => TypeExpr::Named(name),
+            });
+
+        // fn(T1, T2) -> T3
+        let fn_type = just(Token::Fn)
+            .ignore_then(
+                ty.clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .then_ignore(just(Token::Arrow))
+            .then(ty.clone())
+            .map(|(params, ret)| TypeExpr::Fn {
+                params,
+                ret: Box::new(ret),
+            });
+
+        choice((fn_type, unit, tuple, named))
+    })
+}
+
+/// Try to parse `Vec<String>` raw type tokens into a `TypeExpr`.
+///
+/// Returns `None` if the tokens don't form a valid type expression.
+/// This is a bridge function for gradual migration from `Vec<String>`.
+pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
+    if tokens.is_empty() {
+        return Some(TypeExpr::Unit);
+    }
+    if tokens.len() == 1 {
+        return Some(TypeExpr::Named(tokens[0].clone()));
+    }
+    // Simple generic: Name<Arg1, Arg2>
+    if tokens.len() >= 4 && tokens[1] == "<" && tokens.last().map(|s| s.as_str()) == Some(">") {
+        let name = tokens[0].clone();
+        let inner = &tokens[2..tokens.len() - 1];
+        // Split by comma for simple cases
+        let args: Vec<TypeExpr> = inner
+            .split(|t| t == ",")
+            .filter(|s| !s.is_empty())
+            .filter_map(try_parse_type_tokens)
+            .collect();
+        if !args.is_empty() {
+            return Some(TypeExpr::Generic(name, args));
+        }
+    }
+    // Fallback: join as named type
+    Some(TypeExpr::Named(tokens.join(" ")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2199,5 +2299,68 @@ mod tests {
             "effects clause should stay as Raw, got {:?}",
             eff.body
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // TypeExpr parser tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn type_expr_named() {
+        assert_eq!(
+            try_parse_type_tokens(&["Int".into()]),
+            Some(TypeExpr::Named("Int".into()))
+        );
+    }
+
+    #[test]
+    fn type_expr_generic_single() {
+        assert_eq!(
+            try_parse_type_tokens(&["List".into(), "<".into(), "Int".into(), ">".into()]),
+            Some(TypeExpr::Generic(
+                "List".into(),
+                vec![TypeExpr::Named("Int".into())]
+            ))
+        );
+    }
+
+    #[test]
+    fn type_expr_generic_multi() {
+        assert_eq!(
+            try_parse_type_tokens(&[
+                "Map".into(),
+                "<".into(),
+                "String".into(),
+                ",".into(),
+                "Int".into(),
+                ">".into()
+            ]),
+            Some(TypeExpr::Generic(
+                "Map".into(),
+                vec![
+                    TypeExpr::Named("String".into()),
+                    TypeExpr::Named("Int".into())
+                ]
+            ))
+        );
+    }
+
+    #[test]
+    fn type_expr_empty() {
+        assert_eq!(try_parse_type_tokens(&[]), Some(TypeExpr::Unit));
+    }
+
+    #[test]
+    fn type_expr_display_string() {
+        let ty = TypeExpr::Generic(
+            "Map".into(),
+            vec![TypeExpr::Named("K".into()), TypeExpr::Named("V".into())],
+        );
+        assert_eq!(ty.to_display_string(), "Map<K, V>");
+    }
+
+    #[test]
+    fn type_expr_unit_display() {
+        assert_eq!(TypeExpr::Unit.to_display_string(), "()");
     }
 }
