@@ -729,7 +729,7 @@
   - Include screenshots/terminal output
   - Test the tutorial end-to-end (every command must work)
 
-- [ ] **E008**: Write compiler internals documentation
+- [x] **E008**: Write compiler internals documentation
   - Depends on: R003, A001
   - `docs/INTERNALS.md` should cover:
     1. Pipeline overview (lex -> parse -> resolve -> HIR -> typecheck
@@ -1434,3 +1434,11 @@ compiler pipeline. 8 benchmark groups:
 - `full_pipeline`: parse through codegen+SMT (1.2-2.2ms per demo)
 - `scaling`: synthetic contracts with 10/50/100 clauses to measure scaling
 Run with: `cargo bench -p assura-bench`
+
+### E008 completed (2026-06-14)
+Rewrote `docs/INTERNALS.md` from a 66-line stub to comprehensive
+documentation covering: pipeline overview with data flow, crate map with
+LOC/test counts, detailed descriptions of all 11 crates and their public
+APIs, step-by-step guides for adding new type checkers, new SMT
+encodings, and new codegen passes, error code scheme with crate mappings,
+build/test commands, and key library version constraints.
