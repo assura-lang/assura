@@ -726,31 +726,37 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: Raw(
-                                [
+                            body: BinOp {
+                                lhs: Ident(
                                     "n",
-                                    ">=",
-                                    "0",
-                                ],
-                            ),
+                                ),
+                                op: Gte,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Decreases,
-                            body: Raw(
-                                [
-                                    "n",
-                                ],
+                            body: Ident(
+                                "n",
                             ),
                         },
                         Clause {
                             kind: Ensures,
-                            body: Raw(
-                                [
+                            body: BinOp {
+                                lhs: Ident(
                                     "result",
-                                    ">=",
-                                    "0",
-                                ],
-                            ),
+                                ),
+                                op: Gte,
+                                rhs: Literal(
+                                    Int(
+                                        "0",
+                                    ),
+                                ),
+                            },
                         },
                     ],
                 },

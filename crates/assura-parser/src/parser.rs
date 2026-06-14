@@ -1017,8 +1017,9 @@ fn clause_body_expr() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone
     );
 
     // Bare expr: no colon, try expression parser first.
-    // NOTE: bare_expr without a colon is uncommon for expression clauses
-    // but can occur in some syntactic forms.
+    let bare_expr = expr_parser();
+
+    // Bare raw fallback: collect tokens if expr parser fails.
     let bare_raw = filter(move |t: &Token| !is_clause_stopper(t))
         .map(|t| tok_to_str(&t))
         .repeated()
@@ -1032,6 +1033,7 @@ fn clause_body_expr() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone
         parened_raw,
         inline_expr,
         inline_raw,
+        bare_expr,
         bare_raw,
     ))
 }
@@ -2317,6 +2319,95 @@ mod tests {
             matches!(&eff.body, Expr::Raw(_)),
             "effects clause should stay as Raw, got {:?}",
             eff.body
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // R013 regression: expression clauses in demo files must not produce Raw
+    // -----------------------------------------------------------------------
+
+    /// Count how many expression-type clauses (requires, ensures, invariant,
+    /// decreases) still produce `Expr::Raw` in a parsed SourceFile.
+    fn count_raw_expr_clauses(file: &crate::ast::SourceFile) -> (usize, usize) {
+        let mut total = 0;
+        let mut raw = 0;
+        for decl in &file.decls {
+            let clauses: Vec<&crate::ast::Clause> = match &decl.node {
+                Decl::Contract(c) => c.clauses.iter().collect(),
+                Decl::FnDef(f) => f.clauses.iter().collect(),
+                Decl::Extern(e) => e.clauses.iter().collect(),
+                _ => continue,
+            };
+            for clause in clauses {
+                if matches!(
+                    clause.kind,
+                    ClauseKind::Requires
+                        | ClauseKind::Ensures
+                        | ClauseKind::Invariant
+                        | ClauseKind::Decreases
+                ) {
+                    total += 1;
+                    if matches!(&clause.body, Expr::Raw(_)) {
+                        raw += 1;
+                    }
+                }
+            }
+        }
+        (total, raw)
+    }
+
+    #[test]
+    fn demo_libwebp_no_raw_in_expr_clauses() {
+        let src = std::fs::read_to_string("../../demos/libwebp-huffman.assura").unwrap();
+        let file = parse_source(&src).unwrap();
+        let (total, raw) = count_raw_expr_clauses(&file);
+        assert!(total > 0, "expected expression clauses in libwebp demo");
+        assert_eq!(
+            raw, 0,
+            "libwebp: {raw}/{total} expression clauses still Raw"
+        );
+    }
+
+    #[test]
+    fn demo_zlib_expr_clause_budget() {
+        // Known gap: `state.state @ ExtraField` uses @ pattern syntax
+        // that the expression parser does not handle yet.
+        let src = std::fs::read_to_string("../../demos/zlib-inflate.assura").unwrap();
+        let file = parse_source(&src).unwrap();
+        let (total, raw) = count_raw_expr_clauses(&file);
+        assert!(total > 0, "expected expression clauses in zlib demo");
+        // Budget: at most 1 Raw clause (the @ pattern one).
+        // If the expr parser improves, reduce this to 0.
+        assert!(
+            raw <= 1,
+            "zlib: {raw}/{total} Raw clauses exceeds budget of 1"
+        );
+    }
+
+    #[test]
+    fn demo_mbedtls_no_raw_in_expr_clauses() {
+        let src = std::fs::read_to_string("../../demos/mbedtls-x509.assura").unwrap();
+        let file = parse_source(&src).unwrap();
+        let (total, raw) = count_raw_expr_clauses(&file);
+        assert!(total > 0, "expected expression clauses in mbedtls demo");
+        assert_eq!(
+            raw, 0,
+            "mbedtls: {raw}/{total} expression clauses still Raw"
+        );
+    }
+
+    #[test]
+    fn test_basic_expr_clause_budget() {
+        // Known gap: `a mod b` uses `mod` keyword as infix operator
+        // that the expression parser does not handle yet.
+        let src = std::fs::read_to_string("../../tests/fixtures/test_basic.assura").unwrap();
+        let file = parse_source(&src).unwrap();
+        let (total, raw) = count_raw_expr_clauses(&file);
+        assert!(total > 0, "expected expression clauses in test_basic");
+        // Budget: at most 1 Raw clause (the `mod` operator one).
+        assert!(
+            raw <= 1,
+            "test_basic: {raw}/{total} Raw clauses exceeds budget of 1"
         );
     }
 
