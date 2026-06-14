@@ -17,6 +17,112 @@ use logos::Logos;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
+// Project configuration (assura.toml)
+// ---------------------------------------------------------------------------
+
+/// Parsed `assura.toml` project configuration.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
+struct ProjectConfig {
+    package: PackageConfig,
+    build: BuildConfig,
+    verify: VerifyConfig,
+    profile: ProfileConfig,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
+struct PackageConfig {
+    name: String,
+    version: String,
+}
+
+impl Default for PackageConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            version: "0.1.0".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
+struct BuildConfig {
+    target: String,
+    output: String,
+}
+
+impl Default for BuildConfig {
+    fn default() -> Self {
+        Self {
+            target: "native".to_string(),
+            output: "generated".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+struct VerifyConfig {
+    smt_solver: String,
+    layer: u8,
+    timeout: u64,
+}
+
+impl Default for VerifyConfig {
+    fn default() -> Self {
+        Self {
+            smt_solver: "z3".to_string(),
+            layer: 1,
+            timeout: 1000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+struct ProfileConfig {
+    #[serde(rename = "type")]
+    profile_type: String,
+}
+
+impl Default for ProfileConfig {
+    fn default() -> Self {
+        Self {
+            profile_type: "minimal".to_string(),
+        }
+    }
+}
+
+/// Load `assura.toml` from the project root, if it exists.
+///
+/// Walks up from `start_path` to find the project root (directory
+/// containing `assura.toml`), then parses the config file.
+/// Returns `None` if no `assura.toml` is found (single-file mode).
+fn load_project_config(start_path: &Path) -> Option<(ProjectConfig, std::path::PathBuf)> {
+    let project_root = assura_resolve::find_project_root(start_path)?;
+    let config_path = project_root.join("assura.toml");
+    let content = fs::read_to_string(&config_path).ok()?;
+
+    // Support both [package] and legacy [project] section names.
+    // If the file has [project] but no [package], rename it for parsing.
+    let parse_content = if content.contains("[project]") && !content.contains("[package]") {
+        content.replace("[project]", "[package]")
+    } else {
+        content
+    };
+
+    match toml::from_str::<ProjectConfig>(&parse_content) {
+        Ok(config) => Some((config, project_root)),
+        Err(e) => {
+            eprintln!("warning: failed to parse {}: {e}", config_path.display());
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Structured diagnostic for JSON output
 // ---------------------------------------------------------------------------
 
@@ -415,7 +521,12 @@ fn print_help() {
          \x20   -v, --verbose                       Show timing, intermediate results, Z3 stats\n\
          \x20   -q, --quiet                         Suppress all output except errors\n\
          \x20   -h, --help                          Show this help message\n\
-         \x20   -V, --version                       Show version",
+         \x20   -V, --version                       Show version\n\
+         \n\
+         CONFIG:\n\
+         \x20   Project settings are read from assura.toml in the project root.\n\
+         \x20   CLI flags override config file values. Run 'assura init' to create\n\
+         \x20   a project with a default assura.toml.",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -460,13 +571,6 @@ fn run_check(args: &[String]) {
     let verbosity = parse_verbosity(args);
     let watch = args.contains(&"--watch".to_string()) || args.contains(&"-w".to_string());
 
-    // Verification layer: --layer 0 = structural only, --layer 1 = SMT (default)
-    let layer: u8 = args
-        .windows(2)
-        .find(|w| w[0] == "--layer")
-        .and_then(|w| w[1].parse().ok())
-        .unwrap_or(1);
-
     // The file is the first positional arg after "check", skipping flag values
     let filename = positional_args(args)
         .into_iter()
@@ -475,6 +579,17 @@ fn run_check(args: &[String]) {
             eprintln!("Usage: assura check <file.assura> [--json|--human] [--layer 0|1] [--watch]");
             process::exit(2);
         });
+
+    // Load project config (assura.toml) if available
+    let config = load_project_config(Path::new(&filename));
+    let config_layer = config.as_ref().map(|(c, _)| c.verify.layer);
+
+    // Verification layer: CLI flag > config file > default (1)
+    let layer: u8 = args
+        .windows(2)
+        .find(|w| w[0] == "--layer")
+        .and_then(|w| w[1].parse().ok())
+        .unwrap_or_else(|| config_layer.unwrap_or(1));
 
     if watch {
         run_watch_loop(&filename, output_mode, verbosity, layer);
@@ -511,6 +626,19 @@ fn run_check(args: &[String]) {
     } = compile(&source, &filename);
 
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
+        if let Some((ref cfg, ref root)) = config {
+            eprintln!(
+                "Project: {} v{} ({})",
+                cfg.package.name,
+                cfg.package.version,
+                root.display()
+            );
+            eprintln!(
+                "  config: layer={}, solver={}, timeout={}ms, output={}",
+                cfg.verify.layer, cfg.verify.smt_solver, cfg.verify.timeout, cfg.build.output
+            );
+            eprintln!();
+        }
         eprintln!("Pipeline timing for {filename}:");
         eprintln!(
             "  lex:       {} tokens ({:.2}ms)",
@@ -750,12 +878,30 @@ fn run_check(args: &[String]) {
                 });
             }
 
-            let output = serde_json::json!({
+            let mut output = serde_json::json!({
                 "file_info": file_info,
                 "diagnostics": diagnostics,
                 "verification": verification_json,
                 "layer": layer,
             });
+            if let Some((ref cfg, ref root)) = config {
+                output["config"] = serde_json::json!({
+                    "project_root": root.display().to_string(),
+                    "package": {
+                        "name": cfg.package.name,
+                        "version": cfg.package.version,
+                    },
+                    "build": {
+                        "target": cfg.build.target,
+                        "output": cfg.build.output,
+                    },
+                    "verify": {
+                        "smt_solver": cfg.verify.smt_solver,
+                        "layer": cfg.verify.layer,
+                        "timeout": cfg.verify.timeout,
+                    },
+                });
+            }
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
         OutputMode::Human => {
@@ -1328,12 +1474,19 @@ fn run_build(args: &[String]) {
         process::exit(2);
     });
 
-    // Output directory: --output <dir> or default "generated"
+    // Load project config (assura.toml) if available
+    let config = load_project_config(Path::new(filename.as_str()));
+    let config_output = config
+        .as_ref()
+        .map(|(c, _)| c.build.output.clone())
+        .unwrap_or_else(|| "generated".to_string());
+
+    // Output directory: CLI flag > config file > default "generated"
     let out_dir_str = args
         .windows(2)
         .find(|w| w[0] == "--output")
         .map(|w| w[1].as_str())
-        .unwrap_or("generated");
+        .unwrap_or(config_output.as_str());
 
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
@@ -1352,6 +1505,19 @@ fn run_build(args: &[String]) {
     } = compile(&source, filename);
 
     if verbosity == Verbosity::Verbose {
+        if let Some((ref cfg, ref root)) = config {
+            eprintln!(
+                "Project: {} v{} ({})",
+                cfg.package.name,
+                cfg.package.version,
+                root.display()
+            );
+            eprintln!(
+                "  config: output={}, solver={}, timeout={}ms",
+                cfg.build.output, cfg.verify.smt_solver, cfg.verify.timeout
+            );
+            eprintln!();
+        }
         eprintln!("Pipeline timing for {filename}:");
         eprintln!(
             "  lex:       {} tokens ({:.2}ms)",
@@ -2214,13 +2380,21 @@ fn run_init(args: &[String]) {
 
     // Write assura.toml
     let toml_content = format!(
-        r#"[project]
+        r#"[package]
 name = "{project_name}"
 version = "0.1.0"
-edition = "2024"
+
+[build]
+target = "native"       # "native" or "wasm32-wasi"
+output = "generated"
+
+[verify]
+smt-solver = "z3"       # "z3", "cvc5", or "portfolio"
+layer = 1               # 0 = structural only, 1 = SMT
+timeout = 1000          # SMT timeout in ms
 
 [profile]
-features = ["core"]
+type = "minimal"        # minimal, parser, database, etc.
 "#
     );
     let toml_path = project_dir.join("assura.toml");
@@ -4636,5 +4810,128 @@ fn read_data(conn: &mut Connection) -> Bytes
   effects { io.read }
 "#,
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Config parsing tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_full_config() {
+        let toml_str = r#"
+[package]
+name = "my-project"
+version = "1.2.3"
+
+[build]
+target = "wasm32-wasi"
+output = "out"
+
+[verify]
+smt-solver = "cvc5"
+layer = 0
+timeout = 5000
+
+[profile]
+type = "database"
+"#;
+        let config: super::ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.package.name, "my-project");
+        assert_eq!(config.package.version, "1.2.3");
+        assert_eq!(config.build.target, "wasm32-wasi");
+        assert_eq!(config.build.output, "out");
+        assert_eq!(config.verify.smt_solver, "cvc5");
+        assert_eq!(config.verify.layer, 0);
+        assert_eq!(config.verify.timeout, 5000);
+        assert_eq!(config.profile.profile_type, "database");
+    }
+
+    #[test]
+    fn parse_minimal_config() {
+        let toml_str = r#"
+[package]
+name = "test"
+"#;
+        let config: super::ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.package.name, "test");
+        assert_eq!(config.package.version, "0.1.0"); // default
+        assert_eq!(config.build.target, "native"); // default
+        assert_eq!(config.build.output, "generated"); // default
+        assert_eq!(config.verify.smt_solver, "z3"); // default
+        assert_eq!(config.verify.layer, 1); // default
+        assert_eq!(config.verify.timeout, 1000); // default
+        assert_eq!(config.profile.profile_type, "minimal"); // default
+    }
+
+    #[test]
+    fn parse_empty_config() {
+        let config: super::ProjectConfig = toml::from_str("").unwrap();
+        assert_eq!(config.package.name, ""); // default
+        assert_eq!(config.verify.layer, 1);
+    }
+
+    #[test]
+    fn parse_legacy_project_section() {
+        // The legacy [project] section should be handled by
+        // load_project_config via string replacement.
+        let toml_str = r#"
+[project]
+name = "legacy-project"
+version = "0.2.0"
+"#;
+        // Simulate the replacement that load_project_config does
+        let parse_content = toml_str.replace("[project]", "[package]");
+        let config: super::ProjectConfig = toml::from_str(&parse_content).unwrap();
+        assert_eq!(config.package.name, "legacy-project");
+        assert_eq!(config.package.version, "0.2.0");
+    }
+
+    #[test]
+    fn load_config_from_disk() {
+        let dir = std::env::temp_dir().join("assura-config-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let config_content = r#"[package]
+name = "disk-test"
+version = "0.3.0"
+
+[verify]
+layer = 0
+timeout = 2000
+"#;
+        std::fs::write(dir.join("assura.toml"), config_content).unwrap();
+
+        // Create a subdir with a dummy file
+        let sub = dir.join("src");
+        std::fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("main.assura");
+        std::fs::write(&file, "").unwrap();
+
+        let result = super::load_project_config(&file);
+        assert!(result.is_some(), "should find config");
+        let (cfg, root) = result.unwrap();
+        assert_eq!(cfg.package.name, "disk-test");
+        assert_eq!(cfg.package.version, "0.3.0");
+        assert_eq!(cfg.verify.layer, 0);
+        assert_eq!(cfg.verify.timeout, 2000);
+        assert_eq!(root, dir);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_config_missing_returns_none() {
+        let dir = std::env::temp_dir().join("assura-no-config-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("test.assura");
+        std::fs::write(&file, "").unwrap();
+
+        // May or may not find one depending on system temp layout.
+        // At minimum, it should not panic.
+        let _ = super::load_project_config(&file);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

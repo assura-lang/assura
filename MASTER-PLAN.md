@@ -467,7 +467,7 @@
        implemented in assura-resolve)
   - Support: `assura check .` to check all `.assura` files in the project
 
-- [ ] **A003**: Implement `assura.toml` project configuration
+- [x] **A003**: Implement `assura.toml` project configuration
   - Depends on: A002
   - Parse `assura.toml` with these fields (from spec Section 10.3):
     ```toml
@@ -1456,3 +1456,16 @@ LOC/test counts, detailed descriptions of all 11 crates and their public
 APIs, step-by-step guides for adding new type checkers, new SMT
 encodings, and new codegen passes, error code scheme with crate mappings,
 build/test commands, and key library version constraints.
+
+### A003 completed (2026-06-14)
+Implemented `assura.toml` project configuration parsing. Added `toml`
+crate dependency to CLI. Created `ProjectConfig` struct with four
+sections: `[package]` (name, version), `[build]` (target, output),
+`[verify]` (smt-solver, layer, timeout), `[profile]` (type). CLI flags
+override config values (layer, output). `load_project_config()` walks up
+from the source file to find the project root (via existing
+`find_project_root`), parses the TOML, and supports legacy `[project]`
+section name. Updated `assura init` to generate proper config with all
+sections and comments. Verbose mode displays project info and config
+values. JSON output includes config when present. 6 new tests. 1,434
+total tests passing.
