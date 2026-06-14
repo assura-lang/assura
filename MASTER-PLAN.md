@@ -148,7 +148,7 @@
 
 ### R.3 Close Open GitHub Issues
 
-- [ ] **R004**: Deduplicate raw-token param/type extraction (issue #5)
+- [x] **R004**: Deduplicate raw-token param/type extraction (issue #5)
   - Depends on: none
   - Three crates independently parse `name: Type` pairs from raw tokens:
     - `assura-types/src/lib.rs`: `register_input_clause_params()`
@@ -995,3 +995,13 @@ feature_max constants), fixed cross-integer-width comparisons via
 i128 casts, stripped typestate annotations, refined `has_deep_field_access`
 to allow method chains while blocking struct field access on stubs.
 All demos pass `cargo check` on generated output. 1,220 tests pass.
+
+### R004 completed (2026-06-14)
+Deduplicated raw-token param extraction across 3 crates. Added shared
+`ParsedParam` struct and `extract_clause_params()` to assura-parser/ast.rs.
+Updated all 3 call sites:
+- assura-resolve: `extract_input_param_names` now wraps shared function
+- assura-types/clauses.rs: `register_input_clause_params` and
+  `collect_input_param_types` now wrap shared function
+- assura-codegen: `extract_input_params` now wraps shared function
+Removed ~160 lines of duplicated parsing logic. All 1,062 tests pass.

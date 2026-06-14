@@ -228,6 +228,125 @@ pub enum Literal {
 }
 
 // ---------------------------------------------------------------------------
+// Shared clause parameter extraction
+// ---------------------------------------------------------------------------
+
+/// A parsed parameter from an input/output clause.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedParam {
+    pub name: String,
+    /// Raw type tokens (e.g., `["List", "<", "Int", ">"]`). Empty if untyped.
+    pub ty: Vec<String>,
+}
+
+/// Extract `(name, type)` parameter pairs from a clause body expression.
+///
+/// Handles all known patterns:
+/// - `input(a: Int, b: Bool)` -> Call with Cast args
+/// - `input(x)` -> Call with Ident args (untyped)
+/// - `input { a: Int }` -> Block with Cast elements
+/// - Raw token fallback: `["a", ":", "Int", ",", "b", ":", "Bool"]`
+pub fn extract_clause_params(body: &Expr) -> Vec<ParsedParam> {
+    let mut params = Vec::new();
+    extract_clause_params_inner(body, &mut params);
+    params
+}
+
+fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
+    match body {
+        Expr::Call { args, .. } => {
+            for arg in args {
+                extract_single_param(arg, params);
+            }
+        }
+        Expr::Cast { expr: inner, ty } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                params.push(ParsedParam {
+                    name: name.clone(),
+                    ty: vec![ty.clone()],
+                });
+            }
+        }
+        Expr::Ident(name) => {
+            params.push(ParsedParam {
+                name: name.clone(),
+                ty: vec![],
+            });
+        }
+        Expr::Paren(inner) => extract_clause_params_inner(inner, params),
+        Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                extract_single_param(item, params);
+            }
+        }
+        Expr::Raw(tokens) => extract_clause_params_from_raw(tokens, params),
+        _ => {}
+    }
+}
+
+fn extract_single_param(expr: &Expr, params: &mut Vec<ParsedParam>) {
+    match expr {
+        Expr::Cast { expr: inner, ty } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                params.push(ParsedParam {
+                    name: name.clone(),
+                    ty: vec![ty.clone()],
+                });
+            }
+        }
+        Expr::Ident(name) => {
+            params.push(ParsedParam {
+                name: name.clone(),
+                ty: vec![],
+            });
+        }
+        Expr::Paren(inner) => extract_single_param(inner, params),
+        _ => {}
+    }
+}
+
+fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedParam>) {
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i] == "," {
+            i += 1;
+            continue;
+        }
+        let sep = tokens.get(i + 1).map(|s| s.as_str());
+        if matches!(sep, Some(":" | "as")) && i + 2 < tokens.len() {
+            let name = tokens[i].clone();
+            let type_start = i + 2;
+            let mut j = type_start;
+            let mut depth = 0i32;
+            while j < tokens.len() {
+                match tokens[j].as_str() {
+                    "<" => depth += 1,
+                    ">" if depth > 0 => depth -= 1,
+                    "," if depth == 0 => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            let ty: Vec<String> = tokens[type_start..j].to_vec();
+            params.push(ParsedParam { name, ty });
+            i = j;
+        } else {
+            // Bare identifier without type annotation
+            let name = tokens[i].clone();
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+            {
+                params.push(ParsedParam { name, ty: vec![] });
+            }
+            i += 1;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Type / Enum
 // ---------------------------------------------------------------------------
 

@@ -1822,107 +1822,29 @@ fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mut String) {
 
 /// Extract `(name, rust_type)` pairs from an input clause body.
 ///
-/// Input clauses look like `input(a: Int, b: Int)` which parses as a
-/// `Call { func: Ident("input"), args: [...] }` or just identifiers.
+/// Uses the shared `extract_clause_params` from assura-parser, then maps
+/// Assura type tokens to Rust types via `map_type_token`/`map_type_tokens`.
 fn extract_input_params(body: &Expr, params: &mut Vec<(String, String)>) {
-    match body {
-        Expr::Call { args, .. } => {
-            for arg in args {
-                extract_param_from_expr(arg, params);
-            }
-        }
-        // Single typed param at top level
-        Expr::Cast { expr: inner, ty } => {
-            if let Expr::Ident(name) = inner.as_ref() {
-                params.push((name.clone(), map_type_token(ty).to_string()));
-            }
-        }
-        // Single untyped param
-        Expr::Ident(name) => {
-            params.push((name.clone(), "i64".to_string()));
-        }
-        // Paren-wrapped: unwrap and recurse
-        Expr::Paren(inner) => extract_input_params(inner, params),
-        // Tuple/Block: process each element
-        Expr::Tuple(items) | Expr::Block(items) => {
-            for item in items {
-                extract_param_from_expr(item, params);
-            }
-        }
-        Expr::Raw(tokens) => {
-            extract_input_params_from_raw(tokens, params);
-        }
-        _ => {}
-    }
-}
-
-fn extract_param_from_expr(expr: &Expr, params: &mut Vec<(String, String)>) {
-    match expr {
-        // Cast: `a as Int` => name="a", type from cast target
-        Expr::Cast { expr: inner, ty } => {
-            if let Expr::Ident(name) = inner.as_ref() {
-                params.push((name.clone(), map_type_token(ty).to_string()));
-            }
-        }
-        // Bare identifier with no type annotation: default to i64
-        Expr::Ident(name) => {
-            params.push((name.clone(), "i64".to_string()));
-        }
-        Expr::Paren(inner) => extract_param_from_expr(inner, params),
-        _ => {}
-    }
-}
-
-/// Extract (name, type) pairs from raw tokens.
-/// Handles "name: Type" and "name as Type" patterns, plus bare identifiers.
-fn extract_input_params_from_raw(tokens: &[String], params: &mut Vec<(String, String)>) {
-    let mut i = 0;
-    while i < tokens.len() {
-        if tokens[i] == "," {
-            i += 1;
-            continue;
-        }
-        let sep = tokens.get(i + 1).map(|s| s.as_str());
-        if matches!(sep, Some(":" | "as")) && i + 2 < tokens.len() {
-            let name = tokens[i].clone();
-            let type_start = i + 2;
-            let mut j = type_start;
-            let mut depth = 0i32;
-            while j < tokens.len() {
-                match tokens[j].as_str() {
-                    "<" => depth += 1,
-                    ">" if depth > 0 => depth -= 1,
-                    "," if depth == 0 => break,
-                    _ => {}
-                }
-                j += 1;
-            }
-            // Filter out "linear" modifier from type tokens
-            let type_tokens: Vec<String> = tokens[type_start..j]
-                .iter()
-                .filter(|t| t.as_str() != "linear")
-                .cloned()
-                .collect();
-            let ty = if type_tokens.is_empty() {
-                "i64".to_string()
-            } else {
-                map_type_tokens(&type_tokens)
-            };
-            params.push((name, ty));
-            i = j;
+    use assura_parser::ast::extract_clause_params;
+    for param in extract_clause_params(body) {
+        let rust_ty = if param.ty.is_empty() {
+            "i64".to_string()
         } else {
-            // Bare identifier
-            let name = &tokens[i];
-            if !name.is_empty()
-                && name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphabetic() || c == '_')
-            {
-                params.push((name.clone(), "i64".to_string()));
+            // Filter out "linear" modifier from type tokens
+            let filtered: Vec<String> = param
+                .ty
+                .into_iter()
+                .filter(|t| t.as_str() != "linear")
+                .collect();
+            if filtered.is_empty() {
+                "i64".to_string()
+            } else if filtered.len() == 1 {
+                map_type_token(&filtered[0]).to_string()
+            } else {
+                map_type_tokens(&filtered)
             }
-            i += 1;
-        }
+        };
+        params.push((param.name, rust_ty));
     }
 }
 

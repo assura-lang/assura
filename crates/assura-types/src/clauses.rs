@@ -22,103 +22,18 @@ use crate::{
 /// Input clauses are expressions like `input(a: Int, b: String)` which parse
 /// as `Call { func: Ident("input"), args: [...] }` or raw token sequences.
 /// This extracts `(name, type)` pairs and inserts them as bindings.
+///
+/// Uses the shared `extract_clause_params` from assura-parser.
 pub(crate) fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
-    match body {
-        Expr::Call { args, .. } => {
-            // Each arg is typically a cast expression: `Ident("a") as "Int"`
-            // or just an identifier
-            for arg in args {
-                register_single_input_param(arg, env);
+    use assura_parser::ast::extract_clause_params;
+    for param in extract_clause_params(body) {
+        if param.ty.is_empty() {
+            if env.lookup(&param.name).is_none() {
+                env.insert(param.name, Type::Unknown);
             }
-        }
-        // Single typed param: `input(a as Int)` parses as top-level Cast
-        Expr::Cast { expr: inner, ty } => {
-            if let Expr::Ident(name) = inner.as_ref() {
-                let parsed = parse_type_tokens(std::slice::from_ref(ty));
-                env.insert(name.clone(), parsed);
-            }
-        }
-        // Single untyped param: `input(x)` or `input { x }` parses as top-level Ident
-        Expr::Ident(name) => {
-            if env.lookup(name).is_none() {
-                env.insert(name.clone(), Type::Unknown);
-            }
-        }
-        // Paren-wrapped body: unwrap and recurse
-        Expr::Paren(inner) => register_input_clause_params(inner, env),
-        // Tuple: `input((a as Int, b as String))` — process each element
-        Expr::Tuple(items) | Expr::Block(items) => {
-            for item in items {
-                register_single_input_param(item, env);
-            }
-        }
-        Expr::Raw(tokens) => {
-            register_input_params_from_raw(tokens, env);
-        }
-        _ => {}
-    }
-}
-
-/// Register a single parameter from an input clause arg expression.
-fn register_single_input_param(expr: &Expr, env: &mut TypeEnv) {
-    match expr {
-        Expr::Cast { expr: inner, ty } => {
-            if let Expr::Ident(name) = inner.as_ref() {
-                let parsed = parse_type_tokens(std::slice::from_ref(ty));
-                env.insert(name.clone(), parsed);
-            }
-        }
-        Expr::Ident(name) => {
-            if env.lookup(name).is_none() {
-                env.insert(name.clone(), Type::Unknown);
-            }
-        }
-        Expr::Paren(inner) => register_single_input_param(inner, env),
-        _ => {}
-    }
-}
-
-/// Parse raw tokens for "name: Type" or "name as Type" pairs, and bare identifiers.
-fn register_input_params_from_raw(tokens: &[String], env: &mut TypeEnv) {
-    let mut i = 0;
-    while i < tokens.len() {
-        // Skip commas
-        if tokens[i] == "," {
-            i += 1;
-            continue;
-        }
-        // Check for "name: Type" or "name as Type" patterns
-        let sep = tokens.get(i + 1).map(|s| s.as_str());
-        if matches!(sep, Some(":" | "as")) && i + 2 < tokens.len() {
-            let name = tokens[i].clone();
-            let type_start = i + 2;
-            let mut j = type_start;
-            let mut depth = 0i32;
-            while j < tokens.len() {
-                match tokens[j].as_str() {
-                    "<" => depth += 1,
-                    ">" if depth > 0 => depth -= 1,
-                    "," if depth == 0 => break,
-                    _ => {}
-                }
-                j += 1;
-            }
-            let ty = parse_type_tokens(&tokens[type_start..j]);
-            env.insert(name, ty);
-            i = j;
         } else {
-            // Bare identifier without type annotation — register as Unknown
-            let name = &tokens[i];
-            if !name.is_empty()
-                && name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphabetic() || c == '_')
-                && env.lookup(name).is_none()
-            {
-                env.insert(name.clone(), Type::Unknown);
-            }
-            i += 1;
+            let parsed = parse_type_tokens(&param.ty);
+            env.insert(param.name, parsed);
         }
     }
 }
@@ -128,86 +43,15 @@ fn register_input_params_from_raw(tokens: &[String], env: &mut TypeEnv) {
 /// Used by service operation/query type enrichment to build the parameter
 /// type list for `Type::Fn`. Mirrors `register_input_clause_params` but
 /// returns types instead of inserting into a `TypeEnv`.
+///
+/// Uses the shared `extract_clause_params` from assura-parser.
 pub(crate) fn collect_input_param_types(body: &Expr, out: &mut Vec<Type>) {
-    match body {
-        Expr::Call { args, .. } => {
-            for arg in args {
-                collect_single_input_param_type(arg, out);
-            }
-        }
-        // Single typed param: top-level Cast
-        Expr::Cast { ty, .. } => {
-            out.push(parse_type_tokens(std::slice::from_ref(ty)));
-        }
-        // Single untyped param: top-level Ident
-        Expr::Ident(_) => {
+    use assura_parser::ast::extract_clause_params;
+    for param in extract_clause_params(body) {
+        if param.ty.is_empty() {
             out.push(Type::Unknown);
-        }
-        // Paren-wrapped: unwrap and recurse
-        Expr::Paren(inner) => collect_input_param_types(inner, out),
-        // Tuple/Block: process each element
-        Expr::Tuple(items) | Expr::Block(items) => {
-            for item in items {
-                collect_single_input_param_type(item, out);
-            }
-        }
-        Expr::Raw(tokens) => {
-            collect_param_types_from_raw(tokens, out);
-        }
-        _ => {}
-    }
-}
-
-/// Collect the type of a single input param expression.
-fn collect_single_input_param_type(expr: &Expr, out: &mut Vec<Type>) {
-    match expr {
-        Expr::Cast { ty, .. } => {
-            out.push(parse_type_tokens(std::slice::from_ref(ty)));
-        }
-        Expr::Ident(_) => {
-            out.push(Type::Unknown);
-        }
-        Expr::Paren(inner) => collect_single_input_param_type(inner, out),
-        _ => {}
-    }
-}
-
-/// Collect param types from raw tokens ("name: Type" or "name as Type" or bare idents).
-fn collect_param_types_from_raw(tokens: &[String], out: &mut Vec<Type>) {
-    let mut i = 0;
-    while i < tokens.len() {
-        if tokens[i] == "," {
-            i += 1;
-            continue;
-        }
-        let sep = tokens.get(i + 1).map(|s| s.as_str());
-        if matches!(sep, Some(":" | "as")) && i + 2 < tokens.len() {
-            let type_start = i + 2;
-            let mut j = type_start;
-            let mut depth = 0i32;
-            while j < tokens.len() {
-                match tokens[j].as_str() {
-                    "<" => depth += 1,
-                    ">" if depth > 0 => depth -= 1,
-                    "," if depth == 0 => break,
-                    _ => {}
-                }
-                j += 1;
-            }
-            out.push(parse_type_tokens(&tokens[type_start..j]));
-            i = j;
         } else {
-            // Bare identifier — Unknown type
-            let name = &tokens[i];
-            if !name.is_empty()
-                && name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphabetic() || c == '_')
-            {
-                out.push(Type::Unknown);
-            }
-            i += 1;
+            out.push(parse_type_tokens(&param.ty));
         }
     }
 }
