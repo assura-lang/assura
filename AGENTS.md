@@ -328,6 +328,76 @@ A task in MASTER-PLAN.md is done when ALL of these are true:
 
 Do not mark a task `[x]` if any of these are false.
 
+## Issue Closure Discipline (CRITICAL)
+
+Issues have been closed with zero acceptance criteria checked. This is
+unacceptable. The following rules are mandatory:
+
+### Never close an issue with unchecked acceptance criteria
+
+If an issue has checkboxes in its body (e.g., `- [ ] Feature X works`),
+every checkbox must be checked (`- [x]`) before closing. If you cannot
+complete an acceptance criterion, leave the issue open and comment
+explaining what is blocked.
+
+**Mechanical verification before closing any issue:**
+
+```bash
+# 1. Verify the project compiles
+cargo build
+
+# 2. Verify all tests pass
+cargo test --workspace
+
+# 3. Read the issue body and check each criterion
+gh issue view <number> --json body --jq '.body' | grep -c '\- \[ \]'
+# If this returns > 0, the issue is NOT ready to close
+
+# 4. Only then close
+gh issue close <number>
+```
+
+### Never close an issue without running the acceptance tests
+
+If an acceptance criterion says "test X exists and passes," you must:
+1. Run the specific test: `cargo test test_name`
+2. See it pass in the terminal output
+3. Only then check the checkbox
+
+Saying "I added the test" is not the same as "the test passes." Run it.
+
+### Module extraction requires per-module test verification
+
+When extracting code from a monolith into separate modules:
+1. Count `#[test]` functions in the source BEFORE extraction
+2. After extraction, count `#[test]` functions in EACH new module
+3. Any module with zero tests is incomplete
+4. Every extracted module must have at least one direct test
+
+This rule exists because the SMT module extraction created 10 new files
+with zero tests each, leaving all 205 tests in the original lib.rs.
+
+### Never commit code that breaks `cargo build`
+
+This already exists in the Pre-Commit Gate section but was violated.
+Restating for emphasis: if `cargo build` fails after your changes,
+your changes are wrong. Fix them before committing. No exceptions.
+
+### The build must compile AFTER every commit, not just before
+
+When making a series of commits (e.g., extracting modules one by one),
+each individual commit must leave the project in a compilable state.
+Run `cargo build` after each `git commit`, not just at the end.
+
+### What "done" means for each issue type
+
+| Issue type | "Done" means |
+|------------|-------------|
+| Feature | Code exists, tests pass, acceptance criteria checked, demo works |
+| Bug fix | Bug is reproducible before fix, fix applied, test proves it, no regression |
+| Refactoring | Before and after produce identical behavior, all tests pass, no new modules with zero tests |
+| Tech debt | Each listed item has implementation AND test, all checkboxes checked |
+
 ## Z3 Installation
 
 The `assura-smt` crate (T038+) depends on the `z3` Rust crate, which
