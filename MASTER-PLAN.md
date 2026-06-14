@@ -531,7 +531,7 @@
   - Test: run the same contracts on both solvers, compare results
   - Close issue #1
 
-- [ ] **I002**: Add performance profiling and benchmarks (GitHub issue #2)
+- [x] **I002**: Add performance profiling and benchmarks (GitHub issue #2)
   - Depends on: S005
   - No benchmarks exist. The compiler needs:
     1. `cargo bench` infrastructure using `criterion`
@@ -1421,3 +1421,16 @@ in release mode, then runs `assura build --no-check` on all demo files and
 `cargo check` on the generated Rust output. Runs after the main `check` job
 succeeds. Validated locally: all 3 demos (libwebp, mbedtls, zlib) generate
 Rust that passes `cargo check`.
+
+### I002 completed (2026-06-14)
+Created `crates/assura-bench/` with criterion 0.5 benchmarks for the full
+compiler pipeline. 8 benchmark groups:
+- `parse`: lex + parse each demo file (300-550us per file)
+- `resolve`: name resolution (6-9us)
+- `hir_lower`: AST to HIR lowering (12-17us)
+- `type_check`: full type checking (31-61us)
+- `codegen`: Rust code generation via prettyplease (88-145us)
+- `smt_verify`: Z3 verification with 20 samples (317-784us)
+- `full_pipeline`: parse through codegen+SMT (1.2-2.2ms per demo)
+- `scaling`: synthetic contracts with 10/50/100 clauses to measure scaling
+Run with: `cargo bench -p assura-bench`
