@@ -1384,6 +1384,8 @@ fn generate_service_method(
     let mut output_type = "()".to_string();
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
+    let mut modifies: Vec<String> = Vec::new();
+    let mut invariants: Vec<String> = Vec::new();
     let mut pre_state: Option<String> = None;
     let mut post_state: Option<String> = None;
 
@@ -1411,6 +1413,12 @@ fn generate_service_method(
                     ensures_exprs.push(expr_to_rust(&clause.body));
                 }
             }
+            ClauseKind::Modifies => {
+                modifies.push(expr_to_rust(&clause.body));
+            }
+            ClauseKind::Invariant => {
+                invariants.push(expr_to_rust(&clause.body));
+            }
             _ => {}
         }
     }
@@ -1418,7 +1426,7 @@ fn generate_service_method(
     let kind_label = if is_mutation { "Operation" } else { "Query" };
     code.push_str(&format!("        /// {kind_label}: {name}\n"));
 
-    // Doc comments for ensures/effects
+    // Doc comments for ensures/effects/modifies
     for clause in clauses {
         match clause.kind {
             ClauseKind::Ensures => {
@@ -1428,6 +1436,10 @@ fn generate_service_method(
             ClauseKind::Effects => {
                 let expr = expr_to_rust(&clause.body);
                 code.push_str(&format!("        /// Effects: {expr}\n"));
+            }
+            ClauseKind::Modifies => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("        /// Modifies: {expr}\n"));
             }
             _ => {}
         }
@@ -1480,6 +1492,10 @@ fn generate_service_method(
             "            todo!(\"{} implementation\")\n",
             kind_label.to_lowercase()
         ));
+        // Operation-level invariant assertions
+        for inv in &invariants {
+            generate_debug_assert_indented(code, inv, "invariant", 3);
+        }
         // Invariant check at exit (for void operations)
         if has_invariants {
             code.push_str("            self.check_invariant();\n");
@@ -1492,6 +1508,10 @@ fn generate_service_method(
         // Ensures assertions
         for ens in &ensures_exprs {
             generate_debug_assert_indented(code, ens, "ensures", 3);
+        }
+        // Operation-level invariant assertions
+        for inv in &invariants {
+            generate_debug_assert_indented(code, inv, "invariant", 3);
         }
         // State transition
         if let Some(ref state) = post_state {
@@ -3130,6 +3150,50 @@ contract Mutator {
         assert!(
             lib.contains("/// Modifies:"),
             "modifies clause should produce doc comment"
+        );
+    }
+
+    #[test]
+    fn service_operation_modifies_generates_doc_comment() {
+        let project = codegen_ok(
+            r#"
+service Storage {
+    states: Empty -> Full
+
+    operation Store {
+        modifies { buffer }
+        requires { true }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("/// Modifies:"),
+            "modifies clause in service operation should produce doc comment: {lib}"
+        );
+    }
+
+    #[test]
+    fn service_operation_invariant_generates_debug_assert() {
+        let project = codegen_ok(
+            r#"
+service Counter {
+    states: Ready -> Done
+
+    operation Increment {
+        invariant { true }
+        requires  { true }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        // requires produces one debug_assert, invariant produces another
+        let assert_count = lib.matches("debug_assert!").count();
+        assert!(
+            assert_count >= 2,
+            "should have debug_assert for both requires and invariant, got {assert_count}: {lib}"
         );
     }
 
