@@ -399,6 +399,7 @@ fn clause_kind() -> impl Parser<Token, ClauseKind, Error = Simple<Token>> + Clon
             _ => Err(Simple::expected_input_found(span, [], Some(tok))),
         }),
     ))
+    .labelled("clause keyword")
 }
 
 /// Returns true if a token should stop inline/bare clause body collection.
@@ -1536,6 +1537,7 @@ fn decl() -> impl Parser<Token, Spanned<Decl>, Error = Simple<Token>> + Clone {
         fn_def().map(Decl::FnDef),
         generic_block(),
     ))
+    .labelled("declaration")
     .map_with_span(|node, span| Spanned { node, span })
 }
 

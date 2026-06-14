@@ -170,7 +170,7 @@
     refinement subtyping
   - Close issue #6
 
-- [ ] **R006**: Improve parser error messages with expected tokens (issue #7)
+- [x] **R006**: Improve parser error messages with expected tokens (issue #7)
   - Depends on: none
   - chumsky 0.9's `Simple` error has an `expected()` method returning
     the set of expected tokens. The CLI currently ignores this.
@@ -1016,3 +1016,9 @@ bracket that prevented comma splitting from finding subsequent params.
 Fix: track brace/paren depth; only treat `<`/`>` as angle brackets
 when outside braces. Added 5 new tests (3 parser, 2 types) including
 round-trip test through extract_clause_params -> parse_type_tokens.
+
+### R006 completed (2026-06-14)
+Parser error messages already included expected tokens (implemented during
+T-series). Added `.labelled("declaration")` and `.labelled("clause keyword")`
+annotations to key parser combinators for cleaner expected sets. Added test
+verifying parse errors include non-empty expected token set.

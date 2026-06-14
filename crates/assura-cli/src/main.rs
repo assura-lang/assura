@@ -2205,6 +2205,21 @@ contract UsePoint {
     }
 
     #[test]
+    fn test_parse_error_includes_expected_tokens() {
+        // Syntax error should produce an error with a non-empty expected set
+        let (_file, errors) = assura_parser::parse("contract 123");
+        assert!(!errors.is_empty(), "expected at least one parse error");
+        let e = &errors[0];
+        let expected: Vec<_> = e.expected().collect();
+        assert!(
+            !expected.is_empty(),
+            "parse error should include expected tokens, got: {e:?}"
+        );
+        // The found token should be the integer 123
+        assert!(e.found().is_some(), "parse error should have a found token");
+    }
+
+    #[test]
     fn test_resolution_error_diagnostic() {
         // Valid parse but contains an unresolved reference
         let source = r#"
