@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::env;
+use clap::{Args, Subcommand};
 use std::fs;
 use std::path::Path;
 use std::process;
@@ -15,6 +15,147 @@ use chumsky::Stream;
 use chumsky::prelude::*;
 use logos::Logos;
 use serde::Serialize;
+
+// ---------------------------------------------------------------------------
+// CLI argument definitions (clap 4)
+// ---------------------------------------------------------------------------
+
+#[derive(clap::Parser)]
+#[command(name = "assura", version, about = "The Assura contract compiler")]
+#[command(subcommand_required = false)]
+struct Cli {
+    #[command(flatten)]
+    global: GlobalOpts,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Source file to parse and check (legacy mode)
+    #[arg(global = false)]
+    file: Option<String>,
+
+    /// Dump the AST (legacy mode)
+    #[arg(long)]
+    ast: bool,
+
+    /// Dump the token stream (legacy mode)
+    #[arg(long)]
+    tokens: bool,
+}
+
+#[derive(Args, Clone)]
+struct GlobalOpts {
+    /// Output diagnostics as JSON
+    #[arg(long, global = true)]
+    json: bool,
+
+    /// Output diagnostics as rich terminal (default)
+    #[arg(long, global = true)]
+    human: bool,
+
+    /// Show timing, intermediate results, Z3 stats
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
+    /// Suppress all output except errors
+    #[arg(short, long, global = true)]
+    quiet: bool,
+}
+
+impl GlobalOpts {
+    fn output_mode(&self) -> OutputMode {
+        if self.json {
+            OutputMode::Json
+        } else {
+            OutputMode::Human
+        }
+    }
+
+    fn verbosity(&self) -> Verbosity {
+        if self.verbose {
+            Verbosity::Verbose
+        } else if self.quiet {
+            Verbosity::Quiet
+        } else {
+            Verbosity::Normal
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Full pipeline: parse, resolve, type-check, verify
+    Check {
+        /// Source file to check
+        file: String,
+
+        /// Verification layer (0=structural, 1=SMT)
+        #[arg(long, default_value_t = 255)]
+        layer: u8,
+
+        /// SMT solver backend
+        #[arg(long, value_parser = parse_solver)]
+        solver: Option<assura_smt::SolverChoice>,
+
+        /// Watch for file changes and re-check
+        #[arg(short, long)]
+        watch: bool,
+    },
+
+    /// Generate Rust code from a contract file
+    Build {
+        /// Source file to build
+        file: String,
+
+        /// Output directory for generated code
+        #[arg(long, default_value = "generated")]
+        output: String,
+
+        /// Compilation target
+        #[arg(long, value_parser = parse_target)]
+        target: Option<assura_codegen::CompileTarget>,
+
+        /// Skip cargo check on generated code
+        #[arg(long)]
+        no_check: bool,
+
+        /// SMT solver backend
+        #[arg(long, value_parser = parse_solver)]
+        solver: Option<assura_smt::SolverChoice>,
+    },
+
+    /// Create a new Assura project
+    Init {
+        /// Project name
+        name: String,
+    },
+
+    /// Explain an error code (e.g., A03001)
+    Explain {
+        /// Error code to explain
+        code: String,
+    },
+
+    /// Format an .assura source file
+    Fmt {
+        /// Source file to format
+        file: String,
+
+        /// Check formatting without modifying the file
+        #[arg(long)]
+        check: bool,
+    },
+}
+
+fn parse_solver(s: &str) -> Result<assura_smt::SolverChoice, String> {
+    assura_smt::SolverChoice::from_str_loose(s)
+        .ok_or_else(|| format!("invalid solver: {s} (expected z3, cvc5, or portfolio)"))
+}
+
+fn parse_target(s: &str) -> Result<assura_codegen::CompileTarget, String> {
+    assura_codegen::CompileTarget::from_str_loose(s)
+        .ok_or_else(|| format!("invalid target: {s} (expected native or wasm)"))
+}
 
 /// Load `assura.toml` from the project root, if it exists.
 fn load_project_config(start_path: &Path) -> Option<(ProjectConfig, std::path::PathBuf)> {
@@ -103,10 +244,6 @@ struct TimingInfo {
     hir_ms: Option<f64>,
     typecheck_ms: Option<f64>,
     token_count: usize,
-}
-
-fn parse_verbosity(args: &[String]) -> Verbosity {
-    assura_config::parse_verbosity(args)
 }
 
 // ---------------------------------------------------------------------------
@@ -352,169 +489,93 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
 // ---------------------------------------------------------------------------
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let non_flag_args: Vec<&String> = args
-        .iter()
-        .skip(1)
-        .filter(|a| !a.starts_with('-'))
-        .collect();
+    let cli = <Cli as clap::Parser>::parse();
+    let output_mode = cli.global.output_mode();
+    let verbosity = cli.global.verbosity();
 
-    // Detect subcommands
-    let is_check = non_flag_args.first().is_some_and(|a| a.as_str() == "check");
-    let is_build = non_flag_args.first().is_some_and(|a| a.as_str() == "build");
-    let is_init = non_flag_args.first().is_some_and(|a| a.as_str() == "init");
-    let is_explain = non_flag_args
-        .first()
-        .is_some_and(|a| a.as_str() == "explain");
-    let is_fmt = non_flag_args.first().is_some_and(|a| a.as_str() == "fmt");
-
-    // Handle --help, -h, and --version first
-    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
-        print_help();
-        return;
-    }
-    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
-        println!("assura {}", env!("CARGO_PKG_VERSION"));
-        return;
-    }
-
-    if is_check {
-        run_check(&args);
-    } else if is_build {
-        run_build(&args);
-    } else if is_init {
-        run_init(&args);
-    } else if is_explain {
-        run_explain(&args);
-    } else if is_fmt {
-        run_fmt(&args);
-    } else {
-        run_legacy(&args);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Help
-// ---------------------------------------------------------------------------
-
-fn print_help() {
-    println!(
-        "assura {} - The Assura contract compiler\n\
-         \n\
-         USAGE:\n\
-         \x20   assura <file.assura>                Parse and check a contract file\n\
-         \x20   assura check <file> [OPTIONS]       Full pipeline: parse, resolve, type-check, verify\n\
-         \x20   assura check <file> --watch         Watch file and re-check on changes\n\
-         \x20   assura build <file> [--output <dir>] [--target <native|wasm>]  Generate Rust code\n\
-         \x20   assura init <name>                   Create a new Assura project\n\
-         \x20   assura fmt <file> [--check]           Format an .assura source file\n\
-         \x20   assura explain <code>                Explain an error code (e.g., A03001)\n\
-         \n\
-         OPTIONS:\n\
-         \x20   --ast                               Dump the AST (with default command)\n\
-         \x20   --tokens                            Dump the token stream (with default command)\n\
-         \x20   --json                              Output diagnostics as JSON\n\
-         \x20   --human                             Output diagnostics as rich terminal (default)\n\
-         \x20   --layer <0|1>                       Verification layer (0=structural, 1=SMT)\n\
-         \x20   --solver <z3|cvc5|portfolio>        SMT solver backend (default: z3)\n\
-         \x20   --output <dir>                      Output directory for generated code (build)\n\
-         \x20   --target <native|wasm>               Compilation target (default: native) (build)\n\
-         \x20   --no-check                          Skip cargo check on generated code (build)\n\
-         \x20   -w, --watch                         Watch for file changes and re-check (check)\n\
-         \x20   -v, --verbose                       Show timing, intermediate results, Z3 stats\n\
-         \x20   -q, --quiet                         Suppress all output except errors\n\
-         \x20   -h, --help                          Show this help message\n\
-         \x20   -V, --version                       Show version\n\
-         \n\
-         CONFIG:\n\
-         \x20   Project settings are read from assura.toml in the project root.\n\
-         \x20   CLI flags override config file values. Run 'assura init' to create\n\
-         \x20   a project with a default assura.toml.",
-        env!("CARGO_PKG_VERSION")
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Argument helpers
-// ---------------------------------------------------------------------------
-
-/// Extract positional arguments, skipping flags and their values.
-/// Flags with values: --layer, --output. Simple flags: --json, --human, --ast, --tokens.
-fn positional_args(args: &[String]) -> Vec<String> {
-    let flags_with_values = ["--layer", "--output", "--solver", "--target"];
-    let mut result = Vec::new();
-    let mut skip_next = false;
-    for arg in args.iter().skip(1) {
-        if skip_next {
-            skip_next = false;
-            continue;
+    match cli.command {
+        Some(Commands::Check {
+            file,
+            layer,
+            solver,
+            watch,
+        }) => run_check(&file, output_mode, verbosity, layer, solver, watch),
+        Some(Commands::Build {
+            file,
+            output,
+            target,
+            no_check,
+            solver,
+        }) => run_build(
+            &file,
+            output_mode,
+            verbosity,
+            &output,
+            target,
+            no_check,
+            solver,
+        ),
+        Some(Commands::Init { name }) => run_init(&name),
+        Some(Commands::Explain { code }) => run_explain(&code),
+        Some(Commands::Fmt { file, check }) => run_fmt(&file, check),
+        None => {
+            // Legacy mode: `assura [--ast|--tokens] <file>`
+            if let Some(file) = cli.file {
+                run_legacy(&file, verbosity, cli.ast, cli.tokens);
+            } else {
+                // No subcommand and no file: show help
+                <Cli as clap::CommandFactory>::command()
+                    .print_help()
+                    .unwrap();
+                println!();
+                process::exit(2);
+            }
         }
-        if flags_with_values.contains(&arg.as_str()) {
-            skip_next = true;
-            continue;
-        }
-        if arg.starts_with('-') {
-            continue;
-        }
-        result.push(arg.clone());
     }
-    result
 }
 
 // ---------------------------------------------------------------------------
 // `assura check <file> [--json|--human] [--layer 0|1]`
 // ---------------------------------------------------------------------------
 
-fn run_check(args: &[String]) {
-    let output_mode = if args.contains(&"--json".to_string()) {
-        OutputMode::Json
-    } else {
-        OutputMode::Human
-    };
-    let verbosity = parse_verbosity(args);
-    let watch = args.contains(&"--watch".to_string()) || args.contains(&"-w".to_string());
-
-    // The file is the first positional arg after "check", skipping flag values
-    let filename = positional_args(args)
-        .into_iter()
-        .nth(1) // skip "check" itself
-        .unwrap_or_else(|| {
-            eprintln!("Usage: assura check <file.assura> [--json|--human] [--layer 0|1] [--watch]");
-            process::exit(2);
-        });
-
+fn run_check(
+    filename: &str,
+    output_mode: OutputMode,
+    verbosity: Verbosity,
+    cli_layer: u8,
+    cli_solver: Option<assura_smt::SolverChoice>,
+    watch: bool,
+) {
     // Load project config (assura.toml) if available
-    let config = load_project_config(Path::new(&filename));
+    let config = load_project_config(Path::new(filename));
     let config_layer = config.as_ref().map(|(c, _)| c.verify.layer);
 
     // Verification layer: CLI flag > config file > default (1)
-    let layer: u8 = args
-        .windows(2)
-        .find(|w| w[0] == "--layer")
-        .and_then(|w| w[1].parse().ok())
-        .unwrap_or_else(|| config_layer.unwrap_or(1));
+    // 255 is the sentinel for "not specified on CLI"
+    let layer: u8 = if cli_layer != 255 {
+        cli_layer
+    } else {
+        config_layer.unwrap_or(1)
+    };
 
     // Solver choice: CLI flag > config file > default (Z3)
     let config_solver = config
         .as_ref()
         .and_then(|(c, _)| assura_smt::SolverChoice::from_str_loose(&c.verify.smt_solver));
-    let solver = args
-        .windows(2)
-        .find(|w| w[0] == "--solver")
-        .and_then(|w| assura_smt::SolverChoice::from_str_loose(&w[1]))
-        .unwrap_or_else(|| config_solver.unwrap_or(assura_smt::SolverChoice::Z3));
+    let solver =
+        cli_solver.unwrap_or_else(|| config_solver.unwrap_or(assura_smt::SolverChoice::Z3));
 
     if watch {
-        run_watch_loop(&filename, output_mode, verbosity, layer);
+        run_watch_loop(filename, output_mode, verbosity, layer);
         // run_watch_loop never returns (loops until interrupted)
     }
 
-    let source = fs::read_to_string(&filename).unwrap_or_else(|e| {
+    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         if output_mode == OutputMode::Json {
             let diag = DiagnosticJson {
                 code: "A01000".to_string(),
                 message: format!("{e}"),
-                file: filename.clone(),
+                file: filename.to_string(),
                 start: 0,
                 end: 0,
                 severity: "error".to_string(),
@@ -536,7 +597,7 @@ fn run_check(args: &[String]) {
         mut diagnostics,
         mut has_errors,
         timing,
-    } = compile(&source, &filename);
+    } = compile(&source, filename);
 
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
         if let Some((ref cfg, ref root)) = config {
@@ -598,7 +659,7 @@ fn run_check(args: &[String]) {
 
     // --- Verify (only if type check succeeded and layer >= 1) ---
     let verify_start = Instant::now();
-    let cache_dir = std::path::Path::new(&filename)
+    let cache_dir = std::path::Path::new(filename)
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let verify_cache = assura_smt::VerificationCache::new(cache_dir);
@@ -627,7 +688,7 @@ fn run_check(args: &[String]) {
                     "unbounded quantifier in {}: {} ({})",
                     w.context, w.domain_desc, w.reason
                 ),
-                file: filename.clone(),
+                file: filename.to_string(),
                 start: 0,
                 end: 0,
                 severity: "warning".to_string(),
@@ -661,7 +722,7 @@ fn run_check(args: &[String]) {
             diagnostics.push(DiagnosticJson {
                 code: "A05100".to_string(),
                 message: format!("verification failed for {clause_desc}: {model}"),
-                file: filename.clone(),
+                file: filename.to_string(),
                 start: 0,
                 end: 0,
                 severity: "error".to_string(),
@@ -826,7 +887,7 @@ fn run_check(args: &[String]) {
                 .collect();
             // Always report error diagnostics, even in quiet mode
             if has_errors || verbosity != Verbosity::Quiet {
-                report_diagnostics_human(&non_lex, &filename, &source);
+                report_diagnostics_human(&non_lex, filename, &source);
             }
 
             // Print verification results grouped by contract/function
@@ -1106,34 +1167,31 @@ fn report_diagnostics_human(diagnostics: &[DiagnosticJson], filename: &str, sour
 // `assura build <file.assura>` — codegen to generated/
 // ---------------------------------------------------------------------------
 
-fn run_build(args: &[String]) {
-    let pos = positional_args(args);
-    let verbosity = parse_verbosity(args);
-
-    let filename = pos.get(1).unwrap_or_else(|| {
-        eprintln!("Usage: assura build <file.assura> [--output <dir>] [--target <native|wasm>]");
-        process::exit(2);
-    });
-
+fn run_build(
+    filename: &str,
+    _output_mode: OutputMode,
+    verbosity: Verbosity,
+    cli_output: &str,
+    cli_target: Option<assura_codegen::CompileTarget>,
+    no_check: bool,
+    cli_solver: Option<assura_smt::SolverChoice>,
+) {
     // Load project config (assura.toml) if available
-    let config = load_project_config(Path::new(filename.as_str()));
+    let config = load_project_config(Path::new(filename));
     let config_output = config
         .as_ref()
         .map(|(c, _)| c.build.output.clone())
         .unwrap_or_else(|| "generated".to_string());
 
-    // Output directory: CLI flag > config file > default "generated"
-    let out_dir_str = args
-        .windows(2)
-        .find(|w| w[0] == "--output")
-        .map(|w| w[1].as_str())
-        .unwrap_or(config_output.as_str());
+    // Output directory: CLI flag (non-default) > config file > default "generated"
+    let out_dir_str = if cli_output != "generated" {
+        cli_output
+    } else {
+        config_output.as_str()
+    };
 
     // Solver choice: CLI flag > config file > default (Z3)
-    let build_solver = args
-        .windows(2)
-        .find(|w| w[0] == "--solver")
-        .and_then(|w| assura_smt::SolverChoice::from_str_loose(&w[1]))
+    let build_solver = cli_solver
         .or_else(|| {
             config
                 .as_ref()
@@ -1142,10 +1200,7 @@ fn run_build(args: &[String]) {
         .unwrap_or(assura_smt::SolverChoice::Z3);
 
     // Target: CLI flag > config file > default (native)
-    let compile_target = args
-        .windows(2)
-        .find(|w| w[0] == "--target")
-        .and_then(|w| assura_codegen::CompileTarget::from_str_loose(&w[1]))
+    let compile_target = cli_target
         .or_else(|| {
             config
                 .as_ref()
@@ -1242,7 +1297,7 @@ fn run_build(args: &[String]) {
 
     // --- Verify ---
     let verify_start = Instant::now();
-    let build_cache_dir = std::path::Path::new(filename.as_str())
+    let build_cache_dir = std::path::Path::new(filename)
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let build_verify_cache = assura_smt::VerificationCache::new(build_cache_dir);
@@ -1345,7 +1400,7 @@ fn run_build(args: &[String]) {
     }
 
     // --- Validate generated Rust compiles ---
-    let skip_check = args.contains(&"--no-check".to_string());
+    let skip_check = no_check;
     if !skip_check {
         let mut cmd = process::Command::new("cargo");
         cmd.arg("check").current_dir(out_dir);
@@ -1398,18 +1453,8 @@ fn run_build(args: &[String]) {
 // `assura fmt <file> [--check]` — format an .assura source file
 // ---------------------------------------------------------------------------
 
-fn run_fmt(args: &[String]) {
-    let check_only = args.contains(&"--check".to_string());
-
-    let filename = positional_args(args)
-        .into_iter()
-        .nth(1) // skip "fmt" itself
-        .unwrap_or_else(|| {
-            eprintln!("Usage: assura fmt <file.assura> [--check]");
-            process::exit(2);
-        });
-
-    let source = fs::read_to_string(&filename).unwrap_or_else(|e| {
+fn run_fmt(filename: &str, check_only: bool) {
+    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
         process::exit(2);
     });
@@ -1442,7 +1487,7 @@ fn run_fmt(args: &[String]) {
             process::exit(1);
         }
     } else {
-        fs::write(&filename, &formatted).unwrap_or_else(|e| {
+        fs::write(filename, &formatted).unwrap_or_else(|e| {
             eprintln!("Error: cannot write {filename}: {e}");
             process::exit(2);
         });
@@ -1453,17 +1498,7 @@ fn run_fmt(args: &[String]) {
 // `assura init <project-name>` -- scaffold a new Assura project
 // ---------------------------------------------------------------------------
 
-fn run_init(args: &[String]) {
-    let project_name = args
-        .iter()
-        .skip(1) // skip binary name
-        .filter(|a| !a.starts_with('-'))
-        .nth(1) // skip "init" itself
-        .unwrap_or_else(|| {
-            eprintln!("Usage: assura init <project-name>");
-            process::exit(2);
-        });
-
+fn run_init(project_name: &str) {
     let project_dir = Path::new(project_name);
 
     if project_dir.exists() {
@@ -1528,19 +1563,7 @@ contract SafeDivision {
     println!("  {}", contract_path.display());
 }
 
-fn run_explain(args: &[String]) {
-    let code = args
-        .iter()
-        .skip(1) // skip binary name
-        .filter(|a| !a.starts_with('-'))
-        .nth(1) // skip "explain" itself
-        .unwrap_or_else(|| {
-            eprintln!("Usage: assura explain <error-code>");
-            eprintln!();
-            eprintln!("Example: assura explain A03001");
-            process::exit(2);
-        });
-
+fn run_explain(code: &str) {
     match assura_diagnostics::explain(code) {
         Some(info) => {
             println!("{}: {}", info.code, info.name);
@@ -1572,24 +1595,7 @@ fn run_explain(args: &[String]) {
 // Legacy mode: `assura [--ast|--tokens] <file>`
 // ---------------------------------------------------------------------------
 
-fn run_legacy(args: &[String]) {
-    let show_ast = args.contains(&"--ast".to_string());
-    let show_tokens = args.contains(&"--tokens".to_string());
-    let verbosity = parse_verbosity(args);
-
-    let filename = args
-        .iter()
-        .filter(|a| !a.starts_with('-'))
-        .nth(1)
-        .unwrap_or_else(|| {
-            eprintln!("Usage: assura [--ast|--tokens] <file.assura>");
-            eprintln!("       assura check <file.assura> [--json|--human]");
-            eprintln!("       assura build <file.assura> [--output <dir>]");
-            eprintln!("       assura init <project-name>");
-            eprintln!("       assura explain <error-code>");
-            process::exit(2);
-        });
-
+fn run_legacy(filename: &str, verbosity: Verbosity, show_ast: bool, show_tokens: bool) {
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
         process::exit(2);
@@ -1672,7 +1678,7 @@ fn run_legacy(args: &[String]) {
 
     // --- Verify ---
     let verify_start = Instant::now();
-    let explain_cache_dir = std::path::Path::new(&filename)
+    let explain_cache_dir = std::path::Path::new(filename)
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let explain_verify_cache = assura_smt::VerificationCache::new(explain_cache_dir);
