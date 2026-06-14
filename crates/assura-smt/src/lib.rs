@@ -949,26 +949,9 @@ mod tests {
     }
 
     fn verify_source(source: &str) -> Vec<VerificationResult> {
-        use assura_parser::lexer::Token;
-        use assura_parser::parser;
-        use chumsky::Stream;
-        use chumsky::prelude::*;
-        use logos::Logos;
-
-        let lex = Token::lexer(source);
-        let tokens: Vec<(Token, std::ops::Range<usize>)> = lex
-            .spanned()
-            .filter_map(|(tok, span)| tok.ok().map(|t| (t, span)))
-            .collect();
-
-        let len = source.len();
-        let stream = Stream::from_iter(len..len + 1, tokens.into_iter());
-        let (file, _) = parser::source_file().parse_recovery(stream);
-        let file = file.expect("parse failed in test");
-
+        let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed in test");
         let typed = assura_types::type_check(&resolved).expect("type_check failed in test");
-
         verify(&typed)
     }
 
