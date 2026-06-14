@@ -915,6 +915,10 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
 
+    let mut effects: Vec<String> = Vec::new();
+    let mut modifies: Vec<String> = Vec::new();
+    let mut invariants: Vec<String> = Vec::new();
+
     for clause in &c.clauses {
         match &clause.kind {
             ClauseKind::Input => {
@@ -929,8 +933,25 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
             ClauseKind::Ensures => {
                 ensures_exprs.push(expr_to_rust(&clause.body));
             }
+            ClauseKind::Effects => {
+                effects.push(expr_to_rust(&clause.body));
+            }
+            ClauseKind::Modifies => {
+                modifies.push(expr_to_rust(&clause.body));
+            }
+            ClauseKind::Invariant => {
+                invariants.push(expr_to_rust(&clause.body));
+            }
             _ => {}
         }
+    }
+
+    // Generate doc comments for effects and modifies
+    for eff in &effects {
+        code.push_str(&format!("    /// Effects: {eff}\n"));
+    }
+    for m in &modifies {
+        code.push_str(&format!("    /// Modifies: {m}\n"));
     }
 
     // Generate the contract function signature
@@ -965,6 +986,11 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
     // Generate ensures assertions
     for ens in &ensures_exprs {
         generate_debug_assert_indented(code, ens, "ensures", 2);
+    }
+
+    // Generate invariant assertions (checked post-execution)
+    for inv in &invariants {
+        generate_debug_assert_indented(code, inv, "invariant", 2);
     }
 
     code.push_str("        __result\n");
@@ -3071,5 +3097,58 @@ enum Value {
         let body = Expr::Raw(tokens);
         let ty = extract_output_type(&body);
         assert_eq!(ty, "bool");
+    }
+
+    #[test]
+    fn contract_effects_generates_doc_comment() {
+        let project = codegen_ok(
+            r#"
+contract Alloc {
+    effects  { io }
+    requires { true }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("/// Effects:"),
+            "effects clause should produce doc comment"
+        );
+    }
+
+    #[test]
+    fn contract_modifies_generates_doc_comment() {
+        let project = codegen_ok(
+            r#"
+contract Mutator {
+    modifies { buffer }
+    requires { true }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("/// Modifies:"),
+            "modifies clause should produce doc comment"
+        );
+    }
+
+    #[test]
+    fn contract_invariant_generates_debug_assert() {
+        let project = codegen_ok(
+            r#"
+contract Stable {
+    invariant { true }
+    requires  { true }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        // requires produces one debug_assert, invariant produces another
+        let assert_count = lib.matches("debug_assert!").count();
+        assert!(
+            assert_count >= 2,
+            "should have debug_assert for both requires and invariant, got {assert_count}"
+        );
     }
 }
