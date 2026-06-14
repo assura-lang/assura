@@ -903,6 +903,30 @@ contract Dup {
         assert!(!resp.version.is_empty());
     }
 
+    #[test]
+    fn check_contract_name_extracted_from_clause_desc() {
+        // When SMT verification runs, the clause_desc format is "ContractName::clause_kind".
+        // The contract_name field should extract the part before "::".
+        let source = r#"contract Simple {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result > 0 }
+}"#;
+        let (_, verifications) = run_check(source, "test.assura", 1);
+        for v in &verifications {
+            assert!(
+                !v.contract_name.is_empty(),
+                "contract_name should not be empty, clause: {}",
+                v.clause
+            );
+            assert_eq!(
+                v.contract_name, "Simple",
+                "contract_name should be 'Simple', got '{}'",
+                v.contract_name
+            );
+        }
+    }
+
     #[tokio::test]
     async fn grpc_check_stream_emits_events() {
         use tokio_stream::StreamExt;
