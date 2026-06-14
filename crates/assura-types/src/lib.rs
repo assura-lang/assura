@@ -179,6 +179,8 @@ pub struct TypedFile {
     /// Pending decrease checks that need SMT verification.
     /// The CLI pipeline dispatches these to assura-smt::verify_decrease().
     pub pending_decrease_checks: Vec<PendingDecreaseCheck>,
+    /// The HIR file, if available (set when type checking through the HIR path).
+    pub hir: Option<assura_hir::HirFile>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1320,6 +1322,7 @@ pub fn type_check_hir_with_config(
         resolved: resolved.clone(),
         pending_decrease_checks,
         type_env,
+        hir: Some(hir.clone()),
     })
 }
 
@@ -1420,6 +1423,7 @@ pub fn type_check_with_config(
         resolved: resolved.clone(),
         pending_decrease_checks,
         type_env,
+        hir: None,
     })
 }
 
