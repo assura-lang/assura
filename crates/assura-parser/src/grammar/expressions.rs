@@ -680,4 +680,216 @@ mod tests {
         assert!(errors.is_empty(), "errors: {errors:?}");
         assert_eq!(first_child_kind(&root), SyntaxKind::MATCH_EXPR);
     }
+
+    // --- Edge case expression tests ---
+
+    #[test]
+    fn parse_deeply_nested_arithmetic() {
+        let (root, errors) = parse_expr_to_tree("((a + b) * (c - d)) / ((e + f) % g)");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_chained_field_access() {
+        let (root, errors) = parse_expr_to_tree("a.b.c.d.e");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::FIELD_EXPR);
+    }
+
+    #[test]
+    fn parse_chained_method_calls() {
+        let (root, errors) = parse_expr_to_tree("x.foo().bar(1, 2).baz()");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        // Outermost should be METHOD_CALL_EXPR (.baz())
+        assert_eq!(first_child_kind(&root), SyntaxKind::METHOD_CALL_EXPR);
+    }
+
+    #[test]
+    fn parse_nested_function_calls() {
+        let (root, errors) = parse_expr_to_tree("f(g(h(x)))");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::CALL_EXPR);
+    }
+
+    #[test]
+    fn parse_mixed_operators_all_levels() {
+        // Uses all 6 binary precedence levels
+        let (root, errors) = parse_expr_to_tree("a || b && c == d < e + f * g");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_mod_operator() {
+        let (root, errors) = parse_expr_to_tree("a mod b");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_unary_chain() {
+        let (root, errors) = parse_expr_to_tree("not not x");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::UNARY_EXPR);
+    }
+
+    #[test]
+    fn parse_unary_minus() {
+        let (root, errors) = parse_expr_to_tree("-x + y");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_comparison_chain() {
+        let (root, errors) = parse_expr_to_tree("a >= b && c <= d && e != f");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_nested_quantifiers() {
+        let (root, errors) = parse_expr_to_tree("forall i in xs: exists j in ys: i == j");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::FORALL_EXPR);
+    }
+
+    #[test]
+    fn parse_nested_if_then_else() {
+        let (root, errors) = parse_expr_to_tree("if a then if b then 1 else 2 else 3");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::IF_EXPR);
+    }
+
+    #[test]
+    fn parse_if_with_complex_condition() {
+        let (root, errors) = parse_expr_to_tree("if x > 0 && y < 10 then x + y else 0");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::IF_EXPR);
+    }
+
+    #[test]
+    fn parse_index_chain() {
+        let (root, errors) = parse_expr_to_tree("a[0][1][2]");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::INDEX_EXPR);
+    }
+
+    #[test]
+    fn parse_index_with_expr() {
+        let (root, errors) = parse_expr_to_tree("buf[i + 1]");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::INDEX_EXPR);
+    }
+
+    #[test]
+    fn parse_old_in_binary() {
+        let (root, errors) = parse_expr_to_tree("old(x) + 1");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_result_in_comparison() {
+        let (root, errors) = parse_expr_to_tree("result >= 0");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_cast_in_expr() {
+        let (root, errors) = parse_expr_to_tree("(x as Nat) + 1");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_nested_list_literal() {
+        let (root, errors) = parse_expr_to_tree("[1, [2, 3], [4]]");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::LIST_EXPR);
+    }
+
+    #[test]
+    fn parse_empty_list() {
+        let (root, errors) = parse_expr_to_tree("[]");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::LIST_EXPR);
+    }
+
+    #[test]
+    fn parse_empty_tuple() {
+        let (root, errors) = parse_expr_to_tree("()");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        // () is a paren or tuple -- either is acceptable
+        let k = first_child_kind(&root);
+        assert!(
+            k == SyntaxKind::PAREN_EXPR || k == SyntaxKind::TUPLE_EXPR,
+            "expected PAREN_EXPR or TUPLE_EXPR, got {k:?}"
+        );
+    }
+
+    #[test]
+    fn parse_string_literal() {
+        let (root, errors) = parse_expr_to_tree("\"hello world\"");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        // String literals are atoms, should produce a token node
+        assert!(!root.children_with_tokens().collect::<Vec<_>>().is_empty());
+    }
+
+    #[test]
+    fn parse_boolean_literals() {
+        let (root, errors) = parse_expr_to_tree("true && false");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_numeric_literal_float() {
+        let (root, errors) = parse_expr_to_tree("3.14 + 2.71");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_let_expr() {
+        let (root, errors) = parse_expr_to_tree("let x = 42 in x + 1");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::LET_EXPR);
+    }
+
+    #[test]
+    fn parse_exists_quantifier() {
+        let (root, errors) = parse_expr_to_tree("exists i in xs: i > 0");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::EXISTS_EXPR);
+    }
+
+    #[test]
+    fn parse_match_multiple_arms() {
+        let (root, errors) =
+            parse_expr_to_tree("match state { Init => 0, Running => 1, Stopped => 2, Error => 3 }");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::MATCH_EXPR);
+    }
+
+    #[test]
+    fn parse_complex_field_call_chain() {
+        let (root, errors) = parse_expr_to_tree("buf.data[i].len()");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        // Should be method call on an index on a field
+        let k = first_child_kind(&root);
+        assert!(
+            k == SyntaxKind::METHOD_CALL_EXPR || k == SyntaxKind::CALL_EXPR,
+            "expected method/call, got {k:?}"
+        );
+    }
+
+    #[test]
+    fn parse_implies_operator() {
+        let (root, errors) = parse_expr_to_tree("a ==> b");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
 }

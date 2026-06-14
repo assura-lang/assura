@@ -167,3 +167,496 @@ fn error_recovery_duplicate_clause() {
 
     insta::assert_debug_snapshot!("duplicate_clause_ast", &ast);
 }
+
+// ===================================================================
+// Error recovery tests -- parser must not panic on malformed input
+// ===================================================================
+
+/// Parse inline source, assert errors exist and no panic.
+fn parse_str(
+    source: &str,
+) -> (
+    Option<assura_parser::ast::SourceFile>,
+    Vec<assura_parser::ParseError>,
+) {
+    parse(source)
+}
+
+#[test]
+fn recovery_empty_contract() {
+    let (ast, errors) = parse_str("contract {}");
+    // Missing name -- should produce error, not panic
+    assert!(!errors.is_empty(), "expected errors for nameless contract");
+    // Should still get some AST
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_unclosed_paren_in_input() {
+    let (_, errors) = parse_str("contract Foo { input(x: Int }");
+    assert!(!errors.is_empty(), "expected errors for unclosed paren");
+}
+
+#[test]
+fn recovery_missing_contract_body() {
+    let (ast, errors) = parse_str("contract Foo");
+    // No braces at all
+    assert!(ast.is_some() || !errors.is_empty(), "should not panic");
+}
+
+#[test]
+fn recovery_extra_closing_brace() {
+    let (_, _errors) = parse_str("contract Foo { requires: x > 0 } }");
+    // Extra } -- must not panic
+}
+
+#[test]
+fn recovery_nested_unclosed_braces() {
+    let (_, errors) = parse_str("contract Foo { requires { x > 0 } ensures { y ==");
+    assert!(!errors.is_empty());
+}
+
+#[test]
+fn recovery_missing_colon_in_param() {
+    let (ast, _) = parse_str("contract Foo { input(x Int) }");
+    // Missing colon between name and type -- should not panic
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_double_comma_in_params() {
+    let (ast, _) = parse_str("contract Foo { input(x: Int,, y: Bool) }");
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_garbage_between_clauses() {
+    let (ast, errors) = parse_str("contract Foo { requires: x > 0 @@@ ensures: y > 0 }");
+    // @@@ is invalid -- parser should recover and continue
+    assert!(ast.is_some() || !errors.is_empty());
+}
+
+#[test]
+fn recovery_keyword_as_identifier() {
+    let (ast, _) = parse_str("contract contract { requires: true }");
+    // Using 'contract' as contract name -- should not panic
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_empty_source() {
+    let (ast, errors) = parse_str("");
+    assert!(errors.is_empty(), "empty source should have no errors");
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_only_whitespace() {
+    let (ast, errors) = parse_str("   \n\n\t  ");
+    assert!(errors.is_empty());
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_only_comments() {
+    let (ast, errors) = parse_str("// just a comment\n// another comment");
+    assert!(errors.is_empty());
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_truncated_type_def() {
+    let (_, errors) = parse_str("type Foo = {");
+    assert!(!errors.is_empty());
+}
+
+#[test]
+fn recovery_truncated_enum_def() {
+    let (_, errors) = parse_str("enum Color { Red, Green,");
+    assert!(!errors.is_empty());
+}
+
+#[test]
+fn recovery_missing_fn_body() {
+    let (ast, _) = parse_str("fn foo(x: Int) -> Int");
+    assert!(ast.is_some());
+}
+
+#[test]
+fn recovery_multiple_contracts_one_broken() {
+    let (ast, errors) = parse_str(
+        r#"
+        contract Good {
+            requires: x > 0
+        }
+        contract Bad {
+            requires: y >
+        }
+        contract AlsoGood {
+            ensures: z == 1
+        }
+        "#,
+    );
+    // Parser should recover from Bad and still parse AlsoGood
+    assert!(ast.is_some());
+    let sf = ast.unwrap();
+    // Should have at least 2 contract declarations (Good and AlsoGood)
+    let contract_count = sf
+        .decls
+        .iter()
+        .filter(|d| matches!(d.node, assura_parser::ast::Decl::Contract(_)))
+        .count();
+    assert!(
+        contract_count >= 2,
+        "expected at least 2 contracts after recovery, got {contract_count}; errors: {errors:?}"
+    );
+}
+
+#[test]
+fn recovery_deeply_nested_unclosed() {
+    let (_, _) = parse_str("contract A { requires { if x then { if y then {");
+    // 3 levels of unclosed braces -- must not panic
+}
+
+#[test]
+fn recovery_random_tokens() {
+    let (_, _) = parse_str("+ - * / == != < > <= >= && || ( ) [ ] { }");
+    // All operators with no structure -- must not panic
+}
+
+#[test]
+fn recovery_very_long_identifier() {
+    let long_name = "x".repeat(10_000);
+    let source = format!("contract {} {{ requires: true }}", long_name);
+    let (ast, errors) = parse_str(&source);
+    assert!(errors.is_empty());
+    assert!(ast.is_some());
+}
+
+// ===================================================================
+// Parser-level negative tests (must produce errors, must not panic)
+// ===================================================================
+
+/// Parse source and assert at least one error exists.
+fn assert_parse_errors(source: &str) {
+    let (_, errors) = parse(source);
+    assert!(!errors.is_empty(), "expected parse errors for:\n{source}");
+}
+
+/// Parse source and assert zero errors.
+fn assert_parse_ok(source: &str) {
+    let (ast, errors) = parse(source);
+    assert!(
+        errors.is_empty(),
+        "unexpected parse errors for:\n{source}\nerrors: {errors:?}"
+    );
+    assert!(ast.is_some(), "parse returned None for:\n{source}");
+}
+
+// -- Must-reject at parser level --
+
+#[test]
+fn reject_bare_expression_at_toplevel() {
+    assert_parse_errors("x + y");
+}
+
+#[test]
+fn reject_numbers_at_toplevel() {
+    assert_parse_errors("42 43 44");
+}
+
+#[test]
+fn reject_unclosed_contract_brace() {
+    assert_parse_errors("contract Foo { requires: true");
+}
+
+#[test]
+fn reject_lone_operator() {
+    // A lone operator is not a valid declaration
+    assert_parse_errors("+");
+}
+
+// -- Must-compile at parser level --
+
+#[test]
+fn accept_minimal_contract() {
+    assert_parse_ok("contract Foo { requires: true }");
+}
+
+#[test]
+fn accept_contract_with_all_clause_kinds() {
+    assert_parse_ok(
+        r#"
+        contract Full {
+            input(x: Int, y: Bool)
+            output(result: Nat)
+            requires: x > 0
+            ensures: result >= 0
+            invariant: x > 0
+            effects { io }
+            decreases: x
+        }
+        "#,
+    );
+}
+
+#[test]
+fn accept_type_def() {
+    assert_parse_ok("type Point = { x: Float, y: Float }");
+}
+
+#[test]
+fn accept_enum_def() {
+    assert_parse_ok("enum Color { Red, Green, Blue }");
+}
+
+#[test]
+fn accept_fn_def() {
+    assert_parse_ok(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+            requires: a > 0
+            ensures: result == a + b
+        "#,
+    );
+}
+
+#[test]
+fn accept_extern_decl() {
+    assert_parse_ok("extern fn malloc(size: Nat) -> Ptr");
+}
+
+#[test]
+fn accept_service_def() {
+    assert_parse_ok(
+        r#"
+        service Cache {
+            state { Empty, Filled, Flushed }
+            fn get(key: String) -> String
+                requires: key != ""
+        }
+        "#,
+    );
+}
+
+#[test]
+fn accept_import() {
+    assert_parse_ok("import std.collections.List");
+}
+
+#[test]
+fn accept_module_decl() {
+    assert_parse_ok("module mymodule");
+}
+
+#[test]
+fn accept_project_decl() {
+    assert_parse_ok(
+        r#"
+        project MyProject {
+            profile: [security, safety]
+        }
+        "#,
+    );
+}
+
+#[test]
+fn accept_ghost_fn() {
+    assert_parse_ok(
+        r#"
+        ghost fn helper(x: Int) -> Bool
+            ensures: result == (x > 0)
+        "#,
+    );
+}
+
+#[test]
+fn accept_lemma_fn() {
+    assert_parse_ok(
+        r#"
+        lemma addition_commutes(a: Int, b: Int)
+            ensures: a + b == b + a
+        "#,
+    );
+}
+
+#[test]
+fn accept_pure_fn() {
+    assert_parse_ok(
+        r#"
+        pure fn square(x: Int) -> Int
+            ensures: result == x * x
+        "#,
+    );
+}
+
+#[test]
+fn accept_complex_ensures_body() {
+    assert_parse_ok(
+        r#"
+        contract Multi {
+            input(xs: List<Int>)
+            ensures {
+                forall i in xs: i >= 0,
+                result > 0
+            }
+        }
+        "#,
+    );
+}
+
+#[test]
+fn accept_refinement_type() {
+    assert_parse_ok("type PosInt = { v: Int | v > 0 }");
+}
+
+#[test]
+fn accept_generic_type() {
+    assert_parse_ok(
+        r#"
+        type Buffer<MaxLen: Nat> = {
+            data: Bytes
+            capacity: { v : Nat | v == MaxLen }
+        }
+        "#,
+    );
+}
+
+#[test]
+fn accept_match_in_ensures() {
+    assert_parse_ok(
+        r#"
+        contract WithMatch {
+            input(x: Int)
+            ensures: match result { Ok(v) => v > 0, Err(e) => true }
+        }
+        "#,
+    );
+}
+
+#[test]
+fn accept_quantifier_in_requires() {
+    assert_parse_ok(
+        r#"
+        contract AllPositive {
+            input(xs: List<Int>)
+            requires: forall x in xs: x > 0
+        }
+        "#,
+    );
+}
+
+// -- All must_compile fixture files must parse cleanly --
+
+#[test]
+fn must_compile_fixtures_all_parse() {
+    let fixture_dir = "../../tests/fixtures/must_compile";
+    let entries = std::fs::read_dir(fixture_dir)
+        .unwrap_or_else(|e| panic!("failed to read {fixture_dir}: {e}"));
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map(|e| e == "assura").unwrap_or(false) {
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+            let (ast, errors) = parse(&source);
+            assert!(
+                errors.is_empty(),
+                "MUST COMPILE file {} had parse errors: {:?}",
+                path.display(),
+                errors
+            );
+            assert!(
+                ast.is_some(),
+                "MUST COMPILE file {} returned None",
+                path.display()
+            );
+            count += 1;
+        }
+    }
+    assert!(
+        count >= 10,
+        "expected at least 10 must_compile fixtures, found {count}"
+    );
+}
+
+// -- All must_reject fixture files must parse (parser-level), errors come from later phases --
+
+#[test]
+fn must_reject_fixtures_all_parse() {
+    let fixture_dir = "../../tests/fixtures/must_reject";
+    let entries = std::fs::read_dir(fixture_dir)
+        .unwrap_or_else(|e| panic!("failed to read {fixture_dir}: {e}"));
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map(|e| e == "assura").unwrap_or(false) {
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+            let (ast, _errors) = parse(&source);
+            // must_reject files should still parse at the syntax level
+            // (rejections come from type checking / resolution)
+            assert!(
+                ast.is_some(),
+                "must_reject file {} should parse at syntax level but returned None",
+                path.display()
+            );
+            count += 1;
+        }
+    }
+    assert!(
+        count >= 10,
+        "expected at least 10 must_reject fixtures, found {count}"
+    );
+}
+
+// -- All e2e contract files must parse cleanly --
+
+#[test]
+fn fuzz_crash_truncated_enum() {
+    // Regression: fuzzer found crash on truncated enum with garbled name.
+    // "enum Tre params." is a corrupted "enum Tree<T> { ... }" -- must not panic.
+    let source = r#"type Positive = { n: Int | n > 0 };
+
+enum Option<T> {
+  Some(T),
+  None
+}
+
+enum Tre params.
+
+type Positive = { n: Int | n > 0 };"#;
+    let (_, _) = parse(source);
+    // Must not panic. Errors are expected and fine.
+}
+
+#[test]
+fn e2e_fixtures_all_parse() {
+    let fixture_dir = "../../tests/e2e";
+    let entries = std::fs::read_dir(fixture_dir)
+        .unwrap_or_else(|e| panic!("failed to read {fixture_dir}: {e}"));
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map(|e| e == "assura").unwrap_or(false) {
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+            let (ast, errors) = parse(&source);
+            assert!(
+                errors.is_empty(),
+                "e2e file {} had parse errors: {:?}",
+                path.display(),
+                errors
+            );
+            assert!(ast.is_some(), "e2e file {} returned None", path.display());
+            count += 1;
+        }
+    }
+    assert!(
+        count >= 5,
+        "expected at least 5 e2e fixtures, found {count}"
+    );
+}
