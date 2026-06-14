@@ -299,6 +299,28 @@ Example: a `resolve` test must start from a parsed `SourceFile` (not
 hand-built AST), and a `type_check` test must start from a resolved
 file (not hand-built resolved AST).
 
+**This rule applies at BOTH levels, not just top-level passes:**
+
+- **Compiler passes**: new crates must be called from `main.rs`
+- **Analysis components**: new checker structs in `assura-types` must
+  have a corresponding `run_*_checks()` function wired into BOTH
+  `type_check()` and `type_check_hir()`. New manager structs in
+  `assura-smt` must be called from `verify()`.
+
+Verification after adding any new checker or manager struct:
+
+```bash
+# Must appear in the entry-point function's call chain
+grep -n "StructName\|run_structname_checks" crates/assura-types/src/lib.rs
+```
+
+If the struct exists but the grep returns zero matches in the entry
+point, the component is dead code. Wire it in before marking the task
+done. This was learned when 4 features (`CryptoConformanceChecker`,
+`TriggerManager`, `IncrementalCompiler`, `TestGenerator`) shipped with
+complete implementations and passing unit tests but were never called
+from any pipeline entry point across multiple sessions.
+
 ## Pre-Commit Gate
 
 Run this exact command before every commit. No exceptions.
