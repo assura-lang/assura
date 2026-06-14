@@ -1,7 +1,12 @@
-//! SMT-based verification for Assura contracts via Z3.
+//! SMT-based verification for Assura contracts.
+//!
+//! Supports multiple solver backends:
+//! - **Z3** (default): via the z3 Rust crate, compiled in with the `z3-verify` feature
+//! - **CVC5**: via the `cvc5` command-line binary, using SMT-LIB2 format
+//! - **Portfolio**: tries Z3 first, falls back to CVC5 on timeout/unknown
 //!
 //! For each contract in a `TypedFile`, encodes requires/ensures/invariant
-//! clauses as Z3 formulas and checks their validity:
+//! clauses as SMT formulas and checks their validity:
 //!
 //! - **ensures with requires**: Check `P => Q` validity by asserting P,
 //!   asserting NOT Q, and checking satisfiability. UNSAT = verified.
@@ -12,6 +17,33 @@
 
 use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
 use assura_types::TypedFile;
+
+// ---------------------------------------------------------------------------
+// Solver backend selection
+// ---------------------------------------------------------------------------
+
+/// Which SMT solver backend to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverChoice {
+    /// Z3 via the Rust crate (requires `z3-verify` feature).
+    Z3,
+    /// CVC5 via command-line binary (requires `cvc5` on PATH).
+    Cvc5,
+    /// Portfolio: try Z3 first, fall back to CVC5 on timeout/unknown.
+    Portfolio,
+}
+
+impl SolverChoice {
+    /// Parse from a string (case-insensitive).
+    pub fn from_str_loose(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "z3" => Some(Self::Z3),
+            "cvc5" => Some(Self::Cvc5),
+            "portfolio" => Some(Self::Portfolio),
+            _ => None,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Measure definitions (T054)
@@ -286,6 +318,15 @@ pub fn verify_with_cache(typed: &TypedFile, cache: &VerificationCache) -> Vec<Ve
 /// Also uses the filesystem cache: cache hits are returned immediately,
 /// only cache misses go to Z3 (potentially in parallel).
 pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<VerificationResult> {
+    verify_parallel_with_solver(typed, cache, SolverChoice::Z3)
+}
+
+/// Verify all declarations in parallel using the specified solver.
+pub fn verify_parallel_with_solver(
+    typed: &TypedFile,
+    cache: &VerificationCache,
+    solver: SolverChoice,
+) -> Vec<VerificationResult> {
     use assura_parser::ast::Decl;
     use rayon::prelude::*;
 
@@ -307,7 +348,7 @@ pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<Veri
         }
     }
 
-    // Verify in parallel: each job gets its own Z3 context
+    // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
         .par_iter()
         .map(|(name, clauses)| {
@@ -315,8 +356,8 @@ pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<Veri
             if let Some(cached) = cache.get(name, clauses) {
                 return cached;
             }
-            // Cache miss: run Z3
-            let results = verify_contract(name, clauses);
+            // Cache miss: run solver
+            let results = verify_contract_with_solver(name, clauses, solver);
             cache.put(name, clauses, &results);
             results
         })
@@ -326,11 +367,11 @@ pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<Veri
     per_job_results.into_iter().flatten().collect()
 }
 
-/// Verify a single contract's clauses against Z3.
+/// Verify a single contract's clauses using the default solver (Z3).
 ///
 /// Unlike `verify()` which processes all declarations in a `TypedFile`,
 /// this function verifies just the given contract's clauses. Each
-/// ensures/invariant clause gets its own Z3 query with all requires
+/// ensures/invariant clause gets its own solver query with all requires
 /// clauses asserted as assumptions.
 ///
 /// Returns one `VerificationResult` per verifiable clause.
@@ -338,33 +379,88 @@ pub fn verify_contract(
     contract_name: &str,
     clauses: &[assura_parser::ast::Clause],
 ) -> Vec<VerificationResult> {
-    #[cfg(feature = "z3-verify")]
-    {
-        z3_backend::verify_contract_impl(contract_name, clauses)
-    }
-    #[cfg(not(feature = "z3-verify"))]
-    {
-        let _ = contract_name;
-        clauses
-            .iter()
-            .filter(|c| {
+    verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3)
+}
+
+/// Verify a single contract's clauses using the specified solver.
+pub fn verify_contract_with_solver(
+    contract_name: &str,
+    clauses: &[assura_parser::ast::Clause],
+    solver: SolverChoice,
+) -> Vec<VerificationResult> {
+    match solver {
+        SolverChoice::Z3 => {
+            #[cfg(feature = "z3-verify")]
+            {
+                z3_backend::verify_contract_impl(contract_name, clauses)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let _ = contract_name;
+                clauses
+                    .iter()
+                    .filter(|c| {
+                        matches!(
+                            c.kind,
+                            assura_parser::ast::ClauseKind::Ensures
+                                | assura_parser::ast::ClauseKind::Invariant
+                                | assura_parser::ast::ClauseKind::Rule
+                                | assura_parser::ast::ClauseKind::MustNot
+                                | assura_parser::ast::ClauseKind::Decreases
+                        )
+                    })
+                    .map(|c| {
+                        let desc = format!("{contract_name}::{:?}", c.kind);
+                        VerificationResult::Unknown {
+                            clause_desc: desc,
+                            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+                        }
+                    })
+                    .collect()
+            }
+        }
+        SolverChoice::Cvc5 => cvc5_backend::verify_contract_cvc5(contract_name, clauses),
+        SolverChoice::Portfolio => {
+            // Try Z3 first, fall back to CVC5 for timeout/unknown results
+            let z3_results = verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3);
+            let needs_fallback = z3_results.iter().any(|r| {
                 matches!(
-                    c.kind,
-                    assura_parser::ast::ClauseKind::Ensures
-                        | assura_parser::ast::ClauseKind::Invariant
-                        | assura_parser::ast::ClauseKind::Rule
-                        | assura_parser::ast::ClauseKind::MustNot
-                        | assura_parser::ast::ClauseKind::Decreases
+                    r,
+                    VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. }
                 )
-            })
-            .map(|c| {
-                let desc = format!("{contract_name}::{:?}", c.kind);
-                VerificationResult::Unknown {
-                    clause_desc: desc,
-                    reason: "Z3 not available (compiled without z3-verify feature)".into(),
-                }
-            })
-            .collect()
+            });
+            if !needs_fallback {
+                return z3_results;
+            }
+            // Re-check only the failed clauses with CVC5
+            let cvc5_results = cvc5_backend::verify_contract_cvc5(contract_name, clauses);
+
+            // Merge: use CVC5 result for any Z3 timeout/unknown
+            z3_results
+                .into_iter()
+                .map(|r| match &r {
+                    VerificationResult::Timeout { clause_desc }
+                    | VerificationResult::Unknown { clause_desc, .. } => {
+                        // Find the matching CVC5 result
+                        cvc5_results
+                            .iter()
+                            .find(|cr| match cr {
+                                VerificationResult::Verified { clause_desc: cd }
+                                | VerificationResult::Counterexample {
+                                    clause_desc: cd, ..
+                                }
+                                | VerificationResult::Timeout { clause_desc: cd }
+                                | VerificationResult::Unknown {
+                                    clause_desc: cd, ..
+                                } => cd == clause_desc,
+                            })
+                            .cloned()
+                            .unwrap_or(r)
+                    }
+                    _ => r,
+                })
+                .collect()
+        }
     }
 }
 
@@ -832,6 +928,410 @@ mod no_z3 {
         VerificationResult::Unknown {
             clause_desc: "refinement_subtype_with_context".into(),
             reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CVC5 backend (shell out to cvc5 binary via SMT-LIB2)
+// ---------------------------------------------------------------------------
+
+mod cvc5_backend {
+    use super::*;
+    use assura_parser::ast::{BinOp, Clause, ClauseKind, Literal, UnaryOp};
+    use std::collections::HashSet;
+
+    /// Verify a single contract's clauses using the CVC5 binary.
+    ///
+    /// Generates SMT-LIB2 scripts and invokes `cvc5 --lang smt2` on each.
+    pub(crate) fn verify_contract_cvc5(
+        contract_name: &str,
+        clauses: &[Clause],
+    ) -> Vec<VerificationResult> {
+        let mut results = Vec::new();
+
+        // Collect requires clauses as assumptions
+        let mut requires_exprs: Vec<&Expr> = Vec::new();
+        for clause in clauses {
+            if clause.kind == ClauseKind::Requires {
+                requires_exprs.push(&clause.body);
+            }
+        }
+
+        // Check each ensures/invariant clause
+        for clause in clauses {
+            match &clause.kind {
+                ClauseKind::Ensures
+                | ClauseKind::Invariant
+                | ClauseKind::Rule
+                | ClauseKind::MustNot
+                | ClauseKind::Decreases => {
+                    let desc = format!("{contract_name}::{:?}", clause.kind);
+                    let result = check_clause_cvc5(
+                        &desc,
+                        &requires_exprs,
+                        &clause.body,
+                        clause.kind.clone(),
+                    );
+                    results.push(result);
+                }
+                _ => {}
+            }
+        }
+
+        results
+    }
+
+    /// Check a single clause by generating SMT-LIB2 and invoking CVC5.
+    fn check_clause_cvc5(
+        desc: &str,
+        requires: &[&Expr],
+        ensures_body: &Expr,
+        kind: ClauseKind,
+    ) -> VerificationResult {
+        // Collect all variable names from the expressions
+        let mut vars = HashSet::new();
+        for req in requires {
+            collect_vars(req, &mut vars);
+        }
+        collect_vars(ensures_body, &mut vars);
+
+        // Build SMT-LIB2 script
+        let mut script = String::new();
+        script.push_str("(set-logic ALL)\n");
+
+        // Declare variables
+        for var in &vars {
+            script.push_str(&format!("(declare-const {var} Int)\n"));
+        }
+
+        // Assert requires
+        for req in requires {
+            if let Some(smt) = expr_to_smtlib(req) {
+                script.push_str(&format!("(assert {smt})\n"));
+            }
+        }
+
+        // Assert negation of ensures (validity check)
+        if let Some(smt) = expr_to_smtlib(ensures_body) {
+            match kind {
+                ClauseKind::Invariant => {
+                    // Invariant: check satisfiability (not always false)
+                    script.push_str(&format!("(assert {smt})\n"));
+                }
+                _ => {
+                    // Ensures/rule/must_not/decreases: check validity via negation
+                    script.push_str(&format!("(assert (not {smt}))\n"));
+                }
+            }
+        } else {
+            return VerificationResult::Unknown {
+                clause_desc: desc.to_string(),
+                reason: "could not encode clause to SMT-LIB2".into(),
+            };
+        }
+
+        script.push_str("(check-sat)\n");
+        script.push_str("(get-model)\n");
+
+        // Run CVC5
+        match run_cvc5(&script) {
+            Cvc5Result::Unsat => {
+                if matches!(kind, ClauseKind::Invariant) {
+                    // UNSAT for invariant means it's always false (bad)
+                    VerificationResult::Counterexample {
+                        clause_desc: desc.to_string(),
+                        model: "invariant is unsatisfiable".to_string(),
+                        counter_model: None,
+                    }
+                } else {
+                    VerificationResult::Verified {
+                        clause_desc: desc.to_string(),
+                    }
+                }
+            }
+            Cvc5Result::Sat(model_str) => {
+                if matches!(kind, ClauseKind::Invariant) {
+                    VerificationResult::Verified {
+                        clause_desc: desc.to_string(),
+                    }
+                } else {
+                    let counter_model = parse_smtlib_model(&model_str);
+                    VerificationResult::Counterexample {
+                        clause_desc: desc.to_string(),
+                        model: model_str,
+                        counter_model,
+                    }
+                }
+            }
+            Cvc5Result::Timeout => VerificationResult::Timeout {
+                clause_desc: desc.to_string(),
+            },
+            Cvc5Result::Error(reason) => VerificationResult::Unknown {
+                clause_desc: desc.to_string(),
+                reason,
+            },
+        }
+    }
+
+    /// Result of running CVC5 on an SMT-LIB2 script.
+    enum Cvc5Result {
+        Unsat,
+        Sat(String),
+        Timeout,
+        Error(String),
+    }
+
+    /// Run CVC5 on an SMT-LIB2 script string.
+    fn run_cvc5(script: &str) -> Cvc5Result {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let mut cmd = Command::new("cvc5");
+        cmd.arg("--lang")
+            .arg("smt2")
+            .arg("--tlimit")
+            .arg("1000") // 1 second timeout
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                return Cvc5Result::Error(format!("cvc5 not found on PATH: {e}"));
+            }
+        };
+
+        // Write script to stdin
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(script.as_bytes());
+        }
+
+        let output = match child.wait_with_output() {
+            Ok(o) => o,
+            Err(e) => {
+                return Cvc5Result::Error(format!("cvc5 execution failed: {e}"));
+            }
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let first_line = stdout.lines().next().unwrap_or("").trim();
+
+        match first_line {
+            "unsat" => Cvc5Result::Unsat,
+            "sat" => {
+                let model = stdout.lines().skip(1).collect::<Vec<_>>().join("\n");
+                Cvc5Result::Sat(model)
+            }
+            "timeout" | "resourceout" => Cvc5Result::Timeout,
+            "unknown" => Cvc5Result::Timeout, // treat unknown as timeout
+            _ => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if stderr.contains("timeout") || stderr.contains("resourceout") {
+                    Cvc5Result::Timeout
+                } else {
+                    Cvc5Result::Error(format!("unexpected cvc5 output: {first_line}"))
+                }
+            }
+        }
+    }
+
+    /// Convert an Assura expression to SMT-LIB2 s-expression.
+    pub(crate) fn expr_to_smtlib(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Literal(Literal::Int(n)) => {
+                if let Some(stripped) = n.strip_prefix('-') {
+                    Some(format!("(- {stripped})"))
+                } else {
+                    Some(n.clone())
+                }
+            }
+            Expr::Literal(Literal::Bool(b)) => Some(b.to_string()),
+            Expr::Literal(Literal::Float(f)) => Some(f.clone()),
+            Expr::Literal(Literal::Str(_)) => None, // strings not easily supported
+            Expr::Ident(name) => {
+                // "result" in ensures context maps to __result
+                if name == "result" {
+                    Some("__result".to_string())
+                } else {
+                    Some(sanitize_smtlib_name(name))
+                }
+            }
+            Expr::BinOp { op, lhs, rhs } => {
+                let l = expr_to_smtlib(lhs)?;
+                let r = expr_to_smtlib(rhs)?;
+                let smt_op = match op {
+                    BinOp::Add => "+",
+                    BinOp::Sub => "-",
+                    BinOp::Mul => "*",
+                    BinOp::Div => "div",
+                    BinOp::Mod => "mod",
+                    BinOp::Eq => "=",
+                    BinOp::Neq => return Some(format!("(not (= {l} {r}))")),
+                    BinOp::Lt => "<",
+                    BinOp::Lte => "<=",
+                    BinOp::Gt => ">",
+                    BinOp::Gte => ">=",
+                    BinOp::And => "and",
+                    BinOp::Or => "or",
+                    BinOp::Implies => "=>",
+                    BinOp::Range => return None, // ranges not directly encodable
+                    BinOp::In | BinOp::NotIn => return None,
+                    BinOp::Concat => return None,
+                };
+                Some(format!("({smt_op} {l} {r})"))
+            }
+            Expr::UnaryOp { op, expr: inner } => {
+                let e = expr_to_smtlib(inner)?;
+                match op {
+                    UnaryOp::Not => Some(format!("(not {e})")),
+                    UnaryOp::Neg => Some(format!("(- {e})")),
+                }
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let c = expr_to_smtlib(cond)?;
+                let t = expr_to_smtlib(then_branch)?;
+                if let Some(e) = else_branch {
+                    let e = expr_to_smtlib(e)?;
+                    Some(format!("(ite {c} {t} {e})"))
+                } else {
+                    // No else branch: treat as implication
+                    Some(format!("(=> {c} {t})"))
+                }
+            }
+            Expr::Forall {
+                var,
+                domain: _,
+                body,
+            } => {
+                let v = sanitize_smtlib_name(var);
+                let b = expr_to_smtlib(body)?;
+                Some(format!("(forall (({v} Int)) {b})"))
+            }
+            Expr::Exists {
+                var,
+                domain: _,
+                body,
+            } => {
+                let v = sanitize_smtlib_name(var);
+                let b = expr_to_smtlib(body)?;
+                Some(format!("(exists (({v} Int)) {b})"))
+            }
+            Expr::Call { func, args } => {
+                // func is Box<Expr>, extract name from Ident
+                let f = match func.as_ref() {
+                    Expr::Ident(name) => sanitize_smtlib_name(name),
+                    _ => return None,
+                };
+                if args.is_empty() {
+                    Some(f)
+                } else {
+                    let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
+                    let arg_strs = arg_strs?;
+                    Some(format!("({f} {})", arg_strs.join(" ")))
+                }
+            }
+            Expr::Old(inner) => expr_to_smtlib(inner), // old(x) = x for SMT
+            Expr::Paren(inner) => expr_to_smtlib(inner),
+            Expr::Cast { expr: inner, .. } => expr_to_smtlib(inner),
+            Expr::Ghost(inner) => expr_to_smtlib(inner),
+            Expr::Field(_, _) => None,
+            Expr::Index { .. } => None,
+            Expr::Block(_) => None,
+            Expr::Raw(_) => None,
+            Expr::Tuple(_) => None,
+            Expr::Match { .. } => None,
+            Expr::MethodCall { .. } => None,
+            Expr::List(_) => None,
+            Expr::Apply { .. } => None,
+            Expr::Let { .. } => None,
+        }
+    }
+
+    /// Sanitize a name for SMT-LIB2 (replace dots with underscores).
+    fn sanitize_smtlib_name(name: &str) -> String {
+        name.replace('.', "_")
+    }
+
+    /// Collect variable names from an expression.
+    pub(crate) fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
+        match expr {
+            Expr::Ident(name) => {
+                if name == "result" {
+                    vars.insert("__result".to_string());
+                } else {
+                    vars.insert(sanitize_smtlib_name(name));
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                collect_vars(lhs, vars);
+                collect_vars(rhs, vars);
+            }
+            Expr::UnaryOp { expr: inner, .. } => collect_vars(inner, vars),
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                collect_vars(cond, vars);
+                collect_vars(then_branch, vars);
+                if let Some(e) = else_branch {
+                    collect_vars(e, vars);
+                }
+            }
+            Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+                collect_vars(body, vars);
+                collect_vars(domain, vars);
+            }
+            Expr::Call { args, .. } => {
+                for arg in args {
+                    collect_vars(arg, vars);
+                }
+            }
+            Expr::Old(inner) | Expr::Paren(inner) | Expr::Ghost(inner) => {
+                collect_vars(inner, vars);
+            }
+            Expr::Cast { expr: inner, .. } => collect_vars(inner, vars),
+            _ => {}
+        }
+    }
+
+    /// Parse a CVC5 model output into a CounterexampleModel.
+    pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel> {
+        // CVC5 model format: (define-fun name () Int value)
+        let mut variables = Vec::new();
+        for line in model_str.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("(define-fun ") {
+                // Extract name and value from: (define-fun name () Type value)
+                let parts: Vec<&str> = trimmed
+                    .trim_start_matches("(define-fun ")
+                    .splitn(2, " () ")
+                    .collect();
+                if parts.len() == 2 {
+                    let name = parts[0].to_string();
+                    // Value is after the type, before the closing paren
+                    let type_and_value = parts[1];
+                    if let Some(space_idx) = type_and_value.find(' ') {
+                        let raw = &type_and_value[space_idx + 1..];
+                        // Strip exactly one trailing ')' (the define-fun closer)
+                        let value = raw.strip_suffix(')').unwrap_or(raw).trim().to_string();
+                        if !name.starts_with("__coerce") {
+                            variables.push((name, value));
+                        }
+                    }
+                }
+            }
+        }
+        if variables.is_empty() {
+            None
+        } else {
+            Some(CounterexampleModel { variables })
         }
     }
 }
@@ -9329,5 +9829,193 @@ module safe_division {
         assert_eq!(ir_type_to_rust("String"), "String");
         assert_eq!(ir_type_to_rust("Unit"), "()");
         assert_eq!(ir_type_to_rust("CustomType"), "CustomType");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CVC5 backend unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod cvc5_tests {
+    use super::*;
+
+    #[test]
+    fn solver_choice_from_str() {
+        assert_eq!(SolverChoice::from_str_loose("z3"), Some(SolverChoice::Z3));
+        assert_eq!(SolverChoice::from_str_loose("Z3"), Some(SolverChoice::Z3));
+        assert_eq!(
+            SolverChoice::from_str_loose("cvc5"),
+            Some(SolverChoice::Cvc5)
+        );
+        assert_eq!(
+            SolverChoice::from_str_loose("CVC5"),
+            Some(SolverChoice::Cvc5)
+        );
+        assert_eq!(
+            SolverChoice::from_str_loose("portfolio"),
+            Some(SolverChoice::Portfolio)
+        );
+        assert_eq!(SolverChoice::from_str_loose("invalid"), None);
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_literal() {
+        use assura_parser::ast::Literal;
+        let e = Expr::Literal(Literal::Int("42".into()));
+        assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("42".to_string()));
+
+        let e = Expr::Literal(Literal::Bool(true));
+        assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("true".to_string()));
+
+        let e = Expr::Literal(Literal::Int("-5".into()));
+        assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("(- 5)".to_string()));
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_ident() {
+        let e = Expr::Ident("x".to_string());
+        assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("x".to_string()));
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_binop() {
+        use assura_parser::ast::{BinOp, Literal};
+        let e = Expr::BinOp {
+            op: BinOp::Add,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        assert_eq!(
+            cvc5_backend::expr_to_smtlib(&e),
+            Some("(+ x 1)".to_string())
+        );
+
+        let e = Expr::BinOp {
+            op: BinOp::Neq,
+            lhs: Box::new(Expr::Ident("a".into())),
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        };
+        assert_eq!(
+            cvc5_backend::expr_to_smtlib(&e),
+            Some("(not (= a 0))".to_string())
+        );
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_unary() {
+        use assura_parser::ast::UnaryOp;
+        let e = Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(Expr::Ident("p".into())),
+        };
+        assert_eq!(
+            cvc5_backend::expr_to_smtlib(&e),
+            Some("(not p)".to_string())
+        );
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_ite() {
+        use assura_parser::ast::Literal;
+        let e = Expr::If {
+            cond: Box::new(Expr::Ident("c".into())),
+            then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
+            else_branch: Some(Box::new(Expr::Literal(Literal::Int("0".into())))),
+        };
+        assert_eq!(
+            cvc5_backend::expr_to_smtlib(&e),
+            Some("(ite c 1 0)".to_string())
+        );
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_forall() {
+        let e = Expr::Forall {
+            var: "i".to_string(),
+            domain: Box::new(Expr::Ident("S".into())),
+            body: Box::new(Expr::BinOp {
+                op: assura_parser::ast::BinOp::Gt,
+                lhs: Box::new(Expr::Ident("i".into())),
+                rhs: Box::new(Expr::Literal(assura_parser::ast::Literal::Int("0".into()))),
+            }),
+        };
+        assert_eq!(
+            cvc5_backend::expr_to_smtlib(&e),
+            Some("(forall ((i Int)) (> i 0))".to_string())
+        );
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_result() {
+        let e = Expr::Ident("result".to_string());
+        assert_eq!(
+            cvc5_backend::expr_to_smtlib(&e),
+            Some("__result".to_string())
+        );
+    }
+
+    #[test]
+    fn cvc5_expr_to_smtlib_old() {
+        let e = Expr::Old(Box::new(Expr::Ident("x".into())));
+        assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("x".to_string()));
+    }
+
+    #[test]
+    fn cvc5_collect_vars() {
+        use std::collections::HashSet;
+        let e = Expr::BinOp {
+            op: assura_parser::ast::BinOp::Add,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Ident("y".into())),
+        };
+        let mut vars = HashSet::new();
+        cvc5_backend::collect_vars(&e, &mut vars);
+        assert!(vars.contains("x"));
+        assert!(vars.contains("y"));
+    }
+
+    #[test]
+    fn cvc5_parse_model() {
+        let model = "(define-fun x () Int 42)\n(define-fun y () Int (- 1))";
+        let parsed = cvc5_backend::parse_smtlib_model(model);
+        assert!(parsed.is_some());
+        let cm = parsed.unwrap();
+        assert_eq!(cm.variables.len(), 2);
+        assert!(cm.variables.iter().any(|(n, v)| n == "x" && v == "42"));
+        assert!(cm.variables.iter().any(|(n, v)| n == "y" && v == "(- 1)"));
+    }
+
+    #[test]
+    fn cvc5_parse_empty_model() {
+        let parsed = cvc5_backend::parse_smtlib_model("");
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn cvc5_verify_without_binary() {
+        // If cvc5 is not installed, verify_contract_cvc5 returns Error results
+        use assura_parser::ast::{Clause, ClauseKind, Literal};
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    op: assura_parser::ast::BinOp::Neq,
+                    lhs: Box::new(Expr::Ident("b".into())),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    op: assura_parser::ast::BinOp::Gt,
+                    lhs: Box::new(Expr::Ident("result".into())),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            },
+        ];
+        let results = cvc5_backend::verify_contract_cvc5("TestContract", &clauses);
+        // Should return 1 result (for ensures). May be Unknown if cvc5 not installed.
+        assert_eq!(results.len(), 1);
     }
 }

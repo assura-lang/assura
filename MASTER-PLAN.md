@@ -518,7 +518,7 @@
 
 ### I.1 Enhancement Issues
 
-- [ ] **I001**: Implement CVC5 fallback solver (GitHub issue #1)
+- [x] **I001**: Implement CVC5 fallback solver (GitHub issue #1)
   - Depends on: S005
   - The spec defines `--solver cvc5` and `assura.toml` supports
     `smt-solver = "cvc5"`, but only Z3 is implemented

@@ -515,6 +515,7 @@ fn print_help() {
          \x20   --json                              Output diagnostics as JSON\n\
          \x20   --human                             Output diagnostics as rich terminal (default)\n\
          \x20   --layer <0|1>                       Verification layer (0=structural, 1=SMT)\n\
+         \x20   --solver <z3|cvc5|portfolio>        SMT solver backend (default: z3)\n\
          \x20   --output <dir>                      Output directory for generated code (build)\n\
          \x20   --no-check                          Skip cargo check on generated code (build)\n\
          \x20   -w, --watch                         Watch for file changes and re-check (check)\n\
@@ -538,7 +539,7 @@ fn print_help() {
 /// Extract positional arguments, skipping flags and their values.
 /// Flags with values: --layer, --output. Simple flags: --json, --human, --ast, --tokens.
 fn positional_args(args: &[String]) -> Vec<String> {
-    let flags_with_values = ["--layer", "--output"];
+    let flags_with_values = ["--layer", "--output", "--solver"];
     let mut result = Vec::new();
     let mut skip_next = false;
     for arg in args.iter().skip(1) {
@@ -590,6 +591,16 @@ fn run_check(args: &[String]) {
         .find(|w| w[0] == "--layer")
         .and_then(|w| w[1].parse().ok())
         .unwrap_or_else(|| config_layer.unwrap_or(1));
+
+    // Solver choice: CLI flag > config file > default (Z3)
+    let config_solver = config
+        .as_ref()
+        .and_then(|(c, _)| assura_smt::SolverChoice::from_str_loose(&c.verify.smt_solver));
+    let solver = args
+        .windows(2)
+        .find(|w| w[0] == "--solver")
+        .and_then(|w| assura_smt::SolverChoice::from_str_loose(&w[1]))
+        .unwrap_or_else(|| config_solver.unwrap_or(assura_smt::SolverChoice::Z3));
 
     if watch {
         run_watch_loop(&filename, output_mode, verbosity, layer);
@@ -691,7 +702,7 @@ fn run_check(args: &[String]) {
     let verify_cache = assura_smt::VerificationCache::new(cache_dir);
     let mut verification_results = if layer >= 1 {
         if let Some(ref typed) = typed {
-            assura_smt::verify_parallel(typed, &verify_cache)
+            assura_smt::verify_parallel_with_solver(typed, &verify_cache, solver)
         } else {
             Vec::new()
         }
@@ -1488,6 +1499,18 @@ fn run_build(args: &[String]) {
         .map(|w| w[1].as_str())
         .unwrap_or(config_output.as_str());
 
+    // Solver choice: CLI flag > config file > default (Z3)
+    let build_solver = args
+        .windows(2)
+        .find(|w| w[0] == "--solver")
+        .and_then(|w| assura_smt::SolverChoice::from_str_loose(&w[1]))
+        .or_else(|| {
+            config
+                .as_ref()
+                .and_then(|(c, _)| assura_smt::SolverChoice::from_str_loose(&c.verify.smt_solver))
+        })
+        .unwrap_or(assura_smt::SolverChoice::Z3);
+
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
         process::exit(2);
@@ -1581,7 +1604,8 @@ fn run_build(args: &[String]) {
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let build_verify_cache = assura_smt::VerificationCache::new(build_cache_dir);
-    let mut verification_results = assura_smt::verify_parallel(&typed, &build_verify_cache);
+    let mut verification_results =
+        assura_smt::verify_parallel_with_solver(&typed, &build_verify_cache, build_solver);
     verification_results.extend(dispatch_decrease_checks(&typed));
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
