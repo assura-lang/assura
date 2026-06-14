@@ -857,4 +857,173 @@ mod tests {
         assert!(Severity::Info < Severity::Warning);
         assert!(Severity::Warning < Severity::Error);
     }
+
+    #[test]
+    fn test_error_diagnostic_is_error() {
+        let d = Diagnostic::error("A01001", "syntax error", 0..5);
+        assert!(d.is_error());
+        assert_eq!(d.severity, Severity::Error);
+    }
+
+    #[test]
+    fn test_warning_diagnostic_is_not_error() {
+        let d = Diagnostic::warning("A02007", "unused import", 10..20);
+        assert!(!d.is_error());
+        assert_eq!(d.severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_severity_display() {
+        assert_eq!(format!("{}", Severity::Info), "info");
+        assert_eq!(format!("{}", Severity::Warning), "warning");
+        assert_eq!(format!("{}", Severity::Error), "error");
+    }
+
+    #[test]
+    fn test_diagnostic_with_file() {
+        let d = Diagnostic::error("A03001", "type mismatch", 0..10).with_file("test.assura");
+        assert_eq!(d.file, "test.assura");
+    }
+
+    #[test]
+    fn test_diagnostic_multiple_secondary_spans() {
+        let d = Diagnostic::error("A03001", "type mismatch", 10..20)
+            .with_secondary(30..40, "expected type here")
+            .with_secondary(50..60, "found type here");
+        assert_eq!(d.secondary.len(), 2);
+        assert_eq!(d.secondary[0].message, "expected type here");
+        assert_eq!(d.secondary[0].span, 30..40);
+        assert_eq!(d.secondary[1].message, "found type here");
+        assert_eq!(d.secondary[1].span, 50..60);
+    }
+
+    #[test]
+    fn test_diagnostic_suggestion_fields() {
+        let d = Diagnostic::error("A01002", "unexpected token", 5..8).with_suggestion(
+            "add a colon",
+            7..8,
+            ":",
+        );
+        let s = d.suggestion.as_ref().unwrap();
+        assert_eq!(s.message, "add a colon");
+        assert_eq!(s.span, 7..8);
+        assert_eq!(s.replacement, ":");
+    }
+
+    #[test]
+    fn test_diagnostic_json_serialization() {
+        let d = Diagnostic::error("A03001", "type mismatch", 10..20)
+            .with_file("main.assura")
+            .with_secondary(30..40, "declared here");
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(json.contains("A03001"));
+        assert!(json.contains("type mismatch"));
+        assert!(json.contains("main.assura"));
+        assert!(json.contains("declared here"));
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(val["code"], "A03001");
+        assert_eq!(val["severity"], "error");
+        assert_eq!(val["message"], "type mismatch");
+    }
+
+    #[test]
+    fn test_diagnostic_collection() {
+        let diags = vec![
+            Diagnostic::error("A01001", "unexpected char", 0..1),
+            Diagnostic::warning("A02007", "unused import", 10..20),
+            Diagnostic::error("A03001", "type mismatch", 30..40),
+        ];
+        assert_eq!(diags.len(), 3);
+        let errors: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
+        assert_eq!(errors.len(), 2);
+        let warnings: Vec<_> = diags
+            .iter()
+            .filter(|d| d.severity == Severity::Warning)
+            .collect();
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_diagnostic_empty_secondary_spans() {
+        let d = Diagnostic::error("A03001", "error", 0..5);
+        assert!(d.secondary.is_empty());
+        assert!(d.suggestion.is_none());
+    }
+
+    #[test]
+    fn test_error_code_formatting_display() {
+        let d = Diagnostic::error("A05001", "linear variable used twice", 0..10);
+        let display = format!("{d}");
+        assert_eq!(display, "[A05001] linear variable used twice");
+    }
+
+    #[test]
+    fn test_error_catalog_not_empty() {
+        let catalog = error_catalog();
+        assert!(!catalog.is_empty());
+        for entry in &catalog {
+            assert!(!entry.code.is_empty());
+            assert!(!entry.name.is_empty());
+            assert!(!entry.description.is_empty());
+            assert!(!entry.example.is_empty());
+            assert!(!entry.fix.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_explain_known_code() {
+        let info = explain("A01001");
+        assert!(info.is_some());
+        let info = info.unwrap();
+        assert_eq!(info.code, "A01001");
+        assert_eq!(info.name, "Unexpected character");
+    }
+
+    #[test]
+    fn test_explain_unknown_code() {
+        let info = explain("A99999");
+        assert!(info.is_none());
+    }
+
+    #[test]
+    fn test_explain_all_catalog_codes() {
+        let catalog = error_catalog();
+        for entry in &catalog {
+            let found = explain(entry.code);
+            assert!(found.is_some(), "should find {}", entry.code);
+            assert_eq!(found.unwrap().code, entry.code);
+        }
+    }
+
+    #[test]
+    fn test_warning_serialization() {
+        let d = Diagnostic::warning("A02007", "unused import", 5..15);
+        let json = serde_json::to_string(&d).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(val["severity"], "warning");
+    }
+
+    #[test]
+    fn test_suggestion_serialization() {
+        let s = Suggestion {
+            message: "add semicolon".to_string(),
+            span: 10..11,
+            replacement: ";".to_string(),
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("add semicolon"));
+    }
+
+    #[test]
+    fn test_secondary_label_equality() {
+        let a = SecondaryLabel {
+            span: 0..5,
+            message: "here".to_string(),
+        };
+        let b = SecondaryLabel {
+            span: 0..5,
+            message: "here".to_string(),
+        };
+        assert_eq!(a, b);
+    }
 }

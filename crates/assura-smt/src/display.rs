@@ -130,18 +130,101 @@ pub fn format_counterexample_lines(
         }
         return lines;
     }
-    // Fallback: raw Z3 model
-    model.lines().map(|l| format!("| {l}")).collect()
+    // Fallback: parse raw Z3 model into variable assignments.
+    // The raw model contains lines like `name -> value` and multi-line
+    // `name -> {\n  value\n}` blocks. Parse them into clean pairs.
+    let mut lines = Vec::new();
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut current_name: Option<String> = None;
+    let mut block_lines: Vec<String> = Vec::new();
+    let mut in_block = false;
+
+    for line in model.lines() {
+        let trimmed = line.trim();
+        if in_block {
+            if trimmed == "}" {
+                // End of block: join inner lines as the value
+                let value = block_lines.join(" ");
+                if let Some(name) = current_name.take() {
+                    // Skip internal Z3 variables
+                    if !name.starts_with("__") || name == "__result" {
+                        let clean_name = name.strip_prefix("__field_").unwrap_or(&name).to_string();
+                        pairs.push((clean_name, clean_z3_value(&value)));
+                    }
+                }
+                block_lines.clear();
+                in_block = false;
+            } else {
+                block_lines.push(trimmed.to_string());
+            }
+        } else if let Some((name, rest)) = trimmed.split_once(" -> ") {
+            let rest = rest.trim();
+            if rest == "{" {
+                // Start of multi-line block
+                current_name = Some(name.to_string());
+                in_block = true;
+            } else {
+                // Single-line assignment
+                let name = name.trim();
+                if !name.starts_with("__") || name == "__result" {
+                    let clean_name = name.strip_prefix("__field_").unwrap_or(name).to_string();
+                    pairs.push((clean_name, clean_z3_value(rest)));
+                }
+            }
+        }
+    }
+
+    if pairs.is_empty() {
+        // Could not parse; show raw model lines
+        return model.lines().map(|l| format!("| {l}")).collect();
+    }
+
+    // Format parsed pairs as clean counterexample
+    let mut inputs = Vec::new();
+    let mut outputs = Vec::new();
+    for (name, value) in &pairs {
+        if name == "result" || name.starts_with("result") {
+            outputs.push((name.clone(), value.clone()));
+        } else {
+            inputs.push((name.clone(), value.clone()));
+        }
+    }
+    if !inputs.is_empty() {
+        let formatted: Vec<String> = inputs.iter().map(|(n, v)| format!("{n} = {v}")).collect();
+        lines.push(format!("| {}", formatted.join(", ")));
+    }
+    for (name, value) in &outputs {
+        lines.push(format!("| {name} = {value}"));
+    }
+    lines
 }
 
 /// Clean up Z3 value formatting for human display.
 ///
-/// Converts Z3's `(- N)` negative number format to `-N`.
+/// Handles several Z3 output patterns:
+/// - `(- N)` negative numbers -> `-N`
+/// - Multi-line `{\n  value\n}` blocks -> just the inner value
+/// - `(/ p q)` rationals -> `p/q`
 pub fn clean_z3_value(value: &str) -> String {
     let v = value.trim();
     // Z3 outputs negative numbers as `(- N)`, convert to `-N`
     if v.starts_with("(- ") && v.ends_with(')') {
-        return format!("-{}", &v[3..v.len() - 1]);
+        let inner = v[3..v.len() - 1].trim();
+        return format!("-{inner}");
+    }
+    // Z3 rational output: `(/ p q)` -> `p/q`
+    if v.starts_with("(/ ") && v.ends_with(')') {
+        let inner = &v[3..v.len() - 1];
+        if let Some((p, q)) = inner.split_once(' ') {
+            return format!("{}/{}", p.trim(), q.trim());
+        }
+    }
+    // Multi-line block: `{\n  value\n}` -> extract the value
+    if v.starts_with('{') && v.ends_with('}') {
+        let inner = v[1..v.len() - 1].trim();
+        if !inner.is_empty() {
+            return clean_z3_value(inner);
+        }
     }
     v.to_string()
 }
@@ -348,4 +431,198 @@ pub fn write_summary(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CounterexampleModel;
+
+    #[test]
+    fn test_clean_z3_value_negative_number() {
+        assert_eq!(clean_z3_value("(- 5)"), "-5");
+    }
+
+    #[test]
+    fn test_clean_z3_value_large_negative() {
+        assert_eq!(clean_z3_value("(- 42)"), "-42");
+    }
+
+    #[test]
+    fn test_clean_z3_value_positive_number() {
+        assert_eq!(clean_z3_value("5"), "5");
+    }
+
+    #[test]
+    fn test_clean_z3_value_zero() {
+        assert_eq!(clean_z3_value("0"), "0");
+    }
+
+    #[test]
+    fn test_clean_z3_value_with_whitespace() {
+        assert_eq!(clean_z3_value("  42  "), "42");
+    }
+
+    #[test]
+    fn test_clean_z3_value_negative_with_whitespace() {
+        assert_eq!(clean_z3_value("  (- 7)  "), "-7");
+    }
+
+    #[test]
+    fn test_clean_z3_value_non_numeric() {
+        assert_eq!(clean_z3_value("true"), "true");
+    }
+
+    #[test]
+    fn test_counterexample_with_inputs() {
+        let model = CounterexampleModel {
+            variables: vec![
+                ("x".to_string(), "42".to_string()),
+                ("y".to_string(), "(- 3)".to_string()),
+            ],
+        };
+        let lines = format_counterexample_lines(&Some(model), "raw model");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("x = 42"));
+        assert!(lines[0].contains("y = -3"));
+    }
+
+    #[test]
+    fn test_counterexample_with_result() {
+        let model = CounterexampleModel {
+            variables: vec![
+                ("a".to_string(), "10".to_string()),
+                ("result".to_string(), "(- 1)".to_string()),
+            ],
+        };
+        let lines = format_counterexample_lines(&Some(model), "raw model");
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("a = 10"));
+        assert!(lines[1].contains("result = -1"));
+    }
+
+    #[test]
+    fn test_counterexample_empty_model_fallback() {
+        let model = CounterexampleModel { variables: vec![] };
+        let raw = "x = 0\ny = -1";
+        let lines = format_counterexample_lines(&Some(model), raw);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("x = 0"));
+        assert!(lines[1].contains("y = -1"));
+    }
+
+    #[test]
+    fn test_counterexample_none_model() {
+        let raw = "some raw model output";
+        let lines = format_counterexample_lines(&None, raw);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("some raw model output"));
+    }
+
+    #[test]
+    fn test_counterexample_multiline_raw() {
+        let raw = "line 1\nline 2\nline 3";
+        let lines = format_counterexample_lines(&None, raw);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "| line 1");
+        assert_eq!(lines[1], "| line 2");
+        assert_eq!(lines[2], "| line 3");
+    }
+
+    #[test]
+    fn test_counterexample_with_dunder_prefix() {
+        let model = CounterexampleModel {
+            variables: vec![("__x".to_string(), "99".to_string())],
+        };
+        let lines = format_counterexample_lines(&Some(model), "");
+        assert!(lines[0].contains("x = 99"));
+        assert!(!lines[0].contains("__x"));
+    }
+
+    #[test]
+    fn test_clause_owner_simple() {
+        assert_eq!(clause_owner("SafeDivide::ensures"), "SafeDivide");
+    }
+
+    #[test]
+    fn test_clause_owner_service_op() {
+        assert_eq!(
+            clause_owner("OrderService.pay::requires"),
+            "OrderService.pay"
+        );
+    }
+
+    #[test]
+    fn test_clause_owner_no_separator() {
+        assert_eq!(clause_owner("standalone"), "standalone");
+    }
+
+    #[test]
+    fn test_write_grouped_verified() {
+        let results = vec![VerificationResult::Verified {
+            clause_desc: "Foo::ensures".to_string(),
+        }];
+        let mut buf = Vec::new();
+        write_grouped_verification(&mut buf, &results, "  ").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Foo:"));
+        assert!(output.contains("ensures"));
+        assert!(output.contains("verified"));
+    }
+
+    #[test]
+    fn test_write_grouped_counterexample() {
+        let results = vec![VerificationResult::Counterexample {
+            clause_desc: "Bar::invariant".to_string(),
+            model: "x = 0".to_string(),
+            counter_model: None,
+        }];
+        let mut buf = Vec::new();
+        write_grouped_verification(&mut buf, &results, "").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Bar:"));
+        assert!(output.contains("COUNTEREXAMPLE"));
+    }
+
+    #[test]
+    fn test_write_grouped_timeout() {
+        let results = vec![VerificationResult::Timeout {
+            clause_desc: "Baz::ensures".to_string(),
+        }];
+        let mut buf = Vec::new();
+        write_grouped_verification(&mut buf, &results, "").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("timeout"));
+    }
+
+    #[test]
+    fn test_write_grouped_unknown() {
+        let results = vec![VerificationResult::Unknown {
+            clause_desc: "Qux::requires".to_string(),
+            reason: "non-linear arithmetic".to_string(),
+        }];
+        let mut buf = Vec::new();
+        write_grouped_verification(&mut buf, &results, "").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("skipped"));
+        assert!(output.contains("non-linear arithmetic"));
+    }
+
+    #[test]
+    fn test_write_grouped_multiple_same_owner() {
+        let results = vec![
+            VerificationResult::Verified {
+                clause_desc: "C::requires".to_string(),
+            },
+            VerificationResult::Verified {
+                clause_desc: "C::ensures".to_string(),
+            },
+        ];
+        let mut buf = Vec::new();
+        write_grouped_verification(&mut buf, &results, "").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output.matches("C:").count(), 1);
+        assert!(output.contains("requires"));
+        assert!(output.contains("ensures"));
+    }
 }

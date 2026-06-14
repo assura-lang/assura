@@ -321,4 +321,197 @@ mod tests {
         let args: Vec<String> = vec!["check".into()];
         assert_eq!(parse_verbosity(&args), Verbosity::Normal);
     }
+
+    #[test]
+    fn parse_config_all_fields() {
+        let toml_str = r#"
+[package]
+name = "my-project"
+version = "1.2.3"
+
+[build]
+target = "wasm"
+output = "dist"
+
+[verify]
+smt-solver = "cvc5"
+layer = 2
+timeout = 5000
+
+[profile]
+type = "strict"
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.package.name, "my-project");
+        assert_eq!(config.package.version, "1.2.3");
+        assert_eq!(config.build.target, "wasm");
+        assert_eq!(config.build.output, "dist");
+        assert_eq!(config.verify.smt_solver, "cvc5");
+        assert_eq!(config.verify.layer, 2);
+        assert_eq!(config.verify.timeout, 5000);
+        assert_eq!(config.profile.profile_type, "strict");
+    }
+
+    #[test]
+    fn parse_config_only_package() {
+        let toml_str = r#"
+[package]
+name = "pkg-only"
+version = "0.2.0"
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.package.name, "pkg-only");
+        assert_eq!(config.package.version, "0.2.0");
+        assert_eq!(config.build.target, "native");
+        assert_eq!(config.verify.smt_solver, "z3");
+    }
+
+    #[test]
+    fn parse_config_only_verify() {
+        let toml_str = r#"
+[verify]
+smt-solver = "portfolio"
+layer = 3
+timeout = 10000
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.verify.smt_solver, "portfolio");
+        assert_eq!(config.verify.layer, 3);
+        assert_eq!(config.verify.timeout, 10000);
+        assert_eq!(config.package.name, "");
+        assert_eq!(config.build.target, "native");
+    }
+
+    #[test]
+    fn parse_config_only_build() {
+        let toml_str = r#"
+[build]
+target = "wasm"
+output = "out/gen"
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.build.target, "wasm");
+        assert_eq!(config.build.output, "out/gen");
+        assert_eq!(config.verify.smt_solver, "z3");
+    }
+
+    #[test]
+    fn parse_empty_string_returns_default() {
+        let config: ProjectConfig = toml::from_str("").unwrap();
+        assert_eq!(config.package.name, "");
+        assert_eq!(config.package.version, "0.1.0");
+        assert_eq!(config.build.target, "native");
+        assert_eq!(config.build.output, "generated");
+        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.layer, 1);
+        assert_eq!(config.verify.timeout, 1000);
+        assert_eq!(config.profile.profile_type, "minimal");
+    }
+
+    #[test]
+    fn parse_malformed_toml_errors() {
+        let bad = "this is not [valid toml {{{";
+        let result = toml::from_str::<ProjectConfig>(bad);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn default_values_match_expected() {
+        let config = ProjectConfig::default();
+        assert_eq!(config.package.name, "");
+        assert_eq!(config.package.version, "0.1.0");
+        assert_eq!(config.build.target, "native");
+        assert_eq!(config.build.output, "generated");
+        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.layer, 1);
+        assert_eq!(config.verify.timeout, 1000);
+        assert_eq!(config.profile.profile_type, "minimal");
+    }
+
+    #[test]
+    fn parse_legacy_project_section() {
+        let legacy_toml = r#"
+[project]
+name = "legacy-app"
+version = "0.5.0"
+"#;
+        let parse_content =
+            if legacy_toml.contains("[project]") && !legacy_toml.contains("[package]") {
+                legacy_toml.replace("[project]", "[package]")
+            } else {
+                legacy_toml.to_string()
+            };
+        let config: ProjectConfig = toml::from_str(&parse_content).unwrap();
+        assert_eq!(config.package.name, "legacy-app");
+        assert_eq!(config.package.version, "0.5.0");
+    }
+
+    #[test]
+    fn verify_smt_solver_accepts_z3() {
+        let toml_str = "[verify]\nsmt-solver = \"z3\"\n";
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.verify.smt_solver, "z3");
+    }
+
+    #[test]
+    fn verify_smt_solver_accepts_cvc5() {
+        let toml_str = "[verify]\nsmt-solver = \"cvc5\"\n";
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.verify.smt_solver, "cvc5");
+    }
+
+    #[test]
+    fn verify_smt_solver_accepts_portfolio() {
+        let toml_str = "[verify]\nsmt-solver = \"portfolio\"\n";
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.verify.smt_solver, "portfolio");
+    }
+
+    #[test]
+    fn parse_verbosity_short_verbose_flag() {
+        let args: Vec<String> = vec!["-v".into()];
+        assert_eq!(parse_verbosity(&args), Verbosity::Verbose);
+    }
+
+    #[test]
+    fn parse_verbosity_quiet_long_flag() {
+        let args: Vec<String> = vec!["--quiet".into()];
+        assert_eq!(parse_verbosity(&args), Verbosity::Quiet);
+    }
+
+    #[test]
+    fn parse_verbosity_empty_args() {
+        let args: Vec<String> = vec![];
+        assert_eq!(parse_verbosity(&args), Verbosity::Normal);
+    }
+
+    #[test]
+    fn output_mode_equality() {
+        assert_eq!(OutputMode::Human, OutputMode::Human);
+        assert_eq!(OutputMode::Json, OutputMode::Json);
+        assert_ne!(OutputMode::Human, OutputMode::Json);
+    }
+
+    #[test]
+    fn codegen_config_defaults() {
+        let config = CodegenConfig::default();
+        assert_eq!(config.output_dir, "generated");
+        assert_eq!(config.target, "native");
+        assert!(config.run_cargo_check);
+    }
+
+    #[test]
+    fn type_check_config_defaults() {
+        let config = TypeCheckConfig::default();
+        assert!(config.warn_unused_imports);
+        assert!(config.strict_effects);
+    }
+
+    #[test]
+    fn verify_options_defaults() {
+        let config = VerifyOptions::default();
+        assert_eq!(config.layer, 1);
+        assert_eq!(config.timeout_ms, 1000);
+        assert_eq!(config.solver, "z3");
+    }
 }
