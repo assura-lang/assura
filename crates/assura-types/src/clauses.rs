@@ -348,8 +348,7 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                         env
                     };
                     let ast_kind = hir_clause_kind_to_ast(&clause.kind);
-                    let ast_body = clause.body.to_ast_expr();
-                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                    check_clause_hir_expr(&ast_kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
             HirDeclKind::FnDef(f) => {
@@ -371,8 +370,7 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                         env
                     };
                     let ast_kind = hir_clause_kind_to_ast(&clause.kind);
-                    let ast_body = clause.body.to_ast_expr();
-                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                    check_clause_hir_expr(&ast_kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
             HirDeclKind::Extern(e) => {
@@ -385,8 +383,7 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                         env
                     };
                     let ast_kind = hir_clause_kind_to_ast(&clause.kind);
-                    let ast_body = clause.body.to_ast_expr();
-                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                    check_clause_hir_expr(&ast_kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
             HirDeclKind::Bind(b) => {
@@ -399,8 +396,7 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                         env
                     };
                     let ast_kind = hir_clause_kind_to_ast(&clause.kind);
-                    let ast_body = clause.body.to_ast_expr();
-                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                    check_clause_hir_expr(&ast_kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
             HirDeclKind::Service(s) => {
@@ -413,10 +409,9 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                             (clauses,)
                         }
                         HirSI::Invariant(expr) => {
-                            let ast_body = expr.to_ast_expr();
-                            check_clause_expr(
+                            check_clause_hir_expr(
                                 &ClauseKind::Invariant,
-                                &ast_body,
+                                expr,
                                 &svc_env,
                                 &mut errors,
                                 span,
@@ -450,16 +445,20 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                             &op_env
                         };
                         let ast_kind = hir_clause_kind_to_ast(&clause.kind);
-                        let ast_body = clause.body.to_ast_expr();
-                        check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                        check_clause_hir_expr(
+                            &ast_kind,
+                            &clause.body,
+                            clause_env,
+                            &mut errors,
+                            span,
+                        );
                     }
                 }
             }
             HirDeclKind::Block(b) => {
                 for clause in &b.clauses {
                     let ast_kind = hir_clause_kind_to_ast(&clause.kind);
-                    let ast_body = clause.body.to_ast_expr();
-                    check_clause_expr(&ast_kind, &ast_body, env, &mut errors, span);
+                    check_clause_hir_expr(&ast_kind, &clause.body, env, &mut errors, span);
                 }
             }
             HirDeclKind::TypeDef(_) | HirDeclKind::EnumDef(_) => {}
@@ -568,6 +567,38 @@ pub(crate) fn check_clause_expr(
     ctx_span: &std::ops::Range<usize>,
 ) {
     match infer_expr(body, env) {
+        Ok(ty) => {
+            if clause_requires_bool(kind) && ty != Type::Unknown && ty != Type::Bool {
+                errors.push(TypeError {
+                    code: "A03006".into(),
+                    message: format!(
+                        "{} clause must be Bool, found `{ty}`",
+                        clause_kind_label(kind),
+                    ),
+                    span: ctx_span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        Err(mut e) => {
+            if e.span == (0..0) {
+                e.span = ctx_span.clone();
+            }
+            errors.push(e);
+        }
+    }
+}
+
+/// HIR variant of `check_clause_expr` that accepts `HirExpr` directly,
+/// eliminating the need for `to_ast_expr()` bridge conversions.
+pub(crate) fn check_clause_hir_expr(
+    kind: &ClauseKind,
+    body: &assura_hir::HirExpr,
+    env: &TypeEnv,
+    errors: &mut Vec<TypeError>,
+    ctx_span: &std::ops::Range<usize>,
+) {
+    match crate::infer_hir_expr(body, env) {
         Ok(ty) => {
             if clause_requires_bool(kind) && ty != Type::Unknown && ty != Type::Bool {
                 errors.push(TypeError {
