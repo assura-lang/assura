@@ -1811,9 +1811,7 @@ contract Foo {
   requires { unknown_fn(x) }
 }
 "#;
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty());
-        let file = file.unwrap();
+        let file = assura_parser::parse_unwrap(source);
         // Resolve should succeed (soft errors for unresolved refs)
         let resolved = assura_resolve::resolve(&file);
         assert!(resolved.is_ok());
@@ -1828,9 +1826,7 @@ contract Typed {
   requires { x + 1 }
 }
 "#;
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-        let file = file.unwrap();
+        let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).unwrap();
         let typed = assura_types::type_check(&resolved);
         // Type checking may succeed with warnings, or produce errors
@@ -2165,9 +2161,7 @@ contract CraneliftTest {
   ensures { result == x }
 }
 "#;
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty());
-        let file = file.unwrap();
+        let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).unwrap();
         let typed = assura_types::type_check(&resolved).unwrap();
         let config = assura_codegen::BackendConfig {
@@ -2579,9 +2573,7 @@ service Connection {
 
     /// Parse source, format it, re-parse, re-format, and assert idempotency.
     fn assert_format_idempotent(source: &str) {
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty(), "parse errors on original: {errs:?}");
-        let file = file.expect("parse returned None");
+        let file = assura_parser::parse_unwrap(source);
 
         let formatted1 = assura_fmt::format_source_file(&file);
 

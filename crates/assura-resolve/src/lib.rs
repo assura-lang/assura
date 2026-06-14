@@ -2126,9 +2126,7 @@ mod tests {
 
     /// Helper: parse source text into a `SourceFile` (panics on error).
     fn parse_ok(source: &str) -> SourceFile {
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-        file.expect("parse returned None")
+        assura_parser::parse_unwrap(source)
     }
 
     #[test]

@@ -33,3 +33,13 @@ pub fn parse(
     let stream = Stream::from_iter(len..len + 1, tokens.into_iter());
     parser::source_file().parse_recovery(stream)
 }
+
+/// Parse source text, panicking on errors. Convenience for tests.
+///
+/// Returns the parsed `SourceFile`. Panics if the source has parse errors
+/// or if parsing returns `None`.
+pub fn parse_unwrap(source: &str) -> ast::SourceFile {
+    let (file, errs) = parse(source);
+    assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
+    file.expect("parse returned None")
+}

@@ -4,9 +4,7 @@ use crate::inference::*;
 
 /// Helper: parse + resolve source text, panicking on errors.
 fn resolve_ok(source: &str) -> ResolvedFile {
-    let (file, errs) = assura_parser::parse(source);
-    assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-    let file = file.expect("parse returned None");
+    let file = assura_parser::parse_unwrap(source);
     assura_resolve::resolve(&file).expect("resolve should succeed")
 }
 
@@ -5126,9 +5124,7 @@ fn lemma_fn_pure_effects_passes() {
             effects: pure
             ensures { a + b == b + a }
     "#;
-    let (file, errs) = assura_parser::parse(src);
-    assert!(errs.is_empty(), "parse errors: {errs:?}");
-    let file = file.unwrap();
+    let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
     let result = type_check(&resolved);
     assert!(
@@ -5144,9 +5140,7 @@ fn lemma_fn_no_effects_clause_passes() {
         lemma trivial(x: Int)
             ensures { x == x }
     "#;
-    let (file, errs) = assura_parser::parse(src);
-    assert!(errs.is_empty(), "parse errors: {errs:?}");
-    let file = file.unwrap();
+    let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
     let result = type_check(&resolved);
     assert!(result.is_ok(), "lemma with no effects clause should pass");
@@ -5160,9 +5154,7 @@ fn lemma_fn_non_pure_effects_a55001() {
             effects: io
             ensures { x > 0 }
     "#;
-    let (file, errs) = assura_parser::parse(src);
-    assert!(errs.is_empty(), "parse errors: {errs:?}");
-    let file = file.unwrap();
+    let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
     let result = type_check(&resolved);
     assert!(result.is_err(), "lemma with io effects should fail");
@@ -5180,9 +5172,7 @@ fn lemma_is_lemma_flag_set() {
         lemma my_lemma(n: Int)
             ensures { n >= 0 }
     "#;
-    let (file, errs) = assura_parser::parse(src);
-    assert!(errs.is_empty(), "parse errors: {errs:?}");
-    let file = file.unwrap();
+    let file = assura_parser::parse_unwrap(src);
     assert_eq!(file.decls.len(), 1);
     if let Decl::FnDef(f) = &file.decls[0].node {
         assert!(f.is_lemma, "lemma should have is_lemma = true");
@@ -5201,9 +5191,7 @@ fn fn_is_not_lemma() {
             ensures { result >= 0 }
         }
     "#;
-    let (file, errs) = assura_parser::parse(src);
-    assert!(errs.is_empty(), "parse errors: {errs:?}");
-    let file = file.unwrap();
+    let file = assura_parser::parse_unwrap(src);
     assert_eq!(file.decls.len(), 1);
     if let Decl::FnDef(f) = &file.decls[0].node {
         assert!(!f.is_lemma, "fn should have is_lemma = false");
@@ -10297,9 +10285,7 @@ fn result_type_threaded_through_ensures() {
 fn square(x: Int) -> Int
   ensures { result >= 0 }
 "#;
-    let (file, errs) = assura_parser::parse(src);
-    assert!(errs.is_empty());
-    let file = file.unwrap();
+    let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
     // type_check should succeed; the `result >= 0` comparison is
     // Int >= Int which is valid

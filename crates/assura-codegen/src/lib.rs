@@ -3644,9 +3644,7 @@ mod tests {
 
     /// Helper: parse + resolve + type-check source text, then codegen.
     fn codegen_ok(source: &str) -> GeneratedProject {
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-        let file = file.expect("parse returned None");
+        let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         let typed = assura_types::type_check(&resolved).expect("type check failed");
         codegen(&typed)
@@ -4201,12 +4199,7 @@ type Marker {
         // Parse the e2e test file through the full pipeline
         let source = std::fs::read_to_string("../../tests/e2e/safe_division.assura")
             .expect("failed to read safe_division.assura");
-        let (file, errs) = assura_parser::parse(&source);
-        assert!(
-            errs.is_empty(),
-            "SafeDivision should parse without errors: {errs:?}"
-        );
-        let file = file.expect("parse returned None");
+        let file = assura_parser::parse_unwrap(&source);
         let resolved = assura_resolve::resolve(&file).expect("resolution should succeed");
         let typed = assura_types::type_check(&resolved).expect("type check should succeed");
 
@@ -4529,9 +4522,7 @@ fn clamp(x: Int, lo: Int, hi: Int) -> Int
             target: super::CompileTarget::Native,
         };
         let project = {
-            let (file, errs) = assura_parser::parse("");
-            assert!(errs.is_empty());
-            let file = file.expect("parse returned None");
+            let file = assura_parser::parse_unwrap("");
             let resolved = assura_resolve::resolve(&file).expect("resolve failed");
             let typed = assura_types::type_check(&resolved).expect("type check failed");
             super::codegen_with_config(&typed, &config)
@@ -5744,9 +5735,7 @@ contract NoErrors {
     // --- WASM target tests ---
 
     fn codegen_wasm(source: &str) -> GeneratedProject {
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-        let file = file.expect("parse returned None");
+        let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         let typed = assura_types::type_check(&resolved).expect("type check failed");
         let config = BackendConfig {

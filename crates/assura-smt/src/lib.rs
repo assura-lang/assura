@@ -943,9 +943,7 @@ mod tests {
 
     /// Helper: parse, resolve, type-check, then verify a source string.
     fn type_check_ok(source: &str) -> assura_types::TypedFile {
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-        let file = file.expect("parse returned None");
+        let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         assura_types::type_check(&resolved).expect("type_check failed")
     }
@@ -3467,9 +3465,7 @@ mod quantifier_bound_tests {
     use super::*;
 
     fn type_check_source(source: &str) -> assura_types::TypedFile {
-        let (file, errs) = assura_parser::parse(source);
-        assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-        let file = file.expect("parse returned None");
+        let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         assura_types::type_check(&resolved).expect("type_check failed")
     }
