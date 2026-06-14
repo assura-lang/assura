@@ -354,7 +354,7 @@
     4. The CLI formats these as the per-clause output from R009
   - This enables the user to see exactly which clause failed and why
 
-- [ ] **S006**: Implement counterexample display in CLI
+- [x] **S006**: Implement counterexample display in CLI
   - Depends on: S005
   - When Z3 returns SAT (counterexample), the current output is just
     a generic "counterexample found" message
@@ -1168,3 +1168,15 @@ skipped). Added `print_grouped_verification_stdout()` for stdout output
 (vs existing stderr variant for `assura check`). 4 new SMT tests:
 single-ensures verified, counterexample, multiple-ensures mixed results,
 no-verifiable-clauses empty result.
+
+### S006 completed (2026-06-13)
+Implemented human-readable counterexample display. Counterexample output
+now uses the structured `CounterexampleModel` instead of raw Z3 model
+strings. Added `format_counterexample_lines()` and `clean_z3_value()`
+helpers. Changes: (1) Z3 `(- N)` format converted to `-N`, (2) variables
+grouped into inputs and outputs (result), (3) inputs displayed as compact
+`name = value, ...` pairs, (4) `__result` variable now preserved in
+`extract_counter_model` (previously skipped by `__` prefix filter).
+Before: `a -> (- 2)\nb -> 1\n__field_extra -> { 4 }`. After:
+`a = -2, b = 1\nresult = -1`. Both stderr (`assura check`) and stdout
+(default summary) paths use the new formatter.

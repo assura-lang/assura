@@ -2457,8 +2457,8 @@ mod z3_backend {
                 continue;
             }
             let name = decl.name();
-            // Skip internal/fresh variables
-            if name.starts_with("__") {
+            // Skip internal/fresh variables, but keep __result
+            if name.starts_with("__") && name != "__result" {
                 continue;
             }
             // Try to get the interpretation as a string

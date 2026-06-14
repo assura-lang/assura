@@ -663,12 +663,14 @@ fn print_grouped_verification(results: &[assura_smt::VerificationResult]) {
                     eprintln!("    {kind:<20} ... verified");
                 }
                 assura_smt::VerificationResult::Counterexample {
-                    clause_desc, model, ..
+                    clause_desc,
+                    model,
+                    counter_model,
                 } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
                     eprintln!("    {kind:<20} ... COUNTEREXAMPLE");
-                    for line in model.lines() {
-                        eprintln!("      | {line}");
+                    for line in format_counterexample_lines(counter_model, model) {
+                        eprintln!("      {line}");
                     }
                 }
                 assura_smt::VerificationResult::Timeout { clause_desc } => {
@@ -685,6 +687,55 @@ fn print_grouped_verification(results: &[assura_smt::VerificationResult]) {
             }
         }
     }
+}
+
+/// Format a counterexample for human-readable display.
+///
+/// If a structured `CounterexampleModel` is available, display clean
+/// `name = value` pairs. Otherwise fall back to the raw Z3 model string.
+fn format_counterexample_lines(
+    counter_model: &Option<assura_smt::CounterexampleModel>,
+    model: &str,
+) -> Vec<String> {
+    if let Some(cm) = counter_model
+        && !cm.variables.is_empty()
+    {
+        let mut lines = Vec::new();
+        // Separate input variables from result/output variables
+        let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
+        for (name, value) in &cm.variables {
+            let clean_name = name.strip_prefix("__").unwrap_or(name);
+            let clean_value = clean_z3_value(value);
+            if clean_name == "result" || clean_name.starts_with("result") {
+                outputs.push((clean_name.to_string(), clean_value));
+            } else {
+                inputs.push((clean_name.to_string(), clean_value));
+            }
+        }
+        if !inputs.is_empty() {
+            let pairs: Vec<String> = inputs.iter().map(|(n, v)| format!("{n} = {v}")).collect();
+            lines.push(format!("| {}", pairs.join(", ")));
+        }
+        if !outputs.is_empty() {
+            for (name, value) in &outputs {
+                lines.push(format!("| {name} = {value}"));
+            }
+        }
+        return lines;
+    }
+    // Fallback: raw Z3 model
+    model.lines().map(|l| format!("| {l}")).collect()
+}
+
+/// Clean up Z3 value formatting for human display.
+fn clean_z3_value(value: &str) -> String {
+    let v = value.trim();
+    // Z3 outputs negative numbers as `(- N)`, convert to `-N`
+    if v.starts_with("(- ") && v.ends_with(')') {
+        return format!("-{}", &v[3..v.len() - 1]);
+    }
+    v.to_string()
 }
 
 /// Like `print_grouped_verification` but writes to stdout (for the default
@@ -717,12 +768,14 @@ fn print_grouped_verification_stdout(results: &[assura_smt::VerificationResult])
                     println!("        {kind:<20} ... verified");
                 }
                 assura_smt::VerificationResult::Counterexample {
-                    clause_desc, model, ..
+                    clause_desc,
+                    model,
+                    counter_model,
                 } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
                     println!("        {kind:<20} ... COUNTEREXAMPLE");
-                    for line in model.lines() {
-                        println!("          | {line}");
+                    for line in format_counterexample_lines(counter_model, model) {
+                        println!("          {line}");
                     }
                 }
                 assura_smt::VerificationResult::Timeout { clause_desc } => {
