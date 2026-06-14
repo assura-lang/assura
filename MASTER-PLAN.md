@@ -186,7 +186,7 @@
     - Error on invalid output path
   - Close issue #8
 
-- [ ] **R008**: Convert wildcard catch-alls to explicit match arms (issue #9)
+- [x] **R008**: Convert wildcard catch-alls to explicit match arms (issue #9)
   - Depends on: none
   - Locations:
     - `assura-codegen/src/lib.rs`, `generate_service`: two `_ => {}` arms
@@ -1029,3 +1029,10 @@ Added 3 CLI integration tests for `assura build --output`:
 - Default output is "generated/" when --output omitted
 - Missing input file produces an error exit code
 Tests use process invocation of the built binary.
+
+### R008 completed (2026-06-14)
+Converted wildcard `_ => {}` catch-alls to explicit variant lists in
+codegen and resolve. Replaced 11 wildcards on Decl, ServiceItem, and
+ClauseKind enums so rustc will warn when new variants are added.
+String-token and Expr wildcards were left as-is (too many variants,
+and they grow frequently).

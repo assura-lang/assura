@@ -695,8 +695,12 @@ pub fn resolve_with_modules(
                                     );
                                 }
                             }
-                            // States / Invariant / Other don't introduce named symbols.
-                            _ => {}
+                            // States, Invariant, and Other don't introduce
+                            // named symbols at the service scope level.
+                            // (TypeDef and EnumDef are handled above.)
+                            ServiceItem::States(_)
+                            | ServiceItem::Invariant(_)
+                            | ServiceItem::Other { .. } => {}
                         }
                     }
                 }
@@ -1310,7 +1314,11 @@ fn resolve_clause_body_names(
                                 errors,
                             );
                         }
-                        _ => {}
+                        // TypeDef, EnumDef, and States don't contain
+                        // expressions that need ident checking.
+                        ServiceItem::TypeDef(_)
+                        | ServiceItem::EnumDef(_)
+                        | ServiceItem::States(_) => {}
                     }
                 }
             }
@@ -1329,7 +1337,8 @@ fn resolve_clause_body_names(
                     }
                 }
             }
-            _ => {}
+            // TypeDef and EnumDef don't contain expressions.
+            Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
     }
 }
@@ -1610,7 +1619,8 @@ fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                         }
                         ServiceItem::Invariant(expr) => collect_expr_names(expr, &mut names),
                         ServiceItem::Other { body, .. } => collect_expr_names(body, &mut names),
-                        _ => {}
+                        // States don't contribute expression names.
+                        ServiceItem::States(_) => {}
                     }
                 }
             }

@@ -119,7 +119,13 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     .unwrap_or_else(|| "u64".to_string());
                 feature_max_consts.push((name.clone(), ty));
             }
-            _ => {}
+            // Contract, Service, FnDef, Extern, and non-feature_max blocks
+            // don't define type names or feature_max constants.
+            Decl::Contract(_)
+            | Decl::Service(_)
+            | Decl::FnDef(_)
+            | Decl::Extern(_)
+            | Decl::Block { .. } => {}
         }
     }
     // Add built-in type names that should never generate stubs
@@ -175,11 +181,17 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                                 collect_type_refs_from_expr(&clause.body, &mut referenced_types);
                             }
                         }
-                        _ => {}
+                        // States, Invariant, and Other don't contribute
+                        // type references for stub generation.
+                        ServiceItem::States(_)
+                        | ServiceItem::Invariant(_)
+                        | ServiceItem::Other { .. } => {}
                     }
                 }
             }
-            _ => {}
+            // EnumDef and Block don't contribute type references
+            // that need stub generation.
+            Decl::EnumDef(_) | Decl::Block { .. } => {}
         }
     }
 
@@ -205,7 +217,12 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                         token_lists.push(p.ty.as_slice());
                     }
                 }
-                _ => {}
+                // Only FnDef and Extern have typed param/return tokens.
+                Decl::Contract(_)
+                | Decl::Service(_)
+                | Decl::TypeDef(_)
+                | Decl::EnumDef(_)
+                | Decl::Block { .. } => {}
             }
             for tokens in token_lists {
                 let mut in_angle = 0i32;
@@ -270,7 +287,9 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     }
                 }
             }
-            _ => {}
+            // Contract, Service, EnumDef, and Block don't have typed
+            // token sequences relevant for generic arity detection.
+            Decl::Contract(_) | Decl::Service(_) | Decl::EnumDef(_) | Decl::Block { .. } => {}
         }
         for tokens in token_lists {
             detect_generic_arity(tokens, &mut type_generic_params, &mut const_generic_names);
@@ -303,7 +322,11 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     token_lists.push(p.ty.as_slice());
                 }
             }
-            _ => {}
+            Decl::Contract(_)
+            | Decl::Service(_)
+            | Decl::TypeDef(_)
+            | Decl::EnumDef(_)
+            | Decl::Block { .. } => {}
         }
         for tokens in token_lists {
             let mut in_angle = 0i32;
@@ -1678,7 +1701,13 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
             ClauseKind::Invariant => {
                 invariants.push(expr_to_rust(&clause.body));
             }
-            _ => {}
+            // Other clause kinds don't produce direct codegen output.
+            ClauseKind::Errors
+            | ClauseKind::Rule
+            | ClauseKind::DataFlow
+            | ClauseKind::MustNot
+            | ClauseKind::Decreases
+            | ClauseKind::Other(_) => {}
         }
     }
 
@@ -2083,7 +2112,13 @@ fn generate_service_method(
             ClauseKind::Invariant => {
                 invariants.push(expr_to_rust(&clause.body));
             }
-            _ => {}
+            ClauseKind::Effects
+            | ClauseKind::Errors
+            | ClauseKind::Rule
+            | ClauseKind::DataFlow
+            | ClauseKind::MustNot
+            | ClauseKind::Decreases
+            | ClauseKind::Other(_) => {}
         }
     }
 
@@ -2109,7 +2144,17 @@ fn generate_service_method(
                 let expr = expr_to_rust(&clause.body);
                 code.push_str(&format!("        /// Modifies: {expr}\n"));
             }
-            _ => {}
+            // Input/Output are handled in the signature generation.
+            // Other clause kinds don't produce doc comments.
+            ClauseKind::Input
+            | ClauseKind::Output
+            | ClauseKind::Invariant
+            | ClauseKind::Errors
+            | ClauseKind::Rule
+            | ClauseKind::DataFlow
+            | ClauseKind::MustNot
+            | ClauseKind::Decreases
+            | ClauseKind::Other(_) => {}
         }
     }
 
@@ -2230,7 +2275,12 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
                 }
                 code.push_str("    }\n\n");
             }
-            _ => {}
+            // Operations, queries, invariants, and other items are handled
+            // in the impl block below, not here.
+            ServiceItem::Operation { .. }
+            | ServiceItem::Query { .. }
+            | ServiceItem::Invariant(_)
+            | ServiceItem::Other { .. } => {}
         }
     }
 
@@ -2289,7 +2339,9 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
                 let rust_expr = expr_to_rust(body);
                 code.push_str(&format!("        // {kind}: {rust_expr}\n\n"));
             }
-            _ => {}
+            // Type defs, enum defs, and states are generated above,
+            // before the impl block.
+            ServiceItem::TypeDef(_) | ServiceItem::EnumDef(_) | ServiceItem::States(_) => {}
         }
     }
 
@@ -2345,7 +2397,19 @@ fn generate_interface_trait(name: &str, body: &[Clause], code: &mut String) {
                     "    /// Interface invariant\n    fn check_invariant(&self) {{ debug_assert!({expr}); }}\n\n"
                 ));
             }
-            _ => {}
+            // Interface blocks only use method and invariant clauses.
+            // Other clause kinds are ignored in trait generation.
+            ClauseKind::Requires
+            | ClauseKind::Effects
+            | ClauseKind::Modifies
+            | ClauseKind::Input
+            | ClauseKind::Output
+            | ClauseKind::Errors
+            | ClauseKind::Rule
+            | ClauseKind::DataFlow
+            | ClauseKind::MustNot
+            | ClauseKind::Decreases
+            | ClauseKind::Other(_) => {}
         }
     }
 
