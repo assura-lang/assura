@@ -1072,6 +1072,20 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     type_check_with_config(resolved, &assura_config::TypeCheckConfig::default())
 }
 
+/// Type-check from an HIR file. This is the preferred entry point when the
+/// HIR lowering pass has already been run.
+pub fn type_check_hir(hir: &assura_hir::HirFile) -> Result<TypedFile, Vec<TypeError>> {
+    type_check_hir_with_config(hir, &assura_config::TypeCheckConfig::default())
+}
+
+/// Type-check from an HIR file using the given configuration.
+pub fn type_check_hir_with_config(
+    hir: &assura_hir::HirFile,
+    config: &assura_config::TypeCheckConfig,
+) -> Result<TypedFile, Vec<TypeError>> {
+    type_check_with_config(hir.resolved(), config)
+}
+
 /// Type-check a resolved file using the given configuration.
 ///
 /// `config.strict_effects` controls whether the effect checker runs.

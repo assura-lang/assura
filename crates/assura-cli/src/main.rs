@@ -353,10 +353,10 @@ fn compile_with_config(source: &str, filename: &str, config: &CompilerConfig) ->
         None
     };
 
-    // --- Type check (only if resolution succeeded) ---
+    // --- Type check (only if HIR/resolution succeeded) ---
     let typecheck_start = Instant::now();
-    let typed = if let Some(ref resolved) = resolved {
-        match assura_types::type_check_with_config(resolved, &config.type_check) {
+    let typed = if let Some(ref hir_file) = hir {
+        match assura_types::type_check_hir_with_config(hir_file, &config.type_check) {
             Ok(t) => Some(t),
             Err(errs) => {
                 has_errors = true;
