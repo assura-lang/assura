@@ -39,12 +39,20 @@ assura/
   AGENTS.md                   # This file
   MASTER-PLAN.md              # Actionable task list with dependencies
   crates/
-    assura-parser/            # Lexer (logos), parser (chumsky), AST
+    assura-parser/            # Lexer (logos), parser (rowan CST + lowering), AST
       src/
-        lib.rs
+        lib.rs                # Public parse() entry point
         lexer.rs              # Token definitions, logos derive
         ast.rs                # AST node types
-        parser.rs             # chumsky parser combinators
+        syntax_kind.rs        # SyntaxKind enum (rowan Language trait)
+        cst.rs                # Parser engine, events, GreenNode builder
+        lower.rs              # CST -> AST lowering
+        grammar/              # Recursive descent grammar
+          mod.rs              # source_file, project, module, import
+          items.rs            # contract, type, enum, fn, service, extern
+          clauses.rs          # requires, ensures, invariant, effects, etc.
+          expressions.rs      # Pratt expression parser (8 precedence levels)
+          params.rs           # param_list, return_type, type_params
     assura-cli/               # CLI binary (assura check/build/init/explain)
       src/
         main.rs               # Entry point, error reporting (ariadne)
@@ -134,13 +142,14 @@ These versions are load-bearing. The APIs change between majors.
 
 | Crate | Version | Do NOT upgrade to |
 |-------|---------|-------------------|
-| chumsky | 0.9 | 0.10+ (completely different API) |
+| rowan | 0.16 | stable, upgrades OK |
 | ariadne | 0.4 | 0.5+ (different Report/Label API) |
 | logos | 0.15 | stable, upgrades OK |
 
-**chumsky 0.9 patterns**: `Parser<Token, Output, Error = Simple<Token>>`,
-`Stream::from_iter()`, `parse_recovery()`, `filter_map()`,
-`separated_by()`, `delimited_by()`, `map_with_span()`.
+**rowan 0.16 patterns**: `GreenNodeBuilder`, `SyntaxNode::new_root()`,
+`Language` trait on `AssuraLanguage`, `SyntaxKind` enum with `From<u16>`.
+The parser uses an events/markers pattern (Open/Close/Advance) with
+Pratt parsing for expressions.
 
 ### Specification Compliance
 
@@ -231,7 +240,7 @@ These are final. Do not revisit without explicit discussion.
 |----------|--------|-----------|
 | Compiler language | Rust | docs/INVESTIGATION.md |
 | Lexer | logos 0.15 | Fast, derive macro |
-| Parser | chumsky 0.9 combinators | NOT hand-rolled, NOT 0.10 |
+| Parser | rowan 0.16 CST + hand-written recursive descent | Lossless CST, Pratt expressions |
 | Error display | ariadne 0.4 | Colored spans |
 | SMT solver | Z3 primary (z3 crate), CVC5 fallback | docs/ROADMAP.md |
 | Codegen target | Rust source via prettyplease | NOT syn/quote |
@@ -532,48 +541,28 @@ for error reporting. The pattern:
 If you add a new compiler pass and it produces errors without spans,
 that's a bug.
 
-## Expression Parser Approach (T008)
+## Expression Parser
 
-T008 is one of the hardest tasks. The current parser collects clause
-bodies as `Vec<String>` (raw token text). T008 replaces this with a
-proper `Expr` AST with operator precedence.
+The expression parser uses Pratt parsing (binding power) implemented
+in `grammar/expressions.rs`. It produces `Expr` AST nodes with full
+operator precedence.
 
-**Approach**: Use chumsky's `recursive()` for expressions, with
-explicit precedence via nested parsers (not Pratt parsing, which
-chumsky 0.9 doesn't support natively).
+**Binding power levels** (lowest to highest):
 
-**Operator precedence** (lowest to highest):
-
-1. `||` (logical or)
-2. `&&` (logical and)
-3. `==`, `!=` (equality)
-4. `<`, `>`, `<=`, `>=` (comparison)
-5. `+`, `-` (additive)
-6. `*`, `/`, `%` (multiplicative)
+1. `||` (logical or) - BP 1
+2. `&&` (logical and) - BP 3
+3. `==`, `!=` (equality) - BP 5
+4. `<`, `>`, `<=`, `>=` (comparison) - BP 7
+5. `+`, `-` (additive) - BP 9
+6. `*`, `/`, `%`, `mod` (multiplicative) - BP 11
 7. `!`, `-` (unary prefix)
 8. `.` field access, `()` function call, `[]` index (postfix)
 
-**Migration strategy**: Keep `Vec<String>` as a fallback. Parse
-expressions where possible, fall back to raw tokens for syntax the
-expression parser doesn't handle yet. This lets T008 be incremental:
-start with arithmetic, add quantifiers, add comprehensions.
+The expression parser also handles quantifiers (`forall`, `exists`),
+`if/then/else`, `old()`, `result`, `match`, and `let` expressions.
 
-**The Expr enum** (minimum):
-
-```rust
-pub enum Expr {
-    Lit(Literal),           // 42, 3.14, "hello", true
-    Var(String),            // x, buf.len
-    Field(Box<Expr>, String), // x.field
-    Call(String, Vec<Expr>),   // f(x, y)
-    Unary(UnOp, Box<Expr>),    // !x, -x
-    Binary(BinOp, Box<Expr>, Box<Expr>), // x + y
-    If(Box<Expr>, Box<Expr>, Box<Expr>), // if P then A else B
-    Quantifier(Quantifier, String, Box<Expr>, Box<Expr>), // forall x in S: P
-    Old(Box<Expr>),         // old(x)
-    Result,                 // result (in ensures)
-}
-```
+**Key files**: `grammar/expressions.rs` (Pratt parser), `ast.rs`
+(`Expr` enum with 22 variants), `lower.rs` (CST EXPR nodes to AST).
 
 ## Soundness Testing
 
@@ -608,9 +597,8 @@ accepts buggy code. This is the worst kind of bug.
 ## What NOT To Do
 
 - Do not add features not in SPECIFICATION.md
-- Do not upgrade chumsky past 0.9 or ariadne past 0.4
+- Do not upgrade ariadne past 0.4
 - Do not use `syn`/`quote` for codegen (they're for proc macros)
-- Do not build a hand-rolled parser (chumsky is the decision)
 - Do not use tree-sitter as the compiler parser (it's error-tolerant,
   the compiler needs exact parses; tree-sitter is for editor support)
 - Do not skip tests; every new feature needs test coverage
