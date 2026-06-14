@@ -281,7 +281,7 @@
 
 ### S.1 Real Semantic Analysis
 
-- [ ] **S001**: Implement real termination checking (not just measure parsing)
+- [x] **S001**: Implement real termination checking (not just measure parsing)
   - Depends on: R003
   - Currently the totality checker (T053) extracts `decreases` clauses
     and checks structural properties (measure exists, is well-founded),
@@ -1094,3 +1094,23 @@ op: Gt, rhs: Literal(Int("0")) }`. Added 7 tests (5 positive, 2 negative)
 verifying expression clauses produce `Expr` and non-expression clauses
 keep `Raw`. All 1,240 tests pass. `Expr::Raw` variant and its handlers
 remain for non-expression clause kinds (input, output, effects, etc.).
+
+### S001 completed (2026-06-14)
+Implemented real termination checking with SMT-backed decrease verification.
+Changes across 3 crates:
+- assura-types/checkers.rs: Added `DecreaseCheckResult` enum (Proved, NeedsSmt,
+  Failed) and `PendingDecreaseCheck` struct. Modified `check_recursive_call()`
+  to return `NeedsSmt` when syntactic decrease check is inconclusive (instead
+  of immediately producing A09002). Modified `check_function_totality()` to
+  return `(Vec<TotalityError>, Vec<PendingDecreaseCheck>)`.
+- assura-types/lib.rs: Added `pending_decrease_checks` field to `TypedFile`.
+  Updated `run_totality_checks()` to return pending checks alongside errors.
+- assura-smt/lib.rs: Added `verify_decrease()` public function and Z3 backend
+  `verify_decrease_impl()` that checks `preconditions => call_arg < measure
+  AND call_arg >= 0`. Added 6 SMT-level tests (factorial, fibonacci n-1/n-2,
+  spin same-arg, increasing arg, countdown with nat precondition).
+- assura-cli/main.rs: Added `dispatch_decrease_checks()` helper. Wired pending
+  checks into all 3 verify sites (run_check, run_build, default path).
+Updated 11 existing totality tests for new tuple return type. Renamed
+`totality_non_decreasing_measure_a09002` to verify pending SMT check is
+created instead of immediate error. All 1,246 tests pass.

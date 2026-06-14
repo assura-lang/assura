@@ -7261,7 +7261,7 @@ fn totality_non_recursive_trivially_total() {
     // Non-recursive function passes without decreases
     let fn_def = make_fn_def("add", vec![("a", &["Int"]), ("b", &["Int"])], vec![]);
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..10));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..10));
     assert!(
         errors.is_empty(),
         "non-recursive function should be trivially total"
@@ -7287,7 +7287,7 @@ fn totality_recursive_with_valid_decreases() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..20));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..20));
     assert!(
         errors.is_empty(),
         "valid decreasing measure should pass: {errors:?}"
@@ -7306,14 +7306,16 @@ fn totality_recursive_without_decreases_a09001() {
         )],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..10));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..10));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A09001");
 }
 
 #[test]
-fn totality_non_decreasing_measure_a09002() {
-    // Recursive call with same argument (not decreasing) -> A09002
+fn totality_non_decreasing_measure_deferred_to_smt() {
+    // Recursive call with same argument (not decreasing) is now deferred to SMT
+    // instead of immediately producing A09002. The SMT solver will find that
+    // n < n is unsatisfiable and report the error.
     let fn_def = make_fn_def(
         "spin",
         vec![("n", &["Nat"])],
@@ -7323,11 +7325,18 @@ fn totality_non_decreasing_measure_a09002() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..10));
+    let (errors, pending) = checker.check_function_totality(&fn_def, &(0..10));
+    // No syntactic error; the check is deferred to SMT
     assert!(
-        errors.iter().any(|e| e.code == "A09002"),
-        "non-decreasing measure should produce A09002: {errors:?}"
+        errors.is_empty(),
+        "non-decreasing measure should be deferred to SMT, not produce syntactic error: {errors:?}"
     );
+    assert!(
+        !pending.is_empty(),
+        "non-decreasing measure should produce a pending SMT check"
+    );
+    // The pending check should reference the spin function
+    assert_eq!(pending[0].fn_name, "spin");
 }
 
 #[test]
@@ -7349,7 +7358,7 @@ fn totality_measure_not_well_founded_a09003() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..10));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..10));
     assert!(
         errors.iter().any(|e| e.code == "A09003"),
         "missing well-foundedness should produce A09003: {errors:?}"
@@ -7380,7 +7389,7 @@ fn totality_well_founded_with_requires_clause() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..20));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..20));
     assert!(
         !errors.iter().any(|e| e.code == "A09003"),
         "requires n >= 0 should establish well-foundedness: {errors:?}"
@@ -7399,7 +7408,7 @@ fn totality_partial_escape_hatch() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..10));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..10));
     assert!(
         errors.is_empty(),
         "partial function should skip totality check"
@@ -7419,7 +7428,7 @@ fn totality_partial_via_register() {
     );
     let mut checker = TotalityChecker::new();
     checker.mark_partial("diverge2".into());
-    let errors = checker.check_function_totality(&fn_def, &(0..10));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..10));
     assert!(errors.is_empty(), "registered partial should skip check");
 }
 
@@ -7446,7 +7455,7 @@ fn totality_lexicographic_measures() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..20));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..20));
     assert!(
         errors.is_empty(),
         "lexicographic decrease in first component should pass: {errors:?}"
@@ -7552,7 +7561,7 @@ fn totality_structural_recursion_on_list() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..20));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..20));
     assert!(
         errors.is_empty(),
         "structural recursion on .tail should pass: {errors:?}"
@@ -7577,7 +7586,7 @@ fn totality_structural_recursion_on_tree() {
         ],
     );
     let checker = TotalityChecker::new();
-    let errors = checker.check_function_totality(&fn_def, &(0..20));
+    let (errors, _pending) = checker.check_function_totality(&fn_def, &(0..20));
     assert!(
         errors.is_empty(),
         "structural recursion on .left should pass: {errors:?}"

@@ -163,6 +163,9 @@ pub struct TypeError {
 pub struct TypedFile {
     pub resolved: ResolvedFile,
     pub type_env: TypeEnv,
+    /// Pending decrease checks that need SMT verification.
+    /// The CLI pipeline dispatches these to assura-smt::verify_decrease().
+    pub pending_decrease_checks: Vec<PendingDecreaseCheck>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,7 +1021,8 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     ));
 
     // T053: totality checking (termination via decreases measures)
-    errors.extend(run_totality_checks(&resolved.source));
+    let (totality_errors, pending_decrease_checks) = run_totality_checks(&resolved.source);
+    errors.extend(totality_errors);
 
     // T055: fixed-width integer overflow detection
     errors.extend(run_fixed_width_checks(&resolved.source, &type_env));
@@ -1062,6 +1066,7 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
 
     Ok(TypedFile {
         resolved: resolved.clone(),
+        pending_decrease_checks,
         type_env,
     })
 }
@@ -1842,9 +1847,16 @@ fn run_frame_checks(
 // ---------------------------------------------------------------------------
 
 /// T053: Check termination of recursive functions via decreases measures.
-fn run_totality_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+///
+/// Returns syntactically detected errors and pending SMT checks for cases
+/// where the syntactic checker is inconclusive. The caller (CLI pipeline)
+/// dispatches pending checks to assura-smt.
+fn run_totality_checks(
+    source: &assura_parser::ast::SourceFile,
+) -> (Vec<TypeError>, Vec<PendingDecreaseCheck>) {
     let checker = TotalityChecker::new();
     let mut errors = Vec::new();
+    let mut pending_smt = Vec::new();
 
     // Collect all function definitions for mutual recursion checking
     let mut fn_defs: Vec<(&assura_parser::ast::FnDef, &std::ops::Range<usize>)> = Vec::new();
@@ -1852,7 +1864,8 @@ fn run_totality_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
     for decl in &source.decls {
         if let Decl::FnDef(f) = &decl.node {
             fn_defs.push((f, &decl.span));
-            for te in checker.check_function_totality(f, &decl.span) {
+            let (te_errors, te_pending) = checker.check_function_totality(f, &decl.span);
+            for te in te_errors {
                 errors.push(TypeError {
                     code: te.code,
                     message: te.message,
@@ -1860,6 +1873,7 @@ fn run_totality_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
                     secondary: None,
                 });
             }
+            pending_smt.extend(te_pending);
         }
     }
 
@@ -1875,7 +1889,7 @@ fn run_totality_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
         }
     }
 
-    errors
+    (errors, pending_smt)
 }
 
 // ---------------------------------------------------------------------------

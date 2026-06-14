@@ -399,7 +399,7 @@ fn run_check(args: &[String]) {
     } = compile(&source, &filename);
 
     // --- Verify (only if type check succeeded and layer >= 1) ---
-    let verification_results = if layer >= 1 {
+    let mut verification_results = if layer >= 1 {
         if let Some(ref typed) = typed {
             assura_smt::verify(typed)
         } else {
@@ -408,6 +408,11 @@ fn run_check(args: &[String]) {
     } else {
         Vec::new()
     };
+
+    // --- Dispatch pending decrease checks to SMT ---
+    if let Some(ref typed) = typed {
+        verification_results.extend(dispatch_decrease_checks(typed));
+    }
 
     // --- Quantifier bound validation ---
     if let Some(ref typed) = typed {
@@ -715,6 +720,30 @@ fn collect_contract_names(file: &SourceFile) -> Vec<String> {
     names
 }
 
+/// Dispatch pending decrease checks from the type checker to the SMT solver.
+///
+/// The type checker identifies recursive calls where syntactic checking is
+/// inconclusive and returns `PendingDecreaseCheck` entries. This function
+/// sends each one to `assura_smt::verify_decrease()` and returns the results
+/// as `VerificationResult`s that can be merged with the main verification output.
+fn dispatch_decrease_checks(
+    typed: &assura_types::TypedFile,
+) -> Vec<assura_smt::VerificationResult> {
+    typed
+        .pending_decrease_checks
+        .iter()
+        .map(|check| {
+            let desc = format!("{}::decreases({})", check.fn_name, "termination");
+            assura_smt::verify_decrease(
+                &check.preconditions,
+                &check.measure_expr,
+                &check.call_arg,
+                desc,
+            )
+        })
+        .collect()
+}
+
 /// Render diagnostics using ariadne for human-readable terminal output.
 fn report_diagnostics_human(diagnostics: &[DiagnosticJson], filename: &str, source: &str) {
     for d in diagnostics {
@@ -790,7 +819,8 @@ fn run_build(args: &[String]) {
     }
 
     // --- Verify ---
-    let verification_results = assura_smt::verify(&typed);
+    let mut verification_results = assura_smt::verify(&typed);
+    verification_results.extend(dispatch_decrease_checks(&typed));
     if !verification_results.is_empty() {
         eprintln!();
         eprintln!("Verification ({} clause(s)):", verification_results.len());
@@ -1636,7 +1666,8 @@ fn run_legacy(args: &[String]) {
     let typed = typed.expect("typed should exist if has_errors is false");
 
     // --- Verify ---
-    let verification_results = assura_smt::verify(&typed);
+    let mut verification_results = assura_smt::verify(&typed);
+    verification_results.extend(dispatch_decrease_checks(&typed));
 
     // --- Output ---
     if show_ast {

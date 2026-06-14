@@ -384,6 +384,42 @@ pub fn verify_with_measures(
 }
 
 // ---------------------------------------------------------------------------
+// Termination (decreases) verification
+// ---------------------------------------------------------------------------
+
+/// Verify that a decreases measure strictly decreases at a recursive call site.
+///
+/// Given:
+/// - `preconditions`: the function's requires clauses (assumed true)
+/// - `measure_expr`: the decreases expression in terms of function params
+/// - `call_arg_expr`: the argument at the call site corresponding to the measure
+/// - `clause_desc`: description for the verification result
+///
+/// Checks: `preconditions => measure(call_args) < measure(fn_args) && measure(call_args) >= 0`
+///
+/// UNSAT on the negation => verified (measure decreases).
+/// SAT => counterexample (measure does not decrease).
+pub fn verify_decrease(
+    preconditions: &[Expr],
+    measure_expr: &Expr,
+    call_arg_expr: &Expr,
+    clause_desc: String,
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        z3_backend::verify_decrease_impl(preconditions, measure_expr, call_arg_expr, clause_desc)
+    }
+    #[cfg(not(feature = "z3-verify"))]
+    {
+        let _ = (preconditions, measure_expr, call_arg_expr);
+        VerificationResult::Unknown {
+            clause_desc,
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Quantifier bound validation
 // ---------------------------------------------------------------------------
 
@@ -3088,6 +3124,61 @@ mod z3_backend {
             .next()
             .unwrap_or(VerificationResult::Unknown {
                 clause_desc: "verify_with_measures".into(),
+                reason: "no result from solver".into(),
+            })
+    }
+
+    // -----------------------------------------------------------------------
+    // Termination (decreases) verification
+    // -----------------------------------------------------------------------
+
+    /// Verify that a measure expression strictly decreases at a call site.
+    ///
+    /// Encodes: `preconditions => (call_arg < measure) && (call_arg >= 0)`
+    /// by asserting preconditions, then checking that `NOT (call_arg < measure && call_arg >= 0)`
+    /// is UNSAT.
+    pub(crate) fn verify_decrease_impl(
+        preconditions: &[Expr],
+        measure_expr: &Expr,
+        call_arg_expr: &Expr,
+        clause_desc: String,
+    ) -> VerificationResult {
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "2000");
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+        let mut encoder = Encoder::new(&ctx);
+
+        // Assert preconditions
+        for pre in preconditions {
+            let val = encoder.encode_expr(pre);
+            let bool_val = val.as_bool(&ctx);
+            solver.assert(&bool_val);
+        }
+
+        // Encode measure and call-site argument
+        let measure_val = encoder.encode_expr(measure_expr);
+        let call_val = encoder.encode_expr(call_arg_expr);
+
+        let measure_int = measure_val.as_int(&ctx, &mut encoder.fresh_counter);
+        let call_int = call_val.as_int(&ctx, &mut encoder.fresh_counter);
+        let zero = z3::ast::Int::from_i64(&ctx, 0);
+
+        // The property to verify: call_arg < measure AND call_arg >= 0
+        let decreases = call_int.lt(&measure_int);
+        let non_negative = call_int.ge(&zero);
+        let property = z3::ast::Bool::and(&ctx, &[&decreases, &non_negative]);
+
+        // Negate and check
+        solver.assert(&property.not());
+
+        let mut results = Vec::new();
+        check_validity(&solver, clause_desc, &mut results);
+        results
+            .into_iter()
+            .next()
+            .unwrap_or(VerificationResult::Unknown {
+                clause_desc: "decrease_check".into(),
                 reason: "no result from solver".into(),
             })
     }
@@ -7064,6 +7155,150 @@ contract Good {
         assert!(
             warnings.is_empty(),
             "forall over a range should NOT warn: {warnings:?}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S001: Termination checking via verify_decrease
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod decrease_tests {
+    use super::*;
+    use assura_parser::ast::{BinOp, Expr, Literal};
+
+    /// Helper: verify_decrease with trivial preconditions.
+    fn check_decrease(measure: &Expr, call_arg: &Expr, desc: &str) -> VerificationResult {
+        verify_decrease(&[], measure, call_arg, desc.to_string())
+    }
+
+    /// Helper: verify_decrease with preconditions.
+    fn check_decrease_with_pre(
+        preconditions: &[Expr],
+        measure: &Expr,
+        call_arg: &Expr,
+        desc: &str,
+    ) -> VerificationResult {
+        verify_decrease(preconditions, measure, call_arg, desc.to_string())
+    }
+
+    // -- Factorial: decreases n, calls with n-1, with requires n > 0 --
+
+    #[test]
+    fn factorial_terminates() {
+        // decreases n, call arg = n - 1, precondition: n > 0
+        let measure = Expr::Ident("n".into());
+        let call_arg = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Sub,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let pre = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Gt,
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        };
+        let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "factorial::decreases");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "factorial should verify: {result:?}"
+        );
+    }
+
+    // -- Fibonacci: decreases n, calls with n-1 and n-2 --
+
+    #[test]
+    fn fibonacci_n_minus_1_terminates() {
+        let measure = Expr::Ident("n".into());
+        let call_arg = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Sub,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let pre = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Gt,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "fib::decreases(n-1)");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "fib(n-1) should verify: {result:?}"
+        );
+    }
+
+    #[test]
+    fn fibonacci_n_minus_2_terminates() {
+        let measure = Expr::Ident("n".into());
+        let call_arg = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Sub,
+            rhs: Box::new(Expr::Literal(Literal::Int("2".into()))),
+        };
+        let pre = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Gt,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "fib::decreases(n-2)");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "fib(n-2) should verify: {result:?}"
+        );
+    }
+
+    // -- Non-decreasing: spin(n) calling spin(n) should NOT verify --
+
+    #[test]
+    fn spin_same_arg_does_not_terminate() {
+        // decreases n, call arg = n (same, not decreasing)
+        let measure = Expr::Ident("n".into());
+        let call_arg = Expr::Ident("n".into());
+        let result = check_decrease(&measure, &call_arg, "spin::decreases");
+        assert!(
+            !matches!(result, VerificationResult::Verified { .. }),
+            "spin(n) calling spin(n) should NOT verify: {result:?}"
+        );
+    }
+
+    // -- Increasing: bad(n) calling bad(n+1) should NOT verify --
+
+    #[test]
+    fn increasing_arg_does_not_terminate() {
+        let measure = Expr::Ident("n".into());
+        let call_arg = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Add,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let result = check_decrease(&measure, &call_arg, "bad::decreases");
+        assert!(
+            !matches!(result, VerificationResult::Verified { .. }),
+            "bad(n+1) should NOT verify: {result:?}"
+        );
+    }
+
+    // -- With precondition ensuring non-negativity --
+
+    #[test]
+    fn decrease_with_nat_precondition() {
+        // decreases n, call arg = n - 1, precondition: n >= 1
+        let measure = Expr::Ident("n".into());
+        let call_arg = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Sub,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let pre = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("n".into())),
+            op: BinOp::Gte,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "countdown::decreases");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "countdown with n >= 1 should verify: {result:?}"
         );
     }
 }

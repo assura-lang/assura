@@ -4740,6 +4740,37 @@ pub struct TotalityError {
     pub span: Range<usize>,
 }
 
+/// Result of checking whether a recursive call decreases the measure.
+#[derive(Debug)]
+pub enum DecreaseCheckResult {
+    /// Syntactically proved to decrease (e.g., n-1, x.tail).
+    Proved,
+    /// Syntactically failed; needs SMT fallback.
+    /// Contains the measure expression and call-site argument for SMT.
+    NeedsSmt { measure_expr: Expr, call_arg: Expr },
+    /// Definitely does not decrease (error).
+    Failed(TotalityError),
+}
+
+/// A pending decrease check that requires SMT verification.
+///
+/// Returned by `check_function_totality` when syntactic checking is
+/// inconclusive. The wiring layer (which has access to both assura-types
+/// and assura-smt) dispatches these to Z3.
+#[derive(Debug, Clone)]
+pub struct PendingDecreaseCheck {
+    /// Function name (for error messages).
+    pub fn_name: String,
+    /// The function's requires clauses (preconditions for SMT).
+    pub preconditions: Vec<Expr>,
+    /// The decreases measure expression.
+    pub measure_expr: Expr,
+    /// The call-site argument expression.
+    pub call_arg: Expr,
+    /// Source span for error reporting.
+    pub span: Range<usize>,
+}
+
 /// Totality checker for termination checking via `decreases` measures.
 ///
 /// Validates that recursive functions terminate by checking that a
@@ -5123,16 +5154,16 @@ impl TotalityChecker {
     ///
     /// For a `Natural` measure, finds the parameter matching the measure
     /// variable and checks that the corresponding call argument is
-    /// structurally smaller. For `Lexicographic` measures, checks that
-    /// at least one component strictly decreases while preceding
-    /// components are non-increasing.
+    /// structurally smaller. Returns `NeedsSmt` when syntactic checking
+    /// is inconclusive so the caller can dispatch to Z3. For `Lexicographic`
+    /// measures, checks that at least one component strictly decreases.
     pub fn check_recursive_call(
         &self,
         fn_def: &assura_parser::ast::FnDef,
         measure: &DecreasesMeasure,
         call_args: &[Expr],
         span: &Range<usize>,
-    ) -> Option<TotalityError> {
+    ) -> DecreaseCheckResult {
         match measure {
             DecreasesMeasure::Natural(measure_expr) => {
                 // Find which parameter position corresponds to the measure
@@ -5141,42 +5172,48 @@ impl TotalityChecker {
                         if param.name == *measure_var
                             && let Some(call_arg) = call_args.get(i)
                         {
+                            // Try syntactic check first (fast)
                             if Self::is_strictly_decreasing(measure_expr, call_arg) {
-                                return None; // OK
+                                return DecreaseCheckResult::Proved;
                             }
-                            return Some(TotalityError {
-                                code: "A09002".into(),
-                                message: format!(
-                                    "measure `{measure_var}` does not strictly \
-                                     decrease at recursive call to `{}`",
-                                    fn_def.name
-                                ),
-                                span: span.clone(),
-                            });
+                            // Syntactic check failed; return NeedsSmt
+                            return DecreaseCheckResult::NeedsSmt {
+                                measure_expr: measure_expr.clone(),
+                                call_arg: call_arg.clone(),
+                            };
                         }
                     }
                 }
-                None // Cannot determine; deferred to SMT
+                DecreaseCheckResult::Proved // Cannot determine; no matching parameter
             }
             DecreasesMeasure::Lexicographic(measures) => {
                 // For lexicographic: at least one component must strictly decrease
                 let mut any_decreases = false;
+                let mut smt_candidates: Vec<(Expr, Expr)> = Vec::new();
                 for measure_expr in measures {
                     if let Expr::Ident(measure_var) = measure_expr {
                         for (i, param) in fn_def.params.iter().enumerate() {
                             if param.name == *measure_var
                                 && let Some(call_arg) = call_args.get(i)
-                                && Self::is_strictly_decreasing(measure_expr, call_arg)
                             {
-                                any_decreases = true;
+                                if Self::is_strictly_decreasing(measure_expr, call_arg) {
+                                    any_decreases = true;
+                                } else {
+                                    smt_candidates.push((measure_expr.clone(), call_arg.clone()));
+                                }
                             }
                         }
                     }
                 }
                 if any_decreases {
-                    None
+                    DecreaseCheckResult::Proved
+                } else if let Some((measure_expr, call_arg)) = smt_candidates.into_iter().next() {
+                    DecreaseCheckResult::NeedsSmt {
+                        measure_expr,
+                        call_arg,
+                    }
                 } else {
-                    Some(TotalityError {
+                    DecreaseCheckResult::Failed(TotalityError {
                         code: "A09002".into(),
                         message: format!(
                             "lexicographic measure does not strictly decrease \
@@ -5189,7 +5226,7 @@ impl TotalityChecker {
             }
             DecreasesMeasure::WellFounded(_) => {
                 // Well-founded ordering check is deferred to SMT
-                None
+                DecreaseCheckResult::Proved
             }
         }
     }
@@ -5201,16 +5238,20 @@ impl TotalityChecker {
     /// 3. If recursive, extract the `decreases` measure.
     /// 4. Verify the measure strictly decreases at every recursive call.
     /// 5. Verify the measure is well-founded.
+    ///
+    /// Returns errors found syntactically plus pending SMT checks for
+    /// cases where syntactic checking is inconclusive.
     pub fn check_function_totality(
         &self,
         fn_def: &assura_parser::ast::FnDef,
         span: &Range<usize>,
-    ) -> Vec<TotalityError> {
+    ) -> (Vec<TotalityError>, Vec<PendingDecreaseCheck>) {
         let mut errors = Vec::new();
+        let mut pending_smt = Vec::new();
 
         // Partial functions skip termination checking
         if self.is_partial(fn_def) {
-            return errors;
+            return (errors, pending_smt);
         }
 
         // Determine if the function is recursive by scanning its clause bodies
@@ -5221,7 +5262,7 @@ impl TotalityChecker {
 
         if !is_recursive {
             // Non-recursive functions are trivially total
-            return errors;
+            return (errors, pending_smt);
         }
 
         // Extract the decreases measure
@@ -5237,7 +5278,7 @@ impl TotalityChecker {
                     ),
                     span: span.clone(),
                 });
-                return errors;
+                return (errors, pending_smt);
             }
         };
 
@@ -5284,12 +5325,31 @@ impl TotalityChecker {
         }
 
         for call_args in &call_arg_sets {
-            if let Some(err) = self.check_recursive_call(fn_def, &measure, call_args, span) {
-                errors.push(err);
+            match self.check_recursive_call(fn_def, &measure, call_args, span) {
+                DecreaseCheckResult::Proved => {}
+                DecreaseCheckResult::NeedsSmt {
+                    measure_expr,
+                    call_arg,
+                } => {
+                    // Store pending SMT check for the wiring layer
+                    pending_smt.push(PendingDecreaseCheck {
+                        fn_name: fn_def.name.clone(),
+                        preconditions: fn_def
+                            .clauses
+                            .iter()
+                            .filter(|c| c.kind == ClauseKind::Requires)
+                            .map(|c| c.body.clone())
+                            .collect(),
+                        measure_expr,
+                        call_arg,
+                        span: span.clone(),
+                    });
+                }
+                DecreaseCheckResult::Failed(err) => errors.push(err),
             }
         }
 
-        errors
+        (errors, pending_smt)
     }
 
     /// Detect and verify mutually recursive function groups.
