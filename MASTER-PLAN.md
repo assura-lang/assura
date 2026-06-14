@@ -1686,7 +1686,7 @@ but lack real semantic analysis or parser integration.
     prophecy) and A-CORE-026 (double resolve). Add must_compile fixture
     for a correctly resolved prophecy.
 
-- [ ] **G006**: CORE.8 Liveness Contracts: parser + BMC verification
+- [x] **G006**: CORE.8 Liveness Contracts: parser + BMC verification
   - Depends on: G005
   - **Current state**: `LivenessChecker` at `advanced.rs:426` has
     obligation registration, mark_verified, check_unverified,
