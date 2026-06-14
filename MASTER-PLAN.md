@@ -1528,3 +1528,406 @@ heuristic preconditions (medium depth: bounds checks for index params,
 non-empty checks for collection params), and verifies through the full
 pipeline. Supports human and JSON output, --focus/--max-functions/
 --unsafe-only filters. All open issues now closed.
+
+---
+
+## Phase G: Gaps (Unwired Features, Dead Code, Pipeline Completion)
+
+> Audit of 2026-06-14 found 7 verification features from the spec's 50
+> that are either not wired into the pipeline, have structural stubs
+> without real logic, or are entirely missing from the parser. This
+> phase also covers architecture gaps: HIR migration completion, dead
+> code removal, and inference hardening.
+>
+> **Current state**: 1,869 tests passing, all demos compile, 43/50
+> verification features wired. This phase closes the remaining 7 and
+> fixes 6 architecture/quality gaps.
+>
+> **Session protocol**: Pick the next `[ ]` task whose dependencies are
+> all `[x]`. Complete it. Mark it `[x]`. Commit and push. Continue.
+
+### G.1 Wire Existing Code Into Pipeline
+
+These features have working checker/manager code with tests, but are
+NOT called from the type-check or verification pipeline.
+
+- [ ] **G001**: Wire SEC.5 CryptoConformanceChecker into type_check pipeline
+  - Depends on: none
+  - **Current state**: `CryptoConformanceChecker` exists at
+    `checkers.rs:3832` with 9 passing tests (key size, nonce size,
+    nonce uniqueness, tag verification, custom specs). But there is
+    NO `run_crypto_conformance_checks()` function in `lib.rs`, so the
+    checker is never called during compilation.
+  - **Fix**:
+    1. Add `run_crypto_conformance_checks(source: &SourceFile) -> Vec<TypeError>`
+       to `lib.rs` following the pattern of the other 29 `run_*_checks` functions
+    2. Scan declarations for contracts/functions with `spec` or `conforms`
+       annotations. When found, instantiate `CryptoConformanceChecker`,
+       extract algorithm name + key/nonce sizes from clause bodies,
+       run `check_key_size()`, `check_nonce_size()`,
+       `check_nonce_uniqueness()`, `check_tag_verification()`
+    3. Wire the call into BOTH `type_check()` and `type_check_hir()`
+       entry points (same pattern as existing domain checkers)
+    4. Add integration test: .assura file with `spec conforms("AES-128-GCM")`
+       and wrong key size, verify A17001 is emitted
+  - **Validation**: `cargo test --workspace`, verify a new must_reject
+    fixture with `// MUST REJECT A17001` passes
+
+- [ ] **G002**: Wire CORE.5 TriggerManager into Z3 quantifier encoding
+  - Depends on: none
+  - **Current state**: `TriggerManager` exists at `advanced.rs:17` with
+    `infer_trigger()`, `validate_trigger()`, `add_trigger()`. But the
+    Z3 backend in `z3_backend.rs` encodes `forall`/`exists` without
+    any trigger patterns, causing solver timeouts on complex quantifiers.
+  - **Fix**:
+    1. In `z3_backend.rs`, when encoding `Forall`/`Exists` expressions,
+       use `TriggerManager.infer_trigger()` on the body expression string
+    2. Pass inferred trigger patterns to Z3's `forall_const` via the
+       `pattern!` API: `z3::Pattern::new(ctx, &[&trigger_expr])`
+    3. Register function names from the contract's scope into
+       `TriggerManager.register_function()` before encoding
+    4. When user provides `trigger(...)` annotation (parser already lexes
+       `trigger` keyword), pass those as user-provided triggers
+    5. Add warning when no trigger can be inferred for a quantifier
+       (heuristic: quantifier likely to timeout)
+  - **Validation**: Verify a forall-heavy contract that previously timed
+    out now verifies with triggers. Add test to e2e suite.
+
+- [ ] **G003**: Wire IncrementalCompiler into CLI --watch mode
+  - Depends on: none
+  - **Current state**: `IncrementalCompiler` at `incremental.rs` has
+    module registration, dirty detection, dependency tracking, and 5
+    tests. But it is dead code; `--watch` mode re-runs the full pipeline
+    from scratch on every file change.
+  - **Fix**:
+    1. In `main.rs` watch loop, maintain an `IncrementalCompiler` instance
+       across iterations
+    2. On first run, `register_module()` for the source file with its
+       content hash
+    3. On re-run, `update_hash()` and only re-verify `dirty_modules()`
+    4. Cache verification results per module; skip clean modules
+    5. When dependencies are declared (imports), use `add_dependency()`
+       so changing a dependency cascades dirty marks
+  - **Validation**: Run `assura check --watch` on a file, edit it, verify
+    only the changed contract is re-verified (visible in verbose output)
+
+- [ ] **G004**: Wire TEST.1 TestGenerator into codegen and CLI
+  - Depends on: none
+  - **Current state**: `TestGenerator` at `domain.rs:1281` generates
+    proptest/boundary/smoke test code strings, with 6 passing tests.
+    But it is NOT wired into the pipeline. The spec says TEST.1 should:
+    (a) trigger on verification timeout/unknown, (b) generate test
+    files alongside codegen output, (c) be invocable via
+    `assura test-gen <file>`.
+  - **Fix**:
+    1. Add `assura test-gen <file.assura>` CLI command that:
+       - Parses, resolves, type-checks the file
+       - Extracts `TestableContract` from each contract with input/ensures
+       - Runs `TestGenerator.generate_all()` to produce test code
+       - Writes `tests/generated_tests.rs` alongside codegen output
+    2. In `assura build`, when SMT verification returns `Timeout` or
+       `Unknown` for a contract, automatically invoke TestGenerator
+       for that contract and include the test in the generated project
+    3. Support `#[generate_tests]` annotation on contracts to force
+       test generation regardless of verification result (per spec)
+    4. Add `--test-gen` flag to `assura build` to generate tests for
+       ALL contracts (not just timeout/unknown)
+  - **Validation**: Build a demo file, verify generated project contains
+    proptest-based tests. Run `cargo test` on the generated project.
+
+### G.2 Deepen Structural Stubs Into Real Analyzers
+
+These features have structural stubs (data structures + basic checks)
+but lack real semantic analysis or parser integration.
+
+- [ ] **G005**: CORE.7 Prophecy Variables: parser + type system integration
+  - Depends on: none
+  - **Current state**: `ProphecyManager` at `advanced.rs:331` has
+    register, constrain, resolve, check_all_resolved, check_unconstrained
+    APIs with 7 tests. Z3 backend superficially scans clause text for
+    "prophecy" keyword. But: no parser grammar for `ghost prophecy`,
+    no AST/HIR nodes, no type checker integration, no resolution check.
+  - **Fix**:
+    1. **Parser**: Add grammar production for `ghost prophecy <name>: <type>`
+       declarations. Store as new `Decl::GhostProphecy { name, ty }` or
+       reuse existing ghost handling. Add `resolve <name> = <expr>`
+       statement parsing.
+    2. **AST/HIR**: Add corresponding AST and HIR node types
+    3. **Resolver**: Register prophecy variables in the symbol table
+       with `SymbolKind::Prophecy`
+    4. **Type checker**: Type-check the prophecy type annotation. At
+       resolve statements, check type compatibility between the
+       expression and the declared prophecy type (A-CORE-027)
+    5. **SMT backend**: Use `ProphecyManager` to track resolved/unresolved
+       status. Emit A-CORE-025 for unresolved prophecies at function exit.
+       Emit A-CORE-026 for double resolution.
+    6. **Codegen**: Erase prophecy variables (verification-only per spec)
+  - **Validation**: Add must_reject fixture for A-CORE-025 (unresolved
+    prophecy) and A-CORE-026 (double resolve). Add must_compile fixture
+    for a correctly resolved prophecy.
+
+- [ ] **G006**: CORE.8 Liveness Contracts: parser + BMC verification
+  - Depends on: G005
+  - **Current state**: `LivenessChecker` at `advanced.rs:426` has
+    obligation registration, mark_verified, check_unverified,
+    check_bounded, check_fairness with 8 tests. Z3 backend
+    superficially scans for "eventually" in clause text. But: no parser
+    for `liveness { ... }` blocks, no BMC implementation, no k-induction.
+  - **Fix**:
+    1. **Parser**: Add grammar for `liveness <name> { ... }` declarations
+       with `assume eventually_always`, `prove eventually`,
+       `prove leads_to(P, Q)`, `prove eventually_within(N)`,
+       `assume fair` (per spec Section 14 CORE.8)
+    2. **AST/HIR**: `Decl::Liveness { name, assumptions, proofs }`
+    3. **Resolver**: Register liveness obligation names
+    4. **SMT backend**: Implement liveness-to-safety reduction:
+       a. Add lasso detector augmentation to state space
+       b. Bounded model checking (BMC) up to K steps
+       c. Optional k-induction for unbounded proofs
+       d. Fairness encoding as lasso constraints
+    5. **Error codes**: A-CORE-029 (lasso found), A-CORE-030 (unproven
+       within bound), A-CORE-031 (missing fairness), A-CORE-033
+       (bounded liveness exceeded)
+    6. **Codegen**: Erase liveness contracts; in debug mode, generate
+       optional runtime monitors (AtomicU32 tick counters with
+       debug_assert)
+  - **Validation**: Write liveness contract for a simple state machine.
+    Verify BMC finds a lasso when fairness is missing. Verify k-induction
+    proves progress when fairness is assumed.
+
+- [ ] **G007**: CONC.6 Weak Memory Ordering: parser annotations + view model
+  - Depends on: none
+  - **Current state**: `WeakMemoryChecker` at `advanced.rs:200` has
+    data race detection, happens-before tracking, release-acquire
+    pairing checks, ordering strength warnings with 6 tests. Z3 backend
+    scans for `relaxed`/`acquire`/`release`/`seq_cst` keywords in
+    effect clauses. But: no parser support for `ordering:` annotations,
+    no per-thread ghost view model, no view merge on acquire/release.
+  - **Fix**:
+    1. **Parser**: Add `ordering: <relaxed|acquire|release|acqrel|seq_cst>`
+       syntax in atomic operation expressions (per spec CONC.6)
+    2. **Type checker**: When an expression has an ordering annotation,
+       validate the ordering is consistent with the operation (e.g.,
+       loads must be acquire or relaxed, stores must be release or relaxed)
+    3. **SMT backend**: Implement per-thread view model:
+       a. Each thread has a ghost `HashMap<Var, Version>` view
+       b. Release store merges the writer's view into the variable
+       c. Acquire load merges the variable's stored view into the reader
+       d. SeqCst operations go through a total order
+       e. Relaxed operations only guarantee atomicity, not view merge
+    4. **Error codes**: A-CONC-016 (relaxed read without view check),
+       A-CONC-017 (missing release before acquire), A-CONC-018
+       (view inconsistency)
+    5. **Codegen**: Preserve exact Rust `Ordering::*` variants
+  - **Validation**: Contract with acquire-release pair verifies. Contract
+    with relaxed-only concurrent access emits A-CONC-016 warning.
+
+- [ ] **G008**: FMT.4 Codec Registry: full parser + dispatch codegen
+  - Depends on: none
+  - **Current state**: Parser lexes `codec_registry` and `codec` keywords
+    (`lexer.rs:326`, `syntax_kind.rs:588`), but there is NO grammar
+    production, NO AST node, NO HIR node, NO codegen. The feature is
+    entirely structural scaffolding (just keywords).
+  - **Fix**:
+    1. **Parser grammar**: Add productions per spec:
+       `codec_registry <name> { output: <type>, codec <name> { magic: [...],
+       decoder: <fn>, contracts: { ... } } }`
+    2. **AST**: `Decl::CodecRegistry { name, output_type, codecs: Vec<CodecEntry> }`
+       where `CodecEntry { name, magic, decoder, contracts }`
+    3. **HIR**: Mirror AST codec registry declaration
+    4. **Resolver**: Register codec registry and each codec in symbol table
+    5. **Type checker**: Verify magic pattern uniqueness (A52001),
+       decoder return type matches output type (A52002), codec-specific
+       contracts hold (A52003), probe functions are pure (A52004)
+    6. **Codegen**: Generate dispatch function with magic-byte pattern
+       matching (nested if-else on byte slices, per spec Appendix C)
+    7. **SMT**: Verify codec-specific contracts and common output contract
+  - **Validation**: Write a codec registry with 3 formats (PNG, JPEG, BMP
+    magic bytes). Verify codegen produces correct dispatch function.
+    Add must_reject for overlapping magic patterns (A52001).
+
+### G.3 Architecture Gaps
+
+- [ ] **G009**: Complete HIR migration: eliminate to_ast_expr() bridge
+  - Depends on: none
+  - **Current state**: `infer_hir_expr()` at `inference.rs:16` immediately
+    calls `hir_expr.to_ast_expr()` and delegates to `infer_expr()`. The
+    `clauses.rs` file has 8 sites calling `.to_ast_expr()` before
+    `check_clause_expr()`. This means the type checker still operates on
+    AST expressions even when receiving HIR input, defeating the HIR's
+    purpose (structured types, resolved names, no raw tokens).
+  - **Fix**:
+    1. Implement `infer_hir_expr_native()` that pattern-matches on
+       `HirExpr` variants directly, using `DefId` for name resolution
+       instead of string lookup in `TypeEnv`
+    2. Implement `check_clause_expr_hir()` that operates on `HirExpr`
+       and `HirClauseKind` directly
+    3. Update `type_check_hir()` to use the native HirExpr path
+    4. Keep `to_ast_expr()` but deprecate it with `#[deprecated]`
+    5. Update `infer_hir_expr()` to call native implementation
+  - **Validation**: All 1,869 tests pass. The `to_ast_expr()` method
+    is no longer called in production code paths (only in tests for
+    backward compatibility).
+
+- [ ] **G010**: Harden type inference: reduce Type::Unknown returns
+  - Depends on: G009
+  - **Current state**: `inference.rs` has 32 `Type::Unknown` returns.
+    Many are legitimate (raw tokens, unknown callees), but several
+    represent real inference gaps:
+    - `MethodCall` on unknown receiver returns `Unknown` (line 458)
+    - Generic method returns like `Option::map()` return `Unknown`
+      (line 388)
+    - `Call` on `TypeParam` returns `Unknown` (line 848)
+    - `Index` on non-indexable type returns `Unknown` (line 495)
+  - **Fix**:
+    1. For `MethodCall` on `Named` types: maintain a method registry
+       mapping `(TypeName, MethodName) -> ReturnType` for common stdlib
+       types (Vec, HashMap, BTreeMap, etc.)
+    2. For `Option::map` and similar HKT methods: infer return type
+       from the closure argument's return type when available
+    3. For `Index` on `Named` types: assume indexable types return
+       their element type (configurable per type)
+    4. Add `Type::Error` variant distinct from `Type::Unknown` to
+       distinguish "genuinely unknown" from "error recovery"
+    5. Target: reduce Unknown returns from 32 to <15
+  - **Validation**: Run type inference on all demo files and fixture
+    files. Count `Unknown` inferences before and after. Verify no
+    regressions in error reporting.
+
+- [ ] **G011**: Codegen: eliminate unsupported expression placeholders
+  - Depends on: none
+  - **Current state**: `codegen/lib.rs` has 3 sites emitting
+    `"0 /* unsupported: ... */"` for complex expressions in const
+    context: non-arithmetic binops (line 1704), negation of complex
+    exprs (line 1721), and generic complex expressions (line 1738).
+    Additionally, 15 `todo!()` calls for function bodies (expected for
+    AI-generated implementations, but some may be eliminable).
+  - **Fix**:
+    1. For const-context expressions: support logical operators
+       (`&&`, `||`, `!`) by generating them directly in const context
+    2. For complex negation: evaluate the inner expression first, then
+       negate the result string
+    3. For remaining `todo!()` calls: audit each one. Function body
+       `todo!("implementation provided by AI agent")` is correct by
+       design. Any `todo!()` in non-body positions is a bug.
+    4. Replace any remaining `/* unsupported */` with proper code
+       generation or a compile error diagnostic (instead of silent
+       wrong output)
+  - **Validation**: Build all demos, grep for `unsupported` in generated
+    Rust. Should be zero occurrences in expression positions (type stubs
+    with `_phantom` fields are OK).
+
+### G.4 Testing Gaps
+
+- [ ] **G012**: Add must_reject fixtures for all new error codes
+  - Depends on: G001, G005, G006, G007, G008
+  - For each new error code introduced in G001-G008, add a
+    corresponding `tests/fixtures/must_reject/` file:
+    - `crypto_key_mismatch.assura` -> `// MUST REJECT A17001`
+    - `crypto_nonce_mismatch.assura` -> `// MUST REJECT A17002`
+    - `unresolved_prophecy.assura` -> `// MUST REJECT A-CORE-025`
+    - `double_resolve_prophecy.assura` -> `// MUST REJECT A-CORE-026`
+    - `liveness_no_fairness.assura` -> `// MUST REJECT A-CORE-031`
+    - `relaxed_without_view.assura` -> `// MUST REJECT A-CONC-016`
+    - `overlapping_magic.assura` -> `// MUST REJECT A52001`
+  - Target: 7+ new must_reject fixtures (one per new error code
+    category at minimum)
+  - **Validation**: `test_must_reject_fixtures` harness passes for
+    all new files
+
+- [ ] **G013**: E2E verification tests for all 50 features
+  - Depends on: G001-G008
+  - **Current state**: 8 e2e test files exist but only cover basic
+    contracts, counterexamples, and a few domain features
+  - Create one e2e .assura file per feature category that exercises
+    the feature end-to-end through the full pipeline:
+    - `tests/e2e/core_ghost.assura` (CORE.1-2)
+    - `tests/e2e/core_quantifiers.assura` (CORE.3-5)
+    - `tests/e2e/core_prophecy_liveness.assura` (CORE.7-8)
+    - `tests/e2e/mem_regions.assura` (MEM.1-4)
+    - `tests/e2e/type_interfaces.assura` (TYPE.1-3)
+    - `tests/e2e/sec_taint_crypto.assura` (SEC.1-5)
+    - `tests/e2e/conc_shared_weak.assura` (CONC.1-6)
+    - `tests/e2e/stor_crash_mvcc.assura` (STOR.1-6)
+    - `tests/e2e/fmt_binary_codec.assura` (FMT.1-4, FMT.6)
+    - `tests/e2e/num_precision.assura` (NUM.1-2)
+    - `tests/e2e/test_gen_equiv.assura` (TEST.1-2)
+  - Each file has `// EXPECTED: verified` or `// EXPECTED: <specific>`
+    annotations validated by the e2e harness
+  - Target: 11+ new e2e files covering all 50 features
+
+---
+
+## Phase G Dependency Graph
+
+```
+G.1 Wire existing code (independent, start immediately)
+  G001 (crypto) -- no deps
+  G002 (triggers) -- no deps
+  G003 (incremental) -- no deps
+  G004 (test gen) -- no deps
+
+G.2 Deepen stubs (some interdependencies)
+  G005 (prophecy) -- no deps
+  G006 (liveness) -- depends on G005 (prophecy resolution used in liveness)
+  G007 (weak memory) -- no deps
+  G008 (codec registry) -- no deps
+
+G.3 Architecture (can start in parallel)
+  G009 (HIR migration) -- no deps
+  G010 (inference) -- depends on G009
+  G011 (codegen) -- no deps
+
+G.4 Testing (after features land)
+  G012 (must_reject) -- depends on G001, G005-G008
+  G013 (e2e 50 features) -- depends on G001-G008
+```
+
+### Recommended Execution Order
+
+**Round 1** (4 tasks, fully parallel):
+- G001 (wire crypto checker, ~15 min)
+- G002 (wire triggers into Z3, ~30 min)
+- G003 (wire incremental compiler, ~20 min)
+- G011 (codegen unsupported, ~15 min)
+
+**Round 2** (3 tasks, fully parallel):
+- G004 (test gen CLI + auto-trigger, ~45 min)
+- G005 (prophecy parser + type system, ~60 min)
+- G009 (HIR migration, ~90 min)
+
+**Round 3** (3 tasks, dependencies from Round 2):
+- G006 (liveness BMC, depends G005, ~90 min)
+- G007 (weak memory views, ~60 min)
+- G008 (codec registry parser + codegen, ~90 min)
+
+**Round 4** (2 tasks, after all features):
+- G010 (inference hardening, depends G009, ~60 min)
+- G012 (must_reject fixtures, depends G001/G005-G008, ~30 min)
+
+**Round 5** (final):
+- G013 (e2e 50 features, depends all, ~60 min)
+
+---
+
+## Milestones (Phase G)
+
+### MG1: All 50 Features Wired (G001-G008)
+- `run_crypto_conformance_checks()` called in type_check pipeline
+- Z3 quantifier encoding uses trigger patterns
+- `IncrementalCompiler` used by `--watch` mode
+- `assura test-gen` command works
+- `ghost prophecy` parses, type-checks, and verifies
+- `liveness { ... }` parses, BMC runs, k-induction optional
+- `ordering: acquire` parses and validates
+- `codec_registry { ... }` parses, type-checks, generates dispatch
+
+### MG2: Architecture Clean (G009-G011)
+- Zero `to_ast_expr()` calls in production code paths
+- `Type::Unknown` count < 15 (from 32)
+- Zero `/* unsupported */` in generated Rust expressions
+
+### MG3: Full Test Coverage (G012-G013)
+- 7+ new must_reject fixtures for new error codes
+- 11+ e2e files covering all 50 verification features
+- All e2e files validated by the harness
