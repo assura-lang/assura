@@ -60,8 +60,12 @@ fn project_decl(p: &mut Parser) {
                 let pl = p.open();
                 p.bump(); // [
                 while !p.eof() && !p.at(SyntaxKind::R_BRACKET) {
+                    let before = p.pos();
                     p.expect(SyntaxKind::IDENT);
                     p.eat(SyntaxKind::COMMA);
+                    if p.pos() == before {
+                        p.err_and_bump("expected profile name or `]`");
+                    }
                 }
                 p.expect(SyntaxKind::R_BRACKET);
                 pl.complete(p, SyntaxKind::PROFILE_LIST);
@@ -98,9 +102,13 @@ fn import_decl(p: &mut Parser) {
         let il = p.open();
         p.bump(); // {
         while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+            let before = p.pos();
             p.expect(SyntaxKind::IDENT);
             if !p.at(SyntaxKind::R_BRACE) {
                 p.eat(SyntaxKind::COMMA);
+            }
+            if p.pos() == before {
+                p.err_and_bump("expected import name or `}`");
             }
         }
         p.expect(SyntaxKind::R_BRACE);

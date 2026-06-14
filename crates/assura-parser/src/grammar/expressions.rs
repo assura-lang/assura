@@ -348,9 +348,13 @@ fn list_expr(p: &mut Parser) -> CompletedMarker {
     p.bump(); // [
 
     while !p.eof() && !p.at(SyntaxKind::R_BRACKET) {
+        let before = p.pos();
         expr(p);
         if !p.at(SyntaxKind::R_BRACKET) {
             p.eat(SyntaxKind::COMMA);
+        }
+        if p.pos() == before {
+            p.err_and_bump("expected expression or `]`");
         }
     }
     p.expect(SyntaxKind::R_BRACKET);
@@ -396,9 +400,13 @@ fn arg_list(p: &mut Parser) {
     let m = p.open();
     p.expect(SyntaxKind::L_PAREN);
     while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+        let before = p.pos();
         expr(p);
         if !p.at(SyntaxKind::R_PAREN) {
             p.eat(SyntaxKind::COMMA);
+        }
+        if p.pos() == before {
+            p.err_and_bump("expected argument or `)`");
         }
     }
     p.expect(SyntaxKind::R_PAREN);

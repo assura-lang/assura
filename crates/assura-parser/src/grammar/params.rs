@@ -12,6 +12,7 @@ pub(crate) fn type_params(p: &mut Parser) {
     p.bump(); // <
 
     while !p.eof() && !p.at(SyntaxKind::R_ANGLE) {
+        let before = p.pos();
         // name [: Bound]
         p.expect(SyntaxKind::IDENT);
         if p.at(SyntaxKind::COLON) {
@@ -23,6 +24,9 @@ pub(crate) fn type_params(p: &mut Parser) {
         }
         if !p.at(SyntaxKind::R_ANGLE) {
             p.expect(SyntaxKind::COMMA);
+        }
+        if p.pos() == before {
+            p.err_and_bump("expected type parameter or `>`");
         }
     }
     p.expect(SyntaxKind::R_ANGLE);
@@ -38,9 +42,13 @@ pub(crate) fn param_list(p: &mut Parser) {
     p.bump(); // (
 
     while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+        let before = p.pos();
         param(p);
         if !p.at(SyntaxKind::R_PAREN) {
             p.eat(SyntaxKind::COMMA);
+        }
+        if p.pos() == before {
+            p.err_and_bump("expected parameter or `)`");
         }
     }
     p.expect(SyntaxKind::R_PAREN);

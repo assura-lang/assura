@@ -151,10 +151,14 @@ fn type_def(p: &mut Parser) {
         // Struct body: { fields, optional clauses }
         p.bump(); // {
         while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+            let before = p.pos();
             if clauses::at_clause_start(p) {
                 clauses::clause(p);
             } else {
                 params::field_def(p);
+            }
+            if p.pos() == before {
+                p.err_and_bump("expected field, clause, or `}`");
             }
         }
         p.expect(SyntaxKind::R_BRACE);
@@ -340,7 +344,11 @@ fn service_decl(p: &mut Parser) {
 
     p.expect(SyntaxKind::L_BRACE);
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+        let before = p.pos();
         service_item(p);
+        if p.pos() == before {
+            p.err_and_bump("expected service item or `}`");
+        }
     }
     p.expect(SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::SERVICE_DECL);

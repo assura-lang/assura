@@ -567,4 +567,51 @@ mod tests {
         let mut p = Parser::new(tokens, spans);
         let _m = p.open(); // dropped without complete/abandon -- must not panic
     }
+
+    #[test]
+    fn fuel_exhaustion_forces_eof() {
+        // Create 300 identical tokens (more than the 256 fuel limit).
+        // A loop that only calls p.at(SOME_OTHER_KIND) without advancing
+        // must hit fuel exhaustion and gracefully enter EOF state.
+        let n = 300;
+        let tokens: Vec<LexedToken> = (0..n)
+            .map(|_| LexedToken {
+                kind: SyntaxKind::IDENT,
+                text: "x".to_string(),
+            })
+            .collect();
+        let spans: Vec<TokenSpan> = (0..n)
+            .map(|i| TokenSpan {
+                start: i,
+                end: i + 1,
+            })
+            .collect();
+        let mut p = Parser::new(tokens, spans);
+
+        // Simulate a stuck loop: keep calling at() for a non-matching
+        // kind without ever bumping. Fuel should run out after 256 calls.
+        let m = p.open();
+        let mut iterations = 0;
+        while !p.eof() {
+            // at() decrements fuel; since PLUS never matches IDENT tokens,
+            // we never bump. After 256 calls, fuel hits 0, at() forces EOF.
+            p.at(SyntaxKind::PLUS);
+            iterations += 1;
+            if iterations > 500 {
+                panic!("loop did not terminate via fuel exhaustion");
+            }
+        }
+        m.complete(&mut p, SyntaxKind::SOURCE_FILE);
+
+        // Verify: parser is at EOF
+        assert!(p.eof());
+        // Verify: a "fuel exhausted" error was emitted
+        assert!(
+            p.errors
+                .iter()
+                .any(|e| e.message.contains("fuel exhausted")),
+            "expected fuel exhaustion error, got: {:?}",
+            p.errors
+        );
+    }
 }
