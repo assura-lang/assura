@@ -10,8 +10,59 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ---------------------------------------------------------------------------
+# Path filter: determine which groups of files changed so jobs can skip
+# themselves when their inputs are untouched.
+# ---------------------------------------------------------------------------
 jobs:
-  check:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      pull-requests: read
+    outputs:
+      rust:    ${{ steps.filter.outputs.rust }}
+      editors-ts: ${{ steps.filter.outputs.editors-ts }}
+      editors-vscode: ${{ steps.filter.outputs.editors-vscode }}
+      codegen: ${{ steps.filter.outputs.codegen }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            editors-ts:
+              - 'editors/tree-sitter-assura/**'
+            editors-vscode:
+              - 'editors/vscode/**'
+            codegen:
+              - 'crates/**'
+              - 'demos/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+
+  # ── Fast gate: formatting check (~30 s) ──────────────────────────────────
+  fmt:
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check --all
+
+  # ── Clippy + Tests (parallel via nextest) ────────────────────────────────
+  lint-test:
+    needs: [changes, fmt]
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
@@ -21,7 +72,7 @@ jobs:
         if: ${{ !vars.RUNNER }}
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy
 
       - name: Cache dependencies
         if: ${{ !vars.RUNNER }}
@@ -40,23 +91,33 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
-      - name: Check formatting
-        run: cargo fmt --check --all
-
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
 
-      - name: Build
-        run: cargo build --workspace
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
 
-      - name: Test
-        run: cargo test --workspace
+      - name: Test (nextest)
+        run: cargo nextest run --workspace
 
+  # ── No-Z3 fallback check (~1 min) ───────────────────────────────────────
+  no-z3:
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features
 
+  # ── Tree-sitter grammar tests ───────────────────────────────────────────
   tree-sitter:
     name: Tree-sitter grammar tests
+    needs: changes
+    if: ${{ needs.changes.outputs.editors-ts == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -73,8 +134,11 @@ jobs:
         working-directory: editors/tree-sitter-assura
         run: tree-sitter test
 
+  # ── VS Code extension compiles ──────────────────────────────────────────
   vscode-extension:
     name: VS Code extension compiles
+    needs: changes
+    if: ${{ needs.changes.outputs.editors-vscode == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -93,11 +157,13 @@ jobs:
         working-directory: editors/vscode
         run: npx tsc -p ./
 
+  # ── Generated code compiles (runs in PARALLEL with lint-test) ───────────
   codegen-validation:
     name: Generated code compiles
+    needs: [changes, fmt]
+    if: ${{ needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 20
-    needs: check
     steps:
       - uses: actions/checkout@v6
 
