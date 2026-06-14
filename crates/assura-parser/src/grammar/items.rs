@@ -209,9 +209,20 @@ fn enum_def(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT);
     params::type_params(p);
 
-    p.expect(SyntaxKind::L_BRACE);
+    if !p.at(SyntaxKind::L_BRACE) {
+        // No opening brace -- error and complete the node as-is.
+        p.error_at_current(format!("expected {:?}", SyntaxKind::L_BRACE));
+        m.complete(p, SyntaxKind::ENUM_DEF);
+        return;
+    }
+    p.bump(); // {
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+        let before = p.pos();
         enum_variant(p);
+        if p.pos() == before {
+            // No progress -- skip the stuck token to avoid infinite loop.
+            p.err_and_bump("expected enum variant or closing brace");
+        }
     }
     p.expect(SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::ENUM_DEF);

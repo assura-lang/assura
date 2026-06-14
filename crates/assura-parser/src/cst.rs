@@ -73,7 +73,14 @@ impl Marker {
 impl Drop for Marker {
     fn drop(&mut self) {
         if !self.completed {
-            panic!("Marker dropped without complete() or abandon()");
+            // In debug builds, warn about uncompleted markers.
+            // We must NOT panic here because a double-panic (this Drop
+            // running during unwind from another panic) causes SIGABRT.
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "WARNING: Marker at position {} dropped without complete() or abandon()",
+                self.pos
+            );
         }
     }
 }
@@ -227,10 +234,13 @@ impl Parser {
     /// True if the current token matches `kind`. Decrements fuel.
     pub(crate) fn at(&mut self, kind: SyntaxKind) -> bool {
         if self.fuel == 0 {
-            panic!(
-                "parser stuck: infinite loop detected at token {:?}",
-                self.current()
+            // Parser is stuck in an infinite loop. Force EOF state so
+            // all `while !p.eof()` loops terminate gracefully.
+            self.error_at_current(
+                "parser stuck: infinite loop detected (fuel exhausted)".to_string(),
             );
+            self.pos = self.tokens.len();
+            return false;
         }
         self.fuel -= 1;
         self.current() == kind
@@ -239,10 +249,11 @@ impl Parser {
     /// True if the current token matches any kind in `kinds`.
     pub(crate) fn at_any(&mut self, kinds: &[SyntaxKind]) -> bool {
         if self.fuel == 0 {
-            panic!(
-                "parser stuck: infinite loop detected at token {:?}",
-                self.current()
+            self.error_at_current(
+                "parser stuck: infinite loop detected (fuel exhausted)".to_string(),
             );
+            self.pos = self.tokens.len();
+            return false;
         }
         self.fuel -= 1;
         kinds.contains(&self.current())
@@ -547,11 +558,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Marker dropped without complete")]
-    fn marker_must_be_completed() {
+    fn marker_dropped_without_complete_does_not_panic() {
+        // After the fuzz-crash fix, dropping an uncompleted Marker
+        // must NOT panic (it prints a debug warning instead).  This
+        // prevents double-panic SIGABRT during unwind.
         let tokens = vec![];
         let spans = vec![];
         let mut p = Parser::new(tokens, spans);
-        let _m = p.open(); // dropped without complete/abandon
+        let _m = p.open(); // dropped without complete/abandon -- must not panic
     }
 }

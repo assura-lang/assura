@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-exclude = ["generated", "fuzz"]
+exclude = ["generated", "fuzz", "crates/assura-parser/fuzz"]
 resolver = "2"
 
 [workspace.package]
