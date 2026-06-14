@@ -293,6 +293,33 @@ impl TypeExpr {
     }
 }
 
+/// Best-effort parse of raw type token strings into a structured `TypeExpr`.
+///
+/// Returns `None` only for empty slices that cannot be interpreted.
+pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
+    if tokens.is_empty() {
+        return Some(TypeExpr::Unit);
+    }
+    if tokens.len() == 1 {
+        return Some(TypeExpr::Named(tokens[0].clone()));
+    }
+    // Simple generic: Name<Arg1, Arg2>
+    if tokens.len() >= 4 && tokens[1] == "<" && tokens.last().map(|s| s.as_str()) == Some(">") {
+        let name = tokens[0].clone();
+        let inner = &tokens[2..tokens.len() - 1];
+        let args: Vec<TypeExpr> = inner
+            .split(|t| t == ",")
+            .filter(|s| !s.is_empty())
+            .filter_map(try_parse_type_tokens)
+            .collect();
+        if !args.is_empty() {
+            return Some(TypeExpr::Generic(name, args));
+        }
+    }
+    // Fallback: join as named type
+    Some(TypeExpr::Named(tokens.join(" ")))
+}
+
 // ---------------------------------------------------------------------------
 // Shared clause parameter extraction
 // ---------------------------------------------------------------------------
@@ -330,7 +357,7 @@ fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
         Expr::Cast { expr: inner, ty } => {
             if let Expr::Ident(name) = inner.as_ref() {
                 let ty = vec![ty.clone()];
-                let parsed_type = crate::parser::try_parse_type_tokens(&ty);
+                let parsed_type = try_parse_type_tokens(&ty);
                 params.push(ParsedParam {
                     name: name.clone(),
                     ty,
@@ -361,7 +388,7 @@ fn extract_single_param(expr: &Expr, params: &mut Vec<ParsedParam>) {
         Expr::Cast { expr: inner, ty } => {
             if let Expr::Ident(name) = inner.as_ref() {
                 let ty = vec![ty.clone()];
-                let parsed_type = crate::parser::try_parse_type_tokens(&ty);
+                let parsed_type = try_parse_type_tokens(&ty);
                 params.push(ParsedParam {
                     name: name.clone(),
                     ty,
@@ -413,7 +440,7 @@ fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedPara
                 j += 1;
             }
             let ty: Vec<String> = tokens[type_start..j].to_vec();
-            let parsed_type = crate::parser::try_parse_type_tokens(&ty);
+            let parsed_type = try_parse_type_tokens(&ty);
             params.push(ParsedParam {
                 name,
                 ty,

@@ -633,7 +633,7 @@ SourceFile {
                     ],
                     return_type_expr: Some(
                         Named(
-                            "Int decreases 0",
+                            "Int",
                         ),
                     ),
                     clauses: [

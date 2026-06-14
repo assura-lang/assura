@@ -949,7 +949,13 @@ fn lower_field_def(n: &SyntaxNode) -> FieldDef {
         .map(|t| t.text().to_string())
         .collect();
 
-    FieldDef { name, ty, is_pub }
+    let parsed_type = crate::ast::try_parse_type_tokens(&ty);
+    FieldDef {
+        name,
+        ty,
+        parsed_type,
+        is_pub,
+    }
 }
 
 // -----------------------------------------------------------------
@@ -1030,10 +1036,12 @@ fn lower_extern(n: &SyntaxNode) -> ExternDecl {
         .map(|c| lower_clause(&c))
         .collect();
 
+    let return_type_expr = crate::ast::try_parse_type_tokens(&return_ty);
     ExternDecl {
         name,
         params,
         return_ty,
+        return_type_expr,
         clauses,
     }
 }
@@ -1080,12 +1088,14 @@ fn lower_fn_def(n: &SyntaxNode) -> FnDef {
         .map(|c| lower_clause(&c))
         .collect();
 
+    let return_type_expr = crate::ast::try_parse_type_tokens(&return_ty);
     FnDef {
         name,
         is_ghost,
         is_lemma,
         params,
         return_ty,
+        return_type_expr,
         clauses,
     }
 }
@@ -1275,7 +1285,12 @@ fn lower_param(n: &SyntaxNode) -> Param {
         }
     }
 
-    Param { name, ty }
+    let parsed_type = crate::ast::try_parse_type_tokens(&ty);
+    Param {
+        name,
+        ty,
+        parsed_type,
+    }
 }
 
 fn collect_return_type_tokens(n: &SyntaxNode) -> Vec<String> {
