@@ -184,6 +184,9 @@ dependencies = [
  "assura-types",
  "chumsky",
  "logos",
+ "rayon",
+ "serde",
+ "serde_json",
  "z3",
 ]
 

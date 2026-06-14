@@ -276,6 +276,56 @@ pub fn verify_with_cache(typed: &TypedFile, cache: &VerificationCache) -> Vec<Ve
     results
 }
 
+/// Verify all declarations in parallel using rayon.
+///
+/// Each contract/function gets its own Z3 context (Z3 contexts are not
+/// `Sync`). Independent declarations are verified concurrently using
+/// rayon's work-stealing thread pool, achieving linear speedup on
+/// multi-core machines for projects with many contracts.
+///
+/// Also uses the filesystem cache: cache hits are returned immediately,
+/// only cache misses go to Z3 (potentially in parallel).
+pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<VerificationResult> {
+    use assura_parser::ast::Decl;
+    use rayon::prelude::*;
+
+    // Collect all verification jobs: (name, clauses) pairs
+    let mut jobs: Vec<(String, Vec<assura_parser::ast::Clause>)> = Vec::new();
+
+    for decl in &typed.resolved.source.decls {
+        match &decl.node {
+            Decl::Contract(c) => {
+                jobs.push((c.name.clone(), c.clauses.clone()));
+            }
+            Decl::FnDef(f) => {
+                jobs.push((f.name.clone(), f.clauses.clone()));
+            }
+            Decl::Extern(e) => {
+                jobs.push((e.name.clone(), e.clauses.clone()));
+            }
+            _ => {}
+        }
+    }
+
+    // Verify in parallel: each job gets its own Z3 context
+    let per_job_results: Vec<Vec<VerificationResult>> = jobs
+        .par_iter()
+        .map(|(name, clauses)| {
+            // Check cache first
+            if let Some(cached) = cache.get(name, clauses) {
+                return cached;
+            }
+            // Cache miss: run Z3
+            let results = verify_contract(name, clauses);
+            cache.put(name, clauses, &results);
+            results
+        })
+        .collect();
+
+    // Flatten into a single results vec
+    per_job_results.into_iter().flatten().collect()
+}
+
 /// Verify a single contract's clauses against Z3.
 ///
 /// Unlike `verify()` which processes all declarations in a `TypedFile`,

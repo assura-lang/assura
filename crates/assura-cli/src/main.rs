@@ -563,7 +563,7 @@ fn run_check(args: &[String]) {
     let verify_cache = assura_smt::VerificationCache::new(cache_dir);
     let mut verification_results = if layer >= 1 {
         if let Some(ref typed) = typed {
-            assura_smt::verify_with_cache(typed, &verify_cache)
+            assura_smt::verify_parallel(typed, &verify_cache)
         } else {
             Vec::new()
         }
@@ -894,7 +894,7 @@ fn check_file_once(
     let watch_verify_cache = assura_smt::VerificationCache::new(watch_cache_dir);
     let mut verification_results = if layer >= 1 {
         if let Some(ref typed) = typed {
-            assura_smt::verify_with_cache(typed, &watch_verify_cache)
+            assura_smt::verify_parallel(typed, &watch_verify_cache)
         } else {
             Vec::new()
         }
@@ -1415,7 +1415,7 @@ fn run_build(args: &[String]) {
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let build_verify_cache = assura_smt::VerificationCache::new(build_cache_dir);
-    let mut verification_results = assura_smt::verify_with_cache(&typed, &build_verify_cache);
+    let mut verification_results = assura_smt::verify_parallel(&typed, &build_verify_cache);
     verification_results.extend(dispatch_decrease_checks(&typed));
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -2998,7 +2998,7 @@ fn run_legacy(args: &[String]) {
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let explain_verify_cache = assura_smt::VerificationCache::new(explain_cache_dir);
-    let mut verification_results = assura_smt::verify_with_cache(&typed, &explain_verify_cache);
+    let mut verification_results = assura_smt::verify_parallel(&typed, &explain_verify_cache);
     verification_results.extend(dispatch_decrease_checks(&typed));
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
