@@ -188,6 +188,22 @@ Output modes:
 - **Demo tests**: All files in `demos/` must parse and (eventually)
   verify without errors.
 
+**Pipeline test trap**: Helpers like `codegen_ok` and `type_check_source`
+run the FULL compiler pipeline (parse -> resolve -> type check -> codegen).
+Test inputs must be valid for ALL phases, not just the phase being tested.
+Concretely:
+
+- **Effect names must be from the known set.** The type checker rejects
+  unknown effects (A07003). Valid names: `io`, `database`, `logging`,
+  `mem`, `net`, `fs`, `rng`, `time`, `alloc`, `diverge`, `random`,
+  and dotted sub-effects like `console.read`, `filesystem.write`,
+  `network.connect`, `database.read`, `log.info`, etc. Do NOT use
+  made-up names like `memory` or `compute`.
+- **Type names must be valid.** Use `Int`, `Nat`, `Float`, `Bool`,
+  `String`, `Bytes`, `Unit`, or generic types like `List<Int>`.
+- **Contracts need at least a `requires` clause** to produce meaningful
+  codegen output (a `debug_assert!` to test against).
+
 ### Commit Messages
 
 Format: `<scope>: <description>`
