@@ -1529,6 +1529,26 @@ non-empty checks for collection params), and verifies through the full
 pipeline. Supports human and JSON output, --focus/--max-functions/
 --unsafe-only filters. All open issues now closed.
 
+### G001, G002, G011 completed (2026-06-14)
+
+**G001 (CryptoConformanceChecker)**: Added `run_crypto_conformance_checks()`
+wired into both `type_check()` and `type_check_hir()`. Fixed clause body
+parsing for ident-based clauses (conforms, key_size, nonce_size, spec,
+crypto) via `is_ident_expr_clause()`. Fixed `Literal::Str` quote stripping
+for algorithm name matching. Added must_reject fixture for A17001.
+
+**G011 (codegen catch-alls)**: Replaced `_ => "0"` catch-all in
+`expr_to_rust_static()` with explicit handling for all 22 Expr variants.
+Also eliminated catch-alls in `old_var_name()` (was silently producing
+collision-prone "expr" names) and `extract_output_type()` (was hiding
+unhandled variants behind `()`).
+
+**G002 (TriggerManager)**: Wired TriggerManager into Z3 quantifier
+encoding. Forall/Exists now infer trigger patterns from function calls
+in the body. Added `collect_trigger_calls()` and
+`collect_function_names_for_triggers()` to build Z3 Pattern objects
+for e-matching hints.
+
 ---
 
 ## Phase G: Gaps (Unwired Features, Dead Code, Pipeline Completion)
@@ -1551,7 +1571,7 @@ pipeline. Supports human and JSON output, --focus/--max-functions/
 These features have working checker/manager code with tests, but are
 NOT called from the type-check or verification pipeline.
 
-- [ ] **G001**: Wire SEC.5 CryptoConformanceChecker into type_check pipeline
+- [x] **G001**: Wire SEC.5 CryptoConformanceChecker into type_check pipeline
   - Depends on: none
   - **Current state**: `CryptoConformanceChecker` exists at
     `checkers.rs:3832` with 9 passing tests (key size, nonce size,
@@ -1573,7 +1593,7 @@ NOT called from the type-check or verification pipeline.
   - **Validation**: `cargo test --workspace`, verify a new must_reject
     fixture with `// MUST REJECT A17001` passes
 
-- [ ] **G002**: Wire CORE.5 TriggerManager into Z3 quantifier encoding
+- [x] **G002**: Wire CORE.5 TriggerManager into Z3 quantifier encoding
   - Depends on: none
   - **Current state**: `TriggerManager` exists at `advanced.rs:17` with
     `infer_trigger()`, `validate_trigger()`, `add_trigger()`. But the
@@ -1794,7 +1814,7 @@ but lack real semantic analysis or parser integration.
     files. Count `Unknown` inferences before and after. Verify no
     regressions in error reporting.
 
-- [ ] **G011**: Codegen: eliminate unsupported expression placeholders
+- [x] **G011**: Codegen: eliminate unsupported expression placeholders
   - Depends on: none
   - **Current state**: `codegen/lib.rs` has 3 sites emitting
     `"0 /* unsupported: ... */"` for complex expressions in const
