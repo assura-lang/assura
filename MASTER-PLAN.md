@@ -251,7 +251,7 @@
 
 ### R.5 Clause Body Consistency
 
-- [ ] **R013**: Eliminate raw token fallback in clause bodies
+- [x] **R013**: Eliminate raw token fallback in clause bodies
   - Depends on: R005
   - Currently some clause bodies are parsed as `Expr` (the expression
     AST) and some fall back to `Vec<String>` (raw token text). This
@@ -1078,3 +1078,19 @@ writing files. If the generated code has compilation errors, they are
 reported as warnings with the relevant error/location lines. The output
 message changes from "OK" to "OK (generated Rust compiles)" on success.
 Added `--no-check` flag to skip the validation step. Help text updated.
+
+### R013 completed (2026-06-14)
+Eliminated raw token fallback in clause bodies for expression-type clauses.
+Split `clause_body()` into two parsers: `clause_body_expr()` for expression
+clauses (requires, ensures, invariant, decreases, rule, must_not) that tries
+`expr_parser()` for inline/bare forms before falling back to raw tokens, and
+`clause_body_raw()` for non-expression clauses (input, output, effects, etc.)
+that keeps the raw-token-first behavior. The `clause()` parser now routes
+through `is_expr_clause()` to pick the right body parser. Snapshot diffs
+confirm the transformation: e.g. `requires: name.length() > 0` was
+`Raw(["name", ".", "length", "(", ")", ">", "0"])`, now
+`BinOp { lhs: MethodCall { receiver: Ident("name"), method: "length" },
+op: Gt, rhs: Literal(Int("0")) }`. Added 7 tests (5 positive, 2 negative)
+verifying expression clauses produce `Expr` and non-expression clauses
+keep `Raw`. All 1,240 tests pass. `Expr::Raw` variant and its handlers
+remain for non-expression clause kinds (input, output, effects, etc.).

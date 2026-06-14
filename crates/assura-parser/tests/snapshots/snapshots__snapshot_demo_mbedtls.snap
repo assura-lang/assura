@@ -41,23 +41,30 @@ SourceFile {
                 body: [
                     Clause {
                         kind: Requires,
-                        body: Raw(
-                            [
-                                "ecdsa",
-                                "feature",
-                                "ecdh",
-                                "=",
-                                "enabled",
-                                "feature",
-                                "rsa",
-                                "=",
-                                "enabled",
-                            ],
+                        body: Ident(
+                            "ecdsa",
                         ),
                     },
                 ],
             },
-            span: 1961..2202,
+            span: 1961..2025,
+        },
+        Spanned {
+            node: Block {
+                kind: "feature",
+                name: "ecdh",
+                value: Some(
+                    [
+                        "enabled",
+                        "feature",
+                        "rsa",
+                        "=",
+                        "enabled",
+                    ],
+                ),
+                body: [],
+            },
+            span: 2158..2202,
         },
         Spanned {
             node: Block {

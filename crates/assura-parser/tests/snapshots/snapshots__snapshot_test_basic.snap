@@ -456,31 +456,41 @@ SourceFile {
                                 },
                                 Clause {
                                     kind: Requires,
-                                    body: Raw(
-                                        [
-                                            "name",
-                                            ".",
-                                            "length",
-                                            "(",
-                                            ")",
-                                            ">",
-                                            "0",
-                                        ],
-                                    ),
+                                    body: BinOp {
+                                        lhs: MethodCall {
+                                            receiver: Ident(
+                                                "name",
+                                            ),
+                                            method: "length",
+                                            args: [],
+                                        },
+                                        op: Gt,
+                                        rhs: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                    },
                                 },
                                 Clause {
                                     kind: Ensures,
-                                    body: Raw(
-                                        [
-                                            "result",
-                                            ".",
-                                            "user",
-                                            ".",
+                                    body: BinOp {
+                                        lhs: Field(
+                                            Field(
+                                                Ident(
+                                                    "result",
+                                                ),
+                                                "user",
+                                            ),
                                             "active",
-                                            "==",
-                                            "true",
-                                        ],
-                                    ),
+                                        ),
+                                        op: Eq,
+                                        rhs: Literal(
+                                            Bool(
+                                                true,
+                                            ),
+                                        ),
+                                    },
                                 },
                                 Clause {
                                     kind: Effects,

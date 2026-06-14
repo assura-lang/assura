@@ -916,9 +916,22 @@ fn expr_parser() -> BoxedParser<'static, Token, Expr, Simple<Token>> {
     .boxed()
 }
 
-fn clause_body() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
+/// Returns true if this clause kind should have an expression body
+/// (requires, ensures, invariant, decreases) rather than raw tokens.
+fn is_expr_clause(kind: &ClauseKind) -> bool {
+    matches!(
+        kind,
+        ClauseKind::Requires
+            | ClauseKind::Ensures
+            | ClauseKind::Invariant
+            | ClauseKind::Decreases
+            | ClauseKind::Rule
+            | ClauseKind::MustNot
+    )
+}
+
+fn clause_body_raw() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
     // Braced bodies: optional colon, then { expr } or { raw tokens }.
-    // Try expression first since braces provide clear delimiters.
     let braced_expr = just(Token::Colon)
         .or_not()
         .ignore_then(expr_parser().delimited_by(just(Token::LBrace), just(Token::RBrace)));
@@ -938,11 +951,7 @@ fn clause_body() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
             .map(Expr::Raw),
     );
 
-    // Inline: colon then tokens until next clause keyword.
-    // Raw first: the greedy raw-token approach matches the old parser
-    // behavior, consuming everything up to a clause stopper. Expression
-    // parsing for unbounded inline bodies can over- or under-consume
-    // (e.g., `effects: pure incremental Foo` was one clause body before).
+    // Inline: colon then raw tokens until next clause keyword.
     let inline_raw = just(Token::Colon).ignore_then(
         filter(move |t: &Token| !is_clause_stopper(t))
             .map(|t| tok_to_str(&t))
@@ -967,10 +976,80 @@ fn clause_body() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
     ))
 }
 
+fn clause_body_expr() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
+    // Braced bodies: optional colon, then { expr } or { raw tokens }.
+    let braced_expr = just(Token::Colon)
+        .or_not()
+        .ignore_then(expr_parser().delimited_by(just(Token::LBrace), just(Token::RBrace)));
+    let braced_raw = just(Token::Colon).or_not().ignore_then(
+        body_tokens(CLAUSE_STOPS)
+            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .map(Expr::Raw),
+    );
+
+    // Parened bodies: optional colon, then ( expr ) or ( raw tokens ).
+    let parened_expr = just(Token::Colon)
+        .or_not()
+        .ignore_then(expr_parser().delimited_by(just(Token::LParen), just(Token::RParen)));
+    let parened_raw = just(Token::Colon).or_not().ignore_then(
+        body_tokens(CLAUSE_STOPS)
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .map(Expr::Raw),
+    );
+
+    // Inline expr: colon then expression (try expr parser first).
+    // For expression-type clauses (requires, ensures, invariant, decreases),
+    // we try expr_parser() first. This eliminates the Expr::Raw fallback
+    // for clauses like `requires: n > 0` or `ensures: result == true`.
+    let inline_expr = just(Token::Colon).ignore_then(expr_parser());
+
+    // Inline raw fallback: if expr parser fails on inline form.
+    let inline_raw = just(Token::Colon).ignore_then(
+        filter(move |t: &Token| !is_clause_stopper(t))
+            .map(|t| tok_to_str(&t))
+            .repeated()
+            .map(Expr::Raw),
+    );
+
+    // Bare expr: no colon, try expression parser first.
+    // NOTE: bare_expr without a colon is uncommon for expression clauses
+    // but can occur in some syntactic forms.
+    let bare_raw = filter(move |t: &Token| !is_clause_stopper(t))
+        .map(|t| tok_to_str(&t))
+        .repeated()
+        .at_least(1)
+        .map(Expr::Raw);
+
+    choice((
+        braced_expr,
+        braced_raw,
+        parened_expr,
+        parened_raw,
+        inline_expr,
+        inline_raw,
+        bare_raw,
+    ))
+}
+
 fn clause() -> impl Parser<Token, Clause, Error = Simple<Token>> + Clone {
-    clause_kind()
-        .then(clause_body())
-        .map(|(kind, body)| Clause { kind, body })
+    // Expression-type clauses try expr_parser() for inline/bare bodies.
+    let expr_clause = clause_kind()
+        .try_map(|kind, span| {
+            if is_expr_clause(&kind) {
+                Ok(kind)
+            } else {
+                Err(Simple::custom(span, "not an expression clause"))
+            }
+        })
+        .then(clause_body_expr())
+        .map(|(kind, body)| Clause { kind, body });
+
+    // Non-expression clauses use raw token fallback for inline/bare.
+    let raw_clause = clause_kind()
+        .then(clause_body_raw())
+        .map(|(kind, body)| Clause { kind, body });
+
+    choice((expr_clause, raw_clause))
 }
 
 // --- Contract ---
@@ -1426,10 +1505,10 @@ fn service_item() -> impl Parser<Token, ServiceItem, Error = Simple<Token>> + Cl
             )
             .map(|(name, clauses)| ServiceItem::Query { name, clauses }),
         just(Token::Invariant)
-            .ignore_then(clause_body())
+            .ignore_then(clause_body_expr())
             .map(ServiceItem::Invariant),
         ident()
-            .then(clause_body())
+            .then(clause_body_raw())
             .map(|(kind, body)| ServiceItem::Other { kind, body }),
     ))
 }
@@ -1850,5 +1929,245 @@ mod tests {
         } else {
             panic!("expected Match expression, got {:?}", expr);
         }
+    }
+
+    // ---- R013: Expression clause bodies should be Expr, not Raw ----
+
+    /// Helper: check that no Expr::Raw appears in the expression tree.
+    fn assert_no_raw(expr: &Expr, context: &str) {
+        match expr {
+            Expr::Raw(tokens) => {
+                panic!(
+                    "found Expr::Raw({:?}) in {context}, expected proper Expr",
+                    tokens
+                );
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                assert_no_raw(lhs, context);
+                assert_no_raw(rhs, context);
+            }
+            Expr::UnaryOp { expr: inner, .. }
+            | Expr::Old(inner)
+            | Expr::Paren(inner)
+            | Expr::Ghost(inner) => {
+                assert_no_raw(inner, context);
+            }
+            Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+                assert_no_raw(domain, context);
+                assert_no_raw(body, context);
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                assert_no_raw(cond, context);
+                assert_no_raw(then_branch, context);
+                if let Some(e) = else_branch {
+                    assert_no_raw(e, context);
+                }
+            }
+            Expr::Call { func, args } => {
+                assert_no_raw(func, context);
+                for a in args {
+                    assert_no_raw(a, context);
+                }
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                assert_no_raw(receiver, context);
+                for a in args {
+                    assert_no_raw(a, context);
+                }
+            }
+            Expr::Field(inner, _) => assert_no_raw(inner, context),
+            Expr::Index { expr: e, index } => {
+                assert_no_raw(e, context);
+                assert_no_raw(index, context);
+            }
+            Expr::Let { value, body, .. } => {
+                assert_no_raw(value, context);
+                assert_no_raw(body, context);
+            }
+            Expr::Match { scrutinee, arms } => {
+                assert_no_raw(scrutinee, context);
+                for arm in arms {
+                    assert_no_raw(&arm.body, context);
+                }
+            }
+            Expr::Tuple(elems) | Expr::Block(elems) | Expr::List(elems) => {
+                for e in elems {
+                    assert_no_raw(e, context);
+                }
+            }
+            Expr::Cast { expr: inner, .. } => assert_no_raw(inner, context),
+            Expr::Apply { args, .. } => {
+                for a in args {
+                    assert_no_raw(a, context);
+                }
+            }
+            Expr::Literal(_) | Expr::Ident(_) => {}
+        }
+    }
+
+    #[test]
+    fn requires_inline_parses_as_expr() {
+        let src = r#"contract Foo { requires: n > 0 }"#;
+        let file = parse_source(src).unwrap();
+        let contract = file
+            .decls
+            .iter()
+            .find_map(|d| match &d.node {
+                Decl::Contract(c) => Some(c),
+                _ => None,
+            })
+            .unwrap();
+        let req = contract
+            .clauses
+            .iter()
+            .find(|c| c.kind == ClauseKind::Requires)
+            .unwrap();
+        assert_no_raw(&req.body, "requires: n > 0");
+        assert!(matches!(&req.body, Expr::BinOp { op: BinOp::Gt, .. }));
+    }
+
+    #[test]
+    fn ensures_braced_parses_as_expr() {
+        let src = r#"contract Foo { ensures { result == true } }"#;
+        let file = parse_source(src).unwrap();
+        let contract = file
+            .decls
+            .iter()
+            .find_map(|d| match &d.node {
+                Decl::Contract(c) => Some(c),
+                _ => None,
+            })
+            .unwrap();
+        let ens = contract
+            .clauses
+            .iter()
+            .find(|c| c.kind == ClauseKind::Ensures)
+            .unwrap();
+        assert_no_raw(&ens.body, "ensures { result == true }");
+        assert!(matches!(&ens.body, Expr::BinOp { op: BinOp::Eq, .. }));
+    }
+
+    #[test]
+    fn invariant_parses_as_expr() {
+        let src = r#"contract Foo { invariant { n >= 0 } }"#;
+        let file = parse_source(src).unwrap();
+        let contract = file
+            .decls
+            .iter()
+            .find_map(|d| match &d.node {
+                Decl::Contract(c) => Some(c),
+                _ => None,
+            })
+            .unwrap();
+        let inv = contract
+            .clauses
+            .iter()
+            .find(|c| c.kind == ClauseKind::Invariant)
+            .unwrap();
+        assert_no_raw(&inv.body, "invariant { n >= 0 }");
+        assert!(matches!(&inv.body, Expr::BinOp { op: BinOp::Gte, .. }));
+    }
+
+    #[test]
+    fn requires_method_call_parses_as_expr() {
+        let src = r#"contract Foo { requires { name.length() > 0 } }"#;
+        let file = parse_source(src).unwrap();
+        let contract = file
+            .decls
+            .iter()
+            .find_map(|d| match &d.node {
+                Decl::Contract(c) => Some(c),
+                _ => None,
+            })
+            .unwrap();
+        let req = contract
+            .clauses
+            .iter()
+            .find(|c| c.kind == ClauseKind::Requires)
+            .unwrap();
+        assert_no_raw(&req.body, "requires { name.length() > 0 }");
+        // Should be BinOp(MethodCall > Literal)
+        if let Expr::BinOp { lhs, op, rhs } = &req.body {
+            assert!(matches!(op, BinOp::Gt));
+            assert!(matches!(lhs.as_ref(), Expr::MethodCall { method, .. } if method == "length"));
+            assert!(matches!(rhs.as_ref(), Expr::Literal(Literal::Int(s)) if s == "0"));
+        } else {
+            panic!("expected BinOp, got {:?}", req.body);
+        }
+    }
+
+    #[test]
+    fn requires_quantifier_parses_as_expr() {
+        let src = r#"contract Foo { requires { forall i in 0 .. n: arr[i] >= 0 } }"#;
+        let file = parse_source(src).unwrap();
+        let contract = file
+            .decls
+            .iter()
+            .find_map(|d| match &d.node {
+                Decl::Contract(c) => Some(c),
+                _ => None,
+            })
+            .unwrap();
+        let req = contract
+            .clauses
+            .iter()
+            .find(|c| c.kind == ClauseKind::Requires)
+            .unwrap();
+        assert_no_raw(&req.body, "requires { forall i in 0..n: arr[i] >= 0 }");
+        assert!(matches!(&req.body, Expr::Forall { .. }));
+    }
+
+    #[test]
+    fn input_clause_stays_raw() {
+        // input and output clauses should keep Expr::Raw or other non-expression forms
+        let src = r#"contract Foo { input: a as Int, b as Bool }"#;
+        let file = parse_source(src).unwrap();
+        let contract = file
+            .decls
+            .iter()
+            .find_map(|d| match &d.node {
+                Decl::Contract(c) => Some(c),
+                _ => None,
+            })
+            .unwrap();
+        let inp = contract
+            .clauses
+            .iter()
+            .find(|c| c.kind == ClauseKind::Input)
+            .unwrap();
+        // Input uses raw tokens or cast expressions, not BinOp/etc.
+        assert!(
+            !matches!(&inp.body, Expr::BinOp { .. }),
+            "input clause should not be parsed as BinOp"
+        );
+    }
+
+    #[test]
+    fn effects_clause_stays_raw() {
+        let src = r#"contract Foo { effects: io, net }"#;
+        let file = parse_source(src).unwrap();
+        let contract = file
+            .decls
+            .iter()
+            .find_map(|d| match &d.node {
+                Decl::Contract(c) => Some(c),
+                _ => None,
+            })
+            .unwrap();
+        let eff = contract
+            .clauses
+            .iter()
+            .find(|c| c.kind == ClauseKind::Effects)
+            .unwrap();
+        // Effects should be raw tokens (comma-separated identifiers)
+        assert!(
+            matches!(&eff.body, Expr::Raw(_)),
+            "effects clause should stay as Raw, got {:?}",
+            eff.body
+        );
     }
 }
