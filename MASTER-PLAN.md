@@ -159,7 +159,7 @@
   - Update all three call sites
   - Close issue #5 with `Closes #5` in commit message
 
-- [ ] **R005**: Preserve refinement predicates during type parsing (issue #6)
+- [x] **R005**: Preserve refinement predicates during type parsing (issue #6)
   - Depends on: none
   - When `parse_type_tokens` encounters `{ x: Int | x > 0 }`, the
     refinement predicate is lost. Downstream sees `Type::Int` instead
@@ -1005,3 +1005,14 @@ Updated all 3 call sites:
   `collect_input_param_types` now wrap shared function
 - assura-codegen: `extract_input_params` now wraps shared function
 Removed ~160 lines of duplicated parsing logic. All 1,062 tests pass.
+
+### R005 completed (2026-06-14)
+Fixed refinement predicate preservation through clause param extraction.
+The raw-token splitter in `extract_clause_params_from_raw` only tracked
+`<`/`>` depth but not `{`/`}` or `(`/`)`. Refinement types like
+`{ x : Int | x < 10 }` contain `<` as a comparison operator, not a
+generic delimiter; without brace tracking, the `<` opened an angle
+bracket that prevented comma splitting from finding subsequent params.
+Fix: track brace/paren depth; only treat `<`/`>` as angle brackets
+when outside braces. Added 5 new tests (3 parser, 2 types) including
+round-trip test through extract_clause_params -> parse_type_tokens.

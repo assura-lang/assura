@@ -317,12 +317,21 @@ fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedPara
             let name = tokens[i].clone();
             let type_start = i + 2;
             let mut j = type_start;
-            let mut depth = 0i32;
+            let mut angle = 0i32;
+            let mut brace = 0i32;
+            let mut paren = 0i32;
             while j < tokens.len() {
                 match tokens[j].as_str() {
-                    "<" => depth += 1,
-                    ">" if depth > 0 => depth -= 1,
-                    "," if depth == 0 => break,
+                    // Only treat <> as angle brackets outside braces;
+                    // inside { ... } (refinement types), < and > are
+                    // comparison operators, not generic delimiters.
+                    "<" if brace == 0 => angle += 1,
+                    ">" if brace == 0 && angle > 0 => angle -= 1,
+                    "{" => brace += 1,
+                    "}" if brace > 0 => brace -= 1,
+                    "(" => paren += 1,
+                    ")" if paren > 0 => paren -= 1,
+                    "," if angle == 0 && brace == 0 && paren == 0 => break,
                     _ => {}
                 }
                 j += 1;
@@ -432,4 +441,63 @@ pub enum ServiceItem {
     Query { name: String, clauses: Vec<Clause> },
     Invariant(Expr),
     Other { kind: String, body: Expr },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_params_refined_type_with_less_than() {
+        // a : { x : Int | x < 10 }, b : Bool
+        // The `<` inside the refinement must NOT be treated as an angle bracket.
+        let tokens: Vec<String> = vec![
+            "a", ":", "{", "x", ":", "Int", "|", "x", "<", "10", "}", ",", "b", ":", "Bool",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let body = Expr::Raw(tokens);
+        let params = extract_clause_params(&body);
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].name, "a");
+        assert_eq!(
+            params[0].ty,
+            vec!["{", "x", ":", "Int", "|", "x", "<", "10", "}"]
+        );
+        assert_eq!(params[1].name, "b");
+        assert_eq!(params[1].ty, vec!["Bool"]);
+    }
+
+    #[test]
+    fn extract_params_refined_type_with_parens() {
+        // val : ( Int , Bool )
+        let tokens: Vec<String> = vec!["val", ":", "(", "Int", ",", "Bool", ")"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let body = Expr::Raw(tokens);
+        let params = extract_clause_params(&body);
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].name, "val");
+        assert_eq!(params[0].ty, vec!["(", "Int", ",", "Bool", ")"]);
+    }
+
+    #[test]
+    fn extract_params_generic_type() {
+        // a : List < Int >, b : Map < String , Int >
+        let tokens: Vec<String> = vec![
+            "a", ":", "List", "<", "Int", ">", ",", "b", ":", "Map", "<", "String", ",", "Int", ">",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let body = Expr::Raw(tokens);
+        let params = extract_clause_params(&body);
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].name, "a");
+        assert_eq!(params[0].ty, vec!["List", "<", "Int", ">"]);
+        assert_eq!(params[1].name, "b");
+        assert_eq!(params[1].ty, vec!["Map", "<", "String", ",", "Int", ">"]);
+    }
 }

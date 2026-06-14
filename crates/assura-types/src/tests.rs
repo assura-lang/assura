@@ -1374,6 +1374,60 @@ fn parse_type_tokens_refinement_no_predicate() {
 }
 
 #[test]
+fn refinement_predicate_roundtrip_through_clause_params() {
+    // Verify that a refinement type survives extraction via shared
+    // extract_clause_params and then parse_type_tokens.
+    // Input: raw tokens for `x : { n : Int | n > 0 }`
+    use assura_parser::ast::{Expr, extract_clause_params};
+    let tokens: Vec<String> = vec!["x", ":", "{", "n", ":", "Int", "|", "n", ">", "0", "}"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let body = Expr::Raw(tokens);
+    let params = extract_clause_params(&body);
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0].name, "x");
+
+    // Now parse the type tokens -- should produce Refined
+    let ty = parse_type_tokens(&params[0].ty);
+    assert_eq!(
+        ty,
+        Type::Refined {
+            base: Box::new(Type::Int),
+            predicate: "n > 0".to_string(),
+        }
+    );
+}
+
+#[test]
+fn refinement_predicate_with_less_than_in_multi_param() {
+    // Two params: a : { x : Int | x < 10 }, b : Bool
+    // The `<` inside the refinement must not break param splitting.
+    use assura_parser::ast::{Expr, extract_clause_params};
+    let tokens: Vec<String> = vec![
+        "a", ":", "{", "x", ":", "Int", "|", "x", "<", "10", "}", ",", "b", ":", "Bool",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    let body = Expr::Raw(tokens);
+    let params = extract_clause_params(&body);
+    assert_eq!(params.len(), 2);
+
+    let ty_a = parse_type_tokens(&params[0].ty);
+    assert_eq!(
+        ty_a,
+        Type::Refined {
+            base: Box::new(Type::Int),
+            predicate: "x < 10".to_string(),
+        }
+    );
+
+    let ty_b = parse_type_tokens(&params[1].ty);
+    assert_eq!(ty_b, Type::Bool);
+}
+
+#[test]
 fn parse_type_tokens_fn_with_return() {
     // fn ( Int , Bool ) -> String
     let tokens: Vec<String> = vec!["fn", "(", "Int", ",", "Bool", ")", "->", "String"]
