@@ -629,7 +629,7 @@
   - Test harness runs full pipeline AND verifies generated Rust compiles
   - Target: 15+ positive test files
 
-- [ ] **T205**: Add end-to-end round-trip tests
+- [x] **T205**: Add end-to-end round-trip tests
   - Depends on: R001
   - For each demo file:
     1. Parse -> resolve -> type-check -> codegen
@@ -1272,3 +1272,22 @@ struct with `Clone`+`Copy`, and `parse_verbosity()` helper. Updated
 help text. 7 new CLI integration tests (verbose timing assertions,
 quiet suppression assertions, short flag variants, verbose build with
 codegen timing, quiet build file suppression). 1,330 total tests passing.
+
+### T205 completed (2026-06-13)
+Added 9 end-to-end round-trip tests that exercise the full pipeline
+(parse, resolve, type-check, codegen) and validate the output:
+- 3 demo file tests (libwebp, zlib, mbedtls) that verify generated Rust
+  passes both `syn::parse_file()` and `cargo check`
+- `roundtrip_libwebp_has_debug_asserts`: verifies requires clauses
+  produce `debug_assert!` in generated code
+- `roundtrip_zlib_has_function_stubs`: verifies function names match
+  the contract declarations
+- `roundtrip_libwebp_function_signatures_present`: verifies specific
+  functions (validate_code_lengths, check) appear in output
+- `roundtrip_contract_with_ensures_has_postcondition`: synthetic contract
+  verifying requires clause becomes debug_assert with correct types
+- `roundtrip_service_generates_typestate`: verifies service with states
+  generates PhantomData-based typestate markers
+- `roundtrip_project_has_valid_cargo_toml`: verifies generated
+  Cargo.toml has [package], name, and edition fields.
+1,339 total tests passing.

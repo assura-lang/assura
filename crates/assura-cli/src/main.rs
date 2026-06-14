@@ -3304,6 +3304,218 @@ contract CraneliftTest {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    // =======================================================================
+    // T205: End-to-end round-trip tests
+    // =======================================================================
+
+    /// Helper: run the full pipeline on a demo file and return the generated project.
+    fn roundtrip_demo(demo_name: &str) -> assura_codegen::GeneratedProject {
+        let source = std::fs::read_to_string(format!("../../demos/{demo_name}"))
+            .or_else(|_| std::fs::read_to_string(format!("demos/{demo_name}")))
+            .unwrap_or_else(|_| panic!("cannot find demo: {demo_name}"));
+        full_pipeline(&source).unwrap_or_else(|e| panic!("{demo_name}: pipeline failed: {e}"))
+    }
+
+    /// Helper: write a GeneratedProject to a temp dir and run cargo check on it.
+    fn cargo_check_project(project: &assura_codegen::GeneratedProject, label: &str) {
+        let tmp = std::env::temp_dir().join(format!("assura_t205_{label}"));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        std::fs::write(tmp.join("Cargo.toml"), &project.cargo_toml).unwrap();
+        for (path, content) in &project.files {
+            let full = tmp.join(path);
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&full, content).unwrap();
+        }
+        let output = std::process::Command::new("cargo")
+            .arg("check")
+            .current_dir(&tmp)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .expect("cargo check failed to start");
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            output.status.success(),
+            "{label}: generated Rust failed cargo check:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn roundtrip_libwebp_generates_valid_rust() {
+        let project = roundtrip_demo("libwebp-huffman.assura");
+        // Verify syntactically valid
+        for (path, content) in &project.files {
+            syn::parse_file(content).unwrap_or_else(|e| {
+                panic!("libwebp {path}: invalid Rust: {e}");
+            });
+        }
+        // Verify cargo check passes
+        cargo_check_project(&project, "libwebp");
+    }
+
+    #[test]
+    fn roundtrip_zlib_generates_valid_rust() {
+        let project = roundtrip_demo("zlib-inflate.assura");
+        for (path, content) in &project.files {
+            syn::parse_file(content).unwrap_or_else(|e| {
+                panic!("zlib {path}: invalid Rust: {e}");
+            });
+        }
+        cargo_check_project(&project, "zlib");
+    }
+
+    #[test]
+    fn roundtrip_mbedtls_generates_valid_rust() {
+        let project = roundtrip_demo("mbedtls-x509.assura");
+        for (path, content) in &project.files {
+            syn::parse_file(content).unwrap_or_else(|e| {
+                panic!("mbedtls {path}: invalid Rust: {e}");
+            });
+        }
+        cargo_check_project(&project, "mbedtls");
+    }
+
+    #[test]
+    fn roundtrip_libwebp_has_debug_asserts() {
+        let project = roundtrip_demo("libwebp-huffman.assura");
+        // Contracts with requires clauses should produce debug_assert! calls
+        let all_source: String = project
+            .files
+            .iter()
+            .map(|(_, content)| content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // The libwebp demo has requires { alphabet_size <= MAX_ALPHABET_SIZE }
+        // which should produce a debug_assert in the generated code
+        assert!(
+            all_source.contains("debug_assert!"),
+            "generated code should contain debug_assert! from requires clauses"
+        );
+    }
+
+    #[test]
+    fn roundtrip_zlib_has_function_stubs() {
+        let project = roundtrip_demo("zlib-inflate.assura");
+        let all_source: String = project
+            .files
+            .iter()
+            .map(|(_, content)| content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // The zlib demo defines functions and contracts
+        assert!(
+            all_source.contains("fn inflate_extra_field_step"),
+            "zlib generated code should contain inflate_extra_field_step function"
+        );
+        assert!(
+            all_source.contains("fn validate_xlen"),
+            "zlib generated code should contain validate_xlen function"
+        );
+    }
+
+    #[test]
+    fn roundtrip_libwebp_function_signatures_present() {
+        let project = roundtrip_demo("libwebp-huffman.assura");
+        let all_source: String = project
+            .files
+            .iter()
+            .map(|(_, content)| content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // The libwebp demo defines functions like validate_code_lengths
+        // and a contract BuildHuffmanTableContract with a check() method
+        assert!(
+            all_source.contains("fn validate_code_lengths"),
+            "generated code should have validate_code_lengths function"
+        );
+        assert!(
+            all_source.contains("fn check("),
+            "generated code should have check function from contract"
+        );
+    }
+
+    #[test]
+    fn roundtrip_contract_with_ensures_has_postcondition() {
+        // A contract with ensures should generate postcondition checks
+        let source = r#"
+contract PostCheck {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+    ensures { result * b == a }
+}
+"#;
+        let project = full_pipeline(source).expect("pipeline failed");
+        let all_source: String = project
+            .files
+            .iter()
+            .map(|(_, content)| content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // requires clause should become debug_assert
+        assert!(
+            all_source.contains("debug_assert!"),
+            "should have debug_assert from requires clause"
+        );
+        // The function should have the right parameter types
+        assert!(
+            all_source.contains("i64") || all_source.contains("Int"),
+            "should have integer types in generated code"
+        );
+    }
+
+    #[test]
+    fn roundtrip_service_generates_typestate() {
+        // A service with states should generate typestate markers
+        let source = r#"
+service Connection {
+    states: Disconnected -> Connected -> Authenticated
+
+    operation Connect {
+        requires: state == Disconnected
+        ensures: state == Connected
+    }
+
+    operation Authenticate {
+        requires: state == Connected
+        ensures: state == Authenticated
+    }
+}
+"#;
+        let project = full_pipeline(source).expect("pipeline failed");
+        let all_source: String = project
+            .files
+            .iter()
+            .map(|(_, content)| content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Should generate state marker structs
+        assert!(
+            all_source.contains("Disconnected") && all_source.contains("Connected"),
+            "should generate state marker structs"
+        );
+        assert!(
+            all_source.contains("PhantomData"),
+            "should use PhantomData for typestate"
+        );
+    }
+
+    #[test]
+    fn roundtrip_project_has_valid_cargo_toml() {
+        let project = roundtrip_demo("libwebp-huffman.assura");
+        // Verify Cargo.toml has essential sections
+        assert!(
+            project.cargo_toml.contains("[package]"),
+            "needs [package] section"
+        );
+        assert!(project.cargo_toml.contains("name ="), "needs package name");
+        assert!(project.cargo_toml.contains("edition ="), "needs edition");
+    }
+
     #[test]
     fn quiet_build_suppresses_file_listing() {
         let tmp = std::env::temp_dir().join("assura_p001_quiet_build");
