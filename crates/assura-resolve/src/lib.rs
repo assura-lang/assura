@@ -3324,6 +3324,23 @@ contract Foo {
     }
 
     #[test]
+    fn service_other_item_body_resolved() {
+        // ServiceItem::Other { kind, body } should have its body
+        // expression walked for identifier resolution.
+        let src = r#"
+service Svc {
+  priority { true }
+}
+"#;
+        let file = parse_ok(src);
+        // "priority" is not a recognized keyword, so it parses as
+        // ServiceItem::Other { kind: "priority", body: Ident("true") }.
+        // resolve() should succeed without errors, proving the body
+        // expression was walked (not silently skipped).
+        resolve(&file).expect("service with Other item should resolve");
+    }
+
+    #[test]
     fn service_operation_params_in_scope() {
         let src = r#"
 service Svc {

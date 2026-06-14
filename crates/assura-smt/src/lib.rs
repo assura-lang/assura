@@ -2496,6 +2496,7 @@ mod z3_backend {
                         | ClauseKind::Invariant
                         | ClauseKind::Rule
                         | ClauseKind::MustNot
+                        | ClauseKind::Decreases
                 )
             })
             .collect();
@@ -5142,6 +5143,25 @@ contract MapSizeNonneg {
                 .iter()
                 .any(|r| matches!(r, VerificationResult::Verified { .. })),
             "map size non-neg should verify, got: {results:?}"
+        );
+    }
+
+    #[test]
+    fn decreases_clause_produces_result() {
+        // A decreases clause should produce a verification result
+        // (the well-foundedness check: measure >= 0).
+        let source = r#"
+contract DecreasesTest {
+  requires { n > 0 }
+  decreases { n }
+}
+"#;
+        let results = verify_source(source);
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r, VerificationResult::Verified { .. })),
+            "decreases n with requires n > 0 should verify non-negative, got: {results:?}"
         );
     }
 }
