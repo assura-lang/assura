@@ -195,7 +195,8 @@ fn run_cvc5(script: &str) -> Cvc5Result {
 }
 
 /// Convert an Assura expression to SMT-LIB2 s-expression.
-pub(crate) fn expr_to_smtlib(expr: &Expr) -> Option<String> {
+/// Convert an AST expression to an SMT-LIB2 string representation.
+pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Literal(Literal::Int(n)) => {
             if let Some(stripped) = n.strip_prefix('-') {
@@ -316,7 +317,8 @@ fn sanitize_smtlib_name(name: &str) -> String {
 }
 
 /// Collect variable names from an expression.
-pub(crate) fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
+/// Collect all variable names referenced in an expression.
+pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
     match expr {
         Expr::Ident(name) => {
             if name == "result" {

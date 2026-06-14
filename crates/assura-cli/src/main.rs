@@ -98,6 +98,14 @@ enum Commands {
         /// Watch for file changes and re-check
         #[arg(short, long)]
         watch: bool,
+
+        /// Print verification statistics (clause counts, solve times)
+        #[arg(long)]
+        stats: bool,
+
+        /// Write SMT-LIB2 files for each verification query to this directory
+        #[arg(long, value_name = "DIR")]
+        dump_smt: Option<String>,
     },
 
     /// Generate Rust code from a contract file
@@ -417,7 +425,18 @@ fn main() {
             layer,
             solver,
             watch,
-        }) => run_check(&file, output_mode, verbosity, layer, solver, watch),
+            stats,
+            dump_smt,
+        }) => run_check(
+            &file,
+            output_mode,
+            verbosity,
+            layer,
+            solver,
+            watch,
+            stats,
+            dump_smt.as_deref(),
+        ),
         Some(Commands::Build {
             file,
             output,
@@ -456,6 +475,7 @@ fn main() {
 // `assura check <file> [--json|--human] [--layer 0|1]`
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn run_check(
     filename: &str,
     output_mode: OutputMode,
@@ -463,6 +483,8 @@ fn run_check(
     cli_layer: u8,
     cli_solver: Option<assura_smt::SolverChoice>,
     watch: bool,
+    stats: bool,
+    dump_smt: Option<&str>,
 ) {
     // Load project config (assura.toml) if available
     let project = load_project_config(Path::new(filename));
@@ -641,6 +663,90 @@ fn run_check(
             + verify_ms;
         eprintln!("  total:     {total:.2}ms");
         eprintln!();
+    }
+
+    // --- Dump SMT queries to files ---
+    if let Some(smt_dir) = dump_smt
+        && let Some(ref typed) = typed
+    {
+        let dir = Path::new(smt_dir);
+        fs::create_dir_all(dir).unwrap_or_else(|e| {
+            eprintln!("Error: cannot create {smt_dir}: {e}");
+            process::exit(2);
+        });
+        let queries = assura_smt::dump_smt_queries(typed);
+        for (i, q) in queries.iter().enumerate() {
+            let name = format!("{}_{}.smt2", q.context, q.kind);
+            let path = dir.join(
+                if queries
+                    .iter()
+                    .filter(|qq| qq.context == q.context && qq.kind == q.kind)
+                    .count()
+                    > 1
+                {
+                    format!("{}_{}_{}.smt2", q.context, q.kind, i)
+                } else {
+                    name
+                },
+            );
+            fs::write(&path, &q.script).unwrap_or_else(|e| {
+                eprintln!("Error writing {}: {e}", path.display());
+            });
+        }
+        if output_mode == OutputMode::Human {
+            eprintln!("Wrote {} SMT-LIB2 file(s) to {smt_dir}/", queries.len());
+        }
+    }
+
+    // --- Print stats ---
+    if stats && output_mode == OutputMode::Human {
+        let verified = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Verified { .. }))
+            .count();
+        let counterexamples = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }))
+            .count();
+        let timeouts = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Timeout { .. }))
+            .count();
+        let unknowns = verification_results
+            .iter()
+            .filter(|r| matches!(r, assura_smt::VerificationResult::Unknown { .. }))
+            .count();
+        let total_ms = timing.lex_ms
+            + timing.parse_ms
+            + timing.resolve_ms.unwrap_or(0.0)
+            + timing.hir_ms.unwrap_or(0.0)
+            + timing.typecheck_ms.unwrap_or(0.0)
+            + verify_ms;
+
+        eprintln!();
+        eprintln!("=== Verification Statistics ===");
+        eprintln!("  Clauses:         {}", verification_results.len());
+        eprintln!("  Verified:        {verified}");
+        eprintln!("  Counterexamples: {counterexamples}");
+        eprintln!("  Timeouts:        {timeouts}");
+        eprintln!("  Unknown:         {unknowns}");
+        eprintln!();
+        eprintln!(
+            "  Lex time:        {:.2}ms ({} tokens)",
+            timing.lex_ms, timing.token_count
+        );
+        eprintln!("  Parse time:      {:.2}ms", timing.parse_ms);
+        if let Some(ms) = timing.resolve_ms {
+            eprintln!("  Resolve time:    {ms:.2}ms");
+        }
+        if let Some(ms) = timing.hir_ms {
+            eprintln!("  HIR lower time:  {ms:.2}ms");
+        }
+        if let Some(ms) = timing.typecheck_ms {
+            eprintln!("  Type-check time: {ms:.2}ms");
+        }
+        eprintln!("  Verify time:     {verify_ms:.2}ms");
+        eprintln!("  Total time:      {total_ms:.2}ms");
     }
 
     // Convert counterexamples to diagnostics so they appear in both modes
