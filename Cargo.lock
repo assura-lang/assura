@@ -176,6 +176,7 @@ dependencies = [
 name = "assura-lsp"
 version = "0.1.0"
 dependencies = [
+ "assura-fmt",
  "assura-parser",
  "assura-resolve",
  "assura-types",

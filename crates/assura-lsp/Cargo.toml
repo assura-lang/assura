@@ -14,6 +14,7 @@ path = "src/main.rs"
 assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
+assura-fmt = { path = "../assura-fmt" }
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
