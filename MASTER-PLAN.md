@@ -1469,3 +1469,35 @@ section name. Updated `assura init` to generate proper config with all
 sections and comments. Verbose mode displays project info and config
 values. JSON output includes config when present. 6 new tests. 1,434
 total tests passing.
+
+### Architecture refactoring completed (2026-06-14)
+
+Completed the full 8-phase architecture refactoring plan across multiple
+sessions. Summary of all phases:
+
+**Phase 6.4**: Added `hir_type_from_expr()` and `resolve_hir_type()` to
+assura-hir, enabling the HIR lowerer to use structured TypeExpr instead
+of raw token sequences. 8 new tests.
+
+**Phase 7.1-7.6**: Wired HirFile through the type checker. Added
+`type_check_hir()` entry point, `build_type_env_from_hir()` using
+`type_from_hir_type()`, `check_clause_bodies_hir()` with HirExpr-to-Expr
+bridge, and propagated HirFile through TypedFile for downstream access.
+All domain checkers work via `hir.resolved().source`. 8 new tests.
+
+**Phase 8.1**: Added `parse_unwrap()` convenience to assura-parser.
+Replaced the 3-line parse+assert+unwrap boilerplate across 6 crates
+(18 sites). -29 lines.
+
+**Phase 8.2**: Re-exported `BinOp`, `UnaryOp`, `Literal` from assura-hir
+so downstream crates can use short names instead of reaching into
+`assura_parser::ast::`.
+
+**Phase 8.3**: Replaced hand-rolled lex+parse pipeline in SMT's
+`verify_source()` test helper with `parse_unwrap()`. -17 lines.
+
+**Phase 8.4**: Added `bare_expr` attempt in `clause_body_expr()` so
+expression clauses without delimiters also try the expression parser.
+This converted `decreases n` from Raw to Ident and `ensures result >= 0`
+from Raw to BinOp{Gte}. Added 4 regression tests with budgets for 2
+known gaps (@ pattern syntax, mod operator). 1,491 total tests passing.
