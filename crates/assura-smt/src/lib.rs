@@ -2607,6 +2607,15 @@ mod z3_backend {
                     solver.assert(&clause_bool);
                     check_validity(&solver, desc, results);
                 }
+                ClauseKind::Decreases => {
+                    // Decreases: verify the expression is non-negative (well-founded).
+                    // Encode as: the clause expression (decreasing measure) >= 0 must hold.
+                    let zero = ast::Int::from_i64(ctx, 0);
+                    let measure = clause_val.as_int(ctx, &mut encoder.fresh_counter);
+                    let non_neg = measure.ge(&zero);
+                    solver.assert(&non_neg.not());
+                    check_validity(&solver, desc, results);
+                }
                 _ => {}
             }
 
