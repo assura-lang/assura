@@ -7218,9 +7218,11 @@ fn make_fn_def(name: &str, params: Vec<(&str, &[&str])>, clauses: Vec<AstClause>
             .map(|(n, ty)| AstParam {
                 name: n.into(),
                 ty: ty.iter().map(|s| s.to_string()).collect(),
+                parsed_type: None,
             })
             .collect(),
         return_ty: vec!["Int".into()],
+        return_type_expr: None,
         clauses,
     }
 }

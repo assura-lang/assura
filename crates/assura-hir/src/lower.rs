@@ -427,8 +427,10 @@ mod tests {
                     params: vec![Param {
                         name: "n".into(),
                         ty: vec!["Int".into()],
+                        parsed_type: None,
                     }],
                     return_ty: vec!["Bool".into()],
+                    return_type_expr: None,
                     clauses: vec![],
                 }),
                 span: 0..20,
@@ -462,11 +464,13 @@ mod tests {
                         FieldDef {
                             name: "x".into(),
                             ty: vec!["Int".into()],
+                            parsed_type: None,
                             is_pub: true,
                         },
                         FieldDef {
                             name: "y".into(),
                             ty: vec!["Int".into()],
+                            parsed_type: None,
                             is_pub: true,
                         },
                     ]),
@@ -568,8 +572,10 @@ contract SafeDivision {
                     params: vec![Param {
                         name: "size".into(),
                         ty: vec!["Nat".into()],
+                        parsed_type: None,
                     }],
                     return_ty: vec!["Bytes".into()],
+                    return_type_expr: None,
                     clauses: vec![],
                 }),
                 span: 0..20,

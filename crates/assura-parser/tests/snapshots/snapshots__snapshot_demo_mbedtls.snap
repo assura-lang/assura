@@ -142,12 +142,22 @@ SourceFile {
                                 "&mut",
                                 "TlsConnection",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut TlsConnection",
+                                ),
+                            ),
                         },
                         Param {
                             name: "max",
                             ty: [
                                 "Nat",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -157,6 +167,11 @@ SourceFile {
                         ":",
                         "untrusted",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "Bytes @ taint : untrusted",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -186,6 +201,11 @@ SourceFile {
                                 "&mut",
                                 "TlsConnection",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut TlsConnection",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -195,6 +215,11 @@ SourceFile {
                         ":",
                         "untrusted",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "U16 @ taint : untrusted",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -224,6 +249,11 @@ SourceFile {
                                 "&mut",
                                 "TlsConnection",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut TlsConnection",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -233,6 +263,11 @@ SourceFile {
                         ":",
                         "untrusted",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "U32 @ taint : untrusted",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -265,6 +300,11 @@ SourceFile {
                                     ":",
                                     "validated",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "Bytes @ taint : validated",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -280,6 +320,11 @@ SourceFile {
                                     "MAX_EC_POINT_SIZE",
                                     "}",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "{ v : Nat | v <= MAX_EC_POINT_SIZE }",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -287,6 +332,11 @@ SourceFile {
                                 ty: [
                                     "CurveId",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "CurveId",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                         ],
@@ -311,6 +361,11 @@ SourceFile {
                                 ":",
                                 "untrusted",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Bytes @ taint : untrusted",
+                                ),
+                            ),
                         },
                         Param {
                             name: "raw_length",
@@ -321,12 +376,22 @@ SourceFile {
                                 ":",
                                 "untrusted",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "U16 @ taint : untrusted",
+                                ),
+                            ),
                         },
                         Param {
                             name: "expected_curve",
                             ty: [
                                 "CurveId",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "CurveId",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -338,6 +403,11 @@ SourceFile {
                         "|",
                         "HandshakeError",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "ValidPeerKey @ taint : validated | HandshakeError",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -367,6 +437,16 @@ SourceFile {
                                     "MAX_EC_POINT_SIZE",
                                     ">",
                                 ],
+                                parsed_type: Some(
+                                    Generic(
+                                        "Region",
+                                        [
+                                            Named(
+                                                "MAX_EC_POINT_SIZE",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -374,6 +454,11 @@ SourceFile {
                                 ty: [
                                     "EcKeyPair",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "EcKeyPair",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -384,6 +469,16 @@ SourceFile {
                                     "MAX_EC_POINT_SIZE",
                                     ">",
                                 ],
+                                parsed_type: Some(
+                                    Generic(
+                                        "Region",
+                                        [
+                                            Named(
+                                                "MAX_EC_POINT_SIZE",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -391,6 +486,11 @@ SourceFile {
                                 ty: [
                                     "CurveId",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "CurveId",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                         ],
@@ -415,6 +515,11 @@ SourceFile {
                                 ":",
                                 "untrusted",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "U32 @ taint : untrusted",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -434,6 +539,11 @@ SourceFile {
                         "|",
                         "ParseError",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "{ v : Nat | v <= MAX_HANDSHAKE_LEN } @ taint : validated | ParseError",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -468,6 +578,11 @@ SourceFile {
                                 "MAX_HANDSHAKE_LEN",
                                 "}",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ h : Nat | h <= MAX_HANDSHAKE_LEN }",
+                                ),
+                            ),
                         },
                         Param {
                             name: "content_len",
@@ -482,6 +597,11 @@ SourceFile {
                                 "MAX_HANDSHAKE_LEN",
                                 "}",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ c : Nat | c <= MAX_HANDSHAKE_LEN }",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -497,6 +617,11 @@ SourceFile {
                         "MAX_HANDSHAKE_LEN",
                         "}",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "{ v : Nat | v <= 2 * MAX_HANDSHAKE_LEN }",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Requires,
@@ -563,6 +688,11 @@ SourceFile {
                                 "secret",
                                 "]",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "U256 # [ secret ]",
+                                ),
+                            ),
                         },
                         Param {
                             name: "peer_public",
@@ -573,6 +703,11 @@ SourceFile {
                                 ":",
                                 "validated",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "ValidPeerKey @ taint : validated",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -581,6 +716,16 @@ SourceFile {
                         "MAX_EC_POINT_SIZE",
                         ">",
                     ],
+                    return_type_expr: Some(
+                        Generic(
+                            "Region",
+                            [
+                                Named(
+                                    "MAX_EC_POINT_SIZE",
+                                ),
+                            ],
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Requires,
@@ -635,6 +780,11 @@ SourceFile {
                                 "secret",
                                 "]",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "U256 # [ secret ]",
+                                ),
+                            ),
                         },
                         Param {
                             name: "peer_point",
@@ -645,17 +795,32 @@ SourceFile {
                                 ":",
                                 "validated",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "ValidPeerKey @ taint : validated",
+                                ),
+                            ),
                         },
                         Param {
                             name: "curve",
                             ty: [
                                 "CurveParams",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "CurveParams",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "SharedSecret",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "SharedSecret",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Requires,
@@ -743,6 +908,11 @@ SourceFile {
                                 "&mut",
                                 "TlsConnection",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut TlsConnection",
+                                ),
+                            ),
                         },
                         Param {
                             name: "record_buf",
@@ -752,11 +922,26 @@ SourceFile {
                                 "MAX_CONTENT_LEN",
                                 ">",
                             ],
+                            parsed_type: Some(
+                                Generic(
+                                    "Region",
+                                    [
+                                        Named(
+                                            "MAX_CONTENT_LEN",
+                                        ),
+                                    ],
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "RecordResult",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "RecordResult",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Modifies,

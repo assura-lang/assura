@@ -41,6 +41,16 @@ SourceFile {
                                     "MaxLen",
                                     ">",
                                 ],
+                                parsed_type: Some(
+                                    Generic(
+                                        "Region",
+                                        [
+                                            Named(
+                                                "MaxLen",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -56,6 +66,11 @@ SourceFile {
                                     "MaxLen",
                                     "}",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "{ v : Nat | v == MaxLen }",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -63,6 +78,11 @@ SourceFile {
                                 ty: [
                                     "Nat",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "Nat",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                         ],
@@ -86,6 +106,16 @@ SourceFile {
                                     "EXTRA_MAX",
                                     ">",
                                 ],
+                                parsed_type: Some(
+                                    Generic(
+                                        "GzipExtraBuffer",
+                                        [
+                                            Named(
+                                                "EXTRA_MAX",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -96,6 +126,16 @@ SourceFile {
                                     "String",
                                     ">",
                                 ],
+                                parsed_type: Some(
+                                    Generic(
+                                        "Option",
+                                        [
+                                            Named(
+                                                "String",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -106,6 +146,16 @@ SourceFile {
                                     "String",
                                     ">",
                                 ],
+                                parsed_type: Some(
+                                    Generic(
+                                        "Option",
+                                        [
+                                            Named(
+                                                "String",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -113,6 +163,11 @@ SourceFile {
                                 ty: [
                                     "Bool",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "Bool",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                         ],
@@ -134,6 +189,11 @@ SourceFile {
                                 "&mut",
                                 "InflateStream",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut InflateStream",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -143,6 +203,11 @@ SourceFile {
                         ":",
                         "untrusted",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "U16 @ taint : untrusted",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -175,6 +240,11 @@ SourceFile {
                                     ":",
                                     "validated",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "U16 @ taint : validated",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -190,6 +260,11 @@ SourceFile {
                                     "EXTRA_MAX",
                                     "}",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "{ v : Nat | v <= EXTRA_MAX }",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                         ],
@@ -214,12 +289,22 @@ SourceFile {
                                 ":",
                                 "untrusted",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "U16 @ taint : untrusted",
+                                ),
+                            ),
                         },
                         Param {
                             name: "extra_max",
                             ty: [
                                 "Nat",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -229,6 +314,11 @@ SourceFile {
                         ":",
                         "validated",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "ValidXlen @ taint : validated",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -268,6 +358,16 @@ SourceFile {
                                 "DstSize",
                                 ">",
                             ],
+                            parsed_type: Some(
+                                Generic(
+                                    "Region",
+                                    [
+                                        Named(
+                                            "DstSize",
+                                        ),
+                                    ],
+                                ),
+                            ),
                         },
                         Param {
                             name: "dst_offset",
@@ -282,6 +382,11 @@ SourceFile {
                                 "DstSize",
                                 "}",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ off : Nat | off <= DstSize }",
+                                ),
+                            ),
                         },
                         Param {
                             name: "src",
@@ -291,6 +396,11 @@ SourceFile {
                                 "U8",
                                 "]",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "& [ U8 ]",
+                                ),
+                            ),
                         },
                         Param {
                             name: "len",
@@ -315,6 +425,11 @@ SourceFile {
                                 ")",
                                 "}",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ n : Nat | dst_offset + n <= DstSize and n <= src . len ( ) }",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -323,6 +438,16 @@ SourceFile {
                         "DstSize",
                         ">",
                     ],
+                    return_type_expr: Some(
+                        Generic(
+                            "Region",
+                            [
+                                Named(
+                                    "DstSize",
+                                ),
+                            ],
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Modifies,
@@ -358,6 +483,11 @@ SourceFile {
                                 "&mut",
                                 "InflateDecoder",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut InflateDecoder",
+                                ),
+                            ),
                         },
                         Param {
                             name: "input",
@@ -367,11 +497,21 @@ SourceFile {
                                 "U8",
                                 "]",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "& [ U8 ]",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "InflateStepResult",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "InflateStepResult",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Requires,

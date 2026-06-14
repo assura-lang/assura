@@ -38,11 +38,21 @@ SourceFile {
                             ty: [
                                 "Int",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Int",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "Int",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "Int",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Ensures,
@@ -75,11 +85,21 @@ SourceFile {
                             ty: [
                                 "Int",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Int",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "Int",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "Int",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Ensures,

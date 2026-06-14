@@ -303,6 +303,8 @@ pub struct ParsedParam {
     pub name: String,
     /// Raw type tokens (e.g., `["List", "<", "Int", ">"]`). Empty if untyped.
     pub ty: Vec<String>,
+    /// Structured type expression parsed from `ty` tokens (if parseable).
+    pub parsed_type: Option<TypeExpr>,
 }
 
 /// Extract `(name, type)` parameter pairs from a clause body expression.
@@ -327,9 +329,12 @@ fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
         }
         Expr::Cast { expr: inner, ty } => {
             if let Expr::Ident(name) = inner.as_ref() {
+                let ty = vec![ty.clone()];
+                let parsed_type = crate::parser::try_parse_type_tokens(&ty);
                 params.push(ParsedParam {
                     name: name.clone(),
-                    ty: vec![ty.clone()],
+                    ty,
+                    parsed_type,
                 });
             }
         }
@@ -337,6 +342,7 @@ fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
             params.push(ParsedParam {
                 name: name.clone(),
                 ty: vec![],
+                parsed_type: None,
             });
         }
         Expr::Paren(inner) => extract_clause_params_inner(inner, params),
@@ -354,9 +360,12 @@ fn extract_single_param(expr: &Expr, params: &mut Vec<ParsedParam>) {
     match expr {
         Expr::Cast { expr: inner, ty } => {
             if let Expr::Ident(name) = inner.as_ref() {
+                let ty = vec![ty.clone()];
+                let parsed_type = crate::parser::try_parse_type_tokens(&ty);
                 params.push(ParsedParam {
                     name: name.clone(),
-                    ty: vec![ty.clone()],
+                    ty,
+                    parsed_type,
                 });
             }
         }
@@ -364,6 +373,7 @@ fn extract_single_param(expr: &Expr, params: &mut Vec<ParsedParam>) {
             params.push(ParsedParam {
                 name: name.clone(),
                 ty: vec![],
+                parsed_type: None,
             });
         }
         Expr::Paren(inner) => extract_single_param(inner, params),
@@ -403,7 +413,12 @@ fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedPara
                 j += 1;
             }
             let ty: Vec<String> = tokens[type_start..j].to_vec();
-            params.push(ParsedParam { name, ty });
+            let parsed_type = crate::parser::try_parse_type_tokens(&ty);
+            params.push(ParsedParam {
+                name,
+                ty,
+                parsed_type,
+            });
             i = j;
         } else {
             // Bare identifier without type annotation
@@ -414,7 +429,11 @@ fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedPara
                     .next()
                     .is_some_and(|c| c.is_alphabetic() || c == '_')
             {
-                params.push(ParsedParam { name, ty: vec![] });
+                params.push(ParsedParam {
+                    name,
+                    ty: vec![],
+                    parsed_type: None,
+                });
             }
             i += 1;
         }
@@ -444,6 +463,8 @@ pub enum TypeBody {
 pub struct FieldDef {
     pub name: String,
     pub ty: Vec<String>,
+    /// Structured type expression parsed from `ty` tokens (if parseable).
+    pub parsed_type: Option<TypeExpr>,
     pub is_pub: bool,
 }
 
@@ -469,6 +490,7 @@ pub struct ExternDecl {
     pub name: String,
     pub params: Vec<Param>,
     pub return_ty: Vec<String>,
+    pub return_type_expr: Option<TypeExpr>,
     pub clauses: Vec<Clause>,
 }
 
@@ -479,6 +501,7 @@ pub struct FnDef {
     pub is_lemma: bool,
     pub params: Vec<Param>,
     pub return_ty: Vec<String>,
+    pub return_type_expr: Option<TypeExpr>,
     pub clauses: Vec<Clause>,
 }
 
@@ -486,6 +509,8 @@ pub struct FnDef {
 pub struct Param {
     pub name: String,
     pub ty: Vec<String>,
+    /// Structured type expression parsed from `ty` tokens (if parseable).
+    pub parsed_type: Option<TypeExpr>,
 }
 
 // ---------------------------------------------------------------------------

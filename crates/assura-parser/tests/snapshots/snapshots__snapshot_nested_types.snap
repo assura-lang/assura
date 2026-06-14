@@ -41,6 +41,11 @@ SourceFile {
                                 ty: [
                                     "T",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "T",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -48,6 +53,11 @@ SourceFile {
                                 ty: [
                                     "Int",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "Int",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -55,6 +65,11 @@ SourceFile {
                                 ty: [
                                     "Int",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "Int",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                         ],
@@ -78,6 +93,11 @@ SourceFile {
                                 ty: [
                                     "A",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "A",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                             FieldDef {
@@ -85,6 +105,11 @@ SourceFile {
                                 ty: [
                                     "B",
                                 ],
+                                parsed_type: Some(
+                                    Named(
+                                        "B",
+                                    ),
+                                ),
                                 is_pub: false,
                             },
                         ],

@@ -337,11 +337,21 @@ SourceFile {
                             ty: [
                                 "Nat",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "Bytes",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "Bytes",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Requires,
@@ -403,6 +413,11 @@ SourceFile {
                                             ty: [
                                                 "UserId",
                                             ],
+                                            parsed_type: Some(
+                                                Named(
+                                                    "UserId",
+                                                ),
+                                            ),
                                             is_pub: false,
                                         },
                                         FieldDef {
@@ -410,6 +425,11 @@ SourceFile {
                                             ty: [
                                                 "String",
                                             ],
+                                            parsed_type: Some(
+                                                Named(
+                                                    "String",
+                                                ),
+                                            ),
                                             is_pub: false,
                                         },
                                         FieldDef {
@@ -417,6 +437,11 @@ SourceFile {
                                             ty: [
                                                 "Bool",
                                             ],
+                                            parsed_type: Some(
+                                                Named(
+                                                    "Bool",
+                                                ),
+                                            ),
                                             is_pub: false,
                                         },
                                     ],
@@ -582,6 +607,11 @@ SourceFile {
                             ty: [
                                 "Color",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Color",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -589,6 +619,11 @@ SourceFile {
                         "decreases",
                         "0",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "Int decreases 0",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Ensures,
@@ -673,11 +708,21 @@ SourceFile {
                             ty: [
                                 "Nat",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "Nat",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "Nat",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Requires,

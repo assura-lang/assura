@@ -81,12 +81,22 @@ SourceFile {
                             ty: [
                                 "Nat",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
                         },
                         Param {
                             name: "root_bits",
                             ty: [
                                 "Nat",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
                         },
                         Param {
                             name: "code_lengths",
@@ -96,11 +106,26 @@ SourceFile {
                                 "Nat",
                                 ">",
                             ],
+                            parsed_type: Some(
+                                Generic(
+                                    "Sequence",
+                                    [
+                                        Named(
+                                            "Nat",
+                                        ),
+                                    ],
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "Nat",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "Nat",
+                        ),
+                    ),
                     clauses: [],
                 },
             ),
@@ -118,11 +143,21 @@ SourceFile {
                             ty: [
                                 "U16",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "U16",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
                         "U32",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "U32",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Requires,
@@ -213,6 +248,11 @@ SourceFile {
                                 "&mut",
                                 "BitReader",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut BitReader",
+                                ),
+                            ),
                         },
                         Param {
                             name: "n_bits",
@@ -227,6 +267,11 @@ SourceFile {
                                 "24",
                                 "}",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ b : Nat | b <= 24 }",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -236,6 +281,11 @@ SourceFile {
                         ":",
                         "untrusted",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "U32 @ taint : untrusted",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -265,6 +315,11 @@ SourceFile {
                                 "&mut",
                                 "BitReader",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut BitReader",
+                                ),
+                            ),
                         },
                         Param {
                             name: "alphabet_size",
@@ -279,6 +334,11 @@ SourceFile {
                                 "MAX_ALPHABET_SIZE",
                                 "}",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ a : Nat | a <= MAX_ALPHABET_SIZE }",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -291,6 +351,11 @@ SourceFile {
                         ":",
                         "untrusted",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "List < U16 > @ taint : untrusted",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -326,6 +391,11 @@ SourceFile {
                                 ":",
                                 "untrusted",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "List < U16 > @ taint : untrusted",
+                                ),
+                            ),
                         },
                         Param {
                             name: "alphabet_size",
@@ -340,6 +410,11 @@ SourceFile {
                                 "MAX_ALPHABET_SIZE",
                                 "}",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ a : Nat | a <= MAX_ALPHABET_SIZE }",
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -351,6 +426,11 @@ SourceFile {
                         "|",
                         "HuffmanError",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "ValidCodeLengths @ taint : validated | HuffmanError",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,
@@ -388,6 +468,11 @@ SourceFile {
                                 "&mut",
                                 "BitReader",
                             ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut BitReader",
+                                ),
+                            ),
                         },
                         Param {
                             name: "table_buf",
@@ -397,6 +482,16 @@ SourceFile {
                                 "TOTAL_TABLE_SIZE",
                                 ">",
                             ],
+                            parsed_type: Some(
+                                Generic(
+                                    "Region",
+                                    [
+                                        Named(
+                                            "TOTAL_TABLE_SIZE",
+                                        ),
+                                    ],
+                                ),
+                            ),
                         },
                     ],
                     return_ty: [
@@ -404,6 +499,11 @@ SourceFile {
                         "|",
                         "DecodeError",
                     ],
+                    return_type_expr: Some(
+                        Named(
+                            "HuffmanGroup | DecodeError",
+                        ),
+                    ),
                     clauses: [
                         Clause {
                             kind: Effects,

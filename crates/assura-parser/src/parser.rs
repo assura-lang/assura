@@ -1152,10 +1152,14 @@ fn field_def() -> impl Parser<Token, FieldDef, Error = Simple<Token>> + Clone {
         .then_ignore(just(Token::Colon))
         .then(field_type)
         .then_ignore(just(Token::Semicolon).or(just(Token::Comma)).or_not())
-        .map(|((((_is_pub, _mods), _var), name), ty)| FieldDef {
-            name,
-            ty,
-            is_pub: _is_pub,
+        .map(|((((_is_pub, _mods), _var), name), ty)| {
+            let parsed_type = try_parse_type_tokens(&ty);
+            FieldDef {
+                name,
+                ty,
+                parsed_type,
+                is_pub: _is_pub,
+            }
         })
 }
 
@@ -1328,7 +1332,14 @@ fn param() -> impl Parser<Token, Param, Error = Simple<Token>> + Clone {
     attr.ignore_then(keyword_or_ident())
         .then_ignore(just(Token::Colon))
         .then(param_type)
-        .map(|(name, ty)| Param { name, ty })
+        .map(|(name, ty)| {
+            let parsed_type = try_parse_type_tokens(&ty);
+            Param {
+                name,
+                ty,
+                parsed_type,
+            }
+        })
 }
 
 fn param_list() -> impl Parser<Token, Vec<Param>, Error = Simple<Token>> + Clone {
@@ -1388,11 +1399,16 @@ fn extern_decl() -> impl Parser<Token, ExternDecl, Error = Simple<Token>> + Clon
         .then(return_type().or_not())
         .then(clause().repeated())
         .then_ignore(just(Token::Semicolon).or_not())
-        .map(|(((name, params), ret), clauses)| ExternDecl {
-            name,
-            params,
-            return_ty: ret.unwrap_or_default(),
-            clauses,
+        .map(|(((name, params), ret), clauses)| {
+            let return_ty = ret.unwrap_or_default();
+            let return_type_expr = try_parse_type_tokens(&return_ty);
+            ExternDecl {
+                name,
+                params,
+                return_ty,
+                return_type_expr,
+                clauses,
+            }
         })
 }
 
@@ -1496,12 +1512,15 @@ fn fn_def() -> impl Parser<Token, FnDef, Error = Simple<Token>> + Clone {
         .map(
             |((((((((mods, is_lemma), name), _tps), params), ret), _eq_body), clauses), _body)| {
                 let is_ghost = mods.iter().any(|t| matches!(t, Token::Ghost));
+                let return_ty = ret.unwrap_or_default();
+                let return_type_expr = try_parse_type_tokens(&return_ty);
                 FnDef {
                     name,
                     is_ghost,
                     is_lemma,
                     params,
-                    return_ty: ret.unwrap_or_default(),
+                    return_ty,
+                    return_type_expr,
                     clauses,
                 }
             },

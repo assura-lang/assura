@@ -23,6 +23,11 @@ SourceFile {
                                             ty: [
                                                 "Nat",
                                             ],
+                                            parsed_type: Some(
+                                                Named(
+                                                    "Nat",
+                                                ),
+                                            ),
                                             is_pub: false,
                                         },
                                         FieldDef {
@@ -30,6 +35,11 @@ SourceFile {
                                             ty: [
                                                 "Int",
                                             ],
+                                            parsed_type: Some(
+                                                Named(
+                                                    "Int",
+                                                ),
+                                            ),
                                             is_pub: false,
                                         },
                                         FieldDef {
@@ -37,6 +47,11 @@ SourceFile {
                                             ty: [
                                                 "String",
                                             ],
+                                            parsed_type: Some(
+                                                Named(
+                                                    "String",
+                                                ),
+                                            ),
                                             is_pub: false,
                                         },
                                     ],
