@@ -12,6 +12,7 @@ use crate::{
     DefId, HirBlock, HirClause, HirClauseKind, HirContract, HirDecl, HirDeclKind, HirEnumDef,
     HirEnumVariant, HirExpr, HirExtern, HirFieldDef, HirFile, HirFnDef, HirMatchArm, HirParam,
     HirService, HirServiceItem, HirType, HirTypeBody, HirTypeDef, parse_type_tokens,
+    resolve_hir_type,
 };
 
 // ---------------------------------------------------------------------------
@@ -173,7 +174,7 @@ impl LowerCtx<'_> {
     fn lower_field(&self, f: &ast::FieldDef) -> HirFieldDef {
         HirFieldDef {
             name: f.name.clone(),
-            ty: parse_type_tokens(&f.ty),
+            ty: resolve_hir_type(f.parsed_type.as_ref(), &f.ty),
             is_pub: f.is_pub,
         }
     }
@@ -203,7 +204,7 @@ impl LowerCtx<'_> {
             id: self.resolver.resolve(&e.name),
             name: e.name.clone(),
             params: e.params.iter().map(|p| self.lower_param(p)).collect(),
-            return_ty: parse_type_tokens(&e.return_ty),
+            return_ty: resolve_hir_type(e.return_type_expr.as_ref(), &e.return_ty),
             clauses: e.clauses.iter().map(|c| self.lower_clause(c)).collect(),
         }
     }
@@ -215,7 +216,7 @@ impl LowerCtx<'_> {
             is_ghost: f.is_ghost,
             is_lemma: f.is_lemma,
             params: f.params.iter().map(|p| self.lower_param(p)).collect(),
-            return_ty: parse_type_tokens(&f.return_ty),
+            return_ty: resolve_hir_type(f.return_type_expr.as_ref(), &f.return_ty),
             clauses: f.clauses.iter().map(|c| self.lower_clause(c)).collect(),
         }
     }
@@ -223,7 +224,7 @@ impl LowerCtx<'_> {
     fn lower_param(&self, p: &ast::Param) -> HirParam {
         HirParam {
             name: p.name.clone(),
-            ty: parse_type_tokens(&p.ty),
+            ty: resolve_hir_type(p.parsed_type.as_ref(), &p.ty),
         }
     }
 

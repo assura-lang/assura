@@ -710,6 +710,42 @@ fn split_at_commas(tokens: &[String]) -> Vec<&[String]> {
     parts
 }
 
+// ---------------------------------------------------------------------------
+// TypeExpr -> HirType conversion
+// ---------------------------------------------------------------------------
+
+/// Convert a structured `TypeExpr` (from the parser) to an `HirType`.
+pub fn hir_type_from_expr(expr: &ast::TypeExpr) -> HirType {
+    match expr {
+        ast::TypeExpr::Unit => HirType::Unit,
+        ast::TypeExpr::Named(name) => HirType::Named(name.clone()),
+        ast::TypeExpr::Generic(name, args) => {
+            HirType::Generic(name.clone(), args.iter().map(hir_type_from_expr).collect())
+        }
+        ast::TypeExpr::Tuple(elems) => {
+            HirType::Tuple(elems.iter().map(hir_type_from_expr).collect())
+        }
+        ast::TypeExpr::Fn { params, ret } => HirType::Fn {
+            params: params.iter().map(hir_type_from_expr).collect(),
+            ret: Box::new(hir_type_from_expr(ret)),
+        },
+        ast::TypeExpr::Refined { base, predicate } => HirType::Refined {
+            base: Box::new(hir_type_from_expr(base)),
+            predicate: predicate.clone(),
+        },
+    }
+}
+
+/// Try to resolve a type from a `parsed_type` first, falling back to raw
+/// token parsing. This is the same pattern used in `assura-types`.
+pub fn resolve_hir_type(parsed_type: Option<&ast::TypeExpr>, tokens: &[String]) -> HirType {
+    if let Some(te) = parsed_type {
+        hir_type_from_expr(te)
+    } else {
+        parse_type_tokens(tokens)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -797,6 +833,92 @@ mod tests {
             "List<Int>"
         );
         assert_eq!(HirType::Unit.to_string(), "Unit");
+    }
+
+    // ---- hir_type_from_expr tests ----
+
+    #[test]
+    fn hir_type_from_expr_named() {
+        let te = ast::TypeExpr::Named("Int".into());
+        assert_eq!(hir_type_from_expr(&te), HirType::Named("Int".into()));
+    }
+
+    #[test]
+    fn hir_type_from_expr_unit() {
+        assert_eq!(hir_type_from_expr(&ast::TypeExpr::Unit), HirType::Unit);
+    }
+
+    #[test]
+    fn hir_type_from_expr_generic() {
+        let te = ast::TypeExpr::Generic("List".into(), vec![ast::TypeExpr::Named("Int".into())]);
+        assert_eq!(
+            hir_type_from_expr(&te),
+            HirType::Generic("List".into(), vec![HirType::Named("Int".into())])
+        );
+    }
+
+    #[test]
+    fn hir_type_from_expr_tuple() {
+        let te = ast::TypeExpr::Tuple(vec![
+            ast::TypeExpr::Named("Int".into()),
+            ast::TypeExpr::Named("Bool".into()),
+        ]);
+        assert_eq!(
+            hir_type_from_expr(&te),
+            HirType::Tuple(vec![
+                HirType::Named("Int".into()),
+                HirType::Named("Bool".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn hir_type_from_expr_fn_type() {
+        let te = ast::TypeExpr::Fn {
+            params: vec![ast::TypeExpr::Named("Int".into())],
+            ret: Box::new(ast::TypeExpr::Named("Bool".into())),
+        };
+        assert_eq!(
+            hir_type_from_expr(&te),
+            HirType::Fn {
+                params: vec![HirType::Named("Int".into())],
+                ret: Box::new(HirType::Named("Bool".into())),
+            }
+        );
+    }
+
+    #[test]
+    fn hir_type_from_expr_refined() {
+        let te = ast::TypeExpr::Refined {
+            base: Box::new(ast::TypeExpr::Named("Int".into())),
+            predicate: "x > 0".into(),
+        };
+        assert_eq!(
+            hir_type_from_expr(&te),
+            HirType::Refined {
+                base: Box::new(HirType::Named("Int".into())),
+                predicate: "x > 0".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_hir_type_prefers_parsed() {
+        let te = ast::TypeExpr::Named("Bool".into());
+        let tokens: Vec<String> = vec!["Int".into()];
+        assert_eq!(
+            resolve_hir_type(Some(&te), &tokens),
+            HirType::Named("Bool".into())
+        );
+    }
+
+    #[test]
+    fn resolve_hir_type_falls_back() {
+        let tokens: Vec<String> = vec!["Int".into()];
+        assert_eq!(
+            resolve_hir_type(None, &tokens),
+            HirType::Named("Int".into())
+        );
     }
 
     // ---- HirExpr round-trip tests ----
