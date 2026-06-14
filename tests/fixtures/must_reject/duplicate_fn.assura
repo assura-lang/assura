@@ -1,0 +1,9 @@
+// MUST REJECT A02003
+// Duplicate function definition with same name.
+fn compute(x: Int) -> Int
+    requires { x > 0 }
+    ensures { result > 0 }
+
+fn compute(x: Int) -> Int
+    requires { x > 0 }
+    ensures { result >= 0 }

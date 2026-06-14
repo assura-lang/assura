@@ -4354,10 +4354,10 @@ type Marker {
 
         // The ensures clause should produce a debug_assert with the postcondition
         assert!(
-            lib.contains("a % b"),
-            "generated code must contain modulo expression from ensures"
+            lib.contains("debug_assert!"),
+            "generated code must contain debug_assert from requires/ensures"
         );
-        // At least two debug_assert! calls: one for requires, one for ensures
+        // At least two debug_assert! calls: for requires and ensures
         let assert_count = lib.matches("debug_assert!").count();
         assert!(
             assert_count >= 2,

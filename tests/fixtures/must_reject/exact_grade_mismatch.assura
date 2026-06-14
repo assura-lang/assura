@@ -1,0 +1,5 @@
+// MUST REJECT A05004
+// Linear variable used inconsistently across if-then-else branches.
+fn branch_inconsistent(x: linear Int, cond: Bool) -> Int
+    requires { if cond then x > 0 else true }
+    ensures { result >= 0 }

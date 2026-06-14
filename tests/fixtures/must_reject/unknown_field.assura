@@ -1,0 +1,12 @@
+// MUST REJECT A03005
+// Field access on a type that does not have that field.
+type Color {
+    r: Int,
+    g: Int,
+    b: Int
+}
+
+contract CheckField {
+    input(c: Color)
+    requires { c.alpha > 0 }
+}

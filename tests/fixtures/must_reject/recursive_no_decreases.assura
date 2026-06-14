@@ -1,0 +1,5 @@
+// MUST REJECT A09001
+// Recursive function without a decreases clause.
+fn count_down(n: Int) -> Int
+    requires { n >= 0 }
+    ensures { result == count_down(n) }

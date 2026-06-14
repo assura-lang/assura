@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+// Arithmetic on string types is not allowed.
+contract BadStringArith {
+    input(s: String)
+    requires { s + 1 > 0 }
+}

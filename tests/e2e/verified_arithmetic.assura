@@ -1,4 +1,5 @@
-// T042: Arithmetic contract that should VERIFY
+// EXPECTED: verified
+// Arithmetic contract that should VERIFY
 // If x > 5, then x + 1 > 5 is trivially true
 
 contract IncrementPositive {

@@ -1,0 +1,11 @@
+// MUST REJECT A07001
+// Caller declares {io} but callee has {database} which is not a subset.
+fn db_query(x: Int) -> Int
+    effects { database }
+    requires { x > 0 }
+    ensures { result > 0 }
+
+fn api_handler(x: Int) -> Int
+    effects { io }
+    requires { db_query(x) > 0 }
+    ensures { result > 0 }

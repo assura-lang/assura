@@ -1,0 +1,4 @@
+// MUST REJECT A02001
+// Function with undefined return type.
+fn bad_return(x: Int) -> NoSuchType
+    requires { x > 0 }

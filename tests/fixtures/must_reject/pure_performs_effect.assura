@@ -1,0 +1,11 @@
+// MUST REJECT A07002
+// Pure function calls an effectful function.
+fn effectful(x: Int) -> Int
+    effects { io }
+    requires { x > 0 }
+    ensures { result > 0 }
+
+fn must_be_pure(x: Int) -> Int
+    effects { pure }
+    requires { effectful(x) > 0 }
+    ensures { result > 0 }

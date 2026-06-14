@@ -1,0 +1,4 @@
+// MUST REJECT A08001
+// Confidential data flows to public output.
+fn expose_secret(data: confidential Int) -> Int
+    ensures { result == data }

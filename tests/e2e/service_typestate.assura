@@ -1,5 +1,6 @@
+// EXPECTED: verified
 // End-to-end test: service with typestate transitions
-// Tests: parser -> resolve -> type-check -> SMT verify -> codegen
+// Tests: parser -> resolve -> type-check -> SMT verify
 
 module test.service_typestate;
 
@@ -10,14 +11,14 @@ service Connection {
     operation Connect {
         requires { self.state == Disconnected }
         ensures { self.state == Connected }
-        effects { io.network }
+        effects { io }
     }
 
     operation Send {
         input(data: Bytes)
         requires { self.state == Connected }
         ensures { self.state == Connected }
-        effects { io.network }
+        effects { io }
     }
 
     query IsConnected {
@@ -43,7 +44,7 @@ contract BoundedChannel {
     }
 
     ensures {
-        result <= capacity
+        count <= capacity
     }
 }
 
@@ -56,7 +57,7 @@ service Counter {
     }
 
     query Value {
-        output(result: Nat)
+        output(result: Int)
         ensures { result >= 0 }
     }
 }

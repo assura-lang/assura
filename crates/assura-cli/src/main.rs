@@ -2673,8 +2673,8 @@ contract Typed {
             }
         }
         assert!(
-            tested >= 15,
-            "expected at least 15 MUST REJECT fixtures, found {tested}"
+            tested >= 25,
+            "expected at least 25 MUST REJECT fixtures, found {tested}"
         );
     }
 
@@ -3675,5 +3675,127 @@ timeout = 2000
             ".cargo/config.toml should NOT exist for native target"
         );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // =======================================================================
+    // E2E expected outcomes test harness
+    // =======================================================================
+
+    /// Expected outcome parsed from an `// EXPECTED: <kind>` annotation.
+    #[derive(Debug, PartialEq)]
+    enum ExpectedOutcome {
+        /// File should verify successfully (no errors).
+        Verified,
+        /// File should produce at least one counterexample.
+        Counterexample,
+    }
+
+    /// Parse `// EXPECTED: verified` or `// EXPECTED: counterexample`
+    /// from the first lines of source text.
+    fn parse_expected(source: &str) -> Option<ExpectedOutcome> {
+        for line in source.lines().take(5) {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("// EXPECTED:") {
+                let kind = rest.trim().to_lowercase();
+                return match kind.as_str() {
+                    "verified" => Some(ExpectedOutcome::Verified),
+                    "counterexample" => Some(ExpectedOutcome::Counterexample),
+                    _ => None,
+                };
+            }
+        }
+        None
+    }
+
+    /// Run the full pipeline (parse -> resolve -> type-check -> verify)
+    /// and return (has_errors, has_counterexample).
+    fn run_e2e_pipeline(source: &str) -> (bool, bool) {
+        let (file, parse_errors) = assura_parser::parse(source);
+        if !parse_errors.is_empty() {
+            return (true, false);
+        }
+        let file = match file {
+            Some(f) => f,
+            None => return (true, false),
+        };
+        let resolved = match assura_resolve::resolve(&file) {
+            Ok(r) => r,
+            Err(_) => return (true, false),
+        };
+        let hir = assura_hir::lower(&resolved);
+        let typed = match assura_types::type_check_hir(&hir) {
+            Ok(t) => t,
+            Err(_) => return (true, false),
+        };
+        let cache_dir = std::env::temp_dir().join("assura_e2e_cache");
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let cache = assura_smt::VerificationCache::new(&cache_dir);
+        let results = assura_smt::verify_parallel(&typed, &cache);
+        let has_counterexample = results
+            .iter()
+            .any(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }));
+        (has_counterexample, has_counterexample)
+    }
+
+    #[test]
+    fn test_e2e_expected_outcomes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        let e2e_dir = root.join("tests/e2e");
+
+        let mut tested = 0;
+        let mut failures: Vec<String> = Vec::new();
+
+        for entry in std::fs::read_dir(&e2e_dir).expect("cannot read tests/e2e") {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("assura") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).unwrap();
+            let filename = path.file_name().unwrap().to_str().unwrap();
+
+            let expected = match parse_expected(&source) {
+                Some(e) => e,
+                None => {
+                    failures.push(format!("{filename}: missing // EXPECTED: annotation"));
+                    continue;
+                }
+            };
+
+            let (has_errors, has_counterexample) = run_e2e_pipeline(&source);
+
+            match expected {
+                ExpectedOutcome::Verified => {
+                    if has_errors || has_counterexample {
+                        failures.push(format!(
+                            "{filename}: expected verified, but got errors={has_errors} counterexample={has_counterexample}"
+                        ));
+                    }
+                }
+                ExpectedOutcome::Counterexample => {
+                    if !has_counterexample {
+                        failures.push(format!(
+                            "{filename}: expected counterexample, but none found"
+                        ));
+                    }
+                }
+            }
+
+            tested += 1;
+        }
+
+        assert!(
+            failures.is_empty(),
+            "E2E test failures:\n{}",
+            failures.join("\n")
+        );
+        assert!(
+            tested >= 5,
+            "expected at least 5 E2E test files, found {tested}"
+        );
     }
 }

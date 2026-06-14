@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+// Logical AND on non-boolean integer types.
+contract BadLogic {
+    input(x: Int, y: Int)
+    requires { x && y }
+}
