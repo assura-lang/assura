@@ -224,7 +224,7 @@
     opt-out, and gracefully degrade with "Z3 not installed" messages
   - Add `cargo build --no-default-features` to CI to test graceful fallback
 
-- [ ] **R011**: Add standalone tests to assura-smt
+- [x] **R011**: Add standalone tests to assura-smt
   - Depends on: none
   - The SMT crate has 7,069 lines and ZERO in-crate tests. Everything
     is tested indirectly through assura-types.
@@ -1062,3 +1062,12 @@ Z3 was already the default feature (`default = ["z3-verify"]` in
 assura-smt/Cargo.toml). CI already installs libz3-dev. Added CI step
 to verify the graceful fallback builds: `cargo check -p assura-smt
 --no-default-features`.
+
+### R011 completed (2026-06-14)
+158 standalone tests already exist in assura-smt, covering: verify on
+minimal TypedFile (trivially true/false ensures, counterexamples),
+check_refinement_subtype (holds, fails, with context), buffer bounds
+(7 tests with verified/counterexample/partial requires), taint safety
+(5 tests: safe, unsafe, mixed, trusted), counterexample extraction
+format, and measure verification. The "ZERO in-crate tests" assessment
+from the plan was outdated; these were added during the T-series tasks.
