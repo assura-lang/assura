@@ -311,7 +311,7 @@
   - Currently A07001 only fires on direct name mismatch, not on
     transitive effect propagation through call chains
 
-- [ ] **S003**: Implement real information flow tracking
+- [x] **S003**: Implement real information flow tracking
   - Depends on: R003
   - Currently the info flow checker (T051) has the lattice structure
     and declassification tracking, but does not actually trace
@@ -1126,3 +1126,17 @@ declares all required effects (pass 2). Added `build_effect_map()`,
 walks all Expr variants. Added 5 new tests (contract-level call-graph OK,
 unit containment for pure->io, missing subset, build_effect_map verification,
 pure callee OK). All 1,251 tests pass.
+
+### S003 completed (2026-06-13)
+Implemented real information flow tracking with security label propagation.
+Added `run_info_flow_checks()` wired into the type_check pipeline. The
+checker assigns security labels (Public, Internal, Confidential, Restricted)
+from input clauses and fn parameter type annotations, then checks ensures
+clauses for: (1) direct flows of secret data to public result (A08001),
+(2) implicit flows through if-conditions branching on secret data (A08004).
+Added helper functions: `check_contract_info_flow`, `check_fn_info_flow`,
+`assign_labels_from_clause`, `infer_label_from_type_tokens`,
+`check_expr_info_flow`, `infer_branch_target_label`, `contains_result_ref`.
+Added 7 tests: no-labels-no-errors, secret-to-result A08001, implicit-flow
+A08004, same-level OK, upward-flow OK, label inference through BinOp,
+contract with secret input pipeline test.

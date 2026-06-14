@@ -11453,3 +11453,111 @@ fn effect_callgraph_pure_callee_ok() {
         "calling pure function from effectful context should pass"
     );
 }
+
+// -----------------------------------------------------------------------
+// S003: Information flow tracking tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn s003_info_flow_no_labels_no_errors() {
+    // Contract without security labels should produce no info flow errors
+    let resolved = resolve_ok(
+        r#"
+contract Plain {
+    input(x: Int, y: Int)
+    output(result: Int)
+    ensures: result == x + y
+}
+"#,
+    );
+    let result = type_check(&resolved);
+    assert!(
+        result.is_ok(),
+        "contract without security labels should pass: {result:?}"
+    );
+}
+
+#[test]
+fn s003_info_flow_secret_to_result_a08001() {
+    // Secret data flowing directly to result should produce A08001
+    let checker = InfoFlowChecker::new();
+    let mut checker = checker;
+    checker.declare("key".into(), SecurityLabel::Restricted);
+
+    // Simulate: result == key (secret data flows to public output)
+    let err = checker.check_assignment(SecurityLabel::Public, SecurityLabel::Restricted, &(0..10));
+    assert!(err.is_some(), "should detect secret->public flow");
+    assert_eq!(err.unwrap().code, "A08001");
+}
+
+#[test]
+fn s003_info_flow_implicit_flow_a08004() {
+    // Secret condition controlling public output is implicit flow
+    let checker = InfoFlowChecker::new();
+    let err =
+        checker.check_implicit_flow(SecurityLabel::Confidential, SecurityLabel::Public, &(0..10));
+    assert!(err.is_some(), "should detect implicit flow");
+    assert_eq!(err.unwrap().code, "A08004");
+}
+
+#[test]
+fn s003_info_flow_same_level_ok() {
+    // Same level assignment should produce no error
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_assignment(
+        SecurityLabel::Confidential,
+        SecurityLabel::Confidential,
+        &(0..10),
+    );
+    assert!(err.is_none(), "same-level assignment should pass");
+}
+
+#[test]
+fn s003_info_flow_upward_flow_ok() {
+    // Public -> Confidential is upward flow (allowed)
+    let checker = InfoFlowChecker::new();
+    let err =
+        checker.check_assignment(SecurityLabel::Confidential, SecurityLabel::Public, &(0..10));
+    assert!(err.is_none(), "upward flow should pass");
+}
+
+#[test]
+fn s003_info_flow_label_inference_through_binop() {
+    // Binary op on secret and public yields secret
+    let mut checker = InfoFlowChecker::new();
+    checker.declare("secret_key".into(), SecurityLabel::Restricted);
+    checker.declare("public_data".into(), SecurityLabel::Public);
+
+    let expr = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("secret_key".into())),
+        op: BinOp::Add,
+        rhs: Box::new(Expr::Ident("public_data".into())),
+    };
+    let label = checker.infer_label(&expr);
+    assert_eq!(
+        label,
+        SecurityLabel::Restricted,
+        "binop with secret operand should be Restricted"
+    );
+}
+
+#[test]
+fn s003_info_flow_contract_with_secret_input() {
+    // Contract with 'secret' keyword in input should trigger info flow checking
+    let resolved = resolve_ok(
+        r#"
+contract SecureHash {
+    input(secret key: Bytes, data: Bytes)
+    output(result: Bytes)
+    ensures: result.length() > 0
+}
+"#,
+    );
+    // This should type-check OK because ensures doesn't directly flow
+    // secret key to result (just checks length)
+    let result = type_check(&resolved);
+    assert!(
+        result.is_ok(),
+        "secret input not flowing to result should pass: {result:?}"
+    );
+}

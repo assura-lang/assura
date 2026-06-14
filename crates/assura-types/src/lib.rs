@@ -1007,6 +1007,9 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     // T047: taint tracking (untrusted data flow analysis)
     errors.extend(run_taint_checks(&resolved.source));
 
+    // S003: information flow tracking (security label propagation)
+    errors.extend(run_info_flow_checks(&resolved.source));
+
     // T058: FFI boundary contracts (extern declarations)
     errors.extend(run_ffi_checks(&resolved.source));
 
@@ -1850,6 +1853,266 @@ fn infer_effects_from_expr(expr: &Expr, effects: &mut EffectSet) {
 /// T047: Run taint checking using the file-level TaintChecker entry point.
 fn run_taint_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     TaintChecker::check_file(source)
+}
+
+/// S003: Run information flow tracking on contracts and functions.
+///
+/// Assigns security labels to input parameters based on annotations
+/// (`@secret`, `@confidential`, `@internal`) and traces information flow
+/// through ensures clause expressions. Reports A08001 if secret-labeled
+/// data flows to a public output, and A08004 for implicit flows through
+/// branches where a secret condition influences a public assignment.
+fn run_info_flow_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        match &decl.node {
+            Decl::Contract(c) => {
+                errors.extend(check_contract_info_flow(c, &decl.span));
+            }
+            Decl::FnDef(f) => {
+                errors.extend(check_fn_info_flow(f, &decl.span));
+            }
+            _ => {}
+        }
+    }
+
+    errors
+}
+
+/// Check information flow for a contract declaration.
+///
+/// Scans input clauses for security label annotations (e.g., `secret`,
+/// `confidential` in the type annotation). If any input is labeled secret,
+/// ensures clauses are checked for flows to public outputs.
+fn check_contract_info_flow(
+    contract: &assura_parser::ast::ContractDecl,
+    span: &Range<usize>,
+) -> Vec<TypeError> {
+    let mut checker = InfoFlowChecker::new();
+    let mut has_any_label = false;
+
+    // Scan input clause params for security annotations
+    for clause in &contract.clauses {
+        if clause.kind == ClauseKind::Input {
+            assign_labels_from_clause(&clause.body, &mut checker, &mut has_any_label);
+        }
+    }
+
+    // Only check if at least one parameter has a security label
+    if !has_any_label {
+        return Vec::new();
+    }
+
+    let mut errors = Vec::new();
+
+    // Check ensures clauses for information flow violations
+    for clause in &contract.clauses {
+        if clause.kind == ClauseKind::Ensures {
+            check_expr_info_flow(&clause.body, &checker, span, &mut errors);
+        }
+    }
+
+    errors
+}
+
+/// Check information flow for a function definition.
+fn check_fn_info_flow(fn_def: &assura_parser::ast::FnDef, span: &Range<usize>) -> Vec<TypeError> {
+    let mut checker = InfoFlowChecker::new();
+    let mut has_any_label = false;
+
+    // Scan clause params for security annotations
+    for clause in &fn_def.clauses {
+        if clause.kind == ClauseKind::Input {
+            assign_labels_from_clause(&clause.body, &mut checker, &mut has_any_label);
+        }
+    }
+
+    // Also check function params for label annotations in type names
+    for param in &fn_def.params {
+        let label = infer_label_from_type_tokens(&param.ty);
+        if label > SecurityLabel::Public {
+            checker.declare(param.name.clone(), label);
+            has_any_label = true;
+        }
+    }
+
+    if !has_any_label {
+        return Vec::new();
+    }
+
+    let mut errors = Vec::new();
+
+    for clause in &fn_def.clauses {
+        if clause.kind == ClauseKind::Ensures {
+            check_expr_info_flow(&clause.body, &checker, span, &mut errors);
+        }
+    }
+
+    errors
+}
+
+/// Assign security labels from an input clause body.
+///
+/// Looks for patterns like `secret key: Bytes`, `confidential password: String`
+/// where the security label is a keyword before the parameter name.
+fn assign_labels_from_clause(expr: &Expr, checker: &mut InfoFlowChecker, has_any: &mut bool) {
+    match expr {
+        Expr::Raw(tokens) => {
+            // Scan for label keywords followed by a param name
+            let mut i = 0;
+            while i < tokens.len() {
+                let label = match tokens[i].as_str() {
+                    "secret" | "restricted" => Some(SecurityLabel::Restricted),
+                    "confidential" => Some(SecurityLabel::Confidential),
+                    "internal" => Some(SecurityLabel::Internal),
+                    "public" => Some(SecurityLabel::Public),
+                    _ => None,
+                };
+                if let Some(label) = label
+                    && label > SecurityLabel::Public
+                    && let Some(name) = tokens.get(i + 1)
+                    && name != ":"
+                {
+                    checker.declare(name.clone(), label);
+                    *has_any = true;
+                }
+                i += 1;
+            }
+        }
+        Expr::Block(items) => {
+            for item in items {
+                assign_labels_from_clause(item, checker, has_any);
+            }
+        }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                assign_labels_from_clause(arg, checker, has_any);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Infer a security label from type annotation tokens.
+///
+/// If the type annotation contains `secret`, `confidential`, or `internal`
+/// as a modifier, returns the corresponding label.
+fn infer_label_from_type_tokens(tokens: &[String]) -> SecurityLabel {
+    for tok in tokens {
+        match tok.as_str() {
+            "secret" | "restricted" => return SecurityLabel::Restricted,
+            "confidential" => return SecurityLabel::Confidential,
+            "internal" => return SecurityLabel::Internal,
+            _ => {}
+        }
+    }
+    SecurityLabel::Public
+}
+
+/// Check an expression for information flow violations.
+///
+/// If a sub-expression has a high security label and it contributes to
+/// a value that should be public (e.g., the `result` variable in an ensures
+/// clause), report A08001.
+fn check_expr_info_flow(
+    expr: &Expr,
+    checker: &InfoFlowChecker,
+    span: &Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    // Check if `result` is being assigned a value derived from secret data
+    if let Expr::BinOp {
+        lhs,
+        rhs,
+        op: BinOp::Eq,
+        ..
+    } = expr
+    {
+        // Pattern: result == expr or expr == result
+        let (target, source) = if is_result_expr(lhs) {
+            ("result", rhs.as_ref())
+        } else if is_result_expr(rhs) {
+            ("result", lhs.as_ref())
+        } else {
+            return;
+        };
+
+        let source_label = checker.infer_label(source);
+        if source_label > SecurityLabel::Public
+            && let Some(err) = checker.check_assignment(SecurityLabel::Public, source_label, span)
+        {
+            errors.push(TypeError {
+                code: err.code,
+                message: format!("information flow violation in `{target}`: {}", err.message),
+                span: err.span,
+                secondary: None,
+            });
+        }
+    }
+
+    // Check for implicit flows through if conditions
+    if let Expr::If {
+        cond, then_branch, ..
+    } = expr
+    {
+        let cond_label = checker.infer_label(cond);
+        if cond_label > SecurityLabel::Public {
+            // Check if the branch body assigns to result or a public variable
+            let branch_label = infer_branch_target_label(then_branch, checker);
+            if let Some(err) = checker.check_implicit_flow(cond_label, branch_label, span) {
+                errors.push(TypeError {
+                    code: err.code,
+                    message: err.message,
+                    span: err.span,
+                    secondary: None,
+                });
+            }
+        }
+    }
+}
+
+/// Check if an expression is `result` (the return value variable).
+fn is_result_expr(expr: &Expr) -> bool {
+    matches!(expr, Expr::Ident(name) if name == "result")
+}
+
+/// Infer the security label of a branch target.
+///
+/// If the branch references `result`, the target is Public (since result
+/// flows out). Otherwise, use the checker's label inference.
+fn infer_branch_target_label(expr: &Expr, checker: &InfoFlowChecker) -> SecurityLabel {
+    // If the branch affects `result`, the target is public
+    if contains_result_ref(expr) {
+        SecurityLabel::Public
+    } else {
+        checker.infer_label(expr)
+    }
+}
+
+/// Check if an expression tree contains a reference to `result`.
+fn contains_result_ref(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(name) => name == "result",
+        Expr::BinOp { lhs, rhs, .. } => contains_result_ref(lhs) || contains_result_ref(rhs),
+        Expr::Field(inner, _) | Expr::Old(inner) | Expr::Paren(inner) => contains_result_ref(inner),
+        Expr::Call { func, args } => {
+            contains_result_ref(func) || args.iter().any(contains_result_ref)
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            contains_result_ref(receiver) || args.iter().any(contains_result_ref)
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            contains_result_ref(cond)
+                || contains_result_ref(then_branch)
+                || else_branch.as_ref().is_some_and(|e| contains_result_ref(e))
+        }
+        _ => false,
+    }
 }
 
 /// T058: Run FFI boundary checks on extern declarations.
