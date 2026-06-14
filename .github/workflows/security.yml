@@ -28,6 +28,9 @@ jobs:
 
   codeql:
     name: CodeQL analysis
+    # GHAS is not available on private repos without a license.
+    # Allow failure so CodeQL does not block PRs until the repo is public.
+    continue-on-error: true
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 30
     permissions:
