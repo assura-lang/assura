@@ -669,7 +669,7 @@
 
 ### E.1 Release Pipeline
 
-- [ ] **E001**: Set up cargo-dist for binary releases
+- [x] **E001**: Set up cargo-dist for binary releases
   - Depends on: none
   - Configure `cargo-dist` in workspace `Cargo.toml`
   - Generate release binaries for: Linux x86_64, macOS x86_64, macOS
@@ -1393,3 +1393,15 @@ parse -> resolve -> type_check pipeline on arbitrary UTF-8 input. Added
 assura-resolve and assura-types as fuzz workspace dependencies. Ran 72,782
 iterations in 60 seconds with zero crashes (3,345 coverage edges). Seed
 corpus includes all demo and fixture .assura files.
+
+### E001 completed (2026-06-14)
+Set up cargo-dist 0.31.0 for binary releases:
+- Created `dist-workspace.toml` with workspace config
+- Added `[profile.dist]` with LTO to root Cargo.toml
+- Generated `.github/workflows/release.yml`
+- Targets: Linux x86_64, macOS x86_64, macOS aarch64
+- System dependencies: libz3-dev + protobuf (apt), z3 + protobuf (brew)
+- Shell installer generated for Unix platforms
+- Windows excluded (no straightforward Z3 CI install)
+- On tag push (e.g., `v0.1.0`), builds and uploads to GitHub Releases
+- `pr-run-mode = "plan"` runs plan-only on PRs to validate config
