@@ -430,7 +430,7 @@
 
 ### A.1 HIR (High-Level IR)
 
-- [ ] **A001**: Design and implement a HIR between AST and type checker
+- [x] **A001**: Design and implement a HIR between AST and type checker
   - Depends on: R003, R013
   - Currently the type checker operates directly on the parser AST.
     This couples the type checker to parser implementation details
@@ -1357,3 +1357,32 @@ Formatter features:
 - `--check` mode exits 0 if already formatted, 1 if not
 - 9 new tests covering idempotency, contracts, types, enums, extern fns,
   services, features, and dotted effects
+
+### A001 completed (2026-06-14)
+Created `crates/assura-hir/` with HIR types and AST-to-HIR lowering pass.
+
+**HIR types** (`src/lib.rs`, ~500 lines):
+- `HirFile`: top-level file with declarations and reference to `ResolvedFile`
+- `HirDecl`/`HirDeclKind`: Contract, Service, TypeDef, EnumDef, Extern, FnDef, Block
+- `HirExpr`: structured expressions with no `Raw` fallback for expression clauses;
+  `RawTokens` variant preserved only for non-expression clause bodies (effects, input, etc.)
+- `HirType`: structured type representation replacing raw `Vec<String>` tokens
+  (Named, Generic, Tuple, Fn, Refined, Unit, Unresolved)
+- `HirClause`/`HirClauseKind`: clause with structured body and typed kind
+- `DefId`: resolved name ID (Resolved(usize) or Unresolved(String))
+- `parse_type_tokens()`: converts raw token sequences to `HirType`
+- `HirExpr::to_ast_expr()`, `HirClause::to_ast_clause()`: backward compatibility
+  conversions for the type checker during migration
+
+**Lowering pass** (`src/lower.rs`, ~300 lines):
+- `lower(resolved: &ResolvedFile) -> HirFile`: main entry point
+- `NameResolver`: maps names to symbol table indices for DefId resolution
+- Lowers all declaration types, clauses, expressions, type references
+- Resolves identifiers to DefIds via the symbol table
+
+**CLI integration**:
+- `compile()` now runs HIR lowering between resolve and type-check
+- `CompilationResult` and `TimingInfo` include `hir`/`hir_ms` fields
+- Verbose mode (`-v`) shows HIR decl count and timing in all paths
+
+23 new tests (13 unit + 10 lowering integration). 1,395 total tests passing.

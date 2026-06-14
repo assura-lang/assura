@@ -16,6 +16,7 @@ assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
 assura-codegen = { path = "../assura-codegen" }
 assura-smt = { path = "../assura-smt" }
+assura-hir = { path = "../assura-hir" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 logos = "0.15"
 chumsky = "0.9"

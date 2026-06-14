@@ -90,6 +90,7 @@ struct TimingInfo {
     lex_ms: f64,
     parse_ms: f64,
     resolve_ms: Option<f64>,
+    hir_ms: Option<f64>,
     typecheck_ms: Option<f64>,
     token_count: usize,
 }
@@ -112,6 +113,7 @@ fn parse_verbosity(args: &[String]) -> Verbosity {
 struct CompilationResult {
     file: Option<SourceFile>,
     resolved: Option<assura_resolve::ResolvedFile>,
+    hir: Option<assura_hir::HirFile>,
     typed: Option<assura_types::TypedFile>,
     diagnostics: Vec<DiagnosticJson>,
     has_errors: bool,
@@ -277,6 +279,15 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
         None
     };
 
+    // --- HIR lowering (only if resolution succeeded) ---
+    let hir_start = Instant::now();
+    let hir = resolved.as_ref().map(assura_hir::lower);
+    let hir_ms = if resolved.is_some() {
+        Some(hir_start.elapsed().as_secs_f64() * 1000.0)
+    } else {
+        None
+    };
+
     // --- Type check (only if resolution succeeded) ---
     let typecheck_start = Instant::now();
     let typed = if let Some(ref resolved) = resolved {
@@ -314,6 +325,7 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
     CompilationResult {
         file,
         resolved,
+        hir,
         typed,
         diagnostics,
         has_errors,
@@ -321,6 +333,7 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
             lex_ms,
             parse_ms,
             resolve_ms,
+            hir_ms,
             typecheck_ms,
             token_count,
         },
@@ -490,6 +503,7 @@ fn run_check(args: &[String]) {
     let CompilationResult {
         file,
         resolved,
+        hir: _,
         typed,
         mut diagnostics,
         mut has_errors,
@@ -524,6 +538,9 @@ fn run_check(args: &[String]) {
             } else {
                 eprintln!("  resolve:   failed ({resolve_ms:.2}ms)");
             }
+        }
+        if let Some(hir_ms) = timing.hir_ms {
+            eprintln!("  hir:       ({hir_ms:.2}ms)");
         }
         if let Some(typecheck_ms) = timing.typecheck_ms {
             if let Some(ref td) = typed {
@@ -810,6 +827,7 @@ fn check_file_once(
     let CompilationResult {
         file,
         resolved,
+        hir,
         typed,
         mut diagnostics,
         mut has_errors,
@@ -843,6 +861,13 @@ fn check_file_once(
                 eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
             } else {
                 eprintln!("  resolve:   failed ({resolve_ms:.2}ms)");
+            }
+        }
+        if let Some(hir_ms) = timing.hir_ms {
+            if let Some(ref h) = hir {
+                eprintln!("  hir:       {} decl(s) ({hir_ms:.2}ms)", h.decls.len());
+            } else {
+                eprintln!("  hir:       skipped ({hir_ms:.2}ms)");
             }
         }
         if let Some(typecheck_ms) = timing.typecheck_ms {
@@ -1315,6 +1340,7 @@ fn run_build(args: &[String]) {
         timing,
         file: parsed_file,
         resolved,
+        hir: _hir,
     } = compile(&source, filename);
 
     if verbosity == Verbosity::Verbose {
@@ -1341,6 +1367,9 @@ fn run_build(args: &[String]) {
                 .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
                 .count();
             eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
+        }
+        if let Some(hir_ms) = timing.hir_ms {
+            eprintln!("  hir:       ({hir_ms:.2}ms)");
         }
         if let Some(typecheck_ms) = timing.typecheck_ms
             && let Some(ref td) = typed
@@ -2893,6 +2922,7 @@ fn run_legacy(args: &[String]) {
     let CompilationResult {
         file,
         resolved,
+        hir: _,
         typed,
         diagnostics,
         has_errors,
@@ -2923,6 +2953,9 @@ fn run_legacy(args: &[String]) {
                 .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
                 .count();
             eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
+        }
+        if let Some(hir_ms) = timing.hir_ms {
+            eprintln!("  hir:       ({hir_ms:.2}ms)");
         }
         if let Some(typecheck_ms) = timing.typecheck_ms
             && let Some(ref td) = typed
