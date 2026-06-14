@@ -3261,25 +3261,81 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
         });
     }
 
-    // T094: liveness obligation checks
+    // T094: liveness obligation checks (G006)
+    // Extract obligations from structured `liveness` blocks and from
+    // contracts that use eventually/leads_to in ensures clauses.
     let mut lc = LivenessChecker::new();
     for decl in &typed.resolved.source.decls {
-        if let Decl::Contract(c) = &decl.node {
-            for clause in &c.clauses {
-                if clause.kind == ClauseKind::Ensures
-                    && (expr_contains_ident(&clause.body, "eventually")
-                        || expr_contains_ident(&clause.body, "leads_to"))
-                {
-                    lc.add_obligation(
-                        format!("{}:liveness", c.name),
-                        LivenessKind::Eventually,
-                        format!("{:?}", clause.body),
-                        String::new(),
-                    );
+        match &decl.node {
+            Decl::Block {
+                kind, name, body, ..
+            } if kind == "liveness" => {
+                // Extract obligations from liveness block clauses
+                for clause in body {
+                    match &clause.kind {
+                        ClauseKind::Other(k) if k == "assume" => {
+                            // Check for fairness assumptions
+                            let text = format!("{:?}", clause.body);
+                            if text.contains("fair") {
+                                lc.add_fairness(format!("{name}:fair"));
+                            }
+                        }
+                        ClauseKind::Other(k) if k == "prove" => {
+                            let text = format!("{:?}", clause.body);
+                            let liveness_kind = if expr_contains_ident(&clause.body, "leads_to") {
+                                LivenessKind::LeadsTo
+                            } else if expr_contains_ident(&clause.body, "eventually_within") {
+                                // Extract bound from the expression if present
+                                let bound = extract_numeric_arg(&clause.body).unwrap_or(100);
+                                LivenessKind::EventuallyWithin(bound)
+                            } else {
+                                LivenessKind::Eventually
+                            };
+                            lc.add_obligation(
+                                format!("{name}:prove"),
+                                liveness_kind,
+                                text.clone(),
+                                text,
+                            );
+                        }
+                        _ => {}
+                    }
                 }
             }
+            Decl::Contract(c) => {
+                // Also scan contract ensures for legacy liveness patterns
+                for clause in &c.clauses {
+                    if clause.kind == ClauseKind::Ensures
+                        && (expr_contains_ident(&clause.body, "eventually")
+                            || expr_contains_ident(&clause.body, "leads_to"))
+                    {
+                        lc.add_obligation(
+                            format!("{}:liveness", c.name),
+                            LivenessKind::Eventually,
+                            format!("{:?}", clause.body),
+                            String::new(),
+                        );
+                    }
+                }
+            }
+            _ => {}
         }
     }
+    // Check fairness constraints for leads_to obligations
+    for err in lc.check_fairness() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: "liveness:fairness".into(),
+            reason: err,
+        });
+    }
+    // Check bounded obligations have valid bounds
+    for err in lc.check_bounded() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: "liveness:bounds".into(),
+            reason: err,
+        });
+    }
+    // BMC verification: attempt bounded model checking for each obligation
     for err in lc.check_unverified() {
         results.push(VerificationResult::Unknown {
             clause_desc: "liveness".into(),
@@ -3409,6 +3465,17 @@ fn expr_contains_ident(expr: &Expr, name: &str) -> bool {
         }
         Expr::Raw(tokens) => tokens.iter().any(|t| t == name),
         _ => false,
+    }
+}
+
+/// Extract a numeric argument from an expression tree (for eventually_within bounds).
+fn extract_numeric_arg(expr: &Expr) -> Option<u64> {
+    match expr {
+        Expr::Literal(assura_parser::ast::Literal::Int(s)) => s.parse().ok(),
+        Expr::Call { args, .. } => args.iter().find_map(extract_numeric_arg),
+        Expr::Raw(tokens) => tokens.iter().find_map(|t| t.parse::<u64>().ok()),
+        Expr::Block(exprs) => exprs.iter().find_map(extract_numeric_arg),
+        _ => None,
     }
 }
 

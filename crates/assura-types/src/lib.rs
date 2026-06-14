@@ -1324,6 +1324,7 @@ pub fn type_check_hir_with_config(
     let source = &resolved.source;
     let mut errors = check_clause_bodies_hir(hir, &type_env);
     errors.extend(run_axiomatic_checks(source, &resolved.symbols));
+    errors.extend(run_liveness_checks(source));
     errors.extend(run_crud_auth_checks(source));
     errors.extend(run_linearity_checks(source));
     errors.extend(run_typestate_checks(source));
@@ -1406,6 +1407,8 @@ pub fn type_check_with_config(
 
     // T077: check axiomatic definition references and usage
     errors.extend(run_axiomatic_checks(&resolved.source, &resolved.symbols));
+    // G006: validate liveness block structure
+    errors.extend(run_liveness_checks(&resolved.source));
 
     // T109: check CRUD/auth coverage on services
     errors.extend(run_crud_auth_checks(&resolved.source));
@@ -1520,6 +1523,72 @@ pub fn type_check_with_config(
         type_env,
         hir: None,
     })
+}
+
+/// G006/T094: Validate liveness blocks have required structure.
+///
+/// Checks that liveness blocks contain at least one `prove` clause
+/// and that `leads_to` obligations have accompanying `assume fair`.
+fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        if let Decl::Block {
+            kind, name, body, ..
+        } = &decl.node
+        {
+            if kind != "liveness" {
+                continue;
+            }
+            let has_prove = body
+                .iter()
+                .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "prove"));
+            if !has_prove {
+                errors.push(TypeError {
+                    code: "A-CORE-030".into(),
+                    message: format!(
+                        "liveness block `{name}` has no `prove` clause; \
+                         at least one liveness property must be stated"
+                    ),
+                    span: decl.span.clone(),
+                    secondary: None,
+                });
+            }
+            let has_leads_to = body.iter().any(|c| {
+                matches!(&c.kind, ClauseKind::Other(k) if k == "prove")
+                    && expr_contains_text(&c.body, "leads_to")
+            });
+            let has_fair = body.iter().any(|c| {
+                matches!(&c.kind, ClauseKind::Other(k) if k == "assume")
+                    && expr_contains_text(&c.body, "fair")
+            });
+            if has_leads_to && !has_fair {
+                errors.push(TypeError {
+                    code: "A-CORE-031".into(),
+                    message: format!(
+                        "liveness block `{name}` uses `leads_to` but has no \
+                         `assume fair` clause; fairness is required for \
+                         leads-to proofs"
+                    ),
+                    span: decl.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+    }
+    errors
+}
+
+/// Helper: check if an expression tree contains a text reference.
+fn expr_contains_text(expr: &Expr, text: &str) -> bool {
+    match expr {
+        Expr::Ident(s) => s == text,
+        Expr::Raw(tokens) => tokens.iter().any(|t| t == text),
+        Expr::Block(exprs) | Expr::List(exprs) => exprs.iter().any(|e| expr_contains_text(e, text)),
+        Expr::Call { func, args } => {
+            expr_contains_text(func, text) || args.iter().any(|a| expr_contains_text(a, text))
+        }
+        _ => false,
+    }
 }
 
 /// T077: Scan for axiomatic blocks and validate references/usage.
