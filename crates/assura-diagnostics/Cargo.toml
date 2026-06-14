@@ -1,0 +1,9 @@
+[package]
+name = "assura-diagnostics"
+description = "Unified diagnostic types for the Assura compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

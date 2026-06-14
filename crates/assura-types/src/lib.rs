@@ -153,6 +153,16 @@ pub struct TypeError {
     pub secondary: Option<(Range<usize>, std::string::String)>,
 }
 
+impl From<TypeError> for assura_diagnostics::Diagnostic {
+    fn from(e: TypeError) -> Self {
+        let mut d = assura_diagnostics::Diagnostic::error(e.code, e.message, e.span);
+        if let Some((span, label)) = e.secondary {
+            d.secondary.push((span, label));
+        }
+        d
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Typed file
 // ---------------------------------------------------------------------------

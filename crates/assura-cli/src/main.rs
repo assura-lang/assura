@@ -37,6 +37,31 @@ struct SecondaryJson {
     end: usize,
 }
 
+impl DiagnosticJson {
+    /// Convert from the unified `assura_diagnostics::Diagnostic` type.
+    fn from_diagnostic(d: &assura_diagnostics::Diagnostic, filename: &str) -> Self {
+        let severity = match d.severity {
+            assura_diagnostics::Severity::Error => "error",
+            assura_diagnostics::Severity::Warning => "warning",
+            assura_diagnostics::Severity::Info => "info",
+        };
+        let secondary = d.secondary.first().map(|(span, msg)| SecondaryJson {
+            message: msg.clone(),
+            start: span.start,
+            end: span.end,
+        });
+        DiagnosticJson {
+            code: d.code.clone(),
+            message: d.message.clone(),
+            file: filename.to_string(),
+            start: d.primary.start,
+            end: d.primary.end,
+            severity: severity.to_string(),
+            secondary,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Output mode
 // ---------------------------------------------------------------------------
@@ -849,6 +874,38 @@ fn dispatch_decrease_checks(
             )
         })
         .collect()
+}
+
+/// Render a unified `assura_diagnostics::Diagnostic` using ariadne.
+fn render_diagnostic(diag: &assura_diagnostics::Diagnostic, filename: &str, source: &str) {
+    let kind = match diag.severity {
+        assura_diagnostics::Severity::Error => ReportKind::Error,
+        assura_diagnostics::Severity::Warning => ReportKind::Warning,
+        assura_diagnostics::Severity::Info => ReportKind::Advice,
+    };
+    let color = match diag.severity {
+        assura_diagnostics::Severity::Error => Color::Red,
+        assura_diagnostics::Severity::Warning => Color::Yellow,
+        assura_diagnostics::Severity::Info => Color::Blue,
+    };
+    let mut builder = Report::build(kind, filename, diag.primary.start)
+        .with_message(format!("[{}] {}", diag.code, diag.message))
+        .with_label(
+            Label::new((filename, diag.primary.clone()))
+                .with_message(&diag.message)
+                .with_color(color),
+        );
+    for (span, label) in &diag.secondary {
+        builder = builder.with_label(
+            Label::new((filename, span.clone()))
+                .with_message(label)
+                .with_color(Color::Blue),
+        );
+    }
+    builder
+        .finish()
+        .eprint((filename, Source::from(source)))
+        .ok();
 }
 
 /// Render diagnostics using ariadne for human-readable terminal output.

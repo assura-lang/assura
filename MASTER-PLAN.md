@@ -492,7 +492,7 @@
 
 ### A.3 Error System Rework
 
-- [ ] **A004**: Implement structured error types across all crates
+- [x] **A004**: Implement structured error types across all crates
   - Depends on: R003
   - Currently each crate has its own error representation (strings,
     ad-hoc structs, tuples). Unify on:
@@ -1218,3 +1218,13 @@ clauses become `prop_assert!`. Adds `proptest = "1"` to the generated
 Cargo.toml dev-dependencies only when testable contracts exist. Works
 in both single-file and multi-file codegen modes. 7 new tests, 1,290
 total tests passing.
+
+### A004 completed (2026-06-13)
+Created `assura-diagnostics` crate with unified `Diagnostic` type:
+`code`, `severity` (Error/Warning/Info), `message`, `primary` span,
+`secondary` spans with labels, and optional `Suggestion`. Added
+`From<ResolutionError>` and `From<TypeError>` conversions so all
+compiler passes can emit unified diagnostics. CLI gains
+`render_diagnostic()` (ariadne renderer for Diagnostic) and
+`DiagnosticJson::from_diagnostic()` (JSON conversion). 6 new
+diagnostic tests. 1,296 total tests passing.
