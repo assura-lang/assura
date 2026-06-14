@@ -9,6 +9,8 @@ pub mod display;
 #[allow(dead_code)]
 pub(crate) mod grammar;
 pub mod lexer;
+#[allow(dead_code)]
+pub mod lower;
 pub mod parser;
 #[allow(dead_code)]
 pub mod syntax_kind;
