@@ -227,3 +227,173 @@ pub fn verify_contract_cached(
     cache.put(contract_name, clauses, &results);
     results
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------
+    // SessionCache tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_session_cache_insert_and_lookup() {
+        let mut cache = SessionCache::new();
+        cache.insert("key1".into(), "verified".into(), 0);
+        let entry = cache.lookup("key1").unwrap();
+        assert_eq!(entry.result, "verified");
+    }
+
+    #[test]
+    fn test_session_cache_miss() {
+        let mut cache = SessionCache::new();
+        assert!(cache.lookup("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_session_cache_hit_rate() {
+        let mut cache = SessionCache::new();
+        cache.insert("k".into(), "v".into(), 0);
+        cache.lookup("k"); // hit
+        cache.lookup("k"); // hit
+        cache.lookup("miss"); // miss
+        // 2 hits, 1 miss = 2/3
+        let rate = cache.hit_rate();
+        assert!((rate - 2.0 / 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_session_cache_hit_rate_empty() {
+        let cache = SessionCache::new();
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_session_cache_invalidate() {
+        let mut cache = SessionCache::new();
+        cache.insert("k".into(), "v".into(), 0);
+        cache.invalidate("k");
+        assert!(cache.lookup("k").is_none());
+    }
+
+    #[test]
+    fn test_session_cache_clear() {
+        let mut cache = SessionCache::new();
+        cache.insert("a".into(), "1".into(), 0);
+        cache.insert("b".into(), "2".into(), 0);
+        cache.lookup("a"); // hit
+        cache.clear();
+        assert_eq!(cache.entry_count(), 0);
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_session_cache_entry_count() {
+        let mut cache = SessionCache::new();
+        assert_eq!(cache.entry_count(), 0);
+        cache.insert("a".into(), "1".into(), 0);
+        assert_eq!(cache.entry_count(), 1);
+        cache.insert("b".into(), "2".into(), 0);
+        assert_eq!(cache.entry_count(), 2);
+    }
+
+    #[test]
+    fn test_session_cache_overwrite() {
+        let mut cache = SessionCache::new();
+        cache.insert("k".into(), "old".into(), 0);
+        cache.insert("k".into(), "new".into(), 0);
+        let entry = cache.lookup("k").unwrap();
+        assert_eq!(entry.result, "new");
+        assert_eq!(cache.entry_count(), 1);
+    }
+
+    // -------------------------------------------------------------------
+    // VerificationCache (filesystem) tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_verification_cache_miss_on_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VerificationCache::new(dir.path());
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        assert!(cache.get("test_contract", &clauses).is_none());
+    }
+
+    #[test]
+    fn test_verification_cache_put_and_get() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VerificationCache::new(dir.path());
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let results = vec![VerificationResult::Verified {
+            clause_desc: "test::ensures".into(),
+        }];
+        cache.put("my_contract", &clauses, &results);
+        let got = cache.get("my_contract", &clauses).unwrap();
+        assert_eq!(got.len(), 1);
+        assert!(matches!(got[0], VerificationResult::Verified { .. }));
+    }
+
+    #[test]
+    fn test_verification_cache_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VerificationCache::new(dir.path());
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        cache.put("c", &clauses, &[]);
+        assert!(cache.entry_count() > 0);
+        cache.clear();
+        assert_eq!(cache.entry_count(), 0);
+    }
+
+    #[test]
+    fn test_verification_cache_different_contracts() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VerificationCache::new(dir.path());
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let r1 = vec![VerificationResult::Verified {
+            clause_desc: "a::ensures".into(),
+        }];
+        let r2 = vec![VerificationResult::Timeout {
+            clause_desc: "b::ensures".into(),
+        }];
+        cache.put("a", &clauses, &r1);
+        cache.put("b", &clauses, &r2);
+        let got_a = cache.get("a", &clauses).unwrap();
+        let got_b = cache.get("b", &clauses).unwrap();
+        assert!(matches!(got_a[0], VerificationResult::Verified { .. }));
+        assert!(matches!(got_b[0], VerificationResult::Timeout { .. }));
+    }
+
+    #[test]
+    fn test_cached_result_roundtrip_counterexample() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VerificationCache::new(dir.path());
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let results = vec![VerificationResult::Counterexample {
+            clause_desc: "c::ensures".into(),
+            model: "x -> 5".into(),
+            counter_model: None,
+        }];
+        cache.put("c", &clauses, &results);
+        let got = cache.get("c", &clauses).unwrap();
+        assert!(matches!(got[0], VerificationResult::Counterexample { .. }));
+    }
+
+    #[test]
+    fn test_cached_result_roundtrip_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VerificationCache::new(dir.path());
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let results = vec![VerificationResult::Unknown {
+            clause_desc: "c::ensures".into(),
+            reason: "solver error".into(),
+        }];
+        cache.put("c", &clauses, &results);
+        let got = cache.get("c", &clauses).unwrap();
+        match &got[0] {
+            VerificationResult::Unknown { reason, .. } => {
+                assert_eq!(reason, "solver error");
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+}

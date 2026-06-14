@@ -393,3 +393,312 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
         Some(CounterexampleModel { variables })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::{BinOp, Literal, UnaryOp};
+
+    // -------------------------------------------------------------------
+    // expr_to_smtlib tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_smtlib_int_positive() {
+        let expr = Expr::Literal(Literal::Int("42".into()));
+        assert_eq!(expr_to_smtlib(&expr), Some("42".into()));
+    }
+
+    #[test]
+    fn test_smtlib_int_negative() {
+        let expr = Expr::Literal(Literal::Int("-7".into()));
+        assert_eq!(expr_to_smtlib(&expr), Some("(- 7)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_bool_true() {
+        let expr = Expr::Literal(Literal::Bool(true));
+        assert_eq!(expr_to_smtlib(&expr), Some("true".into()));
+    }
+
+    #[test]
+    fn test_smtlib_bool_false() {
+        let expr = Expr::Literal(Literal::Bool(false));
+        assert_eq!(expr_to_smtlib(&expr), Some("false".into()));
+    }
+
+    #[test]
+    fn test_smtlib_string_returns_none() {
+        let expr = Expr::Literal(Literal::Str("hello".into()));
+        assert_eq!(expr_to_smtlib(&expr), None);
+    }
+
+    #[test]
+    fn test_smtlib_ident() {
+        let expr = Expr::Ident("x".into());
+        assert_eq!(expr_to_smtlib(&expr), Some("x".into()));
+    }
+
+    #[test]
+    fn test_smtlib_result_keyword() {
+        let expr = Expr::Ident("result".into());
+        assert_eq!(expr_to_smtlib(&expr), Some("__result".into()));
+    }
+
+    #[test]
+    fn test_smtlib_dotted_ident_sanitized() {
+        let expr = Expr::Ident("state.field".into());
+        assert_eq!(expr_to_smtlib(&expr), Some("state_field".into()));
+    }
+
+    #[test]
+    fn test_smtlib_binop_add() {
+        let expr = Expr::BinOp {
+            op: BinOp::Add,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(+ x 1)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_binop_neq() {
+        let expr = Expr::BinOp {
+            op: BinOp::Neq,
+            lhs: Box::new(Expr::Ident("a".into())),
+            rhs: Box::new(Expr::Ident("b".into())),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(not (= a b))".into()));
+    }
+
+    #[test]
+    fn test_smtlib_binop_div_is_integer() {
+        let expr = Expr::BinOp {
+            op: BinOp::Div,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Ident("y".into())),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(div x y)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_binop_implies() {
+        let expr = Expr::BinOp {
+            op: BinOp::Implies,
+            lhs: Box::new(Expr::Ident("p".into())),
+            rhs: Box::new(Expr::Ident("q".into())),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(=> p q)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_binop_range_returns_none() {
+        let expr = Expr::BinOp {
+            op: BinOp::Range,
+            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+        };
+        assert_eq!(expr_to_smtlib(&expr), None);
+    }
+
+    #[test]
+    fn test_smtlib_unary_not() {
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(Expr::Ident("flag".into())),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(not flag)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_unary_neg() {
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::Ident("x".into())),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(- x)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_if_with_else() {
+        let expr = Expr::If {
+            cond: Box::new(Expr::Ident("c".into())),
+            then_branch: Box::new(Expr::Ident("t".into())),
+            else_branch: Some(Box::new(Expr::Ident("e".into()))),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(ite c t e)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_if_without_else() {
+        let expr = Expr::If {
+            cond: Box::new(Expr::Ident("p".into())),
+            then_branch: Box::new(Expr::Ident("q".into())),
+            else_branch: None,
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(=> p q)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_forall() {
+        let expr = Expr::Forall {
+            var: "i".into(),
+            domain: Box::new(Expr::Ident("xs".into())),
+            body: Box::new(Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: Box::new(Expr::Ident("i".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            }),
+        };
+        assert_eq!(
+            expr_to_smtlib(&expr),
+            Some("(forall ((i Int)) (>= i 0))".into())
+        );
+    }
+
+    #[test]
+    fn test_smtlib_exists() {
+        let expr = Expr::Exists {
+            var: "x".into(),
+            domain: Box::new(Expr::Ident("S".into())),
+            body: Box::new(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            }),
+        };
+        assert_eq!(
+            expr_to_smtlib(&expr),
+            Some("(exists ((x Int)) (= x 0))".into())
+        );
+    }
+
+    #[test]
+    fn test_smtlib_call_no_args() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("foo".into())),
+            args: vec![],
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("foo".into()));
+    }
+
+    #[test]
+    fn test_smtlib_call_with_args() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("f".into())),
+            args: vec![Expr::Ident("x".into()), Expr::Ident("y".into())],
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(f x y)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_old_transparent() {
+        let expr = Expr::Old(Box::new(Expr::Ident("x".into())));
+        assert_eq!(expr_to_smtlib(&expr), Some("x".into()));
+    }
+
+    #[test]
+    fn test_smtlib_paren_transparent() {
+        let expr = Expr::Paren(Box::new(Expr::Literal(Literal::Int("5".into()))));
+        assert_eq!(expr_to_smtlib(&expr), Some("5".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_returns_none() {
+        let expr = Expr::Raw(vec!["foo".into()]);
+        assert_eq!(expr_to_smtlib(&expr), None);
+    }
+
+    // -------------------------------------------------------------------
+    // collect_vars tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_collect_vars_ident() {
+        let mut vars = HashSet::new();
+        collect_vars(&Expr::Ident("x".into()), &mut vars);
+        assert!(vars.contains("x"));
+    }
+
+    #[test]
+    fn test_collect_vars_result() {
+        let mut vars = HashSet::new();
+        collect_vars(&Expr::Ident("result".into()), &mut vars);
+        assert!(vars.contains("__result"));
+        assert!(!vars.contains("result"));
+    }
+
+    #[test]
+    fn test_collect_vars_binop() {
+        let mut vars = HashSet::new();
+        let expr = Expr::BinOp {
+            op: BinOp::Add,
+            lhs: Box::new(Expr::Ident("a".into())),
+            rhs: Box::new(Expr::Ident("b".into())),
+        };
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("a"));
+        assert!(vars.contains("b"));
+    }
+
+    #[test]
+    fn test_collect_vars_if_all_branches() {
+        let mut vars = HashSet::new();
+        let expr = Expr::If {
+            cond: Box::new(Expr::Ident("c".into())),
+            then_branch: Box::new(Expr::Ident("t".into())),
+            else_branch: Some(Box::new(Expr::Ident("e".into()))),
+        };
+        collect_vars(&expr, &mut vars);
+        assert!(vars.contains("c"));
+        assert!(vars.contains("t"));
+        assert!(vars.contains("e"));
+    }
+
+    #[test]
+    fn test_collect_vars_literal_no_vars() {
+        let mut vars = HashSet::new();
+        collect_vars(&Expr::Literal(Literal::Int("42".into())), &mut vars);
+        assert!(vars.is_empty());
+    }
+
+    #[test]
+    fn test_collect_vars_dotted_sanitized() {
+        let mut vars = HashSet::new();
+        collect_vars(&Expr::Ident("obj.field".into()), &mut vars);
+        assert!(vars.contains("obj_field"));
+    }
+
+    // -------------------------------------------------------------------
+    // parse_smtlib_model tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_model_define_fun() {
+        let model = "(define-fun x () Int 42)\n(define-fun y () Int (- 1))";
+        let parsed = parse_smtlib_model(model).unwrap();
+        assert_eq!(parsed.variables.len(), 2);
+        assert_eq!(parsed.variables[0].0, "x");
+        assert_eq!(parsed.variables[0].1, "42");
+        assert_eq!(parsed.variables[1].0, "y");
+        assert_eq!(parsed.variables[1].1, "(- 1)");
+    }
+
+    #[test]
+    fn test_parse_model_empty() {
+        assert!(parse_smtlib_model("").is_none());
+    }
+
+    #[test]
+    fn test_parse_model_no_define_fun() {
+        assert!(parse_smtlib_model("sat\n(something else)").is_none());
+    }
+
+    #[test]
+    fn test_parse_model_skips_coerce() {
+        let model = "(define-fun __coerce_1 () Int 0)\n(define-fun x () Int 5)";
+        let parsed = parse_smtlib_model(model).unwrap();
+        assert_eq!(parsed.variables.len(), 1);
+        assert_eq!(parsed.variables[0].0, "x");
+    }
+}

@@ -23,3 +23,4 @@ rayon = "1"
 [dev-dependencies]
 logos = "0.16"
 chumsky = "0.9"
+tempfile = "3"

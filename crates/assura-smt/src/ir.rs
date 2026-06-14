@@ -1113,3 +1113,413 @@ fn pred_arg_to_rust(arg: &IrPredArg) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------
+    // IrParser (text format) tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_ir_parser_empty() {
+        let mut p = IrParser::new();
+        p.parse_text("").unwrap();
+        assert_eq!(p.node_count(), 0);
+    }
+
+    #[test]
+    fn test_ir_parser_fn_decl() {
+        let mut p = IrParser::new();
+        p.parse_text("fn foo(x: Int)").unwrap();
+        assert_eq!(p.node_count(), 1);
+    }
+
+    #[test]
+    fn test_ir_parser_var_decl() {
+        let mut p = IrParser::new();
+        p.parse_text("let x: Int").unwrap();
+        assert_eq!(p.node_count(), 1);
+    }
+
+    #[test]
+    fn test_ir_parser_return_literal() {
+        let mut p = IrParser::new();
+        p.parse_text("return 42").unwrap();
+        assert_eq!(p.node_count(), 1);
+    }
+
+    #[test]
+    fn test_ir_parser_comments_skipped() {
+        let mut p = IrParser::new();
+        p.parse_text("// comment\nfn bar()").unwrap();
+        assert_eq!(p.node_count(), 1);
+    }
+
+    #[test]
+    fn test_ir_parser_serialize_binary() {
+        let mut p = IrParser::new();
+        p.parse_text("fn foo()\nlet x: Int\nreturn 0").unwrap();
+        let bin = p.serialize_binary();
+        // 4 bytes for count (3) + 3 nodes
+        assert!(bin.len() > 4);
+        // First 4 bytes = 3 (little-endian u32)
+        let count = u32::from_le_bytes([bin[0], bin[1], bin[2], bin[3]]);
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_ir_parser_default() {
+        let p = IrParser::default();
+        assert_eq!(p.node_count(), 0);
+    }
+
+    // -------------------------------------------------------------------
+    // IR module parser tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_ir_module_minimal() {
+        let src = "module test {\n}";
+        let m = parse_ir_module(src).unwrap();
+        assert_eq!(m.name, "test");
+        assert!(m.functions.is_empty());
+    }
+
+    #[test]
+    fn test_parse_ir_module_with_function() {
+        let src = "\
+module math {
+  fn #0 : ($0: Int, $1: Int) -> Int ! pure
+  {
+    $2 = arith add $0 $1 : Int
+    $result = load $2 : Int
+  }
+}";
+        let m = parse_ir_module(src).unwrap();
+        assert_eq!(m.name, "math");
+        assert_eq!(m.functions.len(), 1);
+        assert_eq!(m.functions[0].id, "#0");
+        assert_eq!(m.functions[0].params.len(), 2);
+        assert_eq!(m.functions[0].return_type, "Int");
+        assert_eq!(m.functions[0].effects, "pure");
+        assert_eq!(m.functions[0].body.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_ir_module_with_pre_post() {
+        let src = "\
+module check {
+  fn #0 : ($0: Int) -> Int ! pure
+  pre: cmp ne $0 (const 0)
+  post: cmp gt $result (const 0)
+  {
+    $result = load $0 : Int
+  }
+}";
+        let m = parse_ir_module(src).unwrap();
+        assert!(m.functions[0].pre.is_some());
+        assert!(m.functions[0].post.is_some());
+    }
+
+    #[test]
+    fn test_parse_ir_module_error_no_header() {
+        let result = parse_ir_module("not a module");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_ir_module_error_empty() {
+        let result = parse_ir_module("");
+        assert!(result.is_err());
+    }
+
+    // -------------------------------------------------------------------
+    // IR instruction parsing tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_instr_const_int() {
+        let instr = parse_ir_instr("$0 = const 42 : Int").unwrap();
+        assert_eq!(instr.target, 0);
+        assert_eq!(instr.ty, "Int");
+        assert!(matches!(instr.expr, IrExprKind::Const(IrLiteral::Int(42))));
+    }
+
+    #[test]
+    fn test_parse_instr_load() {
+        let instr = parse_ir_instr("$2 = load $1 : Int").unwrap();
+        assert_eq!(instr.target, 2);
+        assert!(matches!(instr.expr, IrExprKind::Load(1)));
+    }
+
+    #[test]
+    fn test_parse_instr_arith() {
+        let instr = parse_ir_instr("$3 = arith mul $1 $2 : Int").unwrap();
+        assert!(matches!(
+            instr.expr,
+            IrExprKind::Arith {
+                op: IrArithOp::Mul,
+                lhs: 1,
+                rhs: 2
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_instr_cmp() {
+        let instr = parse_ir_instr("$3 = cmp lt $0 $1 : Bool").unwrap();
+        assert!(matches!(
+            instr.expr,
+            IrExprKind::Cmp {
+                op: IrCmpOp::Lt,
+                lhs: 0,
+                rhs: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_instr_call() {
+        let instr = parse_ir_instr("$2 = call foo ($0, $1) : Int").unwrap();
+        match instr.expr {
+            IrExprKind::Call { func, args } => {
+                assert_eq!(func, "foo");
+                assert_eq!(args, vec![0, 1]);
+            }
+            other => panic!("expected Call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_instr_field() {
+        let instr = parse_ir_instr("$2 = field $0 .1 : Int").unwrap();
+        assert!(matches!(
+            instr.expr,
+            IrExprKind::Field { slot: 0, index: 1 }
+        ));
+    }
+
+    #[test]
+    fn test_parse_instr_cast() {
+        let instr = parse_ir_instr("$1 = cast $0 as Float : Float").unwrap();
+        assert!(matches!(instr.expr, IrExprKind::Cast { slot: 0, .. }));
+    }
+
+    #[test]
+    fn test_parse_instr_result_slot() {
+        let instr = parse_ir_instr("$result = load $0 : Int").unwrap();
+        assert_eq!(instr.target, usize::MAX);
+    }
+
+    #[test]
+    fn test_parse_instr_if() {
+        let instr = parse_ir_instr("$3 = if $0 then #1 else #2 : Int").unwrap();
+        assert!(matches!(
+            instr.expr,
+            IrExprKind::If {
+                cond: 0,
+                then_block: 1,
+                else_block: 2
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_instr_transition() {
+        let instr = parse_ir_instr("$1 = transition $0 to Active : Unit").unwrap();
+        match instr.expr {
+            IrExprKind::Transition { slot: 0, ref state } => assert_eq!(state, "Active"),
+            other => panic!("expected Transition, got {other:?}"),
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // IR literal parsing tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_literal_int() {
+        assert_eq!(parse_ir_literal("42").unwrap(), IrLiteral::Int(42));
+    }
+
+    #[test]
+    fn test_parse_literal_float() {
+        assert_eq!(parse_ir_literal("3.14").unwrap(), IrLiteral::Float(3.14));
+    }
+
+    #[test]
+    fn test_parse_literal_bool() {
+        assert_eq!(parse_ir_literal("true").unwrap(), IrLiteral::Bool(true));
+        assert_eq!(parse_ir_literal("false").unwrap(), IrLiteral::Bool(false));
+    }
+
+    #[test]
+    fn test_parse_literal_string() {
+        assert_eq!(
+            parse_ir_literal("\"hello\"").unwrap(),
+            IrLiteral::Str("hello".into())
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // IR type mapping tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_ir_type_to_rust_mapping() {
+        assert_eq!(ir_type_to_rust("Int"), "i64");
+        assert_eq!(ir_type_to_rust("Nat"), "u64");
+        assert_eq!(ir_type_to_rust("Float"), "f64");
+        assert_eq!(ir_type_to_rust("Bool"), "bool");
+        assert_eq!(ir_type_to_rust("String"), "String");
+        assert_eq!(ir_type_to_rust("Bytes"), "Vec<u8>");
+        assert_eq!(ir_type_to_rust("Unit"), "()");
+        assert_eq!(ir_type_to_rust(""), "_");
+        assert_eq!(ir_type_to_rust("CustomType"), "CustomType");
+    }
+
+    // -------------------------------------------------------------------
+    // IR to Rust codegen tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_ir_to_rust_generates_function() {
+        let module = IrModule {
+            name: "test".into(),
+            functions: vec![IrFunction {
+                id: "#0".into(),
+                params: vec![
+                    IrSlotDecl {
+                        slot: 0,
+                        ty: "Int".into(),
+                    },
+                    IrSlotDecl {
+                        slot: 1,
+                        ty: "Int".into(),
+                    },
+                ],
+                return_type: "Int".into(),
+                effects: "pure".into(),
+                pre: None,
+                post: None,
+                body: vec![
+                    IrInstr {
+                        target: 2,
+                        expr: IrExprKind::Arith {
+                            op: IrArithOp::Add,
+                            lhs: 0,
+                            rhs: 1,
+                        },
+                        ty: "Int".into(),
+                    },
+                    IrInstr {
+                        target: usize::MAX,
+                        expr: IrExprKind::Load(2),
+                        ty: "Int".into(),
+                    },
+                ],
+            }],
+        };
+        let code = ir_to_rust(&module);
+        assert!(code.contains("fn ir_0("));
+        assert!(code.contains("slot_0: i64"));
+        assert!(code.contains("slot_1: i64"));
+        assert!(code.contains("-> i64"));
+        assert!(code.contains("(slot_0 + slot_1)"));
+        assert!(code.contains("__result"));
+    }
+
+    #[test]
+    fn test_ir_to_rust_with_pre_post() {
+        let module = IrModule {
+            name: "guarded".into(),
+            functions: vec![IrFunction {
+                id: "#0".into(),
+                params: vec![IrSlotDecl {
+                    slot: 0,
+                    ty: "Int".into(),
+                }],
+                return_type: "Int".into(),
+                effects: "pure".into(),
+                pre: Some(IrPred::Cmp {
+                    op: IrCmpOp::Gt,
+                    lhs: IrPredArg::Slot(0),
+                    rhs: IrPredArg::Lit(IrLiteral::Int(0)),
+                }),
+                post: Some(IrPred::True),
+                body: vec![IrInstr {
+                    target: usize::MAX,
+                    expr: IrExprKind::Load(0),
+                    ty: "Int".into(),
+                }],
+            }],
+        };
+        let code = ir_to_rust(&module);
+        assert!(code.contains("debug_assert!"));
+        assert!(code.contains("slot_0"));
+    }
+
+    // -------------------------------------------------------------------
+    // Predicate parsing tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_pred_true() {
+        assert_eq!(parse_ir_pred_str("true"), Some(IrPred::True));
+    }
+
+    #[test]
+    fn test_parse_pred_false() {
+        assert_eq!(parse_ir_pred_str("false"), Some(IrPred::False));
+    }
+
+    #[test]
+    fn test_parse_pred_empty() {
+        assert_eq!(parse_ir_pred_str(""), None);
+    }
+
+    #[test]
+    fn test_parse_pred_cmp() {
+        let pred = parse_ir_pred_str("cmp eq $0 $1").unwrap();
+        assert!(matches!(
+            pred,
+            IrPred::Cmp {
+                op: IrCmpOp::Eq,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_pred_not() {
+        let pred = parse_ir_pred_str("not true").unwrap();
+        assert!(matches!(pred, IrPred::Not(_)));
+    }
+
+    // -------------------------------------------------------------------
+    // Arith/Cmp op parsing tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_arith_ops() {
+        assert_eq!(parse_arith_op("add").unwrap(), IrArithOp::Add);
+        assert_eq!(parse_arith_op("sub").unwrap(), IrArithOp::Sub);
+        assert_eq!(parse_arith_op("mul").unwrap(), IrArithOp::Mul);
+        assert_eq!(parse_arith_op("div").unwrap(), IrArithOp::Div);
+        assert_eq!(parse_arith_op("mod").unwrap(), IrArithOp::Mod);
+        assert!(parse_arith_op("bad").is_err());
+    }
+
+    #[test]
+    fn test_parse_cmp_ops() {
+        assert_eq!(parse_cmp_op("eq").unwrap(), IrCmpOp::Eq);
+        assert_eq!(parse_cmp_op("ne").unwrap(), IrCmpOp::Ne);
+        assert_eq!(parse_cmp_op("lt").unwrap(), IrCmpOp::Lt);
+        assert_eq!(parse_cmp_op("le").unwrap(), IrCmpOp::Le);
+        assert_eq!(parse_cmp_op("gt").unwrap(), IrCmpOp::Gt);
+        assert_eq!(parse_cmp_op("ge").unwrap(), IrCmpOp::Ge);
+        assert!(parse_cmp_op("bad").is_err());
+    }
+}

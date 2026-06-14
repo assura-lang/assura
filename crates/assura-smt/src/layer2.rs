@@ -248,3 +248,174 @@ pub fn verify_quantified_expr(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------
+    // Layer2Config tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_config_defaults() {
+        let cfg = Layer2Config::default();
+        assert_eq!(cfg.timeout_ms, 10_000);
+        assert!(cfg.enable_quantifiers);
+        assert!(cfg.enable_termination);
+        assert!(cfg.enable_roundtrip);
+    }
+
+    #[test]
+    fn test_config_with_timeout() {
+        let cfg = Layer2Config::new().with_timeout(5000);
+        assert_eq!(cfg.timeout_ms, 5000);
+    }
+
+    // -------------------------------------------------------------------
+    // Layer2Verifier structural tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_verifier_empty() {
+        let v = Layer2Verifier::new(Layer2Config::default());
+        assert_eq!(v.obligation_count(), 0);
+        let results = v.check_structural();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_verifier_add_invariant() {
+        let mut v = Layer2Verifier::new(Layer2Config::default());
+        v.add_invariant(QuantifiedInvariant {
+            name: "inv1".into(),
+            bound_vars: vec![("x".into(), "Int".into())],
+            body: "x >= 0".into(),
+            triggers: vec![],
+        });
+        assert_eq!(v.obligation_count(), 1);
+    }
+
+    #[test]
+    fn test_verifier_no_bound_vars_unknown() {
+        let mut v = Layer2Verifier::new(Layer2Config::default());
+        v.add_invariant(QuantifiedInvariant {
+            name: "bad_inv".into(),
+            bound_vars: vec![], // no bound vars
+            body: "true".into(),
+            triggers: vec![],
+        });
+        let results = v.check_structural();
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            Layer2Result::Unknown { reason, .. } => {
+                assert!(reason.contains("no bound variables"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_verifier_valid_invariant_requires_z3() {
+        let mut v = Layer2Verifier::new(Layer2Config::default());
+        v.add_invariant(QuantifiedInvariant {
+            name: "ok_inv".into(),
+            bound_vars: vec![("x".into(), "Int".into())],
+            body: "x > 0".into(),
+            triggers: vec![],
+        });
+        let results = v.check_structural();
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            Layer2Result::Unknown { reason, .. } => {
+                assert!(reason.contains("requires Z3"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_verifier_termination_no_measure() {
+        let mut v = Layer2Verifier::new(Layer2Config::default());
+        v.add_termination(TerminationObligation {
+            fn_name: "fib".into(),
+            measure: "".into(), // empty measure
+            recursive_calls: vec![],
+        });
+        let results = v.check_structural();
+        match &results[0] {
+            Layer2Result::Unknown { reason, .. } => {
+                assert!(reason.contains("no measure"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_verifier_termination_with_measure() {
+        let mut v = Layer2Verifier::new(Layer2Config::default());
+        v.add_termination(TerminationObligation {
+            fn_name: "fib".into(),
+            measure: "n".into(),
+            recursive_calls: vec!["fib(n-1)".into()],
+        });
+        let results = v.check_structural();
+        match &results[0] {
+            Layer2Result::Unknown { reason, .. } => {
+                assert!(reason.contains("requires Z3"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_verifier_roundtrip() {
+        let mut v = Layer2Verifier::new(Layer2Config::default());
+        v.add_roundtrip(RoundtripObligation {
+            type_name: "MyStruct".into(),
+            serialize_fn: "to_json".into(),
+            deserialize_fn: "from_json".into(),
+        });
+        assert_eq!(v.obligation_count(), 1);
+        let results = v.check_structural();
+        match &results[0] {
+            Layer2Result::Unknown { invariant, .. } => {
+                assert!(invariant.contains("roundtrip"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_verifier_mixed_obligations() {
+        let mut v = Layer2Verifier::new(Layer2Config::default());
+        v.add_invariant(QuantifiedInvariant {
+            name: "inv".into(),
+            bound_vars: vec![("x".into(), "Int".into())],
+            body: "x > 0".into(),
+            triggers: vec![],
+        });
+        v.add_termination(TerminationObligation {
+            fn_name: "f".into(),
+            measure: "n".into(),
+            recursive_calls: vec![],
+        });
+        v.add_roundtrip(RoundtripObligation {
+            type_name: "T".into(),
+            serialize_fn: "ser".into(),
+            deserialize_fn: "de".into(),
+        });
+        assert_eq!(v.obligation_count(), 3);
+        let results = v.check_structural();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_verifier_verify_delegates() {
+        let v = Layer2Verifier::new(Layer2Config::default());
+        // verify() should produce the same results as check_structural()
+        // when z3-verify feature is off
+        let results = v.verify();
+        assert!(results.is_empty());
+    }
+}
