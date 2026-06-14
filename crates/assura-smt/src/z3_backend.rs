@@ -2735,6 +2735,16 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
             Decl::Block { name, body, .. } => {
                 verify_clauses(&ctx, name, body, &lemma_defs, &mut cache, &mut results);
             }
+            Decl::Bind(b) => {
+                verify_clauses(
+                    &ctx,
+                    &b.name,
+                    &b.clauses,
+                    &lemma_defs,
+                    &mut cache,
+                    &mut results,
+                );
+            }
             Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
     }

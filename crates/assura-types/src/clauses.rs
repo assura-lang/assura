@@ -236,6 +236,22 @@ pub(crate) fn check_clause_bodies(
                     check_clause_expr(&clause.kind, &clause.body, clause_env, &mut errors, span);
                 }
             }
+            Decl::Bind(b) => {
+                let ret_ty = if b.return_ty.is_empty() {
+                    Type::Unit
+                } else {
+                    parse_type_tokens(&b.return_ty)
+                };
+                let bind_env = env_with_result(env, &ret_ty);
+                for clause in &b.clauses {
+                    let clause_env = if clause.kind == ClauseKind::Ensures {
+                        &bind_env
+                    } else {
+                        env
+                    };
+                    check_clause_expr(&clause.kind, &clause.body, clause_env, &mut errors, span);
+                }
+            }
             Decl::Service(s) => {
                 // Build a service-scoped env with `self` bound to the service type
                 let mut svc_env = env.clone();
@@ -365,6 +381,20 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                 for clause in &e.clauses {
                     let clause_env = if clause.kind == HirClauseKind::Ensures {
                         &ext_env
+                    } else {
+                        env
+                    };
+                    let ast_kind = hir_clause_kind_to_ast(&clause.kind);
+                    let ast_body = clause.body.to_ast_expr();
+                    check_clause_expr(&ast_kind, &ast_body, clause_env, &mut errors, span);
+                }
+            }
+            HirDeclKind::Bind(b) => {
+                let ret_ty = type_from_hir_type(&b.return_ty);
+                let bind_env = env_with_result(env, &ret_ty);
+                for clause in &b.clauses {
+                    let clause_env = if clause.kind == HirClauseKind::Ensures {
+                        &bind_env
                     } else {
                         env
                     };

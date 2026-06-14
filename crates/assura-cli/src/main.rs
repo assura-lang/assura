@@ -777,7 +777,7 @@ fn run_check(
                         Decl::Contract(_) => contracts += 1,
                         Decl::TypeDef(_) => types += 1,
                         Decl::EnumDef(_) => enums += 1,
-                        Decl::Extern(_) => externs += 1,
+                        Decl::Extern(_) | Decl::Bind(_) => externs += 1,
                         Decl::FnDef(_) => fns += 1,
                         Decl::Service(_) => services += 1,
                         Decl::Block { .. } => {}

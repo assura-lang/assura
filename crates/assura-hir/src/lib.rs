@@ -76,6 +76,7 @@ pub enum HirDeclKind {
     TypeDef(HirTypeDef),
     EnumDef(HirEnumDef),
     Extern(HirExtern),
+    Bind(HirBind),
     FnDef(HirFnDef),
     Block(HirBlock),
 }
@@ -182,6 +183,21 @@ pub struct HirEnumVariant {
 pub struct HirExtern {
     pub id: DefId,
     pub name: String,
+    pub params: Vec<HirParam>,
+    pub return_ty: HirType,
+    pub clauses: Vec<HirClause>,
+}
+
+// ---------------------------------------------------------------------------
+// Bind declaration
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct HirBind {
+    pub id: DefId,
+    pub name: String,
+    /// The Rust function path being bound (e.g., "app::renderer::render_page").
+    pub target_path: String,
     pub params: Vec<HirParam>,
     pub return_ty: HirType,
     pub clauses: Vec<HirClause>,

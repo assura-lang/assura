@@ -9,9 +9,9 @@ use assura_parser::ast::{self, Decl, Expr, ServiceItem, Spanned};
 use assura_resolve::ResolvedFile;
 
 use crate::{
-    DefId, HirBlock, HirClause, HirClauseKind, HirContract, HirDecl, HirDeclKind, HirEnumDef,
-    HirEnumVariant, HirExpr, HirExtern, HirFieldDef, HirFile, HirFnDef, HirMatchArm, HirParam,
-    HirService, HirServiceItem, HirType, HirTypeBody, HirTypeDef, parse_type_tokens,
+    DefId, HirBind, HirBlock, HirClause, HirClauseKind, HirContract, HirDecl, HirDeclKind,
+    HirEnumDef, HirEnumVariant, HirExpr, HirExtern, HirFieldDef, HirFile, HirFnDef, HirMatchArm,
+    HirParam, HirService, HirServiceItem, HirType, HirTypeBody, HirTypeDef, parse_type_tokens,
     resolve_hir_type,
 };
 
@@ -89,6 +89,7 @@ impl LowerCtx<'_> {
             Decl::TypeDef(t) => HirDeclKind::TypeDef(self.lower_typedef(t)),
             Decl::EnumDef(e) => HirDeclKind::EnumDef(self.lower_enumdef(e)),
             Decl::Extern(e) => HirDeclKind::Extern(self.lower_extern(e)),
+            Decl::Bind(b) => HirDeclKind::Bind(self.lower_bind(b)),
             Decl::FnDef(f) => HirDeclKind::FnDef(self.lower_fndef(f)),
             Decl::Block {
                 kind,
@@ -206,6 +207,17 @@ impl LowerCtx<'_> {
             params: e.params.iter().map(|p| self.lower_param(p)).collect(),
             return_ty: resolve_hir_type(e.return_type_expr.as_ref(), &e.return_ty),
             clauses: e.clauses.iter().map(|c| self.lower_clause(c)).collect(),
+        }
+    }
+
+    fn lower_bind(&self, b: &ast::BindDecl) -> HirBind {
+        HirBind {
+            id: self.resolver.resolve(&b.name),
+            name: b.name.clone(),
+            target_path: b.target_path.clone(),
+            params: b.params.iter().map(|p| self.lower_param(p)).collect(),
+            return_ty: resolve_hir_type(b.return_type_expr.as_ref(), &b.return_ty),
+            clauses: b.clauses.iter().map(|c| self.lower_clause(c)).collect(),
         }
     }
 

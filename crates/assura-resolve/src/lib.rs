@@ -34,6 +34,7 @@ pub enum SymbolKind {
     FnDef,
     EnumDef,
     ExternFn,
+    BindFn,
     BuiltinType,
     Operation,
     Query,
@@ -551,6 +552,29 @@ pub fn resolve_with_modules(
                 if inserted {
                     let fn_scope = table.push_scope(&ex.name, Some(module));
                     for p in &ex.params {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            fn_scope,
+                            &p.name,
+                            SymbolKind::Parameter,
+                            decl.span.clone(),
+                        );
+                    }
+                }
+            }
+            Decl::Bind(b) => {
+                let inserted = try_insert(
+                    &mut table,
+                    &mut errors,
+                    module,
+                    &b.name,
+                    SymbolKind::BindFn,
+                    decl.span.clone(),
+                );
+                if inserted {
+                    let fn_scope = table.push_scope(&b.name, Some(module));
+                    for p in &b.params {
                         try_insert(
                             &mut table,
                             &mut errors,
@@ -1095,6 +1119,18 @@ fn resolve_type_refs(
             Decl::Extern(ex) => {
                 resolve_extern_refs(ex, table, &decl.span, module_scope, lenient, errors);
             }
+            Decl::Bind(b) => {
+                // Bind has the same param/return structure as extern
+                resolve_extern_refs_generic(
+                    &b.params,
+                    &b.return_ty,
+                    table,
+                    &decl.span,
+                    module_scope,
+                    lenient,
+                    errors,
+                );
+            }
             Decl::Contract(_) => {
                 // Contract clauses don't have structured type refs in
                 // the current AST; nothing to check here yet.
@@ -1193,6 +1229,26 @@ fn resolve_extern_refs(
     );
 }
 
+fn resolve_extern_refs_generic(
+    params: &[Param],
+    return_ty: &[String],
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    check_fn_signature(
+        params,
+        return_ty,
+        table,
+        parent_scope,
+        span,
+        lenient,
+        errors,
+    );
+}
+
 /// Check type references in enum variant fields.
 ///
 /// Each variant has a `fields: Vec<String>` of type tokens. We check each
@@ -1269,6 +1325,22 @@ fn resolve_clause_body_names(
             Decl::Extern(ex) => {
                 let scope = find_scope_for(table, &ex.name, module_scope).unwrap_or(module_scope);
                 for clause in &ex.clauses {
+                    if is_body_clause(&clause.kind) {
+                        check_expr_idents(
+                            &clause.body,
+                            table,
+                            scope,
+                            &decl.span,
+                            lenient,
+                            &mut Vec::new(),
+                            errors,
+                        );
+                    }
+                }
+            }
+            Decl::Bind(b) => {
+                let scope = find_scope_for(table, &b.name, module_scope).unwrap_or(module_scope);
+                for clause in &b.clauses {
                     if is_body_clause(&clause.kind) {
                         check_expr_idents(
                             &clause.body,
@@ -1605,6 +1677,15 @@ fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                 }
                 collect_type_token_names(&ex.return_ty, &mut names);
                 for clause in &ex.clauses {
+                    collect_expr_names(&clause.body, &mut names);
+                }
+            }
+            Decl::Bind(b) => {
+                for p in &b.params {
+                    collect_type_token_names(&p.ty, &mut names);
+                }
+                collect_type_token_names(&b.return_ty, &mut names);
+                for clause in &b.clauses {
                     collect_expr_names(&clause.body, &mut names);
                 }
             }

@@ -628,7 +628,7 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
             | SymbolKind::EnumDef => Type::Named(sym.name.clone()),
 
             // Placeholder; enriched below from AST
-            SymbolKind::FnDef | SymbolKind::ExternFn => Type::Fn {
+            SymbolKind::FnDef | SymbolKind::ExternFn | SymbolKind::BindFn => Type::Fn {
                 params: Vec::new(),
                 ret: Box::new(Type::Unknown),
             },
@@ -807,7 +807,7 @@ fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
             | SymbolKind::ContractDef
             | SymbolKind::ServiceDef
             | SymbolKind::EnumDef => Type::Named(sym.name.clone()),
-            SymbolKind::FnDef | SymbolKind::ExternFn => Type::Fn {
+            SymbolKind::FnDef | SymbolKind::ExternFn | SymbolKind::BindFn => Type::Fn {
                 params: Vec::new(),
                 ret: Box::new(Type::Unknown),
             },
@@ -850,6 +850,21 @@ fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
                 let ret = type_from_hir_type(&e.return_ty);
                 env.insert(
                     e.name.clone(),
+                    Type::Fn {
+                        params: param_types,
+                        ret: Box::new(ret),
+                    },
+                );
+            }
+            HirDeclKind::Bind(b) => {
+                for p in &b.params {
+                    env.insert(p.name.clone(), type_from_hir_type(&p.ty));
+                }
+                let param_types: Vec<Type> =
+                    b.params.iter().map(|p| type_from_hir_type(&p.ty)).collect();
+                let ret = type_from_hir_type(&b.return_ty);
+                env.insert(
+                    b.name.clone(),
                     Type::Fn {
                         params: param_types,
                         ret: Box::new(ret),

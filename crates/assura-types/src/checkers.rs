@@ -2580,6 +2580,19 @@ impl TaintChecker {
                         errors.extend(checker.check_expr(&clause.body, &decl.span));
                     }
                 }
+                Decl::Bind(b) => {
+                    let mut fn_checker = checker.clone();
+                    for param in &b.params {
+                        if let Some(label) = extract_taint_label(&param.ty) {
+                            fn_checker.declare(param.name.clone(), label);
+                        }
+                    }
+                    if fn_checker.has_taint_info() {
+                        for clause in &b.clauses {
+                            errors.extend(fn_checker.check_expr(&clause.body, &decl.span));
+                        }
+                    }
+                }
                 Decl::TypeDef(_) | Decl::EnumDef(_) => {}
             }
         }

@@ -59,6 +59,13 @@ pub fn lower_source_file(root: &SyntaxNode) -> SourceFile {
                     span,
                 });
             }
+            SyntaxKind::BIND_DECL => {
+                let span = span_of(&child);
+                decls.push(Spanned {
+                    node: Decl::Bind(lower_bind(&child)),
+                    span,
+                });
+            }
             SyntaxKind::FN_DEF => {
                 let span = span_of(&child);
                 decls.push(Spanned {
@@ -1047,6 +1054,122 @@ fn lower_extern(n: &SyntaxNode) -> ExternDecl {
 }
 
 // -----------------------------------------------------------------
+// BindDecl
+// -----------------------------------------------------------------
+
+fn lower_bind(n: &SyntaxNode) -> BindDecl {
+    // Extract the target path from the string literal token
+    let target_path = n
+        .children_with_tokens()
+        .filter_map(|it| it.into_token())
+        .find(|t| t.kind() == SyntaxKind::STRING_LIT)
+        .map(|t| {
+            let text = t.text().to_string();
+            text.trim_matches('"').to_string()
+        })
+        .unwrap_or_default();
+
+    let name = first_ident(n);
+
+    // In bind declarations, params come from the `input(...)` clause
+    // and the return type from the `output(...)` clause, not from
+    // standalone PARAM_LIST / RETURN_TYPE nodes.
+    let all_clauses: Vec<Clause> = n
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::CLAUSE)
+        .map(|c| lower_clause(&c))
+        .collect();
+
+    // Extract params from the input clause body (raw tokens like "a : Int , b : Int")
+    let params = all_clauses
+        .iter()
+        .find(|c| c.kind == ClauseKind::Input)
+        .map(|c| extract_params_from_clause_body(&c.body))
+        .unwrap_or_default();
+
+    // Extract return type from the output clause body
+    let return_ty = all_clauses
+        .iter()
+        .find(|c| c.kind == ClauseKind::Output)
+        .map(|c| extract_return_type_from_clause_body(&c.body))
+        .unwrap_or_default();
+
+    // Filter out input/output clauses; keep requires/ensures/effects etc.
+    let clauses: Vec<Clause> = all_clauses
+        .into_iter()
+        .filter(|c| c.kind != ClauseKind::Input && c.kind != ClauseKind::Output)
+        .collect();
+
+    let return_type_expr = crate::ast::try_parse_type_tokens(&return_ty);
+    BindDecl {
+        name,
+        target_path,
+        params,
+        return_ty,
+        return_type_expr,
+        clauses,
+    }
+}
+
+/// Extract parameters from a clause body like `a : Int , b : Int`.
+fn extract_params_from_clause_body(body: &Expr) -> Vec<Param> {
+    let tokens = match body {
+        Expr::Raw(toks) => toks,
+        _ => return Vec::new(),
+    };
+
+    let mut params = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        // Skip commas
+        if tokens[i] == "," {
+            i += 1;
+            continue;
+        }
+        let param_name = tokens[i].clone();
+        i += 1;
+        // Expect ":"
+        if i < tokens.len() && tokens[i] == ":" {
+            i += 1;
+            // Collect type tokens until comma or end
+            let mut ty = Vec::new();
+            while i < tokens.len() && tokens[i] != "," {
+                ty.push(tokens[i].clone());
+                i += 1;
+            }
+            let parsed_type = crate::ast::try_parse_type_tokens(&ty);
+            params.push(Param {
+                name: param_name,
+                ty,
+                parsed_type,
+            });
+        } else {
+            // Untyped param
+            params.push(Param {
+                name: param_name,
+                ty: Vec::new(),
+                parsed_type: None,
+            });
+        }
+    }
+    params
+}
+
+/// Extract return type tokens from a clause body like `result : Int`.
+fn extract_return_type_from_clause_body(body: &Expr) -> Vec<String> {
+    let tokens = match body {
+        Expr::Raw(toks) => toks,
+        _ => return Vec::new(),
+    };
+    // Skip "result :" prefix if present, take remaining type tokens
+    if tokens.len() >= 2 && tokens[1] == ":" {
+        tokens[2..].to_vec()
+    } else {
+        tokens.clone()
+    }
+}
+
+// -----------------------------------------------------------------
 // FnDef
 // -----------------------------------------------------------------
 
@@ -1482,6 +1605,70 @@ mod tests {
                 Expr::BinOp { op, .. } => assert_eq!(*op, BinOp::Gt),
                 other => panic!("expected BinOp, got {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn lower_bind_basic() {
+        let src = r#"
+            bind "std::cmp::max" as safe_max {
+                input(a: Int, b: Int)
+                output(result: Int)
+                ensures result >= a
+                ensures result >= b
+            }
+        "#;
+        let (sf, errors) = parse_and_lower(src);
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(sf.decls.len(), 1);
+        if let Decl::Bind(b) = &sf.decls[0].node {
+            assert_eq!(b.name, "safe_max");
+            assert_eq!(b.target_path, "std::cmp::max");
+            assert_eq!(b.params.len(), 2);
+            assert_eq!(b.params[0].name, "a");
+            assert_eq!(b.params[1].name, "b");
+            assert!(!b.return_ty.is_empty());
+            assert_eq!(
+                b.clauses.len(),
+                2,
+                "expected 2 ensures clauses, got {:?}",
+                b.clauses
+            );
+            assert!(b.clauses.iter().all(|c| c.kind == ClauseKind::Ensures));
+        } else {
+            panic!("expected Decl::Bind, got {:?}", sf.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn lower_bind_with_requires() {
+        let src = r#"
+            bind "my_crate::divide" as safe_divide {
+                input(a: Int, b: Int)
+                output(result: Int)
+                requires b != 0
+                ensures result * b == a
+            }
+        "#;
+        let (sf, errors) = parse_and_lower(src);
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        if let Decl::Bind(b) = &sf.decls[0].node {
+            assert_eq!(b.name, "safe_divide");
+            assert_eq!(b.target_path, "my_crate::divide");
+            let requires_count = b
+                .clauses
+                .iter()
+                .filter(|c| c.kind == ClauseKind::Requires)
+                .count();
+            let ensures_count = b
+                .clauses
+                .iter()
+                .filter(|c| c.kind == ClauseKind::Ensures)
+                .count();
+            assert_eq!(requires_count, 1);
+            assert_eq!(ensures_count, 1);
+        } else {
+            panic!("expected Decl::Bind");
         }
     }
 }

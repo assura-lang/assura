@@ -47,6 +47,7 @@ pub enum Decl {
     TypeDef(TypeDef),
     EnumDef(EnumDef),
     Extern(ExternDecl),
+    Bind(BindDecl),
     FnDef(FnDef),
     /// Catch-all for extended syntax (feature, incremental, liveness, etc.)
     Block {
@@ -515,6 +516,28 @@ pub struct EnumVariant {
 #[derive(Debug, Clone)]
 pub struct ExternDecl {
     pub name: String,
+    pub params: Vec<Param>,
+    pub return_ty: Vec<String>,
+    pub return_type_expr: Option<TypeExpr>,
+    pub clauses: Vec<Clause>,
+}
+
+/// A `bind` declaration that maps a contract name to an existing Rust function path.
+///
+/// ```assura
+/// bind "app::renderer::render_page" as render_page {
+///     input(template: String, user: User)
+///     output(result: Html)
+///     requires { template.length > 0 }
+///     ensures  { result.contains(user.name) }
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct BindDecl {
+    /// The contract name (the `as Ident` part).
+    pub name: String,
+    /// The Rust function path being bound (the string literal).
+    pub target_path: String,
     pub params: Vec<Param>,
     pub return_ty: Vec<String>,
     pub return_type_expr: Option<TypeExpr>,

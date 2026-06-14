@@ -272,6 +272,7 @@ impl LanguageServer for AssuraLanguageServer {
                 SymbolKind::EnumDef => "enum",
                 SymbolKind::FnDef => "function",
                 SymbolKind::ExternFn => "extern function",
+                SymbolKind::BindFn => "bind function",
                 SymbolKind::BuiltinType => "built-in type",
                 SymbolKind::Operation => "operation",
                 SymbolKind::Query => "query",
@@ -338,7 +339,9 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::ServiceDef => CompletionItemKind::MODULE,
                     SymbolKind::TypeDef => CompletionItemKind::CLASS,
                     SymbolKind::EnumDef => CompletionItemKind::ENUM,
-                    SymbolKind::FnDef | SymbolKind::ExternFn => CompletionItemKind::FUNCTION,
+                    SymbolKind::FnDef | SymbolKind::ExternFn | SymbolKind::BindFn => {
+                        CompletionItemKind::FUNCTION
+                    }
                     SymbolKind::Operation | SymbolKind::Query => CompletionItemKind::METHOD,
                     SymbolKind::Parameter => CompletionItemKind::VARIABLE,
                     SymbolKind::TypeParam => CompletionItemKind::TYPE_PARAMETER,
@@ -353,6 +356,7 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::EnumDef => "enum",
                     SymbolKind::FnDef => "function",
                     SymbolKind::ExternFn => "extern function",
+                    SymbolKind::BindFn => "bind function",
                     SymbolKind::Operation => "operation",
                     SymbolKind::Query => "query",
                     SymbolKind::Parameter => "parameter",
@@ -490,6 +494,16 @@ fn collect_document_symbols(
             Decl::Extern(ex) => {
                 result.push(SymbolInformation {
                     name: ex.name.clone(),
+                    kind: SymbolKind2::FUNCTION,
+                    tags: None,
+                    deprecated: None,
+                    location: Location::new(doc_uri.clone(), range),
+                    container_name: None,
+                });
+            }
+            Decl::Bind(b) => {
+                result.push(SymbolInformation {
+                    name: b.name.clone(),
                     kind: SymbolKind2::FUNCTION,
                     tags: None,
                     deprecated: None,

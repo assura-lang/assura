@@ -15,6 +15,7 @@ pub(crate) fn decl(p: &mut Parser) {
         SyntaxKind::TYPE_KW => type_def(p),
         SyntaxKind::ENUM_KW => enum_def(p),
         SyntaxKind::EXTERN_KW => extern_decl(p),
+        SyntaxKind::BIND_KW => bind_decl(p),
         SyntaxKind::FN_KW | SyntaxKind::AXIOM_KW | SyntaxKind::LEMMA_KW => fn_def(p),
         // Modifier-prefixed fn: pure/ghost/opaque + fn/axiom/lemma
         SyntaxKind::PURE_KW | SyntaxKind::GHOST_KW | SyntaxKind::OPAQUE_KW => {
@@ -106,6 +107,8 @@ fn contract_decl(p: &mut Parser) {
             enum_def(p);
         } else if p.at(SyntaxKind::EXTERN_KW) {
             extern_decl(p);
+        } else if p.at(SyntaxKind::BIND_KW) {
+            bind_decl(p);
         } else if (matches!(
             p.current(),
             SyntaxKind::FN_KW
@@ -182,6 +185,7 @@ fn type_alias_tokens(p: &mut Parser) {
                 | SyntaxKind::TYPE_KW
                 | SyntaxKind::ENUM_KW
                 | SyntaxKind::EXTERN_KW
+                | SyntaxKind::BIND_KW
                 | SyntaxKind::FN_KW
                 | SyntaxKind::SERVICE_KW
                 | SyntaxKind::IMPORT_KW
@@ -264,6 +268,33 @@ fn extern_decl(p: &mut Parser) {
 
     p.eat(SyntaxKind::SEMICOLON);
     m.complete(p, SyntaxKind::EXTERN_DECL);
+}
+
+/// bind "rust::path::to::fn" as name { input(...) output(...) clauses... }
+fn bind_decl(p: &mut Parser) {
+    let m = p.open();
+    p.expect(SyntaxKind::BIND_KW);
+
+    // Target path: string literal
+    p.expect(SyntaxKind::STRING_LIT);
+
+    // "as" Ident
+    p.expect(SyntaxKind::AS_KW);
+    p.expect(SyntaxKind::IDENT);
+
+    // Body: { input(...) output(...) requires/ensures/effects }
+    p.expect(SyntaxKind::L_BRACE);
+    while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+        if clauses::at_clause_start(p) {
+            clauses::clause(p);
+        } else {
+            // Skip unknown tokens inside bind body
+            p.bump();
+        }
+    }
+    p.expect(SyntaxKind::R_BRACE);
+
+    m.complete(p, SyntaxKind::BIND_DECL);
 }
 
 /// [#[attr]] [pure|ghost|opaque]* (fn|axiom|lemma) name<T>(params) [-> RetType] [= { body }] [clauses] [{ body }]
@@ -483,6 +514,7 @@ pub(crate) fn generic_block(p: &mut Parser) {
                     | SyntaxKind::TYPE_KW
                     | SyntaxKind::ENUM_KW
                     | SyntaxKind::EXTERN_KW
+                    | SyntaxKind::BIND_KW
                     | SyntaxKind::CONTRACT_KW
                     | SyntaxKind::SERVICE_KW
                     | SyntaxKind::HASH

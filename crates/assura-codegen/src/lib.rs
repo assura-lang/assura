@@ -9,8 +9,8 @@
 //! (T023) extend this foundation.
 
 use assura_parser::ast::{
-    BinOp, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef, Literal,
-    ServiceDecl, ServiceItem, TypeBody, TypeDef, UnaryOp,
+    BinOp, BindDecl, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef,
+    Literal, ServiceDecl, ServiceItem, TypeBody, TypeDef, UnaryOp,
 };
 use assura_types::TypedFile;
 
@@ -167,6 +167,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::Service(_)
             | Decl::FnDef(_)
             | Decl::Extern(_)
+            | Decl::Bind(_)
             | Decl::Block { .. } => {}
         }
     }
@@ -231,6 +232,12 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     }
                 }
             }
+            Decl::Bind(b) => {
+                collect_type_refs_from_tokens(&b.return_ty, &mut referenced_types);
+                for p in &b.params {
+                    collect_type_refs_from_tokens(&p.ty, &mut referenced_types);
+                }
+            }
             // EnumDef and Block don't contribute type references
             // that need stub generation.
             Decl::EnumDef(_) | Decl::Block { .. } => {}
@@ -259,7 +266,14 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                         token_lists.push(p.ty.as_slice());
                     }
                 }
-                // Only FnDef and Extern have typed param/return tokens.
+                Decl::Bind(b) => {
+                    token_lists.push(b.return_ty.as_slice());
+                    for p in &b.params {
+                        token_lists.push(p.ty.as_slice());
+                    }
+                }
+                // Contract, Service, TypeDef, EnumDef, and Block don't have
+                // typed param/return tokens.
                 Decl::Contract(_)
                 | Decl::Service(_)
                 | Decl::TypeDef(_)
@@ -325,6 +339,12 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     }
                 }
             }
+            Decl::Bind(b) => {
+                token_lists.push(b.return_ty.as_slice());
+                for p in &b.params {
+                    token_lists.push(p.ty.as_slice());
+                }
+            }
             // Contract, Service, EnumDef, and Block don't have typed
             // token sequences relevant for generic arity detection.
             Decl::Contract(_) | Decl::Service(_) | Decl::EnumDef(_) | Decl::Block { .. } => {}
@@ -357,6 +377,12 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             Decl::Extern(ex) => {
                 token_lists.push(ex.return_ty.as_slice());
                 for p in &ex.params {
+                    token_lists.push(p.ty.as_slice());
+                }
+            }
+            Decl::Bind(b) => {
+                token_lists.push(b.return_ty.as_slice());
+                for p in &b.params {
                     token_lists.push(p.ty.as_slice());
                 }
             }
@@ -451,6 +477,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::EnumDef(_)
             | Decl::FnDef(_)
             | Decl::Extern(_)
+            | Decl::Bind(_)
             | Decl::Block { .. } => {}
         }
     }
@@ -476,6 +503,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 Decl::TypeDef(t) => generate_type_def(t, &mut shared),
                 Decl::EnumDef(e) => generate_enum_def(e, &mut shared),
                 Decl::Extern(ex) => generate_extern(ex, &mut shared),
+                Decl::Bind(b) => generate_bind(b, &mut shared),
                 Decl::FnDef(f) => {
                     if !f.is_ghost && !f.is_lemma {
                         generate_fn_def(f, &mut shared);
@@ -508,6 +536,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 | Decl::EnumDef(_)
                 | Decl::FnDef(_)
                 | Decl::Extern(_)
+                | Decl::Bind(_)
                 | Decl::Block { .. } => {}
             }
         }
@@ -569,6 +598,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 Decl::EnumDef(e) => generate_enum_def(e, &mut all_code),
                 Decl::Contract(c) => generate_contract(c, &mut all_code),
                 Decl::Extern(ex) => generate_extern(ex, &mut all_code),
+                Decl::Bind(b) => generate_bind(b, &mut all_code),
                 Decl::FnDef(f) => {
                     if !f.is_ghost && !f.is_lemma {
                         generate_fn_def(f, &mut all_code);
@@ -2636,6 +2666,76 @@ fn generate_error_enum(contract_name: &str, variants: &[String], code: &mut Stri
     for variant in variants {
         code.push_str(&format!("    #[error(\"{variant}\")]\n    {variant},\n"));
     }
+    code.push_str("}\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// Bind declarations (checked wrappers for existing Rust functions)
+// ---------------------------------------------------------------------------
+
+/// Generate a checked wrapper for a `bind` declaration.
+///
+/// A `bind` maps an existing Rust function path to an Assura contract name.
+/// The generated code calls the real function and wraps it with
+/// `debug_assert!` checks for `requires` and `ensures` clauses.
+fn generate_bind(b: &BindDecl, code: &mut String) {
+    let params_s: String = b
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name, map_type_tokens(&p.ty)))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let ret = if b.return_ty.is_empty() {
+        "()".to_string()
+    } else {
+        map_type_tokens(&b.return_ty)
+    };
+
+    let args_s: String = b
+        .params
+        .iter()
+        .map(|p| p.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let rust_path = &b.target_path;
+
+    code.push_str(&format!(
+        "/// Bind: {} -> {rust_path}\npub fn {}({params_s}) -> {ret} {{\n",
+        b.name, b.name
+    ));
+
+    // Collect old() expressions from ensures clauses and save pre-state values
+    let mut ensures_exprs: Vec<String> = Vec::new();
+    for clause in &b.clauses {
+        if clause.kind == ClauseKind::Ensures {
+            for (var, rust_expr) in collect_old_exprs(&clause.body) {
+                code.push_str(&format!("    let __old_{var} = {rust_expr}.clone();\n"));
+            }
+            ensures_exprs.push(expr_to_rust(&clause.body));
+        }
+    }
+
+    // Generate requires assertions at function entry
+    for clause in &b.clauses {
+        if clause.kind == ClauseKind::Requires {
+            let expr = expr_to_rust(&clause.body);
+            generate_debug_assert(code, &expr, "requires");
+        }
+    }
+
+    // Call the actual Rust function
+    code.push_str(&format!(
+        "    let __result: {ret} = {rust_path}({args_s});\n"
+    ));
+
+    // Generate ensures assertions on the result
+    for ens in &ensures_exprs {
+        generate_debug_assert(code, ens, "ensures");
+    }
+
+    code.push_str("    __result\n");
     code.push_str("}\n\n");
 }
 
@@ -5782,5 +5882,57 @@ contract NoErrors {
     fn compile_target_rust_target() {
         assert_eq!(CompileTarget::Native.rust_target(), None);
         assert_eq!(CompileTarget::Wasm.rust_target(), Some("wasm32-wasip1"));
+    }
+
+    // --- Bind codegen tests ---
+
+    #[test]
+    fn bind_generates_checked_wrapper() {
+        let project = codegen_ok(
+            r#"
+bind "std::cmp::max" as safe_max {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires a >= 0
+    ensures result >= a
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("fn safe_max"),
+            "should generate safe_max fn: {lib}"
+        );
+        assert!(
+            lib.contains("std::cmp::max("),
+            "should call the bound Rust function: {lib}"
+        );
+        assert!(
+            lib.contains("debug_assert!"),
+            "should have contract assertions: {lib}"
+        );
+    }
+
+    #[test]
+    fn bind_with_requires_and_ensures() {
+        let project = codegen_ok(
+            r#"
+bind "my_crate::divide" as safe_divide {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires b != 0
+    ensures result * b == a
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("fn safe_divide"),
+            "should generate safe_divide fn: {lib}"
+        );
+        assert!(
+            lib.contains("my_crate::divide("),
+            "should call the bound Rust function: {lib}"
+        );
     }
 }

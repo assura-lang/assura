@@ -173,6 +173,14 @@ pub fn collect_contract_names(file: &SourceFile) -> Vec<String> {
                     names.push(f.name.clone());
                 }
             }
+            Decl::Bind(b) => {
+                if b.clauses
+                    .iter()
+                    .any(|cl| matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant))
+                {
+                    names.push(b.name.clone());
+                }
+            }
             Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Block { .. } => {}
         }
     }
@@ -229,6 +237,7 @@ pub fn write_summary(
             Decl::Extern(_) => externs += 1,
             Decl::FnDef(_) => fns += 1,
             Decl::Service(_) => services += 1,
+            Decl::Bind(_) => externs += 1, // count binds with externs
             Decl::Block { .. } => other += 1,
         }
     }

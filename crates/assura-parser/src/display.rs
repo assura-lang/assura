@@ -113,6 +113,27 @@ pub fn print_decl(decl: &Decl, indent: usize) {
                 );
             }
         }
+        Decl::Bind(b) => {
+            let params = b
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.ty.join(" ")))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!(
+                "{pad}Bind: \"{}\" as {}({params}) -> {}",
+                b.target_path,
+                b.name,
+                b.return_ty.join(" ")
+            );
+            for cl in &b.clauses {
+                println!(
+                    "{pad}  {:?}: {}",
+                    cl.kind,
+                    truncate(&expr_to_string(&cl.body), 50)
+                );
+            }
+        }
         Decl::FnDef(f) => {
             let params = f
                 .params

@@ -3,8 +3,8 @@
 //! Takes a parsed `SourceFile` AST and produces well-formatted source text.
 
 use assura_parser::ast::{
-    BinOp, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef, Literal,
-    Pattern, ServiceDecl, ServiceItem, SourceFile, TypeBody, TypeDef, UnaryOp,
+    BinOp, BindDecl, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef,
+    Literal, Pattern, ServiceDecl, ServiceItem, SourceFile, TypeBody, TypeDef, UnaryOp,
     extract_clause_params,
 };
 
@@ -63,6 +63,7 @@ pub fn format_decl(decl: &Decl, out: &mut String) {
         Decl::TypeDef(t) => format_typedef(t, out),
         Decl::EnumDef(e) => format_enumdef(e, out),
         Decl::Extern(e) => format_extern(e, out),
+        Decl::Bind(b) => format_bind(b, out),
         Decl::FnDef(f) => format_fndef(f, out),
         Decl::Block {
             kind,
@@ -227,6 +228,35 @@ pub fn format_extern(e: &ExternDecl, out: &mut String) {
         format_clause(clause, out);
         out.push('\n');
     }
+}
+
+pub fn format_bind(b: &BindDecl, out: &mut String) {
+    out.push_str(&format!("bind \"{}\" as {} {{\n", b.target_path, b.name));
+    if !b.params.is_empty() {
+        out.push_str("    input(");
+        let params: Vec<String> = b
+            .params
+            .iter()
+            .map(|p| {
+                if p.ty.is_empty() {
+                    p.name.clone()
+                } else {
+                    format!("{}: {}", p.name, p.ty.join(" "))
+                }
+            })
+            .collect();
+        out.push_str(&params.join(", "));
+        out.push_str(")\n");
+    }
+    if !b.return_ty.is_empty() {
+        out.push_str(&format!("    output(result: {})\n", b.return_ty.join(" ")));
+    }
+    for clause in &b.clauses {
+        out.push_str("    ");
+        format_clause(clause, out);
+        out.push('\n');
+    }
+    out.push_str("}\n");
 }
 
 pub fn format_fndef(f: &FnDef, out: &mut String) {
