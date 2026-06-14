@@ -6243,4 +6243,72 @@ bind "my_crate::divide" as safe_divide {
             "should call the bound Rust function: {lib}"
         );
     }
+
+    #[test]
+    fn collect_type_refs_from_nested_exprs() {
+        use assura_parser::ast::*;
+        let mut out = std::collections::HashSet::new();
+
+        // Type ref inside a Match arm body
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("x".into())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Wildcard,
+                body: Expr::Call {
+                    func: Box::new(Expr::Ident("MyType".into())),
+                    args: vec![],
+                },
+            }],
+        };
+        collect_type_refs_from_expr(&expr, &mut out);
+        assert!(
+            out.contains("MyType"),
+            "should find type ref in Match arm body, got: {out:?}"
+        );
+
+        // Type ref inside a Let body
+        out.clear();
+        let expr = Expr::Let {
+            name: "x".into(),
+            value: Box::new(Expr::Literal(Literal::Int("1".into()))),
+            body: Box::new(Expr::Ident("SomeType".into())),
+        };
+        collect_type_refs_from_expr(&expr, &mut out);
+        assert!(
+            out.contains("SomeType"),
+            "should find type ref in Let body, got: {out:?}"
+        );
+
+        // Type ref inside a Tuple
+        out.clear();
+        let expr = Expr::Tuple(vec![
+            Expr::Ident("x".into()),
+            Expr::Ident("CustomStruct".into()),
+        ]);
+        collect_type_refs_from_expr(&expr, &mut out);
+        assert!(
+            out.contains("CustomStruct"),
+            "should find type ref in Tuple, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn feature_max_missing_value_emits_compile_error() {
+        // A feature_max referenced but with no extractable value should
+        // produce compile_error! in the generated code, not a silent "0".
+        let source = r#"
+feature_max UNKNOWN_CONST
+
+contract UseConst {
+    input(x: Int)
+    requires { x <= UNKNOWN_CONST }
+}
+"#;
+        let code = codegen_ok(source);
+        let lib = &code.files[0].1;
+        assert!(
+            lib.contains("compile_error!"),
+            "missing feature_max value should produce compile_error!, got:\n{lib}"
+        );
+    }
 }
