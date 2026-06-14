@@ -7,4 +7,4 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-ariadne = "0.4"
+ariadne = "0.6"
