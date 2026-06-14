@@ -288,6 +288,7 @@ impl LanguageServer for AssuraLanguageServer {
                 SymbolKind::TypeParam => "type parameter",
                 SymbolKind::Field => "field",
                 SymbolKind::EnumVariant => "enum variant",
+                SymbolKind::Prophecy => "ghost prophecy",
             };
 
             let hover_text = format!("**{kind_label}** `{word}`\n\nType: `{type_info}`");
@@ -355,6 +356,7 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::TypeParam => CompletionItemKind::TYPE_PARAMETER,
                     SymbolKind::Field => CompletionItemKind::FIELD,
                     SymbolKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
+                    SymbolKind::Prophecy => CompletionItemKind::VARIABLE,
                     SymbolKind::BuiltinType => CompletionItemKind::CLASS,
                 };
                 let detail = match sym.kind {
@@ -371,6 +373,7 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::TypeParam => "type parameter",
                     SymbolKind::Field => "field",
                     SymbolKind::EnumVariant => "enum variant",
+                    SymbolKind::Prophecy => "ghost prophecy",
                     SymbolKind::BuiltinType => "builtin type",
                 };
                 items.push(CompletionItem {
@@ -709,6 +712,16 @@ fn collect_document_symbols(
                 result.push(SymbolInformation {
                     name: b.name.clone(),
                     kind: SymbolKind2::FUNCTION,
+                    tags: None,
+                    deprecated: None,
+                    location: Location::new(doc_uri.clone(), range),
+                    container_name: None,
+                });
+            }
+            Decl::Prophecy(p) => {
+                result.push(SymbolInformation {
+                    name: p.name.clone(),
+                    kind: SymbolKind2::VARIABLE,
                     tags: None,
                     deprecated: None,
                     location: Location::new(doc_uri.clone(), range),

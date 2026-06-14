@@ -11,8 +11,8 @@ use assura_resolve::ResolvedFile;
 use crate::{
     DefId, HirBind, HirBlock, HirClause, HirClauseKind, HirContract, HirDecl, HirDeclKind,
     HirEnumDef, HirEnumVariant, HirExpr, HirExtern, HirFieldDef, HirFile, HirFnDef, HirMatchArm,
-    HirParam, HirService, HirServiceItem, HirType, HirTypeBody, HirTypeDef, parse_type_tokens,
-    resolve_hir_type,
+    HirParam, HirProphecy, HirService, HirServiceItem, HirType, HirTypeBody, HirTypeDef,
+    parse_type_tokens, resolve_hir_type,
 };
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,7 @@ impl LowerCtx<'_> {
             Decl::Extern(e) => HirDeclKind::Extern(self.lower_extern(e)),
             Decl::Bind(b) => HirDeclKind::Bind(self.lower_bind(b)),
             Decl::FnDef(f) => HirDeclKind::FnDef(self.lower_fndef(f)),
+            Decl::Prophecy(p) => HirDeclKind::Prophecy(self.lower_prophecy(p)),
             Decl::Block {
                 kind,
                 name,
@@ -237,6 +238,19 @@ impl LowerCtx<'_> {
         HirParam {
             name: p.name.clone(),
             ty: resolve_hir_type(p.parsed_type.as_ref(), &p.ty),
+        }
+    }
+
+    fn lower_prophecy(&self, p: &ast::ProphecyDecl) -> HirProphecy {
+        let ty = if p.ty_tokens.is_empty() {
+            HirType::Unit
+        } else {
+            parse_type_tokens(&p.ty_tokens)
+        };
+        HirProphecy {
+            id: self.resolver.resolve(&p.name),
+            name: p.name.clone(),
+            ty,
         }
     }
 

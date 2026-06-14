@@ -134,6 +134,9 @@ pub fn print_decl(decl: &Decl, indent: usize) {
                 );
             }
         }
+        Decl::Prophecy(p) => {
+            println!("{pad}GhostProphecy: {}: {}", p.name, p.ty_tokens.join(" "));
+        }
         Decl::FnDef(f) => {
             let params = f
                 .params

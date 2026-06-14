@@ -78,6 +78,7 @@ pub enum HirDeclKind {
     Extern(HirExtern),
     Bind(HirBind),
     FnDef(HirFnDef),
+    Prophecy(HirProphecy),
     Block(HirBlock),
 }
 
@@ -231,6 +232,13 @@ pub struct HirParam {
 // ---------------------------------------------------------------------------
 // Block declarations (feature, table, spec, etc.)
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct HirProphecy {
+    pub id: DefId,
+    pub name: String,
+    pub ty: HirType,
+}
 
 #[derive(Debug, Clone)]
 pub struct HirBlock {

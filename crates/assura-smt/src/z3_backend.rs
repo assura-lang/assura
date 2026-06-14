@@ -3205,7 +3205,9 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
                     &mut results,
                 );
             }
-            Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+            // Prophecy variables don't have verifiable clauses directly;
+            // they are used as existential witnesses in contract proofs.
+            Decl::Prophecy(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
     }
 

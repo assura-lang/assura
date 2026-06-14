@@ -163,13 +163,14 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     .unwrap_or_else(|| "u64".to_string());
                 feature_max_consts.push((name.clone(), ty));
             }
-            // Contract, Service, FnDef, Extern, and non-feature_max blocks
-            // don't define type names or feature_max constants.
+            // Contract, Service, FnDef, Extern, Prophecy, and non-feature_max
+            // blocks don't define type names or feature_max constants.
             Decl::Contract(_)
             | Decl::Service(_)
             | Decl::FnDef(_)
             | Decl::Extern(_)
             | Decl::Bind(_)
+            | Decl::Prophecy(_)
             | Decl::Block { .. } => {}
         }
     }
@@ -240,9 +241,9 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     collect_type_refs_from_tokens(&p.ty, &mut referenced_types);
                 }
             }
-            // EnumDef and Block don't contribute type references
+            // EnumDef, Prophecy, and Block don't contribute type references
             // that need stub generation.
-            Decl::EnumDef(_) | Decl::Block { .. } => {}
+            Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::Block { .. } => {}
         }
     }
 
@@ -274,12 +275,13 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                         token_lists.push(p.ty.as_slice());
                     }
                 }
-                // Contract, Service, TypeDef, EnumDef, and Block don't have
-                // typed param/return tokens.
+                // Contract, Service, TypeDef, EnumDef, Prophecy, and Block
+                // don't have typed param/return tokens.
                 Decl::Contract(_)
                 | Decl::Service(_)
                 | Decl::TypeDef(_)
                 | Decl::EnumDef(_)
+                | Decl::Prophecy(_)
                 | Decl::Block { .. } => {}
             }
             for tokens in token_lists {
@@ -347,9 +349,13 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     token_lists.push(p.ty.as_slice());
                 }
             }
-            // Contract, Service, EnumDef, and Block don't have typed
-            // token sequences relevant for generic arity detection.
-            Decl::Contract(_) | Decl::Service(_) | Decl::EnumDef(_) | Decl::Block { .. } => {}
+            // Contract, Service, EnumDef, Prophecy, and Block don't have
+            // typed token sequences relevant for generic arity detection.
+            Decl::Contract(_)
+            | Decl::Service(_)
+            | Decl::EnumDef(_)
+            | Decl::Prophecy(_)
+            | Decl::Block { .. } => {}
         }
         for tokens in token_lists {
             detect_generic_arity(tokens, &mut type_generic_params, &mut const_generic_names);
@@ -392,6 +398,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::Service(_)
             | Decl::TypeDef(_)
             | Decl::EnumDef(_)
+            | Decl::Prophecy(_)
             | Decl::Block { .. } => {}
         }
         for tokens in token_lists {
@@ -480,6 +487,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::FnDef(_)
             | Decl::Extern(_)
             | Decl::Bind(_)
+            | Decl::Prophecy(_)
             | Decl::Block { .. } => {}
         }
     }
@@ -518,6 +526,8 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                         generate_block(kind, name, body, &mut shared);
                     }
                 }
+                // Prophecy variables are ghost; erased in codegen.
+                Decl::Prophecy(_) => {}
                 // Contracts and services go into their own files.
                 Decl::Contract(_) | Decl::Service(_) => {}
             }
@@ -539,6 +549,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 | Decl::FnDef(_)
                 | Decl::Extern(_)
                 | Decl::Bind(_)
+                | Decl::Prophecy(_)
                 | Decl::Block { .. } => {}
             }
         }
@@ -607,6 +618,8 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     }
                 }
                 Decl::Service(s) => generate_service(s, &mut all_code),
+                // Prophecy variables are ghost; erased in codegen.
+                Decl::Prophecy(_) => {}
                 Decl::Block {
                     kind, name, body, ..
                 } => {

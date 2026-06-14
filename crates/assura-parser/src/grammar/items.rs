@@ -18,9 +18,17 @@ pub(crate) fn decl(p: &mut Parser) {
         SyntaxKind::BIND_KW => bind_decl(p),
         SyntaxKind::FN_KW | SyntaxKind::AXIOM_KW | SyntaxKind::LEMMA_KW => fn_def(p),
         // Modifier-prefixed fn: pure/ghost/opaque + fn/axiom/lemma
-        SyntaxKind::PURE_KW | SyntaxKind::GHOST_KW | SyntaxKind::OPAQUE_KW => {
-            // Look ahead to see if a fn/axiom/lemma follows the modifiers
+        SyntaxKind::PURE_KW | SyntaxKind::OPAQUE_KW => {
             if is_fn_ahead(p) {
+                fn_def(p);
+            } else {
+                generic_block(p);
+            }
+        }
+        SyntaxKind::GHOST_KW => {
+            if p.nth(1) == SyntaxKind::PROPHECY_KW {
+                prophecy_decl(p);
+            } else if is_fn_ahead(p) {
                 fn_def(p);
             } else {
                 generic_block(p);
@@ -295,6 +303,28 @@ fn bind_decl(p: &mut Parser) {
     p.expect(SyntaxKind::R_BRACE);
 
     m.complete(p, SyntaxKind::BIND_DECL);
+}
+
+/// `ghost prophecy <name> : <Type>`
+fn prophecy_decl(p: &mut Parser) {
+    let m = p.open();
+    p.expect(SyntaxKind::GHOST_KW);
+    p.expect(SyntaxKind::PROPHECY_KW);
+    p.expect(SyntaxKind::IDENT); // name
+    if p.at(SyntaxKind::COLON) {
+        p.bump(); // ':'
+        // Consume type tokens until end-of-statement
+        while !p.eof()
+            && !p.at(SyntaxKind::GHOST_KW)
+            && !p.at(SyntaxKind::CONTRACT_KW)
+            && !p.at(SyntaxKind::FN_KW)
+            && !p.at(SyntaxKind::SERVICE_KW)
+            && !p.at(SyntaxKind::R_BRACE)
+        {
+            p.bump();
+        }
+    }
+    m.complete(p, SyntaxKind::PROPHECY_DECL);
 }
 
 /// [#[attr]] [pure|ghost|opaque]* (fn|axiom|lemma) name<T>(params) [-> RetType] [= { body }] [clauses] [{ body }]

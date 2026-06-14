@@ -48,6 +48,8 @@ pub enum Decl {
     EnumDef(EnumDef),
     Extern(ExternDecl),
     Bind(BindDecl),
+    /// Ghost prophecy variable declaration
+    Prophecy(ProphecyDecl),
     FnDef(FnDef),
     /// Catch-all for extended syntax (feature, incremental, liveness, etc.)
     Block {
@@ -542,6 +544,13 @@ pub struct BindDecl {
     pub return_ty: Vec<String>,
     pub return_type_expr: Option<TypeExpr>,
     pub clauses: Vec<Clause>,
+}
+
+/// Ghost prophecy variable: `ghost prophecy <name>: <type>`
+#[derive(Debug, Clone)]
+pub struct ProphecyDecl {
+    pub name: String,
+    pub ty_tokens: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

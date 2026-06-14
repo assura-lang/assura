@@ -644,6 +644,9 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
             SymbolKind::Parameter | SymbolKind::Field => Type::Unknown,
 
             SymbolKind::EnumVariant => Type::Named(sym.name.clone()),
+
+            // Prophecy variables: placeholder; enriched below from AST
+            SymbolKind::Prophecy => Type::Unknown,
         };
 
         env.insert(sym.name.clone(), ty);
@@ -775,7 +778,15 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
                     }
                 }
             }
-            _ => {}
+            // Prophecy variables: register their type annotation in the env
+            Decl::Prophecy(p) => {
+                if !p.ty_tokens.is_empty() {
+                    env.insert(p.name.clone(), parse_type_tokens(&p.ty_tokens));
+                }
+            }
+            // Bind params are registered above with Extern; Block and
+            // other structural decls don't contribute to the type env.
+            Decl::Bind(_) | Decl::Block { .. } => {}
         }
     }
 
@@ -818,6 +829,7 @@ fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
             SymbolKind::TypeParam => Type::TypeParam(sym.name.clone()),
             SymbolKind::Parameter | SymbolKind::Field => Type::Unknown,
             SymbolKind::EnumVariant => Type::Named(sym.name.clone()),
+            SymbolKind::Prophecy => Type::Unknown,
         };
         env.insert(sym.name.clone(), ty);
     }
@@ -934,6 +946,12 @@ fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
                         );
                     }
                 }
+            }
+            // Prophecy variables are ghost; register their type in the env
+            // so ensures clauses can reference the prophecy name.
+            HirDeclKind::Prophecy(p) => {
+                let ty = type_from_hir_type(&p.ty);
+                env.insert(p.name.clone(), ty);
             }
             HirDeclKind::Block(_) => {}
         }

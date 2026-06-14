@@ -35,6 +35,7 @@ pub enum SymbolKind {
     EnumDef,
     ExternFn,
     BindFn,
+    Prophecy,
     BuiltinType,
     Operation,
     Query,
@@ -742,6 +743,18 @@ pub fn resolve_with_modules(
                     }
                 }
             }
+            Decl::Prophecy(p) => {
+                // Ghost prophecy variables are registered as ghost symbols.
+                // They don't create a child scope.
+                try_insert(
+                    &mut table,
+                    &mut errors,
+                    module,
+                    &p.name,
+                    SymbolKind::Prophecy,
+                    decl.span.clone(),
+                );
+            }
             Decl::Block { name, .. } => {
                 // Generic blocks (feature, incremental, liveness, etc.)
                 // create a child scope for their body but don't register
@@ -1165,6 +1178,9 @@ fn resolve_type_refs(
                     find_scope_for(table, &e.name, module_scope).unwrap_or(module_scope);
                 check_enum_variant_types(e, table, enum_scope, &decl.span, lenient, errors);
             }
+            // Prophecy variables have a type annotation but it's stored as
+            // raw tokens, not structured params. No type ref resolution needed.
+            Decl::Prophecy(_) => {}
             Decl::Block { .. } => {}
         }
     }
@@ -1422,8 +1438,8 @@ fn resolve_clause_body_names(
                     }
                 }
             }
-            // TypeDef and EnumDef don't contain expressions.
-            Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+            // TypeDef, EnumDef, and Prophecy don't contain expressions.
+            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Prophecy(_) => {}
         }
     }
 }
@@ -1722,6 +1738,14 @@ fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                 for v in &e.variants {
                     for f in &v.fields {
                         names.insert(f.clone());
+                    }
+                }
+            }
+            Decl::Prophecy(p) => {
+                // Prophecy type tokens may reference user-defined types
+                for tok in &p.ty_tokens {
+                    if tok.chars().next().is_some_and(|c| c.is_uppercase()) {
+                        names.insert(tok.clone());
                     }
                 }
             }

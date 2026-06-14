@@ -317,8 +317,8 @@ pub(crate) fn check_clause_bodies(
                     check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
                 }
             }
-            // TypeDef and EnumDef don't have expression bodies
-            Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+            // TypeDef, EnumDef, and Prophecy don't have expression bodies
+            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Prophecy(_) => {}
         }
     }
 
@@ -461,6 +461,8 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                     check_clause_hir_expr(&ast_kind, &clause.body, env, &mut errors, span);
                 }
             }
+            // Prophecy variables don't have clause bodies to check.
+            HirDeclKind::Prophecy(_) => {}
             HirDeclKind::TypeDef(_) | HirDeclKind::EnumDef(_) => {}
         }
     }

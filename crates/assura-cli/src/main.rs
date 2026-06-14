@@ -887,6 +887,7 @@ fn run_check(
                         Decl::Extern(_) | Decl::Bind(_) => externs += 1,
                         Decl::FnDef(_) => fns += 1,
                         Decl::Service(_) => services += 1,
+                        Decl::Prophecy(_) => {}
                         Decl::Block { .. } => {}
                     }
                 }

@@ -66,6 +66,13 @@ pub fn lower_source_file(root: &SyntaxNode) -> SourceFile {
                     span,
                 });
             }
+            SyntaxKind::PROPHECY_DECL => {
+                let span = span_of(&child);
+                decls.push(Spanned {
+                    node: Decl::Prophecy(lower_prophecy(&child)),
+                    span,
+                });
+            }
             SyntaxKind::FN_DEF => {
                 let span = span_of(&child);
                 decls.push(Spanned {
@@ -1057,6 +1064,26 @@ fn lower_extern(n: &SyntaxNode) -> ExternDecl {
 // BindDecl
 // -----------------------------------------------------------------
 
+fn lower_prophecy(n: &SyntaxNode) -> ProphecyDecl {
+    // Skip ghost, prophecy keywords; find the name (first IDENT)
+    let name = first_ident(n);
+    // Collect type tokens after ':'
+    let mut ty_tokens = Vec::new();
+    let mut after_colon = false;
+    for elem in n.children_with_tokens() {
+        if let Some(tok) = elem.as_token() {
+            if tok.kind() == SyntaxKind::COLON {
+                after_colon = true;
+                continue;
+            }
+            if after_colon && tok.kind() != SyntaxKind::WHITESPACE {
+                ty_tokens.push(tok.text().to_string());
+            }
+        }
+    }
+    ProphecyDecl { name, ty_tokens }
+}
+
 fn lower_bind(n: &SyntaxNode) -> BindDecl {
     // Extract the target path from the string literal token
     let target_path = n
@@ -1670,5 +1697,52 @@ mod tests {
         } else {
             panic!("expected Decl::Bind");
         }
+    }
+
+    #[test]
+    fn test_prophecy_decl() {
+        let src = "ghost prophecy future_value: Int";
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::Prophecy(p) = &file.decls[0].node {
+            assert_eq!(p.name, "future_value");
+            assert_eq!(p.ty_tokens, vec!["Int"]);
+        } else {
+            panic!("expected Decl::Prophecy, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn test_prophecy_decl_no_type() {
+        let src = "ghost prophecy x";
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::Prophecy(p) = &file.decls[0].node {
+            assert_eq!(p.name, "x");
+            assert!(p.ty_tokens.is_empty());
+        } else {
+            panic!("expected Decl::Prophecy, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn test_prophecy_with_contract() {
+        let src = r#"
+ghost prophecy final_result: Int
+
+contract UseProphecy {
+    requires { final_result > 0 }
+}
+"#;
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 2);
+        assert!(matches!(&file.decls[0].node, Decl::Prophecy(_)));
+        assert!(matches!(&file.decls[1].node, Decl::Contract(_)));
     }
 }

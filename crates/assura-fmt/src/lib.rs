@@ -4,8 +4,8 @@
 
 use assura_parser::ast::{
     BinOp, BindDecl, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef,
-    Literal, Pattern, ServiceDecl, ServiceItem, SourceFile, TypeBody, TypeDef, UnaryOp,
-    extract_clause_params,
+    Literal, Pattern, ProphecyDecl, ServiceDecl, ServiceItem, SourceFile, TypeBody, TypeDef,
+    UnaryOp, extract_clause_params,
 };
 
 /// Format a `SourceFile` AST back to well-formatted source text.
@@ -64,6 +64,7 @@ pub fn format_decl(decl: &Decl, out: &mut String) {
         Decl::EnumDef(e) => format_enumdef(e, out),
         Decl::Extern(e) => format_extern(e, out),
         Decl::Bind(b) => format_bind(b, out),
+        Decl::Prophecy(p) => format_prophecy(p, out),
         Decl::FnDef(f) => format_fndef(f, out),
         Decl::Block {
             kind,
@@ -257,6 +258,16 @@ pub fn format_bind(b: &BindDecl, out: &mut String) {
         out.push('\n');
     }
     out.push_str("}\n");
+}
+
+pub fn format_prophecy(p: &ProphecyDecl, out: &mut String) {
+    out.push_str("ghost prophecy ");
+    out.push_str(&p.name);
+    if !p.ty_tokens.is_empty() {
+        out.push_str(": ");
+        out.push_str(&p.ty_tokens.join(" "));
+    }
+    out.push('\n');
 }
 
 pub fn format_fndef(f: &FnDef, out: &mut String) {

@@ -1,0 +1,19 @@
+// Test fixture for ghost prophecy variable declarations.
+// Ghost prophecy variables are existential witnesses used in verification.
+// They are erased during code generation (ghost semantics).
+
+ghost prophecy final_state: Int
+
+contract ProphecyContract {
+    input(x: Int)
+    output(result: Int)
+    requires { x > 0 }
+    ensures { result == final_state }
+}
+
+ghost prophecy convergence_point: Float
+
+contract ConvergenceCheck {
+    input(values: List<Float>)
+    requires { convergence_point > 0.0 }
+}

@@ -297,6 +297,7 @@ pub enum SyntaxKind {
     ENUM_DEF,
     EXTERN_DECL,
     BIND_DECL,
+    PROPHECY_DECL,
     FN_DEF,
     GENERIC_BLOCK,
 
