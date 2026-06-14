@@ -51,3 +51,6 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Build without Z3 (graceful fallback)
+        run: cargo check -p assura-smt --no-default-features

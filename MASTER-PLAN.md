@@ -211,7 +211,7 @@
     ```
   - Crate: `assura-cli/src/main.rs`
 
-- [ ] **R010**: Make Z3 feature enabled by default in workspace builds
+- [x] **R010**: Make Z3 feature enabled by default in workspace builds
   - Depends on: none
   - Currently `z3-verify` is behind an optional feature flag, so the
     default `cargo build` produces a compiler with no verification.
@@ -1056,3 +1056,9 @@ readability. When no verifiable clauses exist, the output now shows which
 contracts were present instead of a generic "no verifiable clauses" message.
 The `assura build` path uses the same grouped format. Added helper functions
 `print_grouped_verification`, `clause_owner`, and `collect_contract_names`.
+
+### R010 completed (2026-06-14)
+Z3 was already the default feature (`default = ["z3-verify"]` in
+assura-smt/Cargo.toml). CI already installs libz3-dev. Added CI step
+to verify the graceful fallback builds: `cargo check -p assura-smt
+--no-default-features`.
