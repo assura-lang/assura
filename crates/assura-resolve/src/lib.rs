@@ -1385,6 +1385,17 @@ fn resolve_clause_body_names(
                                 errors,
                             );
                         }
+                        ServiceItem::Other { body, .. } => {
+                            check_expr_idents(
+                                body,
+                                table,
+                                svc_scope,
+                                &Span::default(),
+                                lenient,
+                                &mut Vec::new(),
+                                errors,
+                            );
+                        }
                         _ => {}
                     }
                 }
