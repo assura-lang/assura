@@ -19,6 +19,7 @@ assura-smt = { path = "../assura-smt" }
 assura-hir = { path = "../assura-hir" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 assura-config = { path = "../assura-config" }
+assura-fmt = { path = "../assura-fmt" }
 logos = "0.15"
 chumsky = "0.9"
 ariadne = "0.4"

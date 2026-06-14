@@ -72,7 +72,9 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "assura-codegen",
+ "assura-config",
  "assura-diagnostics",
+ "assura-fmt",
  "assura-hir",
  "assura-parser",
  "assura-resolve",
@@ -112,8 +114,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "assura-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "assura-diagnostics"
 version = "0.1.0"
+
+[[package]]
+name = "assura-fmt"
+version = "0.1.0"
+dependencies = [
+ "assura-parser",
+]
 
 [[package]]
 name = "assura-hir"
