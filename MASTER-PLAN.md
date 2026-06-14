@@ -101,7 +101,7 @@
     `cargo check` (not just `syn::parse_file`)
   - Crate: `assura-codegen/src/lib.rs`
 
-- [ ] **R002**: Fix codegen module structure for multi-contract files
+- [x] **R002**: Fix codegen module structure for multi-contract files
   - Depends on: R001
   - Currently all generated code goes into one flat `lib.rs`
   - Multi-contract files should generate:
@@ -1036,3 +1036,14 @@ codegen and resolve. Replaced 11 wildcards on Decl, ServiceItem, and
 ClauseKind enums so rustc will warn when new variants are added.
 String-token and Expr wildcards were left as-is (too many variants,
 and they grow frequently).
+
+### R002 completed (2026-06-14)
+Multi-contract files now generate separate .rs module files. When a
+source file has 2+ contracts/services, codegen produces:
+- `src/lib.rs`: shared types, enums, externs, functions, `pub mod` decls
+- `src/contract_{name}.rs`: per-contract module with `use super::*`
+- `src/{service_name}.rs`: per-service module with `use super::*`
+Files with 0-1 contracts/services keep the existing single-file layout.
+Added `generate_contract_contents` and `generate_service_contents` for
+the multi-file path. Updated 1 existing test, added 4 new tests.
+Total: 94 codegen tests, 1,233 workspace tests passing.
