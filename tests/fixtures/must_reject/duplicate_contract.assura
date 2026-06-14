@@ -1,0 +1,16 @@
+// MUST REJECT A02003
+// Three contracts with the same name.
+contract Triple {
+    input(a: Int)
+    requires { a > 0 }
+}
+
+contract Triple {
+    input(b: Int)
+    requires { b > 0 }
+}
+
+contract Triple {
+    input(c: Int)
+    requires { c > 0 }
+}

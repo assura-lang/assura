@@ -1,0 +1,5 @@
+// MUST REJECT A02001
+// References an undefined type in a function parameter.
+fn bad_param(x: UnknownType) -> Int {
+    requires { x > 0 }
+}

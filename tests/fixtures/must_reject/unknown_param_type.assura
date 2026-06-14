@@ -1,0 +1,4 @@
+// MUST REJECT A02001
+// Function parameter uses an unknown type name.
+fn bad(x: Widget, y: Int) -> Int
+    requires { y > 0 }

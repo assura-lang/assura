@@ -2561,79 +2561,88 @@ contract Typed {
     /// Walk tests/fixtures/errors/*.assura looking for `// MUST REJECT Axxxxx`
     /// annotations. Each annotated file must produce a type error with the
     /// specified code. This validates the error detection pipeline.
+    /// Scans both `tests/fixtures/errors/` and `tests/fixtures/must_reject/`.
     #[test]
     fn test_must_reject_fixtures() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .parent()
-            .unwrap()
-            .join("tests/fixtures/errors");
+            .unwrap();
+
+        let dirs = [
+            root.join("tests/fixtures/errors"),
+            root.join("tests/fixtures/must_reject"),
+        ];
 
         let mut tested = 0;
-        for entry in std::fs::read_dir(&dir).expect("cannot read error fixtures dir") {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("assura") {
+        for dir in &dirs {
+            if !dir.exists() {
                 continue;
             }
-            let source = std::fs::read_to_string(&path).unwrap();
-
-            // Look for // MUST REJECT Axxxxx
-            let expected_code = source.lines().find_map(|line| {
-                let trimmed = line.trim();
-                if trimmed.starts_with("// MUST REJECT ") {
-                    Some(trimmed.strip_prefix("// MUST REJECT ")?.trim().to_string())
-                } else {
-                    None
-                }
-            });
-            let Some(code) = expected_code else {
-                continue; // No annotation, skip
-            };
-
-            let (file, _parse_errors) = assura_parser::parse(&source);
-            let Some(file) = file else {
-                continue; // Parse failed entirely, not a type check test
-            };
-            let resolved = match assura_resolve::resolve(&file) {
-                Ok(r) => r,
-                Err(res_errors) => {
-                    // Check if the expected code is a resolution error
-                    let found = res_errors.iter().any(|e| e.code == code);
-                    assert!(
-                        found,
-                        "{}: expected resolution error {code}, got: {:?}",
-                        path.display(),
-                        res_errors
-                    );
-                    tested += 1;
+            for entry in std::fs::read_dir(dir).expect("cannot read fixtures dir") {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("assura") {
                     continue;
                 }
-            };
-            let type_result = assura_types::type_check(&resolved);
-            match type_result {
-                Err(type_errors) => {
-                    let found = type_errors.iter().any(|e| e.code == code);
-                    assert!(
-                        found,
-                        "{}: expected type error {code}, got: {:?}",
-                        path.display(),
-                        type_errors
-                    );
+                let source = std::fs::read_to_string(&path).unwrap();
+
+                // Look for // MUST REJECT Axxxxx
+                let expected_code = source.lines().find_map(|line| {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("// MUST REJECT ") {
+                        Some(trimmed.strip_prefix("// MUST REJECT ")?.trim().to_string())
+                    } else {
+                        None
+                    }
+                });
+                let Some(code) = expected_code else {
+                    continue; // No annotation, skip
+                };
+
+                let (file, _parse_errors) = assura_parser::parse(&source);
+                let Some(file) = file else {
+                    continue; // Parse failed entirely, not a type check test
+                };
+                let resolved = match assura_resolve::resolve(&file) {
+                    Ok(r) => r,
+                    Err(res_errors) => {
+                        let found = res_errors.iter().any(|e| e.code == code);
+                        assert!(
+                            found,
+                            "{}: expected resolution error {code}, got: {:?}",
+                            path.display(),
+                            res_errors
+                        );
+                        tested += 1;
+                        continue;
+                    }
+                };
+                let type_result = assura_types::type_check(&resolved);
+                match type_result {
+                    Err(type_errors) => {
+                        let found = type_errors.iter().any(|e| e.code == code);
+                        assert!(
+                            found,
+                            "{}: expected type error {code}, got: {:?}",
+                            path.display(),
+                            type_errors
+                        );
+                    }
+                    Ok(_) => {
+                        panic!(
+                            "{}: expected error {code} but type checking succeeded",
+                            path.display()
+                        );
+                    }
                 }
-                Ok(_) => {
-                    panic!(
-                        "{}: expected error {code} but type checking succeeded",
-                        path.display()
-                    );
-                }
+                tested += 1;
             }
-            tested += 1;
         }
         assert!(
-            tested >= 3,
-            "expected at least 3 MUST REJECT fixtures, found {tested}"
+            tested >= 15,
+            "expected at least 15 MUST REJECT fixtures, found {tested}"
         );
     }
 

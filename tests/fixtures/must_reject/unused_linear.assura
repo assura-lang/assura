@@ -1,0 +1,4 @@
+// MUST REJECT A05002
+// A linear variable declared but never used.
+fn unused(x: linear Int) -> Int
+    ensures { result > 0 }

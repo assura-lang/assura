@@ -1,0 +1,6 @@
+// MUST REJECT A03010
+// Division by zero in a constant expression.
+contract DivZero {
+    input(x: Int)
+    requires { x / 0 > 0 }
+}

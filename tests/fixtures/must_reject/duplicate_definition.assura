@@ -1,0 +1,11 @@
+// MUST REJECT A02003
+// Two contracts with the same name in one file.
+contract Duplicate {
+    input(x: Int)
+    requires { x > 0 }
+}
+
+contract Duplicate {
+    input(y: Int)
+    requires { y > 0 }
+}

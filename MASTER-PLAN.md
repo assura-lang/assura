@@ -602,7 +602,7 @@
     - Incremental edits: edit a document, verify diagnostics update
   - Target: 30+ tests for LSP
 
-- [ ] **T203**: Add negative test suite (MUST REJECT files)
+- [x] **T203**: Add negative test suite (MUST REJECT files)
   - Depends on: none
   - Create `tests/fixtures/must_reject/` with .assura files that must
     produce specific error codes:
@@ -1228,3 +1228,12 @@ compiler passes can emit unified diagnostics. CLI gains
 `render_diagnostic()` (ariadne renderer for Diagnostic) and
 `DiagnosticJson::from_diagnostic()` (JSON conversion). 6 new
 diagnostic tests. 1,296 total tests passing.
+
+### T203 completed (2026-06-13)
+Added 15 MUST REJECT fixture files in `tests/fixtures/must_reject/`
+covering 11 unique error codes: A02001, A02003, A02008, A03001,
+A03002, A03005, A03006, A03010, A05001, A07003, A08001. Updated the
+`test_must_reject_fixtures` harness to scan both `tests/fixtures/errors/`
+and `tests/fixtures/must_reject/` directories. Total 24 annotated
+negative test fixtures across both directories, all validated through
+the full pipeline (parse, resolve, type_check). 1,296 total tests passing.

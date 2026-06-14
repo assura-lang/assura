@@ -1,0 +1,5 @@
+// MUST REJECT A05001
+// A linear variable used more than once in requires and ensures.
+fn double_use(x: linear Int) -> Int
+    requires { x > 0 }
+    ensures { result == x + x }

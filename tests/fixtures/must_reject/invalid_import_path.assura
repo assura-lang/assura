@@ -1,0 +1,3 @@
+// MUST REJECT A02008
+// Invalid import path segment (must start with lowercase).
+import BadModule.Util

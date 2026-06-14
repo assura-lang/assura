@@ -1,0 +1,7 @@
+// MUST REJECT A07003
+// Uses an effect name that is not in the known set.
+contract UnknownEffect {
+    input(x: Int)
+    effects: compute
+    requires { x > 0 }
+}

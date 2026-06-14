@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+// Arithmetic on boolean operands is not allowed.
+contract BadMath {
+    input(x: Bool)
+    requires { x + 1 > 0 }
+}

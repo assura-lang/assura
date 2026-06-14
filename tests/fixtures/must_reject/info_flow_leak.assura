@@ -1,0 +1,4 @@
+// MUST REJECT A08001
+// Information flow violation: secret data leaks to public output.
+fn leak(key: secret Int) -> Int
+    ensures { result == key }

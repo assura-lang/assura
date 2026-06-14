@@ -60,6 +60,7 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "assura-codegen",
+ "assura-diagnostics",
  "assura-parser",
  "assura-resolve",
  "assura-smt",
@@ -81,6 +82,10 @@ dependencies = [
  "prettyplease",
  "syn",
 ]
+
+[[package]]
+name = "assura-diagnostics"
+version = "0.1.0"
 
 [[package]]
 name = "assura-lsp"
@@ -110,6 +115,7 @@ dependencies = [
 name = "assura-resolve"
 version = "0.1.0"
 dependencies = [
+ "assura-diagnostics",
  "assura-parser",
 ]
 
@@ -149,6 +155,7 @@ dependencies = [
 name = "assura-types"
 version = "0.1.0"
 dependencies = [
+ "assura-diagnostics",
  "assura-parser",
  "assura-resolve",
 ]

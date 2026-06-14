@@ -1,0 +1,6 @@
+// MUST REJECT A03006
+// Invariant clause must be Bool, not Int.
+contract BadInvariant {
+    input(x: Int)
+    invariant { x }
+}

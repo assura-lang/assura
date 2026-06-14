@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+// Negation applied to a non-boolean type.
+contract BadNegation {
+    input(x: String)
+    requires { !x }
+}

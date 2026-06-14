@@ -1,0 +1,10 @@
+// MUST REJECT A03002
+// Calling a function with wrong number of arguments.
+contract ArityError {
+    input(x: Int, y: Int)
+    requires { add(x, y, 1) > 0 }
+}
+
+fn add(a: Int, b: Int) -> Int {
+    requires { a > 0 }
+}

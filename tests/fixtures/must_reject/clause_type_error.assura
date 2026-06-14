@@ -1,0 +1,6 @@
+// MUST REJECT A03006
+// A requires clause body that is not a boolean expression.
+contract BadClause {
+    input(x: Int)
+    requires { 42 }
+}
