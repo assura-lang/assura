@@ -26,24 +26,23 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  codeql:
-    name: CodeQL analysis
-    # GHAS is not available on private repos without a license.
-    # Allow failure so CodeQL does not block PRs until the repo is public.
-    continue-on-error: true
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
-    timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: actions
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+  # CodeQL is disabled while the repo is private (GHAS required for
+  # code scanning SARIF uploads on private repos). Re-enable when
+  # the repo goes public by uncommenting below.
+  #
+  # codeql:
+  #   name: CodeQL analysis
+  #   runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+  #   timeout-minutes: 30
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     security-events: write
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #     - name: Initialize CodeQL
+  #       uses: github/codeql-action/init@v3
+  #       with:
+  #         languages: actions
+  #     - name: Perform CodeQL Analysis
+  #       uses: github/codeql-action/analyze@v3
