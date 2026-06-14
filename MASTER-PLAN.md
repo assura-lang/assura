@@ -178,7 +178,7 @@
     `error[A01001]: unexpected 'foo', expected one of: '{', 'requires'`
   - Close issue #7
 
-- [ ] **R007**: Add integration tests for CLI build --output flag (issue #8)
+- [x] **R007**: Add integration tests for CLI build --output flag (issue #8)
   - Depends on: R001
   - Tests:
     - Custom output directory is created and receives files
@@ -1022,3 +1022,10 @@ Parser error messages already included expected tokens (implemented during
 T-series). Added `.labelled("declaration")` and `.labelled("clause keyword")`
 annotations to key parser combinators for cleaner expected sets. Added test
 verifying parse errors include non-empty expected token set.
+
+### R007 completed (2026-06-14)
+Added 3 CLI integration tests for `assura build --output`:
+- Custom output dir creates Cargo.toml + src/lib.rs
+- Default output is "generated/" when --output omitted
+- Missing input file produces an error exit code
+Tests use process invocation of the built binary.

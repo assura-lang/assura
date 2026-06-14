@@ -2394,6 +2394,100 @@ contract DiskWrite {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// Helper to find the `assura` binary built by cargo.
+    fn assura_bin() -> std::path::PathBuf {
+        // Look next to the test binary itself (target/debug/)
+        let mut path = std::env::current_exe().unwrap();
+        path.pop(); // remove test binary name
+        if path.ends_with("deps") {
+            path.pop(); // target/debug/deps -> target/debug
+        }
+        path.push("assura");
+        if path.exists() {
+            return path;
+        }
+        // Fallback: just try "assura" on PATH
+        std::path::PathBuf::from("assura")
+    }
+
+    /// Workspace root (two levels up from crate manifest).
+    fn workspace_root() -> String {
+        env!("CARGO_MANIFEST_DIR").replace("/crates/assura-cli", "")
+    }
+
+    #[test]
+    fn build_cli_output_creates_custom_dir() {
+        // Integration test: invoke `assura build` with --output and verify
+        // the directory is created with Cargo.toml and src/lib.rs.
+        let tmp = std::env::temp_dir().join("assura_r007_custom_output");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let out = std::process::Command::new(assura_bin())
+            .args([
+                "build",
+                "demos/libwebp-huffman.assura",
+                "--output",
+                tmp.to_str().unwrap(),
+            ])
+            .current_dir(workspace_root())
+            .output()
+            .expect("failed to run assura build");
+        assert!(
+            out.status.success(),
+            "build should succeed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(tmp.join("Cargo.toml").exists(), "Cargo.toml should exist");
+        assert!(tmp.join("src/lib.rs").exists(), "src/lib.rs should exist");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn build_cli_default_output_is_generated() {
+        // Integration test: build without --output uses "generated/" directory.
+        // We run from a temp dir to avoid polluting the repo.
+        let workspace = std::env::temp_dir().join("assura_r007_default");
+        let _ = std::fs::remove_dir_all(&workspace);
+        std::fs::create_dir_all(&workspace).unwrap();
+        // Copy a demo file into the workspace
+        let demo_src = std::path::Path::new(&workspace_root()).join("demos/libwebp-huffman.assura");
+        let demo_dest = workspace.join("input.assura");
+        std::fs::copy(&demo_src, &demo_dest).unwrap();
+        let out = std::process::Command::new(assura_bin())
+            .args(["build", "input.assura"])
+            .current_dir(&workspace)
+            .output()
+            .expect("failed to run assura build");
+        assert!(
+            out.status.success(),
+            "build should succeed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            workspace.join("generated/Cargo.toml").exists(),
+            "default generated/Cargo.toml should exist"
+        );
+        assert!(
+            workspace.join("generated/src/lib.rs").exists(),
+            "default generated/src/lib.rs should exist"
+        );
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn build_cli_error_on_missing_file() {
+        // Integration test: build with a nonexistent file should fail.
+        let out = std::process::Command::new(assura_bin())
+            .args(["build", "nonexistent_file_r007.assura"])
+            .output()
+            .expect("failed to run assura build");
+        assert!(!out.status.success(), "build should fail for missing file");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("Error") || stderr.contains("error") || stderr.contains("No such file"),
+            "stderr should mention error: {stderr}"
+        );
+    }
+
     #[test]
     fn build_codegen_with_cranelift_backend() {
         let source = r#"
