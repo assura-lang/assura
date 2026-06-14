@@ -85,6 +85,8 @@ struct Encoder<'ctx> {
     /// Background axioms collected during encoding (e.g., len >= 0).
     /// These are asserted into the solver before each verification check.
     background_axioms: Vec<z3::ast::Bool<'ctx>>,
+    /// Trigger manager for quantifier e-matching hints
+    trigger_manager: crate::advanced::TriggerManager,
 }
 
 impl<'ctx> Encoder<'ctx> {
@@ -95,6 +97,7 @@ impl<'ctx> Encoder<'ctx> {
             func_arities: HashMap::new(),
             fresh_counter: 0,
             background_axioms: Vec::new(),
+            trigger_manager: crate::advanced::TriggerManager::new(),
         }
     }
 
@@ -169,6 +172,115 @@ impl<'ctx> Encoder<'ctx> {
             } else {
                 ast::Bool::and(self.ctx, &[&membership, body])
             }
+        }
+    }
+
+    /// Infer Z3 trigger patterns from function calls in a quantifier body
+    /// that reference the bound variable. Returns patterns for e-matching
+    /// hints that help the solver instantiate quantifiers efficiently.
+    fn infer_quantifier_patterns(
+        &mut self,
+        body: &Expr,
+        bound_var: &str,
+        bound_z3: &ast::Int<'ctx>,
+    ) -> Vec<z3::Pattern<'ctx>> {
+        let mut patterns = Vec::new();
+
+        // Check TriggerManager for user-provided or inferred triggers
+        let body_str = format!("{body:?}");
+        if let Some(trigger) = self.trigger_manager.infer_trigger(&body_str) {
+            for term in &trigger.terms {
+                if let Some(fname) = term.split('(').next() {
+                    let int_sort = z3::Sort::int(self.ctx);
+                    let func = z3::FuncDecl::new(self.ctx, fname.trim(), &[&int_sort], &int_sort);
+                    let bound_dyn: &dyn z3::ast::Ast<'ctx> = bound_z3;
+                    let app = func.apply(&[bound_dyn]);
+                    let pat = z3::Pattern::new(self.ctx, &[&app]);
+                    patterns.push(pat);
+                }
+            }
+        }
+
+        // Direct scan: look for Call expressions that reference the bound variable
+        if patterns.is_empty() {
+            self.collect_trigger_calls(body, bound_var, bound_z3, &mut patterns);
+        }
+
+        patterns
+    }
+
+    /// Recursively scan an expression for function calls containing the
+    /// bound variable, and create Z3 trigger patterns from them.
+    fn collect_trigger_calls(
+        &self,
+        expr: &Expr,
+        bound_var: &str,
+        bound_z3: &ast::Int<'ctx>,
+        patterns: &mut Vec<z3::Pattern<'ctx>>,
+    ) {
+        match expr {
+            Expr::Call { func, args } => {
+                let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
+                if refs_bound && let Expr::Ident(fname) = func.as_ref() {
+                    let int_sort = z3::Sort::int(self.ctx);
+                    let arity = args.len();
+                    let param_sorts: Vec<&z3::Sort<'_>> = (0..arity).map(|_| &int_sort).collect();
+                    let func_decl =
+                        z3::FuncDecl::new(self.ctx, fname.as_str(), &param_sorts, &int_sort);
+                    let z3_args: Vec<ast::Dynamic<'ctx>> = args
+                        .iter()
+                        .map(|a| {
+                            if expr_references_var(a, bound_var) {
+                                ast::Dynamic::from_ast(bound_z3)
+                            } else {
+                                ast::Dynamic::from_ast(&ast::Int::new_const(
+                                    self.ctx,
+                                    "__trigger_other",
+                                ))
+                            }
+                        })
+                        .collect();
+                    let arg_refs: Vec<&dyn z3::ast::Ast<'ctx>> = z3_args
+                        .iter()
+                        .map(|d| d as &dyn z3::ast::Ast<'ctx>)
+                        .collect();
+                    let app = func_decl.apply(&arg_refs);
+                    let pat = z3::Pattern::new(self.ctx, &[&app]);
+                    patterns.push(pat);
+                }
+                for a in args {
+                    self.collect_trigger_calls(a, bound_var, bound_z3, patterns);
+                }
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                self.collect_trigger_calls(receiver, bound_var, bound_z3, patterns);
+                for a in args {
+                    self.collect_trigger_calls(a, bound_var, bound_z3, patterns);
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                self.collect_trigger_calls(lhs, bound_var, bound_z3, patterns);
+                self.collect_trigger_calls(rhs, bound_var, bound_z3, patterns);
+            }
+            Expr::UnaryOp { expr: e, .. } | Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
+                self.collect_trigger_calls(e, bound_var, bound_z3, patterns);
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_trigger_calls(cond, bound_var, bound_z3, patterns);
+                self.collect_trigger_calls(then_branch, bound_var, bound_z3, patterns);
+                if let Some(eb) = else_branch {
+                    self.collect_trigger_calls(eb, bound_var, bound_z3, patterns);
+                }
+            }
+            Expr::Index { expr: e, index } => {
+                self.collect_trigger_calls(e, bound_var, bound_z3, patterns);
+                self.collect_trigger_calls(index, bound_var, bound_z3, patterns);
+            }
+            _ => {}
         }
     }
 
@@ -734,9 +846,11 @@ impl<'ctx> Encoder<'ctx> {
                 self.vars.insert(var.clone(), Z3Value::Int(bound.clone()));
                 let body_val = self.encode_expr(body);
                 let body_bool = body_val.as_bool(self.ctx);
-                // Domain-aware: forall x in lo..hi: P  =>  forall x: (lo <= x && x < hi) => P
                 let guarded = self.guard_quantifier_body(domain, &bound, &body_bool, true);
-                let result = ast::forall_const(self.ctx, &[&bound], &[], &guarded);
+                // Infer trigger patterns from function calls in the body
+                let patterns = self.infer_quantifier_patterns(body, var, &bound);
+                let pattern_refs: Vec<&z3::Pattern<'ctx>> = patterns.iter().collect();
+                let result = ast::forall_const(self.ctx, &[&bound], &pattern_refs, &guarded);
                 Z3Value::Bool(result)
             }
 
@@ -746,9 +860,10 @@ impl<'ctx> Encoder<'ctx> {
                 self.vars.insert(var.clone(), Z3Value::Int(bound.clone()));
                 let body_val = self.encode_expr(body);
                 let body_bool = body_val.as_bool(self.ctx);
-                // Domain-aware: exists x in lo..hi: P  =>  exists x: (lo <= x && x < hi) && P
                 let guarded = self.guard_quantifier_body(domain, &bound, &body_bool, false);
-                let result = ast::exists_const(self.ctx, &[&bound], &[], &guarded);
+                let patterns = self.infer_quantifier_patterns(body, var, &bound);
+                let pattern_refs: Vec<&z3::Pattern<'ctx>> = patterns.iter().collect();
+                let result = ast::exists_const(self.ctx, &[&bound], &pattern_refs, &guarded);
                 Z3Value::Bool(result)
             }
 
@@ -2176,6 +2291,11 @@ fn verify_clauses(
 
         let mut encoder = Encoder::new(ctx);
 
+        // Register known function names for trigger inference
+        for other_clause in clauses {
+            collect_function_names_for_triggers(&other_clause.body, &mut encoder.trigger_manager);
+        }
+
         // Assert all requires as assumptions
         for req in &requires {
             let req_val = encoder.encode_expr(&req.body);
@@ -3188,6 +3308,64 @@ fn num_cpus() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
+}
+
+/// Collect function names from an expression tree and register them
+/// with the trigger manager for quantifier e-matching.
+fn collect_function_names_for_triggers(expr: &Expr, tm: &mut crate::advanced::TriggerManager) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref() {
+                tm.register_function(name.clone());
+            }
+            for a in args {
+                collect_function_names_for_triggers(a, tm);
+            }
+        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            tm.register_function(method.clone());
+            collect_function_names_for_triggers(receiver, tm);
+            for a in args {
+                collect_function_names_for_triggers(a, tm);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_function_names_for_triggers(lhs, tm);
+            collect_function_names_for_triggers(rhs, tm);
+        }
+        Expr::UnaryOp { expr: e, .. } | Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
+            collect_function_names_for_triggers(e, tm);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_function_names_for_triggers(cond, tm);
+            collect_function_names_for_triggers(then_branch, tm);
+            if let Some(eb) = else_branch {
+                collect_function_names_for_triggers(eb, tm);
+            }
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_function_names_for_triggers(domain, tm);
+            collect_function_names_for_triggers(body, tm);
+        }
+        Expr::Index { expr: e, index } => {
+            collect_function_names_for_triggers(e, tm);
+            collect_function_names_for_triggers(index, tm);
+        }
+        _ => {}
+    }
+}
+
+/// Check if an expression references a named variable (used for trigger inference).
+fn expr_references_var(expr: &Expr, name: &str) -> bool {
+    expr_contains_ident(expr, name)
 }
 
 /// Check if an expression tree contains a specific identifier.
