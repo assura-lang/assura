@@ -14,8 +14,6 @@ use assura_parser::parser;
 use chumsky::Stream;
 use chumsky::prelude::*;
 use logos::Logos;
-use serde::Serialize;
-
 // ---------------------------------------------------------------------------
 // CLI argument definitions (clap 4)
 // ---------------------------------------------------------------------------
@@ -163,76 +161,6 @@ fn load_project_config(start_path: &Path) -> Option<(ProjectConfig, std::path::P
 }
 
 // ---------------------------------------------------------------------------
-// Structured diagnostic for JSON output
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize)]
-struct DiagnosticJson {
-    code: String,
-    message: String,
-    file: String,
-    start: usize,
-    end: usize,
-    severity: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    secondary: Option<SecondaryJson>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct SecondaryJson {
-    message: String,
-    start: usize,
-    end: usize,
-}
-
-impl DiagnosticJson {
-    /// Convert back to unified `assura_diagnostics::Diagnostic` for rendering.
-    fn to_diagnostic(&self) -> assura_diagnostics::Diagnostic {
-        let severity = match self.severity.as_str() {
-            "warning" => assura_diagnostics::Severity::Warning,
-            "info" => assura_diagnostics::Severity::Info,
-            _ => assura_diagnostics::Severity::Error,
-        };
-        let mut diag = assura_diagnostics::Diagnostic {
-            code: self.code.clone(),
-            severity,
-            message: self.message.clone(),
-            primary: self.start..self.end,
-            secondary: Vec::new(),
-            suggestion: None,
-        };
-        if let Some(ref sec) = self.secondary {
-            diag.secondary
-                .push((sec.start..sec.end, sec.message.clone()));
-        }
-        diag
-    }
-
-    /// Convert from the unified `assura_diagnostics::Diagnostic` type.
-    fn from_diagnostic(d: &assura_diagnostics::Diagnostic, filename: &str) -> Self {
-        let severity = match d.severity {
-            assura_diagnostics::Severity::Error => "error",
-            assura_diagnostics::Severity::Warning => "warning",
-            assura_diagnostics::Severity::Info => "info",
-        };
-        let secondary = d.secondary.first().map(|(span, msg)| SecondaryJson {
-            message: msg.clone(),
-            start: span.start,
-            end: span.end,
-        });
-        DiagnosticJson {
-            code: d.code.clone(),
-            message: d.message.clone(),
-            file: filename.to_string(),
-            start: d.primary.start,
-            end: d.primary.end,
-            severity: severity.to_string(),
-            secondary,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Pipeline timing
 // ---------------------------------------------------------------------------
 
@@ -256,14 +184,14 @@ struct CompilationResult {
     resolved: Option<assura_resolve::ResolvedFile>,
     hir: Option<assura_hir::HirFile>,
     typed: Option<assura_types::TypedFile>,
-    diagnostics: Vec<DiagnosticJson>,
+    diagnostics: Vec<assura_diagnostics::Diagnostic>,
     has_errors: bool,
     timing: TimingInfo,
 }
 
 /// Run lex -> parse -> resolve -> typecheck on source text, collecting all diagnostics.
 fn compile(source: &str, filename: &str) -> CompilationResult {
-    let mut diagnostics: Vec<DiagnosticJson> = Vec::new();
+    let mut diagnostics: Vec<assura_diagnostics::Diagnostic> = Vec::new();
     let mut has_errors = false;
 
     // --- Lex ---
@@ -276,15 +204,14 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
             Ok(t) => tokens.push((t, span)),
             Err(()) => {
                 has_errors = true;
-                diagnostics.push(DiagnosticJson {
-                    code: "A01001".to_string(),
-                    message: format!("unexpected character: {:?}", &source[span.clone()]),
-                    file: filename.to_string(),
-                    start: span.start,
-                    end: span.end,
-                    severity: "error".to_string(),
-                    secondary: None,
-                });
+                diagnostics.push(
+                    assura_diagnostics::Diagnostic::error(
+                        "A01001",
+                        format!("unexpected character: {:?}", &source[span.clone()]),
+                        span,
+                    )
+                    .with_file(filename),
+                );
             }
         }
     }
@@ -361,15 +288,10 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
             format!("expected {}, found {found}", expected.join(" or "))
         };
 
-        diagnostics.push(DiagnosticJson {
-            code: "A01002".to_string(),
-            message: msg,
-            file: filename.to_string(),
-            start: span.start,
-            end: span.end,
-            severity: "error".to_string(),
-            secondary: None,
-        });
+        diagnostics.push(
+            assura_diagnostics::Diagnostic::error("A01002", msg, span.start..span.end)
+                .with_file(filename),
+        );
     }
 
     // --- Resolve (only if we have a parsed file) ---
@@ -378,38 +300,32 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
         match assura_resolve::resolve(file) {
             Ok(r) => {
                 for w in &r.warnings {
-                    diagnostics.push(DiagnosticJson {
-                        code: w.code.to_string(),
-                        message: w.message.clone(),
-                        file: filename.to_string(),
-                        start: w.span.start,
-                        end: w.span.end,
-                        severity: "warning".to_string(),
-                        secondary: w.secondary.as_ref().map(|(span, msg)| SecondaryJson {
-                            message: msg.clone(),
-                            start: span.start,
-                            end: span.end,
-                        }),
-                    });
+                    let mut d = assura_diagnostics::Diagnostic::warning(
+                        w.code,
+                        w.message.clone(),
+                        w.span.clone(),
+                    )
+                    .with_file(filename);
+                    if let Some((span, msg)) = &w.secondary {
+                        d = d.with_secondary(span.clone(), msg.clone());
+                    }
+                    diagnostics.push(d);
                 }
                 Some(r)
             }
             Err(errs) => {
                 has_errors = true;
                 for e in &errs {
-                    diagnostics.push(DiagnosticJson {
-                        code: e.code.to_string(),
-                        message: e.message.clone(),
-                        file: filename.to_string(),
-                        start: e.span.start,
-                        end: e.span.end,
-                        severity: "error".to_string(),
-                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
-                            message: msg.clone(),
-                            start: span.start,
-                            end: span.end,
-                        }),
-                    });
+                    let mut d = assura_diagnostics::Diagnostic::error(
+                        e.code,
+                        e.message.clone(),
+                        e.span.clone(),
+                    )
+                    .with_file(filename);
+                    if let Some((span, msg)) = &e.secondary {
+                        d = d.with_secondary(span.clone(), msg.clone());
+                    }
+                    diagnostics.push(d);
                 }
                 None
             }
@@ -440,19 +356,16 @@ fn compile(source: &str, filename: &str) -> CompilationResult {
             Err(errs) => {
                 has_errors = true;
                 for e in &errs {
-                    diagnostics.push(DiagnosticJson {
-                        code: e.code.clone(),
-                        message: e.message.clone(),
-                        file: filename.to_string(),
-                        start: e.span.start,
-                        end: e.span.end,
-                        severity: "error".to_string(),
-                        secondary: e.secondary.as_ref().map(|(span, msg)| SecondaryJson {
-                            message: msg.clone(),
-                            start: span.start,
-                            end: span.end,
-                        }),
-                    });
+                    let mut d = assura_diagnostics::Diagnostic::error(
+                        e.code.clone(),
+                        e.message.clone(),
+                        e.span.clone(),
+                    )
+                    .with_file(filename);
+                    if let Some((span, msg)) = &e.secondary {
+                        d = d.with_secondary(span.clone(), msg.clone());
+                    }
+                    diagnostics.push(d);
                 }
                 None
             }
@@ -572,15 +485,8 @@ fn run_check(
 
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         if output_mode == OutputMode::Json {
-            let diag = DiagnosticJson {
-                code: "A01000".to_string(),
-                message: format!("{e}"),
-                file: filename.to_string(),
-                start: 0,
-                end: 0,
-                severity: "error".to_string(),
-                secondary: None,
-            };
+            let diag = assura_diagnostics::Diagnostic::error("A01000", format!("{e}"), 0..0)
+                .with_file(filename);
             println!("{}", serde_json::to_string_pretty(&[diag]).unwrap());
         } else {
             eprintln!("Error: {filename}: {e}");
@@ -682,18 +588,17 @@ fn run_check(
     if let Some(ref typed) = typed {
         let qwarnings = assura_smt::validate_quantifier_bounds(typed);
         for w in &qwarnings {
-            diagnostics.push(DiagnosticJson {
-                code: "A05200".to_string(),
-                message: format!(
-                    "unbounded quantifier in {}: {} ({})",
-                    w.context, w.domain_desc, w.reason
-                ),
-                file: filename.to_string(),
-                start: 0,
-                end: 0,
-                severity: "warning".to_string(),
-                secondary: None,
-            });
+            diagnostics.push(
+                assura_diagnostics::Diagnostic::warning(
+                    "A05200",
+                    format!(
+                        "unbounded quantifier in {}: {} ({})",
+                        w.context, w.domain_desc, w.reason
+                    ),
+                    0..0,
+                )
+                .with_file(filename),
+            );
         }
     }
 
@@ -719,15 +624,14 @@ fn run_check(
         } = vr
         {
             has_errors = true;
-            diagnostics.push(DiagnosticJson {
-                code: "A05100".to_string(),
-                message: format!("verification failed for {clause_desc}: {model}"),
-                file: filename.to_string(),
-                start: 0,
-                end: 0,
-                severity: "error".to_string(),
-                secondary: None,
-            });
+            diagnostics.push(
+                assura_diagnostics::Diagnostic::error(
+                    "A05100",
+                    format!("verification failed for {clause_desc}: {model}"),
+                    0..0,
+                )
+                .with_file(filename),
+            );
         }
     }
 
@@ -880,14 +784,12 @@ fn run_check(
         }
         OutputMode::Human => {
             // Lex errors already reported above; report the rest.
-            let non_lex: Vec<_> = diagnostics
-                .iter()
-                .filter(|d| d.code != "A01001")
-                .cloned()
-                .collect();
+            let non_lex: Vec<_> = diagnostics.iter().filter(|d| d.code != "A01001").collect();
             // Always report error diagnostics, even in quiet mode
             if has_errors || verbosity != Verbosity::Quiet {
-                report_diagnostics_human(&non_lex, filename, &source);
+                for d in &non_lex {
+                    assura_diagnostics::render_diagnostic(d, filename, &source);
+                }
             }
 
             // Print verification results grouped by contract/function
@@ -1033,18 +935,17 @@ fn check_file_once(
     if let Some(ref typed) = typed {
         let qwarnings = assura_smt::validate_quantifier_bounds(typed);
         for w in &qwarnings {
-            diagnostics.push(DiagnosticJson {
-                code: "A05200".to_string(),
-                message: format!(
-                    "unbounded quantifier in {}: {} ({})",
-                    w.context, w.domain_desc, w.reason
-                ),
-                file: filename.to_string(),
-                start: 0,
-                end: 0,
-                severity: "warning".to_string(),
-                secondary: None,
-            });
+            diagnostics.push(
+                assura_diagnostics::Diagnostic::warning(
+                    "A05200",
+                    format!(
+                        "unbounded quantifier in {}: {} ({})",
+                        w.context, w.domain_desc, w.reason
+                    ),
+                    0..0,
+                )
+                .with_file(filename),
+            );
         }
     }
 
@@ -1054,26 +955,23 @@ fn check_file_once(
         } = vr
         {
             has_errors = true;
-            diagnostics.push(DiagnosticJson {
-                code: "A05100".to_string(),
-                message: format!("verification failed for {clause_desc}: {model}"),
-                file: filename.to_string(),
-                start: 0,
-                end: 0,
-                severity: "error".to_string(),
-                secondary: None,
-            });
+            diagnostics.push(
+                assura_diagnostics::Diagnostic::error(
+                    "A05100",
+                    format!("verification failed for {clause_desc}: {model}"),
+                    0..0,
+                )
+                .with_file(filename),
+            );
         }
     }
 
     if output_mode == OutputMode::Human {
-        let non_lex: Vec<_> = diagnostics
-            .iter()
-            .filter(|d| d.code != "A01001")
-            .cloned()
-            .collect();
+        let non_lex: Vec<_> = diagnostics.iter().filter(|d| d.code != "A01001").collect();
         if has_errors || verbosity != Verbosity::Quiet {
-            report_diagnostics_human(&non_lex, filename, &source);
+            for d in &non_lex {
+                assura_diagnostics::render_diagnostic(d, filename, &source);
+            }
         }
 
         if verbosity != Verbosity::Quiet {
@@ -1154,13 +1052,6 @@ fn run_watch_loop(filename: &str, output_mode: OutputMode, verbosity: Verbosity,
         eprintln!();
         eprintln!("[watch] Watching for changes. Press Ctrl+C to stop.");
     }
-}
-
-/// Render diagnostics using ariadne for human-readable terminal output.
-fn report_diagnostics_human(diagnostics: &[DiagnosticJson], filename: &str, source: &str) {
-    let unified: Vec<assura_diagnostics::Diagnostic> =
-        diagnostics.iter().map(|d| d.to_diagnostic()).collect();
-    assura_diagnostics::report_diagnostics_human(&unified, filename, source);
 }
 
 // ---------------------------------------------------------------------------
@@ -1277,7 +1168,7 @@ fn run_build(
 
     // Report errors in human mode
     if has_errors {
-        report_diagnostics_human(&diagnostics, filename, &source);
+        assura_diagnostics::report_diagnostics_human(&diagnostics, filename, &source);
         eprintln!("{filename}: {} error(s) found", diagnostics.len());
         process::exit(1);
     }
@@ -1665,7 +1556,7 @@ fn run_legacy(filename: &str, verbosity: Verbosity, show_ast: bool, show_tokens:
     }
 
     if has_errors {
-        report_diagnostics_human(&diagnostics, filename, &source);
+        assura_diagnostics::report_diagnostics_human(&diagnostics, filename, &source);
         if verbosity != Verbosity::Quiet {
             eprintln!("{filename}: {} error(s) found", diagnostics.len());
         }

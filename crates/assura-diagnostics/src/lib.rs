@@ -11,7 +11,8 @@ use std::sync::LazyLock;
 pub type Span = Range<usize>;
 
 /// Diagnostic severity level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Severity {
     /// Informational message, not an error.
     Info,
@@ -21,8 +22,17 @@ pub enum Severity {
     Error,
 }
 
+/// A secondary span with a label, used for additional context in diagnostics.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SecondaryLabel {
+    /// The source span for this secondary label.
+    pub span: Span,
+    /// A description of what this secondary location refers to.
+    pub message: String,
+}
+
 /// A suggested fix for a diagnostic.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Suggestion {
     /// Human-readable description of what the fix does.
     pub message: String,
@@ -37,7 +47,7 @@ pub struct Suggestion {
 /// This is the unified error type emitted by all compiler passes.
 /// The CLI consumes `Vec<Diagnostic>` and renders them via ariadne
 /// (for human-readable output) or serializes them (for JSON output).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Diagnostic {
     /// Error code from the spec (e.g., "A01001", "A03005").
     pub code: String,
@@ -45,10 +55,12 @@ pub struct Diagnostic {
     pub severity: Severity,
     /// Human-readable error message.
     pub message: String,
+    /// Source file name (may be empty for in-memory compilations).
+    pub file: String,
     /// Primary source location where the error was detected.
     pub primary: Span,
     /// Secondary spans with labels (e.g., "expected type declared here").
-    pub secondary: Vec<(Span, String)>,
+    pub secondary: Vec<SecondaryLabel>,
     /// Optional suggested fix.
     pub suggestion: Option<Suggestion>,
 }
@@ -60,6 +72,7 @@ impl Diagnostic {
             code: code.into(),
             severity: Severity::Error,
             message: message.into(),
+            file: String::new(),
             primary: span,
             secondary: Vec::new(),
             suggestion: None,
@@ -72,15 +85,25 @@ impl Diagnostic {
             code: code.into(),
             severity: Severity::Warning,
             message: message.into(),
+            file: String::new(),
             primary: span,
             secondary: Vec::new(),
             suggestion: None,
         }
     }
 
+    /// Set the source file name for this diagnostic.
+    pub fn with_file(mut self, file: impl Into<String>) -> Self {
+        self.file = file.into();
+        self
+    }
+
     /// Add a secondary span with a label.
     pub fn with_secondary(mut self, span: Span, label: impl Into<String>) -> Self {
-        self.secondary.push((span, label.into()));
+        self.secondary.push(SecondaryLabel {
+            span,
+            message: label.into(),
+        });
         self
     }
 
@@ -119,16 +142,6 @@ impl std::fmt::Display for Severity {
             Severity::Error => write!(f, "error"),
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Conversions from crate-specific error types
-// ---------------------------------------------------------------------------
-
-/// Trait for types that can be converted into diagnostics.
-pub trait IntoDiagnostic {
-    /// Convert into a `Diagnostic`.
-    fn into_diagnostic(self) -> Diagnostic;
 }
 
 // ---------------------------------------------------------------------------
@@ -773,10 +786,10 @@ pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
                 .with_message(&diag.message)
                 .with_color(color),
         );
-    for (span, label) in &diag.secondary {
+    for sec in &diag.secondary {
         builder = builder.with_label(
-            Label::new((filename, span.clone()))
-                .with_message(label)
+            Label::new((filename, sec.span.clone()))
+                .with_message(&sec.message)
                 .with_color(Color::Blue),
         );
     }
@@ -818,7 +831,7 @@ mod tests {
         let d = Diagnostic::error("A03002", "expected Int", 10..20)
             .with_secondary(30..40, "declared here");
         assert_eq!(d.secondary.len(), 1);
-        assert_eq!(d.secondary[0].1, "declared here");
+        assert_eq!(d.secondary[0].message, "declared here");
     }
 
     #[test]
