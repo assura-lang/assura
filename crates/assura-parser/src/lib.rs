@@ -3,6 +3,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod ast;
+pub mod display;
 pub mod lexer;
 pub mod parser;
 
