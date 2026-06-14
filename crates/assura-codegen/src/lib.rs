@@ -1297,8 +1297,68 @@ fn old_var_name(expr: &Expr) -> String {
         Expr::MethodCall {
             receiver, method, ..
         } => format!("{}_{method}", old_var_name(receiver)),
-        Expr::Index { expr: e, .. } => old_var_name(e),
-        _ => "expr".to_string(),
+        Expr::Index { expr: e, .. } => format!("{}_idx", old_var_name(e)),
+        Expr::Literal(lit) => match lit {
+            Literal::Int(s) | Literal::Float(s) => format!("lit_{s}"),
+            Literal::Str(s) => format!("lit_{}", s.trim_matches('"')),
+            Literal::Bool(b) => format!("lit_{b}"),
+        },
+        Expr::BinOp { lhs, op, rhs } => {
+            let op_name = match op {
+                BinOp::Add => "add",
+                BinOp::Sub => "sub",
+                BinOp::Mul => "mul",
+                BinOp::Div => "div",
+                BinOp::Mod => "mod",
+                BinOp::And => "and",
+                BinOp::Or => "or",
+                BinOp::Eq => "eq",
+                BinOp::Neq => "neq",
+                BinOp::Lt => "lt",
+                BinOp::Gt => "gt",
+                BinOp::Lte => "lte",
+                BinOp::Gte => "gte",
+                BinOp::Implies => "implies",
+                BinOp::In => "in",
+                BinOp::NotIn => "notin",
+                BinOp::Concat => "concat",
+                BinOp::Range => "range",
+            };
+            format!("{}_{op_name}_{}", old_var_name(lhs), old_var_name(rhs))
+        }
+        Expr::UnaryOp { op, expr: e } => {
+            let prefix = match op {
+                UnaryOp::Neg => "neg",
+                UnaryOp::Not => "not",
+            };
+            format!("{prefix}_{}", old_var_name(e))
+        }
+        Expr::Old(inner) => old_var_name(inner),
+        Expr::Paren(inner) => old_var_name(inner),
+        Expr::Cast { expr: e, .. } => old_var_name(e),
+        Expr::Ghost(inner) => format!("ghost_{}", old_var_name(inner)),
+        Expr::Forall { var, .. } => format!("forall_{var}"),
+        Expr::Exists { var, .. } => format!("exists_{var}"),
+        Expr::If { cond, .. } => format!("if_{}", old_var_name(cond)),
+        Expr::Let { name, .. } => format!("let_{name}"),
+        Expr::Match { scrutinee, .. } => format!("match_{}", old_var_name(scrutinee)),
+        Expr::Apply { lemma_name, .. } => format!("apply_{lemma_name}"),
+        Expr::List(_) => "list".to_string(),
+        Expr::Tuple(_) => "tuple".to_string(),
+        Expr::Block(exprs) => {
+            if let Some(first) = exprs.first() {
+                old_var_name(first)
+            } else {
+                "block".to_string()
+            }
+        }
+        Expr::Raw(tokens) => {
+            if let Some(first) = tokens.first() {
+                first.clone()
+            } else {
+                "raw".to_string()
+            }
+        }
     }
 }
 
@@ -2753,7 +2813,30 @@ fn extract_output_type(body: &Expr) -> String {
             }
             "()".to_string()
         }
-        _ => "()".to_string(),
+        // Expressions that can carry type info through structure
+        Expr::If { then_branch, .. } => extract_output_type(then_branch),
+        Expr::Let { body, .. } => extract_output_type(body),
+        Expr::Match { arms, .. } => {
+            if let Some(arm) = arms.first() {
+                extract_output_type(&arm.body)
+            } else {
+                "()".to_string()
+            }
+        }
+        Expr::Old(inner) | Expr::Ghost(inner) | Expr::UnaryOp { expr: inner, .. } => {
+            extract_output_type(inner)
+        }
+        // These expression forms do not carry type annotations;
+        // the output clause type cannot be determined from them.
+        Expr::Literal(_)
+        | Expr::Field(_, _)
+        | Expr::MethodCall { .. }
+        | Expr::Index { .. }
+        | Expr::BinOp { .. }
+        | Expr::Forall { .. }
+        | Expr::Exists { .. }
+        | Expr::List(_)
+        | Expr::Apply { .. } => "()".to_string(),
     }
 }
 
