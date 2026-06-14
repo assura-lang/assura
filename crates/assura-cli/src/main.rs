@@ -3458,4 +3458,73 @@ timeout = 2000
             "expected at least 5 E2E test files, found {tested}"
         );
     }
+
+    // =======================================================================
+    // discover_rs_files unit tests (issue #49)
+    // =======================================================================
+
+    #[test]
+    fn discover_rs_files_finds_nested_files() {
+        let dir = std::env::temp_dir().join("assura_test_discover_nested");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub/deep")).unwrap();
+        std::fs::write(dir.join("main.rs"), "fn main() {}").unwrap();
+        std::fs::write(dir.join("sub/lib.rs"), "pub fn f() {}").unwrap();
+        std::fs::write(dir.join("sub/deep/util.rs"), "pub fn g() {}").unwrap();
+        // Non-Rust files should be skipped
+        std::fs::write(dir.join("notes.txt"), "not rust").unwrap();
+        std::fs::write(dir.join("sub/readme.md"), "docs").unwrap();
+
+        let found = super::discover_rs_files(&dir);
+        assert_eq!(found.len(), 3, "should find exactly 3 .rs files");
+        assert!(
+            found.iter().any(|p| p.ends_with("main.rs")),
+            "should find main.rs"
+        );
+        assert!(
+            found.iter().any(|p| p.ends_with("lib.rs")),
+            "should find sub/lib.rs"
+        );
+        assert!(
+            found.iter().any(|p| p.ends_with("util.rs")),
+            "should find sub/deep/util.rs"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discover_rs_files_empty_dir_returns_empty() {
+        let dir = std::env::temp_dir().join("assura_test_discover_empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let found = super::discover_rs_files(&dir);
+        assert!(found.is_empty(), "empty dir should yield no files");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discover_rs_files_nonexistent_returns_empty() {
+        let dir = std::env::temp_dir().join("assura_test_discover_nonexistent");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let found = super::discover_rs_files(&dir);
+        assert!(found.is_empty(), "nonexistent dir should yield no files");
+    }
+
+    #[test]
+    fn discover_rs_files_results_are_sorted() {
+        let dir = std::env::temp_dir().join("assura_test_discover_sorted");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::write(dir.join("b/z.rs"), "").unwrap();
+        std::fs::write(dir.join("a/a.rs"), "").unwrap();
+        std::fs::write(dir.join("c.rs"), "").unwrap();
+
+        let found = super::discover_rs_files(&dir);
+        let sorted = found.clone();
+        assert_eq!(found, sorted, "results should be sorted");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
