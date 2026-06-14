@@ -382,7 +382,7 @@
 
 ### S.3 Codegen Quality
 
-- [ ] **S008**: Generate compilable Rust for service declarations
+- [x] **S008**: Generate compilable Rust for service declarations
   - Depends on: R001
   - Services with typestate should generate:
     ```rust
@@ -1193,3 +1193,17 @@ Added `Layer2Verifier.verify()` method that delegates to Z3 when the
 feature is enabled. 6 new tests: forall trivially true, forall with
 counterexample, exists satisfiable, forall with assumption, empty
 verifier, string-based invariant structural check.
+
+### S008 completed (2026-06-13)
+Implemented typestate-encoded Rust codegen for service declarations.
+Services with `states:` now generate compile-time state marker structs
+(`pub struct Locked;`, `pub struct Unlocked;`), a generic service struct
+(`ServiceName<State>` with `PhantomData`), and state-specific `impl`
+blocks. State-transitioning operations consume `self` and return the
+new typed state (`fn Connect(self) -> Connection<Connected>`). Pre-state
+guards are enforced by the type system instead of runtime assertions.
+State-independent queries/operations go in a generic `impl<S>` block.
+Stateless services remain unchanged. Both `generate_service_contents()`
+(multi-file) and `generate_service()` (single-file) share the same
+typestate logic. 6 new tests, 3 existing tests updated. 1,283 total
+tests passing.

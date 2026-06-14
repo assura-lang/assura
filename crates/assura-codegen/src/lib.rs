@@ -2486,55 +2486,372 @@ fn generate_service_method(
     code.push_str("        }\n\n");
 }
 
-/// Generate service body as standalone module contents (no `pub mod` wrapper).
-/// Used in multi-file mode where each service gets its own `.rs` file.
-fn generate_service_contents(s: &ServiceDecl, code: &mut String) {
-    let has_states = s.items.iter().any(|i| matches!(i, ServiceItem::States(_)));
+/// Generate a service method for typestate-encoded services.
+///
+/// State transitions consume `self` and return `ServiceName<NewState>`.
+/// Pre-state guards are enforced by the type system (the method only
+/// exists on `impl ServiceName<PreState>`), so no runtime assertions.
+fn generate_typestate_method(
+    code: &mut String,
+    service_name: &str,
+    name: &str,
+    clauses: &[Clause],
+    is_mutation: bool,
+    _has_invariants: bool,
+) {
+    let mut input_params: Vec<(String, String)> = Vec::new();
+    let mut output_type = "()".to_string();
+    let mut requires_exprs: Vec<String> = Vec::new();
+    let mut ensures_exprs: Vec<String> = Vec::new();
+    let mut invariants: Vec<String> = Vec::new();
+    let mut post_state: Option<String> = None;
 
-    // Generate nested type/enum definitions and states enum
+    for clause in clauses {
+        match &clause.kind {
+            ClauseKind::Input => {
+                extract_input_params(&clause.body, &mut input_params);
+            }
+            ClauseKind::Output => {
+                output_type = extract_output_type(&clause.body);
+            }
+            ClauseKind::Requires => {
+                // State guards are encoded in the type, skip them
+                if extract_state_comparison(&clause.body).is_none() {
+                    requires_exprs.push(expr_to_rust(&clause.body));
+                }
+            }
+            ClauseKind::Ensures => {
+                if let Some(state) = extract_state_comparison(&clause.body) {
+                    post_state = Some(state);
+                } else {
+                    ensures_exprs.push(expr_to_rust(&clause.body));
+                }
+            }
+            ClauseKind::Invariant => {
+                invariants.push(expr_to_rust(&clause.body));
+            }
+            ClauseKind::Modifies
+            | ClauseKind::Effects
+            | ClauseKind::Errors
+            | ClauseKind::Rule
+            | ClauseKind::DataFlow
+            | ClauseKind::MustNot
+            | ClauseKind::Decreases
+            | ClauseKind::Other(_) => {}
+        }
+    }
+
+    let kind_label = if is_mutation { "Operation" } else { "Query" };
+    code.push_str(&format!("/// {kind_label}: {name}\n"));
+
+    // Doc comments
+    for clause in clauses {
+        match clause.kind {
+            ClauseKind::Requires => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("/// Requires: {expr}\n"));
+            }
+            ClauseKind::Ensures => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("/// Ensures: {expr}\n"));
+            }
+            ClauseKind::Effects => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("/// Effects: {expr}\n"));
+            }
+            ClauseKind::Modifies => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("/// Modifies: {expr}\n"));
+            }
+            ClauseKind::Input
+            | ClauseKind::Output
+            | ClauseKind::Invariant
+            | ClauseKind::Errors
+            | ClauseKind::Rule
+            | ClauseKind::DataFlow
+            | ClauseKind::MustNot
+            | ClauseKind::Decreases
+            | ClauseKind::Other(_) => {}
+        }
+    }
+
+    // Determine self parameter and return type based on state transition
+    let has_transition = post_state.is_some();
+    let self_param = if has_transition {
+        "self" // consume self for state transitions
+    } else if is_mutation {
+        "&mut self"
+    } else {
+        "&self"
+    };
+
+    let extra_params = if input_params.is_empty() {
+        String::new()
+    } else {
+        let ps: Vec<String> = input_params
+            .iter()
+            .map(|(n, t)| format!("{n}: {t}"))
+            .collect();
+        format!(", {}", ps.join(", "))
+    };
+
+    let ret_sig = if let Some(ref new_state) = post_state {
+        format!(" -> {service_name}<{new_state}>")
+    } else if output_type == "()" {
+        String::new()
+    } else {
+        format!(" -> {output_type}")
+    };
+
+    code.push_str(&format!(
+        "pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
+    ));
+
+    // Requires assertions (non-state-guard ones)
+    for req in &requires_exprs {
+        generate_debug_assert_indented(code, req, "requires", 1);
+    }
+
+    // For state transitions, todo!() coerces to the return type
+    // For non-transitions, standard pattern
+    // Invariant assertions (emitted before the body in all cases)
+    for inv in &invariants {
+        generate_debug_assert_indented(code, inv, "invariant", 1);
+    }
+
+    if post_state.is_some() || output_type == "()" {
+        code.push_str(&format!(
+            "    todo!(\"{} implementation\")\n",
+            kind_label.to_lowercase()
+        ));
+    } else {
+        code.push_str(&format!(
+            "    let __result: {output_type} = todo!(\"{} implementation\");\n",
+            kind_label.to_lowercase()
+        ));
+        for ens in &ensures_exprs {
+            generate_debug_assert_indented(code, ens, "ensures", 1);
+        }
+        code.push_str("    __result\n");
+    }
+
+    code.push_str("}\n");
+}
+
+/// Collect state names from a ServiceDecl.
+fn collect_service_states(s: &ServiceDecl) -> Vec<String> {
+    s.items
+        .iter()
+        .find_map(|i| match i {
+            ServiceItem::States(states) => Some(states.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// Extract pre_state from a method's clauses (the state guard in requires).
+fn method_pre_state(clauses: &[Clause]) -> Option<String> {
+    clauses.iter().find_map(|c| {
+        if matches!(c.kind, ClauseKind::Requires) {
+            extract_state_comparison(&c.body)
+        } else {
+            None
+        }
+    })
+}
+
+/// Generate typestate-encoded service body (marker structs, generic struct,
+/// state-specific impl blocks). Used when the service declares states.
+fn generate_typestate_service_body(s: &ServiceDecl, code: &mut String) {
+    let states = collect_service_states(s);
+    let has_invariants = s
+        .items
+        .iter()
+        .any(|i| matches!(i, ServiceItem::Invariant(_)));
+
+    // Generate nested type/enum definitions
     for item in &s.items {
         match item {
             ServiceItem::TypeDef(t) => generate_type_def(t, code),
             ServiceItem::EnumDef(e) => generate_enum_def(e, code),
-            ServiceItem::States(states) => {
-                code.push_str("#[derive(Debug, Clone, PartialEq)]\npub enum State {\n");
-                for state in states {
-                    code.push_str(&format!("    {state},\n"));
-                }
-                code.push_str("}\n\n");
-            }
-            ServiceItem::Operation { .. }
+            ServiceItem::States(_)
+            | ServiceItem::Operation { .. }
             | ServiceItem::Query { .. }
             | ServiceItem::Invariant(_)
             | ServiceItem::Other { .. } => {}
         }
     }
 
-    // Generate the service struct
-    code.push_str(&format!("#[derive(Debug)]\npub struct {} {{\n", s.name));
-    if has_states {
-        code.push_str("    pub state: State,\n");
+    // State marker structs
+    for state in &states {
+        code.push_str(&format!("/// State marker: {state}\npub struct {state};\n"));
     }
+    code.push('\n');
+
+    // Generic service struct with PhantomData
+    code.push_str(&format!(
+        "#[derive(Debug)]\npub struct {}<State> {{\n    _state: std::marker::PhantomData<State>,\n}}\n\n",
+        s.name
+    ));
+
+    // Group methods by pre_state
+    struct MethodRef<'a> {
+        name: &'a str,
+        clauses: &'a [Clause],
+        is_mutation: bool,
+    }
+
+    let mut state_methods: Vec<(Option<String>, Vec<MethodRef<'_>>)> = Vec::new();
+    let mut invariant_exprs: Vec<&Expr> = Vec::new();
+    let mut other_items: Vec<(&str, &Expr)> = Vec::new();
+
+    // Build ordered grouping: preserve state order from declaration
+    let mut state_order: Vec<Option<String>> = Vec::new();
+    // First entry: initial state (for new())
+    if let Some(first) = states.first() {
+        state_order.push(Some(first.clone()));
+    }
+    // Remaining states
+    for state in states.iter().skip(1) {
+        state_order.push(Some(state.clone()));
+    }
+    // Generic (None) for state-independent methods
+    state_order.push(None);
+
+    for key in &state_order {
+        state_methods.push((key.clone(), Vec::new()));
+    }
+
+    for item in &s.items {
+        match item {
+            ServiceItem::Operation { name, clauses } => {
+                let pre = method_pre_state(clauses);
+                let method = MethodRef {
+                    name,
+                    clauses,
+                    is_mutation: true,
+                };
+                if let Some(group) = state_methods.iter_mut().find(|(k, _)| *k == pre) {
+                    group.1.push(method);
+                } else {
+                    // State not in declared list; add to generic
+                    if let Some(group) = state_methods.iter_mut().find(|(k, _)| k.is_none()) {
+                        group.1.push(method);
+                    }
+                }
+            }
+            ServiceItem::Query { name, clauses } => {
+                let pre = method_pre_state(clauses);
+                let method = MethodRef {
+                    name,
+                    clauses,
+                    is_mutation: false,
+                };
+                if let Some(group) = state_methods.iter_mut().find(|(k, _)| *k == pre) {
+                    group.1.push(method);
+                } else {
+                    if let Some(group) = state_methods.iter_mut().find(|(k, _)| k.is_none()) {
+                        group.1.push(method);
+                    }
+                }
+            }
+            ServiceItem::Invariant(expr) => invariant_exprs.push(expr),
+            ServiceItem::Other { kind, body } => other_items.push((kind, body)),
+            ServiceItem::TypeDef(_) | ServiceItem::EnumDef(_) | ServiceItem::States(_) => {}
+        }
+    }
+
+    let initial_state = states
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "Default".to_string());
+
+    // Generate impl blocks per state
+    for (state_key, methods) in &state_methods {
+        match state_key {
+            Some(state_name) => {
+                let is_initial = *state_name == initial_state;
+                if methods.is_empty() && !is_initial {
+                    continue;
+                }
+                code.push_str(&format!("impl {}<{state_name}> {{\n", s.name));
+                if is_initial {
+                    code.push_str(
+                        "pub fn new() -> Self { Self { _state: std::marker::PhantomData } }\n",
+                    );
+                }
+                for method in methods {
+                    generate_typestate_method(
+                        code,
+                        &s.name,
+                        method.name,
+                        method.clauses,
+                        method.is_mutation,
+                        has_invariants,
+                    );
+                }
+                code.push_str("}\n\n");
+            }
+            None => {
+                // Generic impl block for state-independent methods + invariants
+                if methods.is_empty() && invariant_exprs.is_empty() && other_items.is_empty() {
+                    continue;
+                }
+                code.push_str(&format!("impl<S> {}<S> {{\n", s.name));
+                for method in methods {
+                    generate_typestate_method(
+                        code,
+                        &s.name,
+                        method.name,
+                        method.clauses,
+                        method.is_mutation,
+                        has_invariants,
+                    );
+                }
+                for expr in &invariant_exprs {
+                    let rust_expr = expr_to_rust(expr);
+                    code.push_str(&format!(
+                        "/// Service invariant\npub fn check_invariant(&self) {{ debug_assert!({rust_expr}); }}\n"
+                    ));
+                }
+                for (kind, body) in &other_items {
+                    let rust_expr = expr_to_rust(body);
+                    code.push_str(&format!("// {kind}: {rust_expr}\n"));
+                }
+                code.push_str("}\n\n");
+            }
+        }
+    }
+}
+
+/// Generate service body as standalone module contents (no `pub mod` wrapper).
+/// Used in multi-file mode where each service gets its own `.rs` file.
+fn generate_service_contents(s: &ServiceDecl, code: &mut String) {
+    let has_states = s.items.iter().any(|i| matches!(i, ServiceItem::States(_)));
+
+    if has_states {
+        generate_typestate_service_body(s, code);
+        return;
+    }
+
+    // Stateless service: simple struct + impl block
+    for item in &s.items {
+        match item {
+            ServiceItem::TypeDef(t) => generate_type_def(t, code),
+            ServiceItem::EnumDef(e) => generate_enum_def(e, code),
+            ServiceItem::States(_)
+            | ServiceItem::Operation { .. }
+            | ServiceItem::Query { .. }
+            | ServiceItem::Invariant(_)
+            | ServiceItem::Other { .. } => {}
+        }
+    }
+
+    code.push_str(&format!("#[derive(Debug)]\npub struct {} {{\n", s.name));
     code.push_str("}\n\n");
 
-    // Generate impl block
     code.push_str(&format!("impl {} {{\n", s.name));
-
-    if has_states {
-        let initial_state = s
-            .items
-            .iter()
-            .find_map(|i| match i {
-                ServiceItem::States(states) => states.first().cloned(),
-                _ => None,
-            })
-            .unwrap_or_else(|| "Default".to_string());
-        code.push_str(&format!(
-            "    pub fn new() -> Self {{\n        Self {{ state: State::{initial_state} }}\n    }}\n\n"
-        ));
-    } else {
-        code.push_str("    pub fn new() -> Self {\n        Self { }\n    }\n\n");
-    }
+    code.push_str("    pub fn new() -> Self {\n        Self { }\n    }\n\n");
 
     let has_invariants = s
         .items
@@ -2573,105 +2890,17 @@ fn generate_service(s: &ServiceDecl, code: &mut String) {
         s.name.to_lowercase()
     ));
 
-    // Check if the service has states
-    let has_states = s.items.iter().any(|i| matches!(i, ServiceItem::States(_)));
-
-    // Generate nested type/enum definitions and states enum first
-    for item in &s.items {
-        match item {
-            ServiceItem::TypeDef(t) => {
-                let mut inner = String::new();
-                generate_type_def(t, &mut inner);
-                for line in inner.lines() {
-                    code.push_str(&format!("    {line}\n"));
-                }
-            }
-            ServiceItem::EnumDef(e) => {
-                let mut inner = String::new();
-                generate_enum_def(e, &mut inner);
-                for line in inner.lines() {
-                    code.push_str(&format!("    {line}\n"));
-                }
-            }
-            ServiceItem::States(states) => {
-                code.push_str("    #[derive(Debug, Clone, PartialEq)]\n");
-                code.push_str("    pub enum State {\n");
-                for state in states {
-                    code.push_str(&format!("        {state},\n"));
-                }
-                code.push_str("    }\n\n");
-            }
-            // Operations, queries, invariants, and other items are handled
-            // in the impl block below, not here.
-            ServiceItem::Operation { .. }
-            | ServiceItem::Query { .. }
-            | ServiceItem::Invariant(_)
-            | ServiceItem::Other { .. } => {}
+    // Generate the service body (typestate or classic), then indent it
+    let mut inner = String::new();
+    generate_service_contents(s, &mut inner);
+    for line in inner.lines() {
+        if line.is_empty() {
+            code.push('\n');
+        } else {
+            code.push_str(&format!("    {line}\n"));
         }
     }
 
-    // Generate the service struct
-    code.push_str(&format!(
-        "    #[derive(Debug)]\n    pub struct {} {{\n",
-        s.name
-    ));
-    if has_states {
-        code.push_str("        pub state: State,\n");
-    }
-    code.push_str("    }\n\n");
-
-    // Generate impl block with operations, queries, and invariants
-    code.push_str(&format!("    impl {} {{\n", s.name));
-
-    // Constructor
-    if has_states {
-        // Find the first state as the initial state
-        let initial_state = s
-            .items
-            .iter()
-            .find_map(|i| match i {
-                ServiceItem::States(states) => states.first().cloned(),
-                _ => None,
-            })
-            .unwrap_or_else(|| "Default".to_string());
-        code.push_str(&format!(
-            "        pub fn new() -> Self {{\n            Self {{ state: State::{initial_state} }}\n        }}\n\n"
-        ));
-    } else {
-        code.push_str("        pub fn new() -> Self {\n            Self { }\n        }\n\n");
-    }
-
-    // Check if the service has any invariants
-    let has_invariants = s
-        .items
-        .iter()
-        .any(|i| matches!(i, ServiceItem::Invariant(_)));
-
-    for item in &s.items {
-        match item {
-            ServiceItem::Operation { name, clauses } => {
-                generate_service_method(code, name, clauses, true, has_invariants);
-            }
-            ServiceItem::Query { name, clauses } => {
-                generate_service_method(code, name, clauses, false, has_invariants);
-            }
-            ServiceItem::Invariant(expr) => {
-                let rust_expr = expr_to_rust(expr);
-                code.push_str(&format!(
-                    "        /// Service invariant\n        pub fn check_invariant(&self) {{ debug_assert!({rust_expr}); }}\n\n"
-                ));
-            }
-            ServiceItem::Other { kind, body } => {
-                let rust_expr = expr_to_rust(body);
-                code.push_str(&format!("        // {kind}: {rust_expr}\n\n"));
-            }
-            // Type defs, enum defs, and states are generated above,
-            // before the impl block.
-            ServiceItem::TypeDef(_) | ServiceItem::EnumDef(_) | ServiceItem::States(_) => {}
-        }
-    }
-
-    code.push_str("    }\n"); // close impl
     code.push_str("}\n\n"); // close mod
 }
 
@@ -3083,7 +3312,15 @@ service MyService {
             lib.contains("mod myservice"),
             "should contain service module"
         );
-        assert!(lib.contains("State"), "should contain state enum");
+        // S008: typestate encoding generates marker structs instead of State enum
+        assert!(
+            lib.contains("pub struct Init"),
+            "should contain state marker struct Init: {lib}"
+        );
+        assert!(
+            lib.contains("PhantomData"),
+            "should contain PhantomData for typestate: {lib}"
+        );
     }
 
     #[test]
@@ -3101,15 +3338,20 @@ service Connection {
 "#,
         );
         let lib = &project.files[0].1;
-        // Should generate state guard assertion
+        // S008: typestate encoding puts Connect in impl Connection<Disconnected>
         assert!(
-            lib.contains("State::Disconnected"),
-            "should contain pre-state guard: {lib}"
+            lib.contains("impl Connection<Disconnected>"),
+            "should contain state-specific impl block: {lib}"
         );
-        // Should generate state transition assignment
+        // Return type encodes the transition to Connected
         assert!(
-            lib.contains("State::Connected"),
-            "should contain post-state transition: {lib}"
+            lib.contains("Connection<Connected>"),
+            "should contain transition return type: {lib}"
+        );
+        // Method consumes self (not &mut self)
+        assert!(
+            lib.contains("fn Connect(self)"),
+            "state-transitioning method should consume self: {lib}"
         );
     }
 
@@ -4340,6 +4582,175 @@ contract Stable {
         );
     }
 
+    // S008: Typestate codegen tests
+
+    #[test]
+    fn s008_typestate_marker_structs_generated() {
+        let project = codegen_ok(
+            r#"
+service Door {
+    states: Locked -> Unlocked -> Open
+    operation Unlock {
+        requires { self.state == Locked }
+        ensures { self.state == Unlocked }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("pub struct Locked"),
+            "should generate Locked marker struct: {lib}"
+        );
+        assert!(
+            lib.contains("pub struct Unlocked"),
+            "should generate Unlocked marker struct: {lib}"
+        );
+        assert!(
+            lib.contains("pub struct Open"),
+            "should generate Open marker struct: {lib}"
+        );
+        // Should NOT generate enum State
+        assert!(
+            !lib.contains("enum State"),
+            "typestate should not generate enum State: {lib}"
+        );
+    }
+
+    #[test]
+    fn s008_typestate_generic_struct_with_phantom() {
+        let project = codegen_ok(
+            r#"
+service Door {
+    states: Locked -> Unlocked
+    operation Unlock {
+        requires { self.state == Locked }
+        ensures { self.state == Unlocked }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("struct Door<State>"),
+            "service struct should be generic: {lib}"
+        );
+        assert!(
+            lib.contains("PhantomData<State>"),
+            "struct should contain PhantomData: {lib}"
+        );
+    }
+
+    #[test]
+    fn s008_typestate_constructor_on_initial_state() {
+        let project = codegen_ok(
+            r#"
+service Workflow {
+    states: Pending -> Active -> Complete
+    operation Activate {
+        requires { self.state == Pending }
+        ensures { self.state == Active }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("impl Workflow<Pending>"),
+            "new() should be on initial state impl block: {lib}"
+        );
+        assert!(
+            lib.contains("fn new()"),
+            "should generate constructor: {lib}"
+        );
+    }
+
+    #[test]
+    fn s008_typestate_transition_consumes_self() {
+        let project = codegen_ok(
+            r#"
+service Conn {
+    states: Idle -> Active -> Closed
+    operation Open {
+        requires { self.state == Idle }
+        ensures { self.state == Active }
+    }
+    operation Close {
+        requires { self.state == Active }
+        ensures { self.state == Closed }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        // Open should be on impl Conn<Idle> and return Conn<Active>
+        assert!(
+            lib.contains("impl Conn<Idle>"),
+            "Open should be in Idle impl: {lib}"
+        );
+        assert!(
+            lib.contains("fn Open(self) -> Conn<Active>"),
+            "Open should consume self and return Conn<Active>: {lib}"
+        );
+        // Close should be on impl Conn<Active> and return Conn<Closed>
+        assert!(
+            lib.contains("impl Conn<Active>"),
+            "Close should be in Active impl: {lib}"
+        );
+        assert!(
+            lib.contains("fn Close(self) -> Conn<Closed>"),
+            "Close should consume self and return Conn<Closed>: {lib}"
+        );
+    }
+
+    #[test]
+    fn s008_typestate_stateless_service_unchanged() {
+        let project = codegen_ok(
+            r#"
+service Simple {
+    operation DoWork {
+        requires { true }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        // Stateless service should NOT have PhantomData or marker structs
+        assert!(
+            !lib.contains("PhantomData"),
+            "stateless service should not use PhantomData: {lib}"
+        );
+        assert!(
+            lib.contains("struct Simple"),
+            "stateless service should have simple struct: {lib}"
+        );
+        assert!(
+            lib.contains("fn new()"),
+            "stateless service should have constructor: {lib}"
+        );
+    }
+
+    #[test]
+    fn s008_typestate_query_uses_ref_self() {
+        let project = codegen_ok(
+            r#"
+service Store {
+    states: Ready -> Done
+    query GetCount {
+        output(count: Nat)
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        // Query without state guard goes in generic impl
+        assert!(
+            lib.contains("impl<S> Store<S>"),
+            "state-independent query should be in generic impl: {lib}"
+        );
+        assert!(lib.contains("&self"), "query should use &self: {lib}");
+    }
+
     // R002: Multi-file codegen tests
 
     #[test]
@@ -4484,7 +4895,11 @@ service Counter {
 
         let counter = find_file("src/counter.rs");
         assert!(counter.contains("struct Counter"));
-        assert!(counter.contains("enum State"));
+        // S008: typestate encoding generates marker structs, not enum State
+        assert!(
+            counter.contains("pub struct Idle"),
+            "should contain state marker struct: {counter}"
+        );
     }
 
     #[test]
