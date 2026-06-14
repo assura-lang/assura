@@ -6,6 +6,8 @@ pub mod ast;
 #[allow(dead_code)]
 pub(crate) mod cst;
 pub mod display;
+#[allow(dead_code)]
+pub(crate) mod grammar;
 pub mod lexer;
 pub mod parser;
 #[allow(dead_code)]

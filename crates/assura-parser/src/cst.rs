@@ -114,6 +114,7 @@ pub(crate) struct LexedToken {
 /// to prevent infinite loops in error recovery.
 pub(crate) struct Parser {
     pub(crate) tokens: Vec<LexedToken>,
+    spans: Vec<TokenSpan>,
     pos: usize,
     pub(crate) events: Vec<Event>,
     fuel: u32,
@@ -152,6 +153,7 @@ impl Parser {
         assert_eq!(tokens.len(), spans.len());
         Self {
             tokens,
+            spans,
             pos: 0,
             events: Vec::new(),
             fuel: 256,
@@ -181,6 +183,13 @@ impl Parser {
         self.pos += 1;
     }
 
+    /// Consume the current token regardless of kind (for error recovery).
+    pub(crate) fn bump_any(&mut self) {
+        if !self.eof() {
+            self.bump();
+        }
+    }
+
     /// The `SyntaxKind` of the current token, or `ERROR_TOKEN` at EOF.
     pub(crate) fn current(&self) -> SyntaxKind {
         self.nth(0)
@@ -194,7 +203,15 @@ impl Parser {
             .unwrap_or(SyntaxKind::ERROR_TOKEN)
     }
 
-    /// True if the current token matches `kind`.
+    /// The text of the token `n` positions ahead.
+    pub(crate) fn nth_text(&self, n: usize) -> &str {
+        self.tokens
+            .get(self.pos + n)
+            .map(|t| t.text.as_str())
+            .unwrap_or("")
+    }
+
+    /// True if the current token matches `kind`. Decrements fuel.
     pub(crate) fn at(&mut self, kind: SyntaxKind) -> bool {
         if self.fuel == 0 {
             panic!(
@@ -204,6 +221,18 @@ impl Parser {
         }
         self.fuel -= 1;
         self.current() == kind
+    }
+
+    /// True if the current token matches any kind in `kinds`.
+    pub(crate) fn at_any(&mut self, kinds: &[SyntaxKind]) -> bool {
+        if self.fuel == 0 {
+            panic!(
+                "parser stuck: infinite loop detected at token {:?}",
+                self.current()
+            );
+        }
+        self.fuel -= 1;
+        kinds.contains(&self.current())
     }
 
     /// Consume the current token if it matches `kind`. Returns true
@@ -230,6 +259,11 @@ impl Parser {
         self.pos >= self.tokens.len()
     }
 
+    /// Current position in the token stream.
+    pub(crate) fn pos(&self) -> usize {
+        self.pos
+    }
+
     /// Emit an error at the current token's location.
     pub(crate) fn error_at_current(&mut self, message: String) {
         let span = self.current_span();
@@ -252,15 +286,72 @@ impl Parser {
             .unwrap_or("")
     }
 
-    /// The source span of the current token.
-    fn current_span(&self) -> TokenSpan {
-        // Spans are stored separately; we need access to them.
-        // The spans vec is kept in the outer parse driver.
-        // For now, provide a synthetic span at position.
-        TokenSpan {
-            start: self.pos,
-            end: self.pos + 1,
+    /// True if the current token is a keyword that can appear as an
+    /// identifier in certain positions (field names, block kind names, etc.)
+    pub(crate) fn at_keyword_or_ident(&self) -> bool {
+        let k = self.current();
+        k == SyntaxKind::IDENT || k.is_keyword()
+    }
+
+    /// Consume the current token as an identifier text, accepting both
+    /// `IDENT` and keyword tokens. Returns the text or empty string.
+    pub(crate) fn eat_keyword_or_ident(&mut self) -> Option<String> {
+        if self.eof() {
+            return None;
         }
+        let k = self.current();
+        if k == SyntaxKind::IDENT || k.is_keyword() {
+            let text = self.current_text().to_string();
+            self.bump();
+            Some(text)
+        } else {
+            None
+        }
+    }
+
+    /// The source span of the current token (byte offsets).
+    pub(crate) fn current_span(&self) -> TokenSpan {
+        self.spans
+            .get(self.pos)
+            .cloned()
+            .unwrap_or_else(|| {
+                // At EOF, point to end of last token
+                self.spans
+                    .last()
+                    .map(|s| TokenSpan { start: s.end, end: s.end })
+                    .unwrap_or(TokenSpan { start: 0, end: 0 })
+            })
+    }
+
+    /// The source span at a specific token index.
+    pub(crate) fn span_at(&self, idx: usize) -> TokenSpan {
+        self.spans
+            .get(idx)
+            .cloned()
+            .unwrap_or(TokenSpan { start: 0, end: 0 })
+    }
+
+    /// Wrap the current token in an ERROR node and skip it (error recovery).
+    pub(crate) fn err_and_bump(&mut self, message: &str) {
+        self.error_at_current(message.to_string());
+        let m = self.open();
+        self.bump();
+        m.complete(self, SyntaxKind::ERROR);
+    }
+
+    /// Skip tokens until we find one matching `kind` or EOF.
+    /// Wraps skipped tokens in an ERROR node.
+    pub(crate) fn err_recover(&mut self, message: &str, recovery: &[SyntaxKind]) {
+        if self.at_any(recovery) || self.eof() {
+            self.error_at_current(message.to_string());
+            return;
+        }
+        let m = self.open();
+        self.error_at_current(message.to_string());
+        while !self.eof() && !self.at_any(recovery) {
+            self.bump();
+        }
+        m.complete(self, SyntaxKind::ERROR);
     }
 }
 
