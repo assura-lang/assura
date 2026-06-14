@@ -196,7 +196,7 @@
 
 ### R.4 Fix Pipeline Integrity
 
-- [ ] **R009**: Show per-clause verification results in CLI output
+- [x] **R009**: Show per-clause verification results in CLI output
   - Depends on: none
   - Currently `assura check` just says "check passed (no errors)".
     It should show, for each contract:
@@ -1047,3 +1047,12 @@ Files with 0-1 contracts/services keep the existing single-file layout.
 Added `generate_contract_contents` and `generate_service_contents` for
 the multi-file path. Updated 1 existing test, added 4 new tests.
 Total: 94 codegen tests, 1,233 workspace tests passing.
+
+### R009 completed (2026-06-14)
+Verification results in `assura check` are now grouped by contract/service/
+function name. Each group shows per-clause status (verified, COUNTEREXAMPLE,
+timeout, skipped). Counterexample models are indented with `|` prefix for
+readability. When no verifiable clauses exist, the output now shows which
+contracts were present instead of a generic "no verifiable clauses" message.
+The `assura build` path uses the same grouped format. Added helper functions
+`print_grouped_verification`, `clause_owner`, and `collect_contract_names`.

@@ -584,40 +584,27 @@ fn run_check(args: &[String]) {
                 .collect();
             report_diagnostics_human(&non_lex, &filename, &source);
 
-            // Print verification results
+            // Print verification results grouped by contract/function
             if !verification_results.is_empty() {
                 eprintln!();
-                eprintln!(
-                    "Verification layer {layer} ({} clause(s)):",
-                    verification_results.len()
-                );
-                for vr in &verification_results {
-                    match vr {
-                        assura_smt::VerificationResult::Verified { clause_desc } => {
-                            eprintln!("  VERIFIED        {clause_desc}");
-                        }
-                        assura_smt::VerificationResult::Counterexample {
-                            clause_desc,
-                            model,
-                            ..
-                        } => {
-                            eprintln!("  COUNTEREXAMPLE  {clause_desc}");
-                            eprintln!("    model: {model}");
-                        }
-                        assura_smt::VerificationResult::Timeout { clause_desc } => {
-                            eprintln!("  TIMEOUT         {clause_desc}");
-                        }
-                        assura_smt::VerificationResult::Unknown {
-                            clause_desc,
-                            reason,
-                        } => {
-                            eprintln!("  UNKNOWN         {clause_desc} ({reason})");
-                        }
-                    }
-                }
+                eprintln!("Verification ({} clause(s)):", verification_results.len());
+                print_grouped_verification(&verification_results);
             } else if layer == 0 {
                 eprintln!();
                 eprintln!("Verification skipped (--layer 0: structural checks only)");
+            } else if layer >= 1 {
+                // Layer 1+ but no results: show what contracts exist
+                // and that they had no verifiable clauses
+                if let Some(ref f) = file {
+                    let contract_names = collect_contract_names(f);
+                    if !contract_names.is_empty() {
+                        eprintln!();
+                        eprintln!("Verification:");
+                        for name in &contract_names {
+                            eprintln!("  {name}:  (no verifiable clauses)");
+                        }
+                    }
+                }
             }
 
             if !has_errors {
@@ -629,6 +616,102 @@ fn run_check(args: &[String]) {
     }
 
     process::exit(if has_errors { 1 } else { 0 });
+}
+
+/// Extract the contract/service/function name prefix from a clause description.
+/// Clause descriptions have the form "ContractName::clause_kind" or
+/// "ServiceName.OpName::clause_kind".
+fn clause_owner(clause_desc: &str) -> &str {
+    // Split on "::" to get the owner part (e.g., "SafeDivision" from
+    // "SafeDivision::ensures")
+    clause_desc.split("::").next().unwrap_or(clause_desc)
+}
+
+/// Print verification results grouped by contract/service/function name.
+fn print_grouped_verification(results: &[assura_smt::VerificationResult]) {
+    // Collect results by owner (contract/service/function name)
+    let mut groups: Vec<(String, Vec<&assura_smt::VerificationResult>)> = Vec::new();
+
+    for vr in results {
+        let desc = match vr {
+            assura_smt::VerificationResult::Verified { clause_desc }
+            | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+            | assura_smt::VerificationResult::Timeout { clause_desc }
+            | assura_smt::VerificationResult::Unknown { clause_desc, .. } => clause_desc.as_str(),
+        };
+        let owner = clause_owner(desc).to_string();
+
+        if let Some(group) = groups.iter_mut().find(|(name, _)| *name == owner) {
+            group.1.push(vr);
+        } else {
+            groups.push((owner, vec![vr]));
+        }
+    }
+
+    for (owner, results) in &groups {
+        eprintln!("  {owner}:");
+        for vr in results {
+            match vr {
+                assura_smt::VerificationResult::Verified { clause_desc } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    eprintln!("    {kind:<20} ... verified");
+                }
+                assura_smt::VerificationResult::Counterexample {
+                    clause_desc, model, ..
+                } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    eprintln!("    {kind:<20} ... COUNTEREXAMPLE");
+                    for line in model.lines() {
+                        eprintln!("      | {line}");
+                    }
+                }
+                assura_smt::VerificationResult::Timeout { clause_desc } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    eprintln!("    {kind:<20} ... timeout");
+                }
+                assura_smt::VerificationResult::Unknown {
+                    clause_desc,
+                    reason,
+                } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    eprintln!("    {kind:<20} ... skipped ({reason})");
+                }
+            }
+        }
+    }
+}
+
+/// Collect names of all contracts, services, and extern fns that could
+/// potentially have verifiable clauses.
+fn collect_contract_names(file: &SourceFile) -> Vec<String> {
+    let mut names = Vec::new();
+    for decl in &file.decls {
+        match &decl.node {
+            Decl::Contract(c) => names.push(c.name.clone()),
+            Decl::Service(s) => names.push(s.name.clone()),
+            Decl::Extern(ex) => {
+                if ex
+                    .clauses
+                    .iter()
+                    .any(|cl| matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant))
+                {
+                    names.push(ex.name.clone());
+                }
+            }
+            Decl::FnDef(f) => {
+                if f.clauses.iter().any(|cl| {
+                    matches!(
+                        cl.kind,
+                        ClauseKind::Ensures | ClauseKind::Invariant | ClauseKind::Decreases
+                    )
+                }) {
+                    names.push(f.name.clone());
+                }
+            }
+            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Block { .. } => {}
+        }
+    }
+    names
 }
 
 /// Render diagnostics using ariadne for human-readable terminal output.
@@ -710,28 +793,7 @@ fn run_build(args: &[String]) {
     if !verification_results.is_empty() {
         eprintln!();
         eprintln!("Verification ({} clause(s)):", verification_results.len());
-        for vr in &verification_results {
-            match vr {
-                assura_smt::VerificationResult::Verified { clause_desc } => {
-                    eprintln!("  VERIFIED    {clause_desc}");
-                }
-                assura_smt::VerificationResult::Counterexample {
-                    clause_desc, model, ..
-                } => {
-                    eprintln!("  COUNTEREXAMPLE  {clause_desc}");
-                    eprintln!("    model: {model}");
-                }
-                assura_smt::VerificationResult::Timeout { clause_desc } => {
-                    eprintln!("  TIMEOUT     {clause_desc}");
-                }
-                assura_smt::VerificationResult::Unknown {
-                    clause_desc,
-                    reason,
-                } => {
-                    eprintln!("  UNKNOWN     {clause_desc} ({reason})");
-                }
-            }
-        }
+        print_grouped_verification(&verification_results);
     }
 
     // --- Codegen ---
