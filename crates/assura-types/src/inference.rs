@@ -424,6 +424,18 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 },
                 _ => {}
             }
+            // For Named types (user-defined), try common standard methods
+            // before returning Unknown. The actual type definition may not
+            // be registered, but these methods are universally available.
+            if matches!(&recv_ty, Type::Named(_)) {
+                match method.as_str() {
+                    "len" | "length" | "size" | "count" => return Ok(Type::Nat),
+                    "is_empty" | "contains" | "any" | "all" => return Ok(Type::Bool),
+                    "clone" => return Ok(recv_ty),
+                    "to_string" => return Ok(Type::String),
+                    _ => {}
+                }
+            }
             // Emit A03005 for unknown methods on concrete built-in types
             match &recv_ty {
                 Type::List(_)
@@ -856,6 +868,10 @@ fn infer_builtin_call_type(name: &str, arg_types: &[Type]) -> Option<Type> {
         // Numeric
         "abs" => arg_types.first().cloned(),
         "min" | "max" => arg_types.first().cloned(),
+        "sqrt" => Some(Type::Float),
+        "floor" | "ceil" | "round" => arg_types.first().cloned(),
+        "to_string" | "to_str" => Some(Type::String),
+        "to_int" | "parse_int" => Some(Type::Int),
         // Option/Result unwrapping
         "unwrap" => {
             if let Some(Type::Option(inner)) = arg_types.first() {

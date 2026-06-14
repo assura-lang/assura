@@ -435,10 +435,9 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_literal(n: &SyntaxNode) -> Expr {
-    let tok = n
-        .children_with_tokens()
-        .find_map(|el| el.into_token())
-        .unwrap();
+    let Some(tok) = n.children_with_tokens().find_map(|el| el.into_token()) else {
+        return Expr::Raw(collect_token_texts(n));
+    };
     let text = tok.text().to_string();
     match tok.kind() {
         SyntaxKind::INT_LIT => Expr::Literal(Literal::Int(text)),

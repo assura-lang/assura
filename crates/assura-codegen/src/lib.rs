@@ -1700,13 +1700,28 @@ fn expr_to_rust_static(expr: &Expr) -> String {
                 BinOp::Mul => "*",
                 BinOp::Div => "/",
                 BinOp::Mod => "%",
-                _ => return String::new(),
+                _ => {
+                    return "0 /* unsupported: non-arithmetic binop in const context */"
+                        .to_string();
+                }
             };
             format!(
                 "({} {op_s} {})",
                 expr_to_rust_static(lhs),
                 expr_to_rust_static(rhs)
             )
+        }
+        Expr::Paren(inner) => expr_to_rust_static(inner),
+        Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: e,
+        } => {
+            let inner = expr_to_rust_static(e);
+            if inner.is_empty() {
+                "0 /* unsupported: negation of complex expr */".to_string()
+            } else {
+                format!("-{inner}")
+            }
         }
         Expr::Raw(tokens) => {
             // Try to extract a simple numeric literal from raw tokens
@@ -1720,7 +1735,7 @@ fn expr_to_rust_static(expr: &Expr) -> String {
             }
             clean.join(" ")
         }
-        _ => String::new(),
+        _ => "0 /* unsupported: complex expr in const context */".to_string(),
     }
 }
 
