@@ -89,7 +89,8 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         .collect();
 
     let has_proptest = source_has_testable_contracts(source);
-    let cargo_toml = generate_cargo_toml_impl(&crate_name, config, has_proptest);
+    let has_errors = source_has_error_types(source);
+    let cargo_toml = generate_cargo_toml_impl(&crate_name, config, has_proptest, has_errors);
 
     let mut code = String::new();
 
@@ -586,6 +587,7 @@ fn generate_cargo_toml_impl(
     crate_name: &str,
     config: &BackendConfig,
     include_proptest: bool,
+    include_thiserror: bool,
 ) -> String {
     let mut toml = format!(
         r#"[package]
@@ -599,6 +601,10 @@ edition = "2024"
 [dependencies]
 "#
     );
+
+    if include_thiserror {
+        toml.push_str("thiserror = \"2\"\n");
+    }
 
     if include_proptest {
         toml.push_str("\n[dev-dependencies]\nproptest = \"1\"\n");
@@ -1826,6 +1832,23 @@ fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
         }
     }
 
+    // Generate error enum if errors clause is present
+    let error_variants = collect_error_variants(&c.clauses);
+    let error_enum_name = if !error_variants.is_empty() {
+        let name = format!("{}Error", c.name);
+        generate_error_enum(&c.name, &error_variants, code);
+        Some(name)
+    } else {
+        None
+    };
+
+    // Determine return type: wrap in Result when errors are declared
+    let return_type = if let Some(ref err_name) = error_enum_name {
+        format!("Result<{output_type}, {err_name}>")
+    } else {
+        output_type.clone()
+    };
+
     for req in &requires_exprs {
         code.push_str(&format!("/// Requires: {req}\n"));
     }
@@ -1843,7 +1866,7 @@ fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
         .join(", ");
 
     code.push_str(&format!(
-        "pub fn check{tps}({params_s}) -> {output_type} {{\n"
+        "pub fn check{tps}({params_s}) -> {return_type} {{\n"
     ));
 
     for clause in &c.clauses {
@@ -1870,7 +1893,11 @@ fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
         for inv in &invariants {
             generate_debug_assert(code, inv, "invariant");
         }
-        code.push_str("    __result\n");
+        if error_enum_name.is_some() {
+            code.push_str("    Ok(__result)\n");
+        } else {
+            code.push_str("    __result\n");
+        }
     }
     code.push_str("}\n");
 
@@ -1975,6 +2002,31 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
         }
     }
 
+    // Generate error enum if errors clause is present
+    let error_variants = collect_error_variants(&c.clauses);
+    let error_enum_name = if !error_variants.is_empty() {
+        let name = format!("{}Error", c.name);
+        code.push_str("    ");
+        // Generate the enum inside the module (indented)
+        let mut enum_code = String::new();
+        generate_error_enum(&c.name, &error_variants, &mut enum_code);
+        // Indent each line for the module context
+        for line in enum_code.lines() {
+            code.push_str(&format!("    {line}\n"));
+        }
+        code.push('\n');
+        Some(name)
+    } else {
+        None
+    };
+
+    // Determine return type
+    let return_type = if let Some(ref err_name) = error_enum_name {
+        format!("Result<{output_type}, {err_name}>")
+    } else {
+        output_type.clone()
+    };
+
     // Generate doc comments for requires, effects, and modifies
     for req in &requires_exprs {
         code.push_str(&format!("    /// Requires: {req}\n"));
@@ -1994,7 +2046,7 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
         .join(", ");
 
     code.push_str(&format!(
-        "    pub fn check{tps}({params_s}) -> {output_type} {{\n"
+        "    pub fn check{tps}({params_s}) -> {return_type} {{\n"
     ));
 
     // Collect old() expressions from ensures clauses and save pre-state values
@@ -2023,7 +2075,11 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
         for inv in &invariants {
             generate_debug_assert_indented(code, inv, "invariant", 2);
         }
-        code.push_str("        __result\n");
+        if error_enum_name.is_some() {
+            code.push_str("        Ok(__result)\n");
+        } else {
+            code.push_str("        __result\n");
+        }
     }
     code.push_str("    }\n");
 
@@ -2338,6 +2394,15 @@ fn generate_proptest_for_contract_contents(c: &ContractDecl, code: &mut String) 
 }
 
 /// Check if any contract in the source is testable (needs proptest).
+/// Check if any declaration has an `errors` clause that will generate error types.
+fn source_has_error_types(source: &assura_parser::ast::SourceFile) -> bool {
+    source.decls.iter().any(|decl| match &decl.node {
+        Decl::Contract(c) => c.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors),
+        Decl::FnDef(f) => f.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors),
+        _ => false,
+    })
+}
+
 fn source_has_testable_contracts(source: &assura_parser::ast::SourceFile) -> bool {
     source.decls.iter().any(|decl| {
         if let Decl::Contract(c) = &decl.node {
@@ -2479,6 +2544,60 @@ fn extract_output_type(body: &Expr) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Error type generation (P004)
+// ---------------------------------------------------------------------------
+
+/// Extract error variant names from an `errors` clause body.
+///
+/// The errors clause body may be:
+/// - `Expr::Raw(["DivByZero", ",", "Overflow"])` -> vec!["DivByZero", "Overflow"]
+/// - `Expr::Ident("DivByZero")` -> vec!["DivByZero"]
+/// - `Expr::Tuple([Ident("A"), Ident("B")])` -> vec!["A", "B"]
+fn extract_error_variants(body: &Expr) -> Vec<String> {
+    match body {
+        Expr::Ident(name) => vec![name.clone()],
+        Expr::Tuple(items) => items
+            .iter()
+            .filter_map(|e| match e {
+                Expr::Ident(n) => Some(n.clone()),
+                _ => None,
+            })
+            .collect(),
+        Expr::Raw(tokens) => tokens
+            .iter()
+            .filter(|t| {
+                let s = t.as_str();
+                s != "," && s != "(" && s != ")" && s != "{" && s != "}"
+            })
+            .cloned()
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// Collect all error variants from a set of clauses.
+fn collect_error_variants(clauses: &[Clause]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for clause in clauses {
+        if clause.kind == ClauseKind::Errors {
+            errors.extend(extract_error_variants(&clause.body));
+        }
+    }
+    errors
+}
+
+/// Generate a `#[derive(Debug, thiserror::Error)]` enum for contract errors.
+fn generate_error_enum(contract_name: &str, variants: &[String], code: &mut String) {
+    let enum_name = format!("{contract_name}Error");
+    code.push_str("#[derive(Debug, thiserror::Error)]\n");
+    code.push_str(&format!("pub enum {enum_name} {{\n"));
+    for variant in variants {
+        code.push_str(&format!("    #[error(\"{variant}\")]\n    {variant},\n"));
+    }
+    code.push_str("}\n\n");
+}
+
+// ---------------------------------------------------------------------------
 // Extern declarations
 // ---------------------------------------------------------------------------
 
@@ -2553,10 +2672,26 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
         map_type_tokens(&f.return_ty)
     };
 
-    let ret_sig = if f.return_ty.is_empty() {
+    // Generate error enum if errors clause is present
+    let error_variants = collect_error_variants(&f.clauses);
+    let error_enum_name = if !error_variants.is_empty() {
+        let name = format!("{}Error", f.name);
+        generate_error_enum(&f.name, &error_variants, code);
+        Some(name)
+    } else {
+        None
+    };
+
+    let return_type = if let Some(ref err_name) = error_enum_name {
+        format!("Result<{ret_ty}, {err_name}>")
+    } else {
+        ret_ty.clone()
+    };
+
+    let ret_sig = if f.return_ty.is_empty() && error_enum_name.is_none() {
         String::new()
     } else {
-        format!(" -> {ret_ty}")
+        format!(" -> {return_type}")
     };
 
     code.push_str(&format!("pub fn {}({params_s}){ret_sig} {{\n", f.name));
@@ -2581,17 +2716,19 @@ fn generate_fn_def(f: &FnDef, code: &mut String) {
     }
 
     if ensures_exprs.is_empty() {
-        // No ensures: just use todo!() directly
         code.push_str("    todo!(\"implementation provided by AI agent\")\n");
     } else {
-        // With ensures: declare __result, check ensures, return
         code.push_str(&format!(
             "    let __result: {ret_ty} = todo!(\"implementation provided by AI agent\");\n"
         ));
         for ens in &ensures_exprs {
             generate_debug_assert(code, ens, "ensures");
         }
-        code.push_str("    __result\n");
+        if error_enum_name.is_some() {
+            code.push_str("    Ok(__result)\n");
+        } else {
+            code.push_str("    __result\n");
+        }
     }
     code.push_str("}\n\n");
 }
@@ -5410,6 +5547,146 @@ contract Second {
         assert!(
             !first.contains("enum Status"),
             "enum should not be in contract file"
+        );
+    }
+
+    // --- P004: Error handling codegen tests ---
+
+    #[test]
+    fn contract_with_errors_generates_error_enum() {
+        let project = codegen_ok(
+            r#"
+contract SafeDivision {
+    input  { a: Int, b: Int }
+    output { result: Int }
+    errors { DivByZero, Overflow }
+    requires { b != 0 }
+    ensures  { result * b == a }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("SafeDivisionError"),
+            "should generate error enum: {lib}"
+        );
+        assert!(
+            lib.contains("DivByZero"),
+            "should contain DivByZero variant: {lib}"
+        );
+        assert!(
+            lib.contains("Overflow"),
+            "should contain Overflow variant: {lib}"
+        );
+        assert!(
+            lib.contains("thiserror::Error"),
+            "should derive thiserror::Error: {lib}"
+        );
+    }
+
+    #[test]
+    fn contract_with_errors_returns_result() {
+        let project = codegen_ok(
+            r#"
+contract Validator {
+    input  { data: Int }
+    output { result: Bool }
+    errors { InvalidInput }
+    ensures { result == true }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(lib.contains("Result<"), "should return Result type: {lib}");
+        assert!(
+            lib.contains("ValidatorError"),
+            "should reference error type: {lib}"
+        );
+        assert!(
+            lib.contains("Ok(__result)"),
+            "should wrap result in Ok: {lib}"
+        );
+    }
+
+    #[test]
+    fn contract_without_errors_no_result_type() {
+        let project = codegen_ok(
+            r#"
+contract Simple {
+    input  { x: Int }
+    output { result: Int }
+    requires { x > 0 }
+    ensures  { result > 0 }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            !lib.contains("Result<"),
+            "should not use Result without errors: {lib}"
+        );
+        assert!(
+            !lib.contains("thiserror"),
+            "should not include thiserror: {lib}"
+        );
+    }
+
+    #[test]
+    fn extract_error_variants_from_raw() {
+        let body = Expr::Raw(vec!["DivByZero".into(), ",".into(), "Overflow".into()]);
+        let variants = extract_error_variants(&body);
+        assert_eq!(variants, vec!["DivByZero", "Overflow"]);
+    }
+
+    #[test]
+    fn extract_error_variants_from_ident() {
+        let body = Expr::Ident("SingleError".into());
+        let variants = extract_error_variants(&body);
+        assert_eq!(variants, vec!["SingleError"]);
+    }
+
+    #[test]
+    fn generate_error_enum_output() {
+        let mut code = String::new();
+        generate_error_enum("Parser", &["BadInput".into(), "TooLong".into()], &mut code);
+        assert!(code.contains("pub enum ParserError"));
+        assert!(code.contains("BadInput"));
+        assert!(code.contains("TooLong"));
+        assert!(code.contains("thiserror::Error"));
+    }
+
+    #[test]
+    fn errors_clause_adds_thiserror_dep() {
+        let project = codegen_ok(
+            r#"
+contract WithErrors {
+    input  { x: Int }
+    errors { SomeError }
+    requires { x > 0 }
+}
+"#,
+        );
+        assert!(
+            project.cargo_toml.contains("thiserror"),
+            "Cargo.toml should include thiserror: {}",
+            project.cargo_toml
+        );
+    }
+
+    #[test]
+    fn no_errors_no_thiserror_dep() {
+        let project = codegen_ok(
+            r#"
+contract NoErrors {
+    input  { x: Int }
+    requires { x > 0 }
+}
+"#,
+        );
+        assert!(
+            !project.cargo_toml.contains("thiserror"),
+            "Cargo.toml should not include thiserror: {}",
+            project.cargo_toml
         );
     }
 }

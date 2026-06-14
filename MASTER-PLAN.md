@@ -772,7 +772,7 @@
 
 ### P.2 Advanced Codegen
 
-- [ ] **P004**: Generate Rust with proper error handling
+- [x] **P004**: Generate Rust with proper error handling
   - Depends on: R001
   - Currently all function bodies are `todo!("implementation provided by AI agent")`
   - When an implementation is provided (via IR or inline), generate
@@ -1434,6 +1434,20 @@ compiler pipeline. 8 benchmark groups:
 - `full_pipeline`: parse through codegen+SMT (1.2-2.2ms per demo)
 - `scaling`: synthetic contracts with 10/50/100 clauses to measure scaling
 Run with: `cargo bench -p assura-bench`
+
+### P004 completed (2026-06-14)
+Added error type generation to codegen. When a contract or function has an
+`errors` clause (e.g., `errors { DivByZero, Overflow }`), codegen now:
+1. Generates a `#[derive(Debug, thiserror::Error)]` enum with each error
+   variant (e.g., `pub enum SafeDivisionError { DivByZero, Overflow }`)
+2. Wraps the return type in `Result<T, ContractError>` instead of plain `T`
+3. Returns `Ok(__result)` instead of `__result` when ensures clauses exist
+4. Adds `thiserror = "2"` to the generated `Cargo.toml` dependencies
+Works in both single-file and multi-file codegen modes for contracts; fn
+declarations extract error variants the same way. Added 8 new tests:
+contract error enum generation, Result return type, thiserror dep
+inclusion, negative tests for no-error contracts, unit tests for
+extract_error_variants and generate_error_enum. 1,403 total tests passing.
 
 ### E008 completed (2026-06-14)
 Rewrote `docs/INTERNALS.md` from a 66-line stub to comprehensive
