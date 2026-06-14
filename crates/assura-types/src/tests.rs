@@ -12252,3 +12252,56 @@ fn domain_contract_library_direct_api() {
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A55001");
 }
+
+// ---------------------------------------------------------------------------
+// Liveness block validation (G006)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn liveness_block_missing_prove_emits_a_core_030() {
+    let source = r#"
+liveness BadBlock {
+    assume: fair
+}
+"#;
+    let resolved = resolve_ok(source);
+    let errs = type_check(&resolved).unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.code == "A-CORE-030"),
+        "expected A-CORE-030 for liveness block with no prove clause, got: {errs:?}"
+    );
+}
+
+#[test]
+fn liveness_block_with_prove_is_valid() {
+    let source = r#"
+liveness GoodBlock {
+    assume: fair
+    prove: eventually(done)
+}
+"#;
+    let resolved = resolve_ok(source);
+    // Should type-check without A-CORE-030 errors
+    let result = type_check(&resolved);
+    if let Err(errs) = &result {
+        assert!(
+            !errs.iter().any(|e| e.code == "A-CORE-030"),
+            "should not emit A-CORE-030 when prove clause is present, got: {errs:?}"
+        );
+    }
+}
+
+#[test]
+fn liveness_leads_to_without_fair_emits_a_core_031() {
+    let source = r#"
+liveness LeadsToNoFair {
+    prove: leads_to(waiting, served)
+}
+"#;
+    let resolved = resolve_ok(source);
+    let errs = type_check(&resolved).unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.code == "A-CORE-031"),
+        "expected A-CORE-031 for leads_to without assume fair, got: {errs:?}"
+    );
+}

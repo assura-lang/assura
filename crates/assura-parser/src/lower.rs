@@ -1757,4 +1757,78 @@ contract UseProphecy {
         assert!(matches!(&file.decls[0].node, Decl::Prophecy(_)));
         assert!(matches!(&file.decls[1].node, Decl::Contract(_)));
     }
+
+    #[test]
+    fn test_liveness_block() {
+        let src = r#"
+liveness Progress {
+    assume: fair
+    prove: eventually(turn == 1)
+}
+"#;
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::Block {
+            kind, name, body, ..
+        } = &file.decls[0].node
+        {
+            assert_eq!(kind, "liveness");
+            assert_eq!(name, "Progress");
+            assert!(
+                body.len() >= 2,
+                "expected assume + prove clauses, got {}",
+                body.len()
+            );
+        } else {
+            panic!("expected Decl::Block, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn test_generic_block_value_extraction() {
+        let src = "feature_max MAX_SIZE: Nat = 256";
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::Block {
+            kind, name, value, ..
+        } = &file.decls[0].node
+        {
+            assert_eq!(kind, "feature_max");
+            assert_eq!(name, "MAX_SIZE");
+            let v = value.as_ref().expect("value should be Some");
+            assert!(
+                v.contains(&"256".to_string()),
+                "value tokens should contain '256', got: {v:?}"
+            );
+        } else {
+            panic!("expected Decl::Block, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn test_generic_block_equals_value() {
+        let src = "feature ecdsa = enabled";
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::Block {
+            kind, name, value, ..
+        } = &file.decls[0].node
+        {
+            assert_eq!(kind, "feature");
+            assert_eq!(name, "ecdsa");
+            let v = value.as_ref().expect("value should be Some");
+            assert!(
+                v.contains(&"enabled".to_string()),
+                "value tokens should contain 'enabled', got: {v:?}"
+            );
+        } else {
+            panic!("expected Decl::Block, got {:?}", file.decls[0].node);
+        }
+    }
 }

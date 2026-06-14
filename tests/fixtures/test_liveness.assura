@@ -1,0 +1,25 @@
+// Test fixture for liveness contracts (G006).
+// Liveness blocks declare temporal properties: eventually, leads_to,
+// and bounded eventually_within.
+
+liveness MutualExclusion {
+    assume: fair
+    prove: eventually(turn == 1)
+}
+
+liveness Progress {
+    assume: fair
+    prove: leads_to(waiting, served)
+}
+
+liveness BoundedResponse {
+    prove: eventually_within(100, response_ready)
+}
+
+// Contract with liveness ensures clause
+contract EventualDelivery {
+    input(msg: Int)
+    output(result: Int)
+    requires { msg > 0 }
+    ensures { eventually(result == msg) }
+}
