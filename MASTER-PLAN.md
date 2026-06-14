@@ -580,7 +580,7 @@
 
 ### T.1 Missing Test Coverage
 
-- [ ] **T201**: Add tests to assura-server (currently 0)
+- [x] **T201**: Add tests to assura-server (currently 0)
   - Depends on: none
   - The gRPC server has zero tests despite 496 lines of code
   - Add tests for:
@@ -1228,6 +1228,16 @@ compiler passes can emit unified diagnostics. CLI gains
 `render_diagnostic()` (ariadne renderer for Diagnostic) and
 `DiagnosticJson::from_diagnostic()` (JSON conversion). 6 new
 diagnostic tests. 1,296 total tests passing.
+
+### T201 completed (2026-06-13)
+Added 26 tests to assura-server (was 0). Covers: `run_check` (valid,
+invalid, parse error, resolution error, layer 0 vs 1 SMT), `run_codegen`
+(valid and invalid), `lookup_error_code` (known, unknown, catalog
+completeness), `span_to_line_col` (first line, multiline, empty, beyond
+bounds), HTTP handlers (health, check valid/invalid, explain), gRPC
+handlers (check valid/invalid, build valid/invalid, explain, health,
+check_stream events). Uses axum tower::ServiceExt for HTTP and direct
+AssuraServer method calls for gRPC. 1,323 total tests passing.
 
 ### T204 completed (2026-06-13)
 Created `tests/fixtures/must_compile/` with 15 valid .assura files:

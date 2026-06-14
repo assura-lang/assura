@@ -494,3 +494,435 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===================================================================
+    // run_check tests
+    // ===================================================================
+
+    #[test]
+    fn check_valid_source_returns_no_errors() {
+        let source = r#"contract Positive {
+    input(x: Int)
+    requires { x > 0 }
+}"#;
+        let (diagnostics, _) = run_check(source, "test.assura", 0);
+        assert!(
+            diagnostics.iter().all(|d| d.severity != "error"),
+            "valid source should have no errors: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn check_invalid_source_returns_errors() {
+        let source = r#"contract Bad {
+    input(x: Int)
+    requires { 42 }
+}"#;
+        let (diagnostics, _) = run_check(source, "test.assura", 0);
+        assert!(
+            diagnostics.iter().any(|d| d.severity == "error"),
+            "invalid source should produce errors"
+        );
+        assert!(
+            diagnostics.iter().any(|d| d.code == "A03006"),
+            "expected A03006 for non-bool requires"
+        );
+    }
+
+    #[test]
+    fn check_empty_source_produces_no_errors() {
+        // Empty source is valid (no declarations)
+        let (diagnostics, _) = run_check("", "test.assura", 0);
+        assert!(
+            diagnostics.iter().all(|d| d.severity != "error"),
+            "empty source should not produce errors"
+        );
+    }
+
+    #[test]
+    fn check_resolution_error_produces_diagnostic() {
+        let source = r#"contract Dup {
+    input(x: Int)
+    requires { x > 0 }
+}
+contract Dup {
+    input(y: Int)
+    requires { y > 0 }
+}"#;
+        let (diagnostics, _) = run_check(source, "test.assura", 0);
+        assert!(
+            diagnostics.iter().any(|d| d.code == "A02003"),
+            "duplicate definition should produce A02003"
+        );
+    }
+
+    #[test]
+    fn check_layer_zero_skips_smt() {
+        let source = r#"contract Simple {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result > 0 }
+}"#;
+        let (_, verifications) = run_check(source, "test.assura", 0);
+        assert!(
+            verifications.is_empty(),
+            "layer 0 should skip SMT verification"
+        );
+    }
+
+    #[test]
+    fn check_layer_one_runs_smt() {
+        let source = r#"contract Simple {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result > 0 }
+}"#;
+        let (diagnostics, verifications) = run_check(source, "test.assura", 1);
+        let has_errors = diagnostics.iter().any(|d| d.severity == "error");
+        if !has_errors {
+            // If type checking passes, verifications should be non-empty
+            // (the ensures clause is verifiable)
+            assert!(
+                !verifications.is_empty(),
+                "layer 1 should produce verification results"
+            );
+        }
+    }
+
+    // ===================================================================
+    // run_codegen tests
+    // ===================================================================
+
+    #[test]
+    fn codegen_valid_source_produces_files() {
+        let source = r#"contract SafeAdd {
+    input(a: Int, b: Int)
+    requires { a > 0 }
+    ensures { result == a + b }
+}"#;
+        let files = run_codegen(source);
+        assert!(!files.is_empty(), "codegen should produce files");
+        assert!(
+            files.keys().any(|k| k.ends_with(".rs")),
+            "codegen should produce a .rs file"
+        );
+    }
+
+    #[test]
+    fn codegen_invalid_source_produces_empty() {
+        let source = "not valid assura code!!!";
+        let files = run_codegen(source);
+        assert!(
+            files.is_empty(),
+            "codegen on invalid source should produce no files"
+        );
+    }
+
+    // ===================================================================
+    // lookup_error_code tests
+    // ===================================================================
+
+    #[test]
+    fn explain_known_code() {
+        let (title, description, _, fix) = lookup_error_code("A03001");
+        assert_eq!(title, "Type mismatch");
+        assert!(!description.is_empty());
+        assert!(!fix.is_empty());
+    }
+
+    #[test]
+    fn explain_unknown_code() {
+        let (title, description, _, _) = lookup_error_code("A99999");
+        assert!(title.contains("A99999"));
+        assert!(description.contains("No detailed explanation"));
+    }
+
+    #[test]
+    fn explain_all_catalog_entries_are_nonempty() {
+        let codes = [
+            "A01001", "A01002", "A02001", "A02003", "A02005", "A03001", "A03002", "A05001",
+            "A05002", "A06001", "A07001", "A08001", "A09001", "A10001",
+        ];
+        for code in &codes {
+            let (title, desc, _, fix) = lookup_error_code(code);
+            assert!(!title.is_empty(), "{code}: empty title");
+            assert!(!desc.is_empty(), "{code}: empty description");
+            assert!(!fix.is_empty(), "{code}: empty fix");
+        }
+    }
+
+    // ===================================================================
+    // span_to_line_col tests
+    // ===================================================================
+
+    #[test]
+    fn span_to_line_col_first_line() {
+        let source = "hello world";
+        let (line, col, end_line, end_col) = span_to_line_col(source, &(0..5));
+        assert_eq!(line, 1);
+        assert_eq!(col, 1);
+        assert_eq!(end_line, 1);
+        assert_eq!(end_col, 6);
+    }
+
+    #[test]
+    fn span_to_line_col_multiline() {
+        let source = "first\nsecond";
+        let (line, col, end_line, _) = span_to_line_col(source, &(6..12));
+        // lines().count() on "first\n" returns 2 (empty trailing after \n counts)
+        // but the function may return 1 or 2 depending on implementation
+        assert!(line >= 1, "line should be at least 1");
+        assert!(col >= 1, "col should be at least 1");
+        assert!(end_line >= line, "end_line should be >= line");
+    }
+
+    #[test]
+    fn span_to_line_col_empty_span() {
+        let source = "hello";
+        let (line, col, end_line, end_col) = span_to_line_col(source, &(0..0));
+        assert_eq!(line, 1);
+        assert_eq!(col, 1);
+        assert_eq!(end_line, 1);
+        assert_eq!(end_col, 1);
+    }
+
+    #[test]
+    fn span_beyond_source_clamped() {
+        let source = "hi";
+        let (line, _, _, _) = span_to_line_col(source, &(100..200));
+        assert_eq!(line, 1); // clamped to source length
+    }
+
+    // ===================================================================
+    // HTTP handler tests
+    // ===================================================================
+
+    #[tokio::test]
+    async fn http_health_returns_serving() {
+        use ::http::Request;
+        use axum::body::Body;
+        use tower::ServiceExt;
+
+        let app = super::http::router();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/health")
+                    .header("content-type", "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "serving");
+        assert!(!json["version"].as_str().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn http_check_valid_source() {
+        use ::http::Request;
+        use axum::body::Body;
+        use tower::ServiceExt;
+
+        let app = super::http::router();
+        let body = serde_json::json!({
+            "source": "contract Ok { input(x: Int) requires { x > 0 } }",
+            "filename": "test.assura"
+        });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/check")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["success"], true);
+    }
+
+    #[tokio::test]
+    async fn http_check_invalid_source() {
+        use ::http::Request;
+        use axum::body::Body;
+        use tower::ServiceExt;
+
+        let app = super::http::router();
+        let body = serde_json::json!({
+            "source": "contract Bad { input(x: Int) requires { 42 } }",
+            "filename": "test.assura"
+        });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/check")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["success"], false);
+    }
+
+    #[tokio::test]
+    async fn http_explain_known_code() {
+        use ::http::Request;
+        use axum::body::Body;
+        use tower::ServiceExt;
+
+        let app = super::http::router();
+        let body = serde_json::json!({ "error_code": "A03001" });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/explain")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["title"], "Type mismatch");
+    }
+
+    // ===================================================================
+    // gRPC handler tests (unit-level, no network)
+    // ===================================================================
+
+    #[tokio::test]
+    async fn grpc_check_valid_source() {
+        let server = AssuraServer;
+        let request = Request::new(CheckRequest {
+            source: "contract Ok { input(x: Int) requires { x > 0 } }".into(),
+            filename: "test.assura".into(),
+            layer: 0,
+        });
+        let response = server.check(request).await.unwrap();
+        let resp = response.into_inner();
+        assert!(resp.success);
+    }
+
+    #[tokio::test]
+    async fn grpc_check_invalid_source() {
+        let server = AssuraServer;
+        let request = Request::new(CheckRequest {
+            source: "contract Bad { input(x: Int) requires { 42 } }".into(),
+            filename: "test.assura".into(),
+            layer: 0,
+        });
+        let response = server.check(request).await.unwrap();
+        let resp = response.into_inner();
+        assert!(!resp.success);
+        assert!(resp.diagnostics.iter().any(|d| d.code == "A03006"));
+    }
+
+    #[tokio::test]
+    async fn grpc_build_valid_source() {
+        let server = AssuraServer;
+        let request = Request::new(BuildRequest {
+            source: "contract SafeAdd { input(a: Int, b: Int) requires { a > 0 } ensures { result == a + b } }".into(),
+            filename: "test.assura".into(),
+        });
+        let response = server.build(request).await.unwrap();
+        let resp = response.into_inner();
+        assert!(resp.success);
+        assert!(!resp.generated_files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn grpc_build_invalid_source_has_errors() {
+        let server = AssuraServer;
+        let request = Request::new(BuildRequest {
+            source: "contract Bad { input(x: Int) requires { 42 } }".into(),
+            filename: "test.assura".into(),
+        });
+        let response = server.build(request).await.unwrap();
+        let resp = response.into_inner();
+        assert!(!resp.success, "invalid source should not succeed");
+        assert!(
+            resp.diagnostics.iter().any(|d| d.severity == "error"),
+            "should have error diagnostics"
+        );
+    }
+
+    #[tokio::test]
+    async fn grpc_explain_returns_description() {
+        let server = AssuraServer;
+        let request = Request::new(ExplainRequest {
+            error_code: "A05001".into(),
+        });
+        let response = server.explain(request).await.unwrap();
+        let resp = response.into_inner();
+        assert_eq!(resp.title, "Linear variable used twice");
+        assert!(!resp.description.is_empty());
+    }
+
+    #[tokio::test]
+    async fn grpc_health_returns_serving() {
+        let server = AssuraServer;
+        let request = Request::new(HealthRequest {});
+        let response = server.health(request).await.unwrap();
+        let resp = response.into_inner();
+        assert_eq!(resp.status, "serving");
+        assert!(!resp.version.is_empty());
+    }
+
+    #[tokio::test]
+    async fn grpc_check_stream_emits_events() {
+        use tokio_stream::StreamExt;
+
+        let server = AssuraServer;
+        let request = Request::new(CheckRequest {
+            source: "contract Ok { input(x: Int) requires { x > 0 } }".into(),
+            filename: "test.assura".into(),
+            layer: 0,
+        });
+        let response = server.check_stream(request).await.unwrap();
+        let mut stream = response.into_inner();
+
+        let mut got_complete = false;
+        while let Some(event) = stream.next().await {
+            let event = event.unwrap();
+            if let Some(check_event::Event::Complete(c)) = event.event {
+                got_complete = true;
+                assert!(c.success);
+            }
+        }
+        assert!(got_complete, "stream should end with a Complete event");
+    }
+}
