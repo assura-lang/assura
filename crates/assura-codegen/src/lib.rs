@@ -271,11 +271,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 for tok in tokens {
                     match tok.as_str() {
                         "<" => in_angle += 1,
-                        ">" => {
-                            if in_angle > 0 {
-                                in_angle -= 1;
-                            }
-                        }
+                        ">" if in_angle > 0 => in_angle -= 1,
                         name if in_angle > 0 && fm_set.contains(name) => {
                             result.insert(name.to_string());
                         }
@@ -375,11 +371,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             for tok in tokens {
                 match tok.as_str() {
                     "<" => in_angle += 1,
-                    ">" => {
-                        if in_angle > 0 {
-                            in_angle -= 1;
-                        }
-                    }
+                    ">" if in_angle > 0 => in_angle -= 1,
                     name if in_angle > 0 && feature_max_set.contains(name) => {
                         all_const_as_types.insert(name.to_string());
                     }
@@ -668,8 +660,9 @@ edition = "2024"
         );
     }
 
-    // WASM target: add .cargo/config.toml hint and note
+    // WASM target: add cdylib crate type so cargo produces a .wasm file
     if matches!(config.target, CompileTarget::Wasm) {
+        toml.push_str("\n[lib]\ncrate-type = [\"cdylib\"]\n");
         toml.push_str(
             "\n# WASM target: build with `cargo build --target wasm32-wasip1`\n\
              # Install target: `rustup target add wasm32-wasip1`\n",

@@ -1379,22 +1379,41 @@ fn run_build(
         }
     }
 
-    // --- Validate generated Rust compiles ---
+    // --- Build or check the generated Rust project ---
     let skip_check = no_check;
     if !skip_check {
+        // WASM targets get `cargo build` to produce a .wasm file;
+        // native targets get `cargo check` for fast validation.
+        let is_wasm = matches!(compile_target, assura_codegen::CompileTarget::Wasm);
+        let cargo_verb = if is_wasm { "build" } else { "check" };
+
         let mut cmd = process::Command::new("cargo");
-        cmd.arg("check").current_dir(out_dir);
+        cmd.arg(cargo_verb).current_dir(out_dir);
         if let Some(triple) = compile_target.rust_target() {
             cmd.arg("--target").arg(triple);
         }
-        let cargo_check = cmd
+        let cargo_result = cmd
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .output();
 
-        match cargo_check {
+        match cargo_result {
             Ok(output) if output.status.success() => {
-                if verbosity != Verbosity::Quiet {
+                if is_wasm {
+                    // Report the .wasm artifact path
+                    let wasm_dir = out_dir.join("target/wasm32-wasip1/debug");
+                    let wasm_file = find_wasm_artifact(&wasm_dir);
+                    if let Some(ref wf) = wasm_file {
+                        let size = fs::metadata(wf).map(|m| m.len()).unwrap_or(0);
+                        if verbosity != Verbosity::Quiet {
+                            println!("OK  {filename} -> {} ({} bytes)", wf.display(), size);
+                        }
+                    } else if verbosity != Verbosity::Quiet {
+                        println!(
+                            "OK  {filename} -> {out_dir_str}/ (WASM build succeeded, artifact in target/)"
+                        );
+                    }
+                } else if verbosity != Verbosity::Quiet {
                     println!("OK  {filename} -> {out_dir_str}/ (generated Rust compiles)");
                 }
             }
@@ -1404,7 +1423,7 @@ fn run_build(
                 }
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 eprintln!();
-                eprintln!("warning: generated Rust does not compile:");
+                eprintln!("warning: generated Rust does not {cargo_verb}:");
                 // Show only the error lines, not the full cargo output
                 for line in stderr.lines() {
                     if line.starts_with("error") || line.contains("-->") {
@@ -1412,14 +1431,14 @@ fn run_build(
                     }
                 }
                 eprintln!();
-                eprintln!("  Run `cd {out_dir_str} && cargo check` to see full errors.");
+                eprintln!("  Run `cd {out_dir_str} && cargo {cargo_verb}` to see full errors.");
                 eprintln!("  Use `--no-check` to skip this validation.");
             }
             Err(_) => {
                 // cargo not found or other OS error; skip silently
                 if verbosity != Verbosity::Quiet {
                     println!(
-                        "OK  {filename} -> {out_dir_str}/ (cargo check skipped: cargo not found)"
+                        "OK  {filename} -> {out_dir_str}/ (cargo {cargo_verb} skipped: cargo not found)"
                     );
                 }
             }
@@ -1427,6 +1446,18 @@ fn run_build(
     } else if verbosity != Verbosity::Quiet {
         println!("OK  {filename} -> {out_dir_str}/ (check skipped)");
     }
+}
+
+/// Find the first `.wasm` file in a directory (for WASM build output).
+fn find_wasm_artifact(dir: &Path) -> Option<std::path::PathBuf> {
+    let rd = fs::read_dir(dir).ok()?;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "wasm") {
+            return Some(path);
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
