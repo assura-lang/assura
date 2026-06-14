@@ -654,7 +654,7 @@
   - Run: `tree-sitter test` must pass
   - Ensure the grammar handles error recovery (partial parses)
 
-- [ ] **T207**: VS Code extension test infrastructure
+- [x] **T207**: VS Code extension test infrastructure
   - Depends on: none
   - The extension at `editors/vscode/` has no tests
   - Add basic tests:

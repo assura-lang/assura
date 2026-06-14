@@ -1,0 +1,7 @@
+// Test fixture for VS Code extension tests
+contract Sample {
+    input(x: Int)
+    output(y: Int)
+    requires { x > 0 }
+    ensures  { y > 0 }
+}
