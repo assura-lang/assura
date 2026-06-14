@@ -3512,6 +3512,178 @@ timeout = 2000
         assert!(found.is_empty(), "nonexistent dir should yield no files");
     }
 
+    // =======================================================================
+    // Infer helper tests (issue #50)
+    // =======================================================================
+
+    #[test]
+    fn extract_sigs_simple_pub_fn() {
+        let source = "pub fn add(a: i64, b: i64) -> i64 { a + b }";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        assert_eq!(sigs[0].name, "add");
+        assert!(sigs[0].is_pub);
+        assert_eq!(sigs[0].params.len(), 2);
+        assert_eq!(sigs[0].return_type, "i64");
+    }
+
+    #[test]
+    fn extract_sigs_skips_private_fn() {
+        let source = "fn helper(x: i32) -> i32 { x }";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        assert!(!sigs[0].is_pub);
+    }
+
+    #[test]
+    fn extract_sigs_multiline() {
+        let source = "pub fn long_name(\n    a: String,\n    b: Vec<u8>,\n) -> bool {\n    true\n}";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        assert_eq!(sigs[0].name, "long_name");
+        assert_eq!(sigs[0].params.len(), 2);
+        assert_eq!(sigs[0].return_type, "bool");
+    }
+
+    #[test]
+    fn extract_sigs_with_self_param() {
+        let source = "pub fn get(&self, key: &str) -> Option<String> {";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        // &self should be skipped
+        assert_eq!(sigs[0].params.len(), 1);
+        assert_eq!(sigs[0].params[0].0, "key");
+    }
+
+    #[test]
+    fn extract_sigs_pub_crate() {
+        let source = "pub(crate) fn internal(x: u32) -> u32 { x }";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        assert!(sigs[0].is_pub);
+        assert_eq!(sigs[0].name, "internal");
+    }
+
+    #[test]
+    fn extract_sigs_no_return_type() {
+        let source = "pub fn do_stuff(x: i32) { println!(\"{x}\"); }";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        assert_eq!(sigs[0].return_type, "()");
+    }
+
+    #[test]
+    fn parse_param_list_empty() {
+        let result = super::parse_param_list("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_param_list_single() {
+        let result = super::parse_param_list("x: i64");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], ("x".to_string(), "i64".to_string()));
+    }
+
+    #[test]
+    fn parse_param_list_multiple() {
+        let result = super::parse_param_list("a: i32, b: String, c: bool");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].0, "a");
+        assert_eq!(result[1].0, "b");
+        assert_eq!(result[2].0, "c");
+    }
+
+    #[test]
+    fn parse_param_list_nested_generics() {
+        let result =
+            super::parse_param_list("data: HashMap<String, Vec<Option<i32>>>, count: usize");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, "data");
+        assert_eq!(result[0].1, "HashMap<String, Vec<Option<i32>>>");
+        assert_eq!(result[1].0, "count");
+    }
+
+    #[test]
+    fn parse_param_list_skips_self() {
+        let result = super::parse_param_list("&self, x: i32");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "x");
+    }
+
+    #[test]
+    fn parse_param_list_mut_self() {
+        let result = super::parse_param_list("&mut self, key: String, val: i64");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, "key");
+        assert_eq!(result[1].0, "val");
+    }
+
+    #[test]
+    fn parse_fn_sig_basic() {
+        let sig = super::parse_fn_signature("add(a: i64, b: i64) -> i64 {", true).unwrap();
+        assert_eq!(sig.name, "add");
+        assert_eq!(sig.params.len(), 2);
+        assert_eq!(sig.return_type, "i64");
+        assert!(sig.is_pub);
+    }
+
+    #[test]
+    fn parse_fn_sig_with_where() {
+        let sig = super::parse_fn_signature("process(x: T) -> T where T: Clone {", true).unwrap();
+        assert_eq!(sig.name, "process");
+        assert_eq!(sig.return_type, "T");
+    }
+
+    #[test]
+    fn parse_fn_sig_no_return() {
+        let sig = super::parse_fn_signature("do_work(x: i32) {", false).unwrap();
+        assert_eq!(sig.name, "do_work");
+        assert_eq!(sig.return_type, "()");
+        assert!(!sig.is_pub);
+    }
+
+    #[test]
+    fn generate_bind_skeleton_roundtrip() {
+        let sig = super::RustFnSig {
+            name: "add".to_string(),
+            params: vec![
+                ("a".to_string(), "i64".to_string()),
+                ("b".to_string(), "i64".to_string()),
+            ],
+            return_type: "i64".to_string(),
+            is_pub: true,
+        };
+        let mut out = String::new();
+        super::generate_bind_skeleton("crate::math", &sig, &mut out);
+        assert!(out.contains("bind \"crate::math::add\" as add"));
+        assert!(out.contains("input(a: Int, b: Int)"));
+        assert!(out.contains("output(result: Int)"));
+        // Should parse through our own parser
+        let (parsed, errs) = assura_parser::parse(&out);
+        assert!(
+            errs.is_empty(),
+            "generated bind should parse: {errs:?}\n{out}"
+        );
+        assert!(parsed.is_some(), "parsed to None:\n{out}");
+    }
+
+    #[test]
+    fn generate_bind_skeleton_no_return() {
+        let sig = super::RustFnSig {
+            name: "log".to_string(),
+            params: vec![("msg".to_string(), "&str".to_string())],
+            return_type: "()".to_string(),
+            is_pub: true,
+        };
+        let mut out = String::new();
+        super::generate_bind_skeleton("crate::util", &sig, &mut out);
+        assert!(out.contains("bind \"crate::util::log\" as log"));
+        assert!(out.contains("input(msg: String)"));
+        // Unit return should not produce output line
+        assert!(!out.contains("output(result:"));
+    }
+
     #[test]
     fn discover_rs_files_results_are_sorted() {
         let dir = std::env::temp_dir().join("assura_test_discover_sorted");
