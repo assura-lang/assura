@@ -766,7 +766,7 @@ pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
         Severity::Warning => Color::Yellow,
         Severity::Info => Color::Blue,
     };
-    let mut builder = Report::build(kind, (filename, diag.primary.clone()))
+    let mut builder = Report::build(kind, filename, diag.primary.start)
         .with_message(format!("[{}] {}", diag.code, diag.message))
         .with_label(
             Label::new((filename, diag.primary.clone()))

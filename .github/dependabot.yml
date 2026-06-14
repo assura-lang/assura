@@ -13,12 +13,13 @@ updates:
       # types, combinators). Upgrading requires a full parser rewrite.
       - dependency-name: chumsky
         versions: [">=0.10"]
-      # ariadne 0.7+ -- check migration guide before upgrading.
+      # ariadne 0.5+ changes the Report/Label API.
       - dependency-name: ariadne
-        versions: [">=0.7"]
-      # z3 0.21+ -- check API changes before upgrading.
+        versions: [">=0.5"]
+      # z3 0.13+ has significant API changes and must match the system
+      # libz3 version installed in CI.
       - dependency-name: z3
-        versions: [">=0.21"]
+        versions: [">=0.13"]
     groups:
       # tonic, prost, and tonic-build must be upgraded together;
       # individual PRs always fail because of version coupling.

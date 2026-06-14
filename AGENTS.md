@@ -135,8 +135,7 @@ These versions are load-bearing. The APIs change between majors.
 | Crate | Version | Do NOT upgrade to |
 |-------|---------|-------------------|
 | chumsky | 0.9 | 0.10+ (completely different API) |
-| ariadne | 0.6 | 0.7+ (check migration guide first) |
-| z3 | 0.20 | 0.21+ (check API changes first) |
+| ariadne | 0.4 | 0.5+ (different Report/Label API) |
 | logos | 0.15 | stable, upgrades OK |
 
 **chumsky 0.9 patterns**: `Parser<Token, Output, Error = Simple<Token>>`,
@@ -233,7 +232,7 @@ These are final. Do not revisit without explicit discussion.
 | Compiler language | Rust | docs/INVESTIGATION.md |
 | Lexer | logos 0.15 | Fast, derive macro |
 | Parser | chumsky 0.9 combinators | NOT hand-rolled, NOT 0.10 |
-| Error display | ariadne 0.6 | Colored spans |
+| Error display | ariadne 0.4 | Colored spans |
 | SMT solver | Z3 primary (z3 crate), CVC5 fallback | docs/ROADMAP.md |
 | Codegen target | Rust source via prettyplease | NOT syn/quote |
 | Codegen output | `generated/` dir as Cargo workspace | Section 10.3 of spec |
@@ -415,8 +414,8 @@ sudo apt-get install -y libz3-dev
 z3 --version
 ```
 
-The `z3` Rust crate version should be `0.20` (latest stable, thread-local
-context API). Pin it in Cargo.toml. The crate links against libz3 at build
+The `z3` Rust crate version should be `0.12` (latest stable with good
+API). Pin it in Cargo.toml. The crate links against libz3 at build
 time; if it can't find it, set `Z3_SYS_Z3_HEADER` and `LD_LIBRARY_PATH`.
 
 For CI (T029), add this to the GitHub Actions workflow:
@@ -609,7 +608,7 @@ accepts buggy code. This is the worst kind of bug.
 ## What NOT To Do
 
 - Do not add features not in SPECIFICATION.md
-- Do not upgrade chumsky past 0.9 or ariadne past 0.6
+- Do not upgrade chumsky past 0.9 or ariadne past 0.4
 - Do not use `syn`/`quote` for codegen (they're for proc macros)
 - Do not build a hand-rolled parser (chumsky is the decision)
 - Do not use tree-sitter as the compiler parser (it's error-tolerant,
