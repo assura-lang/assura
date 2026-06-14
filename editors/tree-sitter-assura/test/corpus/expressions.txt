@@ -1,0 +1,119 @@
+===
+Arithmetic expression
+===
+
+contract Arith {
+  ensures {
+    x + y * 2
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression
+            (binary_expr
+              (expression (identifier))
+              (expression (literal (number))))))))))
+
+===
+Comparison operators
+===
+
+contract Cmp {
+  requires {
+    x <= 100
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))))
+
+===
+Quantifier expression
+===
+
+contract Sorted {
+  ensures {
+    forall i in data : i >= 0
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (quantifier
+          (identifier)
+          (expression (identifier))
+          (expression
+            (binary_expr
+              (expression (identifier))
+              (expression (literal (number))))))))))
+
+===
+Logical operators
+===
+
+contract Logic {
+  requires {
+    x > 0 && y > 0
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (binary_expr
+          (expression
+            (binary_expr
+              (expression (identifier))
+              (expression (literal (number)))))
+          (expression
+            (binary_expr
+              (expression (identifier))
+              (expression (literal (number))))))))))
+
+===
+Old expression
+===
+
+contract Mutate {
+  ensures {
+    old(x) + 1
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (binary_expr
+          (expression
+            (old_expr
+              (expression (identifier))))
+          (expression (literal (number))))))))

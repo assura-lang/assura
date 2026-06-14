@@ -6,11 +6,11 @@
 (block_expr) @scope
 
 ; Definitions
-(type_def name: (identifier) @definition.type)
-(enum_def name: (identifier) @definition.type)
-(fn_def name: (identifier) @definition.function)
-(param name: (identifier) @definition.parameter)
-(field_def name: (identifier) @definition.field)
+(type_def (identifier) @definition.type)
+(enum_def (identifier) @definition.type)
+(fn_def (identifier) @definition.function)
+(param (identifier) @definition.parameter)
+(field_def (identifier) @definition.field)
 
 ; References
 (identifier) @reference

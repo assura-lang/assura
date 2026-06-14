@@ -1,0 +1,73 @@
+===
+Basic contract with requires and ensures
+===
+
+contract SafeDiv {
+  requires {
+    b != 0
+  }
+  ensures {
+    result > 0
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))))
+
+===
+Contract with input and output clauses
+===
+
+contract Transform {
+  input {
+    data
+  }
+  output {
+    result
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (clause
+      (expression (identifier)))
+    (clause
+      (expression (identifier)))))
+
+===
+Contract with generic type parameters
+===
+
+contract Container<T> {
+  invariant {
+    size >= 0
+  }
+}
+
+---
+
+(source_file
+  (contract_decl
+    (identifier)
+    (type_params (identifier))
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))))

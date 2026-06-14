@@ -642,7 +642,7 @@
 
 ### T.2 tree-sitter and VS Code Testing
 
-- [ ] **T206**: Add tree-sitter grammar tests
+- [x] **T206**: Add tree-sitter grammar tests
   - Depends on: none
   - The `editors/tree-sitter-assura/` directory exists but has an empty
     `test/corpus/` directory

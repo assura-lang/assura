@@ -18,7 +18,7 @@
 
 ; Control flow
 [
-  "if" "then" "else" "match" "in"
+  "if" "then" "else" "in"
 ] @keyword.control
 
 ; Quantifiers
@@ -30,23 +30,17 @@
 (builtin_type) @type.builtin
 
 ; Type definitions
-(type_def name: (identifier) @type.definition)
-(enum_def name: (identifier) @type.definition)
-(contract_decl name: (identifier) @type.definition)
-(service_decl name: (identifier) @type.definition)
+(type_def (identifier) @type.definition)
+(enum_def (identifier) @type.definition)
+(contract_decl (identifier) @type.definition)
+(service_decl (identifier) @type.definition)
 
 ; Function definitions
-(fn_def name: (identifier) @function)
-(extern_decl name: (identifier) @function)
-
-; Function calls
-(call_expr function: (identifier) @function.call)
+(fn_def (identifier) @function)
+(extern_decl (identifier) @function)
 
 ; Parameters
-(param name: (identifier) @variable.parameter)
-
-; Field access
-(field_access field: (identifier) @property)
+(param (identifier) @variable.parameter)
 
 ; Identifiers
 (identifier) @variable

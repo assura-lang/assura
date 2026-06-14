@@ -1,0 +1,79 @@
+===
+Simple type definition
+===
+
+type Point {
+  x: Int,
+  y: Int,
+}
+
+---
+
+(source_file
+  (type_def
+    (identifier)
+    (type_body
+      (field_def (identifier) (type_ref (builtin_type)))
+      (field_def (identifier) (type_ref (builtin_type))))))
+
+===
+Enum definition
+===
+
+enum Color {
+  Red,
+  Green,
+  Blue
+}
+
+---
+
+(source_file
+  (enum_def
+    (identifier)
+    (enum_variant (identifier))
+    (enum_variant (identifier))
+    (enum_variant (identifier))))
+
+===
+Generic type
+===
+
+type Stack<T> {
+  items: List<T>,
+  size: Nat,
+}
+
+---
+
+(source_file
+  (type_def
+    (identifier)
+    (type_params (identifier))
+    (type_body
+      (field_def
+        (identifier)
+        (type_ref (builtin_type) (type_ref (identifier))))
+      (field_def
+        (identifier)
+        (type_ref (builtin_type))))))
+
+===
+Refinement type
+===
+
+type PositiveInt = { x: Int | x > 0 }
+
+---
+
+(source_file
+  (type_def
+    (identifier)
+    (type_body
+      (type_ref
+        (identifier)
+        (type_ref (builtin_type))
+        (expression
+          (binary_expr
+            (expression (identifier))
+            (expression (literal (number)))))))))

@@ -1,0 +1,61 @@
+===
+Basic service with states and operation
+===
+
+service Counter {
+  states { Idle, Active }
+  operation increment {
+    requires {
+      count >= 0
+    }
+    ensures {
+      count > 0
+    }
+  }
+}
+
+---
+
+(source_file
+  (service_decl
+    (identifier)
+    (service_item
+      (identifier)
+      (identifier))
+    (service_item
+      (identifier)
+      (clause
+        (expression
+          (binary_expr
+            (expression (identifier))
+            (expression (literal (number))))))
+      (clause
+        (expression
+          (binary_expr
+            (expression (identifier))
+            (expression (literal (number)))))))))
+
+===
+Service with query
+===
+
+service Store {
+  query lookup {
+    requires {
+      key != 0
+    }
+  }
+}
+
+---
+
+(source_file
+  (service_decl
+    (identifier)
+    (service_item
+      (identifier)
+      (clause
+        (expression
+          (binary_expr
+            (expression (identifier))
+            (expression (literal (number)))))))))

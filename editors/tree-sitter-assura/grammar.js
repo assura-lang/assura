@@ -6,6 +6,8 @@ module.exports = grammar({
 
   extras: ($) => [/\s/, $.comment],
 
+  conflicts: ($) => [[$.if_expr]],
+
   word: ($) => $.identifier,
 
   rules: {
@@ -141,7 +143,7 @@ module.exports = grammar({
     // Type references
     type_ref: ($) =>
       choice(
-        $.builtin_type,
+        seq($.builtin_type, optional(seq("<", commaSep($.type_ref), ">"))),
         seq($.identifier, optional(seq("<", commaSep($.type_ref), ">"))),
         seq("{", $.identifier, ":", $.type_ref, "|", $.expression, "}"),
         seq("&", optional("mut"), $.type_ref),

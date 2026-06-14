@@ -1,0 +1,79 @@
+===
+Module declaration
+===
+
+module math.utils;
+
+---
+
+(source_file
+  (module_decl
+    (dotted_name (identifier) (identifier))))
+
+===
+Import declaration
+===
+
+import std.collections;
+
+---
+
+(source_file
+  (import_decl
+    (dotted_name (identifier) (identifier))))
+
+===
+Function definition with contract
+===
+
+fn add(a: Int, b: Int) -> Int
+  requires {
+    a >= 0
+  }
+  ensures {
+    result == a + b
+  }
+
+---
+
+(source_file
+  (fn_def
+    (identifier)
+    (param (identifier) (type_ref (builtin_type)))
+    (param (identifier) (type_ref (builtin_type)))
+    (type_ref (builtin_type))
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression
+            (binary_expr
+              (expression (identifier))
+              (expression (identifier)))))))))
+
+===
+Extern declaration
+===
+
+extern malloc(size: Nat) -> Bytes
+  requires {
+    size > 0
+  }
+
+---
+
+(source_file
+  (extern_decl
+    (identifier)
+    (param (identifier) (type_ref (builtin_type)))
+    (type_ref (builtin_type))
+    (clause
+      (expression
+        (binary_expr
+          (expression (identifier))
+          (expression (literal (number))))))))
