@@ -3,9 +3,13 @@
 #![allow(clippy::result_large_err)]
 
 pub mod ast;
+#[allow(dead_code)]
+pub(crate) mod cst;
 pub mod display;
 pub mod lexer;
 pub mod parser;
+#[allow(dead_code)]
+pub mod syntax_kind;
 
 /// Parse source text into a SourceFile, returning the AST and any errors.
 ///
