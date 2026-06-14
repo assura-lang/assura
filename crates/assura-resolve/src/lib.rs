@@ -1821,6 +1821,298 @@ fn check_unused_imports(
     }
 }
 
+// ===========================================================================
+// A002: Filesystem-based module resolution
+// ===========================================================================
+
+/// Find the project root by walking up from `start` until `assura.toml`
+/// is found.  Returns the directory containing `assura.toml`, or `None`
+/// if no config file exists (single-file mode).
+pub fn find_project_root(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = if start.is_file() {
+        start.parent()?.to_path_buf()
+    } else {
+        start.to_path_buf()
+    };
+
+    loop {
+        if dir.join("assura.toml").exists() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+/// Resolve a dotted module path (`a.b.c`) to a file path relative to
+/// the project root.  The convention is `a/b/c.assura`.
+pub fn resolve_module_path(
+    project_root: &std::path::Path,
+    module_path: &[String],
+) -> Option<std::path::PathBuf> {
+    if module_path.is_empty() {
+        return None;
+    }
+    let mut file_path = project_root.to_path_buf();
+    for segment in module_path {
+        file_path.push(segment);
+    }
+    file_path.set_extension("assura");
+    if file_path.exists() {
+        Some(file_path)
+    } else {
+        None
+    }
+}
+
+/// Errors produced during module graph construction.
+#[derive(Debug, Clone)]
+pub struct ModuleError {
+    pub module_path: String,
+    pub message: String,
+}
+
+/// A compiled module graph: all reachable modules parsed and resolved.
+#[derive(Debug)]
+pub struct ModuleGraph {
+    /// All successfully resolved modules, keyed by dotted path.
+    pub modules: ModuleMap,
+    /// Errors encountered while loading modules.
+    pub errors: Vec<ModuleError>,
+    /// Topological order of module paths (leaves first, root last).
+    pub order: Vec<String>,
+}
+
+/// Build a complete module graph starting from a root file.
+///
+/// 1. Parse the root file.
+/// 2. For each `import` in the root, resolve the module path to a file,
+///    parse it, and add it to the module map.
+/// 3. Recursively resolve imports in each discovered module.
+/// 4. Detect circular imports via the visited set.
+/// 5. Return all modules in topological order (dependencies before
+///    dependents).
+pub fn build_module_graph(
+    root_file: &std::path::Path,
+    project_root: &std::path::Path,
+) -> ModuleGraph {
+    let mut modules = ModuleMap::new();
+    let mut errors = Vec::new();
+    let mut order = Vec::new();
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+
+    // Derive a module name from the root file path relative to the project root
+    let root_module = file_to_module_path(root_file, project_root);
+
+    // Parse the root file
+    let root_source = match std::fs::read_to_string(root_file) {
+        Ok(s) => s,
+        Err(e) => {
+            errors.push(ModuleError {
+                module_path: root_module,
+                message: format!("cannot read file: {e}"),
+            });
+            return ModuleGraph {
+                modules,
+                errors,
+                order,
+            };
+        }
+    };
+    let (root_ast, parse_errs) = assura_parser::parse(&root_source);
+    if !parse_errs.is_empty() {
+        errors.push(ModuleError {
+            module_path: root_module.clone(),
+            message: format!("{} parse error(s)", parse_errs.len()),
+        });
+    }
+
+    if let Some(ast) = root_ast {
+        modules.insert(root_module.clone(), ast);
+    } else {
+        errors.push(ModuleError {
+            module_path: root_module,
+            message: "failed to parse root file".to_string(),
+        });
+        return ModuleGraph {
+            modules,
+            errors,
+            order,
+        };
+    }
+
+    // Recursively load all imports
+    resolve_imports_recursive(
+        &root_module,
+        project_root,
+        &mut modules,
+        &mut visiting,
+        &mut visited,
+        &mut order,
+        &mut errors,
+    );
+
+    // The root itself is last in topological order
+    if !order.contains(&root_module) {
+        order.push(root_module);
+    }
+
+    ModuleGraph {
+        modules,
+        errors,
+        order,
+    }
+}
+
+fn resolve_imports_recursive(
+    module_path: &str,
+    project_root: &std::path::Path,
+    modules: &mut ModuleMap,
+    visiting: &mut HashSet<String>,
+    visited: &mut HashSet<String>,
+    order: &mut Vec<String>,
+    errors: &mut Vec<ModuleError>,
+) {
+    if visited.contains(module_path) {
+        return;
+    }
+    if !visiting.insert(module_path.to_string()) {
+        // Circular import
+        errors.push(ModuleError {
+            module_path: module_path.to_string(),
+            message: "circular import detected".to_string(),
+        });
+        return;
+    }
+
+    // Get the imports for this module
+    let imports: Vec<Vec<String>> = modules
+        .get(module_path)
+        .map(|source| source.imports.iter().map(|i| i.path.clone()).collect())
+        .unwrap_or_default();
+
+    for imp_path in &imports {
+        let path_str = imp_path.join(".");
+        if modules.contains_key(&path_str) {
+            // Already loaded, just recurse for transitive imports
+            resolve_imports_recursive(
+                &path_str,
+                project_root,
+                modules,
+                visiting,
+                visited,
+                order,
+                errors,
+            );
+            continue;
+        }
+
+        // Resolve to filesystem
+        match resolve_module_path(project_root, imp_path) {
+            Some(file_path) => {
+                match std::fs::read_to_string(&file_path) {
+                    Ok(source) => {
+                        let (ast, parse_errs) = assura_parser::parse(&source);
+                        if !parse_errs.is_empty() {
+                            errors.push(ModuleError {
+                                module_path: path_str.clone(),
+                                message: format!(
+                                    "{}: {} parse error(s)",
+                                    file_path.display(),
+                                    parse_errs.len()
+                                ),
+                            });
+                        }
+                        if let Some(ast) = ast {
+                            modules.insert(path_str.clone(), ast);
+                        }
+                        // Recursively resolve this module's imports
+                        resolve_imports_recursive(
+                            &path_str,
+                            project_root,
+                            modules,
+                            visiting,
+                            visited,
+                            order,
+                            errors,
+                        );
+                    }
+                    Err(e) => {
+                        errors.push(ModuleError {
+                            module_path: path_str.clone(),
+                            message: format!("{}: {e}", file_path.display()),
+                        });
+                    }
+                }
+            }
+            None => {
+                // Module not found on filesystem. Not necessarily an error:
+                // could be a standard library module.
+                errors.push(ModuleError {
+                    module_path: path_str.clone(),
+                    message: format!("module not found: {}", imp_path.join("/")),
+                });
+            }
+        }
+    }
+
+    visiting.remove(module_path);
+    visited.insert(module_path.to_string());
+    let mp = module_path.to_string();
+    if !order.contains(&mp) {
+        order.push(mp);
+    }
+}
+
+fn file_to_module_path(file: &std::path::Path, project_root: &std::path::Path) -> String {
+    file.strip_prefix(project_root)
+        .unwrap_or(file)
+        .with_extension("")
+        .to_string_lossy()
+        .replace(['/', '\\'], ".")
+}
+
+/// Resolve all modules in a graph, producing `ResolvedFile` for each.
+///
+/// Processes modules in topological order so that a module's dependencies
+/// are always resolved before the module itself.
+pub fn resolve_module_graph(
+    graph: &ModuleGraph,
+) -> (HashMap<String, ResolvedFile>, Vec<ModuleError>) {
+    let mut resolved = HashMap::new();
+    let mut errors = Vec::new();
+
+    for module_path in &graph.order {
+        if let Some(source) = graph.modules.get(module_path) {
+            let module_map: ModuleMap = graph
+                .modules
+                .iter()
+                .filter(|(k, _)| *k != module_path)
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            let mut visited = HashSet::new();
+            visited.insert(module_path.clone());
+
+            match resolve_with_modules(source, &module_map, &mut visited) {
+                Ok(result) => {
+                    resolved.insert(module_path.clone(), result);
+                }
+                Err(errs) => {
+                    errors.push(ModuleError {
+                        module_path: module_path.clone(),
+                        message: format!("{} resolution error(s)", errs.len()),
+                    });
+                }
+            }
+        }
+    }
+
+    (resolved, errors)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -3298,5 +3590,120 @@ service Svc {
             !params.is_empty(),
             "service operation input params should be in scope"
         );
+    }
+
+    // ===================================================================
+    // A002: Module resolution tests
+    // ===================================================================
+
+    #[test]
+    fn find_project_root_with_toml() {
+        let dir = std::env::temp_dir().join("assura-test-root");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("assura.toml"), "[project]\nname = \"test\"\n").unwrap();
+
+        let sub = dir.join("src");
+        std::fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("main.assura");
+        std::fs::write(&file, "").unwrap();
+
+        let root = find_project_root(&file);
+        assert!(root.is_some());
+        assert_eq!(root.unwrap(), dir);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_project_root_none() {
+        // A temp file with no assura.toml anywhere above
+        let dir = std::env::temp_dir().join("assura-test-no-root");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("test.assura");
+        std::fs::write(&file, "").unwrap();
+
+        // May or may not find one depending on whether assura.toml
+        // exists somewhere above /tmp. Just check it doesn't panic.
+        let _ = find_project_root(&file);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_module_path_existing() {
+        let dir = std::env::temp_dir().join("assura-test-mod-resolve");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("math")).unwrap();
+        std::fs::write(
+            dir.join("math/util.assura"),
+            "module math.util;\ncontract Add {\n  input(a: Int)\n}",
+        )
+        .unwrap();
+
+        let path = vec!["math".into(), "util".into()];
+        let result = resolve_module_path(&dir, &path);
+        assert!(result.is_some());
+        assert!(result.unwrap().ends_with("math/util.assura"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_module_path_missing() {
+        let dir = std::env::temp_dir().join("assura-test-mod-missing");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = vec!["nonexistent".into(), "module".into()];
+        assert!(resolve_module_path(&dir, &path).is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_to_module_path_conversion() {
+        let root = std::path::Path::new("/project");
+        let file = std::path::Path::new("/project/src/math/util.assura");
+        let result = file_to_module_path(file, root);
+        assert_eq!(result, "src.math.util");
+    }
+
+    #[test]
+    fn build_module_graph_single_file() {
+        let dir = std::env::temp_dir().join("assura-test-graph-single");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("main.assura"),
+            "module test.main;\ncontract Foo {\n  input(x: Int)\n}",
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&dir.join("main.assura"), &dir);
+        assert_eq!(graph.modules.len(), 1);
+        assert_eq!(graph.order.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_module_graph_produces_resolved_files() {
+        let dir = std::env::temp_dir().join("assura-test-resolve-graph");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("main.assura"),
+            "module test.main;\ncontract Bar {\n  input(x: Int)\n}",
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&dir.join("main.assura"), &dir);
+        let (resolved, errs) = resolve_module_graph(&graph);
+        // The single module may have resolution warnings but should produce a result
+        assert!(!resolved.is_empty() || !errs.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

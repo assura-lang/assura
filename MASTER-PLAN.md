@@ -452,7 +452,7 @@
 
 ### A.2 Multi-File Compilation
 
-- [ ] **A002**: Implement filesystem-based module resolution
+- [x] **A002**: Implement filesystem-based module resolution
   - Depends on: A001
   - Currently the compiler only handles single files
   - `import a.b.c` should resolve to `a/b/c.assura` relative to the
