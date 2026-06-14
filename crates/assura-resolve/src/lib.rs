@@ -295,49 +295,93 @@ const BUILTIN_VALUE_NAMES: &[&str] = &[
 /// - `Expr::Call { args: [Cast{Ident("a"), "Int"}, ...] }` (less common)
 fn extract_input_param_names(body: &Expr) -> Vec<String> {
     let mut names = Vec::new();
+    extract_input_names_from_expr(body, &mut names);
+    names
+}
+
+/// Recursively extract parameter names from a single expression.
+fn extract_input_name_single(expr: &Expr, names: &mut Vec<String>) {
+    match expr {
+        Expr::Cast { expr: inner, .. } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                names.push(name.clone());
+            }
+        }
+        Expr::Ident(name) => {
+            names.push(name.clone());
+        }
+        Expr::Paren(inner) => extract_input_name_single(inner, names),
+        _ => {}
+    }
+}
+
+/// Extract parameter names from an expression, handling all known patterns.
+fn extract_input_names_from_expr(body: &Expr, names: &mut Vec<String>) {
     match body {
+        Expr::Cast { expr: inner, .. } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                names.push(name.clone());
+            }
+        }
+        Expr::Ident(name) => {
+            names.push(name.clone());
+        }
+        Expr::Paren(inner) => extract_input_names_from_expr(inner, names),
+        Expr::Tuple(elems) | Expr::Block(elems) => {
+            for elem in elems {
+                extract_input_name_single(elem, names);
+            }
+        }
         Expr::Call { args, .. } => {
             for arg in args {
-                match arg {
-                    Expr::Cast { expr: inner, .. } => {
-                        if let Expr::Ident(name) = inner.as_ref() {
-                            names.push(name.clone());
-                        }
-                    }
-                    Expr::Ident(name) => {
-                        names.push(name.clone());
-                    }
-                    _ => {}
-                }
+                extract_input_name_single(arg, names);
             }
         }
         Expr::Raw(tokens) => {
-            // Parse "name: Type" pairs from raw tokens.
-            let mut i = 0;
-            while i + 2 <= tokens.len() {
-                if tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
-                    names.push(tokens[i].clone());
-                    // Skip type tokens until comma at depth 0 or end
-                    let mut j = i + 2;
-                    let mut depth = 0i32;
-                    while j < tokens.len() {
-                        match tokens[j].as_str() {
-                            "<" => depth += 1,
-                            ">" if depth > 0 => depth -= 1,
-                            "," if depth == 0 => break,
-                            _ => {}
-                        }
-                        j += 1;
-                    }
-                    i = j + 1; // skip comma
-                } else {
-                    i += 1;
-                }
-            }
+            extract_input_names_from_raw(tokens, names);
         }
         _ => {}
     }
-    names
+}
+
+/// Extract parameter names from raw token sequences.
+///
+/// Supports "name: Type", "name as Type", and bare identifiers separated
+/// by commas.
+fn extract_input_names_from_raw(tokens: &[String], names: &mut Vec<String>) {
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = &tokens[i];
+        if tok == "," {
+            i += 1;
+            continue;
+        }
+        // "name : Type" pattern
+        if i + 2 <= tokens.len() && tokens.get(i + 1).map(|s| s.as_str()) == Some(":") {
+            names.push(tok.clone());
+            // Skip type tokens until comma at depth 0 or end
+            let mut j = i + 2;
+            let mut depth = 0i32;
+            while j < tokens.len() {
+                match tokens[j].as_str() {
+                    "<" => depth += 1,
+                    ">" if depth > 0 => depth -= 1,
+                    "," if depth == 0 => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            i = j + 1;
+        // "name as Type" pattern
+        } else if i + 2 < tokens.len() && tokens[i + 1] == "as" {
+            names.push(tok.clone());
+            i += 3; // skip name, "as", type
+        // Bare identifier
+        } else {
+            names.push(tok.clone());
+            i += 1;
+        }
+    }
 }
 
 /// Register input and output clause parameters from a clause list into a scope.
@@ -3036,6 +3080,66 @@ import crypto.hash_utils;
                 Expr::Ident("y".to_string()),
             ],
         };
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["x", "y"]);
+    }
+
+    #[test]
+    fn extract_input_params_ident() {
+        use assura_parser::ast::Expr;
+        let body = Expr::Ident("x".to_string());
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["x"]);
+    }
+
+    #[test]
+    fn extract_input_params_cast() {
+        use assura_parser::ast::Expr;
+        let body = Expr::Cast {
+            expr: Box::new(Expr::Ident("n".to_string())),
+            ty: "Int".to_string(),
+        };
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["n"]);
+    }
+
+    #[test]
+    fn extract_input_params_paren() {
+        use assura_parser::ast::Expr;
+        let body = Expr::Paren(Box::new(Expr::Cast {
+            expr: Box::new(Expr::Ident("val".to_string())),
+            ty: "Nat".to_string(),
+        }));
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["val"]);
+    }
+
+    #[test]
+    fn extract_input_params_tuple() {
+        use assura_parser::ast::Expr;
+        let body = Expr::Tuple(vec![
+            Expr::Cast {
+                expr: Box::new(Expr::Ident("a".to_string())),
+                ty: "Int".to_string(),
+            },
+            Expr::Ident("b".to_string()),
+        ]);
+        let names = extract_input_param_names(&body);
+        assert_eq!(names, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn extract_input_params_raw_as_separator() {
+        use assura_parser::ast::Expr;
+        let body = Expr::Raw(vec![
+            "x".into(),
+            "as".into(),
+            "Int".into(),
+            ",".into(),
+            "y".into(),
+            "as".into(),
+            "Nat".into(),
+        ]);
         let names = extract_input_param_names(&body);
         assert_eq!(names, vec!["x", "y"]);
     }
