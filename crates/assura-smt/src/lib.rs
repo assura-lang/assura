@@ -55,6 +55,86 @@ impl SolverChoice {
 }
 
 // ---------------------------------------------------------------------------
+// Solver trait (#26)
+// ---------------------------------------------------------------------------
+
+/// Trait abstracting an SMT solver backend.
+///
+/// Both Z3 (in-process) and CVC5 (command-line) implement this trait,
+/// enabling solver-agnostic verification and portfolio mode.
+pub trait Solver {
+    /// Human-readable solver name (e.g., "z3", "cvc5").
+    fn name(&self) -> &str;
+
+    /// Verify a contract's clauses, returning one result per verifiable clause.
+    fn verify_contract(
+        &self,
+        contract_name: &str,
+        clauses: &[assura_parser::ast::Clause],
+    ) -> Vec<VerificationResult>;
+}
+
+/// Z3 solver backend (in-process via the `z3` crate).
+pub struct Z3Solver;
+
+impl Solver for Z3Solver {
+    fn name(&self) -> &str {
+        "z3"
+    }
+
+    fn verify_contract(
+        &self,
+        contract_name: &str,
+        clauses: &[assura_parser::ast::Clause],
+    ) -> Vec<VerificationResult> {
+        verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3)
+    }
+}
+
+/// CVC5 solver backend (command-line via the `cvc5` binary).
+pub struct Cvc5Solver;
+
+impl Solver for Cvc5Solver {
+    fn name(&self) -> &str {
+        "cvc5"
+    }
+
+    fn verify_contract(
+        &self,
+        contract_name: &str,
+        clauses: &[assura_parser::ast::Clause],
+    ) -> Vec<VerificationResult> {
+        cvc5_backend::verify_contract_cvc5(contract_name, clauses)
+    }
+}
+
+/// Portfolio solver: tries Z3 first, falls back to CVC5 on timeout/unknown.
+pub struct PortfolioSolver;
+
+impl Solver for PortfolioSolver {
+    fn name(&self) -> &str {
+        "portfolio"
+    }
+
+    fn verify_contract(
+        &self,
+        contract_name: &str,
+        clauses: &[assura_parser::ast::Clause],
+    ) -> Vec<VerificationResult> {
+        verify_contract_with_solver(contract_name, clauses, SolverChoice::Portfolio)
+    }
+}
+
+/// Create a boxed solver from a `SolverChoice`.
+pub fn solver_from_choice(choice: SolverChoice) -> Box<dyn Solver> {
+    match choice {
+        SolverChoice::Z3 => Box::new(Z3Solver),
+        SolverChoice::Cvc5 => Box::new(Cvc5Solver),
+        SolverChoice::Portfolio => Box::new(PortfolioSolver),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Measure definitions (T054)
 // ---------------------------------------------------------------------------
 

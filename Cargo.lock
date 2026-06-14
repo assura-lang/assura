@@ -235,6 +235,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "tempfile",
  "z3",
 ]
 
