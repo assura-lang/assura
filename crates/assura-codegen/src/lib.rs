@@ -1700,10 +1700,19 @@ fn expr_to_rust_static(expr: &Expr) -> String {
                 BinOp::Mul => "*",
                 BinOp::Div => "/",
                 BinOp::Mod => "%",
-                _ => {
-                    return "0 /* unsupported: non-arithmetic binop in const context */"
-                        .to_string();
-                }
+                BinOp::And => "&&",
+                BinOp::Or => "||",
+                BinOp::Eq => "==",
+                BinOp::Neq => "!=",
+                BinOp::Lt => "<",
+                BinOp::Gt => ">",
+                BinOp::Lte => "<=",
+                BinOp::Gte => ">=",
+                BinOp::Implies => "/* implies */",
+                BinOp::In => "/* in */",
+                BinOp::NotIn => "/* not in */",
+                BinOp::Concat => "/* ++ */",
+                BinOp::Range => "..",
             };
             format!(
                 "({} {op_s} {})",
@@ -1717,11 +1726,128 @@ fn expr_to_rust_static(expr: &Expr) -> String {
             expr: e,
         } => {
             let inner = expr_to_rust_static(e);
-            if inner.is_empty() {
-                "0 /* unsupported: negation of complex expr */".to_string()
+            format!("-{inner}")
+        }
+        Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: e,
+        } => {
+            let inner = expr_to_rust_static(e);
+            format!("!{inner}")
+        }
+        Expr::Field(receiver, field) => {
+            let recv = expr_to_rust_static(receiver);
+            format!("{recv}.{field}")
+        }
+        Expr::Call { func, args } => {
+            let f = expr_to_rust_static(func);
+            let a: Vec<String> = args.iter().map(expr_to_rust_static).collect();
+            format!("{f}({})", a.join(", "))
+        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let recv = expr_to_rust_static(receiver);
+            let a: Vec<String> = args.iter().map(expr_to_rust_static).collect();
+            format!("{recv}.{method}({})", a.join(", "))
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let c = expr_to_rust_static(cond);
+            let t = expr_to_rust_static(then_branch);
+            if let Some(e) = else_branch {
+                let e = expr_to_rust_static(e);
+                format!("if {c} {{ {t} }} else {{ {e} }}")
             } else {
-                format!("-{inner}")
+                format!("if {c} {{ {t} }}")
             }
+        }
+        Expr::Index { expr: e, index } => {
+            let base = expr_to_rust_static(e);
+            let idx = expr_to_rust_static(index);
+            format!("{base}[{idx}]")
+        }
+        Expr::Old(inner) => {
+            // old() is a verification concept; in generated Rust, just emit the inner expr
+            expr_to_rust_static(inner)
+        }
+        Expr::Ghost(inner) => {
+            // Ghost expressions are erased at runtime; emit as comment
+            let inner_s = expr_to_rust_static(inner);
+            format!("/* ghost: {inner_s} */ ()")
+        }
+        Expr::Cast { expr: e, ty } => {
+            let inner = expr_to_rust_static(e);
+            format!("({inner} as {ty})")
+        }
+        Expr::List(items) => {
+            let elems: Vec<String> = items.iter().map(expr_to_rust_static).collect();
+            format!("vec![{}]", elems.join(", "))
+        }
+        Expr::Tuple(items) => {
+            let elems: Vec<String> = items.iter().map(expr_to_rust_static).collect();
+            format!("({})", elems.join(", "))
+        }
+        Expr::Let { name, value, body } => {
+            let v = expr_to_rust_static(value);
+            let b = expr_to_rust_static(body);
+            format!("{{ let {name} = {v}; {b} }}")
+        }
+        Expr::Match { scrutinee, arms } => {
+            let scrut = expr_to_rust_static(scrutinee);
+            let arm_strs: Vec<String> = arms
+                .iter()
+                .map(|arm| {
+                    let pat = match &arm.pattern {
+                        assura_parser::ast::Pattern::Ident(s) => s.clone(),
+                        assura_parser::ast::Pattern::Wildcard => "_".to_string(),
+                        assura_parser::ast::Pattern::Literal(lit) => match lit {
+                            Literal::Int(s) | Literal::Float(s) => s.clone(),
+                            Literal::Str(s) => format!("\"{s}\""),
+                            Literal::Bool(b) => b.to_string(),
+                        },
+                        assura_parser::ast::Pattern::Constructor { name, fields } => {
+                            if fields.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{name}(..)")
+                            }
+                        }
+                        assura_parser::ast::Pattern::Tuple(pats) => {
+                            let ps: Vec<&str> = pats.iter().map(|_| "_").collect();
+                            format!("({})", ps.join(", "))
+                        }
+                    };
+                    let body = expr_to_rust_static(&arm.body);
+                    format!("{pat} => {body}")
+                })
+                .collect();
+            format!("match {scrut} {{ {} }}", arm_strs.join(", "))
+        }
+        Expr::Block(exprs) => {
+            let strs: Vec<String> = exprs.iter().map(expr_to_rust_static).collect();
+            strs.join(" ")
+        }
+        Expr::Forall { var, domain, body } => {
+            // Verification-only; emit as a comment in generated Rust
+            let d = expr_to_rust_static(domain);
+            let b = expr_to_rust_static(body);
+            format!("/* forall {var} in {d}: {b} */ true")
+        }
+        Expr::Exists { var, domain, body } => {
+            let d = expr_to_rust_static(domain);
+            let b = expr_to_rust_static(body);
+            format!("/* exists {var} in {d}: {b} */ true")
+        }
+        Expr::Apply { lemma_name, args } => {
+            // Verification-only; emit as comment
+            let a: Vec<String> = args.iter().map(expr_to_rust_static).collect();
+            format!("/* apply {lemma_name}({}) */ ()", a.join(", "))
         }
         Expr::Raw(tokens) => {
             // Try to extract a simple numeric literal from raw tokens
@@ -1735,7 +1861,6 @@ fn expr_to_rust_static(expr: &Expr) -> String {
             }
             clean.join(" ")
         }
-        _ => "0 /* unsupported: complex expr in const context */".to_string(),
     }
 }
 
