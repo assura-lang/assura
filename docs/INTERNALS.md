@@ -201,6 +201,15 @@ Generates a Cargo project with valid Rust source code.
 - Typestate-encoded services (`PhantomData<State>` pattern)
 - Proptest property-based tests from `ensures` clauses
 - `feature_max` constants
+- Checked wrappers for `bind` declarations (call real Rust function,
+  assert requires/ensures)
+
+**Submodule: `type_map.rs`**
+
+Reverse type mapping (Rust -> Assura). `rust_type_to_assura()` converts
+Rust type strings to canonical Assura types. Handles primitives,
+collections, Option/Result, references (erased), smart pointers (erased),
+tuples, and nested generics. Used by `assura infer` and `assura audit`.
 
 **Multi-file layout (2+ contracts/services):**
 ```
@@ -234,6 +243,12 @@ The CLI binary with subcommands:
 - `assura init`: Scaffold a new `.assura` project
 - `assura fmt <file>`: Format source with consistent style
 - `assura explain <code>`: Explain an error code
+- `assura infer <file.rs>`: Generate skeleton Assura bind contracts from
+  a Rust source file. Uses reverse type mapping. Supports `--function`
+  filter and `--output` file.
+- `assura audit <path>`: Scan a Cargo crate, discover public functions,
+  generate skeleton contracts, and verify them. Reports counterexamples.
+  Supports `--format json`, `--focus`, `--max-functions`, `--unsafe-only`.
 
 **Flags:** `--verbose` (`-v`), `--quiet` (`-q`), `--watch` (`-w`),
 `--output <dir>`, `--no-check`, `--ast`, `--tokens`, `--json`

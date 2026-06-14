@@ -107,9 +107,9 @@ workspace-inherited version, edition, license, and repository fields.
 cargo build
 
 # Run the parser CLI
-cargo run -- demos/libwebp-huffman.assura
-cargo run -- --ast demos/libwebp-huffman.assura
-cargo run -- --tokens demos/libwebp-huffman.assura
+cargo run --bin assura -- demos/libwebp-huffman.assura
+cargo run --bin assura -- --ast demos/libwebp-huffman.assura
+cargo run --bin assura -- --tokens demos/libwebp-huffman.assura
 
 # Run tests
 cargo test --workspace
@@ -253,7 +253,7 @@ same task that creates it.** Do not create crates that compile but are
 never called.
 
 The pipeline is a chain. After each task, verify the chain works
-end-to-end by running `cargo run -- demos/libwebp-huffman.assura`:
+end-to-end by running `cargo run --bin assura -- demos/libwebp-huffman.assura`:
 
 ```
 CLI main.rs
@@ -283,8 +283,8 @@ CLI main.rs
 changes (new errors reported, new output produced, etc.):
 
 ```bash
-cargo run -- demos/libwebp-huffman.assura
-cargo run -- --ast demos/libwebp-huffman.assura
+cargo run --bin assura -- demos/libwebp-huffman.assura
+cargo run --bin assura -- --ast demos/libwebp-huffman.assura
 ```
 
 If the output is identical to before you added the pass, the pass is
@@ -313,10 +313,10 @@ If any step fails, fix it before committing. Do not commit with
 After committing, verify the commit is clean:
 
 ```bash
-cargo run -- demos/libwebp-huffman.assura
-cargo run -- demos/zlib-inflate.assura
-cargo run -- demos/mbedtls-x509.assura
-cargo run -- tests/fixtures/test_basic.assura
+cargo run --bin assura -- demos/libwebp-huffman.assura
+cargo run --bin assura -- demos/zlib-inflate.assura
+cargo run --bin assura -- demos/mbedtls-x509.assura
+cargo run --bin assura -- tests/fixtures/test_basic.assura
 ```
 
 All four files must parse successfully. If a parser change breaks any
@@ -469,9 +469,9 @@ When the parser (or any compiler pass) fails on an .assura file:
    it parses. Narrow to the failing region.
 2. **Minimal reproduction**: Extract the smallest .assura snippet that
    triggers the failure. Put it in `tests/fixtures/` as a regression test.
-3. **Token dump**: Run `cargo run -- --tokens file.assura` to see what
+3. **Token dump**: Run `cargo run --bin assura -- --tokens file.assura` to see what
    the lexer produces. The issue might be a missing keyword token.
-4. **AST dump**: Run `cargo run -- --ast file.assura` to see what the
+4. **AST dump**: Run `cargo run --bin assura -- --ast file.assura` to see what the
    parser produces (may show partial results with `parse_recovery`).
 5. **Fix, test, commit**: Fix the issue, add the minimal reproduction
    as a test, verify all demos still pass, commit.
@@ -610,3 +610,73 @@ accepts buggy code. This is the worst kind of bug.
   should be used; find and fix the actual issue
 - Do not make AST changes without updating all downstream passes;
   if you change `ast.rs`, grep for every usage
+
+## Adding a New Decl Variant
+
+Adding a new variant to the `Decl` enum (e.g., `Bind`, `Trait`) is a
+high-impact change that touches 17+ files across the codebase. Every
+match on `Decl` becomes non-exhaustive. Use this checklist:
+
+### Files that need a new match arm
+
+| Crate | File | What to update |
+|-------|------|----------------|
+| assura-parser | `syntax_kind.rs` | Add `VARIANT_DECL` to `SyntaxKind` |
+| assura-parser | `grammar/items.rs` | Add grammar function, wire into `decl()` and recovery sets |
+| assura-parser | `ast.rs` | Add variant to `Decl` enum and struct definition |
+| assura-parser | `lower.rs` | Add `VARIANT_DECL` match in `lower_decl()` and `lower_variant()` function |
+| assura-parser | `display.rs` | Add `Decl::Variant` display arm |
+| assura-fmt | `lib.rs` | Add `format_variant()` and import the struct |
+| assura-resolve | `lib.rs` | Add to `SymbolKind`, register in symbol table, handle in 4+ match sites |
+| assura-hir | `lib.rs` | Add `HirVariant` struct and `HirDeclKind::Variant` |
+| assura-hir | `lower.rs` | Add lowering from AST to HIR |
+| assura-types | `lib.rs` | Add to `build_type_env` (both AST and HIR paths) |
+| assura-types | `checkers.rs` | Add match arm in taint checking |
+| assura-types | `clauses.rs` | Add match arms in clause body checking (both AST and HIR paths) |
+| assura-codegen | `lib.rs` | Add to 9+ match sites (type collection, generic arity, codegen dispatch) |
+| assura-smt | `display.rs` | Add to `collect_contract_names()` and stats counting |
+| assura-smt | `z3_backend.rs` | Add to verification dispatch loop |
+| assura-lsp | `lib.rs` | Add to hover, completion, and document symbols (3 match sites for SymbolKind, 1 for Decl) |
+| assura-cli | `main.rs` | Add to stats counting |
+
+### Common mistakes
+
+1. **Forgetting `parsed_type` on `Param`**: The `Param` struct has a
+   mandatory `parsed_type: Option<TypeExpr>` field. When constructing
+   params outside the normal `lower_param()` path, you must set it
+   (use `try_parse_type_tokens(&ty)` or `None`).
+
+2. **Bind-style declarations with body clauses**: If the new variant
+   stores params inside `input(...)`/`output(...)` clauses (like `bind`
+   does), you cannot use `lower_param_list()` because there is no
+   `PARAM_LIST` CST node. You must extract params from the clause body
+   tokens. See `extract_params_from_clause_body()` in `lower.rs`.
+
+3. **SymbolKind propagation**: After adding a new `SymbolKind` variant
+   in assura-resolve, grep for all matches on `SymbolKind` in the LSP
+   crate (3 sites: hover labels, completion item kinds, completion
+   detail strings).
+
+### Verification strategy
+
+After adding the variant, run `cargo build` first. The compiler will
+report every non-exhaustive match. Fix them all before running tests.
+
+## SMT API Shape
+
+The `assura_smt::VerificationResult` is an **enum**, not a struct with
+result/kind/name fields:
+
+```rust
+pub enum VerificationResult {
+    Verified { clause_desc: String },
+    Counterexample { clause_desc: String, model: String, counter_model: Option<CounterexampleModel> },
+    Timeout { clause_desc: String },
+    Unknown { clause_desc: String, reason: String },
+}
+```
+
+`verify()` returns `Vec<VerificationResult>`. There is no `.contract_name`
+or `.clause_kind` field. The `clause_desc` is a human-readable string
+like `"SafeDivision: ensures"`. Do not pattern-match assuming struct
+fields that do not exist.
