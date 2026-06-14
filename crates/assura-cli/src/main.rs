@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
+use assura_config::{OutputMode, ProjectConfig, Verbosity};
 use assura_parser::ast::*;
 use assura_parser::lexer::Token;
 use assura_parser::parser;
@@ -16,110 +17,9 @@ use chumsky::prelude::*;
 use logos::Logos;
 use serde::Serialize;
 
-// ---------------------------------------------------------------------------
-// Project configuration (assura.toml)
-// ---------------------------------------------------------------------------
-
-/// Parsed `assura.toml` project configuration.
-#[derive(Debug, Clone, Default, serde::Deserialize)]
-#[serde(default)]
-struct ProjectConfig {
-    package: PackageConfig,
-    build: BuildConfig,
-    verify: VerifyConfig,
-    profile: ProfileConfig,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(default)]
-struct PackageConfig {
-    name: String,
-    version: String,
-}
-
-impl Default for PackageConfig {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            version: "0.1.0".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(default)]
-struct BuildConfig {
-    target: String,
-    output: String,
-}
-
-impl Default for BuildConfig {
-    fn default() -> Self {
-        Self {
-            target: "native".to_string(),
-            output: "generated".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(default, rename_all = "kebab-case")]
-struct VerifyConfig {
-    smt_solver: String,
-    layer: u8,
-    timeout: u64,
-}
-
-impl Default for VerifyConfig {
-    fn default() -> Self {
-        Self {
-            smt_solver: "z3".to_string(),
-            layer: 1,
-            timeout: 1000,
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(default, rename_all = "kebab-case")]
-struct ProfileConfig {
-    #[serde(rename = "type")]
-    profile_type: String,
-}
-
-impl Default for ProfileConfig {
-    fn default() -> Self {
-        Self {
-            profile_type: "minimal".to_string(),
-        }
-    }
-}
-
 /// Load `assura.toml` from the project root, if it exists.
-///
-/// Walks up from `start_path` to find the project root (directory
-/// containing `assura.toml`), then parses the config file.
-/// Returns `None` if no `assura.toml` is found (single-file mode).
 fn load_project_config(start_path: &Path) -> Option<(ProjectConfig, std::path::PathBuf)> {
-    let project_root = assura_resolve::find_project_root(start_path)?;
-    let config_path = project_root.join("assura.toml");
-    let content = fs::read_to_string(&config_path).ok()?;
-
-    // Support both [package] and legacy [project] section names.
-    // If the file has [project] but no [package], rename it for parsing.
-    let parse_content = if content.contains("[project]") && !content.contains("[package]") {
-        content.replace("[project]", "[package]")
-    } else {
-        content
-    };
-
-    match toml::from_str::<ProjectConfig>(&parse_content) {
-        Ok(config) => Some((config, project_root)),
-        Err(e) => {
-            eprintln!("warning: failed to parse {}: {e}", config_path.display());
-            None
-        }
-    }
+    assura_config::load_project_config(start_path, assura_resolve::find_project_root)
 }
 
 // ---------------------------------------------------------------------------
@@ -171,23 +71,6 @@ impl DiagnosticJson {
 }
 
 // ---------------------------------------------------------------------------
-// Output mode
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutputMode {
-    Human,
-    Json,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Verbosity {
-    Quiet,
-    Normal,
-    Verbose,
-}
-
-// ---------------------------------------------------------------------------
 // Pipeline timing
 // ---------------------------------------------------------------------------
 
@@ -202,13 +85,7 @@ struct TimingInfo {
 }
 
 fn parse_verbosity(args: &[String]) -> Verbosity {
-    if args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string()) {
-        Verbosity::Verbose
-    } else if args.contains(&"--quiet".to_string()) || args.contains(&"-q".to_string()) {
-        Verbosity::Quiet
-    } else {
-        Verbosity::Normal
-    }
+    assura_config::parse_verbosity(args)
 }
 
 // ---------------------------------------------------------------------------
