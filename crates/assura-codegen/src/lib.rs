@@ -946,7 +946,10 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
         }
     }
 
-    // Generate doc comments for effects and modifies
+    // Generate doc comments for requires, effects, and modifies
+    for req in &requires_exprs {
+        code.push_str(&format!("    /// Requires: {req}\n"));
+    }
     for eff in &effects {
         code.push_str(&format!("    /// Effects: {eff}\n"));
     }
@@ -1426,9 +1429,13 @@ fn generate_service_method(
     let kind_label = if is_mutation { "Operation" } else { "Query" };
     code.push_str(&format!("        /// {kind_label}: {name}\n"));
 
-    // Doc comments for ensures/effects/modifies
+    // Doc comments for requires/ensures/effects/modifies
     for clause in clauses {
         match clause.kind {
+            ClauseKind::Requires => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("        /// Requires: {expr}\n"));
+            }
             ClauseKind::Ensures => {
                 let expr = expr_to_rust(&clause.body);
                 code.push_str(&format!("        /// Ensures: {expr}\n"));
@@ -3150,6 +3157,42 @@ contract Mutator {
         assert!(
             lib.contains("/// Modifies:"),
             "modifies clause should produce doc comment"
+        );
+    }
+
+    #[test]
+    fn contract_requires_generates_doc_comment() {
+        let project = codegen_ok(
+            r#"
+contract Bounded {
+    requires { true }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("/// Requires:"),
+            "requires clause should produce doc comment: {lib}"
+        );
+    }
+
+    #[test]
+    fn service_operation_requires_generates_doc_comment() {
+        let project = codegen_ok(
+            r#"
+service Validator {
+    states: Idle -> Busy
+
+    operation Validate {
+        requires { true }
+    }
+}
+"#,
+        );
+        let lib = &project.files[0].1;
+        assert!(
+            lib.contains("/// Requires:"),
+            "requires clause in service operation should produce doc comment: {lib}"
         );
     }
 
