@@ -14,6 +14,11 @@ mod lower;
 
 pub use lower::lower;
 
+// Re-export fundamental value types from the parser AST so downstream crates
+// (types, smt, codegen) can use `assura_hir::BinOp` instead of reaching
+// back into `assura_parser::ast::BinOp`.
+pub use assura_parser::ast::{BinOp, Literal, UnaryOp};
+
 // ---------------------------------------------------------------------------
 // Unique identifiers
 // ---------------------------------------------------------------------------
@@ -350,7 +355,7 @@ impl From<&ast::ClauseKind> for HirClauseKind {
 #[derive(Debug, Clone)]
 pub enum HirExpr {
     /// Integer, float, string, or boolean literal
-    Literal(ast::Literal),
+    Literal(Literal),
     /// Named reference with optional resolution
     Ident { name: String, def_id: Option<DefId> },
     /// Field access: `expr.field`
@@ -374,14 +379,11 @@ pub enum HirExpr {
     /// Binary operation
     BinOp {
         lhs: Box<HirExpr>,
-        op: ast::BinOp,
+        op: BinOp,
         rhs: Box<HirExpr>,
     },
     /// Unary operation
-    UnaryOp {
-        op: ast::UnaryOp,
-        expr: Box<HirExpr>,
-    },
+    UnaryOp { op: UnaryOp, expr: Box<HirExpr> },
     /// `old(expr)` for postconditions
     Old(Box<HirExpr>),
     /// `forall var in domain: body`
@@ -925,9 +927,9 @@ mod tests {
 
     #[test]
     fn hir_expr_to_ast_literal() {
-        let hir = HirExpr::Literal(ast::Literal::Int("42".into()));
+        let hir = HirExpr::Literal(Literal::Int("42".into()));
         let ast_expr = hir.to_ast_expr();
-        assert!(matches!(ast_expr, ast::Expr::Literal(ast::Literal::Int(s)) if s == "42"));
+        assert!(matches!(ast_expr, ast::Expr::Literal(Literal::Int(s)) if s == "42"));
     }
 
     #[test]
@@ -947,30 +949,24 @@ mod tests {
                 name: "a".into(),
                 def_id: None,
             }),
-            op: ast::BinOp::Add,
-            rhs: Box::new(HirExpr::Literal(ast::Literal::Int("1".into()))),
+            op: BinOp::Add,
+            rhs: Box::new(HirExpr::Literal(Literal::Int("1".into()))),
         };
         let ast_expr = hir.to_ast_expr();
-        assert!(matches!(
-            ast_expr,
-            ast::Expr::BinOp {
-                op: ast::BinOp::Add,
-                ..
-            }
-        ));
+        assert!(matches!(ast_expr, ast::Expr::BinOp { op: BinOp::Add, .. }));
     }
 
     #[test]
     fn hir_clause_to_ast_clause() {
         let clause = HirClause {
             kind: HirClauseKind::Requires,
-            body: HirExpr::Literal(ast::Literal::Bool(true)),
+            body: HirExpr::Literal(Literal::Bool(true)),
         };
         let ast_clause = clause.to_ast_clause();
         assert_eq!(ast_clause.kind, ast::ClauseKind::Requires);
         assert!(matches!(
             ast_clause.body,
-            ast::Expr::Literal(ast::Literal::Bool(true))
+            ast::Expr::Literal(Literal::Bool(true))
         ));
     }
 
