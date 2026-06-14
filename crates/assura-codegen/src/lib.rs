@@ -1745,7 +1745,7 @@ fn find_feature_max_value(source: &assura_parser::ast::SourceFile, name: &str) -
 }
 
 /// Convert an Expr to a Rust expression for use in const context.
-fn expr_to_rust_static(expr: &Expr) -> String {
+pub fn expr_to_rust_static(expr: &Expr) -> String {
     match expr {
         Expr::Literal(lit) => match lit {
             Literal::Int(s) | Literal::Float(s) => s.clone(),

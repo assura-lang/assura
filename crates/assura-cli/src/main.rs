@@ -163,6 +163,16 @@ enum Commands {
         output: Option<String>,
     },
 
+    /// Generate proptest/boundary/smoke tests from contracts
+    TestGen {
+        /// Source file to generate tests from
+        file: String,
+
+        /// Output file for generated tests (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+
     /// Scan a Rust project and verify inferred contracts
     Audit {
         /// Path to Cargo workspace root (default: current directory)
@@ -461,6 +471,9 @@ fn main() {
             function,
             output,
         }) => run_infer(&file, function.as_deref(), output.as_deref()),
+        Some(Commands::TestGen { file, output }) => {
+            run_test_gen(&file, output.as_deref(), verbosity)
+        }
         Some(Commands::Audit {
             path,
             depth,
@@ -1522,6 +1535,76 @@ fn run_build(
         }
     }
 
+    // --- Auto-generate tests for timeout/unknown verification results ---
+    let has_unresolved = verification_results.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Timeout { .. }
+                | assura_smt::VerificationResult::Unknown { .. }
+        )
+    });
+    if has_unresolved && let Some(ref pf) = parsed_file {
+        let mut test_gen = assura_types::TestGenerator::new();
+        for spanned in &pf.decls {
+            if let Decl::Contract(c) = &spanned.node {
+                let mut params = Vec::new();
+                let mut requires = Vec::new();
+                let mut ensures = Vec::new();
+                for clause in &c.clauses {
+                    match &clause.kind {
+                        ClauseKind::Input => {
+                            let parsed = assura_parser::ast::extract_clause_params(&clause.body);
+                            for p in parsed {
+                                let ty = typed
+                                    .type_env
+                                    .bindings
+                                    .get(&p.name)
+                                    .cloned()
+                                    .unwrap_or(assura_types::Type::Unknown);
+                                params.push((p.name, ty));
+                            }
+                        }
+                        ClauseKind::Requires => {
+                            requires.push(assura_codegen::expr_to_rust_static(&clause.body));
+                        }
+                        ClauseKind::Ensures => {
+                            ensures.push(assura_codegen::expr_to_rust_static(&clause.body));
+                        }
+                        _ => {}
+                    }
+                }
+                if !params.is_empty() || !ensures.is_empty() {
+                    test_gen.add_contract(assura_types::TestableContract {
+                        name: c.name.clone(),
+                        params,
+                        requires,
+                        ensures,
+                    });
+                }
+            }
+        }
+        let tests = test_gen.generate_all();
+        if !tests.is_empty() {
+            let tests_dir = out_dir.join("tests");
+            fs::create_dir_all(&tests_dir).ok();
+            let test_file = tests_dir.join("generated_tests.rs");
+            let mut content = String::from(
+                "// Auto-generated tests (SMT verification returned timeout/unknown)\nuse proptest::prelude::*;\n\n",
+            );
+            for t in &tests {
+                content.push_str(&t.body);
+                content.push_str("\n\n");
+            }
+            if fs::write(&test_file, &content).is_ok() && verbosity != Verbosity::Quiet {
+                println!(
+                    "  wrote {} ({} tests for unresolved contracts)",
+                    test_file.display(),
+                    tests.len()
+                );
+            }
+        }
+    }
+
     // --- Build or check the generated Rust project ---
     let skip_check = no_check;
     if !skip_check {
@@ -1915,6 +1998,117 @@ fn generate_bind_skeleton(module_path: &str, sig: &RustFnSig, out: &mut String) 
     out.push_str("    // TODO: add requires clauses (preconditions)\n");
     out.push_str("    // TODO: add ensures clauses (postconditions)\n");
     out.push_str("}\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// `assura test-gen <file.assura>` -- generate tests from contracts
+// ---------------------------------------------------------------------------
+
+fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verbosity) {
+    let source = match fs::read_to_string(filename) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error: {filename}: {e}");
+            process::exit(1);
+        }
+    };
+
+    let CompilationResult {
+        file,
+        typed,
+        has_errors,
+        ..
+    } = compile(&source, filename);
+
+    if has_errors || file.is_none() {
+        eprintln!("Error: {filename} has compilation errors; fix them before generating tests.");
+        process::exit(1);
+    }
+
+    let file = file.unwrap();
+    let type_env = typed.as_ref().map(|t| &t.type_env);
+
+    let mut test_gen = assura_types::TestGenerator::new();
+
+    for spanned in &file.decls {
+        if let Decl::Contract(c) = &spanned.node {
+            let mut params = Vec::new();
+            let mut requires = Vec::new();
+            let mut ensures = Vec::new();
+
+            for clause in &c.clauses {
+                match &clause.kind {
+                    ClauseKind::Input => {
+                        let parsed = assura_parser::ast::extract_clause_params(&clause.body);
+                        for p in parsed {
+                            let ty = type_env
+                                .and_then(|env| env.bindings.get(&p.name))
+                                .cloned()
+                                .unwrap_or(assura_types::Type::Unknown);
+                            params.push((p.name, ty));
+                        }
+                    }
+                    ClauseKind::Requires => {
+                        requires.push(assura_codegen::expr_to_rust_static(&clause.body));
+                    }
+                    ClauseKind::Ensures => {
+                        ensures.push(assura_codegen::expr_to_rust_static(&clause.body));
+                    }
+                    _ => {}
+                }
+            }
+
+            if !params.is_empty() || !ensures.is_empty() {
+                test_gen.add_contract(assura_types::TestableContract {
+                    name: c.name.clone(),
+                    params,
+                    requires,
+                    ensures,
+                });
+            }
+        }
+    }
+
+    let tests = test_gen.generate_all();
+
+    if tests.is_empty() {
+        eprintln!("No testable contracts found in {filename}.");
+        process::exit(0);
+    }
+
+    let mut out = String::new();
+    out.push_str("// Generated by `assura test-gen`\n");
+    out.push_str("// Source: ");
+    out.push_str(filename);
+    out.push('\n');
+    out.push_str("use proptest::prelude::*;\n\n");
+
+    for test in &tests {
+        out.push_str(&test.body);
+        out.push_str("\n\n");
+    }
+
+    if let Some(path) = output {
+        match fs::write(path, &out) {
+            Ok(()) => {
+                if verbosity != Verbosity::Quiet {
+                    eprintln!(
+                        "Generated {} test(s) from {filename} -> {path}",
+                        tests.len()
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("Error writing {path}: {e}");
+                process::exit(1);
+            }
+        }
+    } else {
+        print!("{out}");
+        if verbosity != Verbosity::Quiet {
+            eprintln!("Generated {} test(s) from {filename}", tests.len());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
