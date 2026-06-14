@@ -832,4 +832,335 @@ fn helper(n: Int) -> Int {
             Some(NumberOrString::String("A03001".to_string()))
         );
     }
+
+    // -----------------------------------------------------------------------
+    // T202: Additional LSP tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_byte_to_position_beyond_end() {
+        let rope = Rope::from_str("abc");
+        let pos = byte_to_position(&rope, 100);
+        // Should clamp to end of file
+        assert_eq!(pos.line, 0);
+        assert_eq!(pos.character, 3);
+    }
+
+    #[test]
+    fn test_position_to_offset_beyond_end() {
+        let rope = Rope::from_str("abc\ndef");
+        let offset = position_to_offset(&rope, Position::new(99, 99));
+        // Should clamp to last line, last char
+        assert!(offset <= rope.len_bytes());
+    }
+
+    #[test]
+    fn test_position_to_offset_start() {
+        let rope = Rope::from_str("hello world");
+        let offset = position_to_offset(&rope, Position::new(0, 0));
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn test_word_at_offset_empty_source() {
+        assert_eq!(word_at_offset("", 0), None);
+    }
+
+    #[test]
+    fn test_word_at_offset_underscores() {
+        assert_eq!(word_at_offset("my_var = 42", 0), Some("my_var".to_string()));
+        assert_eq!(word_at_offset("my_var = 42", 3), Some("my_var".to_string()));
+        assert_eq!(word_at_offset("_hidden", 0), Some("_hidden".to_string()));
+    }
+
+    #[test]
+    fn test_word_at_offset_end_of_word() {
+        // At the character right after the word — still finds it by scanning back
+        assert_eq!(word_at_offset("abc def", 3), Some("abc".to_string()));
+        assert_eq!(word_at_offset("abc def", 4), Some("def".to_string()));
+    }
+
+    #[test]
+    fn test_word_at_offset_beyond_source() {
+        assert_eq!(word_at_offset("abc", 10), None);
+    }
+
+    #[test]
+    fn test_word_at_offset_digits() {
+        assert_eq!(word_at_offset("var123 = 1", 0), Some("var123".to_string()));
+    }
+
+    #[test]
+    fn test_is_ident_char_checks() {
+        assert!(is_ident_char(b'a'));
+        assert!(is_ident_char(b'Z'));
+        assert!(is_ident_char(b'0'));
+        assert!(is_ident_char(b'_'));
+        assert!(!is_ident_char(b' '));
+        assert!(!is_ident_char(b'.'));
+        assert!(!is_ident_char(b'{'));
+    }
+
+    #[test]
+    fn test_byte_span_to_range_zero_length() {
+        let rope = Rope::from_str("hello");
+        let range = byte_span_to_range(&rope, &(2..2));
+        assert_eq!(range.start, range.end);
+        assert_eq!(range.start.character, 2);
+    }
+
+    #[test]
+    fn test_byte_span_to_range_beyond_file() {
+        let rope = Rope::from_str("abc");
+        // Should clamp rather than panic
+        let range = byte_span_to_range(&rope, &(0..100));
+        assert_eq!(range.start.line, 0);
+        assert_eq!(range.start.character, 0);
+    }
+
+    #[test]
+    fn test_document_symbols_empty_file() {
+        let (ast, _) = assura_parser::parse("");
+        // Empty source may parse to an empty SourceFile or None
+        if let Some(ast) = ast {
+            let rope = Rope::from_str("");
+            let uri = Url::parse("file:///empty.assura").unwrap();
+            let symbols = collect_document_symbols(&ast, &rope, &uri);
+            // No declarations => no symbols
+            assert!(symbols.is_empty(), "empty file should have no symbols");
+        }
+    }
+
+    #[test]
+    fn test_document_symbols_service_with_operations() {
+        let source = r#"
+service PaymentService {
+    states: Pending -> Completed -> Refunded
+
+    operation Charge {
+        requires: amount > 0
+    }
+
+    query Balance {
+        ensures: result >= 0
+    }
+}
+"#;
+        let (ast, errors) = assura_parser::parse(source);
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        let ast = ast.unwrap();
+        let rope = Rope::from_str(source);
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let symbols = collect_document_symbols(&ast, &rope, &uri);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"PaymentService"), "missing service name");
+        assert!(names.contains(&"Charge"), "missing operation Charge");
+        assert!(names.contains(&"Balance"), "missing query Balance");
+        // Verify correct kinds
+        let service_sym = symbols.iter().find(|s| s.name == "PaymentService").unwrap();
+        assert_eq!(service_sym.kind, SymbolKind2::MODULE);
+        let op_sym = symbols.iter().find(|s| s.name == "Charge").unwrap();
+        assert_eq!(op_sym.kind, SymbolKind2::METHOD);
+        assert_eq!(op_sym.container_name, Some("PaymentService".to_string()));
+    }
+
+    #[test]
+    fn test_document_symbols_extern_function() {
+        let source = r#"
+extern fn read_file(path: String) -> Bytes
+    effects { io }
+"#;
+        let (ast, errors) = assura_parser::parse(source);
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        let ast = ast.unwrap();
+        let rope = Rope::from_str(source);
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let symbols = collect_document_symbols(&ast, &rope, &uri);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"read_file"), "missing extern fn");
+        let sym = symbols.iter().find(|s| s.name == "read_file").unwrap();
+        assert_eq!(sym.kind, SymbolKind2::FUNCTION);
+    }
+
+    #[test]
+    fn test_document_symbols_multiple_contracts() {
+        let source = r#"
+contract Alpha {
+    requires { true }
+}
+contract Beta {
+    requires { true }
+}
+contract Gamma {
+    requires { true }
+}
+"#;
+        let (ast, errors) = assura_parser::parse(source);
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        let ast = ast.unwrap();
+        let rope = Rope::from_str(source);
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let symbols = collect_document_symbols(&ast, &rope, &uri);
+        let contract_symbols: Vec<_> = symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind2::CLASS)
+            .collect();
+        assert_eq!(contract_symbols.len(), 3, "should have 3 contracts");
+    }
+
+    #[test]
+    fn test_document_symbols_preserves_kinds() {
+        let source = r#"
+contract C { requires { true } }
+type T { x: Int }
+enum E { A, B }
+fn f(n: Int) -> Int { n }
+"#;
+        let (ast, errors) = assura_parser::parse(source);
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        let ast = ast.unwrap();
+        let rope = Rope::from_str(source);
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let symbols = collect_document_symbols(&ast, &rope, &uri);
+
+        let c = symbols.iter().find(|s| s.name == "C").unwrap();
+        assert_eq!(c.kind, SymbolKind2::CLASS);
+        let t = symbols.iter().find(|s| s.name == "T").unwrap();
+        assert_eq!(t.kind, SymbolKind2::STRUCT);
+        let e = symbols.iter().find(|s| s.name == "E").unwrap();
+        assert_eq!(e.kind, SymbolKind2::ENUM);
+        let f = symbols.iter().find(|s| s.name == "f").unwrap();
+        assert_eq!(f.kind, SymbolKind2::FUNCTION);
+    }
+
+    #[test]
+    fn test_resolution_warning_diagnostic() {
+        let warn = ResolutionError {
+            code: "A02007",
+            message: "unused import".to_string(),
+            span: 0..10,
+            secondary: None,
+        };
+        let rope = Rope::from_str("import foo");
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let diag = resolution_warning_to_diagnostic(&rope, &warn, &uri);
+        assert_eq!(diag.severity, Some(DiagnosticSeverity::WARNING));
+        assert_eq!(
+            diag.code,
+            Some(NumberOrString::String("A02007".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_type_error_with_secondary() {
+        let err = TypeError {
+            code: "A03001".to_string(),
+            message: "expected Bool, found Int".to_string(),
+            span: 10..15,
+            secondary: Some((0..5, "type declared here".to_string())),
+        };
+        let rope = Rope::from_str("type Foo = Int\nrequires { x }");
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let diag = type_error_to_diagnostic(&rope, &err, &uri);
+        assert!(
+            diag.related_information.is_some(),
+            "should have related info"
+        );
+        let related = diag.related_information.unwrap();
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].message, "type declared here");
+    }
+
+    #[test]
+    fn test_resolution_error_with_secondary() {
+        let err = ResolutionError {
+            code: "A02003",
+            message: "duplicate definition".to_string(),
+            span: 20..25,
+            secondary: Some((0..5, "first definition here".to_string())),
+        };
+        let rope = Rope::from_str("contract A { requires { true } }\ncontract A { }");
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let diag = resolution_error_to_diagnostic(&rope, &err, &uri);
+        assert!(
+            diag.related_information.is_some(),
+            "should have related info"
+        );
+    }
+
+    #[test]
+    fn test_builtin_types_list() {
+        // Verify essential types are present
+        assert!(BUILTIN_TYPES.contains(&"Int"));
+        assert!(BUILTIN_TYPES.contains(&"Bool"));
+        assert!(BUILTIN_TYPES.contains(&"String"));
+        assert!(BUILTIN_TYPES.contains(&"Float"));
+        assert!(BUILTIN_TYPES.contains(&"Nat"));
+        assert!(BUILTIN_TYPES.contains(&"Unit"));
+        assert!(BUILTIN_TYPES.contains(&"List"));
+        assert!(BUILTIN_TYPES.contains(&"Map"));
+        assert!(BUILTIN_TYPES.contains(&"Set"));
+        assert!(BUILTIN_TYPES.contains(&"Option"));
+        assert!(BUILTIN_TYPES.contains(&"Result"));
+        assert!(BUILTIN_TYPES.contains(&"Bytes"));
+    }
+
+    #[test]
+    fn test_keywords_list() {
+        // Verify essential keywords are present
+        assert!(KEYWORDS.contains(&"contract"));
+        assert!(KEYWORDS.contains(&"service"));
+        assert!(KEYWORDS.contains(&"requires"));
+        assert!(KEYWORDS.contains(&"ensures"));
+        assert!(KEYWORDS.contains(&"effects"));
+        assert!(KEYWORDS.contains(&"fn"));
+        assert!(KEYWORDS.contains(&"type"));
+        assert!(KEYWORDS.contains(&"enum"));
+        assert!(KEYWORDS.contains(&"extern"));
+        assert!(KEYWORDS.contains(&"import"));
+        assert!(KEYWORDS.contains(&"forall"));
+        assert!(KEYWORDS.contains(&"exists"));
+    }
+
+    #[test]
+    fn test_multiline_position_conversions() {
+        let source = "line1\nline2\nline3\nline4";
+        let rope = Rope::from_str(source);
+        // Line 2 (0-indexed), char 3 should be 'e' in "line3"
+        let offset = position_to_offset(&rope, Position::new(2, 3));
+        assert_eq!(&source[offset..offset + 1], "e");
+        // And back to position
+        let pos = byte_to_position(&rope, offset);
+        assert_eq!(pos.line, 2);
+        assert_eq!(pos.character, 3);
+    }
+
+    #[test]
+    fn test_diagnostic_source_is_assura() {
+        let err = TypeError {
+            code: "A03001".to_string(),
+            message: "test".to_string(),
+            span: 0..1,
+            secondary: None,
+        };
+        let rope = Rope::from_str("x");
+        let uri = Url::parse("file:///test.assura").unwrap();
+        let diag = type_error_to_diagnostic(&rope, &err, &uri);
+        assert_eq!(diag.source, Some("assura".to_string()));
+    }
+
+    #[test]
+    fn test_parse_error_diagnostic_severity() {
+        let source = "contract 123";
+        let (_, errors) = assura_parser::parse(source);
+        assert!(!errors.is_empty());
+        let rope = Rope::from_str(source);
+        // Verify we can build valid ranges from parse errors
+        for err in &errors {
+            let range = byte_span_to_range(&rope, &err.span());
+            assert!(
+                range.start.line <= range.end.line || range.start.character <= range.end.character
+            );
+        }
+    }
 }

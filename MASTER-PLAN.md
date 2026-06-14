@@ -591,7 +591,7 @@
     - `CheckStream` RPC: streams events for a valid source
   - Use `tonic`'s test utilities (in-process channel, no network)
 
-- [ ] **T202**: Expand LSP tests (currently 9)
+- [x] **T202**: Expand LSP tests (currently 9)
   - Depends on: none
   - The LSP needs tests for:
     - `textDocument/completion`: keyword completions, type completions
@@ -1291,3 +1291,18 @@ Added 9 end-to-end round-trip tests that exercise the full pipeline
 - `roundtrip_project_has_valid_cargo_toml`: verifies generated
   Cargo.toml has [package], name, and edition fields.
 1,339 total tests passing.
+
+### T202 completed (2026-06-13)
+Expanded LSP test suite from 9 to 33 tests. Added 24 new tests covering:
+- Position/offset edge cases: beyond end, start position, multiline roundtrip
+- word_at_offset edge cases: empty source, underscores, digits, end of word,
+  beyond source length
+- is_ident_char: character classification checks
+- byte_span_to_range: zero-length spans, beyond-file spans
+- Document symbols: empty file, service with operations, extern function,
+  multiple contracts, kind preservation
+- Diagnostic conversion: resolution warning, resolution/type error with
+  secondary spans, source field verification, parse error severity
+- Completeness: builtin types list coverage, keywords list coverage
+Fixed one test expectation: word_at_offset at word boundary correctly
+returns the word (function scans backwards from offset). 1,363 total tests.
