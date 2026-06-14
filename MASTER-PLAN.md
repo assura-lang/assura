@@ -557,7 +557,7 @@
 
 ### I.2 Fuzzing and Robustness
 
-- [ ] **I004**: Set up cargo-fuzz for the parser
+- [x] **I004**: Set up cargo-fuzz for the parser
   - Depends on: none
   - The parser should never panic on any input. Fuzzing finds inputs
     that cause panics or infinite loops.
@@ -1306,3 +1306,16 @@ Expanded LSP test suite from 9 to 33 tests. Added 24 new tests covering:
 - Completeness: builtin types list coverage, keywords list coverage
 Fixed one test expectation: word_at_offset at word boundary correctly
 returns the word (function scans backwards from offset). 1,363 total tests.
+
+### I004 completed (2026-06-13)
+Set up cargo-fuzz with two fuzz targets:
+- `fuzz_parse`: feeds random UTF-8 to `assura_parser::parse()`, verifying
+  the parser never panics on any input
+- `fuzz_lex`: feeds random UTF-8 to the logos lexer, verifying the lexer
+  never panics
+Both targets build with nightly via `PATH="$HOME/.cargo/bin:$PATH"
+RUSTUP_TOOLCHAIN=nightly cargo fuzz run fuzz_parse`. Parser ran 76,801
+iterations in 60 seconds with zero crashes (2,408 coverage edges). Lexer
+ran 3,673,205 iterations in 31 seconds with zero crashes. Seed corpus
+includes all demo and fixture .assura files. Fuzz workspace excluded from
+main workspace via `exclude = ["generated", "fuzz"]` in root Cargo.toml.
