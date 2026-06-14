@@ -342,7 +342,7 @@
 
 ### S.2 SMT Encoding Depth
 
-- [ ] **S005**: Wire per-clause SMT verification into the CLI pipeline
+- [x] **S005**: Wire per-clause SMT verification into the CLI pipeline
   - Depends on: R009
   - Currently `verify()` in assura-smt runs on the whole TypedFile
     and returns aggregate results. The CLI does not display per-clause
@@ -1156,3 +1156,15 @@ ghost-use exclusion per Spec Section 13 Test Case 1.
 - 9 new tests: match consistent OK, match inconsistent A05004, 3-arm
   one-differs A05004, scrutinee + arm double-use A05001, forall/exists
   ghost use, old() ghost use, ghost block confirmation, merge_arms unit.
+
+### S005 completed (2026-06-13)
+Wired per-clause SMT verification into the full CLI pipeline. Added
+`verify_contract()` public API for verifying a single contract's clauses
+independently (with Z3 backend). Enhanced the default summary output path
+to show per-clause grouped verification details (not just aggregate counts).
+The `assura` default command now shows each contract/function with its
+individual clause results (verified, COUNTEREXAMPLE with model, timeout,
+skipped). Added `print_grouped_verification_stdout()` for stdout output
+(vs existing stderr variant for `assura check`). 4 new SMT tests:
+single-ensures verified, counterexample, multiple-ensures mixed results,
+no-verifiable-clauses empty result.

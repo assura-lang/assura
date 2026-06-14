@@ -687,6 +687,60 @@ fn print_grouped_verification(results: &[assura_smt::VerificationResult]) {
     }
 }
 
+/// Like `print_grouped_verification` but writes to stdout (for the default
+/// summary output path, as opposed to the `check` command which uses stderr).
+fn print_grouped_verification_stdout(results: &[assura_smt::VerificationResult]) {
+    let mut groups: Vec<(String, Vec<&assura_smt::VerificationResult>)> = Vec::new();
+
+    for vr in results {
+        let desc = match vr {
+            assura_smt::VerificationResult::Verified { clause_desc }
+            | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+            | assura_smt::VerificationResult::Timeout { clause_desc }
+            | assura_smt::VerificationResult::Unknown { clause_desc, .. } => clause_desc.as_str(),
+        };
+        let owner = clause_owner(desc).to_string();
+
+        if let Some(group) = groups.iter_mut().find(|(name, _)| *name == owner) {
+            group.1.push(vr);
+        } else {
+            groups.push((owner, vec![vr]));
+        }
+    }
+
+    for (owner, results) in &groups {
+        println!("      {owner}:");
+        for vr in results {
+            match vr {
+                assura_smt::VerificationResult::Verified { clause_desc } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    println!("        {kind:<20} ... verified");
+                }
+                assura_smt::VerificationResult::Counterexample {
+                    clause_desc, model, ..
+                } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    println!("        {kind:<20} ... COUNTEREXAMPLE");
+                    for line in model.lines() {
+                        println!("          | {line}");
+                    }
+                }
+                assura_smt::VerificationResult::Timeout { clause_desc } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    println!("        {kind:<20} ... timeout");
+                }
+                assura_smt::VerificationResult::Unknown {
+                    clause_desc,
+                    reason,
+                } => {
+                    let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    println!("        {kind:<20} ... skipped ({reason})");
+                }
+            }
+        }
+    }
+}
+
 /// Collect names of all contracts, services, and extern fns that could
 /// potentially have verifiable clauses.
 fn collect_contract_names(file: &SourceFile) -> Vec<String> {
@@ -1762,7 +1816,15 @@ fn print_summary(
     println!("    typecheck: OK ({} bindings)", type_env.len());
 
     if verification_results.is_empty() {
-        println!("    verify:    OK (no verifiable clauses)");
+        let contract_names = collect_contract_names(file);
+        if contract_names.is_empty() {
+            println!("    verify:    OK (no verifiable clauses)");
+        } else {
+            println!(
+                "    verify:    OK (no verifiable clauses in {})",
+                contract_names.join(", ")
+            );
+        }
     } else {
         let verified = verification_results
             .iter()
@@ -1799,6 +1861,8 @@ fn print_summary(
             verification_results.len(),
             parts.join(", ")
         );
+        // Show per-clause details on stdout (for default summary output)
+        print_grouped_verification_stdout(verification_results);
     }
 }
 

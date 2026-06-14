@@ -231,6 +231,48 @@ pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
     }
 }
 
+/// Verify a single contract's clauses against Z3.
+///
+/// Unlike `verify()` which processes all declarations in a `TypedFile`,
+/// this function verifies just the given contract's clauses. Each
+/// ensures/invariant clause gets its own Z3 query with all requires
+/// clauses asserted as assumptions.
+///
+/// Returns one `VerificationResult` per verifiable clause.
+pub fn verify_contract(
+    contract_name: &str,
+    clauses: &[assura_parser::ast::Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "z3-verify")]
+    {
+        z3_backend::verify_contract_impl(contract_name, clauses)
+    }
+    #[cfg(not(feature = "z3-verify"))]
+    {
+        let _ = contract_name;
+        clauses
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.kind,
+                    assura_parser::ast::ClauseKind::Ensures
+                        | assura_parser::ast::ClauseKind::Invariant
+                        | assura_parser::ast::ClauseKind::Rule
+                        | assura_parser::ast::ClauseKind::MustNot
+                        | assura_parser::ast::ClauseKind::Decreases
+                )
+            })
+            .map(|c| {
+                let desc = format!("{contract_name}::{:?}", c.kind);
+                VerificationResult::Unknown {
+                    clause_desc: desc,
+                    reason: "Z3 not available (compiled without z3-verify feature)".into(),
+                }
+            })
+            .collect()
+    }
+}
+
 /// Check whether a refinement subtype relation holds:
 ///
 /// `{v: T | antecedent} <: {v: T | consequent}`
@@ -3283,6 +3325,27 @@ mod z3_backend {
     /// Uses `ParallelVerifier` to track verification jobs. Currently runs
     /// sequentially (Z3 `Context` is not `Send`), but the job infrastructure
     /// is in place for future parallel Z3 contexts.
+    pub(crate) fn verify_contract_impl(
+        contract_name: &str,
+        clauses: &[Clause],
+    ) -> Vec<VerificationResult> {
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "1000");
+        let ctx = Context::new(&cfg);
+        let mut results = Vec::new();
+        let mut cache = VerificationCache::new();
+        let lemma_defs = std::collections::HashMap::new();
+        verify_clauses(
+            &ctx,
+            contract_name,
+            clauses,
+            &lemma_defs,
+            &mut cache,
+            &mut results,
+        );
+        results
+    }
+
     pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
         let mut cfg = Config::new();
         cfg.set_param_value("timeout", "1000");
@@ -7300,5 +7363,121 @@ mod decrease_tests {
             matches!(result, VerificationResult::Verified { .. }),
             "countdown with n >= 1 should verify: {result:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod verify_contract_tests {
+    use super::*;
+    use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal};
+
+    #[test]
+    fn verify_contract_single_ensures_verified() {
+        // requires x > 0 ensures x > 0 (trivially true)
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            },
+        ];
+        let results = verify_contract("TestContract", &clauses);
+        assert_eq!(results.len(), 1, "one ensures clause: {results:?}");
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { clause_desc } if clause_desc.contains("TestContract")),
+            "should verify: {results:?}"
+        );
+    }
+
+    #[test]
+    fn verify_contract_counterexample() {
+        // No requires, ensures x > 0 (counterexample: x = 0)
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+        }];
+        let results = verify_contract("NoPrecondition", &clauses);
+        assert_eq!(results.len(), 1);
+        assert!(
+            matches!(&results[0], VerificationResult::Counterexample { clause_desc, .. } if clause_desc.contains("NoPrecondition")),
+            "should have counterexample: {results:?}"
+        );
+    }
+
+    #[test]
+    fn verify_contract_multiple_ensures() {
+        // requires x > 10
+        // ensures x > 5  (verified)
+        // ensures x > 20 (counterexample: x = 11)
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+                },
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
+                },
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Expr::Literal(Literal::Int("20".into()))),
+                },
+            },
+        ];
+        let results = verify_contract("MultiClause", &clauses);
+        assert_eq!(results.len(), 2, "two ensures clauses: {results:?}");
+        // First ensures (x > 5) should verify
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "x > 10 => x > 5 should verify: {:?}",
+            results[0]
+        );
+        // Second ensures (x > 20) should have counterexample
+        assert!(
+            matches!(&results[1], VerificationResult::Counterexample { .. }),
+            "x > 10 => x > 20 should fail: {:?}",
+            results[1]
+        );
+    }
+
+    #[test]
+    fn verify_contract_no_verifiable_clauses() {
+        // Only requires, no ensures/invariant
+        let clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+        }];
+        let results = verify_contract("OnlyRequires", &clauses);
+        assert!(results.is_empty(), "no verifiable clauses: {results:?}");
     }
 }
