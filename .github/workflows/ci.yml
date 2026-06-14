@@ -55,6 +55,44 @@ jobs:
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features
 
+  tree-sitter:
+    name: Tree-sitter grammar tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install tree-sitter CLI
+        run: npm install -g tree-sitter-cli
+
+      - name: Generate parser
+        working-directory: editors/tree-sitter-assura
+        run: tree-sitter generate
+
+      - name: Run tree-sitter tests
+        working-directory: editors/tree-sitter-assura
+        run: tree-sitter test
+
+  vscode-extension:
+    name: VS Code extension compiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm install
+
+      - name: Compile TypeScript
+        working-directory: editors/vscode
+        run: npx tsc -p ./
+
   codegen-validation:
     name: Generated code compiles
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}

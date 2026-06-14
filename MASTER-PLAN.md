@@ -693,7 +693,7 @@
 
 ### E.2 CI Hardening
 
-- [ ] **E004**: Add CI jobs for editors
+- [x] **E004**: Add CI jobs for editors
   - Depends on: T206
   - Add GitHub Action jobs:
     - `tree-sitter test` for the grammar
