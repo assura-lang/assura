@@ -781,7 +781,7 @@
     - `?` operator for propagation
     - Custom error types from contract error clauses
 
-- [ ] **P005**: Implement the Implementation IR parser (Section 4)
+- [x] **P005**: Implement the Implementation IR parser (Section 4)
   - Depends on: A001
   - The IR is what AI agents generate (not the contract language)
   - Parse IR text format into HIR
