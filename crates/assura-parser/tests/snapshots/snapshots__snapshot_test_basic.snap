@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 58
 expression: ast
 ---
 SourceFile {
@@ -71,21 +72,35 @@ SourceFile {
                         },
                         Clause {
                             kind: Ensures,
-                            body: Raw(
-                                [
-                                    "result",
-                                    "*",
-                                    "b",
-                                    "+",
-                                    "(",
+                            body: BinOp {
+                                lhs: BinOp {
+                                    lhs: BinOp {
+                                        lhs: Ident(
+                                            "result",
+                                        ),
+                                        op: Mul,
+                                        rhs: Ident(
+                                            "b",
+                                        ),
+                                    },
+                                    op: Add,
+                                    rhs: Paren(
+                                        BinOp {
+                                            lhs: Ident(
+                                                "a",
+                                            ),
+                                            op: Add,
+                                            rhs: Ident(
+                                                "b",
+                                            ),
+                                        },
+                                    ),
+                                },
+                                op: Eq,
+                                rhs: Ident(
                                     "a",
-                                    "mod",
-                                    "b",
-                                    ")",
-                                    "==",
-                                    "a",
-                                ],
-                            ),
+                                ),
+                            },
                         },
                         Clause {
                             kind: Ensures,
@@ -115,14 +130,16 @@ SourceFile {
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
                             ),
                         },
                     ],
                 },
             ),
-            span: 166..360,
+            span: 37..178,
         },
         Spanned {
             node: Contract(
@@ -198,8 +215,10 @@ SourceFile {
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
+                            body: Raw(
+                                [
+                                    "pure",
+                                ],
                             ),
                         },
                         Clause {
@@ -233,7 +252,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 362..596,
+            span: 178..357,
         },
         Spanned {
             node: TypeDef(
@@ -253,7 +272,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 598..636,
+            span: 357..385,
         },
         Spanned {
             node: TypeDef(
@@ -277,7 +296,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 638..690,
+            span: 385..423,
         },
         Spanned {
             node: EnumDef(
@@ -300,7 +319,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 692..729,
+            span: 423..448,
         },
         Spanned {
             node: EnumDef(
@@ -325,7 +344,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 731..772,
+            span: 448..480,
         },
         Spanned {
             node: Extern(
@@ -385,17 +404,18 @@ SourceFile {
                         },
                         Clause {
                             kind: Effects,
-                            body: Field(
-                                Ident(
+                            body: Raw(
+                                [
                                     "mem",
-                                ),
-                                "alloc",
+                                    ".",
+                                    "alloc",
+                                ],
                             ),
                         },
                     ],
                 },
             ),
-            span: 774..899,
+            span: 480..576,
         },
         Spanned {
             node: Service(
@@ -569,31 +589,25 @@ SourceFile {
                             ],
                         },
                         Invariant(
-                            Forall {
-                                var: "u",
-                                domain: Ident(
+                            Raw(
+                                [
+                                    "forall",
+                                    "u",
+                                    "in",
                                     "users",
-                                ),
-                                body: BinOp {
-                                    lhs: Field(
-                                        Ident(
-                                            "u",
-                                        ),
-                                        "id",
-                                    ),
-                                    op: Gt,
-                                    rhs: Literal(
-                                        Int(
-                                            "0",
-                                        ),
-                                    ),
-                                },
-                            },
+                                    ":",
+                                    "u",
+                                    ".",
+                                    "id",
+                                    ">",
+                                    "0",
+                                ],
+                            ),
                         ),
                     ],
                 },
             ),
-            span: 901..1379,
+            span: 576..918,
         },
         Spanned {
             node: FnDef(
@@ -616,15 +630,21 @@ SourceFile {
                     ],
                     return_ty: [
                         "Int",
-                        "decreases",
-                        "0",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "Int decreases 0",
+                            "Int",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Decreases,
+                            body: Literal(
+                                Int(
+                                    "0",
+                                ),
+                            ),
+                        },
                         Clause {
                             kind: Ensures,
                             body: Match {
@@ -694,7 +714,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 1437..1616,
+            span: 918..1028,
         },
         Spanned {
             node: FnDef(
@@ -761,7 +781,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 1618..1699,
+            span: 1028..1089,
         },
     ],
 }

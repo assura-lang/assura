@@ -338,9 +338,8 @@ pub fn expr_to_string(expr: &Expr) -> String {
     }
 }
 
-/// Map raw chumsky token display names to human-friendly descriptions.
+/// Map raw token display names to human-friendly descriptions.
 pub fn friendly_token_name(raw: &str) -> String {
-    // Strip surrounding quotes from chumsky's output format
     let s = raw.trim_matches('\'').trim_matches('"');
     match s {
         "{" => "'{'".to_string(),

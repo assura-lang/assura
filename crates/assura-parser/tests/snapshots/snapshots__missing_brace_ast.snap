@@ -1,5 +1,71 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 119
 expression: "&ast"
 ---
-None
+Some(
+    SourceFile {
+        project: None,
+        module: None,
+        imports: [],
+        decls: [
+            Spanned {
+                node: Contract(
+                    ContractDecl {
+                        name: "Unclosed",
+                        type_params: [],
+                        clauses: [
+                            Clause {
+                                kind: Input,
+                                body: Raw(
+                                    [
+                                        "x",
+                                        ":",
+                                        "Int",
+                                    ],
+                                ),
+                            },
+                            Clause {
+                                kind: Output,
+                                body: Raw(
+                                    [
+                                        "result",
+                                        ":",
+                                        "Nat",
+                                    ],
+                                ),
+                            },
+                            Clause {
+                                kind: Requires,
+                                body: BinOp {
+                                    lhs: Ident(
+                                        "x",
+                                    ),
+                                    op: Gte,
+                                    rhs: Literal(
+                                        Int(
+                                            "0",
+                                        ),
+                                    ),
+                                },
+                            },
+                            Clause {
+                                kind: Ensures,
+                                body: BinOp {
+                                    lhs: Ident(
+                                        "result",
+                                    ),
+                                    op: Eq,
+                                    rhs: Ident(
+                                        "x",
+                                    ),
+                                },
+                            },
+                        ],
+                    },
+                ),
+                span: 0..78,
+            },
+        ],
+    },
+)

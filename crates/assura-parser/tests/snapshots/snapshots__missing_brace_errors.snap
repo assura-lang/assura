@@ -1,7 +1,9 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 116
 expression: "&error_messages"
 ---
 [
-    "found \"'{'\" but expected one of \"'ghost'\", \"Errors\", \"Interface\", end of input, \"'pure'\", \"Axiom\", \"'contract'\", \"'requires'\", \"ConstantTime\", \"'='\", \"Impl\", \"'output'\", \"Decreases\", \"':'\", \"'ensures'\", \"'invariant'\", \"MustNot\", \"Bounds\", \"'fn'\", \"'<'\", \"'extern'\", \"DataFlow\", \"'type'\", \"'input'\", \"'lemma'\", \"'opaque'\", \"Extends\", \"'modifies'\", \"'enum'\", \"'service'\", \"VerifyAgainst\", \"Rule\", \"MustBe\", \"Property\", \"Define\", \"'effects'\", \"Reads\", \"'#'\"",
+    "199..199: expected R_BRACE",
+    "199..199: expected R_BRACE",
 ]

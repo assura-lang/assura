@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 72
 expression: ast
 ---
 SourceFile {
@@ -73,23 +74,11 @@ SourceFile {
                                 ),
                                 is_pub: false,
                             },
-                            FieldDef {
-                                name: "bytes_written",
-                                ty: [
-                                    "Nat",
-                                ],
-                                parsed_type: Some(
-                                    Named(
-                                        "Nat",
-                                    ),
-                                ),
-                                is_pub: false,
-                            },
                         ],
                     ),
                 },
             ),
-            span: 1190..1446,
+            span: 67..209,
         },
         Spanned {
             node: TypeDef(
@@ -174,7 +163,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 1448..1568,
+            span: 209..310,
         },
         Spanned {
             node: FnDef(
@@ -222,7 +211,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 2053..2138,
+            span: 310..385,
         },
         Spanned {
             node: TypeDef(
@@ -271,7 +260,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 2211..2300,
+            span: 385..457,
         },
         Spanned {
             node: FnDef(
@@ -331,7 +320,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 2302..2841,
+            span: 457..680,
         },
         Spanned {
             node: Contract(
@@ -341,7 +330,7 @@ SourceFile {
                     clauses: [],
                 },
             ),
-            span: 3331..4168,
+            span: 680..1108,
         },
         Spanned {
             node: FnDef(
@@ -451,8 +440,10 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Modifies,
-                            body: Ident(
-                                "dst",
+                            body: Raw(
+                                [
+                                    "dst",
+                                ],
                             ),
                         },
                         Clause {
@@ -468,7 +459,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 4575..7449,
+            span: 1108..2341,
         },
         Spanned {
             node: FnDef(
@@ -515,26 +506,11 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: Raw(
-                                [
+                            body: Field(
+                                Ident(
                                     "state",
-                                    ".",
-                                    "state",
-                                    "@",
-                                    "ExtraField",
-                                    ",",
-                                    "state",
-                                    ".",
-                                    "extra_bytes_copied",
-                                    "<=",
-                                    "state",
-                                    ".",
-                                    "head",
-                                    ".",
-                                    "extra",
-                                    ".",
-                                    "extra_max",
-                                ],
+                                ),
+                                "state",
                             ),
                         },
                         Clause {
@@ -594,7 +570,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 7690..9080,
+            span: 2341..3037,
         },
     ],
 }

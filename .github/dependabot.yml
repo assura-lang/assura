@@ -9,10 +9,6 @@ updates:
       - dependencies
     ignore:
       # Architectural pins -- see AGENTS.md "Crate Versioning (CRITICAL)"
-      # chumsky 0.10+ has a completely different API (Parser trait, error
-      # types, combinators). Upgrading requires a full parser rewrite.
-      - dependency-name: chumsky
-        versions: [">=0.10"]
       # ariadne 0.5+ changes the Report/Label API.
       - dependency-name: ariadne
         versions: [">=0.5"]

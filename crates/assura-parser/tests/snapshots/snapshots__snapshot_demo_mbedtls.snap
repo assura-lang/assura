@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 78
 expression: ast
 ---
 SourceFile {
@@ -29,24 +30,16 @@ SourceFile {
             node: Block {
                 kind: "feature",
                 name: "ecdsa",
-                value: Some(
-                    [
-                        "enabled",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 1961..1984,
+            span: 72..92,
         },
         Spanned {
             node: Block {
                 kind: "feature",
                 name: "x509",
-                value: Some(
-                    [
-                        "enabled",
-                    ],
-                ),
+                value: None,
                 body: [
                     Clause {
                         kind: Requires,
@@ -56,78 +49,52 @@ SourceFile {
                     },
                 ],
             },
-            span: 1985..2025,
+            span: 92..125,
         },
         Spanned {
             node: Block {
                 kind: "feature",
                 name: "ecdh",
-                value: Some(
-                    [
-                        "enabled",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 2158..2180,
+            span: 125..144,
         },
         Spanned {
             node: Block {
                 kind: "feature",
                 name: "rsa",
-                value: Some(
-                    [
-                        "enabled",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 2181..2202,
+            span: 144..162,
         },
         Spanned {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_CONTENT_LEN",
-                value: Some(
-                    [
-                        "Nat",
-                        "=",
-                        "16384",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 2262..2302,
+            span: 162..198,
         },
         Spanned {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_HANDSHAKE_LEN",
-                value: Some(
-                    [
-                        "Nat",
-                        "=",
-                        "65535",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 2303..2345,
+            span: 198..236,
         },
         Spanned {
             node: Block {
                 kind: "feature_max",
                 name: "MAX_EC_POINT_SIZE",
-                value: Some(
-                    [
-                        "Nat",
-                        "=",
-                        "256",
-                    ],
-                ),
+                value: None,
                 body: [],
             },
-            span: 2637..2677,
+            span: 236..272,
         },
         Spanned {
             node: FnDef(
@@ -186,7 +153,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 3225..3323,
+            span: 272..358,
         },
         Spanned {
             node: FnDef(
@@ -234,7 +201,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 3325..3415,
+            span: 358..438,
         },
         Spanned {
             node: FnDef(
@@ -282,7 +249,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 3417..3507,
+            span: 438..518,
         },
         Spanned {
             node: TypeDef(
@@ -343,7 +310,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 3578..3696,
+            span: 518..615,
         },
         Spanned {
             node: FnDef(
@@ -420,7 +387,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 3698..4613,
+            span: 615..1257,
         },
         Spanned {
             node: TypeDef(
@@ -497,7 +464,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 5070..5289,
+            span: 1257..1386,
         },
         Spanned {
             node: FnDef(
@@ -556,7 +523,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 5540..5900,
+            span: 1386..1630,
         },
         Spanned {
             node: FnDef(
@@ -660,7 +627,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 5902..6312,
+            span: 1630..1850,
         },
         Spanned {
             node: Contract(
@@ -670,7 +637,7 @@ SourceFile {
                     clauses: [],
                 },
             ),
-            span: 6700..7399,
+            span: 1850..2193,
         },
         Spanned {
             node: FnDef(
@@ -753,7 +720,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 7637..8221,
+            span: 2193..2460,
         },
         Spanned {
             node: Block {
@@ -762,7 +729,7 @@ SourceFile {
                 value: None,
                 body: [],
             },
-            span: 8446..8951,
+            span: 2460..2731,
         },
         Spanned {
             node: FnDef(
@@ -893,7 +860,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 8953..9392,
+            span: 2731..3088,
         },
         Spanned {
             node: FnDef(
@@ -945,8 +912,10 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Modifies,
-                            body: Ident(
-                                "record_buf",
+                            body: Raw(
+                                [
+                                    "record_buf",
+                                ],
                             ),
                         },
                         Clause {
@@ -962,7 +931,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 9855..10571,
+            span: 3088..3521,
         },
     ],
 }
