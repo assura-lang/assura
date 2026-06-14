@@ -1660,7 +1660,7 @@ NOT called from the type-check or verification pipeline.
 These features have structural stubs (data structures + basic checks)
 but lack real semantic analysis or parser integration.
 
-- [ ] **G005**: CORE.7 Prophecy Variables: parser + type system integration
+- [x] **G005**: CORE.7 Prophecy Variables: parser + type system integration
   - Depends on: none
   - **Current state**: `ProphecyManager` at `advanced.rs:331` has
     register, constrain, resolve, check_all_resolved, check_unconstrained
