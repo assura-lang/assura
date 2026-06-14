@@ -61,6 +61,7 @@ dependencies = [
  "ariadne",
  "assura-codegen",
  "assura-diagnostics",
+ "assura-hir",
  "assura-parser",
  "assura-resolve",
  "assura-smt",
@@ -87,6 +88,14 @@ dependencies = [
 [[package]]
 name = "assura-diagnostics"
 version = "0.1.0"
+
+[[package]]
+name = "assura-hir"
+version = "0.1.0"
+dependencies = [
+ "assura-parser",
+ "assura-resolve",
+]
 
 [[package]]
 name = "assura-lsp"

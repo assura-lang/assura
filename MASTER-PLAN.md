@@ -707,7 +707,7 @@
   - This prevents regressions where codegen produces invalid Rust
   - Install Z3 and Rust stable in the CI job
 
-- [ ] **E006**: Add security scanning (CodeQL, cargo-audit)
+- [x] **E006**: Add security scanning (CodeQL, cargo-audit)
   - Depends on: none
   - Add `.github/workflows/security.yml`:
     - `cargo audit` for known vulnerable dependencies
@@ -1405,3 +1405,12 @@ Set up cargo-dist 0.31.0 for binary releases:
 - Windows excluded (no straightforward Z3 CI install)
 - On tag push (e.g., `v0.1.0`), builds and uploads to GitHub Releases
 - `pr-run-mode = "plan"` runs plan-only on PRs to validate config
+
+### E006 completed (2026-06-14)
+Added security scanning and Dependabot configuration:
+- `.github/workflows/security.yml`: cargo-audit (rustsec/audit-check@v2.0.0)
+  for dependency vulnerability scanning, CodeQL analysis for GitHub Actions
+  code. Runs on push to main, PRs, weekly schedule, and manual dispatch.
+  Concurrency groups and timeouts configured.
+- `.github/dependabot.yml`: weekly updates for cargo and github-actions
+  ecosystems, 5 open PR limit each, labeled with `dependencies`.
