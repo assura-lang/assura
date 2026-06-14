@@ -299,7 +299,7 @@ fn print_help() {
          USAGE:\n\
          \x20   assura <file.assura>                Parse and check a contract file\n\
          \x20   assura check <file> [OPTIONS]       Full pipeline: parse, resolve, type-check, verify\n\
-         \x20   assura build <file>                  Generate Rust code from a contract file\n\
+         \x20   assura build <file> [--output <dir>]  Generate Rust code from a contract file\n\
          \x20   assura init <name>                   Create a new Assura project\n\
          \x20   assura explain <code>                Explain an error code (e.g., A03001)\n\
          \n\
@@ -310,6 +310,7 @@ fn print_help() {
          \x20   --human                             Output diagnostics as rich terminal (default)\n\
          \x20   --layer <0|1>                       Verification layer (0=structural, 1=SMT)\n\
          \x20   --output <dir>                      Output directory for generated code (build)\n\
+         \x20   --no-check                          Skip cargo check on generated code (build)\n\
          \x20   -h, --help                          Show this help message\n\
          \x20   -V, --version                       Show version",
         env!("CARGO_PKG_VERSION")
@@ -830,7 +831,43 @@ fn run_build(args: &[String]) {
         println!("  wrote {}", full_path.display());
     }
 
-    println!("OK  {filename} -> {out_dir_str}/");
+    // --- Validate generated Rust compiles ---
+    let skip_check = args.contains(&"--no-check".to_string());
+    if !skip_check {
+        let cargo_check = process::Command::new("cargo")
+            .arg("check")
+            .current_dir(out_dir)
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped())
+            .output();
+
+        match cargo_check {
+            Ok(output) if output.status.success() => {
+                println!("OK  {filename} -> {out_dir_str}/ (generated Rust compiles)");
+            }
+            Ok(output) => {
+                println!("OK  {filename} -> {out_dir_str}/");
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!();
+                eprintln!("warning: generated Rust does not compile:");
+                // Show only the error lines, not the full cargo output
+                for line in stderr.lines() {
+                    if line.starts_with("error") || line.contains("-->") {
+                        eprintln!("  {line}");
+                    }
+                }
+                eprintln!();
+                eprintln!("  Run `cd {out_dir_str} && cargo check` to see full errors.");
+                eprintln!("  Use `--no-check` to skip this validation.");
+            }
+            Err(_) => {
+                // cargo not found or other OS error; skip silently
+                println!("OK  {filename} -> {out_dir_str}/ (cargo check skipped: cargo not found)");
+            }
+        }
+    } else {
+        println!("OK  {filename} -> {out_dir_str}/ (check skipped)");
+    }
 }
 
 // ---------------------------------------------------------------------------

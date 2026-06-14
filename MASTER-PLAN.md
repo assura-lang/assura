@@ -238,7 +238,7 @@
   - These must work with both `z3-verify` enabled and disabled (test
     the graceful fallback too)
 
-- [ ] **R012**: Fix `assura build` to verify generated code compiles
+- [x] **R012**: Fix `assura build` to verify generated code compiles
   - Depends on: R001
   - Currently `assura build` writes files and says "OK" even though
     the generated Rust does not compile. It should:
@@ -1071,3 +1071,10 @@ check_refinement_subtype (holds, fails, with context), buffer bounds
 (5 tests: safe, unsafe, mixed, trusted), counterexample extraction
 format, and measure verification. The "ZERO in-crate tests" assessment
 from the plan was outdated; these were added during the T-series tasks.
+
+### R012 completed (2026-06-14)
+`assura build` now runs `cargo check` on the generated Rust project after
+writing files. If the generated code has compilation errors, they are
+reported as warnings with the relevant error/location lines. The output
+message changes from "OK" to "OK (generated Rust compiles)" on success.
+Added `--no-check` flag to skip the validation step. Help text updated.
