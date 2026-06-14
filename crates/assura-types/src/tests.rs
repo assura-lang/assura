@@ -11768,3 +11768,487 @@ fn s004_merge_arms_unit_test() {
     // y was not used in any arm; final check will catch it.
     assert_eq!(base.get_count("y"), Some(0));
 }
+
+// ===========================================================================
+// Domain checker wiring tests (T056-T111)
+// ===========================================================================
+
+#[test]
+fn domain_allocator_checker_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no allocator annotations should pass");
+}
+
+#[test]
+fn domain_allocator_checker_direct_api() {
+    let mut checker = AllocatorChecker::new();
+    checker.record_alloc("buf".into(), "1024".into(), None, 0..1);
+    let errors = checker.check_unpaired();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A22001");
+}
+
+#[test]
+fn domain_circular_buffer_checker_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no circular_buffer annotations should pass");
+}
+
+#[test]
+fn domain_circular_buffer_checker_direct_api() {
+    let mut checker = CircularBufferChecker::new();
+    checker.declare("ring".into(), 8);
+    assert!(checker.check_read("ring", &(0..1)).is_some());
+    assert_eq!(
+        checker
+            .check_read("ring", &(0..1))
+            .as_ref()
+            .map(|e| e.code.as_str()),
+        Some("A23003")
+    );
+}
+
+#[test]
+fn domain_callback_reentrancy_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no callback annotations should pass");
+}
+
+#[test]
+fn domain_callback_reentrancy_direct_api() {
+    let mut checker = CallbackReentrancyChecker::new();
+    checker.mark_non_reentrant("handler".into(), 0..1);
+    let errs = checker.enter_call("handler", &(0..1));
+    assert!(errs.is_empty());
+    let errs2 = checker.enter_call("handler", &(0..1));
+    assert_eq!(errs2.len(), 1);
+    assert_eq!(errs2[0].code, "A24001");
+}
+
+#[test]
+fn domain_temporal_deadline_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no deadline annotations should pass");
+}
+
+#[test]
+fn domain_temporal_deadline_direct_api() {
+    let mut checker = TemporalDeadlineChecker::new();
+    checker.register_bound("slow_op".into(), 200);
+    assert!(checker.enter_deadline("d1".into(), 100, &(0..1)).is_none());
+    let err = checker.check_operation("slow_op", &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A25001"));
+}
+
+#[test]
+fn domain_binary_format_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no binary_format annotations should pass");
+}
+
+#[test]
+fn domain_binary_format_direct_api() {
+    let mut checker = BinaryFormatChecker::new();
+    checker.add_field(BinaryField {
+        name: "hdr".into(),
+        offset: 0,
+        size: 4,
+        endianness: None,
+        span: 0..1,
+    });
+    let errs = checker.check_endianness();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A26003");
+}
+
+#[test]
+fn domain_bit_level_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no bit_field annotations should pass");
+}
+
+#[test]
+fn domain_string_encoding_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no encoding annotations should pass");
+}
+
+#[test]
+fn domain_string_encoding_direct_api() {
+    let mut checker = StringEncodingChecker::new();
+    checker.declare("raw_data".into(), StringEncoding::RawBytes);
+    let err = checker.check_use_as_string("raw_data", &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A28001"));
+}
+
+#[test]
+fn domain_checksum_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no checksum annotations should pass");
+}
+
+#[test]
+fn domain_checksum_direct_api() {
+    let mut checker = ChecksumChecker::new();
+    checker.declare_region("data".into(), ChecksumAlgorithm::Crc32, 0, 100);
+    let err = checker.check_use_before_verify("data", &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A29001"));
+}
+
+#[test]
+fn domain_protocol_grammar_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no protocol annotations should pass");
+}
+
+#[test]
+fn domain_opaque_function_no_annotation_passes() {
+    let src = r#"fn helper(n: Int) -> Int { ensures { result >= 0 } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no opaque annotations should pass");
+}
+
+#[test]
+fn domain_opaque_function_direct_api() {
+    let mut checker = OpaqueFunctionChecker::new();
+    checker.declare_opaque("secret_fn".into(), false, 0..1);
+    let err = checker.check_call("secret_fn", &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A32001"));
+}
+
+#[test]
+fn domain_crash_recovery_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no crash_safe annotations should pass");
+}
+
+#[test]
+fn domain_crash_recovery_direct_api() {
+    let mut checker = CrashRecoveryChecker::new();
+    checker.begin_write("w1".into());
+    checker.write_data("w1");
+    let errs = checker.check_write_ahead();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A33001");
+}
+
+#[test]
+fn domain_page_cache_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no page_cache annotations should pass");
+}
+
+#[test]
+fn domain_page_cache_direct_api() {
+    let mut checker = PageCacheChecker::new(2);
+    checker.load_page(1);
+    checker.pin(1);
+    let err = checker.evict(1);
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A34001"));
+}
+
+#[test]
+fn domain_mvcc_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no mvcc annotations should pass");
+}
+
+#[test]
+fn domain_mvcc_direct_api() {
+    let mut checker = MvccChecker::new();
+    let t1 = checker.begin_txn();
+    let t2 = checker.begin_txn();
+    checker.write_version("key1".into(), t1);
+    checker.write_version("key1".into(), t2);
+    let errs = checker.check_write_conflicts();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A35001");
+}
+
+#[test]
+fn domain_rollback_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no rollback annotations should pass");
+}
+
+#[test]
+fn domain_rollback_direct_api() {
+    let mut checker = RollbackChecker::new();
+    let err = checker.rollback_to("nonexistent");
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A36001"));
+}
+
+#[test]
+fn domain_monotonic_state_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no monotonic annotations should pass");
+}
+
+#[test]
+fn domain_monotonic_state_direct_api() {
+    let mut checker = MonotonicStateChecker::new();
+    checker.declare(
+        "counter".into(),
+        MonotonicDirection::StrictlyIncreasing,
+        0,
+        0..1,
+    );
+    let err = checker.update("counter", 0);
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A37001"));
+}
+
+#[test]
+fn domain_storage_failure_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no failure_model annotations should pass");
+}
+
+#[test]
+fn domain_storage_failure_direct_api() {
+    let mut checker = StorageFailureChecker::new();
+    checker.declare_failure_mode(FailureMode::PartialWrite);
+    let errs = checker.check_unhandled();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A38001");
+}
+
+#[test]
+fn domain_numerical_precision_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no precision annotations should pass");
+}
+
+#[test]
+fn domain_numerical_precision_direct_api() {
+    let mut checker = NumericalPrecisionChecker::new();
+    checker.declare("x".into(), 64, 1e-15, 0..1);
+    let err = checker.check_precision_loss("x", 32);
+    assert!(err.is_some());
+    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A42001"));
+}
+
+#[test]
+fn domain_precomputed_table_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no precomputed_table annotations should pass");
+}
+
+#[test]
+fn domain_precomputed_table_direct_api() {
+    let mut checker = PrecomputedTableChecker::new();
+    checker.declare_table("crc".into(), 256, "gen_crc".into(), 0..1);
+    let errs = checker.check_coverage();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A43001");
+}
+
+#[test]
+fn domain_platform_abstraction_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no platform annotations should pass");
+}
+
+#[test]
+fn domain_platform_abstraction_direct_api() {
+    let mut checker = PlatformAbstractionChecker::new();
+    checker.add_platform("linux".into());
+    checker.declare_abstraction("fs".into(), vec![]);
+    let errs = checker.check_coverage();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A44001");
+}
+
+#[test]
+fn domain_feature_flag_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no feature_flag annotations should pass");
+}
+
+#[test]
+fn domain_feature_flag_direct_api() {
+    let mut checker = FeatureFlagChecker::new();
+    checker.declare("experimental".into(), false, vec![]);
+    let errs = checker.check_unused();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A45001");
+}
+
+#[test]
+fn domain_resource_limit_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no resource_limit annotations should pass");
+}
+
+#[test]
+fn domain_resource_limit_direct_api() {
+    let mut checker = ResourceLimitChecker::new();
+    checker.declare_limit("mem".into(), 1024, "bytes".into());
+    checker.record_usage("mem", 2000);
+    let errs = checker.check_limits();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A46001");
+}
+
+#[test]
+fn domain_unsafe_escape_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no unsafe blocks should pass");
+}
+
+#[test]
+fn domain_unsafe_escape_direct_api() {
+    let mut checker = UnsafeEscapeChecker::new();
+    checker.declare_unsafe("raw_ptr".into(), vec!["valid_ptr".into()], 0..1);
+    let errs = checker.check_unproven();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A47001");
+}
+
+#[test]
+fn domain_complexity_bound_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no complexity annotations should pass");
+}
+
+#[test]
+fn domain_complexity_bound_direct_api() {
+    let mut checker = ComplexityBoundChecker::new();
+    checker.declare_bound("sort".into(), ComplexityClass::NLogN, 0..1);
+    checker.record_measured("sort", ComplexityClass::Quadratic);
+    let errs = checker.check_bounds();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A48001");
+}
+
+#[test]
+fn domain_behavioral_equivalence_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no equivalence annotations should pass");
+}
+
+#[test]
+fn domain_behavioral_equivalence_direct_api() {
+    let mut checker = BehavioralEquivalenceChecker::new();
+    checker.declare(
+        "eq1".into(),
+        "implA".into(),
+        "implB".into(),
+        "contract1".into(),
+        0..1,
+    );
+    let errs = checker.check_unverified();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A49001");
+}
+
+#[test]
+fn domain_multi_pass_refinement_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no refinement_pass annotations should pass");
+}
+
+#[test]
+fn domain_multi_pass_refinement_direct_api() {
+    let mut checker = MultiPassRefinementChecker::new();
+    checker.add_pass("p1".into(), "L0".into(), "L1".into(), 5, 0..1);
+    let errs = checker.check_complete();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A50001");
+}
+
+#[test]
+fn domain_incremental_contract_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no contract_version annotations should pass");
+}
+
+#[test]
+fn domain_incremental_contract_direct_api() {
+    let mut checker = IncrementalContractChecker::new();
+    checker.add_version("c1".into(), 1, 2, 3);
+    checker.add_version("c1".into(), 2, 5, 3);
+    let errs = checker.check_precondition_weakening();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A51001");
+}
+
+#[test]
+fn domain_scoped_invariant_no_annotation_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no scoped invariant annotations should pass");
+}
+
+#[test]
+fn domain_scoped_invariant_direct_api() {
+    let mut checker = ScopedInvariantChecker::new();
+    checker.declare_invariant("balance_positive".into());
+    assert!(checker.suspend("balance_positive").is_none());
+    let errs = checker.check_all_restored();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A52001");
+}
+
+#[test]
+fn domain_contract_composition_no_extends_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no extends annotations should pass");
+}
+
+#[test]
+fn domain_contract_composition_direct_api() {
+    let mut checker = ContractCompositionChecker::new();
+    checker.declare("Child".into(), vec!["MissingParent".into()], 1);
+    let errs = checker.check_extends();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A54001");
+}
+
+#[test]
+fn domain_contract_library_no_library_passes() {
+    let src = r#"contract Simple { requires { true } }"#;
+    let resolved = resolve_ok(src);
+    type_check(&resolved).expect("no library blocks should pass");
+}
+
+#[test]
+fn domain_contract_library_direct_api() {
+    let mut checker = ContractLibraryChecker::new();
+    checker.declare_library("mylib".into(), "1.0.0".into());
+    let errs = checker.check_empty_exports();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A55001");
+}
