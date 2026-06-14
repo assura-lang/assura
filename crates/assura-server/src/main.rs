@@ -209,8 +209,9 @@ fn run_check(
                                     String::new(),
                                 ),
                             };
+                            let contract_name = clause.split("::").next().unwrap_or("").to_string();
                             verifications.push(VerificationResult {
-                                contract_name: String::new(),
+                                contract_name,
                                 clause,
                                 status,
                                 counterexample: cex,
