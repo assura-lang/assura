@@ -289,6 +289,57 @@ pub(crate) fn resolve_type(
     }
 }
 
+/// Convert an `HirType` to the type checker's `Type`.
+pub(crate) fn type_from_hir_type(hir_ty: &assura_hir::HirType) -> Type {
+    use assura_hir::HirType;
+    match hir_ty {
+        HirType::Unit => Type::Unit,
+        HirType::Named(name) => builtin_type(name).unwrap_or_else(|| Type::Named(name.clone())),
+        HirType::Generic(name, args) => {
+            let type_args: Vec<Type> = args.iter().map(type_from_hir_type).collect();
+            match name.as_str() {
+                "List" | "Vec" => Type::List(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Sequence" => Type::Sequence(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Set" => Type::Set(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Option" => Type::Option(Box::new(
+                    type_args.into_iter().next().unwrap_or(Type::Unknown),
+                )),
+                "Map" => {
+                    let mut it = type_args.into_iter();
+                    Type::Map(
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                    )
+                }
+                "Result" => {
+                    let mut it = type_args.into_iter();
+                    Type::Result(
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                        Box::new(it.next().unwrap_or(Type::Unknown)),
+                    )
+                }
+                _ => Type::Named(name.clone()),
+            }
+        }
+        HirType::Tuple(elems) => Type::Tuple(elems.iter().map(type_from_hir_type).collect()),
+        HirType::Fn { params, ret } => Type::Fn {
+            params: params.iter().map(type_from_hir_type).collect(),
+            ret: Box::new(type_from_hir_type(ret)),
+        },
+        HirType::Refined { base, predicate } => Type::Refined {
+            base: Box::new(type_from_hir_type(base)),
+            predicate: predicate.clone(),
+        },
+        HirType::Unresolved(tokens) => parse_type_tokens(tokens),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Type token parsing
 // ---------------------------------------------------------------------------
@@ -738,6 +789,150 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
     env
 }
 
+/// Build a type environment from an `HirFile`, using structured `HirType`
+/// values instead of raw token parsing for function/extern/field types.
+/// Contract and service clause handling still uses the AST via
+/// `hir.resolved()` since clause body parsing is not yet migrated.
+fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
+    let resolved = hir.resolved();
+    let mut env = TypeEnv::new();
+
+    // Phase 1: seed from symbol table (builtins, type names, etc.)
+    for sym in &resolved.symbols.symbols {
+        let ty = match sym.kind {
+            SymbolKind::BuiltinType => builtin_type(&sym.name).unwrap_or(Type::Unknown),
+            SymbolKind::TypeDef
+            | SymbolKind::ContractDef
+            | SymbolKind::ServiceDef
+            | SymbolKind::EnumDef => Type::Named(sym.name.clone()),
+            SymbolKind::FnDef | SymbolKind::ExternFn => Type::Fn {
+                params: Vec::new(),
+                ret: Box::new(Type::Unknown),
+            },
+            SymbolKind::Operation | SymbolKind::Query => Type::Fn {
+                params: Vec::new(),
+                ret: Box::new(Type::Unknown),
+            },
+            SymbolKind::TypeParam => Type::TypeParam(sym.name.clone()),
+            SymbolKind::Parameter | SymbolKind::Field => Type::Unknown,
+            SymbolKind::EnumVariant => Type::Named(sym.name.clone()),
+        };
+        env.insert(sym.name.clone(), ty);
+    }
+
+    // Phase 2: enrich from HIR declarations
+    use assura_hir::{HirDeclKind, HirServiceItem as HirSI};
+    for decl in &hir.decls {
+        match &decl.kind {
+            HirDeclKind::FnDef(f) => {
+                for p in &f.params {
+                    env.insert(p.name.clone(), type_from_hir_type(&p.ty));
+                }
+                let param_types: Vec<Type> =
+                    f.params.iter().map(|p| type_from_hir_type(&p.ty)).collect();
+                let ret = type_from_hir_type(&f.return_ty);
+                env.insert(
+                    f.name.clone(),
+                    Type::Fn {
+                        params: param_types,
+                        ret: Box::new(ret),
+                    },
+                );
+            }
+            HirDeclKind::Extern(e) => {
+                for p in &e.params {
+                    env.insert(p.name.clone(), type_from_hir_type(&p.ty));
+                }
+                let param_types: Vec<Type> =
+                    e.params.iter().map(|p| type_from_hir_type(&p.ty)).collect();
+                let ret = type_from_hir_type(&e.return_ty);
+                env.insert(
+                    e.name.clone(),
+                    Type::Fn {
+                        params: param_types,
+                        ret: Box::new(ret),
+                    },
+                );
+            }
+            HirDeclKind::Contract(c) => {
+                // Input clause param registration still uses AST
+                for clause in &c.clauses {
+                    if clause.kind == assura_hir::HirClauseKind::Input {
+                        let ast_clause = clause.to_ast_clause();
+                        register_input_clause_params(&ast_clause.body, &mut env);
+                    }
+                }
+            }
+            HirDeclKind::Service(s) => {
+                for item in &s.items {
+                    let (name, clauses) = match item {
+                        HirSI::Operation { name, clauses } => (name, clauses),
+                        HirSI::Query { name, clauses } => (name, clauses),
+                        _ => continue,
+                    };
+                    let mut param_types = Vec::new();
+                    let mut ret = Type::Unit;
+                    for clause in clauses {
+                        if clause.kind == assura_hir::HirClauseKind::Input {
+                            let ast_clause = clause.to_ast_clause();
+                            collect_input_param_types(&ast_clause.body, &mut param_types);
+                        }
+                        if clause.kind == assura_hir::HirClauseKind::Output {
+                            let ast_clause = clause.to_ast_clause();
+                            let ty = extract_output_type_from_body(&ast_clause.body);
+                            if ty != Type::Unknown {
+                                ret = ty;
+                            }
+                        }
+                    }
+                    env.insert(
+                        name.clone(),
+                        Type::Fn {
+                            params: param_types,
+                            ret: Box::new(ret),
+                        },
+                    );
+                }
+            }
+            HirDeclKind::TypeDef(td) => {
+                if let assura_hir::HirTypeBody::Struct(fields) = &td.body {
+                    let field_types: Vec<(String, Type)> = fields
+                        .iter()
+                        .map(|f| (f.name.clone(), type_from_hir_type(&f.ty)))
+                        .collect();
+                    env.struct_fields.insert(td.name.clone(), field_types);
+                }
+            }
+            HirDeclKind::EnumDef(e) => {
+                for variant in &e.variants {
+                    if !variant.fields.is_empty() {
+                        let field_types: Vec<Type> =
+                            variant.fields.iter().map(type_from_hir_type).collect();
+                        env.insert(
+                            variant.name.clone(),
+                            Type::Fn {
+                                params: field_types,
+                                ret: Box::new(Type::Named(e.name.clone())),
+                            },
+                        );
+                    }
+                }
+            }
+            HirDeclKind::Block(_) => {}
+        }
+    }
+
+    // T107: inject stdlib types
+    let stdlib = StdlibTypes::new();
+    for sdef in stdlib.all_types() {
+        if env.lookup(&sdef.name).is_none() {
+            env.insert(sdef.name.clone(), sdef.base_type.clone());
+        }
+    }
+
+    env
+}
+
 // ---------------------------------------------------------------------------
 // Type display (for error messages)
 // ---------------------------------------------------------------------------
@@ -1079,11 +1274,52 @@ pub fn type_check_hir(hir: &assura_hir::HirFile) -> Result<TypedFile, Vec<TypeEr
 }
 
 /// Type-check from an HIR file using the given configuration.
+///
+/// Uses `build_type_env_from_hir` to construct the type environment from
+/// structured HIR types instead of raw token parsing.
 pub fn type_check_hir_with_config(
     hir: &assura_hir::HirFile,
-    config: &assura_config::TypeCheckConfig,
+    _config: &assura_config::TypeCheckConfig,
 ) -> Result<TypedFile, Vec<TypeError>> {
-    type_check_with_config(hir.resolved(), config)
+    let resolved = hir.resolved();
+    let type_env = build_type_env_from_hir(hir);
+
+    // Run all checkers using the resolved AST (clause bodies not yet migrated)
+    let source = &resolved.source;
+    let mut errors = check_clause_bodies(source, &type_env);
+    errors.extend(run_axiomatic_checks(source, &resolved.symbols));
+    errors.extend(run_crud_auth_checks(source));
+    errors.extend(run_linearity_checks(source));
+    errors.extend(run_typestate_checks(source));
+    errors.extend(run_effect_checks(source));
+    errors.extend(run_taint_checks(source));
+    errors.extend(run_info_flow_checks(source));
+    errors.extend(run_ffi_checks(source));
+    errors.extend(run_error_propagation_checks(source));
+    errors.extend(run_frame_checks(source, &type_env, &resolved.symbols));
+    let (totality_errors, pending_decrease_checks) = run_totality_checks(source);
+    errors.extend(totality_errors);
+    errors.extend(run_fixed_width_checks(source, &type_env));
+    errors.extend(run_collection_contract_checks(source));
+    errors.extend(run_match_exhaustiveness_checks(source, &resolved.symbols));
+    errors.extend(run_constant_time_checks(source));
+    errors.extend(run_determinism_checks(source));
+    errors.extend(run_memory_checks(source));
+    errors.extend(run_secure_erasure_checks(source));
+    errors.extend(run_interface_checks(source));
+    errors.extend(run_structural_invariant_checks(source));
+    errors.extend(run_shared_mem_checks(source));
+    errors.extend(run_lock_order_checks(source));
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    Ok(TypedFile {
+        resolved: resolved.clone(),
+        pending_decrease_checks,
+        type_env,
+    })
 }
 
 /// Type-check a resolved file using the given configuration.
@@ -3619,6 +3855,99 @@ mod type_from_expr_tests {
     fn resolve_falls_back() {
         let tokens = vec!["Bool".to_string()];
         assert_eq!(resolve_type(None, &tokens), Type::Bool);
+    }
+}
+
+#[cfg(test)]
+mod type_from_hir_type_tests {
+    use super::*;
+    use assura_hir::HirType;
+
+    #[test]
+    fn hir_named_builtin() {
+        assert_eq!(type_from_hir_type(&HirType::Named("Int".into())), Type::Int);
+        assert_eq!(
+            type_from_hir_type(&HirType::Named("Bool".into())),
+            Type::Bool
+        );
+    }
+
+    #[test]
+    fn hir_named_user_defined() {
+        assert_eq!(
+            type_from_hir_type(&HirType::Named("MyType".into())),
+            Type::Named("MyType".into())
+        );
+    }
+
+    #[test]
+    fn hir_generic_list() {
+        let ht = HirType::Generic("List".into(), vec![HirType::Named("Int".into())]);
+        assert_eq!(type_from_hir_type(&ht), Type::List(Box::new(Type::Int)));
+    }
+
+    #[test]
+    fn hir_generic_map() {
+        let ht = HirType::Generic(
+            "Map".into(),
+            vec![
+                HirType::Named("String".into()),
+                HirType::Named("Int".into()),
+            ],
+        );
+        assert_eq!(
+            type_from_hir_type(&ht),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn hir_unit_and_tuple() {
+        assert_eq!(type_from_hir_type(&HirType::Unit), Type::Unit);
+        let ht = HirType::Tuple(vec![
+            HirType::Named("Int".into()),
+            HirType::Named("Bool".into()),
+        ]);
+        assert_eq!(
+            type_from_hir_type(&ht),
+            Type::Tuple(vec![Type::Int, Type::Bool])
+        );
+    }
+
+    #[test]
+    fn hir_fn_type() {
+        let ht = HirType::Fn {
+            params: vec![HirType::Named("Int".into())],
+            ret: Box::new(HirType::Named("Bool".into())),
+        };
+        assert_eq!(
+            type_from_hir_type(&ht),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Bool),
+            }
+        );
+    }
+
+    #[test]
+    fn hir_refined() {
+        let ht = HirType::Refined {
+            base: Box::new(HirType::Named("Int".into())),
+            predicate: "x > 0".into(),
+        };
+        assert_eq!(
+            type_from_hir_type(&ht),
+            Type::Refined {
+                base: Box::new(Type::Int),
+                predicate: "x > 0".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn hir_unresolved_falls_back() {
+        let ht = HirType::Unresolved(vec!["Float".into()]);
+        assert_eq!(type_from_hir_type(&ht), Type::Float);
     }
 }
 
