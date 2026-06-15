@@ -125,7 +125,6 @@ contract.
 | **PERF** Performance | Unsafe escape with proof obligation, complexity bounds |
 | **FMT** Binary Formats | Binary/bit-level format contracts, string encoding, codec dispatch, checksum, protocol grammar |
 | **STOR** Storage | Crash recovery, page cache, MVCC, rollback, monotonic state, failure models |
-| **NUM** Numerical | Numerical precision, precomputed table verification |
 | **PLAT** Platform | Platform abstraction, feature flags, resource limits |
 | **TEST** Testing | Test generation from contracts, behavioral equivalence, multi-pass refinement |
 | **MISC** Miscellaneous | Incremental contracts, scoped invariant suspension |
