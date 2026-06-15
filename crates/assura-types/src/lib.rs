@@ -1061,7 +1061,6 @@ impl std::fmt::Display for Type {
 // ---------------------------------------------------------------------------
 
 /// Expected number of type arguments for built-in generic types.
-#[allow(dead_code)] // Wired in when T015 is fully integrated
 fn builtin_generic_arity(name: &str) -> Option<usize> {
     match name {
         "List" | "Set" | "Option" | "Sequence" => Some(1),
@@ -1080,7 +1079,6 @@ fn builtin_generic_arity(name: &str) -> Option<usize> {
 ///
 /// Returns `Ok(())` on success, or `Err(TypeError)` with code A03003 if the
 /// argument count does not match.
-#[allow(dead_code)] // Wired in when T015 is fully integrated
 pub(crate) fn check_generic_instantiation(
     type_name: &str,
     type_args: &[Type],
@@ -1127,7 +1125,6 @@ pub(crate) fn check_generic_instantiation(
 
 /// Look up the number of type parameters for a user-defined type, contract,
 /// or enum by scanning the source AST declarations.
-#[allow(dead_code)] // Wired in when T015 is fully integrated
 fn user_defined_type_param_count(
     name: &str,
     source: &assura_parser::ast::SourceFile,
@@ -1204,6 +1201,104 @@ pub(crate) fn instantiate_builtin_generic(name: &str, args: Vec<Type>) -> Option
         }
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// T015: Generic instantiation arity checking (run on all type exprs)
+// ---------------------------------------------------------------------------
+
+/// Walk all declarations and check that generic type instantiations
+/// (e.g. `List<Int, Bool>`) have the correct number of type arguments.
+fn run_generic_instantiation_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    use assura_parser::ast::TypeExpr;
+    let mut errors = Vec::new();
+
+    fn check_type_expr(
+        te: &TypeExpr,
+        span: &Range<usize>,
+        source: &assura_parser::ast::SourceFile,
+        errors: &mut Vec<TypeError>,
+    ) {
+        if let TypeExpr::Generic(name, args) = te {
+            // Check arity
+            let type_args: Vec<Type> = args.iter().map(type_from_expr).collect();
+            if let Err(e) = check_generic_instantiation(name, &type_args, span, source) {
+                errors.push(e);
+            }
+            // Recurse into type arguments
+            for arg in args {
+                check_type_expr(arg, span, source, errors);
+            }
+        }
+        if let TypeExpr::Fn { params, ret } = te {
+            for p in params {
+                check_type_expr(p, span, source, errors);
+            }
+            check_type_expr(ret, span, source, errors);
+        }
+        if let TypeExpr::Refined { base, .. } = te {
+            check_type_expr(base, span, source, errors);
+        }
+    }
+
+    fn check_params(
+        params: &[assura_parser::ast::Param],
+        span: &Range<usize>,
+        source: &assura_parser::ast::SourceFile,
+        errors: &mut Vec<TypeError>,
+    ) {
+        for p in params {
+            if let Some(te) = &p.parsed_type {
+                check_type_expr(te, span, source, errors);
+            }
+        }
+    }
+
+    fn check_fields(
+        fields: &[assura_parser::ast::FieldDef],
+        span: &Range<usize>,
+        source: &assura_parser::ast::SourceFile,
+        errors: &mut Vec<TypeError>,
+    ) {
+        for f in fields {
+            if let Some(te) = &f.parsed_type {
+                check_type_expr(te, span, source, errors);
+            }
+        }
+    }
+
+    for decl in &source.decls {
+        let span = &decl.span;
+        match &decl.node {
+            Decl::Contract(c) => {
+                for clause in &c.clauses {
+                    if let ClauseKind::Input | ClauseKind::Output = &clause.kind {
+                        // Params may be in clause bodies; handled by param extraction
+                    }
+                }
+            }
+            Decl::TypeDef(td) => {
+                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
+                    check_fields(fields, span, source, &mut errors);
+                }
+            }
+            Decl::FnDef(f) => {
+                check_params(&f.params, span, source, &mut errors);
+                if let Some(te) = &f.return_type_expr {
+                    check_type_expr(te, span, source, &mut errors);
+                }
+            }
+            Decl::Extern(e) => {
+                check_params(&e.params, span, source, &mut errors);
+                if let Some(te) = &e.return_type_expr {
+                    check_type_expr(te, span, source, &mut errors);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    errors
 }
 
 // ---------------------------------------------------------------------------
@@ -1418,6 +1513,9 @@ pub fn type_check_hir_with_config(
     errors.extend(run_crypto_conformance_checks(source));
     errors.extend(run_codec_registry_checks(source));
 
+    // T015: generic instantiation arity checking
+    errors.extend(run_generic_instantiation_checks(source));
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -1571,6 +1669,9 @@ pub fn type_check_with_config(
     errors.extend(run_contract_library_checks(&resolved.source));
     errors.extend(run_crypto_conformance_checks(&resolved.source));
     errors.extend(run_codec_registry_checks(&resolved.source));
+
+    // T015: generic instantiation arity checking
+    errors.extend(run_generic_instantiation_checks(&resolved.source));
 
     if !errors.is_empty() {
         return Err(errors);

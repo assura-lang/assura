@@ -523,8 +523,8 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 }
                 // Prophecy variables are ghost; erased in codegen.
                 Decl::Prophecy(_) => {}
-                // CodecRegistry: TODO generate dispatch function
-                Decl::CodecRegistry(_) => {}
+                // CodecRegistry: generate dispatch function into shared lib.rs
+                Decl::CodecRegistry(cr) => generate_codec_registry(cr, &mut shared),
                 // Contracts and services go into their own files.
                 Decl::Contract(_) | Decl::Service(_) => {}
             }

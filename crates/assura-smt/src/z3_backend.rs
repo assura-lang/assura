@@ -3375,6 +3375,113 @@ pub(crate) fn verify_impl_with_timeout(
         });
     }
 
+    // T076: Layer 2 verification (quantified invariants, termination, roundtrip)
+    let l2_config = crate::layer2::Layer2Config::new().with_timeout(timeout_ms);
+    let mut l2 = crate::layer2::Layer2Verifier::new(l2_config);
+
+    for decl in &typed.resolved.source.decls {
+        let (name, clauses): (&str, &[Clause]) = match &decl.node {
+            Decl::Contract(c) => (&c.name, &c.clauses),
+            Decl::FnDef(f) => (&f.name, &f.clauses),
+            _ => continue,
+        };
+        // Extract invariant clauses as quantified invariants
+        for clause in clauses {
+            if clause.kind == ClauseKind::Invariant {
+                match &clause.body {
+                    Expr::Forall { var, domain, body } => {
+                        let sort = format!("{domain:?}");
+                        l2.add_invariant(crate::layer2::QuantifiedInvariant {
+                            name: format!("{name}:invariant"),
+                            bound_vars: vec![(var.clone(), sort)],
+                            body: format!("{body:?}"),
+                            triggers: Vec::new(),
+                        });
+                    }
+                    Expr::Exists { var, domain, body } => {
+                        let sort = format!("{domain:?}");
+                        l2.add_invariant(crate::layer2::QuantifiedInvariant {
+                            name: format!("{name}:invariant"),
+                            bound_vars: vec![(var.clone(), sort)],
+                            body: format!("{body:?}"),
+                            triggers: Vec::new(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+
+            // Extract decreases clauses as termination obligations
+            if clause.kind == ClauseKind::Decreases {
+                l2.add_termination(crate::layer2::TerminationObligation {
+                    fn_name: name.to_string(),
+                    measure: format!("{:?}", clause.body),
+                    recursive_calls: Vec::new(),
+                });
+            }
+        }
+    }
+
+    if l2.obligation_count() > 0 {
+        for l2r in l2.verify() {
+            match l2r {
+                crate::layer2::Layer2Result::Verified { invariant, .. } => {
+                    results.push(VerificationResult::Verified {
+                        clause_desc: format!("layer2:{invariant}"),
+                    });
+                }
+                crate::layer2::Layer2Result::Counterexample {
+                    invariant, model, ..
+                } => {
+                    let model_str = model
+                        .iter()
+                        .map(|(k, v)| format!("{k} = {v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    results.push(VerificationResult::Counterexample {
+                        clause_desc: format!("layer2:{invariant}"),
+                        model: model_str,
+                        counter_model: None,
+                    });
+                }
+                crate::layer2::Layer2Result::Timeout {
+                    invariant,
+                    timeout_ms: t,
+                } => {
+                    results.push(VerificationResult::Timeout {
+                        clause_desc: format!("layer2:{invariant} (timeout {t}ms)"),
+                    });
+                }
+                crate::layer2::Layer2Result::Unknown { invariant, reason } => {
+                    results.push(VerificationResult::Unknown {
+                        clause_desc: format!("layer2:{invariant}"),
+                        reason,
+                    });
+                }
+            }
+        }
+    }
+
+    // T073: CodecDispatcher ambiguity checking
+    let mut codec_disp = crate::advanced::CodecDispatcher::new();
+    for decl in &typed.resolved.source.decls {
+        if let Decl::CodecRegistry(cr) = &decl.node {
+            for entry in &cr.codecs {
+                if let assura_parser::ast::MagicPattern::Bytes { bytes, .. } = &entry.magic {
+                    codec_disp.register(entry.name.clone(), bytes.clone(), 0);
+                }
+            }
+        }
+    }
+    for (a, b) in codec_disp.check_ambiguity() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: format!("codec:ambiguity:{a}/{b}"),
+            reason: format!(
+                "codecs `{a}` and `{b}` share identical magic bytes at the same offset"
+            ),
+        });
+    }
+
     results
 }
 

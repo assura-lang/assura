@@ -229,6 +229,7 @@ dependencies = [
  "assura-parser",
  "assura-pipeline",
  "assura-resolve",
+ "assura-rust-analyzer",
  "assura-smt",
  "assura-types",
  "rmcp",
