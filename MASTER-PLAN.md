@@ -1549,6 +1549,36 @@ in the body. Added `collect_trigger_calls()` and
 `collect_function_names_for_triggers()` to build Z3 Pattern objects
 for e-matching hints.
 
+### Issue #54 completed (2026-06-14)
+Fixed all remaining silent catch-all wildcards across codegen and CVC5
+backend. In cvc5_backend.rs, replaced `_ => {}` in `collect_vars()` with
+explicit enumeration of all 22 Expr variants with recursive descent (8
+tests). In codegen, fixed 4 catch-alls: `extract_output_type()` inner
+match, `extract_error_variants()`, `generate_trait_method()`, and
+`generate_block()` ClauseKind match (7 tests). 1,907 total tests passing.
+
+### G007 completed (2026-06-14)
+Implemented CONC.6 Weak Memory Ordering with structured parser
+annotations and pipeline integration across all compiler layers:
+- **Parser**: Added `ClauseKind::Ordering` and `MemoryOrdering` enum
+  (Relaxed, Acquire, Release, AcqRel, SeqCst) to AST. Added
+  `ORDERING_KW` to clause grammar.
+- **HIR**: Added `HirClauseKind::Ordering` with bidirectional AST
+  conversions.
+- **Type checker**: Added `run_weak_memory_checks()` wired into both
+  `type_check()` and `type_check_hir()`. Emits A-CONC-016 when relaxed
+  ordering is combined with ensures clauses (stale value risk).
+- **SMT backend**: Updated T092 weak memory checks to prefer structured
+  `ClauseKind::Ordering` clauses over keyword scanning in effects.
+  Also handles FnDef declarations.
+- **Codegen**: Emits `std::sync::atomic::Ordering::*` constant
+  declarations from ordering clauses via `resolve_ordering_variant()`.
+- **Formatter**: Added `ordering` keyword mapping.
+- **Tests**: 4 type checker tests (relaxed+ensures, acquire+ensures,
+  relaxed no ensures, seq_cst), 5 codegen tests (resolve_ordering_variant,
+  codegen constant), 1 must_reject fixture (A-CONC-016). 1,931 total
+  tests passing.
+
 ---
 
 ## Phase G: Gaps (Unwired Features, Dead Code, Pipeline Completion)
@@ -1715,7 +1745,7 @@ but lack real semantic analysis or parser integration.
     Verify BMC finds a lasso when fairness is missing. Verify k-induction
     proves progress when fairness is assumed.
 
-- [ ] **G007**: CONC.6 Weak Memory Ordering: parser annotations + view model
+- [x] **G007**: CONC.6 Weak Memory Ordering: parser annotations + view model
   - Depends on: none
   - **Current state**: `WeakMemoryChecker` at `advanced.rs:200` has
     data race detection, happens-before tracking, release-acquire

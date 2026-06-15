@@ -356,6 +356,7 @@ pub fn format_clause(clause: &Clause, out: &mut String) {
         ClauseKind::DataFlow => "data_flow",
         ClauseKind::MustNot => "must_not",
         ClauseKind::Decreases => "decreases",
+        ClauseKind::Ordering => "ordering",
         ClauseKind::Other(s) => s.as_str(),
     };
 

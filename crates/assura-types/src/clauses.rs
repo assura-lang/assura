@@ -486,6 +486,7 @@ fn hir_clause_kind_to_ast(kind: &assura_hir::HirClauseKind) -> ClauseKind {
         HirClauseKind::DataFlow => ClauseKind::DataFlow,
         HirClauseKind::MustNot => ClauseKind::MustNot,
         HirClauseKind::Decreases => ClauseKind::Decreases,
+        HirClauseKind::Ordering => ClauseKind::Ordering,
         HirClauseKind::Other(s) => ClauseKind::Other(s.clone()),
     }
 }

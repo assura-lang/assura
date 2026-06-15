@@ -346,6 +346,7 @@ pub enum HirClauseKind {
     DataFlow,
     MustNot,
     Decreases,
+    Ordering,
     Other(String),
 }
 
@@ -364,6 +365,7 @@ impl From<&ast::ClauseKind> for HirClauseKind {
             ast::ClauseKind::DataFlow => HirClauseKind::DataFlow,
             ast::ClauseKind::MustNot => HirClauseKind::MustNot,
             ast::ClauseKind::Decreases => HirClauseKind::Decreases,
+            ast::ClauseKind::Ordering => HirClauseKind::Ordering,
             ast::ClauseKind::Other(s) => HirClauseKind::Other(s.clone()),
         }
     }
@@ -596,6 +598,7 @@ impl HirClauseKind {
             HirClauseKind::DataFlow => ast::ClauseKind::DataFlow,
             HirClauseKind::MustNot => ast::ClauseKind::MustNot,
             HirClauseKind::Decreases => ast::ClauseKind::Decreases,
+            HirClauseKind::Ordering => ast::ClauseKind::Ordering,
             HirClauseKind::Other(s) => ast::ClauseKind::Other(s.clone()),
         }
     }

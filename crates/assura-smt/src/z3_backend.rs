@@ -2090,6 +2090,7 @@ fn clause_desc(parent_name: &str, kind: &ClauseKind) -> String {
         ClauseKind::DataFlow => "data_flow",
         ClauseKind::MustNot => "must_not",
         ClauseKind::Decreases => "decreases",
+        ClauseKind::Ordering => "ordering",
         ClauseKind::Other(s) => s.as_str(),
     };
     format!("{parent_name}::{kind_str}")
@@ -3211,11 +3212,49 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
         }
     }
 
+    // Helper: parse a string into the SMT-local MemoryOrdering enum.
+    fn parse_memory_ordering(s: &str) -> Option<MemoryOrdering> {
+        match s {
+            "relaxed" => Some(MemoryOrdering::Relaxed),
+            "acquire" => Some(MemoryOrdering::Acquire),
+            "release" => Some(MemoryOrdering::Release),
+            "acqrel" | "acq_rel" => Some(MemoryOrdering::AcqRel),
+            "seq_cst" => Some(MemoryOrdering::SeqCst),
+            _ => None,
+        }
+    }
+
     // T092: weak memory ordering checks on concurrent contracts
+    // Detects ordering from structured ClauseKind::Ordering clauses first,
+    // then falls back to keyword scanning in ClauseKind::Effects bodies.
     let mut wm_checker = WeakMemoryChecker::new();
     for decl in &typed.resolved.source.decls {
-        if let Decl::Contract(c) = &decl.node {
-            for clause in &c.clauses {
+        let (name, clauses) = match &decl.node {
+            Decl::Contract(c) => (c.name.as_str(), &c.clauses),
+            Decl::FnDef(f) => (f.name.as_str(), &f.clauses),
+            _ => continue,
+        };
+        // Prefer structured ClauseKind::Ordering over keyword scanning
+        let mut found_ordering = false;
+        for clause in clauses {
+            if clause.kind == ClauseKind::Ordering {
+                let ordering_str = match &clause.body {
+                    Expr::Ident(s) => Some(s.as_str()),
+                    Expr::Raw(tokens) => tokens
+                        .iter()
+                        .find(|t| parse_memory_ordering(t).is_some())
+                        .map(|t| t.as_str()),
+                    _ => None,
+                };
+                if let Some(ord) = ordering_str.and_then(parse_memory_ordering) {
+                    wm_checker.record_access(1, name.to_string(), true, ord);
+                    found_ordering = true;
+                }
+            }
+        }
+        // Fall back to keyword scanning in effects clauses
+        if !found_ordering {
+            for clause in clauses {
                 if clause.kind == ClauseKind::Effects
                     && (expr_contains_ident(&clause.body, "relaxed")
                         || expr_contains_ident(&clause.body, "acquire")
@@ -3231,7 +3270,7 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
                     } else {
                         MemoryOrdering::Relaxed
                     };
-                    wm_checker.record_access(1, c.name.clone(), true, ordering);
+                    wm_checker.record_access(1, name.to_string(), true, ordering);
                 }
             }
         }

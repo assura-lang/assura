@@ -891,6 +891,22 @@ fn is_numeric_expr(expr: &Expr) -> bool {
     }
 }
 
+/// Resolve an ordering clause body to a Rust `std::sync::atomic::Ordering` variant name.
+fn resolve_ordering_variant(body: &Expr) -> Option<&'static str> {
+    use assura_parser::ast::MemoryOrdering;
+    let s = match body {
+        Expr::Ident(s) => s.as_str(),
+        Expr::Raw(tokens) => {
+            return tokens
+                .iter()
+                .find_map(|t| MemoryOrdering::parse(t))
+                .map(|o| o.to_rust_ordering());
+        }
+        _ => return None,
+    };
+    MemoryOrdering::parse(s).map(|o| o.to_rust_ordering())
+}
+
 /// Convert an Assura `Expr` to a Rust expression string.
 fn expr_to_rust(expr: &Expr) -> String {
     match expr {
@@ -2185,6 +2201,7 @@ fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
+            | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
         }
     }
@@ -2355,6 +2372,7 @@ fn generate_contract(c: &ContractDecl, code: &mut String) {
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
+            | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
         }
     }
@@ -2591,6 +2609,7 @@ fn generate_proptest_for_contract(c: &ContractDecl, code: &mut String) {
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
+            | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
         }
     }
@@ -2689,6 +2708,7 @@ fn generate_proptest_for_contract_contents(c: &ContractDecl, code: &mut String) 
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
+            | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
         }
     }
@@ -2941,10 +2961,9 @@ fn extract_output_type(body: &Expr) -> String {
 fn extract_error_variants(body: &Expr) -> Vec<String> {
     match body {
         Expr::Ident(name) => vec![name.clone()],
-        Expr::Tuple(items) | Expr::List(items) | Expr::Block(items) => items
-            .iter()
-            .flat_map(extract_error_variants)
-            .collect(),
+        Expr::Tuple(items) | Expr::List(items) | Expr::Block(items) => {
+            items.iter().flat_map(extract_error_variants).collect()
+        }
         Expr::Raw(tokens) => tokens
             .iter()
             .filter(|t| {
@@ -2953,9 +2972,7 @@ fn extract_error_variants(body: &Expr) -> Vec<String> {
             })
             .cloned()
             .collect(),
-        Expr::Paren(inner) | Expr::Ghost(inner) | Expr::Old(inner) => {
-            extract_error_variants(inner)
-        }
+        Expr::Paren(inner) | Expr::Ghost(inner) | Expr::Old(inner) => extract_error_variants(inner),
         Expr::Call { args, .. } => args.iter().flat_map(extract_error_variants).collect(),
         // These expression forms cannot meaningfully contain error variant names
         Expr::Literal(_)
@@ -3280,6 +3297,7 @@ fn generate_service_method(
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
+            | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
         }
     }
@@ -3305,6 +3323,15 @@ fn generate_service_method(
             ClauseKind::Modifies => {
                 let expr = expr_to_rust(&clause.body);
                 code.push_str(&format!("        /// Modifies: {expr}\n"));
+            }
+            ClauseKind::Ordering => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("        /// Ordering: {expr}\n"));
+                if let Some(ord) = resolve_ordering_variant(&clause.body) {
+                    code.push_str(&format!(
+                        "        const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
+                    ));
+                }
             }
             // Input/Output are handled in the signature generation.
             // Other clause kinds don't produce doc comments.
@@ -3453,6 +3480,7 @@ fn generate_typestate_method(
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
+            | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
         }
     }
@@ -3478,6 +3506,15 @@ fn generate_typestate_method(
             ClauseKind::Modifies => {
                 let expr = expr_to_rust(&clause.body);
                 code.push_str(&format!("/// Modifies: {expr}\n"));
+            }
+            ClauseKind::Ordering => {
+                let expr = expr_to_rust(&clause.body);
+                code.push_str(&format!("/// Ordering: {expr}\n"));
+                if let Some(ord) = resolve_ordering_variant(&clause.body) {
+                    code.push_str(&format!(
+                        "const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
+                    ));
+                }
             }
             ClauseKind::Input
             | ClauseKind::Output
@@ -3880,6 +3917,7 @@ fn generate_interface_trait(name: &str, body: &[Clause], code: &mut String) {
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
+            | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
         }
     }
@@ -4082,6 +4120,14 @@ fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
             }
             ClauseKind::Decreases => {
                 code.push_str(&format!("    /// Decreases: {expr}\n"));
+            }
+            ClauseKind::Ordering => {
+                code.push_str(&format!("    /// Ordering: {expr}\n"));
+                if let Some(ord) = resolve_ordering_variant(&clause.body) {
+                    code.push_str(&format!(
+                        "    const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
+                    ));
+                }
             }
             ClauseKind::Other(ref kind_name) => {
                 code.push_str(&format!("    /// {kind_name}: {expr}\n"));
@@ -6408,20 +6454,14 @@ contract UseConst {
     #[test]
     fn extract_error_variants_from_block() {
         // Previously Block fell through to _ => vec![]
-        let body = Expr::Block(vec![
-            Expr::Ident("ErrA".into()),
-            Expr::Ident("ErrB".into()),
-        ]);
+        let body = Expr::Block(vec![Expr::Ident("ErrA".into()), Expr::Ident("ErrB".into())]);
         let variants = extract_error_variants(&body);
         assert_eq!(variants, vec!["ErrA", "ErrB"]);
     }
 
     #[test]
     fn extract_error_variants_from_list() {
-        let body = Expr::List(vec![
-            Expr::Ident("X".into()),
-            Expr::Ident("Y".into()),
-        ]);
+        let body = Expr::List(vec![Expr::Ident("X".into()), Expr::Ident("Y".into())]);
         let variants = extract_error_variants(&body);
         assert_eq!(variants, vec!["X", "Y"]);
     }
@@ -6469,6 +6509,48 @@ contract UseConst {
         assert!(
             code.contains("/// Effects:"),
             "Effects clause should produce doc comment, got:\n{code}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // G007: resolve_ordering_variant + codegen Ordering constant
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn resolve_ordering_acquire() {
+        let body = Expr::Ident("acquire".into());
+        assert_eq!(resolve_ordering_variant(&body), Some("Acquire"));
+    }
+
+    #[test]
+    fn resolve_ordering_seq_cst() {
+        let body = Expr::Ident("seq_cst".into());
+        assert_eq!(resolve_ordering_variant(&body), Some("SeqCst"));
+    }
+
+    #[test]
+    fn resolve_ordering_raw_tokens() {
+        let body = Expr::Raw(vec!["release".into()]);
+        assert_eq!(resolve_ordering_variant(&body), Some("Release"));
+    }
+
+    #[test]
+    fn resolve_ordering_unknown() {
+        let body = Expr::Ident("bogus".into());
+        assert_eq!(resolve_ordering_variant(&body), None);
+    }
+
+    #[test]
+    fn codegen_ordering_constant_in_block() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ordering,
+            body: Expr::Ident("acquire".into()),
+        }];
+        let mut code = String::new();
+        generate_block("feature", "test", &clauses, &mut code);
+        assert!(
+            code.contains("std::sync::atomic::Ordering::Acquire"),
+            "ordering clause should emit Ordering constant, got:\n{code}"
         );
     }
 }

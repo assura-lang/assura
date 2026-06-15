@@ -12305,3 +12305,92 @@ liveness LeadsToNoFair {
         "expected A-CORE-031 for leads_to without assume fair, got: {errs:?}"
     );
 }
+
+// ----------------------------------------------------------------
+// G007: CONC.6 Weak Memory Ordering
+// ----------------------------------------------------------------
+
+#[test]
+fn ordering_relaxed_with_ensures_emits_a_conc_016() {
+    let source = r#"
+contract RelaxedRead {
+    input(counter: Int)
+    ordering: relaxed
+    ensures { counter >= 0 }
+}
+"#;
+    let resolved = resolve_ok(source);
+    let errs = type_check(&resolved).unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.code == "A-CONC-016"),
+        "expected A-CONC-016 for relaxed ordering with ensures, got: {errs:?}"
+    );
+}
+
+#[test]
+fn ordering_acquire_with_ensures_no_error() {
+    let source = r#"
+contract AcquireRead {
+    input(counter: Int)
+    ordering: acquire
+    ensures { counter >= 0 }
+}
+"#;
+    let resolved = resolve_ok(source);
+    let result = type_check(&resolved);
+    // No A-CONC-016 should be emitted for acquire ordering
+    match &result {
+        Ok(_) => {} // pass
+        Err(errs) => {
+            assert!(
+                !errs.iter().any(|e| e.code == "A-CONC-016"),
+                "unexpected A-CONC-016 for acquire ordering: {errs:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ordering_relaxed_without_ensures_no_error() {
+    let source = r#"
+contract RelaxedNoEnsures {
+    input(counter: Int)
+    ordering: relaxed
+    requires { counter >= 0 }
+}
+"#;
+    let resolved = resolve_ok(source);
+    let result = type_check(&resolved);
+    // No A-CONC-016 without ensures clause
+    match &result {
+        Ok(_) => {} // pass
+        Err(errs) => {
+            assert!(
+                !errs.iter().any(|e| e.code == "A-CONC-016"),
+                "unexpected A-CONC-016 without ensures clause: {errs:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ordering_seq_cst_with_ensures_no_error() {
+    let source = r#"
+contract SeqCstRead {
+    input(counter: Int)
+    ordering: seq_cst
+    ensures { counter >= 0 }
+}
+"#;
+    let resolved = resolve_ok(source);
+    let result = type_check(&resolved);
+    match &result {
+        Ok(_) => {}
+        Err(errs) => {
+            assert!(
+                !errs.iter().any(|e| e.code == "A-CONC-016"),
+                "unexpected A-CONC-016 for seq_cst ordering: {errs:?}"
+            );
+        }
+    }
+}

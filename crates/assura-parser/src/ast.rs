@@ -92,7 +92,44 @@ pub enum ClauseKind {
     DataFlow,
     MustNot,
     Decreases,
+    /// Memory ordering annotation: `ordering: relaxed|acquire|release|acqrel|seq_cst`
+    Ordering,
     Other(String),
+}
+
+/// Memory ordering for atomic operations (CONC.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryOrdering {
+    Relaxed,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
+
+impl MemoryOrdering {
+    /// Parse a string token into a `MemoryOrdering`, if valid.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "relaxed" => Some(Self::Relaxed),
+            "acquire" => Some(Self::Acquire),
+            "release" => Some(Self::Release),
+            "acqrel" | "acq_rel" => Some(Self::AcqRel),
+            "seq_cst" => Some(Self::SeqCst),
+            _ => None,
+        }
+    }
+
+    /// Returns the Rust `std::sync::atomic::Ordering` variant name.
+    pub fn to_rust_ordering(&self) -> &'static str {
+        match self {
+            Self::Relaxed => "Relaxed",
+            Self::Acquire => "Acquire",
+            Self::Release => "Release",
+            Self::AcqRel => "AcqRel",
+            Self::SeqCst => "SeqCst",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

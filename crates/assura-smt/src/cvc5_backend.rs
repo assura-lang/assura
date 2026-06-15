@@ -357,9 +357,7 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
         }
         Expr::Cast { expr: inner, .. } => collect_vars(inner, vars),
         Expr::Field(receiver, _) => collect_vars(receiver, vars),
-        Expr::MethodCall {
-            receiver, args, ..
-        } => {
+        Expr::MethodCall { receiver, args, .. } => {
             collect_vars(receiver, vars);
             for arg in args {
                 collect_vars(arg, vars);
@@ -393,7 +391,10 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
         Expr::Raw(tokens) => {
             // Raw tokens may contain variable names; collect identifiers
             for tok in tokens {
-                if tok.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+                if tok
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
                     && tok != "true"
                     && tok != "false"
                 {

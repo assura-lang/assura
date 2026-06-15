@@ -277,6 +277,7 @@ fn clause_kind_from_syntax(k: SyntaxKind, text: &str) -> Option<ClauseKind> {
         SyntaxKind::EXTENDS_KW => Some(ClauseKind::Other("extends".into())),
         SyntaxKind::IMPL_KW => Some(ClauseKind::Other("implements".into())),
         SyntaxKind::CONFORMS_KW => Some(ClauseKind::Other("conforms".into())),
+        SyntaxKind::ORDERING_KW => Some(ClauseKind::Ordering),
         SyntaxKind::IDENT => Some(ClauseKind::Other(text.to_string())),
         _ => None,
     }

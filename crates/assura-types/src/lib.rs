@@ -1347,6 +1347,7 @@ pub fn type_check_hir_with_config(
     errors.extend(run_structural_invariant_checks(source));
     errors.extend(run_shared_mem_checks(source));
     errors.extend(run_lock_order_checks(source));
+    errors.extend(run_weak_memory_checks(source));
     errors.extend(run_allocator_checks(source));
     errors.extend(run_circular_buffer_checks(source));
     errors.extend(run_callback_reentrancy_checks(source));
@@ -1480,6 +1481,9 @@ pub fn type_check_with_config(
 
     // T068: lock ordering (deadlock prevention via static hierarchy)
     errors.extend(run_lock_order_checks(&resolved.source));
+
+    // G007: weak memory ordering validation (CONC.6)
+    errors.extend(run_weak_memory_checks(&resolved.source));
 
     // Domain checkers from domain.rs
     errors.extend(run_allocator_checks(&resolved.source));
@@ -4091,6 +4095,82 @@ fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
                     }
                 }
             }
+        }
+    }
+
+    errors
+}
+
+// ---------------------------------------------------------------------------
+// Weak memory ordering wiring (G007, CONC.6)
+// ---------------------------------------------------------------------------
+
+/// Validate `ordering` clauses on atomic operations.
+///
+/// Checks:
+/// - The ordering value is a recognized memory ordering keyword
+///   (relaxed, acquire, release, acqrel, seq_cst)
+/// - Contracts with `ordering: relaxed` that also have `ensures` clauses
+///   depending on the value get A-CONC-016 warnings (relaxed read
+///   without view check)
+fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    use assura_parser::ast::MemoryOrdering;
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        let (name, clauses) = match &decl.node {
+            Decl::Contract(c) => (c.name.as_str(), &c.clauses),
+            Decl::FnDef(f) => (f.name.as_str(), &f.clauses),
+            _ => continue,
+        };
+
+        let mut ordering_value: Option<MemoryOrdering> = None;
+        let mut has_ensures = false;
+
+        for clause in clauses {
+            if clause.kind == ClauseKind::Ordering {
+                // Extract the ordering value from the clause body
+                let ordering_str = match &clause.body {
+                    Expr::Ident(s) => Some(s.as_str()),
+                    Expr::Raw(tokens) => tokens
+                        .iter()
+                        .find(|t| MemoryOrdering::parse(t).is_some())
+                        .map(|t| t.as_str()),
+                    _ => None,
+                };
+                if let Some(s) = ordering_str {
+                    if let Some(ord) = MemoryOrdering::parse(s) {
+                        ordering_value = Some(ord);
+                    } else {
+                        errors.push(TypeError {
+                            code: "A-CONC-019".into(),
+                            message: format!(
+                                "unknown memory ordering `{s}` in `{name}`; \
+                                 expected one of: relaxed, acquire, release, acqrel, seq_cst"
+                            ),
+                            span: decl.span.clone(),
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+            if clause.kind == ClauseKind::Ensures {
+                has_ensures = true;
+            }
+        }
+
+        // A-CONC-016: relaxed read with ensures (value-dependent assertion)
+        if ordering_value == Some(MemoryOrdering::Relaxed) && has_ensures {
+            errors.push(TypeError {
+                code: "A-CONC-016".into(),
+                message: format!(
+                    "relaxed ordering in `{name}` with ensures clause: \
+                     value read with Relaxed may be stale; \
+                     use Acquire for value-dependent assertions"
+                ),
+                span: decl.span.clone(),
+                secondary: None,
+            });
         }
     }
 
