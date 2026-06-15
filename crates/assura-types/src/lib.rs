@@ -6802,5 +6802,4 @@ fn run_codec_registry_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
 mod tests;
