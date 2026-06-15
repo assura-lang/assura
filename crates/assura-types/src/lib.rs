@@ -1146,7 +1146,7 @@ fn user_defined_type_param_count(
 /// replaces every `Type::TypeParam(name)` that appears in `bindings` with
 /// the corresponding concrete type. Types not in the bindings map are left
 /// unchanged.
-#[allow(dead_code)] // Wired in when T015 is fully integrated
+#[allow(dead_code)] // Used by full generic instantiation (substitute type params with concrete types)
 pub(crate) fn substitute(ty: &Type, bindings: &HashMap<std::string::String, Type>) -> Type {
     match ty {
         Type::TypeParam(name) => bindings.get(name).cloned().unwrap_or_else(|| ty.clone()),
@@ -1180,7 +1180,7 @@ pub(crate) fn substitute(ty: &Type, bindings: &HashMap<std::string::String, Type
 /// Given a built-in generic name and validated type arguments, returns the
 /// fully instantiated `Type`. Panics if the argument count is wrong (caller
 /// should validate via `check_generic_instantiation` first).
-#[allow(dead_code)] // Wired in when T015 is fully integrated
+#[allow(dead_code)] // Used by full generic instantiation (construct concrete types from args)
 pub(crate) fn instantiate_builtin_generic(name: &str, args: Vec<Type>) -> Option<Type> {
     match name {
         "List" => Some(Type::List(Box::new(args.into_iter().next()?))),
