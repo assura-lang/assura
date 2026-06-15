@@ -636,6 +636,296 @@ fn normalize_clause_body(body: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-language annotation framework
+// ---------------------------------------------------------------------------
+
+/// Trait for language-specific annotation parsing.
+///
+/// Each language adapter knows how to extract contract annotations from
+/// its source format. The clause kinds (`@requires`, `@ensures`, etc.)
+/// are universal; only the comment syntax and type mapping differ.
+pub trait LanguageAdapter {
+    /// Language identifier (e.g., "rust", "python", "go").
+    fn language_id(&self) -> &str;
+
+    /// File extensions handled by this adapter (e.g., `["rs"]`).
+    fn file_extensions(&self) -> &[&str];
+
+    /// Extract annotated items from source text.
+    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, String>;
+
+    /// Map a language-specific type name to an Assura type.
+    /// Returns `None` if the type has no Assura equivalent.
+    fn map_type(&self, language_type: &str) -> Option<String>;
+}
+
+/// Rust language adapter (delegates to existing `parse_rust_source`).
+pub struct RustAdapter;
+
+impl LanguageAdapter for RustAdapter {
+    fn language_id(&self) -> &str {
+        "rust"
+    }
+
+    fn file_extensions(&self) -> &[&str] {
+        &["rs"]
+    }
+
+    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, String> {
+        parse_rust_source(source)
+    }
+
+    fn map_type(&self, language_type: &str) -> Option<String> {
+        match language_type {
+            "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => Some("Int".to_string()),
+            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => Some("Nat".to_string()),
+            "f32" | "f64" => Some("Float".to_string()),
+            "bool" => Some("Bool".to_string()),
+            "String" | "&str" => Some("String".to_string()),
+            "()" => Some("Unit".to_string()),
+            _ => None,
+        }
+    }
+}
+
+/// Python language adapter.
+///
+/// Extracts `# @requires`, `# @ensures`, `# @invariant`, `# @effects`,
+/// and `# @decreases` annotations from Python comments and docstrings.
+pub struct PythonAdapter;
+
+impl LanguageAdapter for PythonAdapter {
+    fn language_id(&self) -> &str {
+        "python"
+    }
+
+    fn file_extensions(&self) -> &[&str] {
+        &["py"]
+    }
+
+    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, String> {
+        parse_python_source(source)
+    }
+
+    fn map_type(&self, language_type: &str) -> Option<String> {
+        match language_type {
+            "int" => Some("Int".to_string()),
+            "float" => Some("Float".to_string()),
+            "bool" => Some("Bool".to_string()),
+            "str" => Some("String".to_string()),
+            "bytes" => Some("Bytes".to_string()),
+            "None" => Some("Unit".to_string()),
+            "list" | "List" => Some("List".to_string()),
+            "dict" | "Dict" => Some("Map".to_string()),
+            "set" | "Set" => Some("Set".to_string()),
+            "Optional" => Some("Option".to_string()),
+            _ => None,
+        }
+    }
+}
+
+/// Parse Python source for contract annotations in comments and docstrings.
+///
+/// Supports two annotation styles:
+/// 1. Hash comments: `# @requires x > 0`
+/// 2. Docstring annotations: `"""@requires x > 0"""`
+fn parse_python_source(source: &str) -> Result<Vec<AnnotatedItem>, String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut items = Vec::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        // Collect annotation lines (# @keyword ... or docstring @keyword ...)
+        let mut doc_lines: Vec<(String, usize)> = Vec::new();
+        let _annotation_start = i;
+
+        // Collect consecutive comment lines with @-clauses
+        while i < lines.len() {
+            let trimmed = lines[i].trim();
+            if let Some(rest) = trimmed.strip_prefix('#') {
+                let content = rest.trim_start();
+                if content.starts_with('@') {
+                    let byte_offset = source[..source_line_offset(source, i)].len();
+                    doc_lines.push((content.to_string(), byte_offset));
+                } else if !doc_lines.is_empty() {
+                    // Continuation of non-@ comment after @-clauses
+                    break;
+                }
+                i += 1;
+            } else {
+                break;
+            }
+        }
+
+        if doc_lines.is_empty() {
+            // Check for docstring annotations on the next line (inside a function)
+            i += 1;
+            continue;
+        }
+
+        let contract = parse_doc_clauses(&doc_lines);
+        if contract.is_empty() {
+            continue;
+        }
+
+        // Look for the function/class definition following the annotations
+        while i < lines.len() && lines[i].trim().is_empty() {
+            i += 1;
+        }
+
+        if i < lines.len() {
+            let trimmed = lines[i].trim();
+
+            if let Some(func_info) = parse_python_function_def(trimmed) {
+                let byte_offset = source_line_offset(source, i);
+                items.push(AnnotatedItem {
+                    contract,
+                    kind: AnnotatedItemKind::Function {
+                        name: func_info.0,
+                        params: func_info.1,
+                        return_type: func_info.2,
+                        is_unsafe: false,
+                        is_async: func_info.3,
+                    },
+                    line: i + 1, // 1-based
+                    offset: byte_offset,
+                });
+            } else if let Some(class_name) = parse_python_class_def(trimmed) {
+                let byte_offset = source_line_offset(source, i);
+                // Check for docstring invariants inside the class
+                let mut class_doc_lines = Vec::new();
+                let mut j = i + 1;
+                while j < lines.len() {
+                    let inner = lines[j].trim();
+                    if inner.starts_with("\"\"\"") || inner.starts_with("'''") {
+                        // Parse docstring for @-clauses
+                        let in_docstring = inner.starts_with("\"\"\"");
+                        let quote = if in_docstring { "\"\"\"" } else { "'''" };
+                        // Check single-line docstring
+                        if inner.len() > 6 && inner.ends_with(quote) {
+                            let content = &inner[3..inner.len() - 3];
+                            if content.trim().starts_with('@') {
+                                let offset = source_line_offset(source, j);
+                                class_doc_lines.push((format!(" {}", content.trim()), offset));
+                            }
+                        }
+                        break;
+                    } else if inner.is_empty() || inner.starts_with('#') {
+                        j += 1;
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Merge class-level annotations from before and after
+                let mut full_contract = contract;
+                if !class_doc_lines.is_empty() {
+                    let docstring_contract = parse_doc_clauses(&class_doc_lines);
+                    for c in docstring_contract.invariants {
+                        full_contract.invariants.push(c);
+                    }
+                }
+
+                items.push(AnnotatedItem {
+                    contract: full_contract,
+                    kind: AnnotatedItemKind::Struct {
+                        name: class_name,
+                        fields: Vec::new(), // Python class fields need runtime analysis
+                    },
+                    line: i + 1,
+                    offset: byte_offset,
+                });
+            }
+        }
+
+        i += 1;
+    }
+
+    Ok(items)
+}
+
+/// Get byte offset of a line in source text.
+fn source_line_offset(source: &str, line_index: usize) -> usize {
+    let mut offset = 0;
+    for (i, line) in source.lines().enumerate() {
+        if i == line_index {
+            return offset;
+        }
+        offset += line.len() + 1; // +1 for newline
+    }
+    source.len()
+}
+
+/// Parse a Python function definition line.
+/// Returns (name, params, return_type, is_async).
+fn parse_python_function_def(line: &str) -> Option<(String, Vec<ParamInfo>, Option<String>, bool)> {
+    let is_async = line.starts_with("async ");
+    let rest = if is_async {
+        line.strip_prefix("async ")?.trim()
+    } else {
+        line
+    };
+
+    let rest = rest.strip_prefix("def ")?;
+    let paren_start = rest.find('(')?;
+    let name = rest[..paren_start].trim().to_string();
+
+    // Extract parameters (simplified: just names and optional type annotations)
+    let paren_end = rest.rfind(')')?;
+    let params_str = &rest[paren_start + 1..paren_end];
+    let params: Vec<ParamInfo> = params_str
+        .split(',')
+        .filter_map(|p| {
+            let p = p.trim();
+            if p.is_empty() || p == "self" || p == "cls" {
+                return None;
+            }
+            if let Some((name, ty)) = p.split_once(':') {
+                Some(ParamInfo {
+                    name: name.trim().to_string(),
+                    ty: ty.trim().to_string(),
+                })
+            } else {
+                Some(ParamInfo {
+                    name: p.to_string(),
+                    ty: "Any".to_string(),
+                })
+            }
+        })
+        .collect();
+
+    // Extract return type
+    let after_paren = &rest[paren_end + 1..];
+    let return_type = after_paren
+        .strip_prefix("->")
+        .or_else(|| after_paren.strip_prefix(" ->"))
+        .map(|s| s.trim().trim_end_matches(':').trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    Some((name, params, return_type, is_async))
+}
+
+/// Parse a Python class definition line. Returns the class name.
+fn parse_python_class_def(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("class ")?;
+    let end = rest
+        .find(['(', ':'])
+        .unwrap_or(rest.len());
+    let name = rest[..end].trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// Get the appropriate language adapter for a file extension.
+pub fn adapter_for_extension(ext: &str) -> Option<Box<dyn LanguageAdapter>> {
+    match ext {
+        "rs" => Some(Box::new(RustAdapter)),
+        "py" => Some(Box::new(PythonAdapter)),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1077,5 +1367,194 @@ async unsafe fn read_data(buf: &[u8]) -> u32 {
         let merged = MergedContract::default();
         assert!(merged.is_empty());
         assert_eq!(merged.clause_count(), 0);
+    }
+
+    // -- language adapter tests --
+
+    #[test]
+    fn language_adapter_rust_id() {
+        let adapter = RustAdapter;
+        assert_eq!(adapter.language_id(), "rust");
+        assert_eq!(adapter.file_extensions(), &["rs"]);
+    }
+
+    #[test]
+    fn language_adapter_rust_type_mapping() {
+        let adapter = RustAdapter;
+        assert_eq!(adapter.map_type("i32"), Some("Int".to_string()));
+        assert_eq!(adapter.map_type("u64"), Some("Nat".to_string()));
+        assert_eq!(adapter.map_type("f64"), Some("Float".to_string()));
+        assert_eq!(adapter.map_type("bool"), Some("Bool".to_string()));
+        assert_eq!(adapter.map_type("String"), Some("String".to_string()));
+        assert_eq!(adapter.map_type("()"), Some("Unit".to_string()));
+        assert_eq!(adapter.map_type("CustomType"), None);
+    }
+
+    #[test]
+    fn language_adapter_python_id() {
+        let adapter = PythonAdapter;
+        assert_eq!(adapter.language_id(), "python");
+        assert_eq!(adapter.file_extensions(), &["py"]);
+    }
+
+    #[test]
+    fn language_adapter_python_type_mapping() {
+        let adapter = PythonAdapter;
+        assert_eq!(adapter.map_type("int"), Some("Int".to_string()));
+        assert_eq!(adapter.map_type("float"), Some("Float".to_string()));
+        assert_eq!(adapter.map_type("bool"), Some("Bool".to_string()));
+        assert_eq!(adapter.map_type("str"), Some("String".to_string()));
+        assert_eq!(adapter.map_type("bytes"), Some("Bytes".to_string()));
+        assert_eq!(adapter.map_type("None"), Some("Unit".to_string()));
+        assert_eq!(adapter.map_type("list"), Some("List".to_string()));
+        assert_eq!(adapter.map_type("dict"), Some("Map".to_string()));
+        assert_eq!(adapter.map_type("CustomClass"), None);
+    }
+
+    // -- python adapter parsing tests --
+
+    #[test]
+    fn python_adapter_function_with_requires() {
+        let source = r#"
+# @requires x > 0
+def double(x: int) -> int:
+    return x * 2
+"#;
+        let adapter = PythonAdapter;
+        let items = adapter.parse_source(source).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].contract.requires.len(), 1);
+        assert_eq!(items[0].contract.requires[0].body, "x > 0");
+        match &items[0].kind {
+            AnnotatedItemKind::Function {
+                name, return_type, ..
+            } => {
+                assert_eq!(name, "double");
+                assert_eq!(return_type.as_deref(), Some("int"));
+            }
+            _ => panic!("expected Function"),
+        }
+    }
+
+    #[test]
+    fn python_adapter_class_with_invariant() {
+        let source = r#"
+# @invariant self.count >= 0
+class Counter:
+    pass
+"#;
+        let adapter = PythonAdapter;
+        let items = adapter.parse_source(source).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].contract.invariants.len(), 1);
+        assert_eq!(items[0].contract.invariants[0].body, "self.count >= 0");
+        match &items[0].kind {
+            AnnotatedItemKind::Struct { name, .. } => {
+                assert_eq!(name, "Counter");
+            }
+            _ => panic!("expected Struct"),
+        }
+    }
+
+    #[test]
+    fn python_adapter_async_function() {
+        let source = r#"
+# @requires timeout > 0
+# @ensures result != None
+async def fetch_data(url: str, timeout: int) -> str:
+    pass
+"#;
+        let adapter = PythonAdapter;
+        let items = adapter.parse_source(source).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].contract.requires.len(), 1);
+        assert_eq!(items[0].contract.ensures.len(), 1);
+        match &items[0].kind {
+            AnnotatedItemKind::Function {
+                name,
+                is_async,
+                params,
+                ..
+            } => {
+                assert_eq!(name, "fetch_data");
+                assert!(is_async);
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].name, "url");
+                assert_eq!(params[0].ty, "str");
+            }
+            _ => panic!("expected Function"),
+        }
+    }
+
+    #[test]
+    fn python_adapter_no_annotations() {
+        let source = r#"
+def plain_function(x):
+    return x + 1
+
+class PlainClass:
+    pass
+"#;
+        let adapter = PythonAdapter;
+        let items = adapter.parse_source(source).unwrap();
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn python_adapter_multiple_functions() {
+        let source = r#"
+# @requires a > 0
+def first(a: int) -> int:
+    return a
+
+# @ensures result >= 0
+def second(b: int) -> int:
+    return abs(b)
+"#;
+        let adapter = PythonAdapter;
+        let items = adapter.parse_source(source).unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn python_adapter_function_no_type_hints() {
+        let source = r#"
+# @requires x > 0
+def untyped(x):
+    return x * 2
+"#;
+        let adapter = PythonAdapter;
+        let items = adapter.parse_source(source).unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0].kind {
+            AnnotatedItemKind::Function {
+                params,
+                return_type,
+                ..
+            } => {
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0].ty, "Any");
+                assert!(return_type.is_none());
+            }
+            _ => panic!("expected Function"),
+        }
+    }
+
+    #[test]
+    fn adapter_for_extension_rust() {
+        let adapter = adapter_for_extension("rs").unwrap();
+        assert_eq!(adapter.language_id(), "rust");
+    }
+
+    #[test]
+    fn adapter_for_extension_python() {
+        let adapter = adapter_for_extension("py").unwrap();
+        assert_eq!(adapter.language_id(), "python");
+    }
+
+    #[test]
+    fn adapter_for_extension_unknown() {
+        assert!(adapter_for_extension("java").is_none());
+        assert!(adapter_for_extension("go").is_none());
     }
 }
