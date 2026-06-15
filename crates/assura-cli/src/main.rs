@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use clap::{Args, Subcommand};
+use clap::{Args, CommandFactory, Subcommand};
+use clap_complete::Shell;
 use std::fs;
 use std::path::Path;
 use std::process;
@@ -178,6 +179,12 @@ enum Commands {
 
     /// Check installation: Z3, CVC5, Rust toolchain, WASM target
     Doctor,
+
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
+    },
 
     /// Show contract coverage of a Rust project
     Coverage {
@@ -492,6 +499,9 @@ fn main() {
         }
         Some(Commands::AgentInstructions) => run_agent_instructions(),
         Some(Commands::Doctor) => run_doctor(),
+        Some(Commands::Completions { shell }) => {
+            clap_complete::generate(shell, &mut Cli::command(), "assura", &mut std::io::stdout());
+        }
         Some(Commands::Coverage {
             path,
             contracts_dir,
