@@ -1,5 +1,19 @@
 # Assura Compiler - Agent Instructions
 
+## Grok Filename Bug Workaround
+
+This file is named `AGENTS.md` in git. Grok scans for project rules
+in this order: `Agents.md`, `Claude.md`, `CLAUDE.md`, `CLAUDE.local.md`,
+`AGENT.md`, `AGENTS.md`. On macOS case-insensitive APFS, the pattern
+`Agents.md` matches the actual file `AGENTS.md` first, so the
+system-reminder reports the path as `Agents.md` instead of the real
+filesystem name `AGENTS.md`. This causes `search_replace` and
+`read_file` to use the wrong casing.
+
+**Workaround**: Always use `AGENTS.md` (all caps) when editing or
+reading this file, regardless of what the system-reminder header says.
+The git-tracked name is `AGENTS.md`. Do not rename it.
+
 ## Project Overview
 
 Assura is a contract-first AI-native language that transpiles to Rust.
