@@ -1,14 +1,10 @@
 [package]
-name = "assura"
-description = "Contract-first AI-native language. Write what it should do. AI proves it does."
+name = "assura-mcp"
+description = "MCP (Model Context Protocol) server for Assura AI agent integration"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-
-[[bin]]
-name = "assura"
-path = "src/main.rs"
 
 [dependencies]
 assura-parser = { path = "../assura-parser" }
@@ -19,21 +15,8 @@ assura-smt = { path = "../assura-smt" }
 assura-hir = { path = "../assura-hir" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 assura-config = { path = "../assura-config" }
-assura-fmt = { path = "../assura-fmt" }
-clap = { version = "4", features = ["derive"] }
-logos = "0.16"
-ariadne = "0.4"
+rmcp = { version = "1.7", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-notify = "8"
-toml = "1.1"
-clap_complete = "4.6.5"
-assura-lsp = { version = "0.1.0", path = "../assura-lsp" }
-assura-mcp = { path = "../assura-mcp" }
-tower-lsp = "0.20"
-tokio = { version = "1.52.3", features = ["full"] }
-
-[dev-dependencies]
-syn = "2"
-serde_json = "1"
-tempfile = "3"
+schemars = "1"

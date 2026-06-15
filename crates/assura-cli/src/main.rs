@@ -238,6 +238,23 @@ enum Commands {
         #[arg(long)]
         unsafe_only: bool,
     },
+
+    /// Interactive contract playground
+    Repl,
+
+    /// Structural diff between two contract files
+    Diff {
+        /// Original contract file
+        old: String,
+        /// Updated contract file
+        new: String,
+        /// Output format: human or json
+        #[arg(long, default_value = "human")]
+        format: String,
+    },
+
+    /// Start the MCP (Model Context Protocol) server for AI agent integration
+    Mcp,
 }
 
 fn parse_solver(s: &str) -> Result<assura_smt::SolverChoice, String> {
@@ -527,6 +544,19 @@ fn main() {
             timeout,
             unsafe_only,
         ),
+        Some(Commands::Repl) => run_repl(),
+        Some(Commands::Diff { old, new, format }) => {
+            run_diff(&old, &new, &format);
+        }
+        Some(Commands::Mcp) => {
+            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+            rt.block_on(async {
+                if let Err(e) = assura_mcp::run_mcp_server().await {
+                    eprintln!("MCP server error: {e}");
+                    std::process::exit(1);
+                }
+            });
+        }
         None => {
             // Legacy mode: `assura [--ast|--tokens] <file>`
             if let Some(file) = cli.file {
@@ -3665,6 +3695,405 @@ fn run_legacy(filename: &str, verbosity: Verbosity, show_ast: bool, show_tokens:
             &verification_results,
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// `assura repl` -- interactive contract playground
+// ---------------------------------------------------------------------------
+
+fn run_repl() {
+    use std::io::{self, BufRead, Write};
+
+    println!("Assura REPL v{}", env!("CARGO_PKG_VERSION"));
+    println!("Type a contract to parse and verify. Commands:");
+    println!("  :type <rust_type>     Show Assura type mapping");
+    println!("  :explain <code>       Explain an error code");
+    println!("  :load <file>          Load and verify a file");
+    println!("  :quit or Ctrl-D       Exit");
+    println!();
+
+    let stdin = io::stdin();
+    let mut buffer = String::new();
+    let mut in_block = false;
+    let mut brace_depth: i32 = 0;
+
+    loop {
+        if in_block {
+            eprint!("  ... ");
+        } else {
+            eprint!("assura> ");
+        }
+        io::stderr().flush().ok();
+
+        let mut line = String::new();
+        match stdin.lock().read_line(&mut line) {
+            Ok(0) => {
+                eprintln!();
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Error reading input: {e}");
+                break;
+            }
+        }
+
+        let trimmed = line.trim();
+
+        if !in_block {
+            if trimmed == ":quit" || trimmed == ":q" || trimmed == ":exit" {
+                break;
+            }
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(rust_type) = trimmed.strip_prefix(":type ") {
+                let assura_type = assura_codegen::type_map::rust_type_to_assura(rust_type.trim());
+                println!("{rust_type} -> {assura_type}");
+                continue;
+            }
+            if trimmed == ":type" {
+                eprintln!("Usage: :type <rust_type>  (e.g., :type Vec<Option<i64>>)");
+                continue;
+            }
+            if let Some(code) = trimmed.strip_prefix(":explain ") {
+                repl_explain(code.trim());
+                continue;
+            }
+            if trimmed == ":explain" {
+                eprintln!("Usage: :explain <code>  (e.g., :explain A03001)");
+                continue;
+            }
+            if let Some(file) = trimmed.strip_prefix(":load ") {
+                repl_load(file.trim());
+                continue;
+            }
+            if trimmed == ":load" {
+                eprintln!("Usage: :load <file.assura>");
+                continue;
+            }
+            if trimmed.starts_with(':') {
+                eprintln!("Unknown command: {trimmed}");
+                eprintln!("Available: :type, :explain, :load, :quit");
+                continue;
+            }
+        }
+
+        buffer.push_str(&line);
+        for ch in line.chars() {
+            if ch == '{' {
+                brace_depth += 1;
+                in_block = true;
+            } else if ch == '}' {
+                brace_depth -= 1;
+            }
+        }
+
+        if brace_depth <= 0 {
+            in_block = false;
+            brace_depth = 0;
+            let input = buffer.trim().to_string();
+            if !input.is_empty() {
+                repl_eval(&input);
+            }
+            buffer.clear();
+        }
+    }
+}
+
+fn repl_explain(code: &str) {
+    if let Some(info) = assura_diagnostics::explain(code) {
+        println!("{} ({})", info.code, info.name);
+        println!("  {}", info.description);
+        if !info.example.is_empty() {
+            println!("  Example: {}", info.example);
+        }
+        if !info.fix.is_empty() {
+            println!("  Fix: {}", info.fix);
+        }
+    } else {
+        eprintln!("Unknown error code: {code}");
+    }
+}
+
+fn repl_load(path: &str) {
+    match fs::read_to_string(path) {
+        Ok(source) => repl_eval(&source),
+        Err(e) => eprintln!("Error loading {path}: {e}"),
+    }
+}
+
+fn repl_eval(source: &str) {
+    let (ast, parse_errors) = assura_parser::parse(source);
+    if !parse_errors.is_empty() {
+        for err in &parse_errors {
+            eprintln!("  Parse error: {err:?}");
+        }
+        return;
+    }
+
+    let ast = match ast {
+        Some(a) => a,
+        None => {
+            eprintln!("  Failed to parse input.");
+            return;
+        }
+    };
+
+    if ast.decls.is_empty() {
+        eprintln!("  No declarations found.");
+        return;
+    }
+
+    for decl_spanned in &ast.decls {
+        let decl = &decl_spanned.node;
+        let name = match decl {
+            Decl::Contract(c) => &c.name,
+            Decl::Bind(b) => &b.name,
+            Decl::FnDef(f) => &f.name,
+            Decl::Service(s) => &s.name,
+            Decl::TypeDef(t) => &t.name,
+            Decl::EnumDef(e) => &e.name,
+            Decl::Extern(e) => &e.name,
+            Decl::Prophecy(p) => &p.name,
+            Decl::CodecRegistry(c) => &c.name,
+            Decl::Block { name, .. } => name,
+        };
+        let clause_count = match decl {
+            Decl::Contract(c) => c.clauses.len(),
+            Decl::Bind(b) => b.clauses.len(),
+            _ => 0,
+        };
+        println!("  OK  {name}: {} clause(s)", clause_count);
+    }
+
+    let resolved = match assura_resolve::resolve(&ast) {
+        Ok(r) => r,
+        Err(errs) => {
+            for err in &errs {
+                eprintln!("  Resolution error: {} ({})", err.message, err.code);
+            }
+            return;
+        }
+    };
+
+    let hir = assura_hir::lower(&resolved);
+    let typed = match assura_types::type_check_hir(&hir) {
+        Ok(t) => t,
+        Err(errs) => {
+            for err in &errs {
+                eprintln!("  Type error: {} ({})", err.message, err.code);
+            }
+            return;
+        }
+    };
+
+    let results = assura_smt::verify(&typed);
+    for result in &results {
+        match result {
+            assura_smt::VerificationResult::Verified { clause_desc } => {
+                println!("  VERIFIED  {clause_desc}");
+            }
+            assura_smt::VerificationResult::Counterexample {
+                clause_desc, model, ..
+            } => {
+                println!("  COUNTEREXAMPLE  {clause_desc}");
+                println!("    | {model}");
+            }
+            assura_smt::VerificationResult::Timeout { clause_desc } => {
+                println!("  TIMEOUT  {clause_desc}");
+            }
+            assura_smt::VerificationResult::Unknown {
+                clause_desc,
+                reason,
+            } => {
+                println!("  UNKNOWN  {clause_desc}: {reason}");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `assura diff` -- structural diff between contract files
+// ---------------------------------------------------------------------------
+
+fn extract_decl_summary(sf: &SourceFile) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut result = std::collections::BTreeMap::new();
+    for spanned_decl in &sf.decls {
+        let decl = &spanned_decl.node;
+        let name = match decl {
+            Decl::Contract(c) => c.name.clone(),
+            Decl::Bind(b) => b.name.clone(),
+            Decl::FnDef(f) => f.name.clone(),
+            Decl::Service(s) => s.name.clone(),
+            Decl::TypeDef(t) => t.name.clone(),
+            Decl::EnumDef(e) => e.name.clone(),
+            Decl::Extern(e) => e.name.clone(),
+            Decl::Prophecy(p) => p.name.clone(),
+            Decl::CodecRegistry(c) => c.name.clone(),
+            Decl::Block { name, .. } => name.clone(),
+        };
+        let clauses: Vec<String> = match decl {
+            Decl::Contract(c) => c
+                .clauses
+                .iter()
+                .map(|cl| format!("{:?}: {}", cl.kind, format_clause_body(cl)))
+                .collect(),
+            Decl::Bind(b) => b
+                .clauses
+                .iter()
+                .map(|cl| format!("{:?}: {}", cl.kind, format_clause_body(cl)))
+                .collect(),
+            _ => Vec::new(),
+        };
+        result.insert(name, clauses);
+    }
+    result
+}
+
+fn format_clause_body(clause: &assura_parser::ast::Clause) -> String {
+    format!("{:?}", clause.body)
+}
+
+fn run_diff(old_path: &str, new_path: &str, format: &str) {
+    let old_src = match fs::read_to_string(old_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {old_path}: {e}");
+            process::exit(1);
+        }
+    };
+    let new_src = match fs::read_to_string(new_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {new_path}: {e}");
+            process::exit(1);
+        }
+    };
+
+    let (old_ast, old_errs) = assura_parser::parse(&old_src);
+    let (new_ast, new_errs) = assura_parser::parse(&new_src);
+
+    if !old_errs.is_empty() {
+        eprintln!("Warning: {old_path} has {} parse error(s)", old_errs.len());
+    }
+    if !new_errs.is_empty() {
+        eprintln!("Warning: {new_path} has {} parse error(s)", new_errs.len());
+    }
+
+    let old_decls = old_ast
+        .as_ref()
+        .map(extract_decl_summary)
+        .unwrap_or_default();
+    let new_decls = new_ast
+        .as_ref()
+        .map(extract_decl_summary)
+        .unwrap_or_default();
+
+    let mut changes = Vec::new();
+    let mut has_diff = false;
+
+    for (name, old_clauses) in &old_decls {
+        if !new_decls.contains_key(name) {
+            has_diff = true;
+            changes.push(DiffEntry {
+                name: name.clone(),
+                kind: "removed".to_string(),
+                added_clauses: Vec::new(),
+                removed_clauses: old_clauses.clone(),
+                unchanged_clauses: Vec::new(),
+            });
+        }
+    }
+
+    for (name, new_clauses) in &new_decls {
+        match old_decls.get(name) {
+            None => {
+                has_diff = true;
+                changes.push(DiffEntry {
+                    name: name.clone(),
+                    kind: "added".to_string(),
+                    added_clauses: new_clauses.clone(),
+                    removed_clauses: Vec::new(),
+                    unchanged_clauses: Vec::new(),
+                });
+            }
+            Some(old_clauses) => {
+                let added: Vec<String> = new_clauses
+                    .iter()
+                    .filter(|c| !old_clauses.contains(c))
+                    .cloned()
+                    .collect();
+                let removed: Vec<String> = old_clauses
+                    .iter()
+                    .filter(|c| !new_clauses.contains(c))
+                    .cloned()
+                    .collect();
+                let unchanged: Vec<String> = new_clauses
+                    .iter()
+                    .filter(|c| old_clauses.contains(c))
+                    .cloned()
+                    .collect();
+                if !added.is_empty() || !removed.is_empty() {
+                    has_diff = true;
+                    changes.push(DiffEntry {
+                        name: name.clone(),
+                        kind: "modified".to_string(),
+                        added_clauses: added,
+                        removed_clauses: removed,
+                        unchanged_clauses: unchanged,
+                    });
+                }
+            }
+        }
+    }
+
+    if format == "json" {
+        let json = serde_json::json!({
+            "identical": !has_diff,
+            "changes": changes.iter().map(|c| serde_json::json!({
+                "name": c.name,
+                "kind": c.kind,
+                "added_clauses": c.added_clauses,
+                "removed_clauses": c.removed_clauses,
+                "unchanged_clauses": c.unchanged_clauses,
+            })).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+    } else {
+        if !has_diff {
+            println!("No structural differences.");
+        }
+        for entry in &changes {
+            match entry.kind.as_str() {
+                "added" => println!("{}:  (new)", entry.name),
+                "removed" => println!("{}:  (removed)", entry.name),
+                _ => println!("{}:", entry.name),
+            }
+            for c in &entry.removed_clauses {
+                println!("  - {c}");
+            }
+            for c in &entry.added_clauses {
+                println!("  + {c}");
+            }
+            for c in &entry.unchanged_clauses {
+                println!("    {c}");
+            }
+            println!();
+        }
+    }
+
+    if has_diff {
+        process::exit(1);
+    }
+}
+
+struct DiffEntry {
+    name: String,
+    kind: String,
+    added_clauses: Vec<String>,
+    removed_clauses: Vec<String>,
+    unchanged_clauses: Vec<String>,
 }
 
 // ===========================================================================
