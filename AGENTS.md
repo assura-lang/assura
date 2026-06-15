@@ -706,3 +706,28 @@ pub enum VerificationResult {
 or `.clause_kind` field. The `clause_desc` is a human-readable string
 like `"SafeDivision: ensures"`. Do not pattern-match assuming struct
 fields that do not exist.
+
+## Type::Error vs Type::Unknown
+
+The `Type` enum has two indeterminate variants. **Never compare
+directly against `Type::Unknown`; use `ty.is_indeterminate()` instead.**
+
+| Variant | Meaning | When produced |
+|---------|---------|---------------|
+| `Unknown` | Genuinely unknown (unresolved ident, missing type args) | Identifier not in env, empty generic params |
+| `Error` | Error already reported upstream; suppress cascading | `Expr::Raw`, error-receiver field/method/index/call |
+
+`Type::is_indeterminate()` returns `true` for both. Use it everywhere
+you would have written `ty == Type::Unknown`:
+
+- **Clause body checking**: `if !ty.is_indeterminate() && ty != Type::Bool`
+- **Type compatibility**: `types_compatible()` treats both as wildcard
+- **Numeric leniency**: `is_numeric()` accepts both
+- **If/match branch merging**: pick the concrete branch when the other
+  is indeterminate
+
+**Why this matters**: Writing `== Type::Unknown` misses `Error`, which
+causes cascading false-positive diagnostics. A single typo in a
+receiver name would produce one "unknown variable" error followed by
+spurious A03005 errors on every field access and method call downstream.
+
