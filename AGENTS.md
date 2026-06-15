@@ -786,6 +786,49 @@ or `.clause_kind` field. The `clause_desc` is a human-readable string
 like `"SafeDivision: ensures"`. Do not pattern-match assuming struct
 fields that do not exist.
 
+## MCP Server (rmcp 1.7) API Shape
+
+The `assura-mcp` crate uses `rmcp` 1.7 with `server` and `transport-io`
+features. The rmcp proc macros generate significant glue code, and the
+public API surface is not obvious from docs. These patterns were learned
+from 11 build errors during initial implementation.
+
+**Imports**: Use `rmcp::handler::server::wrapper::Parameters`, not
+`rmcp::tool::Parameters` (the latter is private and will not compile).
+
+**Tool return type**: Tool functions must return `String`, not
+`Result<CallToolResult, McpError>`. The `IntoToolRoute` trait bound
+requires it. Serialize your result with `serde_json::to_string_pretty`.
+
+**Tool async**: Tool functions do not need to be `async`. Sync `fn`
+satisfies the trait. Use async only if the tool does actual I/O.
+
+**ServerInfo construction**: `ServerInfo` is non-exhaustive; you cannot
+use a struct literal. Use the builder:
+
+```rust
+ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    .with_instructions("...")
+```
+
+**Two macros required**: Both `#[tool_router]` on the tool impl block
+AND `#[tool_handler]` on `impl ServerHandler` are needed. Without
+`#[tool_handler]`, `list_tools` returns an empty array and `call_tool`
+does nothing.
+
+**Dead code warning**: The `tool_router: ToolRouter<Self>` field on the
+server struct is read by the `#[tool_handler]` macro at runtime, but
+the compiler thinks it is unused. Add `#[expect(dead_code)]` to the
+field.
+
+```rust
+#[derive(Debug, Clone)]
+pub struct AssuraMcpServer {
+    #[expect(dead_code)]
+    tool_router: ToolRouter<Self>,
+}
+```
+
 ## Type::Error vs Type::Unknown
 
 The `Type` enum has two indeterminate variants. **Never compare
