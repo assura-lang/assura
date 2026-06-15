@@ -18,7 +18,7 @@ pub(crate) enum DecreasesMeasure {
 #[derive(Debug, Clone)]
 pub(crate) struct TotalityError {
     /// Error code from the spec (A09xxx series).
-    pub code: std::string::String,
+    pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
     pub message: std::string::String,
     /// Source location where the error was detected.

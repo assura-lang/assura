@@ -162,7 +162,7 @@ fn run_check(
                 assura_diagnostics::Severity::Info => "info",
             };
             Diagnostic {
-                code: d.code.clone(),
+                code: d.code.to_string(),
                 message: d.message.clone(),
                 severity: severity.into(),
                 line,
@@ -267,7 +267,7 @@ mod http {
 
     #[derive(Serialize)]
     pub struct HttpDiagnostic {
-        pub code: String,
+        pub code: assura_diagnostics::ErrorCode,
         pub message: String,
         pub severity: String,
     }
@@ -300,7 +300,7 @@ mod http {
             diagnostics: diagnostics
                 .into_iter()
                 .map(|d| HttpDiagnostic {
-                    code: d.code,
+                    code: d.code.into(),
                     message: d.message,
                     severity: d.severity,
                 })

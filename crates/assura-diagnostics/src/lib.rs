@@ -10,6 +10,63 @@ use std::sync::LazyLock;
 /// Source location span (byte offsets into the source file).
 pub type Span = Range<usize>;
 
+/// A strongly-typed error code from the Assura specification.
+///
+/// Wraps the raw code string (e.g. `"A03001"`) so that error code
+/// fields are distinguishable from arbitrary strings at the type level.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(transparent)]
+pub struct ErrorCode(String);
+
+impl ErrorCode {
+    /// Return the code as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for ErrorCode {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for ErrorCode {
+    fn from(s: &str) -> Self {
+        Self(s.to_owned())
+    }
+}
+
+impl From<String> for ErrorCode {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl PartialEq<str> for ErrorCode {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<&str> for ErrorCode {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<String> for ErrorCode {
+    fn eq(&self, other: &String) -> bool {
+        self.0 == *other
+    }
+}
+
 /// Diagnostic severity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -50,7 +107,7 @@ pub struct Suggestion {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Diagnostic {
     /// Error code from the spec (e.g., "A01001", "A03005").
-    pub code: String,
+    pub code: ErrorCode,
     /// Severity level.
     pub severity: Severity,
     /// Human-readable error message.
@@ -67,7 +124,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     /// Create a new error diagnostic with a code, message, and span.
-    pub fn error(code: impl Into<String>, message: impl Into<String>, span: Span) -> Self {
+    pub fn error(code: impl Into<ErrorCode>, message: impl Into<String>, span: Span) -> Self {
         Self {
             code: code.into(),
             severity: Severity::Error,
@@ -80,7 +137,7 @@ impl Diagnostic {
     }
 
     /// Create a new warning diagnostic.
-    pub fn warning(code: impl Into<String>, message: impl Into<String>, span: Span) -> Self {
+    pub fn warning(code: impl Into<ErrorCode>, message: impl Into<String>, span: Span) -> Self {
         Self {
             code: code.into(),
             severity: Severity::Warning,

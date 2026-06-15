@@ -28,7 +28,7 @@ pub(crate) struct InterfaceMethod {
 /// Error from the interface contract checker.
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }

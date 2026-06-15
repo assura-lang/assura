@@ -86,7 +86,7 @@ impl std::fmt::Display for EffectSet {
 #[derive(Debug, Clone)]
 pub(crate) struct EffectError {
     /// Error code from the spec (A07xxx series).
-    pub code: std::string::String,
+    pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
     pub message: std::string::String,
     /// Source location where the error was detected.

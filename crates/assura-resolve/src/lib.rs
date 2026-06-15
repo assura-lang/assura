@@ -181,7 +181,7 @@ impl SymbolTable {
 /// An error produced during name resolution.
 #[derive(Debug, Clone)]
 pub struct ResolutionError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Span,
     /// Optional secondary span (e.g., previous definition site).

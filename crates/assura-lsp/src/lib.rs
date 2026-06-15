@@ -89,7 +89,7 @@ impl AssuraLanguageServer {
                 Diagnostic {
                     range,
                     severity,
-                    code: Some(NumberOrString::String(d.code.clone())),
+                    code: Some(NumberOrString::String(d.code.to_string())),
                     source: Some("assura".to_string()),
                     message: d.message.clone(),
                     related_information,
@@ -1145,7 +1145,7 @@ mod tests {
         Diagnostic {
             range,
             severity: Some(DiagnosticSeverity::ERROR),
-            code: Some(NumberOrString::String(err.code.clone())),
+            code: Some(NumberOrString::String(err.code.to_string())),
             source: Some("assura".to_string()),
             message: err.message.clone(),
             related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
@@ -1275,7 +1275,7 @@ fn helper(n: Int) -> Int {
     #[test]
     fn test_type_error_diagnostic() {
         let err = TypeError {
-            code: "A03001".to_string(),
+            code: "A03001".into(),
             message: "type mismatch".to_string(),
             span: 0..5,
             secondary: None,
@@ -1512,7 +1512,7 @@ fn f(n: Int) -> Int { n }
     #[test]
     fn test_type_error_with_secondary() {
         let err = TypeError {
-            code: "A03001".to_string(),
+            code: "A03001".into(),
             message: "expected Bool, found Int".to_string(),
             span: 10..15,
             secondary: Some((0..5, "type declared here".to_string())),
@@ -1597,7 +1597,7 @@ fn f(n: Int) -> Int { n }
     #[test]
     fn test_diagnostic_source_is_assura() {
         let err = TypeError {
-            code: "A03001".to_string(),
+            code: "A03001".into(),
             message: "test".to_string(),
             span: 0..1,
             secondary: None,

@@ -207,7 +207,7 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
 /// A diagnostic from any pipeline phase.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PipelineDiagnostic {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
 }
 
@@ -312,9 +312,9 @@ pub fn run(source: &str) -> PipelineResult {
             code: d.code.clone(),
             message: d.message.clone(),
         };
-        if d.code.starts_with("A01") {
+        if d.code.as_str().starts_with("A01") {
             parse_errors.push(pd);
-        } else if d.code.starts_with("A02") {
+        } else if d.code.as_str().starts_with("A02") {
             resolution_errors.push(pd);
         } else {
             type_errors.push(pd);

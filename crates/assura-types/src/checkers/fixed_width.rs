@@ -7,7 +7,7 @@ use super::*;
 #[derive(Debug, Clone)]
 pub(crate) struct FixedWidthError {
     /// Error code (A10101-A10104).
-    pub code: std::string::String,
+    pub code: assura_diagnostics::ErrorCode,
     /// Human-readable message.
     pub message: std::string::String,
     /// Source span where the issue was detected.

@@ -14,7 +14,7 @@ use super::*;
 #[derive(Debug, Clone)]
 pub(crate) struct TypestateError {
     /// Error code from the spec (A06xxx series).
-    pub code: std::string::String,
+    pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
     pub message: std::string::String,
     /// Source location where the error was detected.

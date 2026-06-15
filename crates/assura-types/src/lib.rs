@@ -162,7 +162,7 @@ impl TypeEnv {
 #[derive(Debug, Clone)]
 pub struct TypeError {
     /// Error code from the spec (A03xxx series).
-    pub code: std::string::String,
+    pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
     pub message: std::string::String,
     /// Source location where the error was detected.
@@ -6769,7 +6769,7 @@ fn run_codec_registry_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
                 let min_len = bytes_a.len().min(bytes_b.len());
                 if bytes_a[..min_len] == bytes_b[..min_len] {
                     errors.push(TypeError {
-                        code: "A52001".to_string(),
+                        code: "A52001".into(),
                         message: format!(
                             "overlapping magic byte patterns in codec registry `{}`: \
                              codec `{}` and codec `{}` share a common prefix",
@@ -6786,7 +6786,7 @@ fn run_codec_registry_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
         for codec in &cr.codecs {
             if codec.decoder.is_empty() {
                 errors.push(TypeError {
-                    code: "A52002".to_string(),
+                    code: "A52002".into(),
                     message: format!(
                         "codec `{}` in registry `{}` has no decoder function",
                         codec.name, cr.name,

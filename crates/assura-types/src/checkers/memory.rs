@@ -30,7 +30,7 @@ pub(crate) struct MemoryRegion {
 #[derive(Debug, Clone)]
 pub(crate) struct MemoryError {
     /// Error code from the spec (A08xxx series).
-    pub code: std::string::String,
+    pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
     pub message: std::string::String,
     /// Source location where the error was detected.

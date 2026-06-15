@@ -35,7 +35,7 @@ pub(crate) struct DepType {
 /// Error from the dependent type checker.
 #[derive(Debug, Clone)]
 pub(crate) struct DepTypeError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
@@ -370,7 +370,7 @@ impl std::fmt::Display for SecurityLabel {
 #[derive(Debug, Clone)]
 pub(crate) struct InfoFlowError {
     /// Error code (A08001-A08005).
-    pub code: std::string::String,
+    pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
     pub message: std::string::String,
     /// Source location where the error was detected.

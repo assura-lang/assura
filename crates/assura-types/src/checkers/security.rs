@@ -6,7 +6,7 @@ use super::*;
 /// Error from the constant-time checker.
 #[derive(Debug, Clone)]
 pub(crate) struct ConstantTimeError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
@@ -186,7 +186,7 @@ impl std::fmt::Display for InvariantKind {
 /// Error from the structural invariant checker.
 #[derive(Debug, Clone)]
 pub(crate) struct StructuralInvariantError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
@@ -356,7 +356,7 @@ impl std::fmt::Display for AccessMode {
 /// Error from the shared memory checker.
 #[derive(Debug, Clone)]
 pub(crate) struct SharedMemError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
@@ -462,7 +462,7 @@ impl Default for SharedMemChecker {
 /// Error from the determinism checker.
 #[derive(Debug, Clone)]
 pub(crate) struct DeterminismError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
@@ -577,7 +577,7 @@ impl Default for DeterminismChecker {
 /// Error from the lock ordering checker.
 #[derive(Debug, Clone)]
 pub(crate) struct LockOrderError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
@@ -681,7 +681,7 @@ impl Default for LockOrderChecker {
 /// Error from the secure erasure checker.
 #[derive(Debug, Clone)]
 pub(crate) struct SecureErasureError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
@@ -812,7 +812,7 @@ impl Default for SecureErasureChecker {
 /// Error from the cryptographic conformance checker.
 #[derive(Debug, Clone)]
 pub(crate) struct CryptoConformanceError {
-    pub code: String,
+    pub code: assura_diagnostics::ErrorCode,
     pub message: String,
     pub span: Range<usize>,
 }
