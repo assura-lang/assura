@@ -18,14 +18,20 @@ compiles the generated Rust to native or WASM binaries.
 
 At the start of every session:
 
-1. Read `MASTER-PLAN.md` to find the next uncompleted task
-2. Check which tasks are marked `[x]` (done) vs `[ ]` (pending)
-3. Pick the next task whose dependencies are all `[x]`
-4. Work on it until complete, then mark it `[x]` in `MASTER-PLAN.md`
-5. Commit and push after completing each task
-6. Continue to the next task until the session ends or context runs out
-7. Before the session ends, update `MASTER-PLAN.md` with what was
-   completed and any notes for the next session
+1. Run `cargo build && cargo test --workspace` to verify the project
+   compiles and all tests pass before making any changes.
+2. Read `MASTER-PLAN.md` to find the next uncompleted task.
+3. Check which tasks are marked `[x]` (done) vs `[ ]` (pending).
+4. Pick the next task whose dependencies are all `[x]`.
+5. Read that task's **Acceptance Tests** section carefully before
+   writing any code. Know what "done" looks like before you start.
+6. Implement the task.
+7. Run every acceptance test command from the task. See each one pass.
+8. Run the pre-commit gate: `cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --workspace`
+9. Mark the task `[x]` in `MASTER-PLAN.md`. Commit and push.
+10. Continue to the next task until the session ends or context runs out.
+11. Before the session ends, update the Progress Notes section with
+    what was completed and what to do next.
 
 If multiple independent tasks are available (no dependency between them),
 work on them in the order listed unless parallelization with subagents
@@ -358,10 +364,45 @@ A task in MASTER-PLAN.md is done when ALL of these are true:
 4. All demo files still parse: run all four
 5. New code has tests (unit tests in the same file, integration tests
    in `tests/`)
-6. MASTER-PLAN.md is updated: task marked `[x]`, session note added
-7. Changes are committed and pushed
+6. **Every acceptance test command in the task's "Acceptance Tests"
+   block has been run and passed.** This is the most important criterion.
+   Each task in MASTER-PLAN.md has a code block with exact commands.
+   Run every one. See every one pass. If any fails, the task is not done.
+7. MASTER-PLAN.md is updated: task marked `[x]`, session note added
+8. Changes are committed and pushed
 
 Do not mark a task `[x]` if any of these are false.
+
+### Acceptance test enforcement (CRITICAL)
+
+The previous plan (v2) had 66 tasks all marked `[x]` but many checkers
+were structural stubs (wiring dead-ends returning `Vec::new()`). This
+happened because tasks were marked done based on "code compiles" without
+verifying the code actually produces correct output.
+
+**New rule**: Every task in MASTER-PLAN.md v3 has an `Acceptance Tests`
+section with exact shell commands. These are not suggestions. They are
+mandatory verification steps. The mechanical process is:
+
+```
+1. Read the task's Acceptance Tests block
+2. Run each command in order
+3. Verify each command's output matches the expected result
+4. If any command fails, the task is NOT done -- fix the code first
+5. Only after all commands pass, mark [x] and commit
+```
+
+**What counts as "pass":**
+- `cargo test -p crate_name test_name` exits 0 with "test result: ok"
+- `grep` commands return the expected count (0 or >0 as specified)
+- CLI commands exit 0 with expected output
+- `cargo test --workspace` exits 0 at the end (the final gate)
+
+**What does NOT count:**
+- "I wrote the test" (did it pass?)
+- "The code compiles" (does it produce correct output?)
+- "Similar to another feature that works" (run the specific test)
+- "The acceptance test is too strict" (then fix the code, not the test)
 
 ## Issue Closure Discipline (CRITICAL)
 
