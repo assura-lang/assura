@@ -19,40 +19,10 @@ use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
 use assura_types::TypedFile;
 
 // ---------------------------------------------------------------------------
-// Solver backend selection
+// Solver backend selection (defined in assura-config, re-exported here)
 // ---------------------------------------------------------------------------
 
-/// Which SMT solver backend to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SolverChoice {
-    /// Z3 via the Rust crate (requires `z3-verify` feature).
-    Z3,
-    /// CVC5 via command-line binary (requires `cvc5` on PATH).
-    Cvc5,
-    /// Portfolio: try Z3 first, fall back to CVC5 on timeout/unknown.
-    Portfolio,
-}
-
-impl SolverChoice {
-    /// Parse from a string (case-insensitive).
-    pub fn from_str_loose(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "z3" => Some(Self::Z3),
-            "cvc5" => Some(Self::Cvc5),
-            "portfolio" => Some(Self::Portfolio),
-            _ => None,
-        }
-    }
-
-    /// Return the solver name as a string slice.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Z3 => "z3",
-            Self::Cvc5 => "cvc5",
-            Self::Portfolio => "portfolio",
-        }
-    }
-}
+pub use assura_config::SolverChoice;
 
 // ---------------------------------------------------------------------------
 // Measure definitions (T054)
@@ -274,8 +244,7 @@ pub fn verify_with_options(
     typed: &TypedFile,
     options: &assura_config::VerifyOptions,
 ) -> Vec<VerificationResult> {
-    let solver = SolverChoice::from_str_loose(&options.solver).unwrap_or(SolverChoice::Z3);
-    match solver {
+    match options.solver {
         SolverChoice::Cvc5 => verify_file_with_cvc5(typed),
         SolverChoice::Portfolio => {
             // Try Z3 first; fall back to CVC5 on timeout/unknown

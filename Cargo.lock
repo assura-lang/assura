@@ -253,6 +253,7 @@ dependencies = [
 name = "assura-pipeline"
 version = "0.1.0"
 dependencies = [
+ "assura-codegen",
  "assura-config",
  "assura-diagnostics",
  "assura-hir",

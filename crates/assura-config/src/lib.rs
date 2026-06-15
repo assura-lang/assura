@@ -6,6 +6,45 @@
 use std::fs;
 use std::path::Path;
 
+/// Which SMT solver backend to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SolverChoice {
+    /// Z3 via the Rust crate (requires `z3-verify` feature).
+    Z3,
+    /// CVC5 via command-line binary (requires `cvc5` on PATH).
+    Cvc5,
+    /// Portfolio: try Z3 first, fall back to CVC5 on timeout/unknown.
+    Portfolio,
+}
+
+impl SolverChoice {
+    /// Parse from a string (case-insensitive).
+    pub fn from_str_loose(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "z3" => Some(Self::Z3),
+            "cvc5" => Some(Self::Cvc5),
+            "portfolio" => Some(Self::Portfolio),
+            _ => None,
+        }
+    }
+
+    /// Return the solver name as a string slice.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Z3 => "z3",
+            Self::Cvc5 => "cvc5",
+            Self::Portfolio => "portfolio",
+        }
+    }
+}
+
+impl std::fmt::Display for SolverChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Parsed `assura.toml` project configuration.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
@@ -55,7 +94,7 @@ impl Default for BuildConfig {
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct VerifyConfig {
-    pub smt_solver: String,
+    pub smt_solver: SolverChoice,
     pub layer: u8,
     pub timeout: u64,
 }
@@ -63,7 +102,7 @@ pub struct VerifyConfig {
 impl Default for VerifyConfig {
     fn default() -> Self {
         Self {
-            smt_solver: "z3".to_string(),
+            smt_solver: SolverChoice::Z3,
             layer: 1,
             timeout: 1000,
         }
@@ -257,7 +296,7 @@ impl CompilerConfig {
             verify: VerifyOptions {
                 layer: project.verify.layer,
                 timeout_ms: project.verify.timeout,
-                ..Default::default()
+                solver: project.verify.smt_solver,
             },
             codegen: CodegenConfig {
                 output_dir: project.build.output.clone(),
@@ -305,8 +344,8 @@ pub struct VerifyOptions {
     pub layer: u8,
     /// SMT solver timeout in milliseconds.
     pub timeout_ms: u64,
-    /// Solver choice name (e.g., "z3", "cvc5", "portfolio").
-    pub solver: String,
+    /// Which SMT solver to use.
+    pub solver: SolverChoice,
 }
 
 impl Default for VerifyOptions {
@@ -314,7 +353,7 @@ impl Default for VerifyOptions {
         Self {
             layer: 1,
             timeout_ms: 1000,
-            solver: "z3".to_string(),
+            solver: SolverChoice::Z3,
         }
     }
 }
@@ -397,7 +436,7 @@ mod tests {
         let config = ProjectConfig::default();
         assert_eq!(config.build.target, "native");
         assert_eq!(config.build.output, "generated");
-        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Z3);
         assert_eq!(config.verify.layer, 1);
         assert_eq!(config.verify.timeout, 1000);
         assert_eq!(config.profile.profile_type, "minimal");
@@ -410,7 +449,7 @@ mod tests {
         assert_eq!(config.verbosity, Verbosity::Normal);
         assert_eq!(config.verify.layer, 1);
         assert_eq!(config.verify.timeout_ms, 1000);
-        assert_eq!(config.verify.solver, "z3");
+        assert_eq!(config.verify.solver, SolverChoice::Z3);
         assert_eq!(config.codegen.output_dir, "generated");
         assert_eq!(config.codegen.target, "native");
         assert!(config.codegen.run_cargo_check);
@@ -424,7 +463,7 @@ mod tests {
             verify: VerifyConfig {
                 layer: 0,
                 timeout: 5000,
-                smt_solver: "cvc5".to_string(),
+                smt_solver: SolverChoice::Cvc5,
             },
             build: BuildConfig {
                 output: "out".to_string(),
@@ -465,7 +504,7 @@ type = "strict"
         assert_eq!(config.package.version, "1.2.3");
         assert_eq!(config.build.target, "wasm");
         assert_eq!(config.build.output, "dist");
-        assert_eq!(config.verify.smt_solver, "cvc5");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Cvc5);
         assert_eq!(config.verify.layer, 2);
         assert_eq!(config.verify.timeout, 5000);
         assert_eq!(config.profile.profile_type, "strict");
@@ -482,7 +521,7 @@ version = "0.2.0"
         assert_eq!(config.package.name, "pkg-only");
         assert_eq!(config.package.version, "0.2.0");
         assert_eq!(config.build.target, "native");
-        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Z3);
     }
 
     #[test]
@@ -494,7 +533,7 @@ layer = 3
 timeout = 10000
 "#;
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.verify.smt_solver, "portfolio");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Portfolio);
         assert_eq!(config.verify.layer, 3);
         assert_eq!(config.verify.timeout, 10000);
         assert_eq!(config.package.name, "");
@@ -511,7 +550,7 @@ output = "out/gen"
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.build.target, "wasm");
         assert_eq!(config.build.output, "out/gen");
-        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Z3);
     }
 
     #[test]
@@ -521,7 +560,7 @@ output = "out/gen"
         assert_eq!(config.package.version, "0.1.0");
         assert_eq!(config.build.target, "native");
         assert_eq!(config.build.output, "generated");
-        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Z3);
         assert_eq!(config.verify.layer, 1);
         assert_eq!(config.verify.timeout, 1000);
         assert_eq!(config.profile.profile_type, "minimal");
@@ -541,7 +580,7 @@ output = "out/gen"
         assert_eq!(config.package.version, "0.1.0");
         assert_eq!(config.build.target, "native");
         assert_eq!(config.build.output, "generated");
-        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Z3);
         assert_eq!(config.verify.layer, 1);
         assert_eq!(config.verify.timeout, 1000);
         assert_eq!(config.profile.profile_type, "minimal");
@@ -569,21 +608,21 @@ version = "0.5.0"
     fn verify_smt_solver_accepts_z3() {
         let toml_str = "[verify]\nsmt-solver = \"z3\"\n";
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.verify.smt_solver, "z3");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Z3);
     }
 
     #[test]
     fn verify_smt_solver_accepts_cvc5() {
         let toml_str = "[verify]\nsmt-solver = \"cvc5\"\n";
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.verify.smt_solver, "cvc5");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Cvc5);
     }
 
     #[test]
     fn verify_smt_solver_accepts_portfolio() {
         let toml_str = "[verify]\nsmt-solver = \"portfolio\"\n";
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.verify.smt_solver, "portfolio");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Portfolio);
     }
 
     #[test]
@@ -613,7 +652,7 @@ version = "0.5.0"
         let config = VerifyOptions::default();
         assert_eq!(config.layer, 1);
         assert_eq!(config.timeout_ms, 1000);
-        assert_eq!(config.solver, "z3");
+        assert_eq!(config.solver, SolverChoice::Z3);
     }
 
     // -----------------------------------------------------------------------
@@ -760,7 +799,7 @@ merge-strategy = "external-only"
         assert_eq!(config.package.name, "full-project");
         assert_eq!(config.package.version, "2.0.0");
         assert_eq!(config.build.target, "wasm");
-        assert_eq!(config.verify.smt_solver, "portfolio");
+        assert_eq!(config.verify.smt_solver, SolverChoice::Portfolio);
         assert_eq!(config.verify.layer, 3);
         assert_eq!(config.profile.profile_type, "strict");
         assert_eq!(config.effects.allowed, vec!["pure", "io"]);

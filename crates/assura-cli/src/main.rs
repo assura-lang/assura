@@ -791,9 +791,7 @@ fn run_check(opts: CheckOptions<'_>) {
     };
 
     // Solver choice: CLI flag > config file > default (Z3)
-    let config_solver = project
-        .as_ref()
-        .and_then(|(c, _)| assura_smt::SolverChoice::from_str_loose(&c.verify.smt_solver));
+    let config_solver = project.as_ref().map(|(c, _)| c.verify.smt_solver);
     let solver =
         cli_solver.unwrap_or_else(|| config_solver.unwrap_or(assura_smt::SolverChoice::Z3));
 
@@ -801,7 +799,7 @@ fn run_check(opts: CheckOptions<'_>) {
     let compiler_config = if let Some((ref proj, _)) = project {
         let mut cc = CompilerConfig::from_project(proj, output_mode, verbosity);
         cc.verify.layer = layer;
-        cc.verify.solver = solver.as_str().to_string();
+        cc.verify.solver = solver;
         cc
     } else {
         CompilerConfig {
@@ -809,7 +807,7 @@ fn run_check(opts: CheckOptions<'_>) {
             verbosity,
             verify: assura_config::VerifyOptions {
                 layer,
-                solver: solver.as_str().to_string(),
+                solver,
                 ..Default::default()
             },
             ..Default::default()
@@ -1610,11 +1608,7 @@ fn run_build(
 
     // Solver choice: CLI flag > config file > default (Z3)
     let build_solver = cli_solver
-        .or_else(|| {
-            project
-                .as_ref()
-                .and_then(|(c, _)| assura_smt::SolverChoice::from_str_loose(&c.verify.smt_solver))
-        })
+        .or_else(|| project.as_ref().map(|(c, _)| c.verify.smt_solver))
         .unwrap_or(assura_smt::SolverChoice::Z3);
 
     // Target: CLI flag > config file > default (native)
@@ -1629,7 +1623,7 @@ fn run_build(
     // Build unified compiler config
     let compiler_config = if let Some((ref proj, _)) = project {
         let mut cc = CompilerConfig::from_project(proj, _output_mode, verbosity);
-        cc.verify.solver = build_solver.as_str().to_string();
+        cc.verify.solver = build_solver;
         cc.codegen.output_dir = out_dir_str.to_string();
         cc
     } else {
@@ -1637,7 +1631,7 @@ fn run_build(
             output_mode: _output_mode,
             verbosity,
             verify: assura_config::VerifyOptions {
-                solver: build_solver.as_str().to_string(),
+                solver: build_solver,
                 ..Default::default()
             },
             codegen: assura_config::CodegenConfig {
@@ -5354,7 +5348,7 @@ type = "database"
         assert_eq!(config.package.version, "1.2.3");
         assert_eq!(config.build.target, "wasm32-wasi");
         assert_eq!(config.build.output, "out");
-        assert_eq!(config.verify.smt_solver, "cvc5");
+        assert_eq!(config.verify.smt_solver, assura_config::SolverChoice::Cvc5);
         assert_eq!(config.verify.layer, 0);
         assert_eq!(config.verify.timeout, 5000);
         assert_eq!(config.profile.profile_type, "database");
@@ -5371,7 +5365,7 @@ name = "test"
         assert_eq!(config.package.version, "0.1.0"); // default
         assert_eq!(config.build.target, "native"); // default
         assert_eq!(config.build.output, "generated"); // default
-        assert_eq!(config.verify.smt_solver, "z3"); // default
+        assert_eq!(config.verify.smt_solver, assura_config::SolverChoice::Z3); // default
         assert_eq!(config.verify.layer, 1); // default
         assert_eq!(config.verify.timeout, 1000); // default
         assert_eq!(config.profile.profile_type, "minimal"); // default
