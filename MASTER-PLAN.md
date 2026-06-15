@@ -973,4 +973,21 @@ Within each phase, tasks can run in the order listed. Tasks marked
 - **Next session**: Phase 7 tasks (error recovery, LSP completions,
   JSON output mode) or Phase 6 remaining (VS Code extension, docs site)
 
+### 2026-06-14: Session 3 (continued)
+- **PR #99 merged**: Added `assura diff`, `assura repl`, `assura mcp`
+  commands. Closed issues #86, #89, #91.
+- **7.02 done**: LSP completions enhanced with 23 effect names, 8 snippet
+  templates, 14 new keywords. 7 new completion tests.
+- **7.04 done**: Added `[effects]` config section (allowed/denied lists,
+  default-effect) and `[codegen]` section (backend, emit-debug-asserts,
+  generate-tests). 10 new config tests.
+- **7.01, 7.03**: Already working (parser error recovery, JSON output mode).
+- **5.05**: Already in CI (E2E demo validation step).
+- Test count: 2,080 (up from 2,063)
+- Only open issue: #45 (CodeQL, blocked on repo going public)
+- All other issues closed (97 total closed)
+- **Next session**: Phase 6.04 (VS Code extension publish), Phase 6.05
+  (documentation site), Phase 7.05 (performance optimization), or new
+  features from spec sections not yet implemented.
+
 ---
