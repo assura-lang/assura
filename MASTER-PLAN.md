@@ -89,7 +89,7 @@ Stdlib, IR parser, Cranelift backend.
 - **Fix**: Make the test create a temp directory, run the build command,
   and verify the output exists. If the build fails, the test should
   assert the error, not panic on a missing file.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Run the specific test 10 times without failure
   for i in $(seq 1 10); do cargo test -p assura-cli build_cli_default_output_is_generated -- --nocapture; done
@@ -107,7 +107,7 @@ Stdlib, IR parser, Cranelift backend.
   workspace roots that have `crates/` instead.
 - **Fix**: Use `cargo metadata` or walk `Cargo.toml` members to find
   source files instead of hardcoding `src/`.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Run audit on a workspace-root project (this repo itself)
   cargo run --bin assura -- audit .
@@ -126,7 +126,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: `assura infer` misses most real-world Rust function
   signatures (generics, lifetimes, where clauses, impl blocks).
 - **Fix**: Use `syn` to parse Rust files properly instead of regex.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Run infer on a non-trivial Rust file with generics/lifetimes
   cargo run --bin assura -- infer crates/assura-parser/src/cst.rs
@@ -144,7 +144,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: none
 - **What**: Generated Rust module paths are invalid (wrong crate names,
   missing `crate::` prefix).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Run infer and verify module paths are valid Rust
   cargo run --bin assura -- infer crates/assura-parser/src/lib.rs > /tmp/inferred.assura
@@ -162,7 +162,7 @@ Stdlib, IR parser, Cranelift backend.
   across Rust versions, causing cache misses after toolchain updates.
 - **Fix**: Use a stable hasher (e.g., `xxhash-rust`, `ahash` with fixed
   seed, or `sha2` for content-addressing).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Grep: no more DefaultHasher in cache code
   grep -rn 'DefaultHasher' crates/assura-smt/src/
@@ -178,7 +178,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Clause bodies inside generic blocks cannot contain braces.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Parse a test fixture with braces inside generic blocks
   # Create test fixture first, then:
@@ -199,7 +199,7 @@ Stdlib, IR parser, Cranelift backend.
   - #58: Short-circuit verification when no verifiable clauses exist
   - #59: Remove duplicate ParallelVerifier tests from lib.rs
   - #62: ProphecyManager errors lack structured error codes
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # For each issue, verify the fix:
   # #55: grep for duplicated verify+report patterns
@@ -238,7 +238,7 @@ Stdlib, IR parser, Cranelift backend.
   functions but returns `Vec::new()` unconditionally after marking.
 - **Fix**: After marking non-reentrant functions, actually walk call
   sites and return A-CONC errors when re-entrancy is detected.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Write a test .assura file with a re-entrant callback pattern
   # 2. Run type checker and verify it produces an error
@@ -258,7 +258,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: `run_temporal_deadline_checks()` creates the checker but
   returns `Vec::new()` immediately when an annotation is found.
 - **Fix**: Actually run deadline nesting checks on the annotated code.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types temporal_deadline
   # At least 2 tests: deadline violation detected, valid deadline passes
@@ -272,7 +272,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: none
 - **What**: `run_protocol_grammar_checks()` creates the checker but
   returns `Vec::new()` unconditionally.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types protocol_grammar
   # At least 2 tests: invalid protocol sequence, valid sequence
@@ -285,7 +285,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Declares monotonic variables but returns empty.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types monotonic_state
   grep -A5 'fn run_monotonic_state_checks' crates/assura-types/src/domain.rs | grep -c 'Vec::new()'
@@ -297,7 +297,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Declares precision variables but returns empty.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types numerical_precision
   grep -A5 'fn run_numerical_precision_checks' crates/assura-types/src/domain.rs | grep -c 'Vec::new()'
@@ -311,7 +311,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: Creates checker with no data, `check_all()` returns empty.
 - **Fix**: Extract crash recovery annotations from AST and register
   them with the checker before calling `check_all()`.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types crash_recovery
   cargo test --workspace
@@ -321,7 +321,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Created with hardcoded 1024 capacity, no real data.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types page_cache
   cargo test --workspace
@@ -331,7 +331,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Created with no data registered.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types mvcc
   cargo test --workspace
@@ -341,7 +341,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Created with no savepoints registered.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types rollback
   cargo test --workspace
@@ -354,7 +354,7 @@ Stdlib, IR parser, Cranelift backend.
   constraint tracking but is never called from `verify()`.
 - **Fix**: When a contract has prophecy variables (future values),
   call `ProphecyManager` from the verification loop.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Grep for ProphecyManager in verify dispatch
   grep -n 'ProphecyManager' crates/assura-smt/src/z3_backend.rs
@@ -370,7 +370,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Has obligation tracking but not wired into `verify()`.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -n 'LivenessChecker' crates/assura-smt/src/z3_backend.rs
   cargo test -p assura-smt liveness
@@ -382,7 +382,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: none
 - **What**: SMT-level weak memory checker (different from type-level
   one) has data structures but is standalone.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -n 'WeakMemoryChecker' crates/assura-smt/src/z3_backend.rs
   cargo test -p assura-smt weak_memory
@@ -397,7 +397,7 @@ Stdlib, IR parser, Cranelift backend.
 - **Fix**: Implement actual Z3-based structural checks for at least:
   typestate protocol verification, ghost variable erasure checking,
   and effect containment across higher-order functions.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Verify Layer 2 no longer returns Unknown for everything
   cargo test -p assura-smt layer2
@@ -416,7 +416,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: Tracks dirty modules but has no actual compilation logic.
 - **Fix**: Connect the incremental tracking to the verify/typecheck
   pipeline so that unchanged modules are skipped on re-verification.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Test that re-verifying an unchanged file is faster
   cargo test -p assura-smt incremental
@@ -439,7 +439,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: Uses hardcoded offset=0, size=1. Only checks endianness.
 - **Fix**: Extract actual field offsets and sizes from type definitions
   and binary format annotations in the AST.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Grep: no hardcoded offset/size in the run function
   grep -n 'offset.*=.*0\|size.*=.*1' crates/assura-types/src/domain.rs | grep -i binary
@@ -455,7 +455,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Hardcoded total_bits=64, no real field extraction.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -n 'total_bits.*=.*64' crates/assura-types/src/domain.rs
   # Must return 0
@@ -468,7 +468,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: none
 - **What**: Always uses RawBytes encoding instead of extracting the
   actual encoding from annotations.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types string_encoding
   # At least 1 test with a non-RawBytes encoding (UTF8, ASCII)
@@ -479,7 +479,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Hardcoded Crc32 algorithm and range 0..1024.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types checksum
   # At least 1 test with a non-Crc32 algorithm and non-default range
@@ -491,7 +491,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: none
 - **What**: Declares limits with `u64::MAX` instead of extracting
   actual limits from annotations.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -n 'u64::MAX' crates/assura-types/src/domain.rs | grep -i resource
   # Must return 0
@@ -503,7 +503,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Hardcoded table size 256.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types precomputed_table
   cargo test --workspace
@@ -513,7 +513,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Hardcoded "abstract"/"concrete" passes.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types multi_pass_refinement
   cargo test --workspace
@@ -523,7 +523,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Hardcoded version (1,1,1).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types incremental_contract
   cargo test --workspace
@@ -536,7 +536,7 @@ Stdlib, IR parser, Cranelift backend.
   validation "deferred until expression-level name resolution."
 - **Fix**: Implement scope validation for modifies clauses (verify that
   modified variables are in scope and match declared types).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types frame
   # At least 2 tests: scope violation detected, valid frame passes
@@ -553,7 +553,7 @@ Stdlib, IR parser, Cranelift backend.
   - `std/math.assura` (abs, min, max, clamp)
   - `std/string.assura` (length, substring, contains)
   - Prelude auto-imported into every file
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Stdlib crate exists and compiles
   cargo build -p assura-stdlib
@@ -576,7 +576,7 @@ Stdlib, IR parser, Cranelift backend.
   `todo!()` bodies. Not a full Section 4 implementation.
 - **Fix**: IR parser should generate real Rust function bodies from
   the IR grammar, not `todo!()`.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. No todo!() in IR codegen output
   cargo test -p assura-smt ir_codegen
@@ -592,7 +592,7 @@ Stdlib, IR parser, Cranelift backend.
   not change codegen behavior.
 - **Fix**: When Cranelift backend is selected, generate code compatible
   with cranelift-jit (e.g., C ABI functions, no Rust-specific features).
-- [ ] **Acceptance Tests**:
+- [ ] **Acceptance Tests** (PARTIAL: enum exists but only adds a comment, no real backend diff):
   ```bash
   # 1. Cranelift codegen produces different output than default
   cargo test -p assura-codegen cranelift
@@ -616,7 +616,7 @@ Stdlib, IR parser, Cranelift backend.
 - **Fix**: Implement `resolve_project(root: &Path) -> Result<Project>`
   that reads `assura.toml`, discovers `.assura` files, resolves import
   paths to files, and builds a dependency graph.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Create a multi-file test project
   mkdir -p /tmp/multi-test/src
@@ -645,7 +645,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: 4.01
 - **What**: Imports between files must resolve to real symbols.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Import a contract from another file and use its types
   cargo test -p assura-resolve cross_file
@@ -658,7 +658,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: 4.02
 - **What**: Type checker must work across file boundaries.
-- [ ] **Acceptance Tests**:
+- [ ] **Acceptance Tests** (NOT DONE: type checker is single-file only):
   ```bash
   cargo test -p assura-types cross_file
   cargo test --workspace
@@ -669,7 +669,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: 4.03
 - **What**: Generate a Cargo workspace with multiple modules from a
   multi-file Assura project.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Build a multi-file project
   cargo run --bin assura -- build /tmp/multi-test
@@ -691,7 +691,7 @@ Stdlib, IR parser, Cranelift backend.
   arbitrary input.
 - **Fix**: Set up `cargo-fuzz` with targets for: lexer, parser,
   type checker, codegen.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Fuzz targets exist
   ls fuzz/fuzz_targets/*.rs
@@ -710,7 +710,7 @@ Stdlib, IR parser, Cranelift backend.
   cases. These must exist as automated tests.
 - **Fix**: Create `tests/spec_compliance/` with one test file per
   Section 13 case.
-- [ ] **Acceptance Tests**:
+- [ ] **Acceptance Tests** (NOT DONE: no tests/spec_compliance/ directory):
   ```bash
   # 1. Count test files
   ls tests/spec_compliance/*.rs 2>/dev/null | wc -l
@@ -728,7 +728,7 @@ Stdlib, IR parser, Cranelift backend.
   tested.
 - **Fix**: For each error code in the spec, verify there is at least
   one test that triggers it. Create missing tests.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Count unique error codes in tests
   grep -roh 'A[0-9]\{5\}' crates/*/src/ tests/ | sort -u | wc -l
@@ -748,7 +748,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: `assura-bench` has 2 LOC and 0 tests. No benchmarks.
 - **Fix**: Create benchmarks for: lexing, parsing, type checking,
   Z3 verification, codegen. Use `criterion` crate.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Benchmarks exist and run
   cargo bench -p assura-bench
@@ -765,7 +765,7 @@ Stdlib, IR parser, Cranelift backend.
   the full pipeline (check + verify + codegen) on all demos.
 - **Fix**: Add a CI step that runs `assura check` on all demo files
   and verifies no unexpected errors.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. All demo files pass check
   for f in demos/*.assura; do
@@ -786,7 +786,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: repo going public
 - **What**: CodeQL is disabled because the repo is private.
-- [ ] **Acceptance Tests**:
+- [ ] **Acceptance Tests** (BLOCKED: repo is still private):
   ```bash
   # 1. CodeQL workflow exists and is not disabled
   grep -c 'codeql' .github/workflows/security.yml
@@ -799,7 +799,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: Phase 5 complete
 - **What**: No release pipeline. Users cannot install Assura.
 - **Fix**: Set up cargo-dist for GitHub releases + Homebrew tap.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Release workflow exists
   cat .github/workflows/release.yml
@@ -814,7 +814,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: 6.02
 - **What**: Claim the `assura` crate name on crates.io.
-- [ ] **Acceptance Tests**:
+- [ ] **Acceptance Tests** (UNCLEAR: cannot confirm without checking crates.io):
   ```bash
   # 1. cargo publish --dry-run succeeds
   cargo publish -p assura-parser --dry-run
@@ -824,7 +824,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: Extension exists in `editors/vscode/` but is not published.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Extension compiles
   cd editors/vscode && npm install && npx tsc -p ./
@@ -839,7 +839,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: No hosted documentation. Tutorial exists but is not
   published.
 - **Fix**: Set up mdBook or similar for docs/ and deploy to GitHub Pages.
-- [ ] **Acceptance Tests**:
+- [ ] **Acceptance Tests** (NOT DONE: no mdBook config, no GitHub Pages workflow):
   ```bash
   # 1. Docs build without error
   mdbook build docs/
@@ -856,7 +856,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: Phase 4 complete
 - **What**: Parser currently stops at first error. Should recover
   and report multiple errors per file (spec Section 7).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. File with 3 errors reports all 3, not just the first
   echo 'contract Bad {
@@ -875,7 +875,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: Phase 3 complete
 - **What**: LSP has basic completions but not for all keywords,
   clause types, effect names, etc.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. LSP tests cover keyword completion
   cargo test -p assura-lsp completion
@@ -888,7 +888,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: none
 - **What**: `--json` output for all diagnostics per spec Section 7.3.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. JSON output is valid JSON
   cargo run --bin assura -- check --json demos/libwebp-huffman.assura | python3 -m json.tool
@@ -907,7 +907,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: 4.01
 - **What**: `assura-config` parses basic assura.toml but may not
   support all spec Section 10.3 fields.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. All Section 10.3 fields are recognized
   cargo test -p assura-config
@@ -921,7 +921,7 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: 5.04
 - **What**: No performance baseline. Need to establish benchmarks
   and identify bottlenecks.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Benchmark results exist
   cargo bench -p assura-bench -- --output-format=bencher 2>&1 | head -20
@@ -958,7 +958,7 @@ Stdlib, IR parser, Cranelift backend.
     a `.rs` file and extracts all annotated functions, structs, and impl blocks
   - Tests covering: single-line clauses, multi-line predicates, struct
     invariants, impl block contracts, mixed doc comments + contracts
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Crate exists and compiles
   cargo build -p assura-rust-analyzer
@@ -985,7 +985,7 @@ Stdlib, IR parser, Cranelift backend.
   - Reuses clause parsing from 8.01.
 - **Deliverable**: `crates/assura-macros/` with `proc-macro = true`.
   Dependencies: `syn 2`, `quote 1`, `proc-macro2 1`.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Crate compiles as proc-macro
   cargo build -p assura-macros
@@ -1012,7 +1012,7 @@ Stdlib, IR parser, Cranelift backend.
   5. Reports verification results with spans pointing into the `.rs` file
   - Supports `--json`, `--layer`, `--watch` flags.
   - Supports directory scanning (check all `.rs` files recursively).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Create a test Rust file with inline contracts
   mkdir -p /tmp/check-rust-test/src
@@ -1051,7 +1051,7 @@ Stdlib, IR parser, Cranelift backend.
     detect `unwrap()` calls (suggest `@requires` for `is_some()`/`is_ok()`),
     division operations (suggest `divisor != 0`), array indexing (suggest
     bounds checks), integer arithmetic (suggest overflow guards).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Infer on a Rust file with obvious contract candidates
   cat > /tmp/infer-test.rs << 'EOF'
@@ -1088,7 +1088,7 @@ Stdlib, IR parser, Cranelift backend.
   4. Conflicts (contradictory requires/ensures) are reported as errors
   - Add `bind` declaration support to the parser and resolver.
   - Add `[contracts]` and `[inline]` sections to `assura.toml`.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Parse a bind declaration in .assura file
   cargo test -p assura-parser bind_decl
@@ -1111,7 +1111,7 @@ Stdlib, IR parser, Cranelift backend.
   - Toggle overlays on/off with a command
   - Show verification status icons per clause
   - LSP provides contract data via custom request
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. LSP serves contract overlay data
   cargo test -p assura-lsp contract_overlay
@@ -1135,7 +1135,7 @@ Stdlib, IR parser, Cranelift backend.
   - Language adapter trait: `LanguageAdapter` with `parse_source()`,
     `extract_annotations()`, `parse_predicate()`, `map_types()`.
   - Python adapter as proof of concept.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Language adapter trait exists
   cargo test -p assura-rust-analyzer language_adapter
@@ -1265,5 +1265,19 @@ Within each phase, tasks can run in the order listed. Tasks marked
 - **Next session**: Phase 4 (multi-file compilation), Phase 6.04
   (VS Code extension publish), Phase 6.05 (docs site), or Phase 7.05
   (performance profiling).
+
+### 2026-06-15: Session 6 - Full audit of MASTER-PLAN v3
+- **Audited all 59 tasks** across 8 phases using 4 parallel verification agents
+- **53 tasks verified DONE** and marked `[x]` (were all `[ ]` due to bookkeeping gap)
+- **6 tasks remain `[ ]`**:
+  - 3.12: Cranelift backend (PARTIAL: enum exists, only adds comment, no real codegen diff)
+  - 4.03: Cross-file type checking (NOT DONE: type checker is single-file only)
+  - 5.02: Spec compliance test suite Section 13 (NOT DONE: no tests/spec_compliance/)
+  - 6.01: CodeQL (BLOCKED: repo is private, issue #45)
+  - 6.03: crates.io placeholder (UNCLEAR: not verified)
+  - 6.05: Documentation site (NOT DONE: no mdBook, no GitHub Pages)
+- **All GitHub issues CLOSED** except #45 (CodeQL, blocked on public repo)
+- Project state: 2,280 tests passing, 16 crates, clean working tree
+- **Next session**: 4.03 (cross-file typeck) is the highest-value remaining task
 
 ---
