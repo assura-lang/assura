@@ -1,0 +1,22 @@
+// Standard library: string contracts
+module std.string
+
+contract string_length {
+    input(s: String)
+    output(result: Nat)
+    ensures { result >= 0 }
+    effects { pure }
+}
+
+contract substring {
+    input(s: String, start: Nat, end: Nat)
+    output(result: String)
+    requires { start <= end }
+    effects { pure }
+}
+
+contract contains {
+    input(haystack: String, needle: String)
+    output(result: Bool)
+    effects { pure }
+}

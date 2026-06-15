@@ -1,0 +1,37 @@
+// Standard library: math contracts
+module std.math
+
+contract abs {
+    input(x: Int)
+    output(result: Nat)
+    ensures { result >= 0 }
+    ensures { result == x || result == 0 - x }
+    effects { pure }
+}
+
+contract min {
+    input(a: Int, b: Int)
+    output(result: Int)
+    ensures { result <= a }
+    ensures { result <= b }
+    ensures { result == a || result == b }
+    effects { pure }
+}
+
+contract max {
+    input(a: Int, b: Int)
+    output(result: Int)
+    ensures { result >= a }
+    ensures { result >= b }
+    ensures { result == a || result == b }
+    effects { pure }
+}
+
+contract clamp {
+    input(x: Int, lo: Int, hi: Int)
+    output(result: Int)
+    requires { lo <= hi }
+    ensures { result >= lo }
+    ensures { result <= hi }
+    effects { pure }
+}

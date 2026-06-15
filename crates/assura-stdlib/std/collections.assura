@@ -1,0 +1,41 @@
+// Standard library: collection contracts
+module std.collections
+
+contract list_get {
+    input(list: List<Int>, index: Nat)
+    output(result: Int)
+    requires { index < length(list) }
+    effects { pure }
+}
+
+contract list_push {
+    input(list: List<Int>, item: Int)
+    output(result: List<Int>)
+    ensures { length(result) == length(list) + 1 }
+    effects { pure }
+}
+
+contract list_length {
+    input(list: List<Int>)
+    output(result: Nat)
+    ensures { result >= 0 }
+    effects { pure }
+}
+
+contract map_get {
+    input(map: Map<String, Int>, key: String)
+    output(result: Int)
+    effects { pure }
+}
+
+contract set_contains {
+    input(set: Set<Int>, item: Int)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract set_insert {
+    input(set: Set<Int>, item: Int)
+    output(result: Set<Int>)
+    effects { pure }
+}
