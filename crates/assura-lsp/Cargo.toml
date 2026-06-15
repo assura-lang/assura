@@ -18,6 +18,7 @@ assura-fmt = { path = "../assura-fmt" }
 assura-pipeline = { path = "../assura-pipeline" }
 assura-config = { path = "../assura-config" }
 assura-diagnostics = { path = "../assura-diagnostics" }
+assura-rust-analyzer = { path = "../assura-rust-analyzer" }
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

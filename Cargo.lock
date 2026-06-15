@@ -199,6 +199,7 @@ dependencies = [
  "assura-parser",
  "assura-pipeline",
  "assura-resolve",
+ "assura-rust-analyzer",
  "assura-types",
  "dashmap 6.2.1",
  "ropey",

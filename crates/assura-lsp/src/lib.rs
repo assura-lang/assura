@@ -839,8 +839,114 @@ fn is_ident_char(b: u8) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Diagnostic conversion helpers
+// Contract overlay support (custom LSP request)
 // ---------------------------------------------------------------------------
+
+/// Response for the `assura/contractOverlay` custom request.
+///
+/// Returns inline contract annotations found in a Rust source file,
+/// suitable for rendering as virtual text decorations in the editor.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ContractOverlayResponse {
+    pub items: Vec<ContractOverlayItem>,
+}
+
+/// A single contract overlay item for a function/struct/impl in a Rust file.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ContractOverlayItem {
+    /// Display name (function/struct name).
+    pub name: String,
+    /// Line number (0-based) where the item starts.
+    pub line: u32,
+    /// The kind of annotated item ("function", "struct", "impl").
+    pub kind: String,
+    /// Contract clauses to display as overlay text.
+    pub clauses: Vec<OverlayClause>,
+}
+
+/// A single clause for overlay display.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OverlayClause {
+    /// Clause kind: "requires", "ensures", "invariant", "effects", "decreases".
+    pub kind: String,
+    /// The predicate body text.
+    pub body: String,
+}
+
+/// Extract contract overlay data from a Rust source file.
+pub fn get_contract_overlays(source: &str) -> ContractOverlayResponse {
+    let items = match assura_rust_analyzer::parse_rust_source(source) {
+        Ok(items) => items,
+        Err(_) => return ContractOverlayResponse { items: Vec::new() },
+    };
+
+    let overlay_items = items
+        .into_iter()
+        .map(|item| {
+            let (name, kind) = match &item.kind {
+                assura_rust_analyzer::AnnotatedItemKind::Function { name, .. } => {
+                    (name.clone(), "function".to_string())
+                }
+                assura_rust_analyzer::AnnotatedItemKind::Struct { name, .. } => {
+                    (name.clone(), "struct".to_string())
+                }
+                assura_rust_analyzer::AnnotatedItemKind::ImplBlock {
+                    self_type,
+                    trait_name,
+                } => {
+                    let name = match trait_name {
+                        Some(t) => format!("{t} for {self_type}"),
+                        None => self_type.clone(),
+                    };
+                    (name, "impl".to_string())
+                }
+            };
+
+            let mut clauses = Vec::new();
+            for c in &item.contract.requires {
+                clauses.push(OverlayClause {
+                    kind: "requires".to_string(),
+                    body: c.body.clone(),
+                });
+            }
+            for c in &item.contract.ensures {
+                clauses.push(OverlayClause {
+                    kind: "ensures".to_string(),
+                    body: c.body.clone(),
+                });
+            }
+            for c in &item.contract.invariants {
+                clauses.push(OverlayClause {
+                    kind: "invariant".to_string(),
+                    body: c.body.clone(),
+                });
+            }
+            for c in &item.contract.effects {
+                clauses.push(OverlayClause {
+                    kind: "effects".to_string(),
+                    body: c.body.clone(),
+                });
+            }
+            for c in &item.contract.decreases {
+                clauses.push(OverlayClause {
+                    kind: "decreases".to_string(),
+                    body: c.body.clone(),
+                });
+            }
+
+            ContractOverlayItem {
+                name,
+                line: item.line.saturating_sub(1) as u32, // convert to 0-based
+                kind,
+                clauses,
+            }
+        })
+        .collect();
+
+    ContractOverlayResponse {
+        items: overlay_items,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Constants for completion
@@ -1777,6 +1883,94 @@ fn f(n: Int) -> Int { n }
             *detail,
             "Contract with input, output, requires, and ensures"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Contract overlay tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_contract_overlay_function() {
+        let source = r#"
+/// @requires x > 0
+/// @ensures result > 0
+fn double(x: i32) -> i32 {
+    x * 2
+}
+"#;
+        let response = get_contract_overlays(source);
+        assert_eq!(response.items.len(), 1);
+        let item = &response.items[0];
+        assert_eq!(item.name, "double");
+        assert_eq!(item.kind, "function");
+        assert_eq!(item.clauses.len(), 2);
+        assert_eq!(item.clauses[0].kind, "requires");
+        assert_eq!(item.clauses[0].body, "x > 0");
+        assert_eq!(item.clauses[1].kind, "ensures");
+        assert_eq!(item.clauses[1].body, "result > 0");
+    }
+
+    #[test]
+    fn test_contract_overlay_struct_invariant() {
+        let source = r#"
+/// @invariant self.len <= self.cap
+struct Buffer {
+    len: usize,
+    cap: usize,
+}
+"#;
+        let response = get_contract_overlays(source);
+        assert_eq!(response.items.len(), 1);
+        let item = &response.items[0];
+        assert_eq!(item.name, "Buffer");
+        assert_eq!(item.kind, "struct");
+        assert_eq!(item.clauses.len(), 1);
+        assert_eq!(item.clauses[0].kind, "invariant");
+    }
+
+    #[test]
+    fn test_contract_overlay_no_annotations() {
+        let source = r#"
+fn no_contracts(x: i32) -> i32 {
+    x + 1
+}
+"#;
+        let response = get_contract_overlays(source);
+        assert!(response.items.is_empty());
+    }
+
+    #[test]
+    fn test_contract_overlay_multiple_functions() {
+        let source = r#"
+/// @requires a > 0
+fn first(a: i32) -> i32 { a }
+
+/// @ensures result >= 0
+fn second(b: i32) -> i32 { b.abs() }
+"#;
+        let response = get_contract_overlays(source);
+        assert_eq!(response.items.len(), 2);
+        assert_eq!(response.items[0].name, "first");
+        assert_eq!(response.items[1].name, "second");
+    }
+
+    #[test]
+    fn test_contract_overlay_invalid_source() {
+        let response = get_contract_overlays("this is not valid rust {{{");
+        assert!(response.items.is_empty());
+    }
+
+    #[test]
+    fn test_contract_overlay_serialization() {
+        let source = r#"
+/// @requires n > 0
+fn factorial(n: u64) -> u64 { 1 }
+"#;
+        let response = get_contract_overlays(source);
+        let json = serde_json::to_string(&response).unwrap();
+        let deserialized: ContractOverlayResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.items.len(), 1);
+        assert_eq!(deserialized.items[0].name, "factorial");
     }
 
     #[test]

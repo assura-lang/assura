@@ -16,7 +16,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:assura"
+    "onLanguage:assura",
+    "onLanguage:rust"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -40,6 +41,12 @@
         "path": "./syntaxes/assura.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "assura.toggleContractOverlay",
+        "title": "Assura: Toggle Contract Overlay"
+      }
+    ],
     "configuration": {
       "title": "Assura",
       "properties": {
@@ -47,6 +54,11 @@
           "type": "string",
           "default": "",
           "description": "Path to the assura-lsp binary. If empty, the extension searches PATH."
+        },
+        "assura.contractOverlay.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline contract annotations as virtual text decorations in Rust files."
         }
       }
     }

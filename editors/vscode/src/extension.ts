@@ -5,8 +5,10 @@ import {
   LanguageClientOptions,
   ServerOptions,
 } from "vscode-languageclient/node";
+import { ContractOverlayProvider } from "./contractOverlay";
 
 let client: LanguageClient | undefined;
+let overlayProvider: ContractOverlayProvider | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext
@@ -43,9 +45,25 @@ export async function activate(
       }
     },
   });
+
+  // Set up contract overlay for Rust files
+  overlayProvider = new ContractOverlayProvider();
+  context.subscriptions.push(overlayProvider);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("assura.toggleContractOverlay", () => {
+      if (overlayProvider) {
+        overlayProvider.toggle();
+      }
+    })
+  );
 }
 
 export async function deactivate(): Promise<void> {
+  if (overlayProvider) {
+    overlayProvider.dispose();
+    overlayProvider = undefined;
+  }
   if (client) {
     await client.stop();
     client = undefined;
