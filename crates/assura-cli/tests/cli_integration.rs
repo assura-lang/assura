@@ -518,3 +518,172 @@ fn audit_medium_depth_adds_heuristics() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// =======================================================================
+// Issue #96: New CLI command integration tests
+// =======================================================================
+
+#[test]
+fn doctor_exits_zero_and_shows_deps() {
+    let out = Command::new(assura_bin())
+        .arg("doctor")
+        .output()
+        .expect("failed to run assura doctor");
+    assert!(
+        out.status.success(),
+        "doctor should exit 0 when rustc/z3 present: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("rustc"), "doctor should check rustc");
+    assert!(stdout.contains("z3"), "doctor should check z3");
+    assert!(stdout.contains("cargo"), "doctor should check cargo");
+}
+
+#[test]
+fn coverage_json_output_is_valid() {
+    let tmp = std::env::temp_dir().join("assura_coverage_json");
+    let _ = std::fs::remove_dir_all(&tmp);
+    create_test_crate(&tmp);
+    std::fs::create_dir_all(tmp.join("contracts")).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["coverage", tmp.to_str().unwrap(), "--format", "json"])
+        .output()
+        .expect("failed to run assura coverage");
+    assert!(
+        out.status.success(),
+        "coverage should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    assert!(
+        parsed.get("coverage_percent").is_some(),
+        "JSON should have coverage_percent"
+    );
+    assert!(
+        parsed.get("total_functions").is_some(),
+        "JSON should have total_functions"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn coverage_min_coverage_fails_when_below() {
+    let tmp = std::env::temp_dir().join("assura_coverage_min");
+    let _ = std::fs::remove_dir_all(&tmp);
+    create_test_crate(&tmp);
+    std::fs::create_dir_all(tmp.join("contracts")).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["coverage", tmp.to_str().unwrap(), "--min-coverage", "100.0"])
+        .output()
+        .expect("failed to run assura coverage");
+    // With no .assura contracts, coverage is 0%, so --min-coverage 100 should fail
+    assert!(
+        !out.status.success(),
+        "coverage should fail when below --min-coverage"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn completions_zsh_outputs_valid_script() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "zsh"])
+        .output()
+        .expect("failed to run assura completions zsh");
+    assert!(
+        out.status.success(),
+        "completions zsh should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("compdef") || stdout.contains("_assura"),
+        "zsh completions should contain compdef or _assura"
+    );
+}
+
+#[test]
+fn completions_bash_outputs_valid_script() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "bash"])
+        .output()
+        .expect("failed to run assura completions bash");
+    assert!(
+        out.status.success(),
+        "completions bash should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("complete") || stdout.contains("_assura"),
+        "bash completions should contain complete"
+    );
+}
+
+#[test]
+fn explain_known_code_exits_zero() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "A01001"])
+        .output()
+        .expect("failed to run assura explain");
+    assert!(
+        out.status.success(),
+        "explain A01001 should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("A01001"),
+        "explain output should contain the error code: {stdout}"
+    );
+}
+
+#[test]
+fn explain_unknown_code_exits_nonzero() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "XXXXX"])
+        .output()
+        .expect("failed to run assura explain");
+    assert!(!out.status.success(), "explain XXXXX should exit non-zero");
+}
+
+#[test]
+fn agent_instructions_outputs_reference() {
+    let out = Command::new(assura_bin())
+        .arg("agent-instructions")
+        .output()
+        .expect("failed to run assura agent-instructions");
+    assert!(
+        out.status.success(),
+        "agent-instructions should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Type Mapping") || stdout.contains("Assura"),
+        "should contain reference content: {stdout}"
+    );
+    assert!(
+        stdout.contains("CLI Commands"),
+        "should contain CLI commands section: {stdout}"
+    );
+}
+
+#[test]
+fn fmt_check_mode_exits_cleanly() {
+    let out = Command::new(assura_bin())
+        .args(["fmt", "tests/fixtures/test_basic.assura", "--check"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura fmt --check");
+    // May exit 0 (already formatted) or 1 (needs formatting); must not crash
+    assert!(
+        out.status.code().is_some(),
+        "fmt --check should exit with a code, not crash"
+    );
+}
