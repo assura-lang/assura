@@ -748,6 +748,862 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
                  inputs, or weaken the ensures clause to account for the case. The \
                  counterexample model shows exactly which inputs break the contract.",
         },
+        // -- A01003-A01005: Parser errors --
+        ErrorInfo {
+            code: "A01003",
+            name: "Invalid numeric literal",
+            description: "The lexer encountered a malformed number. Numbers must be \
+                          valid integer or floating-point literals.",
+            example: r#"  contract Foo {
+      requires { 0x_invalid > 0 }   // malformed hex literal
+  }"#,
+            fix: "Fix the numeric literal. Valid formats: 42, 3.14, 0xFF, 0b1010, 0o77.",
+        },
+        ErrorInfo {
+            code: "A01004",
+            name: "Reserved keyword used as identifier",
+            description: "An identifier uses a name that is a reserved keyword in Assura. \
+                          Keywords like 'contract', 'requires', 'ensures' cannot be used \
+                          as variable or type names.",
+            example: r#"  contract contract {   // 'contract' is a keyword
+      requires { true }
+  }"#,
+            fix: "Choose a different name that is not a reserved keyword.",
+        },
+        ErrorInfo {
+            code: "A01005",
+            name: "Mismatched braces",
+            description: "The parser found unbalanced braces, brackets, or parentheses. \
+                          Every opening delimiter must have a matching closing delimiter.",
+            example: r#"  contract Foo {
+      requires { x > 0
+  }   // missing closing brace for requires"#,
+            fix: "Add the missing closing delimiter or remove the extra opening one. \
+                 Use an editor with bracket matching to find the mismatch.",
+        },
+        // -- A04001-A04007: Verification errors --
+        ErrorInfo {
+            code: "A04001",
+            name: "Precondition may not hold",
+            description: "The SMT solver found that a requires clause may be violated \
+                          at a call site. The caller does not guarantee the precondition.",
+            example: r#"  contract Div {
+      input(a: Int, b: Int)
+      requires { b != 0 }
+  }
+  // calling Div(x, y) without proving y != 0 -> A04001"#,
+            fix: "Add a guard or assertion at the call site to ensure the precondition \
+                 holds. Check the requires clause to see what must be true.",
+        },
+        ErrorInfo {
+            code: "A04002",
+            name: "Postcondition may not hold",
+            description: "The SMT solver could not prove that the ensures clause \
+                          holds for all inputs satisfying the preconditions.",
+            example: r#"  contract AlwaysPositive {
+      input(x: Int)
+      output(result: Int)
+      ensures { result > 0 }
+  }
+  // If implementation can return 0 -> A04002"#,
+            fix: "Either strengthen the requires clause to restrict inputs, or \
+                 weaken the ensures clause, or fix the implementation.",
+        },
+        ErrorInfo {
+            code: "A04003",
+            name: "Refinement subtype check failed",
+            description: "A value of refinement type {v: T | P} was used where a \
+                          different refinement type {v: T | Q} was expected, and the \
+                          solver could not prove that P implies Q.",
+            example: r#"  type Positive = { v: Int | v > 0 }
+  type BigPositive = { v: Int | v > 100 }
+  // assigning Positive to BigPositive fails: v > 0 does not imply v > 100"#,
+            fix: "Strengthen the source refinement predicate or weaken the target, \
+                 or add a runtime check.",
+        },
+        ErrorInfo {
+            code: "A04004",
+            name: "Division by zero possible",
+            description: "The verifier found that a division or modulo operation may \
+                          have a zero divisor at runtime.",
+            example: r#"  contract Unsafe {
+      input(x: Int, y: Int)
+      ensures { x / y > 0 }   // y could be 0
+  }"#,
+            fix: "Add a requires clause: requires { y != 0 }, or guard the division \
+                 with a conditional check.",
+        },
+        ErrorInfo {
+            code: "A04005",
+            name: "Index out of bounds possible",
+            description: "The verifier found that an array or collection index may \
+                          exceed the valid range at runtime.",
+            example: r#"  contract Unsafe {
+      input(data: List<Int>, i: Nat)
+      ensures { data[i] >= 0 }   // i may be >= length(data)
+  }"#,
+            fix: "Add a requires clause: requires { i < length(data) }, or use a \
+                 bounds-checked access method.",
+        },
+        ErrorInfo {
+            code: "A04006",
+            name: "Arithmetic overflow possible",
+            description: "The verifier found that an arithmetic operation may produce \
+                          a result that exceeds the bounds of its type.",
+            example: r#"  contract Unsafe {
+      input(a: Nat, b: Nat)
+      output(result: Nat)
+      ensures { result == a + b }   // may overflow
+  }"#,
+            fix: "Add a requires clause bounding the inputs, use a wider type, or \
+                 use checked arithmetic operations.",
+        },
+        ErrorInfo {
+            code: "A04007",
+            name: "Refinement timeout",
+            description: "The SMT solver timed out while checking a refinement type \
+                          constraint. The property may be too complex for automated \
+                          verification within the configured timeout.",
+            example: r#"  // Complex nested quantifiers or non-linear arithmetic
+  // may cause the solver to time out"#,
+            fix: "Simplify the refinement predicate, add intermediate lemmas, \
+                 or increase the solver timeout in assura.toml.",
+        },
+        // -- A06005: Typestate --
+        ErrorInfo {
+            code: "A06005",
+            name: "Missing transition guard",
+            description: "A typestate transition is missing a required guard predicate. \
+                          The transition should have a condition that must hold before \
+                          the state change is allowed.",
+            example: r#"  service Account {
+      states: [Active, Frozen]
+      operation freeze(account) {
+          // missing: requires { balance >= 0 }
+      }
+  }"#,
+            fix: "Add a requires clause with the guard predicate for the transition.",
+        },
+        // -- A13004: Integer overflow --
+        ErrorInfo {
+            code: "A13004",
+            name: "Integer overflow possible",
+            description: "An arithmetic operation may produce a result that exceeds \
+                          the representable range of the target integer type.",
+            example: r#"  contract Multiply {
+      input(a: Int, b: Int)
+      output(result: Int)
+      ensures { result == a * b }   // a*b may overflow
+  }"#,
+            fix: "Add bounds on the inputs via requires clauses, use a wider type, \
+                 or use checked arithmetic.",
+        },
+        // -- A29004-A29005: Protocol errors --
+        ErrorInfo {
+            code: "A29004",
+            name: "Protocol violation: step out of order",
+            description: "A protocol step was called in an order that violates the \
+                          declared protocol grammar.",
+            example: r#"  // Protocol declares: init -> process -> finalize
+  // Calling process before init -> A29004"#,
+            fix: "Follow the declared protocol sequence. Check the protocol grammar \
+                 for the correct order of operations.",
+        },
+        ErrorInfo {
+            code: "A29005",
+            name: "Reader may see partial write",
+            description: "A non-atomic multi-field update may allow a concurrent reader \
+                          to observe an inconsistent intermediate state.",
+            example: r#"  // Updating struct.x and struct.y non-atomically
+  // Reader may see new x with old y -> A29005"#,
+            fix: "Use atomic operations or a lock to ensure multi-field updates \
+                 are observed as a single unit.",
+        },
+        // -- A31004-A31005: Binary format --
+        ErrorInfo {
+            code: "A31004",
+            name: "Format exceeds expected size",
+            description: "A binary format header or structure is larger than the \
+                          specification declares.",
+            example: r#"  // Header declared as 16 bytes but parsed data is 20 bytes"#,
+            fix: "Check the format specification for correct sizes. Ensure serialization \
+                 matches the declared format.",
+        },
+        ErrorInfo {
+            code: "A31005",
+            name: "Reserved space violated",
+            description: "A reserved field in a binary format contains a non-zero value \
+                          when the spec requires it to be zero.",
+            example: r#"  // Reserved bytes at offset 12-15 must be 0x00
+  // Found non-zero values -> A31005"#,
+            fix: "Ensure reserved fields are zeroed out. Check the format specification.",
+        },
+        // -- A32004: Crash recovery --
+        ErrorInfo {
+            code: "A32004",
+            name: "Recovery procedure has side effects beyond repair",
+            description: "A crash recovery procedure does more than restoring consistency. \
+                          Recovery should only repair, not modify application state.",
+            example: r#"  // Recovery function modifies user data beyond undoing
+  // the interrupted transaction -> A32004"#,
+            fix: "Limit recovery to consistency restoration. Move application-level \
+                 changes to a separate post-recovery step.",
+        },
+        // -- A34004-A34005: Callback --
+        ErrorInfo {
+            code: "A34004",
+            name: "Callback may fail but is marked infallible",
+            description: "A callback declared as infallible contains an error path \
+                          that could fail at runtime.",
+            example: r#"  // Callback marked as infallible but has a path
+  // that returns an error -> A34004"#,
+            fix: "Either handle the error inside the callback or mark it as fallible.",
+        },
+        ErrorInfo {
+            code: "A34005",
+            name: "Callback invariant not satisfiable",
+            description: "The callback's declared invariant (e.g., transitivity, \
+                          antisymmetry for comparison callbacks) cannot be proven.",
+            example: r#"  // Comparison callback does not satisfy antisymmetry:
+  // f(a,b) = true and f(b,a) = true for some a,b -> A34005"#,
+            fix: "Fix the callback implementation to satisfy the declared invariant.",
+        },
+        // -- A35004-A35005: Determinism --
+        ErrorInfo {
+            code: "A35004",
+            name: "Pointer-derived value in deterministic context",
+            description: "An address or pointer-derived value is used in a computation \
+                          that is declared deterministic. Pointer addresses vary between \
+                          runs.",
+            example: r#"  // Using ptr as hash key in deterministic function -> A35004"#,
+            fix: "Replace pointer-derived values with content-based values. Use \
+                 a stable identifier instead of a memory address.",
+        },
+        ErrorInfo {
+            code: "A35005",
+            name: "Callee is not deterministic",
+            description: "A function declared as deterministic calls another function \
+                          that is not deterministic.",
+            example: r#"  // Deterministic function calls random() -> A35005"#,
+            fix: "Either mark the caller as non-deterministic or avoid calling \
+                 non-deterministic functions.",
+        },
+        // -- A36004: Atomic error handling --
+        ErrorInfo {
+            code: "A36004",
+            name: "Nested atomic function swallows error",
+            description: "An inner atomic function's failure is caught without \
+                          propagating to the outer atomic scope.",
+            example: r#"  // Nested atomic { try { inner_atomic() } catch {} }
+  // Inner failure silently swallowed -> A36004"#,
+            fix: "Propagate errors from nested atomic operations to the outer scope.",
+        },
+        // -- A37004-A37005: FFI --
+        ErrorInfo {
+            code: "A37004",
+            name: "FFI null pointer not checked",
+            description: "A nullable pointer returned from an FFI call is used without \
+                          a null check.",
+            example: r#"  extern fn get_data() -> *const u8
+  // Using return value without null check -> A37004"#,
+            fix: "Check for null before using the pointer: if ptr != null { ... }.",
+        },
+        ErrorInfo {
+            code: "A37005",
+            name: "FFI thread safety violation",
+            description: "An FFI function is called from a threading context that \
+                          violates its thread safety requirements.",
+            example: r#"  // FFI function marked as thread-unsafe called from
+  // a multi-threaded context -> A37005"#,
+            fix: "Ensure FFI calls respect thread safety requirements. Use \
+                 synchronization if needed.",
+        },
+        // -- A38004: Feature max --
+        ErrorInfo {
+            code: "A38004",
+            name: "Feature max too small for invariant",
+            description: "A feature_max value is too small to satisfy the associated \
+                          contract invariant, making it unsatisfiable.",
+            example: r#"  // feature_max(page_size, 4096) but invariant requires
+  // page_size > 8192 -> A38004"#,
+            fix: "Increase the feature_max value or relax the invariant.",
+        },
+        // -- A39001-A39004: Resource limits --
+        ErrorInfo {
+            code: "A39001",
+            name: "Limit may be exceeded without check",
+            description: "A resource limit may be exceeded because there is no bounds \
+                          check before the limit-bounded operation.",
+            example: r#"  // Allocating memory without checking against max_memory limit
+  // -> A39001"#,
+            fix: "Add a bounds check before the operation that compares against \
+                 the declared limit.",
+        },
+        ErrorInfo {
+            code: "A39002",
+            name: "Limit default outside [min, max]",
+            description: "A resource limit's default value is outside the declared \
+                          minimum and maximum range.",
+            example: r#"  // limit(timeout, min=1, max=60, default=120)
+  // default exceeds max -> A39002"#,
+            fix: "Set the default value within the [min, max] range.",
+        },
+        ErrorInfo {
+            code: "A39003",
+            name: "Limit max exceeds compile-time feature_max",
+            description: "A runtime limit maximum is larger than the compile-time \
+                          feature_max, which could allow values beyond the verified range.",
+            example: r#"  // feature_max(buffer_size, 4096)
+  // limit(buffer, max=8192)  -> A39003"#,
+            fix: "Set the limit max to be at most the feature_max value.",
+        },
+        ErrorInfo {
+            code: "A39004",
+            name: "Limit change may invalidate existing state",
+            description: "Lowering a limit after objects have been created at the old \
+                          limit may invalidate existing state.",
+            example: r#"  // Created 100 items with max=200
+  // Lowering max to 50 invalidates 50 items -> A39004"#,
+            fix: "Drain or validate existing state before lowering a limit.",
+        },
+        // -- A40001-A40004: Incremental computation --
+        ErrorInfo {
+            code: "A40001",
+            name: "Step called in invalid state",
+            description: "An incremental computation step was called after the \
+                          computation reached a terminal state (Done or Aborted).",
+            example: r#"  // iter.step() called after iter reached Done -> A40001"#,
+            fix: "Check the computation state before calling step(). Do not \
+                 step after reaching a terminal state.",
+        },
+        ErrorInfo {
+            code: "A40002",
+            name: "Incremental value not finalized",
+            description: "An incremental computation value was dropped without reaching \
+                          a terminal state (Done or Aborted).",
+            example: r#"  // let iter = start_computation()
+  // iter dropped without calling finalize() -> A40002"#,
+            fix: "Call finalize() or abort() before the value goes out of scope.",
+        },
+        ErrorInfo {
+            code: "A40003",
+            name: "Incremental progress not guaranteed",
+            description: "An incremental computation step may loop without yielding \
+                          or completing, violating progress guarantees.",
+            example: r#"  // step() may loop forever without producing output -> A40003"#,
+            fix: "Ensure each step makes progress toward completion. Add a \
+                 decreasing measure or yield point.",
+        },
+        ErrorInfo {
+            code: "A40004",
+            name: "Resources not released on terminal state",
+            description: "Resources (locks, temp tables, etc.) are not released when \
+                          the incremental computation reaches a terminal state.",
+            example: r#"  // Computation aborted but temp table not dropped -> A40004"#,
+            fix: "Release all held resources in both Done and Aborted terminal handlers.",
+        },
+        // -- A41001-A41005: Output divergence --
+        ErrorInfo {
+            code: "A41001",
+            name: "Output divergence detected",
+            description: "Two implementations of the same specification produce different \
+                          results for the same input.",
+            example: r#"  // Implementation A returns [1,2,3]
+  // Implementation B returns [1,3,2] for same input -> A41001"#,
+            fix: "Align the implementations or document the divergence in an \
+                 'except' list.",
+        },
+        ErrorInfo {
+            code: "A41002",
+            name: "Error code mismatch",
+            description: "Two implementations return different error codes for the \
+                          same invalid input.",
+            example: r#"  // Impl A returns INVALID_INPUT
+  // Impl B returns OVERFLOW for same input -> A41002"#,
+            fix: "Standardize error codes across implementations.",
+        },
+        ErrorInfo {
+            code: "A41003",
+            name: "Row ordering difference",
+            description: "Two implementations return the same rows but in a different \
+                          order when ordering was specified.",
+            example: r#"  // Same query returns [a,b,c] vs [a,c,b] -> A41003"#,
+            fix: "Ensure ORDER BY is applied consistently, or document that ordering \
+                 is not guaranteed.",
+        },
+        ErrorInfo {
+            code: "A41004",
+            name: "Type coercion difference",
+            description: "Two implementations store the same value but with different \
+                          type affinity or coercion behavior.",
+            example: r#"  // Impl A stores "123" as TEXT
+  // Impl B stores 123 as INTEGER -> A41004"#,
+            fix: "Use explicit type casts or document coercion rules.",
+        },
+        ErrorInfo {
+            code: "A41005",
+            name: "Undocumented exclusion",
+            description: "A behavioral divergence was found that is not listed in the \
+                          'except' exclusion list.",
+            example: r#"  // Divergence in edge case not covered by except list -> A41005"#,
+            fix: "Add the divergence to the except list with justification, or fix the \
+                 implementation to match.",
+        },
+        // -- A42004-A42005: Unsafe escape --
+        ErrorInfo {
+            code: "A42004",
+            name: "Unsafe escape without proof obligation",
+            description: "An unsafe escape hatch was used without providing any proof \
+                          obligation to justify the unsafe operation.",
+            example: r#"  // unsafe_cast(x) without proof { ... } -> A42004"#,
+            fix: "Add a proof obligation block justifying why the unsafe operation \
+                 is safe in this context.",
+        },
+        ErrorInfo {
+            code: "A42005",
+            name: "Proof obligation references out-of-scope variable",
+            description: "A proof obligation block references a variable that is not \
+                          accessible in the current scope.",
+            example: r#"  // proof { old_var > 0 }   // old_var not in scope -> A42005"#,
+            fix: "Use only in-scope variables in proof obligations.",
+        },
+        // -- A43004-A43005: String encoding --
+        ErrorInfo {
+            code: "A43004",
+            name: "Invalid encoding: byte sequence not valid",
+            description: "A byte sequence does not form a valid string in the declared \
+                          encoding (UTF-8, UTF-16, etc.).",
+            example: r#"  // Bytes [0xFF, 0xFE] not valid UTF-8 -> A43004"#,
+            fix: "Validate byte sequences before interpreting as strings, or use \
+                 the correct encoding.",
+        },
+        ErrorInfo {
+            code: "A43005",
+            name: "Implicit transcode detected",
+            description: "An encoding conversion happens implicitly without an explicit \
+                          transcode() call, which could lose data.",
+            example: r#"  // Assigning UTF-16 string to UTF-8 variable without
+  // explicit transcode() -> A43005"#,
+            fix: "Use explicit transcode() for encoding conversions.",
+        },
+        // -- A44004-A44005: Page cache --
+        ErrorInfo {
+            code: "A44004",
+            name: "Double unpin: pin count already zero",
+            description: "A page unpin operation was called when the pin count is \
+                          already zero.",
+            example: r#"  // page.unpin() called twice without intervening pin -> A44004"#,
+            fix: "Track pin/unpin calls to ensure they are balanced.",
+        },
+        ErrorInfo {
+            code: "A44005",
+            name: "Dirtying unpinned page",
+            description: "A make_dirty operation was called on a page cache entry that \
+                          is not pinned (pin_count is 0).",
+            example: r#"  // page.make_dirty() when pin_count == 0 -> A44005"#,
+            fix: "Pin the page before modifying it: page.pin(); page.make_dirty();",
+        },
+        // -- A45004-A45005: MVCC --
+        ErrorInfo {
+            code: "A45004",
+            name: "Stale snapshot: version no longer available",
+            description: "A snapshot references a version that has been removed by \
+                          a WAL checkpoint or garbage collection.",
+            example: r#"  // Reading from snapshot v5 after checkpoint advanced to v10
+  // -> A45004"#,
+            fix: "Refresh the snapshot or ensure checkpoints do not remove active \
+                 snapshot versions.",
+        },
+        ErrorInfo {
+            code: "A45005",
+            name: "Write to read-only transaction",
+            description: "A modification was attempted within a read-only transaction.",
+            example: r#"  // tx.read_only().write(page) -> A45005"#,
+            fix: "Use a read-write transaction for modifications.",
+        },
+        // -- A46004: IO bounds --
+        ErrorInfo {
+            code: "A46004",
+            name: "IO bound exceeded",
+            description: "The actual number of I/O operations exceeds the declared \
+                          O(N) bound.",
+            example: r#"  // Declared O(log N) reads but performed O(N) reads -> A46004"#,
+            fix: "Optimize the algorithm to meet the declared IO bound, or update \
+                 the bound to match actual behavior.",
+        },
+        // -- A47004: Monotonic overflow --
+        ErrorInfo {
+            code: "A47004",
+            name: "Monotonic value overflows without wrap policy",
+            description: "A monotonically increasing value may overflow without a \
+                          declared saturates_at or wraps_at policy.",
+            example: r#"  // Counter increments without bound, no wraps_at -> A47004"#,
+            fix: "Add a wraps_at or saturates_at policy to the monotonic declaration.",
+        },
+        // -- A48004-A48005: Checksum --
+        ErrorInfo {
+            code: "A48004",
+            name: "Return value of reset not checked",
+            description: "The return value of a reset operation was not checked, \
+                          potentially missing an error condition.",
+            example: r#"  // sqlite3_reset(stmt) return value ignored -> A48004"#,
+            fix: "Check the return value and handle errors appropriately.",
+        },
+        ErrorInfo {
+            code: "A48005",
+            name: "Must-preserve detail violated",
+            description: "An extended error code or detail is lost when converting \
+                          to a simpler error representation.",
+            example: r#"  // Extended error code lost in error conversion -> A48005"#,
+            fix: "Preserve the extended error code or detail through the conversion.",
+        },
+        // -- A49004-A49005: Bit-level --
+        ErrorInfo {
+            code: "A49004",
+            name: "Bit cursor used after byte-level read",
+            description: "A bit-level cursor was used after a byte-level read without \
+                          re-aligning, causing incorrect bit positions.",
+            example: r#"  // read_byte(); read_bits(3);  // misaligned -> A49004"#,
+            fix: "Re-align the cursor after switching between bit and byte reads.",
+        },
+        ErrorInfo {
+            code: "A49005",
+            name: "Bit field constraint not satisfiable",
+            description: "A where predicate on a bit field is always false given the \
+                          field's width, making it unsatisfiable.",
+            example: r#"  // 3-bit field with where { v > 10 } -> always false -> A49005"#,
+            fix: "Adjust the constraint to be satisfiable within the bit field's range.",
+        },
+        // -- A50004-A50005: Precomputed table --
+        ErrorInfo {
+            code: "A50004",
+            name: "Generating function is not total over range",
+            description: "The function used to generate a precomputed table may fail \
+                          for some index in the declared range.",
+            example: r#"  // table[i] = 1/i for i in 0..256
+  // Fails at i=0 (division by zero) -> A50004"#,
+            fix: "Ensure the generating function handles all values in the range, \
+                 or adjust the range to exclude problematic inputs.",
+        },
+        ErrorInfo {
+            code: "A50005",
+            name: "Table size mismatch",
+            description: "The declared table size does not match the actual range of \
+                          the generating function.",
+            example: r#"  // Declared size 256 but range produces 255 entries -> A50005"#,
+            fix: "Align the declared size with the actual range of the generating function.",
+        },
+        // -- A51004-A51005: Numerical precision --
+        ErrorInfo {
+            code: "A51004",
+            name: "No reference function for precision contract",
+            description: "A precision block has no reference function to compare against. \
+                          Precision contracts require a reference implementation.",
+            example: r#"  // precision { tolerance: 1e-6 }
+  // Missing: reference { exact_impl(x) } -> A51004"#,
+            fix: "Add a reference function that provides the exact result to compare against.",
+        },
+        ErrorInfo {
+            code: "A51005",
+            name: "Reference function uses restricted operations",
+            description: "The reference function in a precision contract uses operations \
+                          that are not deterministic or total.",
+            example: r#"  // reference { random_impl(x) }  // non-deterministic -> A51005"#,
+            fix: "Ensure the reference function is deterministic and total over its domain.",
+        },
+        // -- A52004-A52005: Multi-pass --
+        ErrorInfo {
+            code: "A52004",
+            name: "Probe function has side effects",
+            description: "A probe function used for format detection has side effects. \
+                          Probes must be pure since they may be called speculatively.",
+            example: r#"  // probe fn that writes to log -> A52004"#,
+            fix: "Make the probe function pure. Move side effects to the processing phase.",
+        },
+        ErrorInfo {
+            code: "A52005",
+            name: "No codec matches input",
+            description: "All codec magic patterns failed and no fallback codec is \
+                          declared, so the input cannot be processed.",
+            example: r#"  // Input doesn't match any declared format pattern -> A52005"#,
+            fix: "Add a fallback codec or handle the unrecognized format case.",
+        },
+        // -- A53003-A53005: Multi-pass refinement --
+        ErrorInfo {
+            code: "A53003",
+            name: "After-all predicate not satisfied",
+            description: "The final output of a multi-pass computation does not satisfy \
+                          the after_all predicate.",
+            example: r#"  // after_all { output.is_sorted() }
+  // Final output is not sorted -> A53003"#,
+            fix: "Fix the multi-pass algorithm to satisfy the after_all predicate.",
+        },
+        ErrorInfo {
+            code: "A53004",
+            name: "Pass count exceeds declared maximum",
+            description: "The computation performed more passes than the declared maximum.",
+            example: r#"  // passes { max: 3 }
+  // Algorithm needed 5 passes -> A53004"#,
+            fix: "Optimize the algorithm to converge within the declared pass limit, \
+                 or increase the maximum.",
+        },
+        ErrorInfo {
+            code: "A53005",
+            name: "Refinement state not initialized before first pass",
+            description: "The refinement state is used in the first pass without \
+                          being initialized.",
+            example: r#"  // Using refinement.prev_result in pass 0 -> A53005"#,
+            fix: "Initialize the refinement state before the first pass.",
+        },
+        // -- A54004-A54005: Ghost variables --
+        ErrorInfo {
+            code: "A54004",
+            name: "Ghost variable not updated to match runtime state",
+            description: "An invariant links a ghost variable to runtime state, but \
+                          the ghost variable is not updated when the runtime state changes.",
+            example: r#"  ghost { size: Int }
+  invariant { size == length(items) }
+  // items.push(x) without updating ghost size -> A54004"#,
+            fix: "Update the ghost variable whenever the linked runtime state changes.",
+        },
+        ErrorInfo {
+            code: "A54005",
+            name: "Ghost type used in runtime signature",
+            description: "A function parameter or return type uses a ghost-only type, \
+                          which would be erased at runtime.",
+            example: r#"  fn bad(proof: ghost Proof) -> ghost Evidence
+  // ghost types in runtime signature -> A54005"#,
+            fix: "Remove ghost types from runtime function signatures. Ghost types \
+                 are only valid in ghost blocks and specifications.",
+        },
+        // -- A55004-A55005: Lemmas --
+        ErrorInfo {
+            code: "A55004",
+            name: "Lemma has side effects",
+            description: "A lemma function performs side effects. Lemmas must be pure \
+                          since they are ghost code used only for verification.",
+            example: r#"  lemma log_positive(x: Int) {
+      println(x);   // side effect in lemma -> A55004
+  }"#,
+            fix: "Remove all side effects from the lemma. Lemmas must be pure.",
+        },
+        ErrorInfo {
+            code: "A55005",
+            name: "Circular lemma dependency",
+            description: "Lemma A depends on lemma B which depends on lemma A, \
+                          creating a circular proof.",
+            example: r#"  lemma A() { by B() }
+  lemma B() { by A() }   // circular -> A55005"#,
+            fix: "Break the circular dependency by proving one lemma from first \
+                 principles or restructuring the proof.",
+        },
+        // -- A56001-A56005: Frame conditions --
+        ErrorInfo {
+            code: "A56001",
+            name: "Function modifies undeclared target",
+            description: "A function writes to a variable or field that is not listed \
+                          in its modifies clause.",
+            example: r#"  fn update(x: mut Int)
+      modifies { x }
+  {
+      y = 42;   // y not in modifies clause -> A56001
+  }"#,
+            fix: "Add the target to the modifies clause: modifies { x, y }.",
+        },
+        ErrorInfo {
+            code: "A56002",
+            name: "Called function modifies outside caller's frame",
+            description: "A called function modifies targets that are outside the \
+                          caller's modifies set.",
+            example: r#"  fn caller()
+      modifies { x }
+  {
+      callee();   // callee modifies y, not in caller's frame -> A56002
+  }"#,
+            fix: "Add the callee's modifies targets to the caller's modifies clause.",
+        },
+        ErrorInfo {
+            code: "A56003",
+            name: "Function reads undeclared source",
+            description: "A function reads from a variable or field not listed in \
+                          its reads clause.",
+            example: r#"  fn compute()
+      reads { x }
+  {
+      y + x   // y not in reads clause -> A56003
+  }"#,
+            fix: "Add the source to the reads clause: reads { x, y }.",
+        },
+        ErrorInfo {
+            code: "A56004",
+            name: "Modifies clause on pure function",
+            description: "A pure function declares a modifies clause, which is \
+                          contradictory since pure functions cannot have side effects.",
+            example: r#"  fn pure_fn(x: Int) -> Int
+      effects { pure }
+      modifies { state }   // contradicts pure -> A56004"#,
+            fix: "Remove the modifies clause or change the effects declaration.",
+        },
+        ErrorInfo {
+            code: "A56005",
+            name: "Frame condition conflict with effects",
+            description: "The modifies clause contradicts the declared effects. For \
+                          example, modifying a database field without database effects.",
+            example: r#"  fn update_db()
+      effects { io }
+      modifies { db.table }   // needs database effect -> A56005"#,
+            fix: "Ensure the effects declaration covers all targets in the modifies clause.",
+        },
+        // -- A57001-A57005: Axioms --
+        ErrorInfo {
+            code: "A57001",
+            name: "Axiom is inconsistent",
+            description: "An axiom definition is self-contradictory. The axiom's \
+                          property and definition cannot both be true.",
+            example: r#"  axiom impossible {
+      define { x == x + 1 }   // self-contradictory -> A57001
+  }"#,
+            fix: "Fix the axiom definition to be consistent.",
+        },
+        ErrorInfo {
+            code: "A57002",
+            name: "Recursive axiom not well-founded",
+            description: "A recursive axiom does not have a structural decrease, \
+                          which could lead to infinite unfolding.",
+            example: r#"  axiom bad_rec(n: Int) {
+      define { bad_rec(n) }   // no decrease -> A57002
+  }"#,
+            fix: "Add a structural decrease to the recursive axiom definition.",
+        },
+        ErrorInfo {
+            code: "A57003",
+            name: "Axiom property does not follow from definition",
+            description: "The property clause of an axiom cannot be proven from its \
+                          definition clause.",
+            example: r#"  axiom wrong {
+      define { x > 0 }
+      property { x > 100 }   // does not follow -> A57003
+  }"#,
+            fix: "Ensure the property is a logical consequence of the definition.",
+        },
+        ErrorInfo {
+            code: "A57004",
+            name: "Axiom used at runtime",
+            description: "An axiom is referenced in non-ghost, non-contract context. \
+                          Axioms are ghost-level concepts and cannot affect runtime behavior.",
+            example: r#"  fn compute() -> Int {
+      by axiom_foo();   // axiom in runtime code -> A57004
+  }"#,
+            fix: "Use axioms only in ghost blocks, lemmas, and contract specifications.",
+        },
+        ErrorInfo {
+            code: "A57005",
+            name: "Conflicting axiom definitions",
+            description: "Two axioms define the same concept differently, leading to \
+                          an inconsistent axiom set.",
+            example: r#"  axiom def1 { define { f(0) == 1 } }
+  axiom def2 { define { f(0) == 2 } }   // conflict -> A57005"#,
+            fix: "Remove one of the conflicting axiom definitions.",
+        },
+        // -- A58001-A58005: Triggers --
+        ErrorInfo {
+            code: "A58001",
+            name: "Trigger does not mention bound variable",
+            description: "A trigger pattern for a quantifier does not mention the \
+                          bound variable, making the trigger useless for instantiation.",
+            example: r#"  forall x :: { f(y) } :: P(x)
+  // trigger f(y) doesn't mention x -> A58001"#,
+            fix: "Include the bound variable in the trigger pattern: { f(x) }.",
+        },
+        ErrorInfo {
+            code: "A58002",
+            name: "Potential matching loop in trigger",
+            description: "The trigger pattern may cause infinite quantifier instantiation \
+                          by matching its own output.",
+            example: r#"  forall x :: { f(x) } :: f(x) == f(f(x))
+  // f(f(x)) matches trigger, causing loop -> A58002"#,
+            fix: "Choose a trigger that does not match terms produced by the quantifier body.",
+        },
+        ErrorInfo {
+            code: "A58003",
+            name: "Quantifier timeout (no trigger specified)",
+            description: "The SMT solver timed out on a quantifier that has no explicit \
+                          trigger. Without triggers, the solver may try too many instantiations.",
+            example: r#"  forall x : Int :: P(x) && Q(x)
+  // no trigger, solver times out -> A58003"#,
+            fix: "Add an explicit trigger annotation: forall x :: { P(x) } :: P(x) && Q(x).",
+        },
+        ErrorInfo {
+            code: "A58004",
+            name: "Conflicting triggers on same quantifier",
+            description: "Multiple trigger annotations on the same quantifier conflict \
+                          with each other.",
+            example: r#"  forall x :: { f(x) } :: { g(x) } :: P(x)
+  // conflicting triggers -> A58004"#,
+            fix: "Use a single trigger set or combine into a multi-pattern trigger.",
+        },
+        ErrorInfo {
+            code: "A58005",
+            name: "Trigger pattern not found in formula",
+            description: "A trigger annotation references an expression that does not \
+                          appear in the quantifier body.",
+            example: r#"  forall x :: { h(x) } :: f(x) > 0
+  // h(x) not in body -> A58005"#,
+            fix: "Use a trigger pattern that appears in the quantifier body.",
+        },
+        // -- A59001-A59005: Opaque functions --
+        ErrorInfo {
+            code: "A59001",
+            name: "Cannot prove property: function is opaque",
+            description: "The verifier cannot prove a property because the function's \
+                          body is hidden (opaque). Use 'reveal' to expose the body.",
+            example: r#"  opaque fn secret(x: Int) -> Int
+      ensures { result > 0 }
+
+  // Caller cannot prove secret(5) > 0 without reveal -> A59001"#,
+            fix: "Add 'reveal secret;' at the call site, or add a stronger contract \
+                 to the opaque function.",
+        },
+        ErrorInfo {
+            code: "A59002",
+            name: "Reveal of non-opaque function",
+            description: "A 'reveal' directive was applied to a function that is not \
+                          marked as opaque. This is a no-op and likely a mistake.",
+            example: r#"  fn visible(x: Int) -> Int { x + 1 }
+  reveal visible;   // not opaque, no-op -> A59002"#,
+            fix: "Remove the unnecessary 'reveal' directive, or mark the function \
+                 as 'opaque' if hiding was intended.",
+        },
+        ErrorInfo {
+            code: "A59003",
+            name: "Opaque function contract insufficient",
+            description: "An opaque function's body satisfies a property that its \
+                          contract does not expose, potentially hiding useful information.",
+            example: r#"  opaque fn abs(x: Int) -> Int
+      ensures { result >= 0 }
+  // Body also ensures result <= max(x, -x) but contract doesn't say so"#,
+            fix: "Strengthen the opaque function's contract to expose the property \
+                 that callers need.",
+        },
+        ErrorInfo {
+            code: "A59004",
+            name: "Recursive reveal exceeded fuel",
+            description: "A 'reveal' on a recursive opaque function hit the unfolding \
+                          limit. The solver cannot unfold the recursion further.",
+            example: r#"  opaque fn fib(n: Int) -> Int
+  reveal fib;   // needs too many unfoldings -> A59004"#,
+            fix: "Increase the fuel limit, add intermediate lemmas, or provide a \
+                 direct proof without relying on full unfolding.",
+        },
+        ErrorInfo {
+            code: "A59005",
+            name: "Opaque type field accessed externally",
+            description: "Code outside the defining module accesses a field of an \
+                          opaque type, violating information hiding.",
+            example: r#"  // In module B:
+  let x = opaque_value.hidden_field;   // -> A59005"#,
+            fix: "Access opaque type internals only through the module's public API.",
+        },
     ]
 }
 
