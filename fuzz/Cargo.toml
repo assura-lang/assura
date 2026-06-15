@@ -12,7 +12,7 @@ libfuzzer-sys = "0.4"
 assura-parser = { path = "../crates/assura-parser" }
 assura-resolve = { path = "../crates/assura-resolve" }
 assura-types = { path = "../crates/assura-types" }
-logos = "0.15"
+logos = "0.16"
 
 [[bin]]
 name = "fuzz_parse"

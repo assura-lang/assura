@@ -211,6 +211,13 @@ jobs:
       - name: Build compiler
         run: cargo build --bin assura
 
+      - name: E2E check all demos (parse + resolve + typecheck + verify)
+        run: |
+          for demo in demos/*.assura; do
+            echo "=== Checking $demo ==="
+            cargo run --bin assura -- check "$demo"
+          done
+
       - name: Validate generated code for demos
         if: ${{ !cancelled() }}
         run: |
