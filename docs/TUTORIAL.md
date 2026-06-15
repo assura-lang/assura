@@ -316,8 +316,24 @@ npm install && npm run compile
 Features: syntax highlighting, inline diagnostics via the Assura LSP
 server.
 
+## AI Agent Setup
+
+To configure an AI coding assistant to use Assura, run:
+
+```bash
+assura agent-instructions > .assura-context.md
+```
+
+This outputs a compact reference with Assura syntax, type mappings,
+CLI commands, and workflow steps that you can add to your agent's
+system prompt or project instructions (AGENTS.md, .cursorrules, etc.).
+
+See the [scenario guides](SCENARIOS.md) for detailed walkthroughs of
+AI-assisted development workflows.
+
 ## Next Steps
 
+- Read the [scenario guides](SCENARIOS.md) for real workflow walkthroughs
 - Read the demo contracts in `demos/` for real-world examples
 - See the [language specification](SPECIFICATION.md) for the full grammar
 - See the [internals documentation](INTERNALS.md) for compiler architecture
