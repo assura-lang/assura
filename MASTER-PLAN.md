@@ -990,4 +990,32 @@ Within each phase, tasks can run in the order listed. Tasks marked
   (documentation site), Phase 7.05 (performance optimization), or new
   features from spec sections not yet implemented.
 
+### 2026-06-14: Session 4 (continued)
+- **50 SMT tests added**: 40 for advanced.rs (TriggerManager,
+  CodecDispatcher, WeakMemoryChecker, ProphecyManager, LivenessChecker),
+  10 for incremental.rs
+- **#100 closed**: Created assura-pipeline crate to deduplicate compiler
+  pipeline across CLI REPL, MCP server. Replaced DefaultHasher with
+  FNV-1a in z3_backend pattern_hash.
+- **36 domain checker tests added**: AllocatorChecker (6),
+  CircularBufferChecker (3), PlatformAbstractionChecker (4),
+  FeatureFlagChecker (5), ResourceLimitChecker (5),
+  UnsafeEscapeChecker (3), ContractLibraryChecker (3),
+  ContractCompositionChecker (3), StorageFailureChecker (3)
+- **2.13 fixed**: Layer2Verifier.verify_with_z3() now does real Z3
+  verification for quantified invariants (parse body strings, create
+  bound vars, check validity), termination obligations (measure
+  decrease encoding), and roundtrip obligations (uninterpreted
+  functions). All 4 "requires Z3 Layer 2 verification" stubs removed.
+- **3.11 fixed**: IR codegen no longer emits todo!() for functions
+  without explicit result assignment; uses type-appropriate defaults.
+- **Full audit of Phase 2 and Phase 3**: All acceptance criteria
+  verified for tasks 2.01-2.14 and 3.01-3.12. No remaining stubs.
+- Test count: 2,213 (up from 2,172)
+- Only open issue: #45 (CodeQL, blocked on repo going public),
+  plus #101-#105 (inline contract annotations feature set)
+- **Next session**: Phase 4 (multi-file compilation), Phase 6.04
+  (VS Code extension), Phase 6.05 (docs site), or inline annotation
+  features (#101-#105).
+
 ---
