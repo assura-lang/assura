@@ -47,15 +47,14 @@ fn build_cli_output_creates_custom_dir() {
 
 #[test]
 fn build_cli_default_output_is_generated() {
-    let workspace = std::env::temp_dir().join("assura_r007_default");
-    let _ = std::fs::remove_dir_all(&workspace);
-    std::fs::create_dir_all(&workspace).unwrap();
+    let workspace = tempfile::tempdir().expect("failed to create temp dir");
+    let workspace_path = workspace.path();
     let demo_src = std::path::Path::new(&workspace_root()).join("demos/libwebp-huffman.assura");
-    let demo_dest = workspace.join("input.assura");
+    let demo_dest = workspace_path.join("input.assura");
     std::fs::copy(&demo_src, &demo_dest).unwrap();
     let out = Command::new(assura_bin())
         .args(["build", "input.assura"])
-        .current_dir(&workspace)
+        .current_dir(workspace_path)
         .output()
         .expect("failed to run assura build");
     assert!(
@@ -64,14 +63,13 @@ fn build_cli_default_output_is_generated() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        workspace.join("generated/Cargo.toml").exists(),
+        workspace_path.join("generated/Cargo.toml").exists(),
         "default generated/Cargo.toml should exist"
     );
     assert!(
-        workspace.join("generated/src/lib.rs").exists(),
+        workspace_path.join("generated/src/lib.rs").exists(),
         "default generated/src/lib.rs should exist"
     );
-    let _ = std::fs::remove_dir_all(&workspace);
 }
 
 #[test]
