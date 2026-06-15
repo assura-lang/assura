@@ -1579,6 +1579,27 @@ annotations and pipeline integration across all compiler layers:
   codegen constant), 1 must_reject fixture (A-CONC-016). 1,931 total
   tests passing.
 
+### G008 completed (2026-06-14)
+Implemented FMT.4 Codec Registry with full pipeline integration across
+all compiler layers (19 files changed):
+- **Parser**: Grammar for `codec_registry`/`codec`/`magic`/`decoder`/
+  `contracts` productions with `BytePattern`, `extension()`, and
+  `probe()` magic kinds. Added `CODEC_REGISTRY_DECL` and `CODEC_ENTRY`
+  CST node kinds.
+- **CST->AST lowering**: `lower_codec_registry()` and `lower_codec_entry()`
+  extract structured types, handling lexer's split hex literals
+  (`Int("0")` + `Ident("x89")` for `0x89`).
+- **AST**: `CodecRegistryDecl`, `CodecEntry`, `MagicPattern` types.
+- **HIR**: `HirCodecRegistry`, `HirCodecEntry` with lowering.
+- **Type checker**: `run_codec_registry_checks()` wired into both
+  `type_check()` and `type_check_hir()`. Detects A52001 overlapping
+  magic byte prefixes and A52002 missing decoder functions.
+- **Codegen**: `generate_codec_registry()` emits dispatch function
+  with magic-byte pattern matching.
+- **LSP**: Document symbols, hover, completion for CodecRegistry.
+- **Tests**: 3 parser, 3 types, 2 codegen tests + 1 must_reject
+  fixture (A52001). 1,939 total tests passing.
+
 ---
 
 ## Phase G: Gaps (Unwired Features, Dead Code, Pipeline Completion)
@@ -1772,7 +1793,7 @@ but lack real semantic analysis or parser integration.
   - **Validation**: Contract with acquire-release pair verifies. Contract
     with relaxed-only concurrent access emits A-CONC-016 warning.
 
-- [ ] **G008**: FMT.4 Codec Registry: full parser + dispatch codegen
+- [x] **G008**: FMT.4 Codec Registry: full parser + dispatch codegen
   - Depends on: none
   - **Current state**: Parser lexes `codec_registry` and `codec` keywords
     (`lexer.rs:326`, `syntax_kind.rs:588`), but there is NO grammar
