@@ -1342,7 +1342,7 @@ pub fn type_check_hir(hir: &assura_hir::HirFile) -> Result<TypedFile, Vec<TypeEr
 /// structured HIR types instead of raw token parsing.
 pub fn type_check_hir_with_config(
     hir: &assura_hir::HirFile,
-    _config: &assura_config::TypeCheckConfig,
+    config: &assura_config::TypeCheckConfig,
 ) -> Result<TypedFile, Vec<TypeError>> {
     let resolved = hir.resolved();
     let type_env = build_type_env_from_hir(hir);
@@ -1356,7 +1356,17 @@ pub fn type_check_hir_with_config(
     errors.extend(run_crud_auth_checks(source));
     errors.extend(run_linearity_checks(source));
     errors.extend(run_typestate_checks(source));
-    errors.extend(run_effect_checks(source));
+
+    // Apply config-driven effect checking (same logic as AST path)
+    let mut effect_errors = run_effect_checks(source);
+    if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
+        effect_errors.retain(|e| !config.allowed_effects.iter().any(|a| e.message.contains(a)));
+    }
+    if config.strict_effects {
+        errors.extend(effect_errors);
+    } else {
+        errors.extend(effect_errors.into_iter().filter(|e| e.code != "A07003"));
+    }
     errors.extend(run_taint_checks(source));
     errors.extend(run_info_flow_checks(source));
     errors.extend(run_ffi_checks(source));
@@ -1426,7 +1436,7 @@ pub fn type_check_hir_with_config(
 /// `config.warn_unused_imports` is reserved for future import analysis.
 pub fn type_check_with_config(
     resolved: &ResolvedFile,
-    _config: &assura_config::TypeCheckConfig,
+    config: &assura_config::TypeCheckConfig,
 ) -> Result<TypedFile, Vec<TypeError>> {
     let type_env = build_type_env(&resolved.symbols, &resolved.source);
 
@@ -1450,7 +1460,22 @@ pub fn type_check_with_config(
     errors.extend(run_typestate_checks(&resolved.source));
 
     // T036: effect checking (declared vs actual effect containment)
-    errors.extend(run_effect_checks(&resolved.source));
+    // Apply config: allowed/denied effects and strict mode
+    let mut effect_errors = run_effect_checks(&resolved.source);
+    if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
+        effect_errors.retain(|e| {
+            // Keep errors for denied effects; filter out errors for allowed effects
+            let msg = &e.message;
+            !config.allowed_effects.iter().any(|a| msg.contains(a))
+        });
+    }
+    if config.strict_effects {
+        errors.extend(effect_errors);
+    } else {
+        // In non-strict mode, only keep A07001 (undeclared effect usage),
+        // not A07003 (unknown effect names)
+        errors.extend(effect_errors.into_iter().filter(|e| e.code != "A07003"));
+    }
 
     // T047: taint tracking (untrusted data flow analysis)
     errors.extend(run_taint_checks(&resolved.source));
@@ -5139,6 +5164,7 @@ fn mvcc_scan_expr(expr: &Expr, checker: &mut MvccChecker) {
 /// Scan for transactional rollback annotations.
 fn run_rollback_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker = RollbackChecker::new();
+    let mut scan_errors = Vec::new();
     let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -5152,25 +5178,26 @@ fn run_rollback_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
                 && (k == "rollback" || k == "savepoint" || k == "transactional")
             {
                 found = true;
-                // Extract savepoints and resources from annotation body
-                rollback_scan_expr(&clause.body, &mut checker);
+                scan_errors.extend(rollback_scan_expr(&clause.body, &mut checker));
             }
-            // Also scan requires/ensures for transactional operations
             if found && matches!(clause.kind, ClauseKind::Requires | ClauseKind::Ensures) {
-                rollback_scan_expr(&clause.body, &mut checker);
+                scan_errors.extend(rollback_scan_expr(&clause.body, &mut checker));
             }
         }
     }
     if !found {
         return Vec::new();
     }
-    let mut errors = checker.check_resource_leak();
+    let mut errors = scan_errors;
+    errors.extend(checker.check_resource_leak());
     errors.extend(checker.check_savepoint_nesting());
     errors
 }
 
 /// Scan an expression for rollback operations (savepoint, acquire, release, rollback).
-fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) {
+/// Returns any immediate errors (e.g., rollback to unknown savepoint).
+fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) -> Vec<TypeError> {
+    let mut scan_errors = Vec::new();
     if let Some((name, args)) = extract_call(expr) {
         match name {
             "savepoint" | "create_savepoint" => {
@@ -5196,8 +5223,7 @@ fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) {
             "rollback" | "rollback_to" => {
                 let sp_name = args.first().and_then(extract_ident).unwrap_or("default");
                 if let Some(err) = checker.rollback_to(sp_name) {
-                    // Rollback error is handled by the caller via check_* methods
-                    let _ = err;
+                    scan_errors.push(err);
                 }
             }
             _ => {}
@@ -5211,11 +5237,12 @@ fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) {
     match expr {
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
-                rollback_scan_expr(e, checker);
+                scan_errors.extend(rollback_scan_expr(e, checker));
             }
         }
         _ => {}
     }
+    scan_errors
 }
 
 /// Scan for monotonic state annotations and check update direction.
@@ -5963,6 +5990,7 @@ fn run_incremental_contract_checks(source: &assura_parser::ast::SourceFile) -> V
 /// Scan for scoped invariant suspension annotations.
 fn run_scoped_invariant_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker = ScopedInvariantChecker::new();
+    let mut errors = Vec::new();
     let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -5977,14 +6005,16 @@ fn run_scoped_invariant_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
                     found = true;
                     if let Expr::Ident(name) = &clause.body {
                         checker.declare_invariant(name.clone());
-                        // Suspend and check it will be restored
-                        let _ = checker.suspend(name);
+                        if let Some(err) = checker.suspend(name) {
+                            errors.push(err);
+                        }
                     }
                 }
                 if (k == "restore_invariant" || k == "restore")
                     && let Expr::Ident(name) = &clause.body
+                    && let Some(err) = checker.restore(name)
                 {
-                    let _ = checker.restore(name);
+                    errors.push(err);
                 }
             }
         }
@@ -5992,7 +6022,8 @@ fn run_scoped_invariant_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
     if !found {
         return Vec::new();
     }
-    checker.check_all_restored()
+    errors.extend(checker.check_all_restored());
+    errors
 }
 
 /// Scan for contract composition (extends) and validate.

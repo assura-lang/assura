@@ -161,8 +161,10 @@ fn run_cvc5(script: &str) -> Cvc5Result {
     };
 
     // Write script to stdin
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(script.as_bytes());
+    if let Some(mut stdin) = child.stdin.take()
+        && let Err(e) = stdin.write_all(script.as_bytes())
+    {
+        return Cvc5Result::Error(format!("Failed to write SMT script to CVC5 stdin: {e}"));
     }
 
     let output = match child.wait_with_output() {

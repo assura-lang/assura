@@ -735,9 +735,11 @@ impl<'ctx> Encoder<'ctx> {
                 // Encode as Z3 Real. Parse the float string and convert
                 // to a rational (numerator/denominator) for exact encoding.
                 let f: f64 = s.parse().unwrap_or(0.0);
-                // Use a large denominator for precision
+                // Clamp to i32 safe range then encode as rational to avoid
+                // overflow for values > 2147 (i32::MAX / 1_000_000).
                 let denom = 1_000_000i32;
-                let numer = (f * denom as f64) as i32;
+                let clamped = f.clamp(-2_000_000_000.0, 2_000_000_000.0);
+                let numer = (clamped * denom as f64) as i32;
                 Z3Value::Real(ast::Real::from_real(self.ctx, numer, denom))
             }
             Expr::Literal(Literal::Str(s)) => {
@@ -3101,9 +3103,12 @@ pub(crate) fn verify_contract_impl(
     results
 }
 
-pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
+pub(crate) fn verify_impl_with_timeout(
+    typed: &TypedFile,
+    timeout_ms: u64,
+) -> Vec<VerificationResult> {
     let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "1000");
+    cfg.set_param_value("timeout", &timeout_ms.to_string());
     let ctx = Context::new(&cfg);
     let mut results = Vec::new();
     let mut cache = SessionCache::new();

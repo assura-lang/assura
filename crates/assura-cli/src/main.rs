@@ -1510,7 +1510,6 @@ fn run_check_project(
     _verbosity: Verbosity,
     config: &CompilerConfig,
 ) {
-    let _ = config; // reserved for future per-project config
     let project_root = if project_dir.join("assura.toml").exists() {
         project_dir.to_path_buf()
     } else {
@@ -1542,10 +1541,10 @@ fn run_check_project(
     let mut total_modules = 0usize;
     let mut total_bindings = 0usize;
 
-    // Type-check each resolved file
+    // Type-check each resolved file using project config
     for (module_path, resolved) in &resolved_files {
         total_modules += 1;
-        match assura_types::type_check(resolved) {
+        match assura_types::type_check_with_config(resolved, &config.type_check) {
             Ok(typed) => {
                 let bindings = typed.type_env.len();
                 total_bindings += bindings;
@@ -2062,8 +2061,12 @@ fn run_build_project(
     let out_dir = Path::new(output_dir);
     let mut generated_files = 0usize;
     let mut cargo_toml_written = false;
+    let backend_config = assura_codegen::BackendConfig {
+        target,
+        ..Default::default()
+    };
     for (_module_path, typed) in &all_typed {
-        let project = assura_codegen::codegen(typed);
+        let project = assura_codegen::codegen_with_config(typed, &backend_config);
         // Write Cargo.toml once
         if !cargo_toml_written {
             let cargo_path = out_dir.join("Cargo.toml");
@@ -2117,8 +2120,6 @@ fn run_build_project(
             }
         }
     }
-
-    let _ = target; // reserved for future target-specific codegen
 }
 
 // ---------------------------------------------------------------------------

@@ -272,16 +272,86 @@ pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
 /// `options.layer` controls verification depth (0 = structural, 1+ = SMT).
 pub fn verify_with_options(
     typed: &TypedFile,
-    _options: &assura_config::VerifyOptions,
+    options: &assura_config::VerifyOptions,
 ) -> Vec<VerificationResult> {
-    #[cfg(feature = "z3-verify")]
-    {
-        z3_backend::verify_impl(typed)
+    let solver = SolverChoice::from_str_loose(&options.solver).unwrap_or(SolverChoice::Z3);
+    match solver {
+        SolverChoice::Cvc5 => verify_file_with_cvc5(typed),
+        SolverChoice::Portfolio => {
+            // Try Z3 first; fall back to CVC5 on timeout/unknown
+            #[cfg(feature = "z3-verify")]
+            {
+                let z3_results = z3_backend::verify_impl_with_timeout(typed, options.timeout_ms);
+                let has_unknown = z3_results.iter().any(|r| {
+                    matches!(
+                        r,
+                        VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. }
+                    )
+                });
+                if has_unknown {
+                    let cvc5_results = verify_file_with_cvc5(typed);
+                    merge_portfolio_results(z3_results, cvc5_results)
+                } else {
+                    z3_results
+                }
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                verify_file_with_cvc5(typed)
+            }
+        }
+        SolverChoice::Z3 => {
+            #[cfg(feature = "z3-verify")]
+            {
+                z3_backend::verify_impl_with_timeout(typed, options.timeout_ms)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                no_z3::verify_stub(typed)
+            }
+        }
     }
-    #[cfg(not(feature = "z3-verify"))]
-    {
-        no_z3::verify_stub(typed)
+}
+
+/// Verify all contracts in a file using the CVC5 backend.
+fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
+    use assura_parser::ast::Decl;
+    let mut results = Vec::new();
+    for decl in &typed.resolved.source.decls {
+        match &decl.node {
+            Decl::Contract(c) => {
+                results.extend(cvc5_backend::verify_contract_cvc5(&c.name, &c.clauses));
+            }
+            Decl::FnDef(f) => {
+                results.extend(cvc5_backend::verify_contract_cvc5(&f.name, &f.clauses));
+            }
+            Decl::Extern(e) => {
+                results.extend(cvc5_backend::verify_contract_cvc5(&e.name, &e.clauses));
+            }
+            _ => {}
+        }
     }
+    results
+}
+
+/// Merge portfolio results: prefer Z3 result unless it was Timeout/Unknown,
+/// in which case use CVC5 result.
+fn merge_portfolio_results(
+    z3: Vec<VerificationResult>,
+    cvc5: Vec<VerificationResult>,
+) -> Vec<VerificationResult> {
+    let mut merged = Vec::with_capacity(z3.len());
+    let mut cvc5_iter = cvc5.into_iter();
+    for r in z3 {
+        match &r {
+            VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. } => {
+                // Use CVC5 result if available, otherwise keep Z3's
+                merged.push(cvc5_iter.next().unwrap_or(r));
+            }
+            _ => merged.push(r),
+        }
+    }
+    merged
 }
 
 /// Verify all declarations in parallel using rayon.
