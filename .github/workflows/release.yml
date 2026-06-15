@@ -309,7 +309,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           # Publish in dependency order with retry
-          for crate in assura-diagnostics assura-parser assura-resolve assura-hir assura-types assura-smt assura-codegen assura-lsp assura-server assura; do
+          for crate in assura-diagnostics assura-parser assura-stdlib assura-resolve assura-hir assura-types assura-config assura-fmt assura-smt assura-codegen assura-lsp assura-server assura; do
             echo "=== Publishing $crate ==="
             cargo publish -p "$crate" --no-verify || true
             # Wait for crates.io index to update
