@@ -489,7 +489,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     let total_modules = contract_names.len() + service_names.len();
     let use_multi_file = total_modules >= 2;
 
-    if use_multi_file {
+    let mut project = if use_multi_file {
         // ------------------------------------------------------------------
         // Multi-file mode: separate .rs files for each contract/service,
         // shared types/functions/externs in lib.rs.
@@ -594,7 +594,10 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             }
         }
 
-        GeneratedProject { cargo_toml, files }
+        GeneratedProject {
+            cargo_toml: cargo_toml.clone(),
+            files,
+        }
     } else {
         // ------------------------------------------------------------------
         // Single-file mode: everything in lib.rs (current behavior).
@@ -646,7 +649,18 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             cargo_toml,
             files: vec![("src/lib.rs".to_string(), formatted)],
         }
+    };
+
+    // Add .cargo/config.toml for Cranelift backend
+    if matches!(config.backend, CodegenBackend::Cranelift) {
+        project.files.push((
+            ".cargo/config.toml".to_string(),
+            "[unstable]\ncodegen-backend = true\n\n[profile.dev]\ncodegen-backend = \"cranelift\"\n"
+                .to_string(),
+        ));
     }
+
+    project
 }
 
 /// Generate a Rust project from a type-checked Assura file.
@@ -700,9 +714,14 @@ edition = "2024"
     // Add backend-specific configuration
     if matches!(config.backend, CodegenBackend::Cranelift) {
         toml.push_str(
-            "\n# Using Cranelift backend for fast compilation\n\
-             # Install: rustup component add rustc-codegen-cranelift\n",
+            "\n# Cranelift backend for fast dev builds\n\
+             # Install: rustup component add rustc-codegen-cranelift\n\
+             # Note: Cranelift requires nightly Rust\n",
         );
+        // Force dev-friendly profile settings for Cranelift
+        if config.opt_level == 2 && !config.debug_info {
+            toml.push_str("\n[profile.dev]\nopt-level = 0\ndebug = true\n");
+        }
     }
 
     // WASM target: add cdylib crate type so cargo produces a .wasm file
@@ -5009,6 +5028,71 @@ type Marker {
         };
         assert_eq!(config.backend, super::CodegenBackend::Cranelift);
         assert_eq!(config.opt_level, 0);
+    }
+
+    fn codegen_with_config_ok(
+        source: &str,
+        config: super::BackendConfig,
+    ) -> super::GeneratedProject {
+        let file = assura_parser::parse_unwrap(source);
+        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+        let typed = assura_types::type_check(&resolved).expect("type check failed");
+        super::codegen_with_config(&typed, &config)
+    }
+
+    #[test]
+    fn cranelift_generates_cargo_config() {
+        let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+        let project = codegen_with_config_ok(
+            source,
+            super::BackendConfig {
+                backend: super::CodegenBackend::Cranelift,
+                opt_level: 0,
+                debug_info: true,
+                target: super::CompileTarget::Native,
+            },
+        );
+        let cargo_config = project
+            .files
+            .iter()
+            .find(|(path, _)| path == ".cargo/config.toml")
+            .expect(".cargo/config.toml should be generated for Cranelift backend");
+        assert!(
+            cargo_config.1.contains("codegen-backend = \"cranelift\""),
+            "config.toml should select cranelift backend"
+        );
+    }
+
+    #[test]
+    fn cranelift_output_differs_from_rustc() {
+        let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+        let rustc_project = codegen_ok(source);
+        let cranelift_project = codegen_with_config_ok(
+            source,
+            super::BackendConfig {
+                backend: super::CodegenBackend::Cranelift,
+                opt_level: 0,
+                debug_info: true,
+                target: super::CompileTarget::Native,
+            },
+        );
+        assert!(
+            cranelift_project.files.len() > rustc_project.files.len(),
+            "Cranelift should produce .cargo/config.toml that Rustc does not"
+        );
+    }
+
+    #[test]
+    fn rustc_has_no_cargo_config() {
+        let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+        let project = codegen_ok(source);
+        assert!(
+            !project
+                .files
+                .iter()
+                .any(|(path, _)| path.contains("config.toml")),
+            "Rustc backend should not produce .cargo/config.toml"
+        );
     }
 
     // =======================================================================
