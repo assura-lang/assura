@@ -3824,91 +3824,53 @@ fn repl_load(path: &str) {
 }
 
 fn repl_eval(source: &str) {
-    let (ast, parse_errors) = assura_parser::parse(source);
-    if !parse_errors.is_empty() {
-        for err in &parse_errors {
-            eprintln!("  Parse error: {err:?}");
-        }
+    let result = assura_pipeline::run(source);
+
+    for diag in &result.parse_errors {
+        eprintln!("  Parse error: {}", diag.message);
+    }
+    if !result.parse_errors.is_empty() {
         return;
     }
 
-    let ast = match ast {
-        Some(a) => a,
-        None => {
-            eprintln!("  Failed to parse input.");
-            return;
-        }
-    };
-
-    if ast.decls.is_empty() {
+    if result.declarations.is_empty() {
         eprintln!("  No declarations found.");
         return;
     }
 
-    for decl_spanned in &ast.decls {
-        let decl = &decl_spanned.node;
-        let name = match decl {
-            Decl::Contract(c) => &c.name,
-            Decl::Bind(b) => &b.name,
-            Decl::FnDef(f) => &f.name,
-            Decl::Service(s) => &s.name,
-            Decl::TypeDef(t) => &t.name,
-            Decl::EnumDef(e) => &e.name,
-            Decl::Extern(e) => &e.name,
-            Decl::Prophecy(p) => &p.name,
-            Decl::CodecRegistry(c) => &c.name,
-            Decl::Block { name, .. } => name,
-        };
-        let clause_count = match decl {
-            Decl::Contract(c) => c.clauses.len(),
-            Decl::Bind(b) => b.clauses.len(),
-            _ => 0,
-        };
-        println!("  OK  {name}: {} clause(s)", clause_count);
+    for decl in &result.declarations {
+        println!("  OK  {decl}");
     }
 
-    let resolved = match assura_resolve::resolve(&ast) {
-        Ok(r) => r,
-        Err(errs) => {
-            for err in &errs {
-                eprintln!("  Resolution error: {} ({})", err.message, err.code);
-            }
-            return;
-        }
-    };
+    for diag in &result.resolution_errors {
+        eprintln!("  Resolution error: {} ({})", diag.message, diag.code);
+    }
+    if !result.resolution_errors.is_empty() {
+        return;
+    }
 
-    let hir = assura_hir::lower(&resolved);
-    let typed = match assura_types::type_check_hir(&hir) {
-        Ok(t) => t,
-        Err(errs) => {
-            for err in &errs {
-                eprintln!("  Type error: {} ({})", err.message, err.code);
-            }
-            return;
-        }
-    };
+    for diag in &result.type_errors {
+        eprintln!("  Type error: {} ({})", diag.message, diag.code);
+    }
+    if !result.type_errors.is_empty() {
+        return;
+    }
 
-    let results = assura_smt::verify(&typed);
-    for result in &results {
-        match result {
-            assura_smt::VerificationResult::Verified { clause_desc } => {
-                println!("  VERIFIED  {clause_desc}");
+    for entry in &result.verification {
+        match entry.status.as_str() {
+            "verified" => println!("  VERIFIED  {}", entry.clause),
+            "counterexample" => {
+                println!("  COUNTEREXAMPLE  {}", entry.clause);
+                if let Some(model) = &entry.model {
+                    println!("    | {model}");
+                }
             }
-            assura_smt::VerificationResult::Counterexample {
-                clause_desc, model, ..
-            } => {
-                println!("  COUNTEREXAMPLE  {clause_desc}");
-                println!("    | {model}");
+            "timeout" => println!("  TIMEOUT  {}", entry.clause),
+            "unknown" => {
+                let reason = entry.reason.as_deref().unwrap_or("unknown");
+                println!("  UNKNOWN  {}: {reason}", entry.clause);
             }
-            assura_smt::VerificationResult::Timeout { clause_desc } => {
-                println!("  TIMEOUT  {clause_desc}");
-            }
-            assura_smt::VerificationResult::Unknown {
-                clause_desc,
-                reason,
-            } => {
-                println!("  UNKNOWN  {clause_desc}: {reason}");
-            }
+            _ => {}
         }
     }
 }
@@ -5055,6 +5017,9 @@ timeout = 2000
 
     /// Run the full pipeline (parse -> resolve -> type-check -> verify)
     /// and return (has_errors, has_counterexample).
+    ///
+    /// E2E tests use verify_parallel with caching (matches real CLI
+    /// behavior) rather than the shared pipeline's basic verify().
     fn run_e2e_pipeline(source: &str) -> (bool, bool) {
         let (file, parse_errors) = assura_parser::parse(source);
         if !parse_errors.is_empty() {

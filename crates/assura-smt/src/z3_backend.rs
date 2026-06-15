@@ -659,12 +659,16 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Hash a pattern name to a stable i64 for Z3 encoding.
+    ///
+    /// Uses FNV-1a instead of DefaultHasher for determinism across Rust
+    /// versions (DefaultHasher may change its algorithm between releases).
     fn pattern_hash(&self, name: &str) -> i64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        name.hash(&mut hasher);
-        hasher.finish() as i64
+        let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
+        for byte in name.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3); // FNV prime
+        }
+        hash as i64
     }
 
     /// Encode a literal value to Z3.

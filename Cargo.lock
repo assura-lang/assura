@@ -114,6 +114,7 @@ dependencies = [
  "assura-lsp",
  "assura-mcp",
  "assura-parser",
+ "assura-pipeline",
  "assura-resolve",
  "assura-smt",
  "assura-types",
@@ -212,6 +213,7 @@ dependencies = [
  "assura-diagnostics",
  "assura-hir",
  "assura-parser",
+ "assura-pipeline",
  "assura-resolve",
  "assura-smt",
  "assura-types",
@@ -229,6 +231,20 @@ dependencies = [
  "insta",
  "logos",
  "rowan",
+]
+
+[[package]]
+name = "assura-pipeline"
+version = "0.1.0"
+dependencies = [
+ "assura-config",
+ "assura-hir",
+ "assura-parser",
+ "assura-resolve",
+ "assura-smt",
+ "assura-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

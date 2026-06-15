@@ -140,8 +140,6 @@ impl From<CachedResult> for VerificationResult {
 /// Compute a stable content hash of a contract's clauses for cache keying.
 ///
 /// Uses SHA-256 for deterministic hashing across Rust versions and platforms.
-/// DefaultHasher is not guaranteed to be stable across rustc releases, which
-/// silently invalidates the on-disk cache after `rustup update`.
 fn hash_clauses(contract_name: &str, clauses: &[assura_parser::ast::Clause]) -> String {
     use sha2::{Digest, Sha256};
 
