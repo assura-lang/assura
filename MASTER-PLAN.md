@@ -839,7 +839,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: No hosted documentation. Tutorial exists but is not
   published.
 - **Fix**: Set up mdBook or similar for docs/ and deploy to GitHub Pages.
-- [ ] **Acceptance Tests** (NOT DONE: no mdBook config, no GitHub Pages workflow):
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Docs build without error
   mdbook build docs/
@@ -1279,5 +1279,19 @@ Within each phase, tasks can run in the order listed. Tasks marked
 - **All GitHub issues CLOSED** except #45 (CodeQL, blocked on public repo)
 - Project state: 2,280 tests passing, 16 crates, clean working tree
 - **Next session**: 4.03 (cross-file typeck) is the highest-value remaining task
+
+### Session 7 (2026-06-15)
+
+- **Completed 4 tasks**, reducing remaining from 5 to 1:
+  - 4.03: Cross-file type checking: `type_check_with_modules()` + `inject_imported_types()`,
+    CLI wired, `resolve_with_modules` made public, 4 tests
+  - 5.02: Spec compliance: restructured into 11 module files (tc01-tc11),
+    29 tests covering all Section 13 pairwise/three-way/full-stack interactions
+  - 3.12: Cranelift backend (completed prior session, committed)
+  - 6.03: crates.io metadata (completed prior session, committed)
+  - 6.05: Documentation site: mdBook config, SUMMARY.md, GitHub Pages
+    workflow, symlinked existing docs into src/
+- **Only 6.01 (CodeQL) remains** (blocked on repo going public, issue #45)
+- Project state: 2,300+ tests passing, 16 crates, mdBook builds clean
 
 ---

@@ -7,4 +7,5 @@
 /fuzz/corpus
 /fuzz/artifacts
 .assura-cache/
+/docs/book/
 fuzz/Cargo.lock

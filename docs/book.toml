@@ -1,0 +1,15 @@
+[book]
+title = "Assura Language"
+description = "Contract-first AI-native language that transpiles to verified Rust"
+authors = ["Assura Contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/assura-lang/assura"
+edit-url-template = "https://github.com/assura-lang/assura/edit/main/docs/src/{path}"
