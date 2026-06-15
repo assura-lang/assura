@@ -6286,6 +6286,109 @@ mod type_from_expr_tests {
         let tokens = vec!["Bool".to_string()];
         assert_eq!(resolve_type(None, &tokens), Type::Bool);
     }
+
+    #[test]
+    fn generic_instantiation_correct_arity() {
+        let source = assura_parser::ast::SourceFile {
+            project: None,
+            module: None,
+            imports: vec![],
+            decls: vec![],
+        };
+        let span = 0..10;
+        // List<Int> has 1 arg, expected 1
+        assert!(check_generic_instantiation("List", &[Type::Int], &span, &source).is_ok());
+        // Map<String, Int> has 2 args, expected 2
+        assert!(
+            check_generic_instantiation("Map", &[Type::String, Type::Int], &span, &source).is_ok()
+        );
+    }
+
+    #[test]
+    fn generic_instantiation_wrong_arity() {
+        let source = assura_parser::ast::SourceFile {
+            project: None,
+            module: None,
+            imports: vec![],
+            decls: vec![],
+        };
+        let span = 0..10;
+        // List<Int, Bool> has 2 args, expected 1
+        let err = check_generic_instantiation("List", &[Type::Int, Type::Bool], &span, &source);
+        assert!(err.is_err());
+        let e = err.unwrap_err();
+        assert_eq!(e.code, "A03003");
+        assert!(e.message.contains("expected 1, found 2"));
+    }
+
+    #[test]
+    fn generic_instantiation_user_defined() {
+        use assura_parser::ast::{Decl, Spanned, TypeBody, TypeDef};
+        let source = assura_parser::ast::SourceFile {
+            project: None,
+            module: None,
+            imports: vec![],
+            decls: vec![Spanned {
+                node: Decl::TypeDef(TypeDef {
+                    name: "Pair".into(),
+                    type_params: vec!["A".into(), "B".into()],
+                    body: TypeBody::Empty,
+                }),
+                span: 0..20,
+            }],
+        };
+        let span = 0..10;
+        // Pair<Int> has 1 arg, expected 2
+        let err = check_generic_instantiation("Pair", &[Type::Int], &span, &source);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().message.contains("expected 2, found 1"));
+        // Pair<Int, Bool> has 2 args, expected 2
+        assert!(
+            check_generic_instantiation("Pair", &[Type::Int, Type::Bool], &span, &source).is_ok()
+        );
+    }
+
+    #[test]
+    fn run_generic_checks_catches_wrong_arity() {
+        use assura_parser::ast::*;
+        let source = SourceFile {
+            project: None,
+            module: None,
+            imports: vec![],
+            decls: vec![Spanned {
+                node: Decl::FnDef(FnDef {
+                    name: "bad_fn".into(),
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: vec![Param {
+                        name: "x".into(),
+                        ty: vec![
+                            "List".into(),
+                            "<".into(),
+                            "Int".into(),
+                            ",".into(),
+                            "Bool".into(),
+                            ">".into(),
+                        ],
+                        parsed_type: Some(TypeExpr::Generic(
+                            "List".into(),
+                            vec![
+                                TypeExpr::Named("Int".into()),
+                                TypeExpr::Named("Bool".into()),
+                            ],
+                        )),
+                    }],
+                    return_ty: vec![],
+                    return_type_expr: None,
+                    clauses: vec![],
+                }),
+                span: 0..50,
+            }],
+        };
+        let errors = super::run_generic_instantiation_checks(&source);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03003");
+    }
 }
 
 #[cfg(test)]

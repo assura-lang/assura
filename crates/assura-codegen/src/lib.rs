@@ -6669,4 +6669,47 @@ contract UseConst {
             "should call probe function, got:\n{code}"
         );
     }
+
+    #[test]
+    fn multi_file_includes_codec_registry() {
+        // In multi-file mode, CodecRegistry should generate into shared lib.rs
+        let project = codegen_ok(
+            r#"
+contract Guard {
+    input(x: Int)
+    requires { x >= 0 }
+}
+
+contract Shield {
+    input(y: Int)
+    ensures { result > 0 }
+}
+
+codec_registry ImageFormats {
+    output: ImageOutput,
+    codec Png {
+        magic: [0x89, 0x50, 0x4E, 0x47]
+        decoder: decode_png
+    }
+    codec Jpeg {
+        magic: [0xFF, 0xD8]
+        decoder: decode_jpeg
+    }
+}
+"#,
+        );
+        // 2 contracts -> multi-file mode (lib.rs + 2 contract files)
+        assert!(project.files.len() >= 3, "expected multi-file output");
+
+        let lib_rs = project
+            .files
+            .iter()
+            .find(|(p, _)| p == "src/lib.rs")
+            .expect("missing src/lib.rs");
+        assert!(
+            lib_rs.1.contains("dispatch_imageformats") || lib_rs.1.contains("decode_png"),
+            "lib.rs should contain codec registry dispatch, got:\n{}",
+            &lib_rs.1[..lib_rs.1.len().min(500)]
+        );
+    }
 }
