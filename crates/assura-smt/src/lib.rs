@@ -2722,15 +2722,19 @@ contract DecreasesTest {
 pub mod advanced;
 pub mod cache;
 pub mod incremental;
-pub mod ir;
 pub mod layer2;
 // Re-export key types from submodules so callers and tests can use them
 // without qualifying the module path.
 pub use advanced::*;
 pub use cache::*;
 pub use incremental::*;
-pub use ir::*;
 pub use layer2::*;
+
+// IR module is only used in tests — gate it behind #[cfg(test)]
+#[cfg(test)]
+pub mod ir;
+#[cfg(test)]
+pub use ir::*;
 
 #[cfg(test)]
 mod measure_unit_tests {
