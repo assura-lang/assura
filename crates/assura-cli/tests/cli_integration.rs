@@ -771,12 +771,7 @@ fn repl_quit_command_exits_zero() {
         .spawn()
         .expect("failed to start assura repl");
 
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(b":quit\n")
-        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(b":quit\n").unwrap();
 
     let out = child.wait_with_output().expect("failed to wait on repl");
     assert!(out.status.success(), "repl :quit should exit 0");
@@ -873,5 +868,97 @@ fn repl_load_parses_file() {
     assert!(
         stdout.contains("OK"),
         "should parse demo file successfully, got: {stdout}"
+    );
+}
+
+// =======================================================================
+// MCP server (#89)
+// =======================================================================
+
+/// Helper: send MCP JSON-RPC messages and return stdout lines.
+fn mcp_call(messages: &[&str]) -> Vec<String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let init = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}"#;
+    let notif = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+
+    let mut child = Command::new(assura_bin())
+        .arg("mcp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to start assura mcp");
+
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin.write_all(init.as_bytes()).unwrap();
+    stdin.write_all(b"\n").unwrap();
+    stdin.write_all(notif.as_bytes()).unwrap();
+    stdin.write_all(b"\n").unwrap();
+    for msg in messages {
+        stdin.write_all(msg.as_bytes()).unwrap();
+        stdin.write_all(b"\n").unwrap();
+    }
+    drop(child.stdin.take());
+
+    let out = child.wait_with_output().expect("failed to wait on mcp");
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+#[test]
+fn mcp_tools_list_returns_all_tools() {
+    let lines = mcp_call(&[r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#]);
+    assert!(lines.len() >= 2, "expected at least 2 response lines");
+    let tools_line = &lines[1]; // second line is tools/list response
+    let parsed: serde_json::Value = serde_json::from_str(tools_line)
+        .unwrap_or_else(|e| panic!("invalid JSON: {e}\n{tools_line}"));
+    let tools = parsed["result"]["tools"]
+        .as_array()
+        .expect("tools should be an array");
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"assura_check"), "missing assura_check");
+    assert!(names.contains(&"assura_explain"), "missing assura_explain");
+    assert!(
+        names.contains(&"assura_type_map"),
+        "missing assura_type_map"
+    );
+    assert!(names.contains(&"assura_infer"), "missing assura_infer");
+}
+
+#[test]
+fn mcp_type_map_tool_returns_mapping() {
+    let lines = mcp_call(&[
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"assura_type_map","arguments":{"rust_type":"Vec<i64>"}}}"#,
+    ]);
+    let response = lines.last().expect("should have response");
+    let parsed: serde_json::Value =
+        serde_json::from_str(response).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{response}"));
+    let text = parsed["result"]["content"][0]["text"]
+        .as_str()
+        .expect("should have text content");
+    assert!(
+        text.contains("List<Int>"),
+        "should map Vec<i64> to List<Int>, got: {text}"
+    );
+}
+
+#[test]
+fn mcp_explain_tool_returns_error_info() {
+    let lines = mcp_call(&[
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"assura_explain","arguments":{"code":"A03001"}}}"#,
+    ]);
+    let response = lines.last().expect("should have response");
+    let parsed: serde_json::Value =
+        serde_json::from_str(response).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{response}"));
+    let text = parsed["result"]["content"][0]["text"]
+        .as_str()
+        .expect("should have text content");
+    assert!(
+        text.contains("A03001") && text.contains("Type mismatch"),
+        "should contain error info, got: {text}"
     );
 }

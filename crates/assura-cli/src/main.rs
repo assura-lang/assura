@@ -199,6 +199,9 @@ enum Commands {
     /// Start the Language Server Protocol server
     Lsp,
 
+    /// Start the MCP (Model Context Protocol) server for AI agent integration
+    Mcp,
+
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for
@@ -521,6 +524,15 @@ fn main() {
             run_diff(&old, &new, &format);
         }
         Some(Commands::Lsp) => run_lsp(),
+        Some(Commands::Mcp) => {
+            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+            rt.block_on(async {
+                if let Err(e) = assura_mcp::run_mcp_server().await {
+                    eprintln!("MCP server error: {e}");
+                    std::process::exit(1);
+                }
+            });
+        }
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "assura", &mut std::io::stdout());
         }
@@ -2702,8 +2714,7 @@ fn run_repl() {
                 continue;
             }
             if let Some(rust_type) = trimmed.strip_prefix(":type ") {
-                let assura_type =
-                    assura_codegen::type_map::rust_type_to_assura(rust_type.trim());
+                let assura_type = assura_codegen::type_map::rust_type_to_assura(rust_type.trim());
                 println!("{rust_type} -> {assura_type}");
                 continue;
             }
@@ -2823,10 +2834,7 @@ fn repl_eval(source: &str) {
             Decl::Bind(b) => b.clauses.len(),
             _ => 0,
         };
-        println!(
-            "  OK  {name}: {} clause(s)",
-            clause_count
-        );
+        println!("  OK  {name}: {} clause(s)", clause_count);
     }
 
     // Run resolution + type checking
@@ -2860,9 +2868,7 @@ fn repl_eval(source: &str) {
                     println!("  VERIFIED  {clause_desc}");
                 }
                 assura_smt::VerificationResult::Counterexample {
-                    clause_desc,
-                    model,
-                    ..
+                    clause_desc, model, ..
                 } => {
                     println!("  COUNTEREXAMPLE  {clause_desc}");
                     println!("    | {model}");
