@@ -31,6 +31,7 @@ clap_complete = "4.6.5"
 assura-lsp = { version = "0.1.0", path = "../assura-lsp" }
 assura-mcp = { path = "../assura-mcp" }
 assura-pipeline = { path = "../assura-pipeline" }
+assura-rust-analyzer = { path = "../assura-rust-analyzer" }
 tower-lsp = "0.20"
 tokio = { version = "1.52.3", features = ["full"] }
 
