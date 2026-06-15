@@ -658,7 +658,7 @@ Stdlib, IR parser, Cranelift backend.
 
 - Depends on: 4.02
 - **What**: Type checker must work across file boundaries.
-- [ ] **Acceptance Tests** (NOT DONE: type checker is single-file only):
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-types cross_file
   cargo test --workspace
@@ -710,7 +710,7 @@ Stdlib, IR parser, Cranelift backend.
   cases. These must exist as automated tests.
 - **Fix**: Create `tests/spec_compliance/` with one test file per
   Section 13 case.
-- [ ] **Acceptance Tests** (NOT DONE: no tests/spec_compliance/ directory):
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Count test files
   ls tests/spec_compliance/*.rs 2>/dev/null | wc -l
