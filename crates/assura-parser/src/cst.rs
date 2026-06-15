@@ -114,6 +114,10 @@ pub(crate) struct Parser {
     pub(crate) events: Vec<Event>,
     fuel: u32,
     pub(crate) errors: Vec<ParseError>,
+    /// Nesting depth counter to prevent stack overflow on deeply nested
+    /// expressions (e.g. 500 levels of parentheses). The parser emits
+    /// an error and stops recursing when this reaches zero.
+    depth: u32,
 }
 
 /// A parse error with location and message.
@@ -165,6 +169,7 @@ impl Parser {
             events: Vec::new(),
             fuel: 256,
             errors: Vec::new(),
+            depth: 128,
         }
     }
 
@@ -253,6 +258,23 @@ impl Parser {
     /// True if we've consumed all tokens.
     pub(crate) fn eof(&self) -> bool {
         self.pos >= self.tokens.len()
+    }
+
+    /// Enter a nesting level. Returns false (and emits an error) if
+    /// the maximum nesting depth (128) has been reached, signaling the
+    /// caller to stop recursing.
+    pub(crate) fn enter_nesting(&mut self) -> bool {
+        if self.depth == 0 {
+            self.error_at_current("nesting depth limit exceeded".to_string());
+            return false;
+        }
+        self.depth -= 1;
+        true
+    }
+
+    /// Leave a nesting level (restores one level of depth).
+    pub(crate) fn leave_nesting(&mut self) {
+        self.depth += 1;
     }
 
     /// Current position in the token stream.
@@ -537,6 +559,28 @@ mod tests {
                 .any(|e| e.message.contains("fuel exhausted")),
             "expected fuel exhaustion error, got: {:?}",
             p.errors
+        );
+    }
+
+    #[test]
+    fn deeply_nested_parens_do_not_crash() {
+        // 200 levels of nested parentheses should hit the depth limit
+        // (128) and produce an error instead of a stack overflow.
+        let input = format!(
+            "contract T {{ input(x: Int) requires {{ {}x > 0{} }} }}",
+            "(".repeat(200),
+            ")".repeat(200),
+        );
+        let (_file, errors) = crate::parse(&input);
+        assert!(
+            !errors.is_empty(),
+            "deeply nested parens should produce parse errors"
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("nesting depth limit")),
+            "expected nesting depth limit error, got: {errors:?}",
         );
     }
 }

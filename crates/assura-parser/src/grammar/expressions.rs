@@ -319,15 +319,25 @@ fn paren_or_tuple(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // (
 
+    if !p.enter_nesting() {
+        // Depth limit exceeded: skip to matching ')' and return error node.
+        while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+            p.bump();
+        }
+        p.eat(SyntaxKind::R_PAREN);
+        return m.complete(p, SyntaxKind::PAREN_EXPR);
+    }
+
     if p.at(SyntaxKind::R_PAREN) {
         // Empty parens: ()
         p.bump();
+        p.leave_nesting();
         return m.complete(p, SyntaxKind::TUPLE_EXPR);
     }
 
     expr(p);
 
-    if p.at(SyntaxKind::COMMA) {
+    let result = if p.at(SyntaxKind::COMMA) {
         // Tuple: (a, b, c)
         while p.at(SyntaxKind::COMMA) {
             p.bump(); // ,
@@ -342,7 +352,9 @@ fn paren_or_tuple(p: &mut Parser) -> CompletedMarker {
         // Single expr in parens: (expr)
         p.expect(SyntaxKind::R_PAREN);
         m.complete(p, SyntaxKind::PAREN_EXPR)
-    }
+    };
+    p.leave_nesting();
+    result
 }
 
 fn list_expr(p: &mut Parser) -> CompletedMarker {
