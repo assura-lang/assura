@@ -346,6 +346,29 @@ done. This was learned when 4 features (`CryptoConformanceChecker`,
 complete implementations and passing unit tests but were never called
 from any pipeline entry point across multiple sessions.
 
+**Check individual methods, not just struct presence.** A struct can
+be "wired in" (called from the entry point) while individual public
+`check_*()` or `validate_*()` methods on it remain dead code.
+
+After adding a new manager struct with multiple checking methods,
+verify each method is called:
+
+```bash
+# List all pub fn on the struct
+grep -n 'pub fn' crates/assura-smt/src/advanced.rs | grep -i prophecy
+
+# Verify each appears in a call chain from the entry point
+grep -rn 'check_all_resolved\|check_unconstrained' crates/assura-smt/src/
+```
+
+If a method exists but has zero callers outside its own test module,
+wire it in before marking the task done.
+
+This was learned when `ProphecyManager::check_unconstrained()` existed
+with passing unit tests but was never called from `verify()` or the
+Z3 backend across multiple sessions. Unconstrained prophecy variables
+were silently ignored until the method was wired in during #62.
+
 ## Pre-Commit Gate
 
 Run this exact command before every commit. No exceptions.
