@@ -16,6 +16,8 @@ pub struct ProjectConfig {
     pub profile: ProfileConfig,
     pub effects: EffectsConfig,
     pub codegen: CodegenTomlConfig,
+    pub contracts: ContractsConfig,
+    pub inline: InlineConfig,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -136,6 +138,56 @@ impl Default for CodegenTomlConfig {
             emit_debug_asserts: true,
             generate_tests: false,
             check_generated: true,
+        }
+    }
+}
+
+/// External `.assura` contract file configuration from `[contracts]`.
+///
+/// Controls where external contract files are stored and how they bind
+/// to Rust functions (per spec #105 dual-source contracts).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct ContractsConfig {
+    /// Directory containing external `.assura` contract files.
+    pub path: String,
+    /// Crate name for bind path resolution.
+    pub crate_name: String,
+    /// Additional search paths for bind target resolution.
+    pub search_paths: Vec<String>,
+}
+
+impl Default for ContractsConfig {
+    fn default() -> Self {
+        Self {
+            path: "contracts".to_string(),
+            crate_name: String::new(),
+            search_paths: vec!["src".to_string()],
+        }
+    }
+}
+
+/// Inline contract annotation configuration from `[inline]`.
+///
+/// Controls how inline doc comment annotations are processed
+/// (per spec #101 inline contract annotations).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct InlineConfig {
+    /// Whether inline annotations are enabled.
+    pub enabled: bool,
+    /// Source paths to scan for inline annotations.
+    pub source_paths: Vec<String>,
+    /// Merge strategy when both external and inline exist: "merge" or "external-only".
+    pub merge_strategy: String,
+}
+
+impl Default for InlineConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            source_paths: vec!["src".to_string()],
+            merge_strategy: "merge".to_string(),
         }
     }
 }
@@ -693,6 +745,16 @@ backend = "rustc"
 emit-debug-asserts = true
 generate-tests = true
 check-generated = false
+
+[contracts]
+path = "specs"
+crate-name = "my_crate"
+search-paths = ["src", "lib"]
+
+[inline]
+enabled = false
+source-paths = ["src", "tests"]
+merge-strategy = "external-only"
 "#;
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.package.name, "full-project");
@@ -705,6 +767,91 @@ check-generated = false
         assert_eq!(config.effects.default_effect, "pure");
         assert_eq!(config.codegen.backend, "rustc");
         assert!(config.codegen.generate_tests);
+        assert_eq!(config.contracts.path, "specs");
+        assert_eq!(config.contracts.crate_name, "my_crate");
+        assert_eq!(config.contracts.search_paths, vec!["src", "lib"]);
+        assert!(!config.inline.enabled);
+        assert_eq!(config.inline.source_paths, vec!["src", "tests"]);
+        assert_eq!(config.inline.merge_strategy, "external-only");
+    }
+
+    // -----------------------------------------------------------------------
+    // Contracts config tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn contracts_config_defaults() {
+        let config = ContractsConfig::default();
+        assert_eq!(config.path, "contracts");
+        assert_eq!(config.crate_name, "");
+        assert_eq!(config.search_paths, vec!["src"]);
+    }
+
+    #[test]
+    fn parse_contracts_section_from_toml() {
+        let toml_str = r#"
+[contracts]
+path = "specs"
+crate-name = "my_lib"
+search-paths = ["src", "lib", "generated"]
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.contracts.path, "specs");
+        assert_eq!(config.contracts.crate_name, "my_lib");
+        assert_eq!(
+            config.contracts.search_paths,
+            vec!["src", "lib", "generated"]
+        );
+    }
+
+    #[test]
+    fn contracts_config_partial_override() {
+        let toml_str = r#"
+[contracts]
+path = "my-contracts"
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.contracts.path, "my-contracts");
+        assert_eq!(config.contracts.crate_name, ""); // default
+        assert_eq!(config.contracts.search_paths, vec!["src"]); // default
+    }
+
+    // -----------------------------------------------------------------------
+    // Inline config tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn inline_config_defaults() {
+        let config = InlineConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.source_paths, vec!["src"]);
+        assert_eq!(config.merge_strategy, "merge");
+    }
+
+    #[test]
+    fn parse_inline_section_from_toml() {
+        let toml_str = r#"
+[inline]
+enabled = false
+source-paths = ["src", "tests", "examples"]
+merge-strategy = "external-only"
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.inline.enabled);
+        assert_eq!(config.inline.source_paths, vec!["src", "tests", "examples"]);
+        assert_eq!(config.inline.merge_strategy, "external-only");
+    }
+
+    #[test]
+    fn inline_config_partial_override() {
+        let toml_str = r#"
+[inline]
+enabled = false
+"#;
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.inline.enabled);
+        assert_eq!(config.inline.source_paths, vec!["src"]); // default
+        assert_eq!(config.inline.merge_strategy, "merge"); // default
     }
 
     #[test]

@@ -116,12 +116,14 @@ dependencies = [
  "assura-parser",
  "assura-pipeline",
  "assura-resolve",
+ "assura-rust-analyzer",
  "assura-smt",
  "assura-types",
  "clap",
  "clap_complete",
  "logos",
  "notify",
+ "quote",
  "serde",
  "serde_json",
  "syn",
@@ -207,6 +209,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "assura-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "assura-mcp"
 version = "0.1.0"
 dependencies = [
@@ -258,6 +269,15 @@ dependencies = [
  "assura-diagnostics",
  "assura-parser",
  "assura-stdlib",
+]
+
+[[package]]
+name = "assura-rust-analyzer"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
