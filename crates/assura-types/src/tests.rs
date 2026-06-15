@@ -12688,3 +12688,247 @@ fn block_returns_last_expr_type() {
     ]);
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
+
+// =======================================================================
+// Domain checker integration tests (issues #63, #65)
+// =======================================================================
+
+// --- PageCacheChecker tests ---
+
+#[test]
+fn page_cache_checker_capacity_from_ast() {
+    use crate::domain::PageCacheChecker;
+    let mut checker = PageCacheChecker::new(2);
+    checker.load_page(1);
+    checker.load_page(2);
+    checker.load_page(3);
+    let errors = checker.check_capacity();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A34003");
+    assert!(errors[0].message.contains("exceeds capacity"));
+}
+
+#[test]
+fn page_cache_checker_within_capacity() {
+    use crate::domain::PageCacheChecker;
+    let checker = PageCacheChecker::new(10);
+    let errors = checker.check_capacity();
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn page_cache_checker_dirty_evict() {
+    use crate::domain::PageCacheChecker;
+    let mut checker = PageCacheChecker::new(10);
+    checker.load_page(42);
+    checker.mark_dirty(42);
+    let err = checker.evict(42);
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A34002");
+}
+
+#[test]
+fn page_cache_checker_pinned_evict() {
+    use crate::domain::PageCacheChecker;
+    let mut checker = PageCacheChecker::new(10);
+    checker.load_page(7);
+    checker.pin(7);
+    let err = checker.evict(7);
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A34001");
+}
+
+// --- MvccChecker tests ---
+
+#[test]
+fn mvcc_checker_write_conflict() {
+    use crate::domain::MvccChecker;
+    let mut checker = MvccChecker::new();
+    let tx1 = checker.begin_txn();
+    let tx2 = checker.begin_txn();
+    checker.write_version("key_a".into(), tx1);
+    checker.write_version("key_a".into(), tx2);
+    let errors = checker.check_write_conflicts();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A35001");
+    assert!(errors[0].message.contains("write-write conflict"));
+}
+
+#[test]
+fn mvcc_checker_no_conflict_after_commit() {
+    use crate::domain::MvccChecker;
+    let mut checker = MvccChecker::new();
+    let tx1 = checker.begin_txn();
+    checker.write_version("key_b".into(), tx1);
+    checker.commit_txn(tx1);
+    let tx2 = checker.begin_txn();
+    checker.write_version("key_b".into(), tx2);
+    let errors = checker.check_write_conflicts();
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn mvcc_checker_snapshot_violation() {
+    use crate::domain::MvccChecker;
+    let mut checker = MvccChecker::new();
+    let tx1 = checker.begin_txn();
+    let tx2 = checker.begin_txn();
+    checker.write_version("shared".into(), tx1);
+    let err = checker.check_snapshot_read("shared", tx2);
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A35002");
+}
+
+// --- RollbackChecker tests ---
+
+#[test]
+fn rollback_checker_resource_leak() {
+    use crate::domain::RollbackChecker;
+    let mut checker = RollbackChecker::new();
+    checker.create_savepoint("sp1".into());
+    checker.acquire_resource("file_handle".into());
+    let _ = checker.rollback_to("sp1");
+    let errors = checker.check_resource_leak();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A36002");
+    assert!(errors[0].message.contains("file_handle"));
+}
+
+#[test]
+fn rollback_checker_no_leak_when_released() {
+    use crate::domain::RollbackChecker;
+    let mut checker = RollbackChecker::new();
+    checker.create_savepoint("sp1".into());
+    checker.acquire_resource("conn".into());
+    checker.release_resource("conn");
+    let _ = checker.rollback_to("sp1");
+    let errors = checker.check_resource_leak();
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn rollback_checker_unknown_savepoint() {
+    use crate::domain::RollbackChecker;
+    let mut checker = RollbackChecker::new();
+    let err = checker.rollback_to("nonexistent");
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A36001");
+}
+
+#[test]
+fn rollback_checker_duplicate_savepoint() {
+    use crate::domain::RollbackChecker;
+    let mut checker = RollbackChecker::new();
+    checker.create_savepoint("dup".into());
+    checker.create_savepoint("dup".into());
+    let errors = checker.check_savepoint_nesting();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A36003");
+}
+
+// --- Expression extraction helper tests ---
+
+#[test]
+fn extract_int_literal_positive() {
+    use crate::checkers::extract_int_literal;
+    use assura_parser::ast::{Expr, Literal};
+    let expr = Expr::Literal(Literal::Int("42".into()));
+    assert_eq!(extract_int_literal(&expr), Some(42));
+}
+
+#[test]
+fn extract_int_literal_negative() {
+    use crate::checkers::extract_int_literal;
+    use assura_parser::ast::{Expr, Literal, UnaryOp};
+    let expr = Expr::UnaryOp {
+        op: UnaryOp::Neg,
+        expr: Box::new(Expr::Literal(Literal::Int("5".into()))),
+    };
+    assert_eq!(extract_int_literal(&expr), Some(-5));
+}
+
+#[test]
+fn extract_ident_works() {
+    use crate::checkers::extract_ident;
+    use assura_parser::ast::Expr;
+    let expr = Expr::Ident("hello".into());
+    assert_eq!(extract_ident(&expr), Some("hello"));
+}
+
+#[test]
+fn extract_kv_pair_from_eq() {
+    use crate::checkers::extract_kv_pair;
+    use assura_parser::ast::{BinOp, Expr, Literal};
+    let expr = Expr::BinOp {
+        op: BinOp::Eq,
+        lhs: Box::new(Expr::Ident("size".into())),
+        rhs: Box::new(Expr::Literal(Literal::Int("256".into()))),
+    };
+    let pair = extract_kv_pair(&expr);
+    assert!(pair.is_some());
+    let (key, _val) = pair.unwrap();
+    assert_eq!(key, "size");
+}
+
+#[test]
+fn extract_call_works() {
+    use crate::checkers::extract_call;
+    use assura_parser::ast::{Expr, Literal};
+    let expr = Expr::Call {
+        func: Box::new(Expr::Ident("load_page".into())),
+        args: vec![Expr::Literal(Literal::Int("42".into()))],
+    };
+    let result = extract_call(&expr);
+    assert!(result.is_some());
+    let (name, args) = result.unwrap();
+    assert_eq!(name, "load_page");
+    assert_eq!(args.len(), 1);
+}
+
+// --- Multi-pass refinement checker tests ---
+
+#[test]
+fn multi_pass_refinement_chain() {
+    use crate::domain::MultiPassRefinementChecker;
+    let mut checker = MultiPassRefinementChecker::new();
+    checker.add_pass("step1".into(), "abstract".into(), "mid".into(), 3, 0..5);
+    checker.add_pass("step2".into(), "mid".into(), "concrete".into(), 2, 5..10);
+    let errors = checker.check_chain();
+    assert!(
+        errors.is_empty(),
+        "well-chained passes should have no errors"
+    );
+}
+
+#[test]
+fn multi_pass_refinement_broken_chain() {
+    use crate::domain::MultiPassRefinementChecker;
+    let mut checker = MultiPassRefinementChecker::new();
+    checker.add_pass("step1".into(), "abstract".into(), "mid".into(), 3, 0..5);
+    checker.add_pass("step2".into(), "other".into(), "concrete".into(), 2, 5..10);
+    let errors = checker.check_chain();
+    assert!(!errors.is_empty(), "broken chain should produce errors");
+}
+
+// --- Incremental contract checker tests ---
+
+#[test]
+fn incremental_contract_version_continuity() {
+    use crate::domain::IncrementalContractChecker;
+    let mut checker = IncrementalContractChecker::new();
+    checker.add_version("Foo".into(), 1, 2, 1);
+    checker.add_version("Foo".into(), 2, 3, 2);
+    let errors = checker.check_version_continuity();
+    assert!(errors.is_empty(), "sequential versions should pass");
+}
+
+#[test]
+fn incremental_contract_precondition_weakening() {
+    use crate::domain::IncrementalContractChecker;
+    let mut checker = IncrementalContractChecker::new();
+    checker.add_version("Bar".into(), 1, 3, 1);
+    checker.add_version("Bar".into(), 2, 2, 1);
+    let errors = checker.check_precondition_weakening();
+    // Fewer requires in v2 is allowed (weakening); more would be an error
+    assert!(errors.is_empty());
+}

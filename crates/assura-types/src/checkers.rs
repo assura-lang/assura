@@ -1463,6 +1463,92 @@ fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Expression value extraction helpers
+// ---------------------------------------------------------------------------
+
+/// Extract an integer literal value from an expression.
+/// Returns `None` for non-literal or non-integer expressions.
+pub fn extract_int_literal(expr: &Expr) -> Option<i64> {
+    match expr {
+        Expr::Literal(Literal::Int(s)) => s.parse::<i64>().ok(),
+        Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: inner,
+        } => {
+            if let Expr::Literal(Literal::Int(s)) = inner.as_ref() {
+                s.parse::<i64>().ok().map(|v| -v)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Extract a float literal value from an expression.
+pub fn extract_float_literal(expr: &Expr) -> Option<f64> {
+    match expr {
+        Expr::Literal(Literal::Float(s)) => s.parse::<f64>().ok(),
+        Expr::Literal(Literal::Int(s)) => s.parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+/// Extract a string identifier from an expression.
+pub fn extract_ident(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Ident(name) => Some(name.as_str()),
+        _ => None,
+    }
+}
+
+/// Extract a key-value pair from a BinOp expression (e.g., `name = value`).
+pub fn extract_kv_pair(expr: &Expr) -> Option<(&str, &Expr)> {
+    match expr {
+        Expr::BinOp {
+            op: BinOp::Eq,
+            lhs,
+            rhs,
+        } => {
+            if let Expr::Ident(key) = lhs.as_ref() {
+                Some((key.as_str(), rhs.as_ref()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Extract a call-style expression: `name(arg1, arg2, ...)`.
+/// Returns `(function_name, arguments)`.
+pub fn extract_call(expr: &Expr) -> Option<(&str, &[Expr])> {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref() {
+                Some((name.as_str(), args.as_slice()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Extract multiple key-value pairs from a block or list expression.
+pub fn extract_kv_pairs(expr: &Expr) -> Vec<(&str, &Expr)> {
+    match expr {
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            exprs.iter().filter_map(extract_kv_pair).collect()
+        }
+        _ => {
+            // Single kv pair
+            extract_kv_pair(expr).into_iter().collect()
+        }
+    }
+}
+
 /// Frame condition checker for modifies clauses (CORE.3).
 ///
 /// Validates that:

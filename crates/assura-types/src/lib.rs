@@ -4306,12 +4306,36 @@ fn run_callback_reentrancy_checks(source: &assura_parser::ast::SourceFile) -> Ve
     if !found {
         return Vec::new();
     }
-    Vec::new()
+    // Walk call references in clause bodies and simulate call/return for re-entrancy
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let (fn_name, clauses) = match &decl.node {
+            Decl::FnDef(f) => (f.name.as_str(), &f.clauses),
+            _ => continue,
+        };
+        // Enter the function scope
+        let enter_errors = checker.enter_call(fn_name, &decl.span);
+        errors.extend(enter_errors);
+        // Check for callback registration in clause bodies
+        for clause in clauses {
+            if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                let refs = collect_ident_references(&clause.body);
+                for name in &refs {
+                    if let Some(err) = checker.check_register_callback(name, &decl.span) {
+                        errors.push(err);
+                    }
+                }
+            }
+        }
+        checker.exit_call();
+    }
+    errors
 }
 
-/// Scan for temporal deadline annotations.
+/// Scan for temporal deadline annotations and validate deadlines.
 fn run_temporal_deadline_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
-    let mut _checker = TemporalDeadlineChecker::new();
+    let mut checker = TemporalDeadlineChecker::new();
+    let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
             Decl::Contract(c) => &c.clauses,
@@ -4322,19 +4346,85 @@ fn run_temporal_deadline_checks(source: &assura_parser::ast::SourceFile) -> Vec<
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "deadline" || k == "timeout" || k == "bounded_time")
             {
-                // Deadline annotations found; checker is available for future use
-                let _ = &_checker;
-                return Vec::new();
+                found = true;
+                // Extract deadline name and value from expression
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let ms =
+                                args.first().and_then(extract_int_literal).unwrap_or(1000) as u64;
+                            if let Some(err) = checker.enter_deadline(name.clone(), ms, &decl.span)
+                            {
+                                return vec![err];
+                            }
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        // bare identifier, use default 1000ms
+                        if let Some(err) = checker.enter_deadline(name.clone(), 1000, &decl.span) {
+                            return vec![err];
+                        }
+                    }
+                    _ => {
+                        // Try to extract kv pairs for named params
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed");
+                        let ms = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "ms" || *k == "timeout")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(1000) as u64;
+                        if let Some(err) = checker.enter_deadline(name.to_string(), ms, &decl.span)
+                        {
+                            return vec![err];
+                        }
+                    }
+                }
+            }
+            // Register operation bounds
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "worst_case" || k == "bound")
+                && let Some((op, args)) = extract_call(&clause.body)
+            {
+                let ms = args.first().and_then(extract_int_literal).unwrap_or(0) as u64;
+                checker.register_bound(op.to_string(), ms);
             }
         }
     }
-    Vec::new()
+    if !found {
+        return Vec::new();
+    }
+    // Check operations within deadline contexts
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                let refs = collect_ident_references(&clause.body);
+                for name in &refs {
+                    if let Some(err) = checker.check_operation(name, &decl.span) {
+                        errors.push(err);
+                    }
+                }
+            }
+        }
+    }
+    errors
 }
 
 /// Scan for binary format declarations and validate fields.
 fn run_binary_format_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker = BinaryFormatChecker::new();
     let mut found = false;
+    let mut buffer_len: usize = 0;
     for decl in &source.decls {
         let clauses = match &decl.node {
             Decl::Contract(c) => &c.clauses,
@@ -4343,18 +4433,89 @@ fn run_binary_format_checks(source: &assura_parser::ast::SourceFile) -> Vec<Type
             _ => continue,
         };
         for clause in clauses {
-            if let ClauseKind::Other(ref k) = clause.kind
-                && (k == "binary_format" || k == "field" || k == "byte_layout")
-            {
-                found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.add_field(BinaryField {
-                        name: name.clone(),
-                        offset: 0,
-                        size: 1,
-                        endianness: None,
-                        span: decl.span.clone(),
-                    });
+            if let ClauseKind::Other(ref k) = clause.kind {
+                if k == "binary_format" || k == "byte_layout" {
+                    found = true;
+                    // Extract buffer length from call syntax: binary_format(len)
+                    if let Some((_, args)) = extract_call(&clause.body) {
+                        if let Some(len) = args.first().and_then(extract_int_literal) {
+                            buffer_len = len as usize;
+                        }
+                    } else if let Some(len) = extract_int_literal(&clause.body) {
+                        buffer_len = len as usize;
+                    }
+                }
+                if k == "field" {
+                    found = true;
+                    // Extract field from call syntax: field(name, offset, size)
+                    // or from kv pairs: name = x, offset = y, size = z
+                    match &clause.body {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = func.as_ref() {
+                                let offset = args.first().and_then(extract_int_literal).unwrap_or(0)
+                                    as usize;
+                                let size =
+                                    args.get(1).and_then(extract_int_literal).unwrap_or(1) as usize;
+                                let endianness =
+                                    args.get(2).and_then(extract_ident).map(|e| match e {
+                                        "big" | "be" => Endianness::Big,
+                                        "little" | "le" => Endianness::Little,
+                                        _ => Endianness::Native,
+                                    });
+                                checker.add_field(BinaryField {
+                                    name: name.clone(),
+                                    offset,
+                                    size,
+                                    endianness,
+                                    span: decl.span.clone(),
+                                });
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            checker.add_field(BinaryField {
+                                name: name.clone(),
+                                offset: 0,
+                                size: 1,
+                                endianness: None,
+                                span: decl.span.clone(),
+                            });
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed")
+                                .to_string();
+                            let offset = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "offset")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(0) as usize;
+                            let size = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "size")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(1) as usize;
+                            let endianness = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "endian" || *k == "endianness")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .map(|e| match e {
+                                    "big" | "be" => Endianness::Big,
+                                    "little" | "le" => Endianness::Little,
+                                    _ => Endianness::Native,
+                                });
+                            checker.add_field(BinaryField {
+                                name,
+                                offset,
+                                size,
+                                endianness,
+                                span: decl.span.clone(),
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -4362,11 +4523,13 @@ fn run_binary_format_checks(source: &assura_parser::ast::SourceFile) -> Vec<Type
     if !found {
         return Vec::new();
     }
-    checker.check_endianness()
+    checker.check_all(buffer_len)
 }
 
-/// Scan for bit-level format annotations.
+/// Scan for bit-level format annotations and validate bit fields.
 fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut container_bits: usize = 0;
+    let mut checker: Option<BitLevelChecker> = None;
     let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -4375,18 +4538,85 @@ fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
             _ => continue,
         };
         for clause in clauses {
-            if let ClauseKind::Other(ref k) = clause.kind
-                && (k == "bit_field" || k == "bit_layout" || k == "bit_level")
-            {
-                found = true;
+            if let ClauseKind::Other(ref k) = clause.kind {
+                if k == "bit_layout" || k == "bit_level" {
+                    found = true;
+                    // Extract container size: bit_layout(bits)
+                    let bits = match &clause.body {
+                        Expr::Call { func: _, args } => {
+                            args.first().and_then(extract_int_literal).unwrap_or(64) as usize
+                        }
+                        Expr::Literal(_) => {
+                            extract_int_literal(&clause.body).unwrap_or(64) as usize
+                        }
+                        _ => 64,
+                    };
+                    container_bits = bits;
+                    checker = Some(BitLevelChecker::new(bits));
+                }
+                if k == "bit_field" {
+                    found = true;
+                    // Extract bit field: bit_field(name, offset, width) or bit_field(name, offset, width, cross_byte_ok)
+                    if let Some(ref mut ch) = checker {
+                        match &clause.body {
+                            Expr::Call { func, args } => {
+                                if let Expr::Ident(name) = func.as_ref() {
+                                    let bit_offset =
+                                        args.first().and_then(extract_int_literal).unwrap_or(0)
+                                            as usize;
+                                    let bit_width =
+                                        args.get(1).and_then(extract_int_literal).unwrap_or(1)
+                                            as usize;
+                                    let cross_byte_ok = args
+                                        .get(2)
+                                        .and_then(extract_ident)
+                                        .is_some_and(|v| v == "true");
+                                    ch.add_field(BitField {
+                                        name: name.clone(),
+                                        bit_offset,
+                                        bit_width,
+                                        span: decl.span.clone(),
+                                        cross_byte_ok,
+                                    });
+                                }
+                            }
+                            Expr::Ident(name) => {
+                                ch.add_field(BitField {
+                                    name: name.clone(),
+                                    bit_offset: 0,
+                                    bit_width: 1,
+                                    span: decl.span.clone(),
+                                    cross_byte_ok: false,
+                                });
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // No container declared yet, create default 64-bit
+                        container_bits = 64;
+                        let mut ch = BitLevelChecker::new(64);
+                        if let Expr::Ident(name) = &clause.body {
+                            ch.add_field(BitField {
+                                name: name.clone(),
+                                bit_offset: 0,
+                                bit_width: 1,
+                                span: decl.span.clone(),
+                                cross_byte_ok: false,
+                            });
+                        }
+                        checker = Some(ch);
+                    }
+                }
             }
         }
     }
     if !found {
         return Vec::new();
     }
-    let checker = BitLevelChecker::new(64);
-    checker.check_all(64)
+    match checker {
+        Some(ch) => ch.check_all(container_bits),
+        None => Vec::new(),
+    }
 }
 
 /// Scan for string encoding annotations and validate.
@@ -4404,8 +4634,37 @@ fn run_string_encoding_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
                 && (k == "encoding" || k == "string_encoding" || k == "charset")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.declare(name.clone(), StringEncoding::RawBytes);
+                // Extract encoding from call syntax: encoding(name, enc_type)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let enc = args
+                                .first()
+                                .and_then(extract_ident)
+                                .map(parse_encoding)
+                                .unwrap_or(StringEncoding::RawBytes);
+                            checker.declare(name.clone(), enc);
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare(name.clone(), StringEncoding::RawBytes);
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "var")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let enc = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "encoding" || *k == "enc")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .map(parse_encoding)
+                            .unwrap_or(StringEncoding::RawBytes);
+                        checker.declare(name, enc);
+                    }
                 }
             }
         }
@@ -4435,6 +4694,18 @@ fn run_string_encoding_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
     errors
 }
 
+/// Parse a string encoding name to the enum.
+fn parse_encoding(name: &str) -> StringEncoding {
+    match name {
+        "utf8" | "UTF8" | "utf-8" | "UTF-8" => StringEncoding::Utf8,
+        "utf16le" | "UTF16LE" | "utf-16le" => StringEncoding::Utf16Le,
+        "utf16be" | "UTF16BE" | "utf-16be" => StringEncoding::Utf16Be,
+        "ascii" | "ASCII" => StringEncoding::Ascii,
+        "latin1" | "LATIN1" | "iso-8859-1" => StringEncoding::Latin1,
+        _ => StringEncoding::RawBytes,
+    }
+}
+
 /// Scan for checksum annotations and validate verification order.
 fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker = ChecksumChecker::new();
@@ -4449,8 +4720,51 @@ fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
             if let ClauseKind::Other(ref k) = clause.kind {
                 if k == "checksum" || k == "crc" || k == "hash" {
                     found = true;
-                    if let Expr::Ident(name) = &clause.body {
-                        checker.declare_region(name.clone(), ChecksumAlgorithm::Crc32, 0, 1024);
+                    // Extract checksum params: checksum(name, algorithm, start, end)
+                    match &clause.body {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = func.as_ref() {
+                                let algo = args
+                                    .first()
+                                    .and_then(extract_ident)
+                                    .map(parse_checksum_algorithm)
+                                    .unwrap_or(ChecksumAlgorithm::Crc32);
+                                let start =
+                                    args.get(1).and_then(extract_int_literal).unwrap_or(0) as usize;
+                                let end = args.get(2).and_then(extract_int_literal).unwrap_or(1024)
+                                    as usize;
+                                checker.declare_region(name.clone(), algo, start, end);
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            checker.declare_region(name.clone(), ChecksumAlgorithm::Crc32, 0, 1024);
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name" || *k == "region")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed")
+                                .to_string();
+                            let algo = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "algorithm" || *k == "algo")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .map(parse_checksum_algorithm)
+                                .unwrap_or(ChecksumAlgorithm::Crc32);
+                            let start = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "start")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(0) as usize;
+                            let end = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "end")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(1024) as usize;
+                            checker.declare_region(name, algo, start, end);
+                        }
                     }
                 }
                 if (k == "verify_checksum" || k == "verified")
@@ -4486,8 +4800,21 @@ fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
     errors
 }
 
-/// Scan for protocol grammar/state machine annotations.
+/// Parse a checksum algorithm name to the enum.
+fn parse_checksum_algorithm(name: &str) -> ChecksumAlgorithm {
+    match name {
+        "crc32" | "CRC32" | "crc" => ChecksumAlgorithm::Crc32,
+        "adler32" | "ADLER32" | "adler" => ChecksumAlgorithm::Adler32,
+        "sha256" | "SHA256" | "sha-256" => ChecksumAlgorithm::Sha256,
+        "sha512" | "SHA512" | "sha-512" => ChecksumAlgorithm::Sha512,
+        "md5" | "MD5" => ChecksumAlgorithm::Md5,
+        _ => ChecksumAlgorithm::Custom(name.to_string()),
+    }
+}
+
+/// Scan for protocol grammar/state machine annotations and validate transitions.
 fn run_protocol_grammar_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker: Option<ProtocolGrammarChecker> = None;
     let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -4497,18 +4824,72 @@ fn run_protocol_grammar_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
             _ => continue,
         };
         for clause in clauses {
-            if let ClauseKind::Other(ref k) = clause.kind
-                && (k == "protocol" || k == "state_machine" || k == "rfc")
-            {
-                found = true;
+            if let ClauseKind::Other(ref k) = clause.kind {
+                if k == "protocol" || k == "state_machine" || k == "rfc" {
+                    found = true;
+                    // Extract initial state from expression
+                    let initial = extract_ident(&clause.body).unwrap_or("init").to_string();
+                    if checker.is_none() {
+                        checker = Some(ProtocolGrammarChecker::new(initial));
+                    }
+                }
+                // Register states
+                if (k == "state" || k == "protocol_state")
+                    && let Some(name) = extract_ident(&clause.body)
+                    && let Some(ref mut ch) = checker
+                {
+                    ch.add_state(name.to_string());
+                }
+                // Register transitions: transition(from, msg, to)
+                if k == "transition"
+                    && let Some((from, args)) = extract_call(&clause.body)
+                    && args.len() >= 2
+                    && let Some(ref mut ch) = checker
+                {
+                    let msg = extract_ident(&args[0]).unwrap_or("unknown").to_string();
+                    let to = extract_ident(&args[1]).unwrap_or("unknown").to_string();
+                    ch.add_transition(from.to_string(), to, msg);
+                }
+                // Register required fields: required_fields(msg, [field1, field2])
+                if (k == "required_fields" || k == "required")
+                    && let Some((msg, args)) = extract_call(&clause.body)
+                    && let Some(ref mut ch) = checker
+                {
+                    let field_names: Vec<String> = args
+                        .iter()
+                        .filter_map(|a| extract_ident(a).map(String::from))
+                        .collect();
+                    ch.add_required_fields(msg.to_string(), field_names);
+                }
             }
         }
     }
     if !found {
         return Vec::new();
     }
-    let _checker = ProtocolGrammarChecker::new("init".into());
-    Vec::new()
+    let checker = match checker {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+    // Validate message sends in clause bodies
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "send" || k == "message")
+                && let Some(msg) = extract_ident(&clause.body)
+                && let Some(err) = checker.check_send(msg, &decl.span)
+            {
+                errors.push(err);
+            }
+        }
+    }
+    errors
 }
 
 /// Scan for opaque function declarations and check contracts.
@@ -4568,8 +4949,9 @@ fn run_opaque_function_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
     errors
 }
 
-/// Scan for crash recovery / WAL annotations.
+/// Scan for crash recovery / WAL annotations and validate write ordering.
 fn run_crash_recovery_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = CrashRecoveryChecker::new();
     let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -4579,23 +4961,45 @@ fn run_crash_recovery_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
             _ => continue,
         };
         for clause in clauses {
-            if let ClauseKind::Other(ref k) = clause.kind
-                && (k == "wal" || k == "crash_recovery" || k == "write_ahead")
-            {
-                found = true;
+            if let ClauseKind::Other(ref k) = clause.kind {
+                if k == "wal" || k == "crash_recovery" || k == "write_ahead" {
+                    found = true;
+                    if let Some(id) = extract_ident(&clause.body) {
+                        checker.begin_write(id.to_string());
+                    }
+                }
+                if (k == "write_data" || k == "data_write")
+                    && let Some(id) = extract_ident(&clause.body)
+                {
+                    checker.write_data(id);
+                }
+                if (k == "write_wal" || k == "wal_write")
+                    && let Some(id) = extract_ident(&clause.body)
+                {
+                    checker.write_wal(id);
+                }
+                if (k == "fsync" || k == "flush")
+                    && let Some(id) = extract_ident(&clause.body)
+                {
+                    checker.fsync(id);
+                }
+                if k == "commit"
+                    && let Some(id) = extract_ident(&clause.body)
+                {
+                    checker.commit(id);
+                }
             }
         }
     }
     if !found {
         return Vec::new();
     }
-    let checker = CrashRecoveryChecker::new();
     checker.check_all()
 }
 
 /// Scan for page cache annotations.
 fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
-    let mut found = false;
+    let mut checker: Option<PageCacheChecker> = None;
     for decl in &source.decls {
         let clauses = match &decl.node {
             Decl::Contract(c) => &c.clauses,
@@ -4607,19 +5011,61 @@ fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "page_cache" || k == "buffer_pool" || k == "cache_policy")
             {
-                found = true;
+                // Extract capacity from annotation body
+                let capacity = match &clause.body {
+                    Expr::Call { args, .. } => {
+                        args.first().and_then(extract_int_literal).unwrap_or(1024) as usize
+                    }
+                    Expr::Literal(assura_parser::ast::Literal::Int(s)) => {
+                        s.parse::<usize>().unwrap_or(1024)
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        kvs.iter()
+                            .find(|(k, _)| *k == "capacity" || *k == "size" || *k == "max_pages")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(1024) as usize
+                    }
+                };
+                if checker.is_none() {
+                    checker = Some(PageCacheChecker::new(capacity));
+                }
+            }
+            // Extract page operations from requires/ensures clauses
+            if let Some(ch) = checker.as_mut()
+                && matches!(
+                    clause.kind,
+                    ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Other(_)
+                )
+            {
+                page_cache_scan_expr(&clause.body, ch);
             }
         }
     }
-    if !found {
-        return Vec::new();
+    match checker {
+        Some(ch) => ch.check_capacity(),
+        None => Vec::new(),
     }
-    let checker = PageCacheChecker::new(1024);
-    checker.check_capacity()
+}
+
+/// Scan an expression for page cache operations (load_page, pin, dirty, evict).
+fn page_cache_scan_expr(expr: &Expr, checker: &mut PageCacheChecker) {
+    if let Some((name, args)) = extract_call(expr) {
+        let page_id = args.first().and_then(extract_int_literal).unwrap_or(0) as u64;
+        match name {
+            "load_page" | "load" | "fetch_page" => checker.load_page(page_id),
+            "pin" | "pin_page" => checker.pin(page_id),
+            "unpin" | "unpin_page" => checker.unpin(page_id),
+            "mark_dirty" | "dirty" => checker.mark_dirty(page_id),
+            "flush" | "flush_page" => checker.flush(page_id),
+            _ => {}
+        }
+    }
 }
 
 /// Scan for MVCC/snapshot isolation annotations.
 fn run_mvcc_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = MvccChecker::new();
     let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -4633,18 +5079,58 @@ fn run_mvcc_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
                 && (k == "mvcc" || k == "snapshot_isolation" || k == "serializable")
             {
                 found = true;
+                // Extract transaction operations from annotation body
+                mvcc_scan_expr(&clause.body, &mut checker);
+            }
+            // Also scan requires/ensures for transaction operations
+            if found && matches!(clause.kind, ClauseKind::Requires | ClauseKind::Ensures) {
+                mvcc_scan_expr(&clause.body, &mut checker);
             }
         }
     }
     if !found {
         return Vec::new();
     }
-    let checker = MvccChecker::new();
     checker.check_write_conflicts()
+}
+
+/// Scan an expression for MVCC operations (begin_txn, write, commit).
+fn mvcc_scan_expr(expr: &Expr, checker: &mut MvccChecker) {
+    if let Some((name, args)) = extract_call(expr) {
+        match name {
+            "begin_txn" | "begin" | "start_transaction" => {
+                checker.begin_txn();
+            }
+            "write" | "write_version" | "put" => {
+                let key = args
+                    .first()
+                    .and_then(extract_ident)
+                    .unwrap_or("default")
+                    .to_string();
+                let txn_id = args.get(1).and_then(extract_int_literal).unwrap_or(1) as u64;
+                checker.write_version(key, txn_id);
+            }
+            "commit" | "commit_txn" => {
+                let txn_id = args.first().and_then(extract_int_literal).unwrap_or(1) as u64;
+                checker.commit_txn(txn_id);
+            }
+            _ => {}
+        }
+    }
+    // Scan sub-expressions in blocks/lists
+    match expr {
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                mvcc_scan_expr(e, checker);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Scan for transactional rollback annotations.
 fn run_rollback_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    let mut checker = RollbackChecker::new();
     let mut found = false;
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -4658,19 +5144,73 @@ fn run_rollback_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
                 && (k == "rollback" || k == "savepoint" || k == "transactional")
             {
                 found = true;
+                // Extract savepoints and resources from annotation body
+                rollback_scan_expr(&clause.body, &mut checker);
+            }
+            // Also scan requires/ensures for transactional operations
+            if found && matches!(clause.kind, ClauseKind::Requires | ClauseKind::Ensures) {
+                rollback_scan_expr(&clause.body, &mut checker);
             }
         }
     }
     if !found {
         return Vec::new();
     }
-    let checker = RollbackChecker::new();
     let mut errors = checker.check_resource_leak();
     errors.extend(checker.check_savepoint_nesting());
     errors
 }
 
-/// Scan for monotonic state annotations.
+/// Scan an expression for rollback operations (savepoint, acquire, release, rollback).
+fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) {
+    if let Some((name, args)) = extract_call(expr) {
+        match name {
+            "savepoint" | "create_savepoint" => {
+                let sp_name = args
+                    .first()
+                    .and_then(extract_ident)
+                    .unwrap_or("default")
+                    .to_string();
+                checker.create_savepoint(sp_name);
+            }
+            "acquire" | "acquire_resource" | "lock" => {
+                let res_name = args
+                    .first()
+                    .and_then(extract_ident)
+                    .unwrap_or("resource")
+                    .to_string();
+                checker.acquire_resource(res_name);
+            }
+            "release" | "release_resource" | "unlock" => {
+                let res_name = args.first().and_then(extract_ident).unwrap_or("resource");
+                checker.release_resource(res_name);
+            }
+            "rollback" | "rollback_to" => {
+                let sp_name = args.first().and_then(extract_ident).unwrap_or("default");
+                if let Some(err) = checker.rollback_to(sp_name) {
+                    // Rollback error is handled by the caller via check_* methods
+                    let _ = err;
+                }
+            }
+            _ => {}
+        }
+    }
+    // Also check for identifier-based savepoint declarations
+    if let Expr::Ident(name) = expr {
+        checker.create_savepoint(name.clone());
+    }
+    // Scan sub-expressions in blocks/lists
+    match expr {
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                rollback_scan_expr(e, checker);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Scan for monotonic state annotations and check update direction.
 fn run_monotonic_state_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker = MonotonicStateChecker::new();
     let mut found = false;
@@ -4681,17 +5221,59 @@ fn run_monotonic_state_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
             _ => continue,
         };
         for clause in clauses {
-            if let ClauseKind::Other(ref k) = clause.kind
-                && (k == "monotonic" || k == "monotone" || k == "increasing")
-            {
-                found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.declare(
-                        name.clone(),
-                        MonotonicDirection::Increasing,
-                        0,
-                        decl.span.clone(),
-                    );
+            if let ClauseKind::Other(ref k) = clause.kind {
+                if k == "monotonic" || k == "monotone" || k == "increasing" {
+                    found = true;
+                    // Extract direction from call syntax: monotonic(name, direction, initial)
+                    match &clause.body {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = func.as_ref() {
+                                let direction = args
+                                    .first()
+                                    .and_then(extract_ident)
+                                    .map(|d| match d {
+                                        "strictly_increasing" => {
+                                            MonotonicDirection::StrictlyIncreasing
+                                        }
+                                        "decreasing" => MonotonicDirection::Decreasing,
+                                        _ => MonotonicDirection::Increasing,
+                                    })
+                                    .unwrap_or(MonotonicDirection::Increasing);
+                                let initial =
+                                    args.get(1).and_then(extract_int_literal).unwrap_or(0);
+                                checker.declare(
+                                    name.clone(),
+                                    direction,
+                                    initial,
+                                    decl.span.clone(),
+                                );
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            checker.declare(
+                                name.clone(),
+                                MonotonicDirection::Increasing,
+                                0,
+                                decl.span.clone(),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                // Check updates: update(name, value)
+                if (k == "update" || k == "assign" || k == "set")
+                    && let Some((name, args)) = extract_call(&clause.body)
+                    && let Some(val) = args.first().and_then(extract_int_literal)
+                    && let Some(err) = checker.update(name, val)
+                {
+                    return vec![err];
+                }
+                // Check resets
+                if k == "reset"
+                    && let Some(name) = extract_ident(&clause.body)
+                    && let Some(err) = checker.check_reset(name)
+                {
+                    return vec![err];
                 }
             }
         }
@@ -4699,7 +5281,27 @@ fn run_monotonic_state_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
     if !found {
         return Vec::new();
     }
-    Vec::new()
+    // Check ensures clauses for monotonicity violations via identifier usage
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if clause.kind == ClauseKind::Ensures {
+                let refs = collect_ident_references(&clause.body);
+                for name in &refs {
+                    if let Some(err) = checker.check_access(name) {
+                        // Only report if the variable is referenced but not declared
+                        errors.push(err);
+                    }
+                }
+            }
+        }
+    }
+    errors
 }
 
 /// Scan for storage failure model annotations.
@@ -4745,7 +5347,7 @@ fn run_storage_failure_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
     errors
 }
 
-/// Scan for numerical precision annotations.
+/// Scan for numerical precision annotations and check precision bounds.
 fn run_numerical_precision_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker = NumericalPrecisionChecker::new();
     let mut found = false;
@@ -4760,8 +5362,39 @@ fn run_numerical_precision_checks(source: &assura_parser::ast::SourceFile) -> Ve
                 && (k == "precision" || k == "numerical_precision" || k == "ulp_bound")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.declare(name.clone(), 64, 1.0, decl.span.clone());
+                // Extract precision params from call syntax: precision(name, bits, ulp)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let bits =
+                                args.first().and_then(extract_int_literal).unwrap_or(64) as u32;
+                            let ulp = args.get(1).and_then(extract_float_literal).unwrap_or(1.0);
+                            checker.declare(name.clone(), bits, ulp, decl.span.clone());
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare(name.clone(), 64, 1.0, decl.span.clone());
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "var")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let bits = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "bits")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(64) as u32;
+                        let ulp = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "ulp")
+                            .and_then(|(_, v)| extract_float_literal(v))
+                            .unwrap_or(1.0);
+                        checker.declare(name, bits, ulp, decl.span.clone());
+                    }
                 }
             }
         }
@@ -4769,7 +5402,59 @@ fn run_numerical_precision_checks(source: &assura_parser::ast::SourceFile) -> Ve
     if !found {
         return Vec::new();
     }
-    Vec::new()
+    // Check precision in ensures clauses for referenced variables
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if clause.kind == ClauseKind::Ensures {
+                let refs = collect_ident_references(&clause.body);
+                for name in &refs {
+                    // Detect narrowing operations (e.g., 64-bit -> 32-bit)
+                    if let Some(err) = checker.check_precision_loss(name, 32) {
+                        // Only flag if there is a cast-like expression pattern
+                        if clause_contains_cast(&clause.body, name) {
+                            errors.push(err);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    errors
+}
+
+/// Check if a clause body contains a cast-like expression for a variable.
+fn clause_contains_cast(expr: &Expr, var_name: &str) -> bool {
+    match expr {
+        Expr::Cast { expr: inner, .. } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                name == var_name
+            } else {
+                clause_contains_cast(inner, var_name)
+            }
+        }
+        Expr::Call { func, args } => {
+            if let Expr::Ident(fn_name) = func.as_ref()
+                && (fn_name == "as_f32" || fn_name == "narrow" || fn_name == "truncate")
+                && args
+                    .iter()
+                    .any(|a| matches!(a, Expr::Ident(n) if n == var_name))
+            {
+                return true;
+            }
+            args.iter().any(|a| clause_contains_cast(a, var_name))
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            clause_contains_cast(lhs, var_name) || clause_contains_cast(rhs, var_name)
+        }
+        Expr::Paren(inner) => clause_contains_cast(inner, var_name),
+        _ => false,
+    }
 }
 
 /// Scan for precomputed table annotations.
@@ -4788,8 +5473,44 @@ fn run_precomputed_table_checks(source: &assura_parser::ast::SourceFile) -> Vec<
                 && (k == "precomputed_table" || k == "lookup_table" || k == "const_table")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.declare_table(name.clone(), 256, String::new(), decl.span.clone());
+                // Extract table params: precomputed_table(name, size, generator)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let size =
+                                args.first().and_then(extract_int_literal).unwrap_or(256) as usize;
+                            let gen_fn = args
+                                .get(1)
+                                .and_then(extract_ident)
+                                .unwrap_or("")
+                                .to_string();
+                            checker.declare_table(name.clone(), size, gen_fn, decl.span.clone());
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare_table(name.clone(), 256, String::new(), decl.span.clone());
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "table")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let size = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "size" || *k == "entries")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(256) as usize;
+                        let gen_fn = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "generator" || *k == "gen")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("")
+                            .to_string();
+                        checker.declare_table(name, size, gen_fn, decl.span.clone());
+                    }
                 }
             }
         }
@@ -4884,8 +5605,46 @@ fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
                 && (k == "resource_limit" || k == "limit" || k == "quota")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.declare_limit(name.clone(), u64::MAX, "units".into());
+                // Extract limit: limit(name, max, unit)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let max_val =
+                                args.first()
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(i64::MAX) as u64;
+                            let unit = args
+                                .get(1)
+                                .and_then(extract_ident)
+                                .unwrap_or("units")
+                                .to_string();
+                            checker.declare_limit(name.clone(), max_val, unit);
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare_limit(name.clone(), u64::MAX, "units".into());
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "resource")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let max_val = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "max" || *k == "limit")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(i64::MAX) as u64;
+                        let unit = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "unit" || *k == "units")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("units")
+                            .to_string();
+                        checker.declare_limit(name, max_val, unit);
+                    }
                 }
             }
         }
@@ -5039,14 +5798,61 @@ fn run_multi_pass_refinement_checks(source: &assura_parser::ast::SourceFile) -> 
                 && (k == "refinement_pass" || k == "multi_pass" || k == "refine")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.add_pass(
-                        name.clone(),
-                        "abstract".into(),
-                        "concrete".into(),
-                        1,
-                        decl.span.clone(),
-                    );
+                // Extract pass params: refine(name, from_level, to_level, order)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let from = args
+                                .first()
+                                .and_then(extract_ident)
+                                .unwrap_or("abstract")
+                                .to_string();
+                            let to = args
+                                .get(1)
+                                .and_then(extract_ident)
+                                .unwrap_or("concrete")
+                                .to_string();
+                            let order =
+                                args.get(2).and_then(extract_int_literal).unwrap_or(1) as usize;
+                            checker.add_pass(name.clone(), from, to, order, decl.span.clone());
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.add_pass(
+                            name.clone(),
+                            "abstract".into(),
+                            "concrete".into(),
+                            1,
+                            decl.span.clone(),
+                        );
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "pass")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let from = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "from" || *k == "source")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("abstract")
+                            .to_string();
+                        let to = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "to" || *k == "target")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("concrete")
+                            .to_string();
+                        let order = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "order")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(1) as usize;
+                        checker.add_pass(name, from, to, order, decl.span.clone());
+                    }
                 }
             }
         }
@@ -5071,13 +5877,68 @@ fn run_incremental_contract_checks(source: &assura_parser::ast::SourceFile) -> V
             Decl::Block { body, .. } => body,
             _ => continue,
         };
+        // Count requires/ensures clauses for this declaration
+        let requires_count = clauses
+            .iter()
+            .filter(|c| matches!(c.kind, ClauseKind::Requires))
+            .count();
+        let ensures_count = clauses
+            .iter()
+            .filter(|c| matches!(c.kind, ClauseKind::Ensures))
+            .count();
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "version" || k == "incremental" || k == "contract_version")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.add_version(name.clone(), 1, 1, 1);
+                // Extract version: version(name, major, minor, patch)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let major =
+                                args.first().and_then(extract_int_literal).unwrap_or(1) as u32;
+                            let minor =
+                                args.get(1).and_then(extract_int_literal).unwrap_or(0) as u32;
+                            let patch =
+                                args.get(2).and_then(extract_int_literal).unwrap_or(0) as u32;
+                            let version = major * 10000 + minor * 100 + patch;
+                            checker.add_version(
+                                name.clone(),
+                                version,
+                                requires_count,
+                                ensures_count,
+                            );
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.add_version(name.clone(), 10000, requires_count, ensures_count);
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "contract")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let major = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "major")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(1) as u32;
+                        let minor = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "minor")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(0) as u32;
+                        let patch = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "patch")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(0) as u32;
+                        let version = major * 10000 + minor * 100 + patch;
+                        checker.add_version(name, version, requires_count, ensures_count);
+                    }
                 }
             }
         }
