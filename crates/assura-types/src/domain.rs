@@ -1,3 +1,7 @@
+// Structural domain checkers for MASTER-PLAN Phase 2/3; methods are wired in
+// as the corresponding tasks are implemented.
+#![allow(dead_code)]
+
 //! Domain-specific type checkers.
 //!
 //! Each checker validates contracts against a specific domain (memory,
@@ -21,21 +25,21 @@ use crate::{Type, TypeError};
 /// - A22003: size mismatch between allocation and deallocation
 /// - A22004: arena lifetime violation (use after arena drop)
 #[derive(Debug, Clone)]
-pub struct AllocatorChecker {
+pub(crate) struct AllocatorChecker {
     allocations: HashMap<std::string::String, AllocInfo>,
     freed: HashMap<std::string::String, Range<usize>>,
     arenas: HashMap<std::string::String, ArenaInfo>,
 }
 
 #[derive(Debug, Clone)]
-pub struct AllocInfo {
+pub(crate) struct AllocInfo {
     pub size_expr: std::string::String,
     pub span: Range<usize>,
     pub arena: Option<std::string::String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ArenaInfo {
+pub(crate) struct ArenaInfo {
     pub dropped: bool,
     pub drop_span: Option<Range<usize>>,
 }
@@ -146,12 +150,12 @@ impl Default for AllocatorChecker {
 /// - A23002: physical index computation may wrap incorrectly
 /// - A23003: buffer empty on read
 #[derive(Debug, Clone)]
-pub struct CircularBufferChecker {
+pub(crate) struct CircularBufferChecker {
     pub(crate) buffers: HashMap<std::string::String, CircBufInfo>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CircBufInfo {
+pub(crate) struct CircBufInfo {
     pub capacity: usize,
     pub head: usize,
     pub tail: usize,
@@ -283,7 +287,7 @@ impl Default for CircularBufferChecker {
 /// - A24002: callback registered in non-reentrant context
 /// - A24003: unbounded callback depth
 #[derive(Debug, Clone)]
-pub struct CallbackReentrancyChecker {
+pub(crate) struct CallbackReentrancyChecker {
     /// Functions currently on the call stack
     call_stack: Vec<std::string::String>,
     /// Functions marked as non-reentrant
@@ -389,7 +393,7 @@ impl Default for CallbackReentrancyChecker {
 /// - A25002: nested deadline violation (inner > outer)
 /// - A25003: unbounded operation in deadline context
 #[derive(Debug, Clone)]
-pub struct TemporalDeadlineChecker {
+pub(crate) struct TemporalDeadlineChecker {
     /// Active deadline scopes (name -> deadline_ms)
     deadlines: Vec<(std::string::String, u64)>,
     /// Operations with known worst-case times
@@ -485,12 +489,12 @@ impl Default for TemporalDeadlineChecker {
 /// - A26003: endianness not specified for multi-byte field
 /// - A26004: overlapping fields
 #[derive(Debug, Clone)]
-pub struct BinaryFormatChecker {
+pub(crate) struct BinaryFormatChecker {
     fields: Vec<BinaryField>,
 }
 
 #[derive(Debug, Clone)]
-pub struct BinaryField {
+pub(crate) struct BinaryField {
     pub name: std::string::String,
     pub offset: usize,
     pub size: usize,
@@ -499,7 +503,7 @@ pub struct BinaryField {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Endianness {
+pub(crate) enum Endianness {
     Big,
     Little,
     Native,
@@ -599,13 +603,13 @@ impl Default for BinaryFormatChecker {
 /// - A27002: bit field crosses byte boundary without permission
 /// - A27003: total bit width doesn't match declared size
 #[derive(Debug, Clone)]
-pub struct BitLevelChecker {
+pub(crate) struct BitLevelChecker {
     fields: Vec<BitField>,
     container_bits: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct BitField {
+pub(crate) struct BitField {
     pub name: std::string::String,
     pub bit_offset: usize,
     pub bit_width: usize,
@@ -701,7 +705,7 @@ impl BitLevelChecker {
 /// - A28002: encoding mismatch (e.g., UTF-16 data treated as UTF-8)
 /// - A28003: truncation within multi-byte sequence
 #[derive(Debug, Clone, PartialEq)]
-pub enum StringEncoding {
+pub(crate) enum StringEncoding {
     Utf8,
     Utf16Le,
     Utf16Be,
@@ -711,7 +715,7 @@ pub enum StringEncoding {
 }
 
 #[derive(Debug, Clone)]
-pub struct StringEncodingChecker {
+pub(crate) struct StringEncodingChecker {
     variables: HashMap<std::string::String, StringEncoding>,
 }
 
@@ -807,7 +811,7 @@ impl Default for StringEncodingChecker {
 /// - A29002: checksum algorithm mismatch
 /// - A29003: checksum covers wrong byte range
 #[derive(Debug, Clone, PartialEq)]
-pub enum ChecksumAlgorithm {
+pub(crate) enum ChecksumAlgorithm {
     Crc32,
     Adler32,
     Sha256,
@@ -817,13 +821,13 @@ pub enum ChecksumAlgorithm {
 }
 
 #[derive(Debug, Clone)]
-pub struct ChecksumChecker {
+pub(crate) struct ChecksumChecker {
     /// Data regions and their checksum status
     regions: HashMap<std::string::String, ChecksumRegion>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ChecksumRegion {
+pub(crate) struct ChecksumRegion {
     pub algorithm: ChecksumAlgorithm,
     pub byte_start: usize,
     pub byte_end: usize,
@@ -938,7 +942,7 @@ impl Default for ChecksumChecker {
 /// - A30002: message sent in wrong protocol state
 /// - A30003: required message field missing
 #[derive(Debug, Clone)]
-pub struct ProtocolGrammarChecker {
+pub(crate) struct ProtocolGrammarChecker {
     states: Vec<std::string::String>,
     current_state: std::string::String,
     transitions: Vec<ProtocolTransition>,
@@ -946,7 +950,7 @@ pub struct ProtocolGrammarChecker {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProtocolTransition {
+pub(crate) struct ProtocolTransition {
     pub from: std::string::String,
     pub to: std::string::String,
     pub message: std::string::String,
@@ -1061,13 +1065,13 @@ impl ProtocolGrammarChecker {
 /// - A31002: axiom set is inconsistent (circular or contradictory)
 /// - A31003: axiom not used in any proof
 #[derive(Debug, Clone)]
-pub struct AxiomaticDefChecker {
+pub(crate) struct AxiomaticDefChecker {
     axioms: HashMap<std::string::String, AxiomDef>,
     used_axioms: Vec<std::string::String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct AxiomDef {
+pub(crate) struct AxiomDef {
     pub name: std::string::String,
     pub params: Vec<std::string::String>,
     pub body: std::string::String,
@@ -1181,14 +1185,14 @@ impl Default for AxiomaticDefChecker {
 /// - A32002: opaque function body accessed during verification
 /// - A32003: reveal used outside proof context
 #[derive(Debug, Clone)]
-pub struct OpaqueFunctionChecker {
+pub(crate) struct OpaqueFunctionChecker {
     opaque_fns: HashMap<std::string::String, OpaqueFnInfo>,
     revealed: Vec<std::string::String>,
     in_proof_context: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct OpaqueFnInfo {
+pub(crate) struct OpaqueFnInfo {
     pub has_contract: bool,
     pub span: Range<usize>,
 }
@@ -1458,14 +1462,14 @@ impl Default for TestGenerator {
 
 /// Tracks write-ahead log (WAL) discipline and crash-safe commit sequences.
 #[derive(Debug, Clone)]
-pub struct CrashRecoveryChecker {
+pub(crate) struct CrashRecoveryChecker {
     wal_entries: Vec<WalEntry>,
     committed: Vec<std::string::String>,
     fsynced: Vec<std::string::String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct WalEntry {
+pub(crate) struct WalEntry {
     pub id: std::string::String,
     pub data_written: bool,
     pub wal_written: bool,
@@ -1577,13 +1581,13 @@ impl Default for CrashRecoveryChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct PageCacheChecker {
+pub(crate) struct PageCacheChecker {
     pages: std::collections::HashMap<u64, PageInfo>,
     capacity: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct PageInfo {
+pub(crate) struct PageInfo {
     pub page_id: u64,
     pub dirty: bool,
     pub pinned: bool,
@@ -1696,14 +1700,14 @@ impl Default for PageCacheChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct MvccChecker {
+pub(crate) struct MvccChecker {
     versions: std::collections::HashMap<std::string::String, Vec<MvccVersion>>,
     active_snapshots: Vec<u64>,
     next_txn_id: u64,
 }
 
 #[derive(Debug, Clone)]
-pub struct MvccVersion {
+pub(crate) struct MvccVersion {
     pub txn_id: u64,
     pub committed: bool,
 }
@@ -1807,7 +1811,7 @@ impl Default for MvccChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct RollbackChecker {
+pub(crate) struct RollbackChecker {
     savepoints: Vec<std::string::String>,
     resources_acquired: Vec<std::string::String>,
     rolled_back: bool,
@@ -1893,19 +1897,19 @@ impl Default for RollbackChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct MonotonicStateChecker {
+pub(crate) struct MonotonicStateChecker {
     monotonic_vars: std::collections::HashMap<std::string::String, MonotonicInfo>,
 }
 
 #[derive(Debug, Clone)]
-pub struct MonotonicInfo {
+pub(crate) struct MonotonicInfo {
     pub current_value: i64,
     pub direction: MonotonicDirection,
     pub span: std::ops::Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum MonotonicDirection {
+pub(crate) enum MonotonicDirection {
     Increasing,
     StrictlyIncreasing,
     Decreasing,
@@ -2000,13 +2004,13 @@ impl Default for MonotonicStateChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct StorageFailureChecker {
+pub(crate) struct StorageFailureChecker {
     failure_modes: Vec<FailureMode>,
     handled_modes: Vec<std::string::String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum FailureMode {
+pub(crate) enum FailureMode {
     PartialWrite,
     TornPage,
     BitRot,
@@ -2108,12 +2112,12 @@ impl Default for StorageFailureChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct NumericalPrecisionChecker {
+pub(crate) struct NumericalPrecisionChecker {
     variables: std::collections::HashMap<std::string::String, PrecisionInfo>,
 }
 
 #[derive(Debug, Clone)]
-pub struct PrecisionInfo {
+pub(crate) struct PrecisionInfo {
     pub bits: u32,
     pub min_ulp: f64,
     pub span: std::ops::Range<usize>,
@@ -2205,12 +2209,12 @@ impl Default for NumericalPrecisionChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct PrecomputedTableChecker {
+pub(crate) struct PrecomputedTableChecker {
     tables: Vec<TableDecl>,
 }
 
 #[derive(Debug, Clone)]
-pub struct TableDecl {
+pub(crate) struct TableDecl {
     pub name: std::string::String,
     pub size: usize,
     pub verified_entries: usize,
@@ -2303,7 +2307,7 @@ impl Default for PrecomputedTableChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct PlatformAbstractionChecker {
+pub(crate) struct PlatformAbstractionChecker {
     platforms: Vec<std::string::String>,
     abstractions: std::collections::HashMap<std::string::String, Vec<std::string::String>>,
 }
@@ -2391,12 +2395,12 @@ impl Default for PlatformAbstractionChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct FeatureFlagChecker {
+pub(crate) struct FeatureFlagChecker {
     flags: std::collections::HashMap<std::string::String, FeatureFlagInfo>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FeatureFlagInfo {
+pub(crate) struct FeatureFlagInfo {
     pub name: std::string::String,
     pub default_enabled: bool,
     pub used: bool,
@@ -2494,13 +2498,13 @@ impl Default for FeatureFlagChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct ResourceLimitChecker {
+pub(crate) struct ResourceLimitChecker {
     limits: std::collections::HashMap<std::string::String, ResourceLimit>,
     usage: std::collections::HashMap<std::string::String, u64>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ResourceLimit {
+pub(crate) struct ResourceLimit {
     pub name: std::string::String,
     pub max_value: u64,
     pub unit: std::string::String,
@@ -2613,12 +2617,12 @@ impl Default for ResourceLimitChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct UnsafeEscapeChecker {
+pub(crate) struct UnsafeEscapeChecker {
     unsafe_blocks: Vec<UnsafeBlock>,
 }
 
 #[derive(Debug, Clone)]
-pub struct UnsafeBlock {
+pub(crate) struct UnsafeBlock {
     pub name: std::string::String,
     pub has_safety_proof: bool,
     pub proof_obligations: Vec<std::string::String>,
@@ -2722,12 +2726,12 @@ impl Default for UnsafeEscapeChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct ComplexityBoundChecker {
+pub(crate) struct ComplexityBoundChecker {
     bounds: std::collections::HashMap<std::string::String, ComplexityBound>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComplexityClass {
+pub(crate) enum ComplexityClass {
     Constant,
     Logarithmic,
     Linear,
@@ -2738,7 +2742,7 @@ pub enum ComplexityClass {
 }
 
 #[derive(Debug, Clone)]
-pub struct ComplexityBound {
+pub(crate) struct ComplexityBound {
     pub fn_name: std::string::String,
     pub declared: ComplexityClass,
     pub measured: Option<ComplexityClass>,
@@ -2845,12 +2849,12 @@ impl Default for ComplexityBoundChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct BehavioralEquivalenceChecker {
+pub(crate) struct BehavioralEquivalenceChecker {
     equivalences: Vec<EquivalenceDecl>,
 }
 
 #[derive(Debug, Clone)]
-pub struct EquivalenceDecl {
+pub(crate) struct EquivalenceDecl {
     pub name: std::string::String,
     pub impl_a: std::string::String,
     pub impl_b: std::string::String,
@@ -2947,12 +2951,12 @@ impl Default for BehavioralEquivalenceChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct MultiPassRefinementChecker {
+pub(crate) struct MultiPassRefinementChecker {
     passes: Vec<RefinementPass>,
 }
 
 #[derive(Debug, Clone)]
-pub struct RefinementPass {
+pub(crate) struct RefinementPass {
     pub name: std::string::String,
     pub from_level: std::string::String,
     pub to_level: std::string::String,
@@ -3056,18 +3060,18 @@ impl Default for MultiPassRefinementChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct IncrementalContractChecker {
+pub(crate) struct IncrementalContractChecker {
     contracts: std::collections::HashMap<std::string::String, ContractHistoryEntry>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ContractHistoryEntry {
+pub(crate) struct ContractHistoryEntry {
     pub name: std::string::String,
     pub versions: Vec<ContractVersionEntry>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ContractVersionEntry {
+pub(crate) struct ContractVersionEntry {
     pub version: u32,
     pub requires_count: usize,
     pub ensures_count: usize,
@@ -3174,13 +3178,13 @@ impl Default for IncrementalContractChecker {
 // ===========================================================================
 
 #[derive(Debug, Clone)]
-pub struct ScopedInvariantChecker {
+pub(crate) struct ScopedInvariantChecker {
     invariants: std::collections::HashMap<std::string::String, InvariantState>,
     suspension_depth: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum InvariantState {
+pub(crate) enum InvariantState {
     Active,
     Suspended,
     Restored,
@@ -3275,12 +3279,12 @@ impl Default for ScopedInvariantChecker {
 
 /// Core standard library type definitions (Pos, NonNeg, Email, Uuid, etc.)
 #[derive(Debug, Clone)]
-pub struct StdlibTypes {
+pub(crate) struct StdlibTypes {
     types: std::collections::HashMap<std::string::String, StdlibTypeDef>,
 }
 
 #[derive(Debug, Clone)]
-pub struct StdlibTypeDef {
+pub(crate) struct StdlibTypeDef {
     pub name: std::string::String,
     pub base_type: Type,
     pub refinement: std::string::String,
@@ -3376,12 +3380,12 @@ impl Default for StdlibTypes {
 
 /// Standard collection operation contracts.
 #[derive(Debug, Clone)]
-pub struct CollectionContracts {
+pub(crate) struct CollectionContracts {
     contracts: Vec<CollectionContract>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CollectionContract {
+pub(crate) struct CollectionContract {
     pub name: std::string::String,
     pub collection_type: std::string::String,
     pub preconditions: Vec<std::string::String>,
@@ -3474,13 +3478,13 @@ impl Default for CollectionContracts {
 
 /// Standard CRUD and authentication contract patterns.
 #[derive(Debug, Clone)]
-pub struct CrudAuthContracts {
+pub(crate) struct CrudAuthContracts {
     crud_ops: Vec<CrudOperation>,
     auth_policies: Vec<AuthPolicy>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CrudOperation {
+pub(crate) struct CrudOperation {
     pub name: std::string::String,
     pub op_type: CrudType,
     pub requires_auth: bool,
@@ -3489,7 +3493,7 @@ pub struct CrudOperation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum CrudType {
+pub(crate) enum CrudType {
     Create,
     Read,
     Update,
@@ -3497,7 +3501,7 @@ pub enum CrudType {
 }
 
 #[derive(Debug, Clone)]
-pub struct AuthPolicy {
+pub(crate) struct AuthPolicy {
     pub name: std::string::String,
     pub required_role: std::string::String,
     pub allow_self: bool,
@@ -3593,12 +3597,12 @@ impl Default for CrudAuthContracts {
 
 /// Tracks contract inheritance/composition via extends.
 #[derive(Debug, Clone)]
-pub struct ContractCompositionChecker {
+pub(crate) struct ContractCompositionChecker {
     contracts: std::collections::HashMap<std::string::String, ComposableContract>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ComposableContract {
+pub(crate) struct ComposableContract {
     pub name: std::string::String,
     pub extends: Vec<std::string::String>,
     pub own_clauses: usize,
@@ -3730,12 +3734,12 @@ impl Default for ContractCompositionChecker {
 
 /// Tracks contract library packaging metadata.
 #[derive(Debug, Clone)]
-pub struct ContractLibraryChecker {
+pub(crate) struct ContractLibraryChecker {
     libraries: Vec<ContractLibrary>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ContractLibrary {
+pub(crate) struct ContractLibrary {
     pub name: std::string::String,
     pub version: std::string::String,
     pub exported_contracts: Vec<std::string::String>,
@@ -3743,7 +3747,7 @@ pub struct ContractLibrary {
 }
 
 #[derive(Debug, Clone)]
-pub struct LibraryDep {
+pub(crate) struct LibraryDep {
     pub name: std::string::String,
     pub version_req: std::string::String,
 }

@@ -512,7 +512,14 @@ fn parse_predicate_to_z3<'ctx>(
 
     // Handle comparison operators (check multi-char ops first to avoid
     // matching `>` before `>=`)
-    let comparisons = [(">=", "ge"), ("<=", "le"), ("!=", "ne"), ("==", "eq"), (">", "gt"), ("<", "lt")];
+    let comparisons = [
+        (">=", "ge"),
+        ("<=", "le"),
+        ("!=", "ne"),
+        ("==", "eq"),
+        (">", "gt"),
+        ("<", "lt"),
+    ];
     for (op_str, op_kind) in comparisons {
         if let Some(pos) = body.find(op_str) {
             let lhs_str = body[..pos].trim();

@@ -338,7 +338,7 @@ impl TypeExpr {
 /// Best-effort parse of raw type token strings into a structured `TypeExpr`.
 ///
 /// Returns `None` only for empty slices that cannot be interpreted.
-pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
+pub(crate) fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
     if tokens.is_empty() {
         return Some(TypeExpr::Unit);
     }

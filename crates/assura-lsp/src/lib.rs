@@ -1150,6 +1150,7 @@ fn helper(n: Int) -> Int {
             message: "unknown type `Foo`".to_string(),
             span: 0..3,
             secondary: None,
+            suggestion: None,
         };
         let rope = Rope::from_str("Foo");
         let test_uri = Url::parse("file:///test.assura").unwrap();
@@ -1386,6 +1387,7 @@ fn f(n: Int) -> Int { n }
             message: "unused import".to_string(),
             span: 0..10,
             secondary: None,
+            suggestion: None,
         };
         let rope = Rope::from_str("import foo");
         let uri = Url::parse("file:///test.assura").unwrap();
@@ -1424,6 +1426,7 @@ fn f(n: Int) -> Int { n }
             message: "duplicate definition".to_string(),
             span: 20..25,
             secondary: Some((0..5, "first definition here".to_string())),
+            suggestion: None,
         };
         let rope = Rope::from_str("contract A { requires { true } }\ncontract A { }");
         let uri = Url::parse("file:///test.assura").unwrap();

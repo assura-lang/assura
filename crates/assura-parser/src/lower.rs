@@ -13,7 +13,7 @@ use crate::syntax_kind::SyntaxKind;
 type SyntaxNode = crate::syntax_kind::SyntaxNode;
 
 /// Lower a `SOURCE_FILE` node into an `ast::SourceFile`.
-pub fn lower_source_file(root: &SyntaxNode) -> SourceFile {
+pub(crate) fn lower_source_file(root: &SyntaxNode) -> SourceFile {
     let mut project = None;
     let mut module = None;
     let mut imports = Vec::new();

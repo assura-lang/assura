@@ -336,17 +336,6 @@ pub fn load_project_config(
     }
 }
 
-/// Parse verbosity from CLI arguments.
-pub fn parse_verbosity(args: &[String]) -> Verbosity {
-    if args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string()) {
-        Verbosity::Verbose
-    } else if args.contains(&"--quiet".to_string()) || args.contains(&"-q".to_string()) {
-        Verbosity::Quiet
-    } else {
-        Verbosity::Normal
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,18 +387,6 @@ mod tests {
         assert_eq!(config.verify.timeout_ms, 5000);
         assert_eq!(config.codegen.output_dir, "out");
         assert_eq!(config.codegen.target, "wasm");
-    }
-
-    #[test]
-    fn parse_verbosity_flags() {
-        let args: Vec<String> = vec!["--verbose".into()];
-        assert_eq!(parse_verbosity(&args), Verbosity::Verbose);
-
-        let args: Vec<String> = vec!["-q".into()];
-        assert_eq!(parse_verbosity(&args), Verbosity::Quiet);
-
-        let args: Vec<String> = vec!["check".into()];
-        assert_eq!(parse_verbosity(&args), Verbosity::Normal);
     }
 
     #[test]
@@ -555,24 +532,6 @@ version = "0.5.0"
         let toml_str = "[verify]\nsmt-solver = \"portfolio\"\n";
         let config: ProjectConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.verify.smt_solver, "portfolio");
-    }
-
-    #[test]
-    fn parse_verbosity_short_verbose_flag() {
-        let args: Vec<String> = vec!["-v".into()];
-        assert_eq!(parse_verbosity(&args), Verbosity::Verbose);
-    }
-
-    #[test]
-    fn parse_verbosity_quiet_long_flag() {
-        let args: Vec<String> = vec!["--quiet".into()];
-        assert_eq!(parse_verbosity(&args), Verbosity::Quiet);
-    }
-
-    #[test]
-    fn parse_verbosity_empty_args() {
-        let args: Vec<String> = vec![];
-        assert_eq!(parse_verbosity(&args), Verbosity::Normal);
     }
 
     #[test]

@@ -15,10 +15,12 @@ pub mod checkers;
 pub mod clauses;
 pub mod domain;
 pub mod inference;
-pub use checkers::*;
+use checkers::*;
+pub use checkers::{FrameChecker, PendingDecreaseCheck, TaintLabel};
 use clauses::*;
-pub use domain::*;
-pub use inference::*;
+use domain::*;
+pub use domain::{GeneratedTest, TestGenerator, TestKind, TestableContract};
+pub(crate) use inference::*;
 
 // ---------------------------------------------------------------------------
 // Type representation
@@ -94,7 +96,7 @@ impl Type {
     /// unknown or an error-recovery placeholder). Use this instead of
     /// matching `Type::Unknown` directly when deciding whether to
     /// suppress further diagnostics.
-    pub fn is_indeterminate(&self) -> bool {
+    pub(crate) fn is_indeterminate(&self) -> bool {
         matches!(self, Type::Unknown | Type::Error)
     }
 }
@@ -134,7 +136,7 @@ impl TypeEnv {
     }
 
     /// Look up a field type on a struct type.
-    pub fn lookup_field(&self, struct_name: &str, field_name: &str) -> Option<&Type> {
+    pub(crate) fn lookup_field(&self, struct_name: &str, field_name: &str) -> Option<&Type> {
         self.struct_fields
             .get(struct_name)
             .and_then(|fields| fields.iter().find(|(n, _)| n == field_name).map(|(_, t)| t))
@@ -1058,6 +1060,7 @@ impl std::fmt::Display for Type {
 // ---------------------------------------------------------------------------
 
 /// Expected number of type arguments for built-in generic types.
+#[allow(dead_code)] // Wired in when T015 is fully integrated
 fn builtin_generic_arity(name: &str) -> Option<usize> {
     match name {
         "List" | "Set" | "Option" | "Sequence" => Some(1),
@@ -1076,7 +1079,8 @@ fn builtin_generic_arity(name: &str) -> Option<usize> {
 ///
 /// Returns `Ok(())` on success, or `Err(TypeError)` with code A03003 if the
 /// argument count does not match.
-pub fn check_generic_instantiation(
+#[allow(dead_code)] // Wired in when T015 is fully integrated
+pub(crate) fn check_generic_instantiation(
     type_name: &str,
     type_args: &[Type],
     span: &Range<usize>,
@@ -1122,6 +1126,7 @@ pub fn check_generic_instantiation(
 
 /// Look up the number of type parameters for a user-defined type, contract,
 /// or enum by scanning the source AST declarations.
+#[allow(dead_code)] // Wired in when T015 is fully integrated
 fn user_defined_type_param_count(
     name: &str,
     source: &assura_parser::ast::SourceFile,
@@ -1143,7 +1148,8 @@ fn user_defined_type_param_count(
 /// replaces every `Type::TypeParam(name)` that appears in `bindings` with
 /// the corresponding concrete type. Types not in the bindings map are left
 /// unchanged.
-pub fn substitute(ty: &Type, bindings: &HashMap<std::string::String, Type>) -> Type {
+#[allow(dead_code)] // Wired in when T015 is fully integrated
+pub(crate) fn substitute(ty: &Type, bindings: &HashMap<std::string::String, Type>) -> Type {
     match ty {
         Type::TypeParam(name) => bindings.get(name).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(inner) => Type::List(Box::new(substitute(inner, bindings))),
@@ -1176,7 +1182,8 @@ pub fn substitute(ty: &Type, bindings: &HashMap<std::string::String, Type>) -> T
 /// Given a built-in generic name and validated type arguments, returns the
 /// fully instantiated `Type`. Panics if the argument count is wrong (caller
 /// should validate via `check_generic_instantiation` first).
-pub fn instantiate_builtin_generic(name: &str, args: Vec<Type>) -> Option<Type> {
+#[allow(dead_code)] // Wired in when T015 is fully integrated
+pub(crate) fn instantiate_builtin_generic(name: &str, args: Vec<Type>) -> Option<Type> {
     match name {
         "List" => Some(Type::List(Box::new(args.into_iter().next()?))),
         "Set" => Some(Type::Set(Box::new(args.into_iter().next()?))),
@@ -3114,7 +3121,7 @@ fn expr_mentions_len(expr: &Expr) -> bool {
 
 /// A pattern in a match arm, used for exhaustiveness checking.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Pattern {
+pub(crate) enum Pattern {
     /// Matches a specific enum variant by name.
     Variant(std::string::String),
     /// Wildcard `_` pattern that matches anything.
@@ -3137,7 +3144,7 @@ pub enum Pattern {
 ///
 /// When this returns `Some(_)`, the caller should report error **A10001**
 /// (non-exhaustive match) and include the missing variants in the diagnostic.
-pub fn check_exhaustiveness(
+pub(crate) fn check_exhaustiveness(
     patterns: &[Pattern],
     enum_variants: &[std::string::String],
 ) -> Option<Vec<std::string::String>> {

@@ -32,7 +32,7 @@ pub fn print_ast(file: &SourceFile) {
 }
 
 /// Print a single declaration at a given indentation level.
-pub fn print_decl(decl: &Decl, indent: usize) {
+pub(crate) fn print_decl(decl: &Decl, indent: usize) {
     let pad = "  ".repeat(indent);
     match decl {
         Decl::Contract(c) => {
@@ -367,68 +367,6 @@ pub fn expr_to_string(expr: &Expr) -> String {
             format!("({})", items.join(", "))
         }
         Expr::Raw(tokens) => tokens.join(" "),
-    }
-}
-
-/// Map raw token display names to human-friendly descriptions.
-pub fn friendly_token_name(raw: &str) -> String {
-    let s = raw.trim_matches('\'').trim_matches('"');
-    match s {
-        "{" => "'{'".to_string(),
-        "}" => "'}'".to_string(),
-        "(" => "'('".to_string(),
-        ")" => "')'".to_string(),
-        "[" => "'['".to_string(),
-        "]" => "']'".to_string(),
-        ":" => "':'".to_string(),
-        ";" => "';'".to_string(),
-        "," => "','".to_string(),
-        "." => "'.'".to_string(),
-        "=" => "'='".to_string(),
-        "<" => "'<'".to_string(),
-        ">" => "'>'".to_string(),
-        "->" => "'->'".to_string(),
-        "=>" => "'=>'".to_string(),
-        "#" => "'#'".to_string(),
-        // Clause keywords
-        "Requires" | "requires" => "requires".to_string(),
-        "Ensures" | "ensures" => "ensures".to_string(),
-        "Invariant" | "invariant" => "invariant".to_string(),
-        "Effects" | "effects" => "effects".to_string(),
-        "Modifies" | "modifies" => "modifies".to_string(),
-        "Input" | "input" => "input".to_string(),
-        "Output" | "output" => "output".to_string(),
-        "Errors" | "errors" => "errors".to_string(),
-        "Rule" | "rule" => "rule".to_string(),
-        "Decreases" | "decreases" => "decreases".to_string(),
-        "MustNot" | "must_not" => "must_not".to_string(),
-        "DataFlow" | "data_flow" => "data_flow".to_string(),
-        // Declaration keywords
-        "contract" => "contract".to_string(),
-        "type" => "type".to_string(),
-        "enum" => "enum".to_string(),
-        "fn" => "fn".to_string(),
-        "service" => "service".to_string(),
-        "extern" => "extern".to_string(),
-        "lemma" => "lemma".to_string(),
-        "opaque" => "opaque".to_string(),
-        "pure" => "pure".to_string(),
-        "ghost" => "ghost".to_string(),
-        // Other keywords
-        "Interface" | "interface" => "interface".to_string(),
-        "Extends" | "extends" => "extends".to_string(),
-        "Impl" | "impl" => "impl".to_string(),
-        "Spec" | "spec" => "spec".to_string(),
-        "Axiom" | "axiom" => "axiom".to_string(),
-        "Define" | "define" => "define".to_string(),
-        "Property" | "property" => "property".to_string(),
-        "ConstantTime" | "constant_time" => "constant_time".to_string(),
-        "MustBe" | "must_be" => "must_be".to_string(),
-        "VerifyAgainst" | "verify_against" => "verify_against".to_string(),
-        "Reads" | "reads" => "reads".to_string(),
-        "Bounds" | "bounds" => "bounds".to_string(),
-        // Default: pass through
-        _ => raw.to_string(),
     }
 }
 

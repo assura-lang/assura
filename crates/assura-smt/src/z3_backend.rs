@@ -1,6 +1,7 @@
 use super::*;
 use super::{CounterexampleModel, Expr};
 use assura_parser::ast::{BinOp, Clause, Literal, UnaryOp};
+use assura_types::checkers::expr_references_var;
 use std::collections::HashMap;
 use z3::ast::Ast;
 use z3::{Config, Context, Model, SatResult, Solver, ast};
@@ -3013,11 +3014,10 @@ fn collect_apply_refs_expr(expr: &Expr, refs: &mut Vec<String>) {
     }
 }
 
-/// Verify all declarations in a type-checked file using Z3.
+/// Verify a quantified formula using Z3.
 ///
-/// Uses `ParallelVerifier` to track verification jobs. Currently runs
-/// sequentially (Z3 `Context` is not `Send`), but the job infrastructure
-/// is in place for future parallel Z3 contexts.
+/// Encodes assumptions and the negated quantified body, then checks
+/// satisfiability. UNSAT means the formula holds universally.
 pub(crate) fn verify_quantified_impl(
     name: &str,
     assumptions: &[Expr],
@@ -3107,28 +3107,6 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
     let ctx = Context::new(&cfg);
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
-
-    // T114: register all verifiable clauses as parallel jobs
-    let mut pv = ParallelVerifier::new(num_cpus());
-    for decl in &typed.resolved.source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                for clause in &c.clauses {
-                    if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
-                        pv.add_job(c.name.clone(), format!("{:?}", clause.kind));
-                    }
-                }
-            }
-            Decl::FnDef(f) => {
-                for clause in &f.clauses {
-                    if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
-                        pv.add_job(f.name.clone(), format!("{:?}", clause.kind));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
 
     // T044: collect all lemma definitions for apply injection
     let lemma_defs = collect_lemma_defs(typed);
@@ -3260,16 +3238,16 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
         if !found_ordering {
             for clause in clauses {
                 if clause.kind == ClauseKind::Effects
-                    && (expr_contains_ident(&clause.body, "relaxed")
-                        || expr_contains_ident(&clause.body, "acquire")
-                        || expr_contains_ident(&clause.body, "release")
-                        || expr_contains_ident(&clause.body, "seq_cst"))
+                    && (expr_references_var(&clause.body, "relaxed")
+                        || expr_references_var(&clause.body, "acquire")
+                        || expr_references_var(&clause.body, "release")
+                        || expr_references_var(&clause.body, "seq_cst"))
                 {
-                    let ordering = if expr_contains_ident(&clause.body, "seq_cst") {
+                    let ordering = if expr_references_var(&clause.body, "seq_cst") {
                         MemoryOrdering::SeqCst
-                    } else if expr_contains_ident(&clause.body, "acquire") {
+                    } else if expr_references_var(&clause.body, "acquire") {
                         MemoryOrdering::Acquire
-                    } else if expr_contains_ident(&clause.body, "release") {
+                    } else if expr_references_var(&clause.body, "release") {
                         MemoryOrdering::Release
                     } else {
                         MemoryOrdering::Relaxed
@@ -3331,9 +3309,9 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
                         }
                         ClauseKind::Other(k) if k == "prove" => {
                             let text = format!("{:?}", clause.body);
-                            let liveness_kind = if expr_contains_ident(&clause.body, "leads_to") {
+                            let liveness_kind = if expr_references_var(&clause.body, "leads_to") {
                                 LivenessKind::LeadsTo
-                            } else if expr_contains_ident(&clause.body, "eventually_within") {
+                            } else if expr_references_var(&clause.body, "eventually_within") {
                                 // Extract bound from the expression if present
                                 let bound = extract_numeric_arg(&clause.body).unwrap_or(100);
                                 LivenessKind::EventuallyWithin(bound)
@@ -3355,8 +3333,8 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
                 // Also scan contract ensures for legacy liveness patterns
                 for clause in &c.clauses {
                     if clause.kind == ClauseKind::Ensures
-                        && (expr_contains_ident(&clause.body, "eventually")
-                            || expr_contains_ident(&clause.body, "leads_to"))
+                        && (expr_references_var(&clause.body, "eventually")
+                            || expr_references_var(&clause.body, "leads_to"))
                     {
                         lc.add_obligation(
                             format!("{}:liveness", c.name),
@@ -3392,29 +3370,7 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
         });
     }
 
-    // T114: mark all parallel jobs complete
-    let mut job_idx = 0;
-    for result in &results {
-        if job_idx < pv.job_count() {
-            let status = match result {
-                VerificationResult::Verified { .. } => "verified",
-                VerificationResult::Counterexample { .. } => "counterexample",
-                VerificationResult::Timeout { .. } => "timeout",
-                VerificationResult::Unknown { .. } => "unknown",
-            };
-            pv.complete_job(job_idx, status.into());
-            job_idx += 1;
-        }
-    }
-
     results
-}
-
-/// Get the number of available CPU cores (or a reasonable default).
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
 }
 
 /// Collect function names from an expression tree and register them
@@ -3467,53 +3423,6 @@ fn collect_function_names_for_triggers(expr: &Expr, tm: &mut crate::advanced::Tr
             collect_function_names_for_triggers(index, tm);
         }
         _ => {}
-    }
-}
-
-/// Check if an expression references a named variable (used for trigger inference).
-fn expr_references_var(expr: &Expr, name: &str) -> bool {
-    expr_contains_ident(expr, name)
-}
-
-/// Check if an expression tree contains a specific identifier.
-fn expr_contains_ident(expr: &Expr, name: &str) -> bool {
-    match expr {
-        Expr::Ident(s) => s == name,
-        Expr::BinOp { lhs, rhs, .. } => {
-            expr_contains_ident(lhs, name) || expr_contains_ident(rhs, name)
-        }
-        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
-            expr_contains_ident(expr, name)
-        }
-        Expr::Call { func, args } => {
-            expr_contains_ident(func, name) || args.iter().any(|a| expr_contains_ident(a, name))
-        }
-        Expr::Field(e, _) | Expr::Cast { expr: e, .. } => expr_contains_ident(e, name),
-        Expr::Block(exprs) | Expr::List(exprs) => {
-            exprs.iter().any(|e| expr_contains_ident(e, name))
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_contains_ident(cond, name)
-                || expr_contains_ident(then_branch, name)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_contains_ident(e, name))
-        }
-        Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
-            expr_contains_ident(body, name) || expr_contains_ident(domain, name)
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            expr_contains_ident(receiver, name) || args.iter().any(|a| expr_contains_ident(a, name))
-        }
-        Expr::Index { expr, index } => {
-            expr_contains_ident(expr, name) || expr_contains_ident(index, name)
-        }
-        Expr::Raw(tokens) => tokens.iter().any(|t| t == name),
-        _ => false,
     }
 }
 

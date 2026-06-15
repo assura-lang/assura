@@ -601,7 +601,7 @@ impl HirClause {
 }
 
 impl HirClauseKind {
-    pub fn to_ast_kind(&self) -> ast::ClauseKind {
+    pub(crate) fn to_ast_kind(&self) -> ast::ClauseKind {
         match self {
             HirClauseKind::Requires => ast::ClauseKind::Requires,
             HirClauseKind::Ensures => ast::ClauseKind::Ensures,
@@ -761,7 +761,7 @@ fn split_at_commas(tokens: &[String]) -> Vec<&[String]> {
 // ---------------------------------------------------------------------------
 
 /// Convert a structured `TypeExpr` (from the parser) to an `HirType`.
-pub fn hir_type_from_expr(expr: &ast::TypeExpr) -> HirType {
+pub(crate) fn hir_type_from_expr(expr: &ast::TypeExpr) -> HirType {
     match expr {
         ast::TypeExpr::Unit => HirType::Unit,
         ast::TypeExpr::Named(name) => HirType::Named(name.clone()),
@@ -784,7 +784,7 @@ pub fn hir_type_from_expr(expr: &ast::TypeExpr) -> HirType {
 
 /// Try to resolve a type from a `parsed_type` first, falling back to raw
 /// token parsing. This is the same pattern used in `assura-types`.
-pub fn resolve_hir_type(parsed_type: Option<&ast::TypeExpr>, tokens: &[String]) -> HirType {
+pub(crate) fn resolve_hir_type(parsed_type: Option<&ast::TypeExpr>, tokens: &[String]) -> HirType {
     if let Some(te) = parsed_type {
         hir_type_from_expr(te)
     } else {

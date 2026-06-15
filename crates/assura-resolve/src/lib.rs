@@ -186,6 +186,8 @@ pub struct ResolutionError {
     pub span: Span,
     /// Optional secondary span (e.g., previous definition site).
     pub secondary: Option<(Span, String)>,
+    /// Optional "did you mean?" suggestion.
+    pub suggestion: Option<String>,
 }
 
 impl From<ResolutionError> for assura_diagnostics::Diagnostic {
@@ -196,6 +198,9 @@ impl From<ResolutionError> for assura_diagnostics::Diagnostic {
                 span,
                 message: label,
             });
+        }
+        if let Some(hint) = e.suggestion {
+            d = d.with_suggestion(hint, 0..0, String::new());
         }
         d
     }
@@ -359,7 +364,7 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
 /// The `module_map` provides known modules for import resolution.
 /// The `visited` set tracks module paths currently being resolved,
 /// enabling detection of circular imports (A02005).
-pub fn resolve_with_modules(
+pub(crate) fn resolve_with_modules(
     source: &SourceFile,
     module_map: &ModuleMap,
     visited: &mut HashSet<String>,
@@ -374,6 +379,17 @@ pub fn resolve_with_modules(
         table
             .insert(root, name, SymbolKind::BuiltinType, 0..0)
             .expect("built-in types should not collide");
+    }
+
+    // --- Stdlib prelude types (Pos, NonNeg, Email, etc.) ---
+    for &name in &assura_stdlib::prelude_type_names() {
+        // Skip types already registered as built-ins above.
+        if table.scopes[root].symbols.contains_key(name) {
+            continue;
+        }
+        table
+            .insert(root, name, SymbolKind::BuiltinType, 0..0)
+            .expect("stdlib prelude types should not collide with built-ins");
     }
 
     // --- Module scope (child of root) ---
@@ -846,6 +862,7 @@ fn resolve_imports(
                 message: format!("duplicate import of module `{path_str}`"),
                 span: 0..0,
                 secondary: None,
+                suggestion: None,
             });
         }
     }
@@ -862,6 +879,7 @@ fn resolve_imports(
                 message: "import path is empty".to_string(),
                 span: 0..0,
                 secondary: None,
+                suggestion: None,
             });
             continue;
         }
@@ -881,6 +899,7 @@ fn resolve_imports(
                     ),
                     span: 0..0,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -910,6 +929,7 @@ fn resolve_imports(
                     // use a sentinel span.
                     span: 0..0,
                     secondary: None,
+                    suggestion: None,
                 });
                 ImportStatus::Circular
             } else if module_map.contains_key(&path_str)
@@ -1068,6 +1088,53 @@ fn should_be_lenient(source: &SourceFile, imports: &[ResolvedImport]) -> bool {
         .any(|imp| imp.status == ImportStatus::Unresolved)
 }
 
+/// Simple edit distance (Levenshtein) for "did you mean?" suggestions.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
+        row[0] = i;
+    }
+    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) {
+        *val = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
+}
+
+/// Find the closest matching name in the symbol table for "did you mean?" hints.
+/// Returns `Some("did you mean `X`?")` if a close match exists.
+fn find_similar_name(name: &str, table: &SymbolTable, scope_id: usize) -> Option<String> {
+    let threshold = match name.len() {
+        0..=2 => 1,
+        3..=5 => 2,
+        _ => 3,
+    };
+    let mut best: Option<(&str, usize)> = None;
+    // Walk all visible symbols from this scope upward
+    let mut current = Some(scope_id);
+    while let Some(id) = current {
+        for sym_name in table.scopes[id].symbols.keys() {
+            let dist = edit_distance(name, sym_name);
+            if dist <= threshold && dist < name.len() && (best.is_none() || dist < best.unwrap().1)
+            {
+                best = Some((sym_name, dist));
+            }
+        }
+        current = table.scopes[id].parent;
+    }
+    best.map(|(similar, _)| format!("did you mean `{similar}`?"))
+}
+
 /// Check a list of type-name tokens against the symbol table. Reports
 /// A02001 for names that cannot be resolved. When unresolved imports
 /// exist, unknown names are silently skipped (they may come from an
@@ -1088,11 +1155,13 @@ fn check_type_tokens(
         if lenient {
             continue;
         }
+        let suggestion = find_similar_name(name, table, scope_id);
         errors.push(ResolutionError {
             code: "A02001",
             message: format!("unknown type `{name}`"),
             span: span.clone(),
             secondary: None,
+            suggestion,
         });
     }
 }
@@ -1532,11 +1601,13 @@ fn check_expr_idents(
             if lenient {
                 return;
             }
+            let suggestion = find_similar_name(name, table, scope_id);
             errors.push(ResolutionError {
                 code: "A02001",
                 message: format!("undefined name `{name}` in clause body"),
                 span: span.clone(),
                 secondary: None,
+                suggestion,
             });
         }
         Expr::Field(receiver, _field) => {
@@ -1620,11 +1691,13 @@ fn check_expr_idents(
                 && !BUILTIN_VALUE_NAMES.contains(&lemma_name.as_str())
                 && !lenient
             {
+                let suggestion = find_similar_name(lemma_name, table, scope_id);
                 errors.push(ResolutionError {
                     code: "A02001",
                     message: format!("undefined lemma `{lemma_name}`"),
                     span: span.clone(),
                     secondary: None,
+                    suggestion,
                 });
             }
             for arg in args {
@@ -1653,11 +1726,13 @@ fn check_expr_idents(
                     && !is_type_name_candidate(tok)
                     && !lenient
                 {
+                    let suggestion = find_similar_name(tok, table, scope_id);
                     errors.push(ResolutionError {
                         code: "A02001",
                         message: format!("undefined name `{tok}` in clause body"),
                         span: span.clone(),
                         secondary: None,
+                        suggestion,
                     });
                 }
             }
@@ -1705,6 +1780,7 @@ fn try_insert(
                 message: format!("duplicate definition of `{name}`"),
                 span,
                 secondary: Some((prev_span, format!("`{name}` previously defined here"))),
+                suggestion: None,
             });
             false
         }
@@ -1977,6 +2053,7 @@ fn check_unused_imports(
                 message: format!("unused import `{path_str}`"),
                 span: 0..0,
                 secondary: None,
+                suggestion: None,
             });
         }
     }
@@ -2008,7 +2085,7 @@ pub fn find_project_root(start: &std::path::Path) -> Option<std::path::PathBuf> 
 
 /// Resolve a dotted module path (`a.b.c`) to a file path relative to
 /// the project root.  The convention is `a/b/c.assura`.
-pub fn resolve_module_path(
+pub(crate) fn resolve_module_path(
     project_root: &std::path::Path,
     module_path: &[String],
 ) -> Option<std::path::PathBuf> {
@@ -2029,14 +2106,14 @@ pub fn resolve_module_path(
 
 /// Errors produced during module graph construction.
 #[derive(Debug, Clone)]
-pub struct ModuleError {
+pub(crate) struct ModuleError {
     pub module_path: String,
     pub message: String,
 }
 
 /// A compiled module graph: all reachable modules parsed and resolved.
 #[derive(Debug)]
-pub struct ModuleGraph {
+pub(crate) struct ModuleGraph {
     /// All successfully resolved modules, keyed by dotted path.
     pub modules: ModuleMap,
     /// Errors encountered while loading modules.
@@ -2054,7 +2131,7 @@ pub struct ModuleGraph {
 /// 4. Detect circular imports via the visited set.
 /// 5. Return all modules in topological order (dependencies before
 ///    dependents).
-pub fn build_module_graph(
+pub(crate) fn build_module_graph(
     root_file: &std::path::Path,
     project_root: &std::path::Path,
 ) -> ModuleGraph {
@@ -2239,7 +2316,7 @@ fn file_to_module_path(file: &std::path::Path, project_root: &std::path::Path) -
 ///
 /// Processes modules in topological order so that a module's dependencies
 /// are always resolved before the module itself.
-pub fn resolve_module_graph(
+pub(crate) fn resolve_module_graph(
     graph: &ModuleGraph,
 ) -> (HashMap<String, ResolvedFile>, Vec<ModuleError>) {
     let mut resolved = HashMap::new();
@@ -2531,8 +2608,15 @@ service ImageDecoder {
     fn empty_file_ok() {
         let file = parse_ok("");
         let resolved = resolve(&file).expect("empty file should resolve");
-        // Only builtins
-        assert_eq!(resolved.symbols.symbols.len(), BUILTIN_TYPES.len());
+        // Built-in types + stdlib prelude types (minus duplicates already in BUILTIN_TYPES)
+        let stdlib_extras = assura_stdlib::prelude_type_names()
+            .iter()
+            .filter(|name| !BUILTIN_TYPES.contains(name))
+            .count();
+        assert_eq!(
+            resolved.symbols.symbols.len(),
+            BUILTIN_TYPES.len() + stdlib_extras
+        );
     }
 
     #[test]

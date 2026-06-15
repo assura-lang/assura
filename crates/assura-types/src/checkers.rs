@@ -1,3 +1,7 @@
+// Structural checker stubs for MASTER-PLAN Phase 2/3; methods are wired in
+// as the corresponding tasks are implemented.
+#![allow(dead_code)]
+
 //! Analysis pass checker structs.
 //!
 //! Implements the core analysis passes: linearity tracking, typestate,
@@ -18,7 +22,7 @@ use crate::{Type, TypeEnv, TypeError};
 ///
 /// Determines how many times a variable may be used at runtime.
 #[derive(Debug, Clone, PartialEq)]
-pub enum UsageGrade {
+pub(crate) enum UsageGrade {
     /// Grade 0: ghost/erased, no runtime usage allowed.
     Erased,
     /// Grade 1: linear, must be used exactly once.
@@ -47,7 +51,7 @@ impl std::fmt::Display for UsageGrade {
 /// After analysis, `check()` compares actual counts against expected grades
 /// and produces errors for violations.
 #[derive(Debug, Clone, Default)]
-pub struct UsageTracker {
+pub(crate) struct UsageTracker {
     /// Maps variable name -> (expected grade, actual usage count, declaration span).
     usages: HashMap<std::string::String, (UsageGrade, u32, Range<usize>)>,
 }
@@ -175,7 +179,7 @@ impl UsageTracker {
 /// forked, each branch is checked independently, and the results are
 /// merged back with consistency checks.
 #[derive(Debug, Clone)]
-pub struct LinearContext {
+pub(crate) struct LinearContext {
     tracker: UsageTracker,
 }
 
@@ -328,7 +332,7 @@ impl LinearContext {
 /// Returns errors for:
 /// - A05004: linear variable used inconsistently across branches
 /// - A05005: linear variable escapes its scope
-pub fn check_expr_linearity(expr: &Expr, ctx: &mut LinearContext) -> Vec<TypeError> {
+pub(crate) fn check_expr_linearity(expr: &Expr, ctx: &mut LinearContext) -> Vec<TypeError> {
     let mut errors = Vec::new();
     check_expr_linearity_inner(expr, ctx, &mut errors);
     errors
@@ -482,7 +486,7 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
 /// - **A06003**: State not declared in `states:` block
 /// - **A06004**: Ambiguous state after diverging branches
 #[derive(Debug, Clone)]
-pub struct TypestateError {
+pub(crate) struct TypestateError {
     /// Error code from the spec (A06xxx series).
     pub code: std::string::String,
     /// Human-readable error message.
@@ -517,7 +521,7 @@ struct Transition {
 /// - **A06003**: A transition references a state not in `states:`
 /// - **A06004**: After diverging branches, object is in different states
 #[derive(Debug, Clone)]
-pub struct TypestateChecker {
+pub(crate) struct TypestateChecker {
     /// All declared states for this typestate variable.
     states: Vec<std::string::String>,
     /// All declared transitions.
@@ -712,7 +716,7 @@ impl TypestateChecker {
 /// Each `Ident` node increments the usage count for that variable name.
 /// Recursively walks all sub-expressions (binary ops, unary ops, function
 /// calls, quantifiers, etc.).
-pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
+pub(crate) fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
     match expr {
         Expr::Ident(name) => {
             tracker.use_var(name);
@@ -824,7 +828,7 @@ pub fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
 /// Section 3.1 of the spec (e.g., `"io"`, `"console.read"`, `"pure"`).
 /// The special value `"pure"` represents an empty effect set.
 #[derive(Debug, Clone, PartialEq)]
-pub struct EffectSet {
+pub(crate) struct EffectSet {
     effects: std::collections::HashSet<std::string::String>,
 }
 
@@ -899,7 +903,7 @@ impl std::fmt::Display for EffectSet {
 
 /// An error produced by the effect checker.
 #[derive(Debug, Clone)]
-pub struct EffectError {
+pub(crate) struct EffectError {
     /// Error code from the spec (A07xxx series).
     pub code: std::string::String,
     /// Human-readable error message.
@@ -917,7 +921,7 @@ pub struct EffectError {
 /// The effect hierarchy from Section 3.6 is encoded: `io` is shorthand
 /// for all IO sub-effects, `database` for all database sub-effects,
 /// and `logging` for all log sub-effects.
-pub struct EffectChecker {
+pub(crate) struct EffectChecker {
     /// All known effect names (both group names and leaf effects).
     known_effects: std::collections::HashSet<&'static str>,
     /// Maps a group effect to its sub-effects.
@@ -1190,7 +1194,7 @@ impl Default for EffectChecker {
 /// - `Expr::List([...])` for comma-separated list
 ///
 /// Returns a set of string representations (e.g., `"x"`, `"node.keys"`).
-pub fn extract_modifies_targets(expr: &Expr) -> Vec<std::string::String> {
+pub(crate) fn extract_modifies_targets(expr: &Expr) -> Vec<std::string::String> {
     let mut targets = Vec::new();
     collect_modifies_targets(expr, &mut targets);
     targets
@@ -1259,7 +1263,7 @@ fn build_field_path(expr: &Expr, path: &mut std::string::String) {
 /// Walks the expression tree and whenever it finds `Expr::Old(inner)`,
 /// extracts the variable/field name from `inner`. This is used to find
 /// which pre-state variables an `ensures` clause references.
-pub fn collect_old_references(expr: &Expr) -> Vec<std::string::String> {
+pub(crate) fn collect_old_references(expr: &Expr) -> Vec<std::string::String> {
     let mut refs = Vec::new();
     collect_old_refs_inner(expr, &mut refs);
     refs
@@ -1366,7 +1370,7 @@ fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
 ///
 /// Used to find which variables an ensures clause mentions so we can
 /// determine which frame axioms to inject.
-pub fn collect_ident_references(expr: &Expr) -> Vec<std::string::String> {
+pub(crate) fn collect_ident_references(expr: &Expr) -> Vec<std::string::String> {
     let mut refs = Vec::new();
     collect_idents_inner(expr, &mut refs);
     refs
@@ -1469,7 +1473,7 @@ fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
 
 /// Extract an integer literal value from an expression.
 /// Returns `None` for non-literal or non-integer expressions.
-pub fn extract_int_literal(expr: &Expr) -> Option<i64> {
+pub(crate) fn extract_int_literal(expr: &Expr) -> Option<i64> {
     match expr {
         Expr::Literal(Literal::Int(s)) => s.parse::<i64>().ok(),
         Expr::UnaryOp {
@@ -1487,7 +1491,7 @@ pub fn extract_int_literal(expr: &Expr) -> Option<i64> {
 }
 
 /// Extract a float literal value from an expression.
-pub fn extract_float_literal(expr: &Expr) -> Option<f64> {
+pub(crate) fn extract_float_literal(expr: &Expr) -> Option<f64> {
     match expr {
         Expr::Literal(Literal::Float(s)) => s.parse::<f64>().ok(),
         Expr::Literal(Literal::Int(s)) => s.parse::<f64>().ok(),
@@ -1496,7 +1500,7 @@ pub fn extract_float_literal(expr: &Expr) -> Option<f64> {
 }
 
 /// Extract a string identifier from an expression.
-pub fn extract_ident(expr: &Expr) -> Option<&str> {
+pub(crate) fn extract_ident(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Ident(name) => Some(name.as_str()),
         _ => None,
@@ -1504,7 +1508,7 @@ pub fn extract_ident(expr: &Expr) -> Option<&str> {
 }
 
 /// Extract a key-value pair from a BinOp expression (e.g., `name = value`).
-pub fn extract_kv_pair(expr: &Expr) -> Option<(&str, &Expr)> {
+pub(crate) fn extract_kv_pair(expr: &Expr) -> Option<(&str, &Expr)> {
     match expr {
         Expr::BinOp {
             op: BinOp::Eq,
@@ -1523,7 +1527,7 @@ pub fn extract_kv_pair(expr: &Expr) -> Option<(&str, &Expr)> {
 
 /// Extract a call-style expression: `name(arg1, arg2, ...)`.
 /// Returns `(function_name, arguments)`.
-pub fn extract_call(expr: &Expr) -> Option<(&str, &[Expr])> {
+pub(crate) fn extract_call(expr: &Expr) -> Option<(&str, &[Expr])> {
     match expr {
         Expr::Call { func, args } => {
             if let Expr::Ident(name) = func.as_ref() {
@@ -1537,7 +1541,7 @@ pub fn extract_call(expr: &Expr) -> Option<(&str, &[Expr])> {
 }
 
 /// Extract multiple key-value pairs from a block or list expression.
-pub fn extract_kv_pairs(expr: &Expr) -> Vec<(&str, &Expr)> {
+pub(crate) fn extract_kv_pairs(expr: &Expr) -> Vec<(&str, &Expr)> {
     match expr {
         Expr::Block(exprs) | Expr::List(exprs) => {
             exprs.iter().filter_map(extract_kv_pair).collect()
@@ -1709,7 +1713,7 @@ impl std::fmt::Debug for FrameChecker {
 
 /// Error propagation policy for a set of error codes.
 #[derive(Debug, Clone, Default)]
-pub struct ErrorPolicy {
+pub(crate) struct ErrorPolicy {
     /// Error codes that MUST propagate to the caller (never silently swallowed).
     pub must_propagate: Vec<String>,
     /// Forbidden error translations: (from, to).
@@ -1721,7 +1725,7 @@ pub struct ErrorPolicy {
 }
 
 /// Checker for error propagation contracts.
-pub struct ErrorPropagationChecker {
+pub(crate) struct ErrorPropagationChecker {
     /// Registered error policies.
     pub policies: HashMap<String, ErrorPolicy>,
 }
@@ -1819,7 +1823,7 @@ impl ErrorPropagationChecker {
 
 /// What happens to a caught error.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ErrorAction {
+pub(crate) enum ErrorAction {
     /// Error is silently discarded (catch and ignore).
     Swallow,
     /// Error is translated to a different code.
@@ -1839,7 +1843,7 @@ pub enum ErrorAction {
 /// In Assura, a region is a ghost construct: `region valid_range = 0..buf.len`.
 /// It describes a set of indices that are valid for buffer access.
 #[derive(Debug, Clone)]
-pub struct MemoryRegion {
+pub(crate) struct MemoryRegion {
     /// Name of the region (e.g., "valid_range").
     pub name: std::string::String,
     /// Lower bound expression (as variable name or literal).
@@ -1859,7 +1863,7 @@ pub struct MemoryRegion {
 ///   within parent region)
 /// - **A08103**: Ghost region references non-existent buffer
 #[derive(Debug, Clone)]
-pub struct MemoryError {
+pub(crate) struct MemoryError {
     /// Error code from the spec (A08xxx series).
     pub code: std::string::String,
     /// Human-readable error message.
@@ -1884,7 +1888,7 @@ pub struct MemoryError {
 /// - **A08101**: Buffer access without bounds check
 /// - **A08102**: Region containment violation
 /// - **A08103**: Ghost region references non-existent buffer
-pub struct MemoryChecker {
+pub(crate) struct MemoryChecker {
     /// Known buffer-typed variables and their capacity expressions.
     /// Maps variable name -> capacity field name (e.g., "buf" -> "buf.len").
     buffers: HashMap<std::string::String, std::string::String>,
@@ -2219,7 +2223,7 @@ impl std::fmt::Display for TaintLabel {
 /// `FnDef.return_ty`). Also handles `@untrusted` short form.
 ///
 /// Returns `Some(label)` if found, `None` if no taint annotation is present.
-pub fn extract_taint_label(type_tokens: &[String]) -> Option<TaintLabel> {
+pub(crate) fn extract_taint_label(type_tokens: &[String]) -> Option<TaintLabel> {
     // Look for pattern: "@" "taint" ":" <label>
     for window in type_tokens.windows(4) {
         if window[0] == "@" && window[1] == "taint" && window[2] == ":" {
@@ -2259,7 +2263,7 @@ pub fn extract_taint_label(type_tokens: &[String]) -> Option<TaintLabel> {
 /// - **A09103**: Tainted data flows to trusted sink
 /// - **A09104**: Taint validation incomplete (partial sanitization)
 #[derive(Debug, Clone)]
-pub struct TaintChecker {
+pub(crate) struct TaintChecker {
     /// Maps variable name to its taint label.
     labels: HashMap<std::string::String, TaintLabel>,
     /// Names of functions known to validate/sanitize input.
@@ -2711,7 +2715,7 @@ fn is_alloc_function(name: &str) -> bool {
 
 /// Trust boundary classification for FFI declarations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TrustBoundary {
+pub(crate) enum TrustBoundary {
     /// Fully trusted: internal Assura code
     Trusted,
     /// Semi-trusted: audited external code with contracts
@@ -2732,7 +2736,7 @@ impl std::fmt::Display for TrustBoundary {
 
 /// Error from the FFI boundary checker.
 #[derive(Debug, Clone)]
-pub struct FfiError {
+pub(crate) struct FfiError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -2745,7 +2749,7 @@ pub struct FfiError {
 /// - Untrusted FFI calls have requires/ensures contracts
 /// - Data crossing trust boundaries is validated
 /// - Unsafe operations are isolated to FFI wrappers
-pub struct FfiBoundaryChecker {
+pub(crate) struct FfiBoundaryChecker {
     /// Known extern declarations with their trust levels
     externs: HashMap<String, TrustBoundary>,
     /// FFI functions that have contracts (requires/ensures)
@@ -2872,7 +2876,7 @@ impl Default for FfiBoundaryChecker {
 
 /// An interface contract: a set of required method signatures with contracts.
 #[derive(Debug, Clone)]
-pub struct InterfaceContract {
+pub(crate) struct InterfaceContract {
     pub name: String,
     /// Required method signatures
     pub methods: Vec<InterfaceMethod>,
@@ -2882,7 +2886,7 @@ pub struct InterfaceContract {
 
 /// A method signature within an interface contract.
 #[derive(Debug, Clone)]
-pub struct InterfaceMethod {
+pub(crate) struct InterfaceMethod {
     pub name: String,
     pub param_types: Vec<Type>,
     pub return_type: Type,
@@ -2894,7 +2898,7 @@ pub struct InterfaceMethod {
 
 /// Error from the interface contract checker.
 #[derive(Debug, Clone)]
-pub struct InterfaceError {
+pub(crate) struct InterfaceError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -2907,7 +2911,7 @@ pub struct InterfaceError {
 /// - Method signatures match (parameter types, return types)
 /// - Re-entrancy restrictions are respected
 /// - Super-interface contracts are inherited correctly
-pub struct InterfaceChecker {
+pub(crate) struct InterfaceChecker {
     /// Known interface definitions
     interfaces: HashMap<String, InterfaceContract>,
     /// Implementations: (implementing_type, interface_name) -> methods
@@ -3093,7 +3097,7 @@ impl Default for InterfaceChecker {
 
 /// Error from the constant-time checker.
 #[derive(Debug, Clone)]
-pub struct ConstantTimeError {
+pub(crate) struct ConstantTimeError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -3103,7 +3107,7 @@ pub struct ConstantTimeError {
 ///
 /// Ensures secret-dependent code does not branch on secrets,
 /// preventing timing side-channel attacks.
-pub struct ConstantTimeChecker {
+pub(crate) struct ConstantTimeChecker {
     /// Variables classified as secret
     secrets: HashMap<String, bool>,
 }
@@ -3219,7 +3223,7 @@ impl Default for ConstantTimeChecker {
 
 /// A structural invariant on a recursive data structure.
 #[derive(Debug, Clone)]
-pub struct StructuralInvariant {
+pub(crate) struct StructuralInvariant {
     pub name: String,
     /// The type this invariant applies to
     pub type_name: String,
@@ -3229,7 +3233,7 @@ pub struct StructuralInvariant {
 
 /// Kinds of structural invariants for recursive types.
 #[derive(Debug, Clone, PartialEq)]
-pub enum InvariantKind {
+pub(crate) enum InvariantKind {
     /// Tree balance: left depth and right depth differ by at most k
     TreeBalance { max_diff: u32 },
     /// List sortedness: elements in non-decreasing order
@@ -3273,14 +3277,14 @@ impl std::fmt::Display for InvariantKind {
 
 /// Error from the structural invariant checker.
 #[derive(Debug, Clone)]
-pub struct StructuralInvariantError {
+pub(crate) struct StructuralInvariantError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
 }
 
 /// Checker for recursive structural invariants.
-pub struct StructuralInvariantChecker {
+pub(crate) struct StructuralInvariantChecker {
     /// Registered invariants per type
     invariants: HashMap<String, Vec<StructuralInvariant>>,
     /// Known recursive types (type name -> list of recursive field names)
@@ -3422,7 +3426,7 @@ impl Default for StructuralInvariantChecker {
 
 /// Access mode for a shared object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccessMode {
+pub(crate) enum AccessMode {
     /// Exclusive read-write access (no other readers/writers)
     Exclusive,
     /// Shared read-only access (multiple readers, no writers)
@@ -3443,7 +3447,7 @@ impl std::fmt::Display for AccessMode {
 
 /// Error from the shared memory checker.
 #[derive(Debug, Clone)]
-pub struct SharedMemError {
+pub(crate) struct SharedMemError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -3453,7 +3457,7 @@ pub struct SharedMemError {
 ///
 /// Validates that concurrent accesses to shared objects follow
 /// the declared protocol: no data races, no concurrent writes.
-pub struct SharedMemChecker {
+pub(crate) struct SharedMemChecker {
     /// Per-object access modes
     object_modes: HashMap<String, AccessMode>,
 }
@@ -3549,7 +3553,7 @@ impl Default for SharedMemChecker {
 
 /// Error from the determinism checker.
 #[derive(Debug, Clone)]
-pub struct DeterminismError {
+pub(crate) struct DeterminismError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -3560,7 +3564,7 @@ pub struct DeterminismError {
 /// Ensures functions marked as `deterministic` do not use
 /// non-deterministic constructs (HashMap iteration, random,
 /// thread-dependent ordering).
-pub struct DeterminismChecker {
+pub(crate) struct DeterminismChecker {
     /// Functions marked as deterministic
     deterministic_fns: HashMap<String, bool>,
     /// Known non-deterministic types/functions
@@ -3664,7 +3668,7 @@ impl Default for DeterminismChecker {
 
 /// Error from the lock ordering checker.
 #[derive(Debug, Clone)]
-pub struct LockOrderError {
+pub(crate) struct LockOrderError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -3673,7 +3677,7 @@ pub struct LockOrderError {
 /// Checker for static lock ordering.
 ///
 /// Prevents deadlocks by enforcing a total order on lock acquisitions.
-pub struct LockOrderChecker {
+pub(crate) struct LockOrderChecker {
     /// Lock hierarchy: name -> priority (lower = acquire first)
     lock_order: HashMap<String, u32>,
     /// Currently held locks (name, priority)
@@ -3768,7 +3772,7 @@ impl Default for LockOrderChecker {
 
 /// Error from the secure erasure checker.
 #[derive(Debug, Clone)]
-pub struct SecureErasureError {
+pub(crate) struct SecureErasureError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -3779,7 +3783,7 @@ pub struct SecureErasureError {
 /// Ensures that linear types marked as sensitive are consumed
 /// via zeroize before being dropped, preventing sensitive data
 /// from lingering in memory.
-pub struct SecureErasureChecker {
+pub(crate) struct SecureErasureChecker {
     /// Variables that hold sensitive data and must be zeroized
     sensitive_vars: HashMap<String, bool>,
     /// Variables that have been properly zeroized
@@ -3899,7 +3903,7 @@ impl Default for SecureErasureChecker {
 
 /// Error from the cryptographic conformance checker.
 #[derive(Debug, Clone)]
-pub struct CryptoConformanceError {
+pub(crate) struct CryptoConformanceError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -3907,7 +3911,7 @@ pub struct CryptoConformanceError {
 
 /// A cryptographic algorithm specification.
 #[derive(Debug, Clone)]
-pub struct CryptoSpec {
+pub(crate) struct CryptoSpec {
     pub name: String,
     pub key_size_bits: Vec<u32>,
     pub block_size_bytes: Option<u32>,
@@ -3919,7 +3923,7 @@ pub struct CryptoSpec {
 ///
 /// Validates that cryptographic implementations match their mathematical
 /// specifications: correct key sizes, nonce handling, tag verification.
-pub struct CryptoConformanceChecker {
+pub(crate) struct CryptoConformanceChecker {
     /// Known algorithm specs
     specs: HashMap<String, CryptoSpec>,
 }
@@ -4077,7 +4081,7 @@ impl Default for CryptoConformanceChecker {
 /// A dependent type index: the value a type depends on.
 /// Restricted to Nat, Bool, and finite enums (not arbitrary expressions).
 #[derive(Debug, Clone, PartialEq)]
-pub enum DepIndex {
+pub(crate) enum DepIndex {
     /// A natural number index, e.g. Vec<T, n>
     Nat(String),
     /// A boolean index, e.g. Matrix<T, is_square>
@@ -4098,14 +4102,14 @@ impl std::fmt::Display for DepIndex {
 
 /// A dependent type: a base type parameterized by one or more indices.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DepType {
+pub(crate) struct DepType {
     pub base: Type,
     pub indices: Vec<DepIndex>,
 }
 
 /// Error from the dependent type checker.
 #[derive(Debug, Clone)]
-pub struct DepTypeError {
+pub(crate) struct DepTypeError {
     pub code: String,
     pub message: String,
     pub span: Range<usize>,
@@ -4118,7 +4122,7 @@ pub struct DepTypeError {
 /// - Index arithmetic in type positions is well-formed
 /// - Indices are erased at runtime (ghost)
 /// - Type equality with indices is checked structurally
-pub struct DependentTypeChecker {
+pub(crate) struct DependentTypeChecker {
     /// Known enum types and their variants (for finiteness check)
     enums: HashMap<String, Vec<String>>,
     /// Known dependent type definitions
@@ -4415,7 +4419,7 @@ impl Default for DependentTypeChecker {
 /// - **A08004**: Implicit flow through control dependency
 /// - **A08005**: Covert channel through timing/exceptions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SecurityLabel {
+pub(crate) enum SecurityLabel {
     /// Publicly accessible data.
     Public,
     /// Internal-only data (not exposed to external consumers).
@@ -4439,7 +4443,7 @@ impl std::fmt::Display for SecurityLabel {
 
 /// A structured information flow error.
 #[derive(Debug, Clone)]
-pub struct InfoFlowError {
+pub(crate) struct InfoFlowError {
     /// Error code (A08001-A08005).
     pub code: std::string::String,
     /// Human-readable error message.
@@ -4455,7 +4459,7 @@ pub struct InfoFlowError {
 /// declassification.  Also tracks GDPR purpose labels for data-purpose
 /// compliance.
 #[derive(Debug, Clone)]
-pub struct InfoFlowChecker {
+pub(crate) struct InfoFlowChecker {
     /// Maps variable name to its security label.
     labels: HashMap<std::string::String, SecurityLabel>,
     /// Maps variable name to its GDPR purpose label (e.g. "analytics",
@@ -4895,7 +4899,7 @@ impl Default for InfoFlowChecker {
 
 /// What expression decreases at each recursive call, proving termination.
 #[derive(Debug, Clone)]
-pub enum DecreasesMeasure {
+pub(crate) enum DecreasesMeasure {
     /// A single natural-number expression that must strictly decrease.
     Natural(Expr),
     /// A lexicographic tuple of measures (e.g., Ackermann-like functions).
@@ -4906,7 +4910,7 @@ pub enum DecreasesMeasure {
 
 /// A totality error with error code, span, and message.
 #[derive(Debug, Clone)]
-pub struct TotalityError {
+pub(crate) struct TotalityError {
     /// Error code from the spec (A09xxx series).
     pub code: std::string::String,
     /// Human-readable error message.
@@ -4917,7 +4921,7 @@ pub struct TotalityError {
 
 /// Result of checking whether a recursive call decreases the measure.
 #[derive(Debug)]
-pub enum DecreaseCheckResult {
+pub(crate) enum DecreaseCheckResult {
     /// Syntactically proved to decrease (e.g., n-1, x.tail).
     Proved,
     /// Syntactically failed; needs SMT fallback.
@@ -4957,7 +4961,7 @@ pub struct PendingDecreaseCheck {
 /// - **A09002**: Measure does not strictly decrease at recursive call site
 /// - **A09003**: Cannot prove measure is well-founded (e.g., might go negative)
 /// - **A09004**: Mutually recursive functions without collective termination proof
-pub struct TotalityChecker {
+pub(crate) struct TotalityChecker {
     /// Names of functions known to be partial (escape hatch).
     partial_fns: std::collections::HashSet<std::string::String>,
 }
@@ -5617,7 +5621,7 @@ impl std::fmt::Debug for TotalityChecker {
 
 /// A structured error from fixed-width integer checking.
 #[derive(Debug, Clone)]
-pub struct FixedWidthError {
+pub(crate) struct FixedWidthError {
     /// Error code (A10101-A10104).
     pub code: std::string::String,
     /// Human-readable message.
@@ -5641,7 +5645,7 @@ pub struct FixedWidthError {
 /// - **A10103**: Signed/unsigned mismatch in comparison
 /// - **A10104**: Division/modulo by zero not guarded
 #[derive(Debug, Clone)]
-pub struct FixedWidthChecker {
+pub(crate) struct FixedWidthChecker {
     /// Maps variable name to its fixed-width type.
     bindings: HashMap<std::string::String, Type>,
 }

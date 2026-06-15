@@ -148,7 +148,6 @@ dependencies = [
 name = "assura-codegen"
 version = "0.1.0"
 dependencies = [
- "assura-config",
  "assura-parser",
  "assura-resolve",
  "assura-types",
@@ -253,6 +252,7 @@ version = "0.1.0"
 dependencies = [
  "assura-diagnostics",
  "assura-parser",
+ "assura-stdlib",
 ]
 
 [[package]]

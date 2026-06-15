@@ -55,86 +55,6 @@ impl SolverChoice {
 }
 
 // ---------------------------------------------------------------------------
-// Solver trait (#26)
-// ---------------------------------------------------------------------------
-
-/// Trait abstracting an SMT solver backend.
-///
-/// Both Z3 (in-process) and CVC5 (command-line) implement this trait,
-/// enabling solver-agnostic verification and portfolio mode.
-pub trait Solver {
-    /// Human-readable solver name (e.g., "z3", "cvc5").
-    fn name(&self) -> &str;
-
-    /// Verify a contract's clauses, returning one result per verifiable clause.
-    fn verify_contract(
-        &self,
-        contract_name: &str,
-        clauses: &[assura_parser::ast::Clause],
-    ) -> Vec<VerificationResult>;
-}
-
-/// Z3 solver backend (in-process via the `z3` crate).
-pub struct Z3Solver;
-
-impl Solver for Z3Solver {
-    fn name(&self) -> &str {
-        "z3"
-    }
-
-    fn verify_contract(
-        &self,
-        contract_name: &str,
-        clauses: &[assura_parser::ast::Clause],
-    ) -> Vec<VerificationResult> {
-        verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3)
-    }
-}
-
-/// CVC5 solver backend (command-line via the `cvc5` binary).
-pub struct Cvc5Solver;
-
-impl Solver for Cvc5Solver {
-    fn name(&self) -> &str {
-        "cvc5"
-    }
-
-    fn verify_contract(
-        &self,
-        contract_name: &str,
-        clauses: &[assura_parser::ast::Clause],
-    ) -> Vec<VerificationResult> {
-        cvc5_backend::verify_contract_cvc5(contract_name, clauses)
-    }
-}
-
-/// Portfolio solver: tries Z3 first, falls back to CVC5 on timeout/unknown.
-pub struct PortfolioSolver;
-
-impl Solver for PortfolioSolver {
-    fn name(&self) -> &str {
-        "portfolio"
-    }
-
-    fn verify_contract(
-        &self,
-        contract_name: &str,
-        clauses: &[assura_parser::ast::Clause],
-    ) -> Vec<VerificationResult> {
-        verify_contract_with_solver(contract_name, clauses, SolverChoice::Portfolio)
-    }
-}
-
-/// Create a boxed solver from a `SolverChoice`.
-pub fn solver_from_choice(choice: SolverChoice) -> Box<dyn Solver> {
-    match choice {
-        SolverChoice::Z3 => Box::new(Z3Solver),
-        SolverChoice::Cvc5 => Box::new(Cvc5Solver),
-        SolverChoice::Portfolio => Box::new(PortfolioSolver),
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Measure definitions (T054)
 // ---------------------------------------------------------------------------
 
@@ -362,51 +282,6 @@ pub fn verify_with_options(
     {
         no_z3::verify_stub(typed)
     }
-}
-
-/// Verify all declarations in a `TypedFile`, using a filesystem cache.
-///
-/// For each contract/function, checks the cache first. On cache hit,
-/// returns the cached results directly. On miss, runs Z3 and stores
-/// the results for future runs.
-pub fn verify_with_cache(typed: &TypedFile, cache: &VerificationCache) -> Vec<VerificationResult> {
-    use assura_parser::ast::Decl;
-    let mut results = Vec::new();
-
-    for decl in &typed.resolved.source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                if let Some(cached) = cache.get(&c.name, &c.clauses) {
-                    results.extend(cached);
-                } else {
-                    let r = verify_contract(&c.name, &c.clauses);
-                    cache.put(&c.name, &c.clauses, &r);
-                    results.extend(r);
-                }
-            }
-            Decl::FnDef(f) => {
-                if let Some(cached) = cache.get(&f.name, &f.clauses) {
-                    results.extend(cached);
-                } else {
-                    let r = verify_contract(&f.name, &f.clauses);
-                    cache.put(&f.name, &f.clauses, &r);
-                    results.extend(r);
-                }
-            }
-            Decl::Extern(e) => {
-                if let Some(cached) = cache.get(&e.name, &e.clauses) {
-                    results.extend(cached);
-                } else {
-                    let r = verify_contract(&e.name, &e.clauses);
-                    cache.put(&e.name, &e.clauses, &r);
-                    results.extend(r);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    results
 }
 
 /// Verify all declarations in parallel using rayon.
@@ -2810,8 +2685,6 @@ pub mod cache;
 pub mod incremental;
 pub mod ir;
 pub mod layer2;
-pub mod parallel;
-
 // Re-export key types from submodules so callers and tests can use them
 // without qualifying the module path.
 pub use advanced::*;
@@ -2819,7 +2692,6 @@ pub use cache::*;
 pub use incremental::*;
 pub use ir::*;
 pub use layer2::*;
-pub use parallel::*;
 
 #[cfg(test)]
 mod measure_unit_tests {
@@ -3534,8 +3406,6 @@ mod measure_unit_tests {
         assert_eq!(cache.entry_count(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-    // ParallelVerifier tests: canonical location is parallel.rs
 
     // =======================================================================
     // has_verifiable_clauses tests

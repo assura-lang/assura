@@ -10,6 +10,5 @@ repository.workspace = true
 assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
-assura-config = { path = "../assura-config" }
 prettyplease = "0.2"
 syn = "2"

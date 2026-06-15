@@ -213,22 +213,6 @@ impl VerificationCache {
     }
 }
 
-/// Verify a contract's clauses, using the cache if available.
-///
-/// Checks the cache first. On miss, runs Z3 and stores the result.
-pub fn verify_contract_cached(
-    contract_name: &str,
-    clauses: &[assura_parser::ast::Clause],
-    cache: &VerificationCache,
-) -> Vec<VerificationResult> {
-    if let Some(results) = cache.get(contract_name, clauses) {
-        return results;
-    }
-    let results = verify_contract(contract_name, clauses);
-    cache.put(contract_name, clauses, &results);
-    results
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

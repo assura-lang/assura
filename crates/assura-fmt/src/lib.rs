@@ -56,7 +56,7 @@ pub fn format_source_file(file: &SourceFile) -> String {
     out
 }
 
-pub fn format_decl(decl: &Decl, out: &mut String) {
+pub(crate) fn format_decl(decl: &Decl, out: &mut String) {
     match decl {
         Decl::Contract(c) => format_contract(c, out),
         Decl::Service(s) => format_service(s, out),
@@ -76,7 +76,7 @@ pub fn format_decl(decl: &Decl, out: &mut String) {
     }
 }
 
-pub fn format_contract(c: &ContractDecl, out: &mut String) {
+pub(crate) fn format_contract(c: &ContractDecl, out: &mut String) {
     out.push_str("contract ");
     out.push_str(&c.name);
     if !c.type_params.is_empty() {
@@ -91,7 +91,7 @@ pub fn format_contract(c: &ContractDecl, out: &mut String) {
     out.push_str("}\n");
 }
 
-pub fn format_service(s: &ServiceDecl, out: &mut String) {
+pub(crate) fn format_service(s: &ServiceDecl, out: &mut String) {
     out.push_str("service ");
     out.push_str(&s.name);
     out.push_str(" {\n");
@@ -159,7 +159,7 @@ pub fn format_service(s: &ServiceDecl, out: &mut String) {
     out.push_str("}\n");
 }
 
-pub fn format_typedef(t: &TypeDef, out: &mut String) {
+pub(crate) fn format_typedef(t: &TypeDef, out: &mut String) {
     out.push_str("type ");
     out.push_str(&t.name);
     if !t.type_params.is_empty() {
@@ -186,7 +186,7 @@ pub fn format_typedef(t: &TypeDef, out: &mut String) {
     }
 }
 
-pub fn format_enumdef(e: &EnumDef, out: &mut String) {
+pub(crate) fn format_enumdef(e: &EnumDef, out: &mut String) {
     out.push_str("enum ");
     out.push_str(&e.name);
     if !e.type_params.is_empty() {
@@ -204,7 +204,7 @@ pub fn format_enumdef(e: &EnumDef, out: &mut String) {
     out.push_str("}\n");
 }
 
-pub fn format_extern(e: &ExternDecl, out: &mut String) {
+pub(crate) fn format_extern(e: &ExternDecl, out: &mut String) {
     out.push_str("extern fn ");
     out.push_str(&e.name);
     out.push('(');
@@ -232,7 +232,7 @@ pub fn format_extern(e: &ExternDecl, out: &mut String) {
     }
 }
 
-pub fn format_bind(b: &BindDecl, out: &mut String) {
+pub(crate) fn format_bind(b: &BindDecl, out: &mut String) {
     out.push_str(&format!("bind \"{}\" as {} {{\n", b.target_path, b.name));
     if !b.params.is_empty() {
         out.push_str("    input(");
@@ -261,7 +261,7 @@ pub fn format_bind(b: &BindDecl, out: &mut String) {
     out.push_str("}\n");
 }
 
-pub fn format_prophecy(p: &ProphecyDecl, out: &mut String) {
+pub(crate) fn format_prophecy(p: &ProphecyDecl, out: &mut String) {
     out.push_str("ghost prophecy ");
     out.push_str(&p.name);
     if !p.ty_tokens.is_empty() {
@@ -271,7 +271,7 @@ pub fn format_prophecy(p: &ProphecyDecl, out: &mut String) {
     out.push('\n');
 }
 
-pub fn format_codec_registry(cr: &CodecRegistryDecl, out: &mut String) {
+pub(crate) fn format_codec_registry(cr: &CodecRegistryDecl, out: &mut String) {
     out.push_str("codec_registry ");
     out.push_str(&cr.name);
     out.push_str(" {\n");
@@ -329,7 +329,7 @@ pub fn format_codec_registry(cr: &CodecRegistryDecl, out: &mut String) {
     out.push_str("}\n");
 }
 
-pub fn format_fndef(f: &FnDef, out: &mut String) {
+pub(crate) fn format_fndef(f: &FnDef, out: &mut String) {
     if f.is_ghost {
         out.push_str("ghost ");
     }
@@ -363,7 +363,7 @@ pub fn format_fndef(f: &FnDef, out: &mut String) {
     }
 }
 
-pub fn format_block(
+pub(crate) fn format_block(
     kind: &str,
     name: &str,
     value: &Option<Vec<String>>,
@@ -455,7 +455,7 @@ pub fn format_clause(clause: &Clause, out: &mut String) {
     }
 }
 
-pub fn is_braced_kind(kind: &ClauseKind) -> bool {
+pub(crate) fn is_braced_kind(kind: &ClauseKind) -> bool {
     matches!(
         kind,
         ClauseKind::Requires
@@ -469,7 +469,7 @@ pub fn is_braced_kind(kind: &ClauseKind) -> bool {
     )
 }
 
-pub fn format_expr(expr: &Expr, out: &mut String) {
+pub(crate) fn format_expr(expr: &Expr, out: &mut String) {
     match expr {
         Expr::Literal(lit) => format_literal(lit, out),
         Expr::Ident(name) => out.push_str(name),
@@ -619,7 +619,7 @@ pub fn format_expr(expr: &Expr, out: &mut String) {
     }
 }
 
-pub fn format_expr_list(items: &[Expr], out: &mut String) {
+pub(crate) fn format_expr_list(items: &[Expr], out: &mut String) {
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
@@ -628,7 +628,7 @@ pub fn format_expr_list(items: &[Expr], out: &mut String) {
     }
 }
 
-pub fn format_literal(lit: &Literal, out: &mut String) {
+pub(crate) fn format_literal(lit: &Literal, out: &mut String) {
     match lit {
         Literal::Int(s) | Literal::Float(s) => out.push_str(s),
         Literal::Str(s) => {
@@ -640,7 +640,7 @@ pub fn format_literal(lit: &Literal, out: &mut String) {
     }
 }
 
-pub fn format_pattern(pat: &Pattern, out: &mut String) {
+pub(crate) fn format_pattern(pat: &Pattern, out: &mut String) {
     match pat {
         Pattern::Ident(name) => out.push_str(name),
         Pattern::Literal(lit) => format_literal(lit, out),
@@ -671,7 +671,7 @@ pub fn format_pattern(pat: &Pattern, out: &mut String) {
 
 /// Join raw tokens, collapsing `.` into dotted paths without spaces.
 /// E.g., `["io", ".", "read"]` -> `"io.read"` instead of `"io . read"`.
-pub fn join_raw_tokens(tokens: &[String]) -> String {
+pub(crate) fn join_raw_tokens(tokens: &[String]) -> String {
     let mut out = String::new();
     for (i, tok) in tokens.iter().enumerate() {
         if tok == "." {
@@ -688,7 +688,7 @@ pub fn join_raw_tokens(tokens: &[String]) -> String {
     out
 }
 
-pub fn binop_str(op: &BinOp) -> &'static str {
+pub(crate) fn binop_str(op: &BinOp) -> &'static str {
     match op {
         BinOp::Add => "+",
         BinOp::Sub => "-",

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use clap::{Args, CommandFactory, Subcommand};
 use clap_complete::Shell;
 use std::fs;
