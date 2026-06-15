@@ -1,0 +1,9 @@
+// MUST REJECT A17004
+// Decryption without authentication tag verification.
+// The tag must be verified before processing plaintext.
+contract UnauthenticatedDecrypt {
+    input(key: Bytes, ciphertext: Bytes)
+    output(plaintext: Bytes)
+    conforms "AES-256-GCM"
+    decrypt true
+}

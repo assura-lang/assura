@@ -1,0 +1,9 @@
+// MUST REJECT A17003
+// A nonce source that is neither counter-based nor random.
+// Potential nonce reuse.
+contract StaticNonce {
+    input(key: Bytes, data: Bytes)
+    output(ciphertext: Bytes)
+    conforms "AES-256-GCM"
+    nonce static_value
+}

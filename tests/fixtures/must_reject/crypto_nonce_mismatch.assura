@@ -1,0 +1,9 @@
+// MUST REJECT A17002
+// A contract that specifies AES-256-GCM but declares a 16-byte nonce
+// instead of the correct 12 bytes.
+contract WrongNonceSize {
+    input(key: Bytes, nonce: Bytes, data: Bytes)
+    output(ciphertext: Bytes)
+    conforms "AES-256-GCM"
+    nonce_size 16
+}

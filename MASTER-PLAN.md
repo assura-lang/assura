@@ -1890,7 +1890,7 @@ but lack real semantic analysis or parser integration.
 
 ### G.4 Testing Gaps
 
-- [ ] **G012**: Add must_reject fixtures for all new error codes
+- [x] **G012**: Add must_reject fixtures for all new error codes
   - Depends on: G001, G005, G006, G007, G008
   - For each new error code introduced in G001-G008, add a
     corresponding `tests/fixtures/must_reject/` file:

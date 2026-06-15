@@ -1,0 +1,6 @@
+// MUST REJECT A-CORE-031
+// A liveness block that uses leads_to without assume fair.
+// Fairness is required for leads-to proofs.
+liveness EventualResponse {
+    prove: leads_to(request_sent, response_received)
+}
