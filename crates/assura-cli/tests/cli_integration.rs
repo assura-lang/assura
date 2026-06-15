@@ -102,7 +102,6 @@ fn verbose_check_shows_timing() {
         stderr.contains("Pipeline timing"),
         "should show pipeline timing header: {stderr}"
     );
-    assert!(stderr.contains("lex:"), "should show lex timing: {stderr}");
     assert!(
         stderr.contains("parse:"),
         "should show parse timing: {stderr}"

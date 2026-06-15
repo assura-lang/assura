@@ -229,7 +229,6 @@ fn load_project_config(start_path: &Path) -> Option<(ProjectConfig, std::path::P
 
 #[derive(Clone, Copy)]
 struct TimingInfo {
-    lex_ms: f64,
     parse_ms: f64,
     resolve_ms: Option<f64>,
     hir_ms: Option<f64>,
@@ -288,7 +287,7 @@ fn compile_with_config(source: &str, filename: &str, config: &CompilerConfig) ->
     let lex_start = Instant::now();
     let parse_result = assura_parser::parse_full(source);
     let parse_ms = lex_start.elapsed().as_secs_f64() * 1000.0;
-    let lex_ms = 0.0_f64; // lex is now part of parse_full; kept for TimingInfo compat
+
     let token_count = parse_result.token_count;
     let file = parse_result.file;
 
@@ -405,7 +404,6 @@ fn compile_with_config(source: &str, filename: &str, config: &CompilerConfig) ->
         diagnostics,
         has_errors,
         timing: TimingInfo {
-            lex_ms,
             parse_ms,
             resolve_ms,
             hir_ms,
@@ -599,19 +597,19 @@ fn run_check(
             eprintln!();
         }
         eprintln!("Pipeline timing for {filename}:");
-        eprintln!(
-            "  lex:       {} tokens ({:.2}ms)",
-            timing.token_count, timing.lex_ms
-        );
         if let Some(ref f) = file {
             eprintln!(
-                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                "  parse:     {} tokens, {} declaration(s), {} import(s) ({:.2}ms)",
+                timing.token_count,
                 f.decls.len(),
                 f.imports.len(),
                 timing.parse_ms
             );
         } else {
-            eprintln!("  parse:     failed ({:.2}ms)", timing.parse_ms);
+            eprintln!(
+                "  parse:     {} tokens, failed ({:.2}ms)",
+                timing.token_count, timing.parse_ms
+            );
         }
         if let Some(resolve_ms) = timing.resolve_ms {
             if let Some(ref r) = resolved {
@@ -663,8 +661,7 @@ fn run_check(
             "  verify:    {} clause(s) ({verify_ms:.2}ms)",
             verification_results.len()
         );
-        let total = timing.lex_ms
-            + timing.parse_ms
+        let total = timing.parse_ms
             + timing.resolve_ms.unwrap_or(0.0)
             + timing.typecheck_ms.unwrap_or(0.0)
             + verify_ms;
@@ -723,8 +720,7 @@ fn run_check(
             .iter()
             .filter(|r| matches!(r, assura_smt::VerificationResult::Unknown { .. }))
             .count();
-        let total_ms = timing.lex_ms
-            + timing.parse_ms
+        let total_ms = timing.parse_ms
             + timing.resolve_ms.unwrap_or(0.0)
             + timing.hir_ms.unwrap_or(0.0)
             + timing.typecheck_ms.unwrap_or(0.0)
@@ -739,10 +735,9 @@ fn run_check(
         eprintln!("  Unknown:         {unknowns}");
         eprintln!();
         eprintln!(
-            "  Lex time:        {:.2}ms ({} tokens)",
-            timing.lex_ms, timing.token_count
+            "  Parse time:      {:.2}ms ({} tokens)",
+            timing.parse_ms, timing.token_count
         );
-        eprintln!("  Parse time:      {:.2}ms", timing.parse_ms);
         if let Some(ms) = timing.resolve_ms {
             eprintln!("  Resolve time:    {ms:.2}ms");
         }
@@ -1064,19 +1059,19 @@ fn check_file_once(
 
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
         eprintln!("Pipeline timing for {filename}:");
-        eprintln!(
-            "  lex:       {} tokens ({:.2}ms)",
-            timing.token_count, timing.lex_ms
-        );
         if let Some(ref f) = file {
             eprintln!(
-                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                "  parse:     {} tokens, {} declaration(s), {} import(s) ({:.2}ms)",
+                timing.token_count,
                 f.decls.len(),
                 f.imports.len(),
                 timing.parse_ms
             );
         } else {
-            eprintln!("  parse:     failed ({:.2}ms)", timing.parse_ms);
+            eprintln!(
+                "  parse:     {} tokens, failed ({:.2}ms)",
+                timing.token_count, timing.parse_ms
+            );
         }
         if let Some(resolve_ms) = timing.resolve_ms {
             if let Some(ref r) = resolved {
@@ -1333,16 +1328,18 @@ fn run_build(
             eprintln!();
         }
         eprintln!("Pipeline timing for {filename}:");
-        eprintln!(
-            "  lex:       {} tokens ({:.2}ms)",
-            timing.token_count, timing.lex_ms
-        );
         if let Some(ref f) = parsed_file {
             eprintln!(
-                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                "  parse:     {} tokens, {} declaration(s), {} import(s) ({:.2}ms)",
+                timing.token_count,
                 f.decls.len(),
                 f.imports.len(),
                 timing.parse_ms
+            );
+        } else {
+            eprintln!(
+                "  parse:     {} tokens, failed ({:.2}ms)",
+                timing.token_count, timing.parse_ms
             );
         }
         if let Some(resolve_ms) = timing.resolve_ms
@@ -1438,8 +1435,7 @@ fn run_build(
             "  codegen:   {} file(s) ({codegen_ms:.2}ms)",
             project.files.len()
         );
-        let total = timing.lex_ms
-            + timing.parse_ms
+        let total = timing.parse_ms
             + timing.resolve_ms.unwrap_or(0.0)
             + timing.typecheck_ms.unwrap_or(0.0)
             + verify_ms
@@ -2988,16 +2984,18 @@ fn run_legacy(filename: &str, verbosity: Verbosity, show_ast: bool, show_tokens:
 
     if verbosity == Verbosity::Verbose {
         eprintln!("Pipeline timing for {filename}:");
-        eprintln!(
-            "  lex:       {} tokens ({:.2}ms)",
-            timing.token_count, timing.lex_ms
-        );
         if let Some(ref f) = file {
             eprintln!(
-                "  parse:     {} declaration(s), {} import(s) ({:.2}ms)",
+                "  parse:     {} tokens, {} declaration(s), {} import(s) ({:.2}ms)",
+                timing.token_count,
                 f.decls.len(),
                 f.imports.len(),
                 timing.parse_ms
+            );
+        } else {
+            eprintln!(
+                "  parse:     {} tokens, failed ({:.2}ms)",
+                timing.token_count, timing.parse_ms
             );
         }
         if let Some(resolve_ms) = timing.resolve_ms
@@ -3052,8 +3050,7 @@ fn run_legacy(filename: &str, verbosity: Verbosity, show_ast: bool, show_tokens:
             "  verify:    {} clause(s) ({verify_ms:.2}ms)",
             verification_results.len()
         );
-        let total = timing.lex_ms
-            + timing.parse_ms
+        let total = timing.parse_ms
             + timing.resolve_ms.unwrap_or(0.0)
             + timing.typecheck_ms.unwrap_or(0.0)
             + verify_ms;
