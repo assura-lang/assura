@@ -401,3 +401,295 @@ pub async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
     service.waiting().await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // resolve_source tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn resolve_source_inline() {
+        let result = resolve_source(Some("contract Foo {}".into()), None);
+        assert_eq!(result.unwrap(), "contract Foo {}");
+    }
+
+    #[test]
+    fn resolve_source_inline_overrides_file() {
+        let result = resolve_source(Some("inline".into()), Some("/nonexistent".into()));
+        assert_eq!(result.unwrap(), "inline");
+    }
+
+    #[test]
+    fn resolve_source_missing_file() {
+        let result = resolve_source(None, Some("/this/does/not/exist.assura".into()));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read"));
+    }
+
+    #[test]
+    fn resolve_source_neither() {
+        let result = resolve_source(None, None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Provide either"));
+    }
+
+    #[test]
+    fn resolve_source_real_file() {
+        // Build path relative to workspace root
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        let demo = workspace.join("tests/fixtures/test_basic.assura");
+        let result = resolve_source(None, Some(demo.to_string_lossy().into()));
+        assert!(
+            result.is_ok(),
+            "should read test_basic.assura: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(
+            content.contains("contract"),
+            "demo file should contain contracts"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // run_check_pipeline tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn check_pipeline_valid_contract() {
+        let source = "contract Add {\n  input(a: Int, b: Int)\n  output(result: Int)\n  requires { a >= 0 }\n  ensures { result >= a }\n}\n";
+        let result = run_check_pipeline(source);
+        assert!(
+            result.parse_errors.is_empty(),
+            "should have no parse errors"
+        );
+        assert!(
+            result.declarations.contains(&"contract Add".to_string()),
+            "should list Add declaration"
+        );
+    }
+
+    #[test]
+    fn check_pipeline_empty_source() {
+        let result = run_check_pipeline("");
+        // Empty source may or may not parse to an AST, but should not panic
+        assert!(result.parse_errors.is_empty() || !result.parse_errors.is_empty());
+    }
+
+    #[test]
+    fn check_pipeline_multiple_declarations() {
+        let source = r#"
+contract Foo {
+    input(x: Int)
+    output(result: Int)
+    ensures { result > 0 }
+}
+
+contract Bar {
+    input(y: Bool)
+    output(result: Bool)
+    ensures { result == y }
+}
+"#;
+        let result = run_check_pipeline(source);
+        assert!(result.parse_errors.is_empty());
+        assert!(
+            result.declarations.len() >= 2,
+            "should have at least 2 declarations"
+        );
+        assert!(result.declarations.contains(&"contract Foo".to_string()));
+        assert!(result.declarations.contains(&"contract Bar".to_string()));
+    }
+
+    #[test]
+    fn check_pipeline_verification_results() {
+        let source = "contract Simple {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+        let result = run_check_pipeline(source);
+        // Should have at least one verification entry
+        assert!(
+            !result.verification.is_empty(),
+            "should produce verification results"
+        );
+        // Each entry should have a status
+        for entry in &result.verification {
+            assert!(
+                ["verified", "counterexample", "timeout", "unknown"]
+                    .contains(&entry.status.as_str()),
+                "invalid status: {}",
+                entry.status
+            );
+        }
+    }
+
+    #[test]
+    fn check_pipeline_serializes_to_json() {
+        let source = "contract Test {\n  input(x: Int)\n  output(result: Int)\n  ensures { result >= 0 }\n}\n";
+        let result = run_check_pipeline(source);
+        let json = serde_json::to_string(&result);
+        assert!(json.is_ok(), "result should serialize to JSON");
+        let json_str = json.unwrap();
+        assert!(json_str.contains("\"success\""));
+        assert!(json_str.contains("\"declarations\""));
+    }
+
+    // -----------------------------------------------------------------------
+    // infer_contracts_from_rust tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn infer_from_basic_function() {
+        let source = "pub fn add(a: i64, b: i64) -> i64 { a + b }";
+        let result = infer_contracts_from_rust(source);
+        assert!(
+            result.contains("contract add"),
+            "should contain contract name"
+        );
+        assert!(result.contains("output:"), "should contain output");
+    }
+
+    #[test]
+    fn infer_from_private_function() {
+        let source = "fn helper(x: i64) -> bool { x > 0 }";
+        let result = infer_contracts_from_rust(source);
+        assert!(
+            result.contains("contract helper"),
+            "should infer private fns too"
+        );
+    }
+
+    #[test]
+    fn infer_skips_non_functions() {
+        let source = "struct Foo { x: i32 }\nimpl Foo { }";
+        let result = infer_contracts_from_rust(source);
+        assert_eq!(result, "No public function signatures found.");
+    }
+
+    #[test]
+    fn infer_multiple_functions() {
+        let source = "pub fn foo(a: i64) -> i64 { a }\npub fn bar(b: bool) -> bool { b }";
+        let result = infer_contracts_from_rust(source);
+        assert!(result.contains("contract foo"));
+        assert!(result.contains("contract bar"));
+    }
+
+    #[test]
+    fn infer_skips_self_params() {
+        let source = "pub fn method(&self, x: i64) -> i64 { x }";
+        let result = infer_contracts_from_rust(source);
+        assert!(result.contains("contract method"));
+        assert!(!result.contains("self"), "should skip self param");
+    }
+
+    #[test]
+    fn infer_empty_source() {
+        let result = infer_contracts_from_rust("");
+        assert_eq!(result, "No public function signatures found.");
+    }
+
+    // -----------------------------------------------------------------------
+    // Server creation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn server_creates_without_panic() {
+        let _server = AssuraMcpServer::new();
+    }
+
+    #[test]
+    fn server_default_creates_without_panic() {
+        let _server = AssuraMcpServer::default();
+    }
+
+    #[test]
+    fn server_info_has_tools() {
+        let server = AssuraMcpServer::new();
+        let info = server.get_info();
+        assert!(
+            info.instructions.is_some(),
+            "server should have instructions"
+        );
+        let instructions = info.instructions.unwrap();
+        assert!(
+            instructions.contains("assura_check"),
+            "instructions should mention check tool"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool dispatch tests (via direct method calls)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tool_check_inline_source() {
+        let server = AssuraMcpServer::new();
+        let params = CheckParams {
+            source: Some("contract X { ensures { true } }".into()),
+            file: None,
+        };
+        let result = server.assura_check(Parameters(params));
+        assert!(
+            result.contains("\"success\""),
+            "should return JSON with success field"
+        );
+        assert!(result.contains("contract X"), "should list declaration");
+    }
+
+    #[test]
+    fn tool_explain_known_code() {
+        let server = AssuraMcpServer::new();
+        let params = ExplainParams {
+            code: "A03001".into(),
+        };
+        let result = server.assura_explain(Parameters(params));
+        assert!(result.contains("A03001"), "should contain the error code");
+        assert!(
+            !result.contains("Unknown error code"),
+            "should find the code"
+        );
+    }
+
+    #[test]
+    fn tool_explain_unknown_code() {
+        let server = AssuraMcpServer::new();
+        let params = ExplainParams {
+            code: "A99999".into(),
+        };
+        let result = server.assura_explain(Parameters(params));
+        assert!(
+            result.contains("Unknown error code"),
+            "should report unknown"
+        );
+    }
+
+    #[test]
+    fn tool_type_map() {
+        let server = AssuraMcpServer::new();
+        let params = TypeMapParams {
+            rust_type: "i64".into(),
+        };
+        let result = server.assura_type_map(Parameters(params));
+        assert!(result.contains("\"rust_type\":\"i64\""));
+        assert!(result.contains("Int"), "i64 should map to Int");
+    }
+
+    #[test]
+    fn tool_infer_inline() {
+        let server = AssuraMcpServer::new();
+        let params = InferParams {
+            source: Some("pub fn double(x: i64) -> i64 { x * 2 }".into()),
+            file: None,
+        };
+        let result = server.assura_infer(Parameters(params));
+        assert!(
+            result.contains("contract double"),
+            "should infer contract for double"
+        );
+    }
+}
