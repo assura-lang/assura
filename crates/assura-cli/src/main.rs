@@ -603,6 +603,14 @@ fn run_check(
         // run_watch_loop never returns (loops until interrupted)
     }
 
+    // --- Project mode: detect directory or project root ---
+    let path = Path::new(filename);
+    if path.is_dir() {
+        // Directory mode: check all .assura files in the project
+        run_check_project(path, output_mode, verbosity, &compiler_config);
+        return;
+    }
+
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         if output_mode == OutputMode::Json {
             let diag = assura_diagnostics::Diagnostic::error("A01000", format!("{e}"), 0..0)
@@ -1273,6 +1281,86 @@ fn run_watch_loop(filename: &str, output_mode: OutputMode, verbosity: Verbosity,
 }
 
 // ---------------------------------------------------------------------------
+// Project-mode check: resolve and type-check all .assura files in a project
+// ---------------------------------------------------------------------------
+
+fn run_check_project(
+    project_dir: &Path,
+    output_mode: OutputMode,
+    _verbosity: Verbosity,
+    config: &CompilerConfig,
+) {
+    let _ = config; // reserved for future per-project config
+    let project_root = if project_dir.join("assura.toml").exists() {
+        project_dir.to_path_buf()
+    } else {
+        assura_resolve::find_project_root(project_dir).unwrap_or_else(|| project_dir.to_path_buf())
+    };
+
+    if output_mode == OutputMode::Human {
+        eprintln!("Checking project at {}", project_root.display());
+    }
+
+    let (resolved_files, warnings) =
+        match assura_resolve::discover_and_resolve_project(&project_root) {
+            Ok(pair) => pair,
+            Err(errors) => {
+                for e in &errors {
+                    eprintln!("Error: {e}");
+                }
+                process::exit(1);
+            }
+        };
+
+    for w in &warnings {
+        if output_mode == OutputMode::Human {
+            eprintln!("Warning: {w}");
+        }
+    }
+
+    let mut total_errors = 0usize;
+    let mut total_modules = 0usize;
+    let mut total_bindings = 0usize;
+
+    // Type-check each resolved file
+    for (module_path, resolved) in &resolved_files {
+        total_modules += 1;
+        match assura_types::type_check(resolved) {
+            Ok(typed) => {
+                let bindings = typed.type_env.len();
+                total_bindings += bindings;
+                if output_mode == OutputMode::Human {
+                    eprintln!(
+                        "OK  {module_path}: {} symbol(s), {bindings} binding(s)",
+                        resolved.symbols.symbols.len()
+                    );
+                }
+            }
+            Err(errors) => {
+                total_errors += errors.len();
+                if output_mode == OutputMode::Human {
+                    eprintln!("ERR {module_path}: {} error(s)", errors.len());
+                    for err in &errors {
+                        eprintln!("  {}: {}", err.code, err.message);
+                    }
+                }
+            }
+        }
+    }
+
+    if output_mode == OutputMode::Human {
+        eprintln!();
+        eprintln!(
+            "Project: {total_modules} module(s), {total_bindings} binding(s), {total_errors} error(s)"
+        );
+    }
+
+    if total_errors > 0 {
+        process::exit(1);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // `assura build <file.assura>` — codegen to generated/
 // ---------------------------------------------------------------------------
 
@@ -1339,6 +1427,13 @@ fn run_build(
         }
     };
     let config = project;
+
+    // --- Project mode: detect directory ---
+    let path = Path::new(filename);
+    if path.is_dir() {
+        run_build_project(path, verbosity, out_dir_str, compile_target, no_check);
+        return;
+    }
 
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
@@ -1681,6 +1776,129 @@ fn find_wasm_artifact(dir: &Path) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// Project-mode build: resolve, type-check, and codegen all .assura files
+// ---------------------------------------------------------------------------
+
+fn run_build_project(
+    project_dir: &Path,
+    verbosity: Verbosity,
+    output_dir: &str,
+    target: assura_codegen::CompileTarget,
+    no_check: bool,
+) {
+    let project_root = if project_dir.join("assura.toml").exists() {
+        project_dir.to_path_buf()
+    } else {
+        assura_resolve::find_project_root(project_dir).unwrap_or_else(|| project_dir.to_path_buf())
+    };
+
+    eprintln!("Building project at {}", project_root.display());
+
+    let (resolved_files, warnings) =
+        match assura_resolve::discover_and_resolve_project(&project_root) {
+            Ok(pair) => pair,
+            Err(errors) => {
+                for e in &errors {
+                    eprintln!("Error: {e}");
+                }
+                process::exit(1);
+            }
+        };
+
+    for w in &warnings {
+        eprintln!("Warning: {w}");
+    }
+
+    let mut all_typed = Vec::new();
+    let mut has_errors = false;
+
+    for (module_path, resolved) in &resolved_files {
+        match assura_types::type_check(resolved) {
+            Ok(typed) => {
+                all_typed.push((module_path.clone(), typed));
+                if verbosity == Verbosity::Verbose {
+                    eprintln!("OK  {module_path}");
+                }
+            }
+            Err(errors) => {
+                has_errors = true;
+                eprintln!("ERR {module_path}: {} error(s)", errors.len());
+                for err in &errors {
+                    eprintln!("  {}: {}", err.code, err.message);
+                }
+            }
+        }
+    }
+
+    if has_errors {
+        eprintln!("Build failed: type errors in project");
+        process::exit(1);
+    }
+
+    // Generate code for each module
+    let out_dir = Path::new(output_dir);
+    let mut generated_files = 0usize;
+    let mut cargo_toml_written = false;
+    for (_module_path, typed) in &all_typed {
+        let project = assura_codegen::codegen(typed);
+        // Write Cargo.toml once
+        if !cargo_toml_written {
+            let cargo_path = out_dir.join("Cargo.toml");
+            if let Some(parent) = cargo_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Err(e) = fs::write(&cargo_path, &project.cargo_toml) {
+                eprintln!("Error writing {}: {e}", cargo_path.display());
+                process::exit(1);
+            }
+            cargo_toml_written = true;
+        }
+        for (rel_path, content) in &project.files {
+            let file_out = out_dir.join(rel_path);
+            if let Some(parent) = file_out.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Err(e) = fs::write(&file_out, content) {
+                eprintln!("Error writing {}: {e}", file_out.display());
+                process::exit(1);
+            }
+            generated_files += 1;
+        }
+    }
+
+    eprintln!(
+        "Generated {generated_files} file(s) in {}",
+        out_dir.display()
+    );
+
+    // Optionally run cargo check on generated code
+    if !no_check && out_dir.join("Cargo.toml").exists() {
+        eprintln!("Running cargo check on generated code...");
+        let status = std::process::Command::new("cargo")
+            .arg("check")
+            .current_dir(out_dir)
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                eprintln!("Generated code compiles successfully");
+            }
+            Ok(s) => {
+                eprintln!(
+                    "Generated code failed to compile (exit {})",
+                    s.code().unwrap_or(-1)
+                );
+                process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("Failed to run cargo check: {e}");
+            }
+        }
+    }
+
+    let _ = target; // reserved for future target-specific codegen
 }
 
 // ---------------------------------------------------------------------------

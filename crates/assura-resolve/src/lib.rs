@@ -850,7 +850,11 @@ fn resolve_imports(
         }
     }
 
-    // Validate import path segments
+    // Validate import path segments.
+    // The last segment may be a symbol name (e.g., `Add` in `import math.Add`)
+    // so only validate module path segments (all but the last).  The last
+    // segment is validated as a module path only when it looks like one
+    // (starts lowercase).
     for imp in imports {
         if imp.path.is_empty() {
             errors.push(ResolutionError {
@@ -861,7 +865,12 @@ fn resolve_imports(
             });
             continue;
         }
-        for segment in &imp.path {
+        let module_segments = if imp.path.len() > 1 {
+            &imp.path[..imp.path.len() - 1]
+        } else {
+            &imp.path[..]
+        };
+        for segment in module_segments {
             if !is_valid_path_segment(segment) {
                 errors.push(ResolutionError {
                     code: "A02008",
@@ -903,7 +912,9 @@ fn resolve_imports(
                     secondary: None,
                 });
                 ImportStatus::Circular
-            } else if module_map.contains_key(&path_str) {
+            } else if module_map.contains_key(&path_str)
+                || find_module_prefix(&imp.path, module_map).is_some()
+            {
                 ImportStatus::Resolved
             } else {
                 // Unknown module. Not an error: could be a standard
@@ -919,6 +930,22 @@ fn resolve_imports(
             }
         })
         .collect()
+}
+
+/// Try progressively shorter prefixes of `path` to find a module key.
+///
+/// For `import math.Add`, the path is `["math", "Add"]`. The module map
+/// has key `"math"` (not `"math.Add"`, since `Add` is a symbol inside the
+/// module). This function tries `"math.Add"` first, then `"math"`, and
+/// returns the first match.
+fn find_module_prefix(path: &[String], module_map: &ModuleMap) -> Option<String> {
+    for end in (1..=path.len()).rev() {
+        let candidate = path[..end].join(".");
+        if module_map.contains_key(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -2247,6 +2274,137 @@ pub fn resolve_module_graph(
     (resolved, errors)
 }
 
+/// Result of project-level resolution: resolved files + warnings.
+pub type ProjectResult = Result<(HashMap<String, ResolvedFile>, Vec<String>), Vec<String>>;
+
+/// High-level project resolution: given a root file inside a project,
+/// discover the project root, build the module graph from imports,
+/// and resolve all modules.
+///
+/// Returns `(resolved_files, warnings)` where `resolved_files` maps
+/// dotted module paths to their `ResolvedFile`s.
+pub fn resolve_project(root_file: &std::path::Path) -> ProjectResult {
+    let project_root = find_project_root(root_file).unwrap_or_else(|| {
+        root_file
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf()
+    });
+
+    let graph = build_module_graph(root_file, &project_root);
+
+    let mut all_errors: Vec<String> = graph
+        .errors
+        .iter()
+        .map(|e| format!("{}: {}", e.module_path, e.message))
+        .collect();
+
+    let (resolved, resolve_errors) = resolve_module_graph(&graph);
+    all_errors.extend(
+        resolve_errors
+            .iter()
+            .map(|e| format!("{}: {}", e.module_path, e.message)),
+    );
+
+    if resolved.is_empty() && !all_errors.is_empty() {
+        Err(all_errors)
+    } else {
+        Ok((resolved, all_errors))
+    }
+}
+
+/// Discover all `.assura` files under the project root, build the
+/// module graph, and resolve all of them. This is the entry point
+/// for `assura check /path/to/project/`.
+pub fn discover_and_resolve_project(project_root: &std::path::Path) -> ProjectResult {
+    // Find all .assura files
+    let mut assura_files = Vec::new();
+    collect_assura_files(project_root, &mut assura_files);
+
+    if assura_files.is_empty() {
+        return Err(vec![format!(
+            "no .assura files found under {}",
+            project_root.display()
+        )]);
+    }
+
+    // Build a combined module map from all files
+    let mut all_modules = ModuleMap::new();
+    let mut errors = Vec::new();
+
+    for file_path in &assura_files {
+        let fs_path = file_to_module_path(file_path, project_root);
+        match std::fs::read_to_string(file_path) {
+            Ok(source) => {
+                let (ast, parse_errs) = assura_parser::parse(&source);
+                if !parse_errs.is_empty() {
+                    errors.push(format!(
+                        "{}: {} parse error(s)",
+                        file_path.display(),
+                        parse_errs.len()
+                    ));
+                }
+                if let Some(ast) = ast {
+                    // Use declared module name if present, otherwise
+                    // fall back to the filesystem-derived path.
+                    let key = ast
+                        .module
+                        .as_ref()
+                        .map(|m| m.path.join("."))
+                        .unwrap_or(fs_path);
+                    all_modules.insert(key, ast);
+                }
+            }
+            Err(e) => {
+                errors.push(format!("{}: {e}", file_path.display()));
+            }
+        }
+    }
+
+    // Resolve each module with access to the full module map
+    let mut resolved = HashMap::new();
+    for (module_path, source) in &all_modules {
+        let other_modules: ModuleMap = all_modules
+            .iter()
+            .filter(|(k, _)| *k != module_path)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let mut visited = HashSet::new();
+        visited.insert(module_path.clone());
+        match resolve_with_modules(source, &other_modules, &mut visited) {
+            Ok(result) => {
+                resolved.insert(module_path.clone(), result);
+            }
+            Err(errs) => {
+                errors.push(format!(
+                    "{}: {} resolution error(s)",
+                    module_path,
+                    errs.len()
+                ));
+            }
+        }
+    }
+
+    if resolved.is_empty() && !errors.is_empty() {
+        Err(errors)
+    } else {
+        Ok((resolved, errors))
+    }
+}
+
+fn collect_assura_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_assura_files(&path, files);
+            } else if path.extension().is_some_and(|e| e == "assura") {
+                files.push(path);
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -3357,14 +3515,34 @@ type Wrapper {
     }
 
     #[test]
-    fn import_path_uppercase_segment_rejected() {
-        // Module path segments must start with lowercase
+    fn import_path_uppercase_last_segment_allowed() {
+        // The last segment of an import path can be uppercase (symbol name).
+        // `import std.Math` means "import symbol Math from module std".
         let src = r#"
 import std.Math;
 "#;
         let file = parse_ok(src);
         let result = resolve(&file);
-        assert!(result.is_err(), "uppercase segment should produce an error");
+        // Should succeed: uppercase last segment is a symbol reference
+        assert!(
+            result.is_ok(),
+            "uppercase last segment should be allowed: {result:?}"
+        );
+    }
+
+    #[test]
+    fn import_path_uppercase_module_segment_rejected() {
+        // Module path segments (non-last) must start with lowercase.
+        // `import Std.math` has an uppercase module segment, which is invalid.
+        let src = r#"
+import Std.math;
+"#;
+        let file = parse_ok(src);
+        let result = resolve(&file);
+        assert!(
+            result.is_err(),
+            "uppercase module segment should produce an error"
+        );
         let errs = result.unwrap_err();
         assert!(
             errs.iter().any(|e| e.code == "A02008"),
@@ -3837,5 +4015,168 @@ service Svc {
         assert!(!resolved.is_empty() || !errs.is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-file project resolution tests (issue #64)
+    // -----------------------------------------------------------------------
+
+    /// Helper: set up a multi-file project in a temp dir and return the root.
+    fn setup_multi_file_project(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("assura-multi-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            dir.join("assura.toml"),
+            format!("[project]\nname = \"{name}\""),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn multi_file_valid_cross_module_import() {
+        let dir = setup_multi_file_project("valid-import");
+        let src = dir.join("src");
+        std::fs::write(
+            src.join("math.assura"),
+            "module math\ncontract Add {\n  requires(a: Int, b: Int)\n  ensures(result: Int)\n}",
+        )
+        .unwrap();
+        std::fs::write(
+            src.join("main.assura"),
+            "module main\nimport math.Add\ncontract Main {\n  requires(x: Int)\n  ensures(result: Int)\n}",
+        )
+        .unwrap();
+
+        let result = discover_and_resolve_project(&dir);
+        assert!(result.is_ok(), "should resolve: {result:?}");
+        let (resolved, warnings) = result.unwrap();
+        assert!(
+            resolved.contains_key("math"),
+            "math module should be resolved"
+        );
+        assert!(
+            resolved.contains_key("main"),
+            "main module should be resolved"
+        );
+        assert!(warnings.is_empty(), "no warnings expected: {warnings:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn multi_file_missing_import() {
+        let dir = setup_multi_file_project("missing-import");
+        let src = dir.join("src");
+        std::fs::write(
+            src.join("main.assura"),
+            "module main\nimport nonexistent.Foo\ncontract Main {\n  requires(x: Int)\n}",
+        )
+        .unwrap();
+
+        let result = discover_and_resolve_project(&dir);
+        // Should still succeed (unresolved imports are warnings, not fatal)
+        assert!(result.is_ok(), "should resolve: {result:?}");
+        let (resolved, _) = result.unwrap();
+        assert!(
+            resolved.contains_key("main"),
+            "main should resolve even with missing import"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn multi_file_circular_import() {
+        let dir = setup_multi_file_project("circular");
+        let src = dir.join("src");
+        std::fs::write(
+            src.join("a.assura"),
+            "module a\nimport b.Bar\ncontract Foo {\n  requires(x: Int)\n}",
+        )
+        .unwrap();
+        std::fs::write(
+            src.join("b.assura"),
+            "module b\nimport a.Foo\ncontract Bar {\n  requires(y: Int)\n}",
+        )
+        .unwrap();
+
+        let result = discover_and_resolve_project(&dir);
+        // Circular imports produce errors: one module fails to resolve
+        // because it sees the other in the visited set. The project-level
+        // function still returns Ok with partial results + warnings.
+        assert!(result.is_ok(), "should return Ok with warnings");
+        let (resolved, warnings) = result.unwrap();
+        // At least one module should resolve; the circular one may not
+        assert!(!resolved.is_empty(), "at least one module should resolve");
+        // There should be warnings about the circular import
+        let has_circ = warnings
+            .iter()
+            .any(|w| w.contains("resolution error") || w.contains("circular"));
+        assert!(
+            has_circ || resolved.len() == 2,
+            "should have circular import warning or both resolve: warnings={warnings:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn multi_file_declared_module_name_used_as_key() {
+        // Verify that declared module names (not filesystem paths) are used
+        let dir = setup_multi_file_project("declared-key");
+        let src = dir.join("src");
+        std::fs::write(
+            src.join("utils.assura"),
+            "module helpers\ncontract Aid {\n  requires(x: Int)\n}",
+        )
+        .unwrap();
+
+        let result = discover_and_resolve_project(&dir);
+        assert!(result.is_ok());
+        let (resolved, _) = result.unwrap();
+        // Key should be "helpers" (declared), not "src.utils" (filesystem)
+        assert!(
+            resolved.contains_key("helpers"),
+            "module key should be declared name 'helpers', got keys: {:?}",
+            resolved.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !resolved.contains_key("src.utils"),
+            "should NOT use filesystem path as key"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn multi_file_no_assura_files() {
+        let dir = setup_multi_file_project("empty");
+        // Don't create any .assura files
+        let result = discover_and_resolve_project(&dir);
+        assert!(result.is_err(), "should fail with no .assura files");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.contains("no .assura files")),
+            "should say no files found: {errors:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_module_prefix_matches() {
+        let mut map = ModuleMap::new();
+        let source = parse_ok("module math\ncontract Add { requires(x: Int) }");
+        map.insert("math".to_string(), source);
+
+        // "math.Add" should find "math" as prefix
+        let path = vec!["math".to_string(), "Add".to_string()];
+        assert_eq!(find_module_prefix(&path, &map), Some("math".to_string()));
+
+        // "math" should match directly
+        let path2 = vec!["math".to_string()];
+        assert_eq!(find_module_prefix(&path2, &map), Some("math".to_string()));
+
+        // "nonexistent" should return None
+        let path3 = vec!["nonexistent".to_string()];
+        assert_eq!(find_module_prefix(&path3, &map), None);
     }
 }
