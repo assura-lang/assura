@@ -3138,6 +3138,9 @@ assura init my-project                     # scaffold new project
 assura fmt file.assura                     # format source
 assura explain A03001                      # explain error code
 assura test-gen file.assura                # generate tests from contracts
+assura doctor                              # check dependencies
+assura coverage .                          # contract coverage report
+assura completions zsh                     # shell completions
 ```
 
 ## Error Code Ranges
