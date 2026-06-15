@@ -675,6 +675,72 @@ fn agent_instructions_outputs_reference() {
 }
 
 #[test]
+fn diff_identical_files_exits_zero() {
+    let out = Command::new(assura_bin())
+        .args([
+            "diff",
+            "demos/libwebp-huffman.assura",
+            "demos/libwebp-huffman.assura",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura diff");
+    assert!(
+        out.status.success(),
+        "diff of identical files should exit 0"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("No structural differences"),
+        "should report no differences: {stdout}"
+    );
+}
+
+#[test]
+fn diff_different_files_exits_one() {
+    let out = Command::new(assura_bin())
+        .args([
+            "diff",
+            "demos/libwebp-huffman.assura",
+            "demos/zlib-inflate.assura",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura diff");
+    assert!(
+        !out.status.success(),
+        "diff of different files should exit 1"
+    );
+}
+
+#[test]
+fn diff_json_output_is_valid() {
+    let out = Command::new(assura_bin())
+        .args([
+            "diff",
+            "demos/libwebp-huffman.assura",
+            "demos/zlib-inflate.assura",
+            "--format",
+            "json",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura diff --format json");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    assert!(
+        parsed.get("changes").is_some(),
+        "JSON should have changes array"
+    );
+    assert_eq!(
+        parsed["identical"].as_bool(),
+        Some(false),
+        "should report not identical"
+    );
+}
+
+#[test]
 fn fmt_check_mode_exits_cleanly() {
     let out = Command::new(assura_bin())
         .args(["fmt", "tests/fixtures/test_basic.assura", "--check"])
