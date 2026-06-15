@@ -1,6 +1,6 @@
 use super::*;
 use super::{CounterexampleModel, Expr};
-use assura_parser::ast::{BinOp, Clause, Literal, UnaryOp};
+use assura_parser::ast::{BinOp, BlockKind, Clause, Literal, UnaryOp};
 use assura_types::checkers::expr_references_var;
 use std::collections::HashMap;
 use z3::ast::Ast;
@@ -3301,7 +3301,7 @@ pub(crate) fn verify_impl_with_timeout(
         match &decl.node {
             Decl::Block {
                 kind, name, body, ..
-            } if kind == "liveness" => {
+            } if *kind == BlockKind::Liveness => {
                 // Extract obligations from liveness block clauses
                 for clause in body {
                     match &clause.kind {

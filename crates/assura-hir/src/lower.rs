@@ -276,13 +276,13 @@ impl LowerCtx<'_> {
 
     fn lower_block(
         &self,
-        kind: &str,
+        kind: &ast::BlockKind,
         name: &str,
         value: &Option<Vec<String>>,
         body: &[ast::Clause],
     ) -> HirBlock {
         HirBlock {
-            kind: kind.to_string(),
+            kind: kind.clone(),
             name: name.to_string(),
             value: value
                 .as_ref()
@@ -713,7 +713,7 @@ contract SafeDivision {
             imports: vec![],
             decls: vec![Spanned {
                 node: Decl::Block {
-                    kind: "feature_max".into(),
+                    kind: ast::BlockKind::FeatureMax,
                     name: "MAX_SIZE".into(),
                     value: Some(vec!["1024".into()]),
                     body: vec![],
@@ -724,7 +724,7 @@ contract SafeDivision {
         let resolved = make_resolved(source);
         let hir = lower(&resolved);
         if let HirDeclKind::Block(b) = &hir.decls[0].kind {
-            assert_eq!(b.kind, "feature_max");
+            assert_eq!(b.kind, ast::BlockKind::FeatureMax);
             assert_eq!(b.name, "MAX_SIZE");
             assert!(matches!(&b.value, Some(HirExpr::RawTokens(t)) if t == &["1024"]));
         } else {

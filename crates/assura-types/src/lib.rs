@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
-use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, ServiceItem};
+use assura_parser::ast::{BinOp, BlockKind, ClauseKind, Decl, Expr, ServiceItem};
 use assura_resolve::{ImportStatus, ResolvedFile, SymbolKind, SymbolTable};
 
 pub mod checkers;
@@ -1946,7 +1946,7 @@ fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
             kind, name, body, ..
         } = &decl.node
         {
-            if kind != "liveness" {
+            if *kind != BlockKind::Liveness {
                 continue;
             }
             let has_prove = body
@@ -2009,7 +2009,7 @@ fn run_axiomatic_checks(
     let mut checker = AxiomaticDefChecker::new();
     for decl in &source.decls {
         if let Decl::Block { kind, name, .. } = &decl.node
-            && (kind == "axiomatic" || kind == "axiom")
+            && *kind == BlockKind::Axiomatic
         {
             checker.declare_axiom(AxiomDef {
                 name: name.clone(),
@@ -4467,7 +4467,7 @@ fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
     // First pass: collect lock ordering declarations from blocks
     for decl in &source.decls {
         if let Decl::Block { kind, body, .. } = &decl.node
-            && (kind == "lock_order" || kind == "lock_hierarchy")
+            && *kind == BlockKind::LockOrder
         {
             for (priority, clause) in body.iter().enumerate() {
                 if let Expr::Ident(lock_name) = &clause.body {
@@ -6062,7 +6062,7 @@ fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) -> Vec<Type
             }
             Decl::Block {
                 kind, name, body, ..
-            } if (kind == "unsafe" || kind == "unsafe_escape") => {
+            } if *kind == BlockKind::UnsafeEscape => {
                 found = true;
                 checker.declare_unsafe(name.clone(), Vec::new(), decl.span.clone());
                 for clause in body {
@@ -6420,7 +6420,7 @@ fn run_contract_library_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
         match &decl.node {
             Decl::Block {
                 kind, name, body, ..
-            } if (kind == "library" || kind == "package") => {
+            } if *kind == BlockKind::Library => {
                 found = true;
                 checker.declare_library(name.clone(), "0.1.0".into());
                 for clause in body {

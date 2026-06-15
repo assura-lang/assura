@@ -1538,10 +1538,11 @@ fn lower_generic_block(n: &SyntaxNode) -> Decl {
         .filter_map(|el| el.into_token())
         .filter(|t| t.kind() != SyntaxKind::WHITESPACE && t.kind() != SyntaxKind::COMMENT);
 
-    let kind = tokens_iter
+    let kind_str = tokens_iter
         .next()
         .map(|t| t.text().to_string())
         .unwrap_or_default();
+    let kind = BlockKind::from_keyword(&kind_str);
     let name = tokens_iter
         .next()
         .filter(|t| t.kind() == SyntaxKind::IDENT || t.kind().is_keyword())
@@ -1980,7 +1981,7 @@ liveness Progress {
             kind, name, body, ..
         } = &file.decls[0].node
         {
-            assert_eq!(kind, "liveness");
+            assert_eq!(*kind, BlockKind::Liveness);
             assert_eq!(name, "Progress");
             assert!(
                 body.len() >= 2,
@@ -2009,7 +2010,7 @@ liveness Progress {
             kind, name, body, ..
         } = &file.decls[0].node
         {
-            assert_eq!(kind, "liveness");
+            assert_eq!(*kind, BlockKind::Liveness);
             assert_eq!(name, "Progress");
             assert!(
                 body.len() >= 2,
@@ -2055,7 +2056,7 @@ liveness Fairness {
             kind, name, value, ..
         } = &file.decls[0].node
         {
-            assert_eq!(kind, "feature_max");
+            assert_eq!(*kind, BlockKind::FeatureMax);
             assert_eq!(name, "MAX_SIZE");
             let v = value.as_ref().expect("value should be Some");
             assert!(
@@ -2078,7 +2079,7 @@ liveness Fairness {
             kind, name, value, ..
         } = &file.decls[0].node
         {
-            assert_eq!(kind, "feature");
+            assert_eq!(*kind, BlockKind::Feature);
             assert_eq!(name, "ecdsa");
             let v = value.as_ref().expect("value should be Some");
             assert!(

@@ -55,12 +55,81 @@ pub enum Decl {
     CodecRegistry(CodecRegistryDecl),
     /// Catch-all for extended syntax (feature, incremental, liveness, etc.)
     Block {
-        kind: String,
+        kind: BlockKind,
         name: String,
         /// Optional inline value (e.g., `feature_max X: Nat = 280` stores `["280"]`).
         value: Option<Vec<String>>,
         body: Vec<Clause>,
     },
+}
+
+/// The kind of a generic block declaration.
+///
+/// The parser's catch-all `Decl::Block` can represent many kinds of extended
+/// syntax (features, axiomatic definitions, lock ordering, etc.). This enum
+/// gives each known kind a strongly-typed variant instead of raw strings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockKind {
+    /// `feature_max NAME: Nat = VALUE`
+    FeatureMax,
+    /// `feature NAME = VALUE`
+    Feature,
+    /// `axiomatic NAME { ... }` or `axiom NAME { ... }`
+    Axiomatic,
+    /// `lock_order { ... }` or `lock_hierarchy { ... }`
+    LockOrder,
+    /// `unsafe NAME { ... }` or `unsafe_escape NAME { ... }`
+    UnsafeEscape,
+    /// `liveness NAME { ... }`
+    Liveness,
+    /// `library NAME { ... }` or `package NAME { ... }`
+    Library,
+    /// `interface NAME { ... }`
+    Interface,
+    /// `table NAME { ... }`
+    Table,
+    /// `incremental NAME { ... }`
+    Incremental,
+    /// Unknown or user-defined block kind.
+    Other(String),
+}
+
+impl BlockKind {
+    /// Parse a block kind from its raw token text. Synonyms are normalized
+    /// to their canonical variant (e.g. `"axiom"` -> `Axiomatic`).
+    pub fn from_keyword(s: &str) -> Self {
+        match s {
+            "feature_max" => Self::FeatureMax,
+            "feature" => Self::Feature,
+            "axiomatic" | "axiom" => Self::Axiomatic,
+            "lock_order" | "lock_hierarchy" => Self::LockOrder,
+            "unsafe" | "unsafe_escape" => Self::UnsafeEscape,
+            "liveness" => Self::Liveness,
+            "library" | "package" => Self::Library,
+            "interface" => Self::Interface,
+            "table" => Self::Table,
+            "incremental" => Self::Incremental,
+            other => Self::Other(other.to_string()),
+        }
+    }
+}
+
+impl std::fmt::Display for BlockKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FeatureMax => write!(f, "feature_max"),
+            Self::Feature => write!(f, "feature"),
+            Self::Axiomatic => write!(f, "axiomatic"),
+            Self::LockOrder => write!(f, "lock_order"),
+            Self::UnsafeEscape => write!(f, "unsafe_escape"),
+            Self::Liveness => write!(f, "liveness"),
+            Self::Library => write!(f, "library"),
+            Self::Interface => write!(f, "interface"),
+            Self::Table => write!(f, "table"),
+            Self::Incremental => write!(f, "incremental"),
+            Self::Other(s) => write!(f, "{s}"),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ SourceFile {
     decls: [
         Spanned {
             node: Block {
-                kind: "feature",
+                kind: Feature,
                 name: "ecdsa",
                 value: Some(
                     [
@@ -41,7 +41,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature",
+                kind: Feature,
                 name: "x509",
                 value: Some(
                     [
@@ -62,7 +62,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature",
+                kind: Feature,
                 name: "ecdh",
                 value: Some(
                     [
@@ -76,7 +76,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature",
+                kind: Feature,
                 name: "rsa",
                 value: Some(
                     [
@@ -90,7 +90,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature_max",
+                kind: FeatureMax,
                 name: "MAX_CONTENT_LEN",
                 value: Some(
                     [
@@ -106,7 +106,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature_max",
+                kind: FeatureMax,
                 name: "MAX_HANDSHAKE_LEN",
                 value: Some(
                     [
@@ -122,7 +122,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature_max",
+                kind: FeatureMax,
                 name: "MAX_EC_POINT_SIZE",
                 value: Some(
                     [
@@ -764,7 +764,9 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "spec",
+                kind: Other(
+                    "spec",
+                ),
                 name: "NIST_SP_800_56A_ECDH",
                 value: None,
                 body: [],

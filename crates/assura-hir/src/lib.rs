@@ -262,7 +262,7 @@ pub struct HirCodecEntry {
 
 #[derive(Debug, Clone)]
 pub struct HirBlock {
-    pub kind: String,
+    pub kind: ast::BlockKind,
     pub name: String,
     pub value: Option<HirExpr>,
     pub clauses: Vec<HirClause>,

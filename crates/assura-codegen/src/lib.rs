@@ -11,8 +11,9 @@
 pub mod type_map;
 
 use assura_parser::ast::{
-    BinOp, BindDecl, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef, Expr,
-    ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem, TypeBody, TypeDef, UnaryOp,
+    BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl,
+    EnumDef, Expr, ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem, TypeBody,
+    TypeDef, UnaryOp,
 };
 use assura_types::TypedFile;
 
@@ -140,7 +141,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             }
             Decl::Block {
                 kind, name, value, ..
-            } if kind == "feature_max" => {
+            } if *kind == BlockKind::FeatureMax => {
                 // Extract type from inline value tokens (e.g., ["Nat", "=", "280"] -> "Nat")
                 let ty = value
                     .as_ref()
@@ -517,7 +518,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 Decl::Block {
                     kind, name, body, ..
                 } => {
-                    if kind != "feature_max" {
+                    if *kind != BlockKind::FeatureMax {
                         generate_block(kind, name, body, &mut shared);
                     }
                 }
@@ -626,7 +627,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 Decl::Block {
                     kind, name, body, ..
                 } => {
-                    if kind != "feature_max" {
+                    if *kind != BlockKind::FeatureMax {
                         generate_block(kind, name, body, &mut all_code);
                     }
                 }
@@ -1831,7 +1832,7 @@ fn find_feature_max_value(source: &assura_parser::ast::SourceFile, name: &str) -
             value,
             body,
         } = &decl.node
-            && kind == "feature_max"
+            && *kind == BlockKind::FeatureMax
             && n == name
         {
             // First, try the inline value field.
@@ -4119,9 +4120,9 @@ fn generate_codec_registry(cr: &CodecRegistryDecl, code: &mut String) {
 // Generic blocks (feature, incremental, etc.)
 // ---------------------------------------------------------------------------
 
-fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
+fn generate_block(kind: &BlockKind, name: &str, body: &[Clause], code: &mut String) {
     // Interface blocks generate Rust traits
-    if kind == "interface" {
+    if *kind == BlockKind::Interface {
         generate_interface_trait(name, body, code);
         return;
     }
@@ -4129,7 +4130,7 @@ fn generate_block(kind: &str, name: &str, body: &[Clause], code: &mut String) {
     // Table blocks: generate a doc comment describing the table.
     // The actual compile-time verification happens in the SMT layer,
     // not in generated Rust code.
-    if kind == "table" {
+    if *kind == BlockKind::Table {
         code.push_str(&format!(
             "// {kind} {name}: compile-time verified by SMT\n\n"
         ));
@@ -6637,7 +6638,7 @@ contract UseConst {
             body: Expr::Raw(vec!["io".into()]),
         }];
         let mut code = String::new();
-        generate_block("feature", "test", &clauses, &mut code);
+        generate_block(&BlockKind::Feature, "test", &clauses, &mut code);
         assert!(
             code.contains("/// Effects:"),
             "Effects clause should produce doc comment, got:\n{code}"
@@ -6679,7 +6680,7 @@ contract UseConst {
             body: Expr::Ident("acquire".into()),
         }];
         let mut code = String::new();
-        generate_block("feature", "test", &clauses, &mut code);
+        generate_block(&BlockKind::Feature, "test", &clauses, &mut code);
         assert!(
             code.contains("std::sync::atomic::Ordering::Acquire"),
             "ordering clause should emit Ordering constant, got:\n{code}"

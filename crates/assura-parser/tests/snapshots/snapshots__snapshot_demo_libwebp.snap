@@ -26,7 +26,7 @@ SourceFile {
     decls: [
         Spanned {
             node: Block {
-                kind: "feature_max",
+                kind: FeatureMax,
                 name: "MAX_ALPHABET_SIZE",
                 value: Some(
                     [
@@ -42,7 +42,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature_max",
+                kind: FeatureMax,
                 name: "MAX_CODE_LENGTH",
                 value: Some(
                     [
@@ -58,7 +58,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "feature_max",
+                kind: FeatureMax,
                 name: "ROOT_BITS",
                 value: Some(
                     [
@@ -191,7 +191,7 @@ SourceFile {
         },
         Spanned {
             node: Block {
-                kind: "table",
+                kind: Table,
                 name: "K_TABLE_SIZE",
                 value: Some(
                     [
