@@ -1367,10 +1367,10 @@ how each Assura construct maps to Rust.
 | `Bytes` | `Vec<u8>` | |
 | `Unit` | `()` | |
 | `Never` | `!` (never type) | |
-| `List<T>` | `Vec<T>` | |
-| `Map<K, V>` | `BTreeMap<K, V>` | Deterministic ordering |
-| `Set<T>` | `BTreeSet<T>` | Deterministic ordering |
-| `T?` | `Option<T>` | |
+| `List&lt;T&gt;` | `Vec&lt;T&gt;` | |
+| `Map&lt;K, V&gt;` | `BTreeMap&lt;K, V&gt;` | Deterministic ordering |
+| `Set&lt;T&gt;` | `BTreeSet&lt;T&gt;` | Deterministic ordering |
+| `T?` | `Option&lt;T&gt;` | |
 | `(T, U)` | `(T, U)` | |
 
 ### 6.2 Refinement Types
@@ -11693,17 +11693,17 @@ Keywords by category:
 | Bind | Wrapper with assertions |
 | Memory regions | &[u8] / &mut [u8] with bounds checks |
 | Fixed-width integers | u8/u16/u32/u64/i32/i64 with checked casts |
-| Taint labels | Erased; Unverified<T>/Verified<T> wrappers |
+| Taint labels | Erased; Unverified&lt;T&gt;/Verified&lt;T&gt; wrappers |
 | Shared memory | mmap + AtomicU32 with Ordering annotations |
 | Allocator contracts | std::alloc::Allocator trait impl |
 | Interface contracts | Rust trait definitions |
 | Structural invariants | Recursive debug_assert functions |
-| Integrity contracts | Unverified<T>/Verified<T> wrappers |
+| Integrity contracts | Unverified&lt;T&gt;/Verified&lt;T&gt; wrappers |
 | Invariant suspension | Scoped unsafe block with restore assert |
 | Binary format contracts | Zero-copy parser structs over &[u8] |
 | Crash recovery | Recovery function + savepoint structs |
 | Platform abstraction | cfg-gated modules + unified trait |
-| Callback re-entrancy | Marker traits (NoReenter<T>) + Send bounds |
+| Callback re-entrancy | Marker traits (NoReenter&lt;T&gt;) + Send bounds |
 | Determinism | Lint attrs + BTreeMap enforcement |
 | Transactional rollback | Savepoint/rollback closures |
 | FFI boundary | extern "C" + safety wrappers + debug_assert |
@@ -11713,7 +11713,7 @@ Keywords by category:
 | Incremental/coroutine | Iterator impl + state enum + Drop cleanup |
 | Behavioral equivalence | Differential test harness + fuzz target |
 | Unsafe escape | unsafe block + debug_assert proofs + #[inline(always)] |
-| String encoding | PhantomData<E> + Encoding trait + validated constructors |
+| String encoding | PhantomData&lt;E&gt; + Encoding trait + validated constructors |
 | Page cache | PinnedPage RAII guard + AtomicU32 pin count |
 | MVCC/snapshot isolation | ReadTransaction/WriteTransaction + &mut exclusion |
 | Complexity bounds | Criterion benchmarks (empirical verification) |
