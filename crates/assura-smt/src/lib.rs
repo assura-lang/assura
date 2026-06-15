@@ -2730,10 +2730,11 @@ pub use cache::*;
 pub use incremental::*;
 pub use layer2::*;
 
-// IR module is only used in tests — gate it behind #[cfg(test)]
-#[cfg(test)]
+// IR module: Section 4 "Implementation IR" parser/codegen.
+// Not yet wired into the pipeline (AI agent workflow is future work),
+// but must compile in all profiles to prevent silent regressions.
+#[allow(dead_code)]
 pub mod ir;
-#[cfg(test)]
 pub use ir::*;
 
 #[cfg(test)]
