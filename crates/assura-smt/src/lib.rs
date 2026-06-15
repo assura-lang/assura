@@ -1113,13 +1113,6 @@ mod z3_backend;
 mod tests {
     use super::*;
 
-    /// Helper: parse, resolve, type-check, then verify a source string.
-    fn type_check_ok(source: &str) -> assura_types::TypedFile {
-        let file = assura_parser::parse_unwrap(source);
-        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-        assura_types::type_check(&resolved).expect("type_check failed")
-    }
-
     fn verify_source(source: &str) -> Vec<VerificationResult> {
         let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed in test");

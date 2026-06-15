@@ -1,6 +1,6 @@
 use super::*;
-use crate::clauses::*;
-use crate::inference::*;
+use crate::clauses::{check_clause_expr, extract_output_type_from_body};
+use crate::inference::{infer_expr, types_compatible};
 
 /// Helper: parse + resolve source text, panicking on errors.
 fn resolve_ok(source: &str) -> ResolvedFile {
