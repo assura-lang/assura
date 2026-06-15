@@ -959,4 +959,18 @@ Within each phase, tasks can run in the order listed. Tasks marked
 - 12 open GitHub issues catalogued
 - Previous plan (v2) had 66 tasks all marked `[x]`
 
+### 2026-06-14: Session 2 (continued)
+- **#96 closed**: Added 21 CLI integration tests for doctor, coverage,
+  completions, agent-instructions, explain commands
+- **5.03 done**: Error code coverage audit. Added 85 missing error codes
+  to diagnostics catalog (gap: 85 -> 0, all 218 spec codes now covered)
+- **#66 closed**: Created assura-stdlib crate with 13 contracts across
+  3 modules (math: 4, string: 3, collections: 6) and 13 tests
+- **#67 closed**: Fixed release pipeline config (stale metadata.dist,
+  added missing crates to publish job)
+- Test count: 2,053 (up from 2,020)
+- Remaining open issues: #45, #86, #88, #89, #91
+- **Next session**: Phase 7 tasks (error recovery, LSP completions,
+  JSON output mode) or Phase 6 remaining (VS Code extension, docs site)
+
 ---
