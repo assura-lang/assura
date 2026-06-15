@@ -180,6 +180,9 @@ enum Commands {
     /// Check installation: Z3, CVC5, Rust toolchain, WASM target
     Doctor,
 
+    /// Interactive contract playground
+    Repl,
+
     /// Structural diff between two contract files
     Diff {
         /// Original contract file
@@ -513,6 +516,7 @@ fn main() {
         }
         Some(Commands::AgentInstructions) => run_agent_instructions(),
         Some(Commands::Doctor) => run_doctor(),
+        Some(Commands::Repl) => run_repl(),
         Some(Commands::Diff { old, new, format }) => {
             run_diff(&old, &new, &format);
         }
@@ -2643,6 +2647,238 @@ fn discover_rs_files(dir: &Path) -> Vec<std::path::PathBuf> {
     }
     files.sort();
     files
+}
+
+// ---------------------------------------------------------------------------
+// `assura repl` -- interactive contract playground
+// ---------------------------------------------------------------------------
+
+fn run_repl() {
+    use std::io::{self, BufRead, Write};
+
+    println!("Assura REPL v{}", env!("CARGO_PKG_VERSION"));
+    println!("Type a contract to parse and verify. Commands:");
+    println!("  :type <rust_type>     Show Assura type mapping");
+    println!("  :explain <code>       Explain an error code");
+    println!("  :load <file>          Load and verify a file");
+    println!("  :quit or Ctrl-D       Exit");
+    println!();
+
+    let stdin = io::stdin();
+    let mut buffer = String::new();
+    let mut in_block = false;
+    let mut brace_depth: i32 = 0;
+
+    loop {
+        if in_block {
+            eprint!("  ... ");
+        } else {
+            eprint!("assura> ");
+        }
+        io::stderr().flush().ok();
+
+        let mut line = String::new();
+        match stdin.lock().read_line(&mut line) {
+            Ok(0) => {
+                // EOF (Ctrl-D)
+                eprintln!();
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Error reading input: {e}");
+                break;
+            }
+        }
+
+        let trimmed = line.trim();
+
+        // Handle commands (only when not in a multi-line block)
+        if !in_block {
+            if trimmed == ":quit" || trimmed == ":q" || trimmed == ":exit" {
+                break;
+            }
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(rust_type) = trimmed.strip_prefix(":type ") {
+                let assura_type =
+                    assura_codegen::type_map::rust_type_to_assura(rust_type.trim());
+                println!("{rust_type} -> {assura_type}");
+                continue;
+            }
+            if trimmed == ":type" {
+                eprintln!("Usage: :type <rust_type>  (e.g., :type Vec<Option<i64>>)");
+                continue;
+            }
+            if let Some(code) = trimmed.strip_prefix(":explain ") {
+                repl_explain(code.trim());
+                continue;
+            }
+            if trimmed == ":explain" {
+                eprintln!("Usage: :explain <code>  (e.g., :explain A03001)");
+                continue;
+            }
+            if let Some(file) = trimmed.strip_prefix(":load ") {
+                repl_load(file.trim());
+                continue;
+            }
+            if trimmed == ":load" {
+                eprintln!("Usage: :load <file.assura>");
+                continue;
+            }
+            if trimmed.starts_with(':') {
+                eprintln!("Unknown command: {trimmed}");
+                eprintln!("Available: :type, :explain, :load, :quit");
+                continue;
+            }
+        }
+
+        // Accumulate input, track brace depth for multi-line
+        buffer.push_str(&line);
+        for ch in line.chars() {
+            if ch == '{' {
+                brace_depth += 1;
+                in_block = true;
+            } else if ch == '}' {
+                brace_depth -= 1;
+            }
+        }
+
+        // If braces are balanced (or never opened), try to parse
+        if brace_depth <= 0 {
+            in_block = false;
+            brace_depth = 0;
+            let input = buffer.trim().to_string();
+            if !input.is_empty() {
+                repl_eval(&input);
+            }
+            buffer.clear();
+        }
+    }
+}
+
+fn repl_explain(code: &str) {
+    if let Some(info) = assura_diagnostics::explain(code) {
+        println!("{} ({})", info.code, info.name);
+        println!("  {}", info.description);
+        if !info.example.is_empty() {
+            println!("  Example: {}", info.example);
+        }
+        if !info.fix.is_empty() {
+            println!("  Fix: {}", info.fix);
+        }
+    } else {
+        eprintln!("Unknown error code: {code}");
+    }
+}
+
+fn repl_load(path: &str) {
+    match fs::read_to_string(path) {
+        Ok(source) => repl_eval(&source),
+        Err(e) => eprintln!("Error loading {path}: {e}"),
+    }
+}
+
+fn repl_eval(source: &str) {
+    let (ast, parse_errors) = assura_parser::parse(source);
+    if !parse_errors.is_empty() {
+        for err in &parse_errors {
+            eprintln!("  Parse error: {err:?}");
+        }
+        return;
+    }
+
+    let ast = match ast {
+        Some(a) => a,
+        None => {
+            eprintln!("  Failed to parse input.");
+            return;
+        }
+    };
+
+    // Show parse summary
+    let decl_count = ast.decls.len();
+    if decl_count == 0 {
+        eprintln!("  No declarations found.");
+        return;
+    }
+
+    for decl_spanned in &ast.decls {
+        let decl = &decl_spanned.node;
+        let name = match decl {
+            Decl::Contract(c) => &c.name,
+            Decl::Bind(b) => &b.name,
+            Decl::FnDef(f) => &f.name,
+            Decl::Service(s) => &s.name,
+            Decl::TypeDef(t) => &t.name,
+            Decl::EnumDef(e) => &e.name,
+            Decl::Extern(e) => &e.name,
+            Decl::Prophecy(p) => &p.name,
+            Decl::CodecRegistry(c) => &c.name,
+            Decl::Block { name, .. } => name,
+        };
+        let clause_count = match decl {
+            Decl::Contract(c) => c.clauses.len(),
+            Decl::Bind(b) => b.clauses.len(),
+            _ => 0,
+        };
+        println!(
+            "  OK  {name}: {} clause(s)",
+            clause_count
+        );
+    }
+
+    // Run resolution + type checking
+    let resolved = match assura_resolve::resolve(&ast) {
+        Ok(r) => r,
+        Err(errs) => {
+            for err in &errs {
+                eprintln!("  Resolution error: {} ({})", err.message, err.code);
+            }
+            return;
+        }
+    };
+
+    let hir = assura_hir::lower(&resolved);
+    let typed = match assura_types::type_check_hir(&hir) {
+        Ok(t) => t,
+        Err(errs) => {
+            for err in &errs {
+                eprintln!("  Type error: {} ({})", err.message, err.code);
+            }
+            return;
+        }
+    };
+
+    // Run SMT verification
+    {
+        let results = assura_smt::verify(&typed);
+        for result in &results {
+            match result {
+                assura_smt::VerificationResult::Verified { clause_desc } => {
+                    println!("  VERIFIED  {clause_desc}");
+                }
+                assura_smt::VerificationResult::Counterexample {
+                    clause_desc,
+                    model,
+                    ..
+                } => {
+                    println!("  COUNTEREXAMPLE  {clause_desc}");
+                    println!("    | {model}");
+                }
+                assura_smt::VerificationResult::Timeout { clause_desc } => {
+                    println!("  TIMEOUT  {clause_desc}");
+                }
+                assura_smt::VerificationResult::Unknown {
+                    clause_desc,
+                    reason,
+                } => {
+                    println!("  UNKNOWN  {clause_desc}: {reason}");
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
