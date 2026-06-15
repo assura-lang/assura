@@ -422,6 +422,29 @@ pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<Veri
     verify_parallel_with_solver(typed, cache, SolverChoice::Z3)
 }
 
+/// Check whether any declaration in the source file has verifiable clauses
+/// (requires, ensures, invariant).  Returns false if there is nothing to
+/// send to the solver, allowing callers to skip thread-pool and cache init.
+pub fn has_verifiable_clauses(source: &assura_parser::ast::SourceFile) -> bool {
+    use assura_parser::ast::{ClauseKind, Decl};
+
+    let verifiable = |clauses: &[assura_parser::ast::Clause]| {
+        clauses.iter().any(|c| {
+            matches!(
+                c.kind,
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
+            )
+        })
+    };
+
+    source.decls.iter().any(|d| match &d.node {
+        Decl::Contract(c) => verifiable(&c.clauses),
+        Decl::FnDef(f) => verifiable(&f.clauses),
+        Decl::Extern(e) => verifiable(&e.clauses),
+        _ => false,
+    })
+}
+
 /// Verify all declarations in parallel using the specified solver.
 pub fn verify_parallel_with_solver(
     typed: &TypedFile,
@@ -3507,57 +3530,31 @@ mod measure_unit_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // ParallelVerifier tests: canonical location is parallel.rs
+
     // =======================================================================
-    // T114: ParallelVerifier tests
+    // has_verifiable_clauses tests
     // =======================================================================
 
     #[test]
-    fn parallel_start_jobs() {
-        let mut pv = ParallelVerifier::new(2);
-        pv.add_job("A".into(), "requires".into());
-        pv.add_job("B".into(), "ensures".into());
-        pv.add_job("C".into(), "requires".into());
-        assert_eq!(pv.start_next(), Some(0));
-        assert_eq!(pv.start_next(), Some(1));
-        assert_eq!(pv.start_next(), None);
+    fn has_verifiable_clauses_true_for_requires() {
+        let src = "contract Foo { requires x > 0 }";
+        let file = assura_parser::parse_unwrap(src);
+        assert!(has_verifiable_clauses(&file));
     }
 
     #[test]
-    fn parallel_complete_allows_more() {
-        let mut pv = ParallelVerifier::new(1);
-        pv.add_job("A".into(), "r".into());
-        pv.add_job("B".into(), "e".into());
-        pv.start_next();
-        assert_eq!(pv.start_next(), None);
-        pv.complete_job(0, "verified".into());
-        assert_eq!(pv.start_next(), Some(1));
+    fn has_verifiable_clauses_false_for_effects_only() {
+        let src = "contract Bar { effects io }";
+        let file = assura_parser::parse_unwrap(src);
+        assert!(!has_verifiable_clauses(&file));
     }
 
     #[test]
-    fn parallel_all_complete() {
-        let mut pv = ParallelVerifier::new(4);
-        pv.add_job("A".into(), "r".into());
-        pv.start_next();
-        pv.complete_job(0, "ok".into());
-        assert!(pv.all_complete());
-    }
-
-    #[test]
-    fn parallel_counts() {
-        let mut pv = ParallelVerifier::new(4);
-        pv.add_job("A".into(), "r".into());
-        pv.add_job("B".into(), "e".into());
-        assert_eq!(pv.pending_count(), 2);
-        pv.start_next();
-        pv.complete_job(0, "ok".into());
-        assert_eq!(pv.completed_count(), 1);
-        assert_eq!(pv.pending_count(), 1);
-    }
-
-    #[test]
-    fn parallel_default() {
-        let pv = ParallelVerifier::default();
-        assert_eq!(pv.job_count(), 0);
+    fn has_verifiable_clauses_false_for_empty() {
+        let src = "contract Empty { }";
+        let file = assura_parser::parse_unwrap(src);
+        assert!(!has_verifiable_clauses(&file));
     }
 
     // =======================================================================

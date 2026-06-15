@@ -281,36 +281,27 @@ fn compile_with_config(source: &str, filename: &str, config: &CompilerConfig) ->
     let mut diagnostics: Vec<assura_diagnostics::Diagnostic> = Vec::new();
     let mut has_errors = false;
 
-    // --- Lex ---
+    // --- Lex + Parse (single pass) ---
     let lex_start = Instant::now();
-    let lex = Token::lexer(source);
-    let mut tokens: Vec<(Token, std::ops::Range<usize>)> = Vec::new();
+    let parse_result = assura_parser::parse_full(source);
+    let parse_ms = lex_start.elapsed().as_secs_f64() * 1000.0;
+    let lex_ms = 0.0_f64; // lex is now part of parse_full; kept for TimingInfo compat
+    let token_count = parse_result.token_count;
+    let file = parse_result.file;
 
-    for (tok, span) in lex.spanned() {
-        match tok {
-            Ok(t) => tokens.push((t, span)),
-            Err(()) => {
-                has_errors = true;
-                diagnostics.push(
-                    assura_diagnostics::Diagnostic::error(
-                        "A01001",
-                        format!("unexpected character: {:?}", &source[span.clone()]),
-                        span,
-                    )
-                    .with_file(filename),
-                );
-            }
-        }
+    for le in &parse_result.lex_errors {
+        has_errors = true;
+        diagnostics.push(
+            assura_diagnostics::Diagnostic::error(
+                "A01001",
+                format!("unexpected character: {:?}", &source[le.span.clone()]),
+                le.span.clone(),
+            )
+            .with_file(filename),
+        );
     }
-    let lex_ms = lex_start.elapsed().as_secs_f64() * 1000.0;
-    let token_count = tokens.len();
 
-    // --- Parse ---
-    let parse_start = Instant::now();
-    let (file, parse_errors) = assura_parser::parse(source);
-    let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-
-    for e in &parse_errors {
+    for e in &parse_result.parse_errors {
         has_errors = true;
         diagnostics.push(
             assura_diagnostics::Diagnostic::error("A01002", e.message.clone(), e.span.clone())
@@ -935,13 +926,18 @@ fn verify_and_report(
     layer: u8,
     solver: assura_smt::SolverChoice,
 ) -> Vec<assura_smt::VerificationResult> {
-    let cache_dir = std::path::Path::new(filename)
-        .parent()
-        .unwrap_or(std::path::Path::new("."));
-    let verify_cache = assura_smt::VerificationCache::new(cache_dir);
+    // Short-circuit: skip cache/thread-pool init when there are no
+    // verifiable clauses (requires/ensures/invariant) in the source.
+    let has_clauses = file
+        .as_ref()
+        .is_some_and(assura_smt::has_verifiable_clauses);
 
-    let mut verification_results = if layer >= 1 {
+    let mut verification_results = if layer >= 1 && has_clauses {
         if let Some(typed) = typed {
+            let cache_dir = std::path::Path::new(filename)
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            let verify_cache = assura_smt::VerificationCache::new(cache_dir);
             assura_smt::verify_parallel_with_solver(typed, &verify_cache, solver)
         } else {
             Vec::new()
