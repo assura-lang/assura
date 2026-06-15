@@ -512,15 +512,39 @@ fn lower_method_call(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_call_expr(n: &SyntaxNode) -> Expr {
-    let func_name = first_ident(n);
-    let args = find_child(n, SyntaxKind::ARG_LIST)
+    // Function name: prefer IDENT, fall back to first keyword token text
+    // (temporal operators like leads_to, eventually are keyword tokens).
+    let func_name = first_ident_or_keyword(n);
+    let mut args = find_child(n, SyntaxKind::ARG_LIST)
         .map(|al| lower_arg_list(&al))
         .unwrap_or_default();
+
+    // For temporal operators with braced bodies (no ARG_LIST node),
+    // collect child expressions directly as arguments.
+    if args.is_empty() {
+        let child_exprs: Vec<_> = n
+            .children()
+            .filter(|c| is_expr_kind(c.kind()))
+            .map(|c| lower_expr(&c))
+            .collect();
+        if !child_exprs.is_empty() {
+            args = child_exprs;
+        }
+    }
 
     Expr::Call {
         func: Box::new(Expr::Ident(func_name)),
         args,
     }
+}
+
+/// Get the first identifier or keyword text from a node's direct token children.
+fn first_ident_or_keyword(n: &SyntaxNode) -> String {
+    n.children_with_tokens()
+        .filter_map(|el| el.into_token())
+        .find(|t| t.kind() == SyntaxKind::IDENT || t.kind().is_keyword())
+        .map(|t| t.text().to_string())
+        .unwrap_or_default()
 }
 
 fn lower_arg_list(n: &SyntaxNode) -> Vec<Expr> {
@@ -1965,6 +1989,58 @@ liveness Progress {
             );
         } else {
             panic!("expected Decl::Block, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn test_liveness_block_braced_body() {
+        // Regression test for #53: clause bodies with braces inside generic blocks
+        let src = r#"
+liveness Progress {
+    assume: fair
+    prove: eventually { turn == 1 }
+}
+"#;
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::Block {
+            kind, name, body, ..
+        } = &file.decls[0].node
+        {
+            assert_eq!(kind, "liveness");
+            assert_eq!(name, "Progress");
+            assert!(
+                body.len() >= 2,
+                "expected assume + prove clauses, got {}",
+                body.len()
+            );
+        } else {
+            panic!("expected Decl::Block, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn test_liveness_block_multiple_braced_clauses() {
+        // Also covers #53: multiple brace-delimited bodies in one block
+        let src = r#"
+liveness Fairness {
+    prove: eventually { turn == 1 }
+    prove: eventually_within { progress == true }
+}
+"#;
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        if let Decl::Block { body, .. } = &file.decls[0].node {
+            assert!(
+                body.len() >= 2,
+                "expected 2 prove clauses, got {}",
+                body.len()
+            );
+        } else {
+            panic!("expected Decl::Block");
         }
     }
 

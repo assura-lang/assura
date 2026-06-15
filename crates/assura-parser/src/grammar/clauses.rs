@@ -215,7 +215,15 @@ fn is_ident_expr_clause(p: &mut Parser) -> bool {
     }
     matches!(
         p.current_text(),
-        "key_size" | "nonce_size" | "nonce" | "spec" | "crypto"
+        "key_size"
+            | "nonce_size"
+            | "nonce"
+            | "spec"
+            | "crypto"
+            | "prove"
+            | "validate"
+            | "assume"
+            | "example"
     )
 }
 

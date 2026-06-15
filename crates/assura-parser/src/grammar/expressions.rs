@@ -86,6 +86,12 @@ fn atom(p: &mut Parser) -> Option<CompletedMarker> {
         // apply lemma_name(args)
         SyntaxKind::APPLY_KW => Some(apply_expr(p)),
 
+        // Temporal operators: eventually { expr }, eventually_within { expr }
+        SyntaxKind::EVENTUALLY_KW
+        | SyntaxKind::EVENTUALLY_ALWAYS_KW
+        | SyntaxKind::EVENTUALLY_WITHIN_KW
+        | SyntaxKind::LEADS_TO_KW => Some(temporal_expr(p)),
+
         // match expr { arms }
         SyntaxKind::MATCH_KW => Some(match_expr(p)),
 
@@ -220,6 +226,32 @@ fn ghost_expr(p: &mut Parser) -> CompletedMarker {
     expr(p);
     p.expect(SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::GHOST_EXPR)
+}
+
+/// Temporal operator expression: `eventually(expr)` or `eventually { expr }`.
+fn temporal_expr(p: &mut Parser) -> CompletedMarker {
+    let m = p.open();
+    p.bump(); // eventually | eventually_always | eventually_within | leads_to
+
+    // Accept either parenthesized or braced argument
+    if p.at(SyntaxKind::L_PAREN) {
+        arg_list(p);
+    } else if p.at(SyntaxKind::L_BRACE) {
+        p.bump(); // {
+        while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+            let before = p.pos();
+            expr_bp(p, 0);
+            if p.pos() == before {
+                p.bump(); // skip unrecognized tokens
+            }
+            p.eat(SyntaxKind::COMMA);
+        }
+        p.expect(SyntaxKind::R_BRACE);
+    } else {
+        // Inline: eventually expr
+        expr_bp(p, 0);
+    }
+    m.complete(p, SyntaxKind::CALL_EXPR)
 }
 
 fn apply_expr(p: &mut Parser) -> CompletedMarker {
