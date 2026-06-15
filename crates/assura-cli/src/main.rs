@@ -277,6 +277,47 @@ fn load_project_config(start_path: &Path) -> Option<(ProjectConfig, std::path::P
 /// Type alias: CLI code uses this name to destructure `CompilationOutput`.
 type CompilationResult = assura_pipeline::CompilationOutput;
 
+// ---------------------------------------------------------------------------
+// Parameter structs (replace too_many_arguments)
+// ---------------------------------------------------------------------------
+
+/// Configuration for the `assura check` command.
+struct CheckOptions<'a> {
+    filename: &'a str,
+    output_mode: OutputMode,
+    verbosity: Verbosity,
+    layer: u8,
+    solver: Option<assura_smt::SolverChoice>,
+    watch: bool,
+    stats: bool,
+    dump_smt: Option<&'a str>,
+}
+
+/// Context for verification + diagnostic reporting.
+struct VerifyContext<'a> {
+    filename: &'a str,
+    source: &'a str,
+    typed: &'a Option<assura_types::TypedFile>,
+    file: &'a Option<assura_parser::ast::SourceFile>,
+    diagnostics: &'a mut Vec<assura_diagnostics::Diagnostic>,
+    has_errors: &'a mut bool,
+    output_mode: OutputMode,
+    verbosity: Verbosity,
+    layer: u8,
+    solver: assura_smt::SolverChoice,
+}
+
+/// Configuration for the `assura audit` command.
+struct AuditOptions<'a> {
+    path: &'a str,
+    depth: &'a str,
+    format: &'a str,
+    focus: Option<&'a str>,
+    max_functions: Option<usize>,
+    timeout_ms: u64,
+    unsafe_only: bool,
+}
+
 /// Format a counterexample as a clean single-line summary for diagnostics.
 ///
 /// If a structured `CounterexampleModel` is available, produces a summary
@@ -326,16 +367,16 @@ fn main() {
             watch,
             stats,
             dump_smt,
-        }) => run_check(
-            &file,
+        }) => run_check(CheckOptions {
+            filename: &file,
             output_mode,
             verbosity,
             layer,
             solver,
             watch,
             stats,
-            dump_smt.as_deref(),
-        ),
+            dump_smt: dump_smt.as_deref(),
+        }),
         Some(Commands::Build {
             file,
             output,
@@ -382,15 +423,15 @@ fn main() {
             max_functions,
             timeout,
             unsafe_only,
-        }) => run_audit(
-            &path,
-            &depth,
-            &format,
-            focus.as_deref(),
+        }) => run_audit(AuditOptions {
+            path: &path,
+            depth: &depth,
+            format: &format,
+            focus: focus.as_deref(),
             max_functions,
-            timeout,
+            timeout_ms: timeout,
             unsafe_only,
-        ),
+        }),
         Some(Commands::Repl) => run_repl(),
         Some(Commands::Diff { old, new, format }) => {
             run_diff(&old, &new, &format);
@@ -424,17 +465,17 @@ fn main() {
 // `assura check <file> [--json|--human] [--layer 0|1]`
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
-fn run_check(
-    filename: &str,
-    output_mode: OutputMode,
-    verbosity: Verbosity,
-    cli_layer: u8,
-    cli_solver: Option<assura_smt::SolverChoice>,
-    watch: bool,
-    stats: bool,
-    dump_smt: Option<&str>,
-) {
+fn run_check(opts: CheckOptions<'_>) {
+    let CheckOptions {
+        filename,
+        output_mode,
+        verbosity,
+        layer: cli_layer,
+        solver: cli_solver,
+        watch,
+        stats,
+        dump_smt,
+    } = opts;
     // Load project config (assura.toml) if available
     let project = load_project_config(Path::new(filename));
     let config_layer = project.as_ref().map(|(c, _)| c.verify.layer);
@@ -570,18 +611,18 @@ fn run_check(
 
     // --- Verify + report ---
     let verify_start = Instant::now();
-    let verification_results = verify_and_report(
+    let verification_results = verify_and_report(VerifyContext {
         filename,
-        &source,
-        &typed,
-        &file,
-        &mut diagnostics,
-        &mut has_errors,
+        source: &source,
+        typed: &typed,
+        file: &file,
+        diagnostics: &mut diagnostics,
+        has_errors: &mut has_errors,
         output_mode,
         verbosity,
         layer,
         solver,
-    );
+    });
 
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
@@ -840,19 +881,19 @@ fn run_check(
 /// Shared verification + reporting logic used by both `run_check` and
 /// `check_file_once` (watch mode). Returns the verification results and
 /// whether errors were found.
-#[allow(clippy::too_many_arguments)]
-fn verify_and_report(
-    filename: &str,
-    source: &str,
-    typed: &Option<assura_types::TypedFile>,
-    file: &Option<assura_parser::ast::SourceFile>,
-    diagnostics: &mut Vec<assura_diagnostics::Diagnostic>,
-    has_errors: &mut bool,
-    output_mode: OutputMode,
-    verbosity: Verbosity,
-    layer: u8,
-    solver: assura_smt::SolverChoice,
-) -> Vec<assura_smt::VerificationResult> {
+fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::VerificationResult> {
+    let VerifyContext {
+        filename,
+        source,
+        typed,
+        file,
+        diagnostics,
+        has_errors,
+        output_mode,
+        verbosity,
+        layer,
+        solver,
+    } = ctx;
     // Short-circuit: skip cache/thread-pool init when there are no
     // verifiable clauses (requires/ensures/invariant) in the source.
     let has_clauses = file
@@ -1038,18 +1079,18 @@ fn check_file_once(
     let _ = hir;
     let _ = timing;
 
-    verify_and_report(
+    verify_and_report(VerifyContext {
         filename,
-        &source,
-        &typed,
-        &file,
-        &mut diagnostics,
-        &mut has_errors,
+        source: &source,
+        typed: &typed,
+        file: &file,
+        diagnostics: &mut diagnostics,
+        has_errors: &mut has_errors,
         output_mode,
         verbosity,
         layer,
-        assura_smt::SolverChoice::Z3,
-    );
+        solver: assura_smt::SolverChoice::Z3,
+    });
 
     has_errors
 }
@@ -2324,16 +2365,16 @@ fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verbosity) {
 // `assura audit [path]` -- scan and verify a Rust project
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
-fn run_audit(
-    path: &str,
-    depth: &str,
-    format: &str,
-    focus: Option<&str>,
-    max_functions: Option<usize>,
-    _timeout_ms: u64,
-    unsafe_only: bool,
-) {
+fn run_audit(opts: AuditOptions<'_>) {
+    let AuditOptions {
+        path,
+        depth,
+        format,
+        focus,
+        max_functions,
+        timeout_ms: _timeout_ms,
+        unsafe_only,
+    } = opts;
     use assura_codegen::type_map::rust_type_to_assura;
 
     // Phase 1: Discover Rust source files

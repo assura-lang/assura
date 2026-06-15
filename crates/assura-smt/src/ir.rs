@@ -1397,6 +1397,28 @@ module check {
     }
 
     // -------------------------------------------------------------------
+    // ir_type_default tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn ir_type_default_covers_all_base_types() {
+        assert_eq!(ir_type_default("Int"), "0_i64");
+        assert_eq!(ir_type_default("Nat"), "0_u64");
+        assert_eq!(ir_type_default("Float"), "0.0_f64");
+        assert_eq!(ir_type_default("Bool"), "false");
+        assert_eq!(ir_type_default("String"), "String::new()");
+        assert_eq!(ir_type_default("Bytes"), "Vec::new()");
+        assert_eq!(ir_type_default("Unit"), "()");
+        assert_eq!(ir_type_default(""), "()");
+    }
+
+    #[test]
+    fn ir_type_default_unknown_uses_default_trait() {
+        assert_eq!(ir_type_default("CustomType"), "Default::default()");
+        assert_eq!(ir_type_default("List<Int>"), "Default::default()");
+    }
+
+    // -------------------------------------------------------------------
     // IR to Rust codegen tests
     // -------------------------------------------------------------------
 

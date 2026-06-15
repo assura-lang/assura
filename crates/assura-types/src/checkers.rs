@@ -1111,7 +1111,6 @@ impl EffectChecker {
     /// Returns `true` if the effect is a dot-separated sub-effect of a
     /// known group. For example, `io.read` is accepted because `io` is
     /// a known group effect.
-    #[allow(clippy::unused_self)]
     fn is_sub_effect_of_known(&self, effect: &str) -> bool {
         if let Some(dot_pos) = effect.find('.') {
             let parent = &effect[..dot_pos];

@@ -148,36 +148,6 @@ fn is_keyword_as_value(k: SyntaxKind) -> bool {
     )
 }
 
-/// Can this token start an atom expression?
-/// Used by clause body parsing to know when expression parsing would work.
-#[allow(dead_code)]
-pub(crate) fn at_expr_start(p: &mut Parser) -> bool {
-    matches!(
-        p.current(),
-        SyntaxKind::INT_LIT
-            | SyntaxKind::FLOAT_LIT
-            | SyntaxKind::STRING_LIT
-            | SyntaxKind::TRUE_KW
-            | SyntaxKind::FALSE_KW
-            | SyntaxKind::SELF_KW
-            | SyntaxKind::RESULT_KW
-            | SyntaxKind::OLD_KW
-            | SyntaxKind::FORALL_KW
-            | SyntaxKind::EXISTS_KW
-            | SyntaxKind::IF_KW
-            | SyntaxKind::GHOST_KW
-            | SyntaxKind::APPLY_KW
-            | SyntaxKind::MATCH_KW
-            | SyntaxKind::LET_KW
-            | SyntaxKind::L_PAREN
-            | SyntaxKind::L_BRACKET
-            | SyntaxKind::NOT_KW
-            | SyntaxKind::MINUS
-            | SyntaxKind::BANG
-            | SyntaxKind::IDENT
-    ) || is_keyword_as_value(p.current())
-}
-
 // ---- Atom implementations ----
 
 fn literal(p: &mut Parser) -> CompletedMarker {

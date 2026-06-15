@@ -149,16 +149,7 @@ fn at_decl_start(p: &mut Parser) -> bool {
     ]) || (p.current() == SyntaxKind::IDENT || p.current().is_keyword()) && !p.eof()
 }
 
-/// Skip balanced tokens within braces/parens/brackets until we hit
-/// the matching closer or a stopper. Used for collecting raw body tokens.
-#[allow(dead_code)]
-pub(crate) fn body_tokens(p: &mut Parser, stoppers: &[SyntaxKind]) {
-    let m = p.open();
-    body_tokens_inner(p, stoppers);
-    m.complete(p, SyntaxKind::BODY_TOKENS);
-}
-
-/// Inner loop: collect tokens with balanced delimiters.
+/// Collect tokens with balanced delimiters until we hit a stopper or EOF.
 fn body_tokens_inner(p: &mut Parser, stoppers: &[SyntaxKind]) {
     while !p.eof() {
         let cur = p.current();

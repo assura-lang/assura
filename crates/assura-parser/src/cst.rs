@@ -55,19 +55,6 @@ impl Marker {
         p.events.push(Event::Close);
         CompletedMarker { pos: self.pos }
     }
-
-    /// Abandon this marker without producing a node.
-    #[allow(dead_code)]
-    pub(crate) fn abandon(mut self, p: &mut Parser) {
-        self.completed = true;
-        if self.pos as usize == p.events.len() - 1 {
-            match p.events.pop() {
-                Some(Event::Open { .. }) => {}
-                _ => unreachable!(),
-            }
-        }
-        // If not the last event, leave the tombstone; build_tree skips it.
-    }
 }
 
 impl Drop for Marker {
@@ -203,14 +190,6 @@ impl Parser {
         self.pos += 1;
     }
 
-    /// Consume the current token regardless of kind (for error recovery).
-    #[allow(dead_code)]
-    pub(crate) fn bump_any(&mut self) {
-        if !self.eof() {
-            self.bump();
-        }
-    }
-
     /// The `SyntaxKind` of the current token, or `ERROR_TOKEN` at EOF.
     pub(crate) fn current(&self) -> SyntaxKind {
         self.nth(0)
@@ -222,15 +201,6 @@ impl Parser {
             .get(self.pos + n)
             .map(|t| t.kind)
             .unwrap_or(SyntaxKind::ERROR_TOKEN)
-    }
-
-    /// The text of the token `n` positions ahead.
-    #[allow(dead_code)]
-    pub(crate) fn nth_text(&self, n: usize) -> &str {
-        self.tokens
-            .get(self.pos + n)
-            .map(|t| t.text.as_str())
-            .unwrap_or("")
     }
 
     /// True if the current token matches `kind`. Decrements fuel.
@@ -300,16 +270,6 @@ impl Parser {
         });
     }
 
-    /// Emit an error with a specific span.
-    #[allow(dead_code)]
-    pub(crate) fn error(&mut self, message: String, span: std::ops::Range<usize>) {
-        self.errors.push(ParseError {
-            code: "A01002",
-            span,
-            message,
-        });
-    }
-
     /// Consume the parser, returning events, tokens, and collected errors.
     pub(crate) fn finish(self) -> (Vec<Event>, Vec<LexedToken>, Vec<ParseError>) {
         (self.events, self.tokens, self.errors)
@@ -330,23 +290,6 @@ impl Parser {
         k == SyntaxKind::IDENT || k.is_keyword()
     }
 
-    /// Consume the current token as an identifier text, accepting both
-    /// `IDENT` and keyword tokens. Returns the text or empty string.
-    #[allow(dead_code)]
-    pub(crate) fn eat_keyword_or_ident(&mut self) -> Option<String> {
-        if self.eof() {
-            return None;
-        }
-        let k = self.current();
-        if k == SyntaxKind::IDENT || k.is_keyword() {
-            let text = self.current_text().to_string();
-            self.bump();
-            Some(text)
-        } else {
-            None
-        }
-    }
-
     /// The source span of the current token (byte offsets).
     pub(crate) fn current_span(&self) -> TokenSpan {
         self.spans.get(self.pos).cloned().unwrap_or_else(|| {
@@ -361,36 +304,11 @@ impl Parser {
         })
     }
 
-    /// The source span at a specific token index.
-    #[allow(dead_code)]
-    pub(crate) fn span_at(&self, idx: usize) -> TokenSpan {
-        self.spans
-            .get(idx)
-            .cloned()
-            .unwrap_or(TokenSpan { start: 0, end: 0 })
-    }
-
     /// Wrap the current token in an ERROR node and skip it (error recovery).
     pub(crate) fn err_and_bump(&mut self, message: &str) {
         self.error_at_current(message.to_string());
         let m = self.open();
         self.bump();
-        m.complete(self, SyntaxKind::ERROR);
-    }
-
-    /// Skip tokens until we find one matching `kind` or EOF.
-    /// Wraps skipped tokens in an ERROR node.
-    #[allow(dead_code)]
-    pub(crate) fn err_recover(&mut self, message: &str, recovery: &[SyntaxKind]) {
-        if self.at_any(recovery) || self.eof() {
-            self.error_at_current(message.to_string());
-            return;
-        }
-        let m = self.open();
-        self.error_at_current(message.to_string());
-        while !self.eof() && !self.at_any(recovery) {
-            self.bump();
-        }
         m.complete(self, SyntaxKind::ERROR);
     }
 }
