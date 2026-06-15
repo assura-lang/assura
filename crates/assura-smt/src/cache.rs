@@ -138,17 +138,20 @@ impl From<CachedResult> for VerificationResult {
 }
 
 /// Compute a stable content hash of a contract's clauses for cache keying.
+///
+/// Uses SHA-256 for deterministic hashing across Rust versions and platforms.
+/// DefaultHasher is not guaranteed to be stable across rustc releases, which
+/// silently invalidates the on-disk cache after `rustup update`.
 fn hash_clauses(contract_name: &str, clauses: &[assura_parser::ast::Clause]) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use sha2::{Digest, Sha256};
 
-    let mut hasher = DefaultHasher::new();
-    contract_name.hash(&mut hasher);
+    let mut hasher = Sha256::new();
+    hasher.update(contract_name.as_bytes());
     for clause in clauses {
-        format!("{:?}", clause.kind).hash(&mut hasher);
-        format!("{:?}", clause.body).hash(&mut hasher);
+        hasher.update(format!("{:?}", clause.kind).as_bytes());
+        hasher.update(format!("{:?}", clause.body).as_bytes());
     }
-    format!("{:016x}", hasher.finish())
+    format!("{:x}", hasher.finalize())
 }
 
 /// Verification cache backed by the filesystem.
@@ -376,6 +379,28 @@ mod tests {
         cache.put("c", &clauses, &results);
         let got = cache.get("c", &clauses).unwrap();
         assert!(matches!(got[0], VerificationResult::Counterexample { .. }));
+    }
+
+    #[test]
+    fn test_hash_clauses_deterministic() {
+        // Regression test for #56: hash must be stable across runs
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let h1 = super::hash_clauses("contract_a", &clauses);
+        let h2 = super::hash_clauses("contract_a", &clauses);
+        assert_eq!(h1, h2, "same input must produce same hash");
+        // SHA-256 produces 64 hex chars
+        assert_eq!(h1.len(), 64, "SHA-256 hex output is 64 chars");
+    }
+
+    #[test]
+    fn test_hash_clauses_different_contracts() {
+        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let h1 = super::hash_clauses("alpha", &clauses);
+        let h2 = super::hash_clauses("beta", &clauses);
+        assert_ne!(
+            h1, h2,
+            "different contract names must produce different hashes"
+        );
     }
 
     #[test]
