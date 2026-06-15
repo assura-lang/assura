@@ -8,6 +8,9 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/assura-lang/assura"
+homepage = "https://github.com/assura-lang/assura"
+keywords = ["compiler", "contracts", "verification", "smt", "formal-methods"]
+categories = ["compilers", "development-tools"]
 
 [profile.dist]
 inherits = "release"
