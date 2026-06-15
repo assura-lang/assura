@@ -931,6 +931,223 @@ Stdlib, IR parser, Cranelift backend.
 
 ---
 
+## Phase 8: Inline Contract Annotations -- GitHub #101-#107
+
+> Extend Assura beyond contract-first `.assura` files to support inline
+> contract annotations in existing Rust code (`/// @requires`, `/// @ensures`).
+> This enables brownfield adoption: developers annotate existing code with
+> contracts and verify them using the same Z3/CVC5 engine. Later tasks
+> extend this to proc macros, a `check-rust` command, AI inference,
+> dual-source merge, VS Code overlays, and multi-language support.
+
+### 8.01: Inline annotation doc-comment parser -- #101
+
+- Depends on: none
+- **What**: Create a module that parses `/// @requires`, `/// @ensures`,
+  `/// @invariant`, `/// @effects`, and `/// @decreases` clauses from
+  Rust doc comments. Extracts clause text and maps to spans. Handles
+  multi-line predicates (continuation lines indented under the clause).
+  Supports function contracts, struct invariants, and impl block contracts.
+- **Deliverable**: New crate `assura-rust-analyzer` (or module in
+  `assura-parser`) with:
+  - `DocContractParser` that extracts `@`-clauses from `syn::Attribute` doc
+    comments
+  - `InlineContract` struct with `requires`, `ensures`, `invariant`,
+    `effects`, `decreases` vectors
+  - `parse_rust_file(path) -> Vec<AnnotatedItem>` that uses `syn` to parse
+    a `.rs` file and extracts all annotated functions, structs, and impl blocks
+  - Tests covering: single-line clauses, multi-line predicates, struct
+    invariants, impl block contracts, mixed doc comments + contracts
+- [ ] **Acceptance Tests**:
+  ```bash
+  # 1. Crate exists and compiles
+  cargo build -p assura-rust-analyzer
+  # 2. Parse a test Rust file with inline annotations
+  cargo test -p assura-rust-analyzer parse_doc_contracts
+  # At least 5 tests: single requires, multi-line ensures, struct invariant,
+  # impl block, effects clause
+  # 3. Round-trip: parse annotations and reconstruct clause text
+  cargo test -p assura-rust-analyzer roundtrip
+  # 4. Edge cases: no annotations, empty doc comments, malformed @-clauses
+  cargo test -p assura-rust-analyzer edge_cases
+  # 5. Full suite
+  cargo test --workspace
+  ```
+
+### 8.02: assura-macros proc macro crate -- #102
+
+- Depends on: 8.01
+- **What**: Create `assura-macros` proc macro crate with:
+  - `#[assura::contract]`: In debug builds, generates `debug_assert!`
+    from `@requires`/`@ensures` clauses. In release builds, no-op.
+  - `#[assura::trust("reason")]`: Marks a function as trusted (skip
+    verification), must include a reason string.
+  - Reuses clause parsing from 8.01.
+- **Deliverable**: `crates/assura-macros/` with `proc-macro = true`.
+  Dependencies: `syn 2`, `quote 1`, `proc-macro2 1`.
+- [ ] **Acceptance Tests**:
+  ```bash
+  # 1. Crate compiles as proc-macro
+  cargo build -p assura-macros
+  # 2. Contract attribute generates debug_assert! in debug mode
+  cargo test -p assura-macros contract_debug_assert
+  # At least 3 tests: requires generates assert, ensures wraps return,
+  # release mode is no-op
+  # 3. Trust attribute compiles and is no-op
+  cargo test -p assura-macros trust_attribute
+  # 4. Integration: use assura-macros from a test crate
+  cargo test -p assura-macros integration
+  # 5. Full suite
+  cargo test --workspace
+  ```
+
+### 8.03: `assura check-rust` command -- #103
+
+- Depends on: 8.01
+- **What**: Add `assura check-rust <path>` CLI command that:
+  1. Scans `.rs` files for inline contract annotations
+  2. Parses the Rust code with `syn` to get function bodies
+  3. Builds Assura HIR from the contract + implementation pair
+  4. Runs `assura-smt::verify()` on each annotated function
+  5. Reports verification results with spans pointing into the `.rs` file
+  - Supports `--json`, `--layer`, `--watch` flags.
+  - Supports directory scanning (check all `.rs` files recursively).
+- [ ] **Acceptance Tests**:
+  ```bash
+  # 1. Create a test Rust file with inline contracts
+  mkdir -p /tmp/check-rust-test/src
+  cat > /tmp/check-rust-test/src/lib.rs << 'EOF'
+  /// @requires divisor != 0
+  /// @ensures result == dividend / divisor
+  fn safe_divide(dividend: i64, divisor: i64) -> i64 {
+      dividend / divisor
+  }
+  EOF
+  # 2. Run check-rust on the file
+  cargo run --bin assura -- check-rust /tmp/check-rust-test/src/lib.rs
+  # Must report verification results (not "unknown command")
+  # 3. Run check-rust on a directory
+  cargo run --bin assura -- check-rust /tmp/check-rust-test/src/
+  # Must find and check all annotated .rs files
+  # 4. JSON output works
+  cargo run --bin assura -- check-rust --json /tmp/check-rust-test/src/lib.rs
+  # Must produce valid JSON
+  # 5. Tests
+  cargo test -p assura-cli check_rust
+  # 6. Full suite
+  cargo test --workspace
+  ```
+
+### 8.04: Enhanced `assura infer` with AI contract inference -- #104
+
+- Depends on: 8.03
+- **What**: Enhance the existing `assura infer` command to:
+  1. Accept `.rs` files (not just `.assura` files)
+  2. Analyze function signatures and bodies to suggest contracts
+  3. Support `--dry-run` (output suggestions without modifying files)
+  4. Support `--focus unsafe,panic,unwrap` to prioritize risky functions
+  5. Insert suggestions as `/// @requires`/`/// @ensures` doc comments
+  - Initially use heuristic-based inference (no LLM required):
+    detect `unwrap()` calls (suggest `@requires` for `is_some()`/`is_ok()`),
+    division operations (suggest `divisor != 0`), array indexing (suggest
+    bounds checks), integer arithmetic (suggest overflow guards).
+- [ ] **Acceptance Tests**:
+  ```bash
+  # 1. Infer on a Rust file with obvious contract candidates
+  cat > /tmp/infer-test.rs << 'EOF'
+  fn divide(a: i64, b: i64) -> i64 {
+      a / b
+  }
+  fn get_first(items: &[i32]) -> i32 {
+      items[0]
+  }
+  fn unwrap_result(r: Result<i32, String>) -> i32 {
+      r.unwrap()
+  }
+  EOF
+  cargo run --bin assura -- infer --dry-run /tmp/infer-test.rs
+  # Must suggest at least 2 contracts (division-by-zero, bounds check)
+  # 2. Infer with --focus flag
+  cargo run --bin assura -- infer --dry-run --focus unwrap /tmp/infer-test.rs
+  # Must focus on unwrap-related suggestions
+  # 3. Tests
+  cargo test -p assura-cli infer_rust
+  # 4. Full suite
+  cargo test --workspace
+  ```
+
+### 8.05: Dual-source contracts (external + inline merge) -- #105
+
+- Depends on: 8.01, 8.03
+- **What**: Allow a Rust function to have contracts from both an
+  external `.assura` file (via `bind` declaration) and inline doc
+  comment annotations. Define merge semantics:
+  1. External contracts are authoritative (higher priority)
+  2. Clauses from both sources are merged (union, not replacement)
+  3. Duplicate clauses are detected and warned
+  4. Conflicts (contradictory requires/ensures) are reported as errors
+  - Add `bind` declaration support to the parser and resolver.
+  - Add `[contracts]` and `[inline]` sections to `assura.toml`.
+- [ ] **Acceptance Tests**:
+  ```bash
+  # 1. Parse a bind declaration in .assura file
+  cargo test -p assura-parser bind_decl
+  # 2. Merge inline + external contracts
+  cargo test -p assura-rust-analyzer dual_source_merge
+  # At least 3 tests: external only, inline only, both merged
+  # 3. Conflict detection
+  cargo test -p assura-rust-analyzer conflict_detection
+  # 4. Full suite
+  cargo test --workspace
+  ```
+
+### 8.06: VS Code contract overlay -- #106
+
+- Depends on: 8.05
+- **What**: Extend the VS Code extension to show external `.assura`
+  contracts as inline virtual text (decorations) above Rust functions.
+  - Use `vscode.DecorationRenderOptions` with `before` text decorations
+  - Show contract source file and line in a clickable header
+  - Toggle overlays on/off with a command
+  - Show verification status icons per clause
+  - LSP provides contract data via custom request
+- [ ] **Acceptance Tests**:
+  ```bash
+  # 1. LSP serves contract overlay data
+  cargo test -p assura-lsp contract_overlay
+  # 2. VS Code extension compiles with overlay support
+  cd editors/vscode && npm install && npx tsc -p ./
+  # Must compile without errors
+  # 3. Extension package builds
+  cd editors/vscode && npx @vscode/vsce package
+  # 4. Full suite
+  cargo test --workspace
+  ```
+
+### 8.07: Multi-language annotation support (framework) -- #107
+
+- Depends on: 8.01, 8.03
+- **What**: Create a language-agnostic annotation framework that
+  separates clause parsing (universal) from predicate expression
+  parsing (per-language). Initially support one additional language
+  beyond Rust (e.g., Python with `# @requires` in docstrings).
+  - Universal clause parser: `requires { }`, `ensures { }`, etc.
+  - Language adapter trait: `LanguageAdapter` with `parse_source()`,
+    `extract_annotations()`, `parse_predicate()`, `map_types()`.
+  - Python adapter as proof of concept.
+- [ ] **Acceptance Tests**:
+  ```bash
+  # 1. Language adapter trait exists
+  cargo test -p assura-rust-analyzer language_adapter
+  # 2. Python adapter parses docstring annotations
+  cargo test -p assura-rust-analyzer python_adapter
+  # At least 2 tests: function with @requires, class with @invariant
+  # 3. Full suite
+  cargo test --workspace
+  ```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -939,11 +1156,19 @@ Phase 1 (bugs) ─────────────────┬──> Pha
 Phase 2 (structural checkers) ──┼──> Phase 5 (testing) ──────> Phase 7 (production)
                                 │
 Phase 3 (partial checkers) ─────┘
+
+Phase 8 (inline annotations):
+  8.01 ──┬──> 8.02
+         ├──> 8.03 ──> 8.04
+         ├──> 8.05 ──> 8.06
+         └──> 8.07
 ```
 
 Phases 1, 2, and 3 can run in parallel. Phase 4 depends on Phase 1.
 Phase 5 depends on Phase 2. Phase 6 depends on Phases 4 and 5.
 Phase 7 depends on Phases 3, 4, and 5.
+Phase 8 can start independently (no dependency on Phases 1-7).
+Within Phase 8, task 8.01 is the foundation; all others depend on it.
 
 Within each phase, tasks can run in the order listed. Tasks marked
 "Depends on: none" within a phase can run in parallel.
