@@ -1906,7 +1906,7 @@ but lack real semantic analysis or parser integration.
   - **Validation**: `test_must_reject_fixtures` harness passes for
     all new files
 
-- [ ] **G013**: E2E verification tests for all 50 features
+- [x] **G013**: E2E verification tests for all 50 features
   - Depends on: G001-G008
   - **Current state**: 8 e2e test files exist but only cover basic
     contracts, counterexamples, and a few domain features

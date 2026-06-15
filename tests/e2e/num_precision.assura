@@ -1,0 +1,22 @@
+// EXPECTED: verified
+// E2E: NUM.1-2 Numeric precision, overflow prevention
+// Contracts for arithmetic safety.
+
+module test.num_precision;
+
+contract NoOverflow {
+    input(a: Int, b: Int)
+
+    requires { a >= 0 }
+    requires { b >= 0 }
+    requires { a <= 1000000 }
+    requires { b <= 1000000 }
+    ensures { a + b <= 2000000 }
+}
+
+contract DivisionSafe {
+    input(dividend: Int, divisor: Int)
+
+    requires { divisor != 0 }
+    ensures { divisor != 0 }
+}

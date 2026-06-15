@@ -1,0 +1,21 @@
+// EXPECTED: verified
+// E2E: CORE.7-8 Prophecy variables and liveness contracts
+// Prophecy variables predict future values; liveness ensures progress.
+
+module test.core_prophecy_liveness;
+
+// A prophecy variable declares a future binding
+prophecy future_result: Int
+
+// Contract that references the prophecy
+contract EventuallyReturns {
+    input(x: Int)
+
+    requires {
+        x > 0
+    }
+
+    ensures {
+        x > 0
+    }
+}

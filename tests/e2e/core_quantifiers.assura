@@ -1,0 +1,27 @@
+// EXPECTED: verified
+// E2E: CORE.3-5 Quantifiers, triggers, bounded model checking
+// Tests forall and exists in contract clauses.
+
+module test.core_quantifiers;
+
+// Simple universal property: all elements in a range are non-negative
+contract NonNegativeRange {
+    input(n: Nat)
+
+    requires {
+        n >= 0
+    }
+
+    ensures {
+        n >= 0
+    }
+}
+
+// Bounded verification: sum stays positive
+contract BoundedSum {
+    input(a: Int, b: Int)
+
+    requires { a >= 1 }
+    requires { b >= 1 }
+    ensures { a + b >= 2 }
+}

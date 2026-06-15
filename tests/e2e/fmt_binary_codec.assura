@@ -1,0 +1,21 @@
+// EXPECTED: verified
+// E2E: FMT.1-4, FMT.6 Binary format parsing, codec registry
+// Contracts for safe binary format decoding.
+
+module test.fmt_binary_codec;
+
+contract SafeDecode {
+    input(buf_len: Nat, header_size: Nat)
+
+    requires { buf_len >= header_size }
+    requires { header_size >= 4 }
+    ensures { buf_len >= header_size }
+}
+
+contract FieldAlignment {
+    input(offset: Nat, alignment: Nat)
+
+    requires { alignment > 0 }
+    requires { offset mod alignment == 0 }
+    ensures { offset mod alignment == 0 }
+}

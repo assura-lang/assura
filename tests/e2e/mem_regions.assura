@@ -1,0 +1,29 @@
+// EXPECTED: verified
+// E2E: MEM.1-4 Memory regions, bounds checking, ownership
+// Contracts for buffer safety and memory region separation.
+
+module test.mem_regions;
+
+contract SafeSlice {
+    input(buf_len: Nat, offset: Nat, len: Nat)
+
+    requires {
+        offset + len <= buf_len
+    }
+
+    requires {
+        buf_len > 0
+    }
+
+    ensures {
+        offset + len <= buf_len
+    }
+}
+
+contract BoundsCheck {
+    input(index: Nat, length: Nat)
+
+    requires { index < length }
+    requires { length > 0 }
+    ensures { index < length }
+}

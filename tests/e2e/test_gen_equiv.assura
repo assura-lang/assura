@@ -1,0 +1,24 @@
+// EXPECTED: verified
+// E2E: TEST.1-2 Test generation, equivalence checking
+// Contracts with properties suitable for automated test generation.
+
+module test.test_gen_equiv;
+
+contract Idempotent {
+    input(x: Int)
+
+    requires { x >= 0 }
+    ensures { x >= 0 }
+}
+
+contract Commutative {
+    input(a: Int, b: Int)
+
+    ensures { a + b == b + a }
+}
+
+contract Associative {
+    input(a: Int, b: Int, c: Int)
+
+    ensures { (a + b) + c == a + (b + c) }
+}

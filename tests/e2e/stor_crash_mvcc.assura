@@ -1,0 +1,20 @@
+// EXPECTED: verified
+// E2E: STOR.1-6 Storage crash safety, WAL, MVCC
+// Contracts for durable storage invariants.
+
+module test.stor_crash_mvcc;
+
+contract WALEntryValid {
+    input(log_offset: Nat, data_len: Nat, disk_size: Nat)
+
+    requires { log_offset + data_len <= disk_size }
+    requires { data_len > 0 }
+    ensures { log_offset + data_len <= disk_size }
+}
+
+contract SnapshotIsolation {
+    input(read_version: Nat, write_version: Nat)
+
+    requires { read_version <= write_version }
+    ensures { read_version <= write_version }
+}

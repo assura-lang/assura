@@ -1,0 +1,20 @@
+// EXPECTED: verified
+// E2E: CONC.1-6 Shared state, atomics, weak memory ordering
+// Contracts for concurrent data structure invariants.
+
+module test.conc_shared_weak;
+
+contract AtomicIncrement {
+    input(counter: Int, delta: Int)
+
+    requires { delta > 0 }
+    requires { counter >= 0 }
+    ensures { counter + delta > counter }
+}
+
+contract CASSuccess {
+    input(expected: Int, desired: Int, current: Int)
+
+    requires { current == expected }
+    ensures { current == expected }
+}

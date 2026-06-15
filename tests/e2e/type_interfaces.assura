@@ -1,0 +1,22 @@
+// EXPECTED: verified
+// E2E: TYPE.1-3 Type aliases, refinement types, and interfaces
+// Contracts using refined types and type constraints.
+
+module test.type_interfaces;
+
+type PositiveInt = { x: Int | x > 0 }
+
+contract DoublePositive {
+    input(x: Int)
+
+    requires { x > 0 }
+    ensures { x * 2 > 0 }
+}
+
+contract MultiplyPositive {
+    input(a: Int, b: Int)
+
+    requires { a > 0 }
+    requires { b > 0 }
+    ensures { a * b > 0 }
+}

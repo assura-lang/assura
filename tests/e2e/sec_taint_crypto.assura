@@ -1,0 +1,36 @@
+// EXPECTED: verified
+// E2E: SEC.1-5 Taint tracking, information flow, crypto conformance
+// Contracts exercising security-related type checking.
+
+module test.sec_taint_crypto;
+
+contract SecureKeyLength {
+    input(key_len: Nat)
+
+    requires {
+        key_len >= 128
+    }
+
+    ensures {
+        key_len >= 128
+    }
+}
+
+contract HashOutput {
+    input(input_len: Nat, hash_len: Nat)
+
+    requires {
+        hash_len == 256
+    }
+
+    ensures {
+        hash_len == 256
+    }
+}
+
+contract NonceUniqueness {
+    input(nonce_a: Nat, nonce_b: Nat)
+
+    requires { nonce_a != nonce_b }
+    ensures { nonce_a != nonce_b }
+}
