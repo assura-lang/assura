@@ -145,11 +145,7 @@ fn run_check(
 ) -> (Vec<Diagnostic>, Vec<VerificationResult>) {
     // Use compile() for layer 0 (no verify), compile_full() for layer 1+
     let output = if layer >= 1 {
-        assura_pipeline::compile_full(
-            source,
-            "<grpc>",
-            &assura_config::CompilerConfig::default(),
-        )
+        assura_pipeline::compile_full(source, "<grpc>", &assura_config::CompilerConfig::default())
     } else {
         assura_pipeline::compile(source, "<grpc>", &assura_config::CompilerConfig::default())
     };

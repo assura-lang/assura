@@ -964,4 +964,3 @@ pub(crate) fn generate_error_enum(contract_name: &str, variants: &[String], code
     }
     code.push_str("}\n\n");
 }
-

@@ -377,7 +377,10 @@ pub(crate) fn is_user_type_name(tok: &str) -> bool {
 }
 
 /// Collect user-defined type names from a type token sequence.
-pub(crate) fn collect_type_refs_from_tokens(tokens: &[String], out: &mut std::collections::HashSet<String>) {
+pub(crate) fn collect_type_refs_from_tokens(
+    tokens: &[String],
+    out: &mut std::collections::HashSet<String>,
+) {
     for tok in tokens {
         // Skip taint annotations, attributes, and keywords
         if matches!(
@@ -413,7 +416,10 @@ pub(crate) fn collect_type_refs_from_tokens(tokens: &[String], out: &mut std::co
 }
 
 /// Collect type names referenced in expressions (e.g., constructor calls).
-pub(crate) fn collect_type_refs_from_expr(expr: &Expr, out: &mut std::collections::HashSet<String>) {
+pub(crate) fn collect_type_refs_from_expr(
+    expr: &Expr,
+    out: &mut std::collections::HashSet<String>,
+) {
     match expr {
         Expr::Ident(name) => {
             if is_user_type_name(name) {
@@ -500,7 +506,10 @@ pub(crate) fn collect_type_refs_from_expr(expr: &Expr, out: &mut std::collection
 }
 
 /// Find the value for a feature_max constant from the AST.
-pub(crate) fn find_feature_max_value(source: &assura_parser::ast::SourceFile, name: &str) -> String {
+pub(crate) fn find_feature_max_value(
+    source: &assura_parser::ast::SourceFile,
+    name: &str,
+) -> String {
     for decl in &source.decls {
         if let Decl::Block {
             kind,
@@ -745,4 +754,3 @@ pub(crate) fn extract_base_type_from_refined(tokens: &[String]) -> String {
     }
     "i64".to_string()
 }
-

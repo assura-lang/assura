@@ -15,14 +15,14 @@ pub(super) fn resolve_ok(source: &str) -> ResolvedFile {
 }
 
 mod basics;
-mod inference;
+mod domain_checkers;
 mod field_call;
 mod generics;
-mod patterns_clauses;
-mod linear;
-mod typestate_effects;
-mod interactions;
-mod security;
-mod domain_checkers;
-mod wiring;
+mod inference;
 mod integration;
+mod interactions;
+mod linear;
+mod patterns_clauses;
+mod security;
+mod typestate_effects;
+mod wiring;

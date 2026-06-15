@@ -156,4 +156,3 @@ pub(crate) fn format_rust(code: &str) -> String {
         }
     }
 }
-

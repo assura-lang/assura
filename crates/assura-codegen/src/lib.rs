@@ -691,4 +691,3 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
 pub fn codegen(typed: &TypedFile) -> GeneratedProject {
     codegen_with_config(typed, &BackendConfig::default())
 }
-

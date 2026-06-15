@@ -437,7 +437,12 @@ pub(crate) fn has_deep_field_access(expr: &str) -> bool {
 }
 
 /// Like `generate_debug_assert` but with configurable indent level.
-pub(crate) fn generate_debug_assert_indented(code: &mut String, expr: &str, label: &str, indent: usize) {
+pub(crate) fn generate_debug_assert_indented(
+    code: &mut String,
+    expr: &str,
+    label: &str,
+    indent: usize,
+) {
     let pad = "    ".repeat(indent);
     if has_deep_field_access(expr) {
         code.push_str(&format!("{pad}// {label}: {}\n", expr.replace('"', "\\\"")));

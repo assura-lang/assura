@@ -3,8 +3,8 @@
 //! Takes a parsed `SourceFile` AST and produces well-formatted source text.
 
 use assura_parser::ast::{
-    BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl,
-    EnumDef, Expr, ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl,
+    BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
+    Expr, ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl,
     ServiceItem, SourceFile, TypeBody, TypeDef, UnaryOp, extract_clause_params,
 };
 

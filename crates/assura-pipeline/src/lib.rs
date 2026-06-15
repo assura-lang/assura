@@ -332,8 +332,11 @@ pub fn run(source: &str) -> PipelineResult {
         };
     }
 
-    let verification: Vec<VerificationEntry> =
-        output.verification.iter().map(convert_verification).collect();
+    let verification: Vec<VerificationEntry> = output
+        .verification
+        .iter()
+        .map(convert_verification)
+        .collect();
 
     let success = !output.verification.iter().any(|r| {
         matches!(

@@ -459,4 +459,3 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
         }
     }
 }
-
