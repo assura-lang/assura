@@ -909,9 +909,7 @@ fn parse_python_function_def(line: &str) -> Option<(String, Vec<ParamInfo>, Opti
 /// Parse a Python class definition line. Returns the class name.
 fn parse_python_class_def(line: &str) -> Option<String> {
     let rest = line.strip_prefix("class ")?;
-    let end = rest
-        .find(['(', ':'])
-        .unwrap_or(rest.len());
+    let end = rest.find(['(', ':']).unwrap_or(rest.len());
     let name = rest[..end].trim().to_string();
     if name.is_empty() { None } else { Some(name) }
 }
