@@ -647,44 +647,20 @@ fn run_check(
         eprintln!();
     }
 
-    // --- Verify (only if type check succeeded and layer >= 1) ---
+    // --- Verify + report ---
     let verify_start = Instant::now();
-    let cache_dir = std::path::Path::new(filename)
-        .parent()
-        .unwrap_or(std::path::Path::new("."));
-    let verify_cache = assura_smt::VerificationCache::new(cache_dir);
-    let mut verification_results = if layer >= 1 {
-        if let Some(ref typed) = typed {
-            assura_smt::verify_parallel_with_solver(typed, &verify_cache, solver)
-        } else {
-            Vec::new()
-        }
-    } else {
-        Vec::new()
-    };
-
-    // --- Dispatch pending decrease checks to SMT ---
-    if let Some(ref typed) = typed {
-        verification_results.extend(assura_smt::display::dispatch_decrease_checks(typed));
-    }
-
-    // --- Quantifier bound validation ---
-    if let Some(ref typed) = typed {
-        let qwarnings = assura_smt::validate_quantifier_bounds(typed);
-        for w in &qwarnings {
-            diagnostics.push(
-                assura_diagnostics::Diagnostic::warning(
-                    "A05200",
-                    format!(
-                        "unbounded quantifier in {}: {} ({})",
-                        w.context, w.domain_desc, w.reason
-                    ),
-                    0..0,
-                )
-                .with_file(filename),
-            );
-        }
-    }
+    let verification_results = verify_and_report(
+        filename,
+        &source,
+        &typed,
+        &file,
+        &mut diagnostics,
+        &mut has_errors,
+        output_mode,
+        verbosity,
+        layer,
+        solver,
+    );
 
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
@@ -785,32 +761,9 @@ fn run_check(
         eprintln!("  Total time:      {total_ms:.2}ms");
     }
 
-    // Convert counterexamples to diagnostics so they appear in both modes
-    for vr in &verification_results {
-        if let assura_smt::VerificationResult::Counterexample {
-            clause_desc,
-            model,
-            counter_model,
-        } = vr
+    // --- Report (JSON output; human output handled by verify_and_report) ---
+    if output_mode == OutputMode::Json {
         {
-            has_errors = true;
-            // Format the counterexample as a clean single-line summary
-            // instead of dumping the raw Z3 model into the diagnostic.
-            let summary = format_counterexample_summary(counter_model, model);
-            diagnostics.push(
-                assura_diagnostics::Diagnostic::error(
-                    "A05100",
-                    format!("verification failed for {clause_desc}: {summary}"),
-                    0..0,
-                )
-                .with_file(filename),
-            );
-        }
-    }
-
-    // --- Report ---
-    match output_mode {
-        OutputMode::Json => {
             // Build verification summary for JSON output
             let verification_json: Vec<serde_json::Value> = verification_results
                 .iter()
@@ -957,54 +910,6 @@ fn run_check(
             }
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
-        OutputMode::Human => {
-            // Lex errors already reported above; report the rest.
-            let non_lex: Vec<_> = diagnostics.iter().filter(|d| d.code != "A01001").collect();
-            // Always report error diagnostics, even in quiet mode
-            if has_errors || verbosity != Verbosity::Quiet {
-                for d in &non_lex {
-                    assura_diagnostics::render_diagnostic(d, filename, &source);
-                }
-            }
-
-            // Print verification results grouped by contract/function
-            if verbosity != Verbosity::Quiet {
-                if !verification_results.is_empty() {
-                    eprintln!();
-                    eprintln!("Verification ({} clause(s)):", verification_results.len());
-                    let _ = assura_smt::display::write_grouped_verification(
-                        &mut std::io::stderr(),
-                        &verification_results,
-                        "  ",
-                    );
-                } else if layer == 0 {
-                    eprintln!();
-                    eprintln!("Verification skipped (--layer 0: structural checks only)");
-                } else if layer >= 1 {
-                    // Layer 1+ but no results: show what contracts exist
-                    // and that they had no verifiable clauses
-                    if let Some(ref f) = file {
-                        let contract_names = assura_smt::display::collect_contract_names(f);
-                        if !contract_names.is_empty() {
-                            eprintln!();
-                            eprintln!("Verification:");
-                            for name in &contract_names {
-                                eprintln!("  {name}:  (no verifiable clauses)");
-                            }
-                        }
-                    }
-                }
-
-                if !has_errors {
-                    eprintln!("{filename}: check passed (no errors)");
-                } else {
-                    eprintln!("{filename}: {} error(s) found", diagnostics.len());
-                }
-            } else if has_errors {
-                // Quiet mode: only show error count
-                eprintln!("{filename}: {} error(s) found", diagnostics.len());
-            }
-        }
     }
 
     process::exit(if has_errors { 1 } else { 0 });
@@ -1013,6 +918,124 @@ fn run_check(
 // ---------------------------------------------------------------------------
 // Watch mode
 // ---------------------------------------------------------------------------
+
+/// Shared verification + reporting logic used by both `run_check` and
+/// `check_file_once` (watch mode). Returns the verification results and
+/// whether errors were found.
+#[allow(clippy::too_many_arguments)]
+fn verify_and_report(
+    filename: &str,
+    source: &str,
+    typed: &Option<assura_types::TypedFile>,
+    file: &Option<assura_parser::ast::SourceFile>,
+    diagnostics: &mut Vec<assura_diagnostics::Diagnostic>,
+    has_errors: &mut bool,
+    output_mode: OutputMode,
+    verbosity: Verbosity,
+    layer: u8,
+    solver: assura_smt::SolverChoice,
+) -> Vec<assura_smt::VerificationResult> {
+    let cache_dir = std::path::Path::new(filename)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let verify_cache = assura_smt::VerificationCache::new(cache_dir);
+
+    let mut verification_results = if layer >= 1 {
+        if let Some(typed) = typed {
+            assura_smt::verify_parallel_with_solver(typed, &verify_cache, solver)
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    if let Some(typed) = typed {
+        verification_results.extend(assura_smt::display::dispatch_decrease_checks(typed));
+    }
+
+    if let Some(typed) = typed {
+        let qwarnings = assura_smt::validate_quantifier_bounds(typed);
+        for w in &qwarnings {
+            diagnostics.push(
+                assura_diagnostics::Diagnostic::warning(
+                    "A05200",
+                    format!(
+                        "unbounded quantifier in {}: {} ({})",
+                        w.context, w.domain_desc, w.reason
+                    ),
+                    0..0,
+                )
+                .with_file(filename),
+            );
+        }
+    }
+
+    for vr in &verification_results {
+        if let assura_smt::VerificationResult::Counterexample {
+            clause_desc,
+            model,
+            counter_model,
+        } = vr
+        {
+            *has_errors = true;
+            let summary = format_counterexample_summary(counter_model, model);
+            diagnostics.push(
+                assura_diagnostics::Diagnostic::error(
+                    "A05100",
+                    format!("verification failed for {clause_desc}: {summary}"),
+                    0..0,
+                )
+                .with_file(filename),
+            );
+        }
+    }
+
+    if output_mode == OutputMode::Human {
+        let non_lex: Vec<_> = diagnostics.iter().filter(|d| d.code != "A01001").collect();
+        if *has_errors || verbosity != Verbosity::Quiet {
+            for d in &non_lex {
+                assura_diagnostics::render_diagnostic(d, filename, source);
+            }
+        }
+
+        if verbosity != Verbosity::Quiet {
+            if !verification_results.is_empty() {
+                eprintln!();
+                eprintln!("Verification ({} clause(s)):", verification_results.len());
+                let _ = assura_smt::display::write_grouped_verification(
+                    &mut std::io::stderr(),
+                    &verification_results,
+                    "  ",
+                );
+            } else if layer == 0 {
+                eprintln!();
+                eprintln!("Verification skipped (--layer 0: structural checks only)");
+            } else if layer >= 1
+                && let Some(f) = file
+            {
+                let contract_names = assura_smt::display::collect_contract_names(f);
+                if !contract_names.is_empty() {
+                    eprintln!();
+                    eprintln!("Verification:");
+                    for name in &contract_names {
+                        eprintln!("  {name}:  (no verifiable clauses)");
+                    }
+                }
+            }
+
+            if !*has_errors {
+                eprintln!("{filename}: check passed (no errors)");
+            } else {
+                eprintln!("{filename}: {} error(s) found", diagnostics.len());
+            }
+        } else if *has_errors {
+            eprintln!("{filename}: {} error(s) found", diagnostics.len());
+        }
+    }
+
+    verification_results
+}
 
 /// Check a single file and print results. Returns true if there were errors.
 fn check_file_once(
@@ -1088,89 +1111,22 @@ fn check_file_once(
         eprintln!();
     }
 
-    // Verify
-    let watch_cache_dir = std::path::Path::new(filename)
-        .parent()
-        .unwrap_or(std::path::Path::new("."));
-    let watch_verify_cache = assura_smt::VerificationCache::new(watch_cache_dir);
-    let mut verification_results = if layer >= 1 {
-        if let Some(ref typed) = typed {
-            assura_smt::verify_parallel(typed, &watch_verify_cache)
-        } else {
-            Vec::new()
-        }
-    } else {
-        Vec::new()
-    };
+    let _ = resolved;
+    let _ = hir;
+    let _ = timing;
 
-    if let Some(ref typed) = typed {
-        verification_results.extend(assura_smt::display::dispatch_decrease_checks(typed));
-    }
-
-    if let Some(ref typed) = typed {
-        let qwarnings = assura_smt::validate_quantifier_bounds(typed);
-        for w in &qwarnings {
-            diagnostics.push(
-                assura_diagnostics::Diagnostic::warning(
-                    "A05200",
-                    format!(
-                        "unbounded quantifier in {}: {} ({})",
-                        w.context, w.domain_desc, w.reason
-                    ),
-                    0..0,
-                )
-                .with_file(filename),
-            );
-        }
-    }
-
-    for vr in &verification_results {
-        if let assura_smt::VerificationResult::Counterexample {
-            clause_desc,
-            model,
-            counter_model,
-        } = vr
-        {
-            has_errors = true;
-            let summary = format_counterexample_summary(counter_model, model);
-            diagnostics.push(
-                assura_diagnostics::Diagnostic::error(
-                    "A05100",
-                    format!("verification failed for {clause_desc}: {summary}"),
-                    0..0,
-                )
-                .with_file(filename),
-            );
-        }
-    }
-
-    if output_mode == OutputMode::Human {
-        let non_lex: Vec<_> = diagnostics.iter().filter(|d| d.code != "A01001").collect();
-        if has_errors || verbosity != Verbosity::Quiet {
-            for d in &non_lex {
-                assura_diagnostics::render_diagnostic(d, filename, &source);
-            }
-        }
-
-        if verbosity != Verbosity::Quiet {
-            if !verification_results.is_empty() {
-                eprintln!();
-                eprintln!("Verification ({} clause(s)):", verification_results.len());
-                let _ = assura_smt::display::write_grouped_verification(
-                    &mut std::io::stderr(),
-                    &verification_results,
-                    "  ",
-                );
-            }
-            if !has_errors {
-                eprintln!("{filename}: check passed (no errors)");
-            } else {
-                eprintln!("{filename}: {} error(s) found", diagnostics.len());
-            }
-        } else if has_errors {
-            eprintln!("{filename}: {} error(s) found", diagnostics.len());
-        }
-    }
+    verify_and_report(
+        filename,
+        &source,
+        &typed,
+        &file,
+        &mut diagnostics,
+        &mut has_errors,
+        output_mode,
+        verbosity,
+        layer,
+        assura_smt::SolverChoice::Z3,
+    );
 
     has_errors
 }
