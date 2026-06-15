@@ -531,3 +531,498 @@ impl Default for LivenessChecker {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // TriggerManager
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn trigger_new_is_empty() {
+        let tm = TriggerManager::new();
+        assert!(tm.get_triggers("any").is_none());
+    }
+
+    #[test]
+    fn trigger_default_is_empty() {
+        let tm = TriggerManager::default();
+        assert!(tm.get_triggers("any").is_none());
+    }
+
+    #[test]
+    fn trigger_register_function_deduplicates() {
+        let mut tm = TriggerManager::new();
+        tm.register_function("f".into());
+        tm.register_function("f".into());
+        // infer should still produce a single-term trigger
+        let t = tm.infer_trigger("f(x) > 0").unwrap();
+        assert_eq!(t.terms.len(), 1);
+    }
+
+    #[test]
+    fn trigger_infer_finds_known_function() {
+        let mut tm = TriggerManager::new();
+        tm.register_function("hash".into());
+        let t = tm.infer_trigger("hash(x) == hash(y)").unwrap();
+        assert_eq!(t.terms, vec!["hash(x)"]);
+        assert!(!t.is_user_provided);
+    }
+
+    #[test]
+    fn trigger_infer_returns_none_for_unknown() {
+        let tm = TriggerManager::new();
+        assert!(tm.infer_trigger("x + y > 0").is_none());
+    }
+
+    #[test]
+    fn trigger_add_and_get() {
+        let mut tm = TriggerManager::new();
+        tm.add_trigger(
+            "q1".into(),
+            TriggerPattern {
+                terms: vec!["f(x)".into()],
+                is_user_provided: true,
+            },
+        );
+        let triggers = tm.get_triggers("q1").unwrap();
+        assert_eq!(triggers.len(), 1);
+        assert!(triggers[0].is_user_provided);
+    }
+
+    #[test]
+    fn trigger_validate_warns_on_unknown_function() {
+        let tm = TriggerManager::new();
+        let pat = TriggerPattern {
+            terms: vec!["unknown_func(x)".into()],
+            is_user_provided: true,
+        };
+        let warnings = tm.validate_trigger(&pat);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("unknown_func(x)"));
+    }
+
+    #[test]
+    fn trigger_validate_no_warning_for_known() {
+        let mut tm = TriggerManager::new();
+        tm.register_function("f".into());
+        let pat = TriggerPattern {
+            terms: vec!["f(x)".into()],
+            is_user_provided: true,
+        };
+        assert!(tm.validate_trigger(&pat).is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // CodecDispatcher
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn codec_new_is_empty() {
+        let cd = CodecDispatcher::new();
+        assert_eq!(cd.codec_count(), 0);
+    }
+
+    #[test]
+    fn codec_default_is_empty() {
+        let cd = CodecDispatcher::default();
+        assert_eq!(cd.codec_count(), 0);
+    }
+
+    #[test]
+    fn codec_register_increases_count() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("png".into(), vec![0x89, 0x50, 0x4E, 0x47], 0);
+        assert_eq!(cd.codec_count(), 1);
+    }
+
+    #[test]
+    fn codec_dispatch_matches() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("png".into(), vec![0x89, 0x50], 0);
+        let data = vec![0x89, 0x50, 0x4E, 0x47, 0x00];
+        assert_eq!(cd.dispatch(&data), DispatchResult::Matched("png".into()));
+    }
+
+    #[test]
+    fn codec_dispatch_unknown() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("png".into(), vec![0x89, 0x50], 0);
+        let data = vec![0xFF, 0xD8, 0xFF]; // JPEG magic
+        assert_eq!(cd.dispatch(&data), DispatchResult::Unknown);
+    }
+
+    #[test]
+    fn codec_dispatch_ambiguous() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("a".into(), vec![0xAA], 0);
+        cd.register("b".into(), vec![0xAA], 0);
+        let data = vec![0xAA, 0x00];
+        assert_eq!(
+            cd.dispatch(&data),
+            DispatchResult::Ambiguous(vec!["a".into(), "b".into()])
+        );
+    }
+
+    #[test]
+    fn codec_dispatch_with_offset() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("custom".into(), vec![0xBE, 0xEF], 2);
+        let data = vec![0x00, 0x00, 0xBE, 0xEF, 0x00];
+        assert_eq!(cd.dispatch(&data), DispatchResult::Matched("custom".into()));
+    }
+
+    #[test]
+    fn codec_dispatch_data_too_short() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("wide".into(), vec![0x01, 0x02, 0x03, 0x04], 0);
+        let data = vec![0x01, 0x02]; // shorter than magic
+        assert_eq!(cd.dispatch(&data), DispatchResult::Unknown);
+    }
+
+    #[test]
+    fn codec_check_ambiguity_detects_conflict() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("a".into(), vec![0xFF], 0);
+        cd.register("b".into(), vec![0xFF], 0);
+        let conflicts = cd.check_ambiguity();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0], ("a".into(), "b".into()));
+    }
+
+    #[test]
+    fn codec_check_ambiguity_no_conflict() {
+        let mut cd = CodecDispatcher::new();
+        cd.register("a".into(), vec![0xAA], 0);
+        cd.register("b".into(), vec![0xBB], 0);
+        assert!(cd.check_ambiguity().is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // WeakMemoryChecker
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn wmc_new_is_empty() {
+        let wmc = WeakMemoryChecker::new();
+        assert_eq!(wmc.access_count(), 0);
+    }
+
+    #[test]
+    fn wmc_default_is_empty() {
+        let wmc = WeakMemoryChecker::default();
+        assert_eq!(wmc.access_count(), 0);
+    }
+
+    #[test]
+    fn wmc_record_access_increments_count() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "x".into(), true, MemoryOrdering::SeqCst);
+        assert_eq!(wmc.access_count(), 1);
+    }
+
+    #[test]
+    fn wmc_record_access_returns_sequence_numbers() {
+        let mut wmc = WeakMemoryChecker::new();
+        let s0 = wmc.record_access(0, "x".into(), true, MemoryOrdering::Relaxed);
+        let s1 = wmc.record_access(0, "y".into(), false, MemoryOrdering::Relaxed);
+        assert_eq!(s0, 0);
+        assert_eq!(s1, 1);
+    }
+
+    #[test]
+    fn wmc_data_race_detected() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "x".into(), true, MemoryOrdering::Relaxed);
+        wmc.record_access(1, "x".into(), false, MemoryOrdering::Relaxed);
+        let races = wmc.check_data_races();
+        assert_eq!(races.len(), 1);
+        assert!(races[0].contains("data race on `x`"));
+    }
+
+    #[test]
+    fn wmc_no_race_same_thread() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "x".into(), true, MemoryOrdering::Relaxed);
+        wmc.record_access(0, "x".into(), false, MemoryOrdering::Relaxed);
+        assert!(wmc.check_data_races().is_empty());
+    }
+
+    #[test]
+    fn wmc_no_race_both_reads() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "x".into(), false, MemoryOrdering::Relaxed);
+        wmc.record_access(1, "x".into(), false, MemoryOrdering::Relaxed);
+        assert!(wmc.check_data_races().is_empty());
+    }
+
+    #[test]
+    fn wmc_no_race_with_happens_before() {
+        let mut wmc = WeakMemoryChecker::new();
+        let s0 = wmc.record_access(0, "x".into(), true, MemoryOrdering::Release);
+        let s1 = wmc.record_access(1, "x".into(), false, MemoryOrdering::Acquire);
+        wmc.add_happens_before(s0, s1);
+        assert!(wmc.check_data_races().is_empty());
+    }
+
+    #[test]
+    fn wmc_release_without_acquire() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "flag".into(), true, MemoryOrdering::Release);
+        let warnings = wmc.check_release_acquire();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("no matching acquire"));
+    }
+
+    #[test]
+    fn wmc_release_with_acquire_ok() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "flag".into(), true, MemoryOrdering::Release);
+        wmc.record_access(1, "flag".into(), false, MemoryOrdering::Acquire);
+        assert!(wmc.check_release_acquire().is_empty());
+    }
+
+    #[test]
+    fn wmc_relaxed_write_read_by_other_thread() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "data".into(), true, MemoryOrdering::Relaxed);
+        wmc.record_access(1, "data".into(), false, MemoryOrdering::Relaxed);
+        let warnings = wmc.check_ordering_strength();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("consider Release ordering"));
+    }
+
+    #[test]
+    fn wmc_seqcst_no_ordering_warning() {
+        let mut wmc = WeakMemoryChecker::new();
+        wmc.record_access(0, "data".into(), true, MemoryOrdering::SeqCst);
+        wmc.record_access(1, "data".into(), false, MemoryOrdering::SeqCst);
+        assert!(wmc.check_ordering_strength().is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // ProphecyManager
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn prophecy_new_is_empty() {
+        let pm = ProphecyManager::new();
+        assert_eq!(pm.variable_count(), 0);
+    }
+
+    #[test]
+    fn prophecy_default_is_empty() {
+        let pm = ProphecyManager::default();
+        assert_eq!(pm.variable_count(), 0);
+    }
+
+    #[test]
+    fn prophecy_declare_increases_count() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("future_val".into());
+        assert_eq!(pm.variable_count(), 1);
+    }
+
+    #[test]
+    fn prophecy_resolve_succeeds() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("p".into());
+        assert!(pm.resolve("p", "42".into()).is_ok());
+    }
+
+    #[test]
+    fn prophecy_double_resolve_fails() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("p".into());
+        pm.resolve("p", "1".into()).unwrap();
+        let err = pm.resolve("p", "2".into()).unwrap_err();
+        assert!(err.contains("already resolved"));
+    }
+
+    #[test]
+    fn prophecy_resolve_unknown_fails() {
+        let mut pm = ProphecyManager::new();
+        let err = pm.resolve("ghost", "val".into()).unwrap_err();
+        assert!(err.contains("unknown prophecy variable"));
+    }
+
+    #[test]
+    fn prophecy_check_all_resolved_reports_unresolved() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("a".into());
+        pm.declare("b".into());
+        pm.resolve("a", "done".into()).unwrap();
+        let errors = pm.check_all_resolved();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05025");
+        assert_eq!(errors[0].variable, "b");
+    }
+
+    #[test]
+    fn prophecy_check_all_resolved_empty_when_all_done() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("p".into());
+        pm.resolve("p", "done".into()).unwrap();
+        assert!(pm.check_all_resolved().is_empty());
+    }
+
+    #[test]
+    fn prophecy_check_unconstrained_reports_no_constraints() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("p".into());
+        let errors = pm.check_unconstrained();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05026");
+        assert!(errors[0].message.contains("no constraints"));
+    }
+
+    #[test]
+    fn prophecy_check_unconstrained_ok_with_constraint() {
+        let mut pm = ProphecyManager::new();
+        pm.declare("p".into());
+        pm.add_constraint("p", "p > 0".into());
+        assert!(pm.check_unconstrained().is_empty());
+    }
+
+    #[test]
+    fn prophecy_add_constraint_to_unknown_is_noop() {
+        let mut pm = ProphecyManager::new();
+        pm.add_constraint("nonexistent", "x > 0".into());
+        assert_eq!(pm.variable_count(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // LivenessChecker
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn liveness_new_is_empty() {
+        let lc = LivenessChecker::new();
+        assert_eq!(lc.obligation_count(), 0);
+    }
+
+    #[test]
+    fn liveness_default_is_empty() {
+        let lc = LivenessChecker::default();
+        assert_eq!(lc.obligation_count(), 0);
+    }
+
+    #[test]
+    fn liveness_add_obligation_increases_count() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "progress".into(),
+            LivenessKind::Eventually,
+            "true".into(),
+            "done".into(),
+        );
+        assert_eq!(lc.obligation_count(), 1);
+    }
+
+    #[test]
+    fn liveness_unverified_reported() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "termination".into(),
+            LivenessKind::Eventually,
+            "started".into(),
+            "finished".into(),
+        );
+        let unverified = lc.check_unverified();
+        assert_eq!(unverified.len(), 1);
+        assert!(unverified[0].contains("termination"));
+    }
+
+    #[test]
+    fn liveness_mark_verified_clears() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "term".into(),
+            LivenessKind::Eventually,
+            "a".into(),
+            "b".into(),
+        );
+        lc.mark_verified("term");
+        assert!(lc.check_unverified().is_empty());
+    }
+
+    #[test]
+    fn liveness_mark_verified_unknown_is_noop() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "real".into(),
+            LivenessKind::Eventually,
+            "a".into(),
+            "b".into(),
+        );
+        lc.mark_verified("fake");
+        assert_eq!(lc.check_unverified().len(), 1);
+    }
+
+    #[test]
+    fn liveness_zero_bound_detected() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "instant".into(),
+            LivenessKind::EventuallyWithin(0),
+            "a".into(),
+            "b".into(),
+        );
+        let warnings = lc.check_bounded();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("zero time bound"));
+    }
+
+    #[test]
+    fn liveness_nonzero_bound_ok() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "bounded".into(),
+            LivenessKind::EventuallyWithin(100),
+            "a".into(),
+            "b".into(),
+        );
+        assert!(lc.check_bounded().is_empty());
+    }
+
+    #[test]
+    fn liveness_leads_to_without_fairness_warns() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "resp".into(),
+            LivenessKind::LeadsTo,
+            "request".into(),
+            "response".into(),
+        );
+        let warnings = lc.check_fairness();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("fairness"));
+    }
+
+    #[test]
+    fn liveness_leads_to_with_fairness_ok() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "resp".into(),
+            LivenessKind::LeadsTo,
+            "req".into(),
+            "res".into(),
+        );
+        lc.add_fairness("scheduler is fair".into());
+        assert!(lc.check_fairness().is_empty());
+    }
+
+    #[test]
+    fn liveness_eventually_no_fairness_needed() {
+        let mut lc = LivenessChecker::new();
+        lc.add_obligation(
+            "term".into(),
+            LivenessKind::Eventually,
+            "a".into(),
+            "b".into(),
+        );
+        assert!(lc.check_fairness().is_empty());
+    }
+}
