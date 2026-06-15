@@ -28,6 +28,9 @@ serde_json = "1"
 notify = "8"
 toml = "1.1"
 clap_complete = "4.6.5"
+assura-lsp = { version = "0.1.0", path = "../assura-lsp" }
+tower-lsp = "0.20"
+tokio = { version = "1.52.3", features = ["full"] }
 
 [dev-dependencies]
 syn = "2"

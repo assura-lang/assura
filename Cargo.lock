@@ -102,6 +102,7 @@ dependencies = [
  "assura-diagnostics",
  "assura-fmt",
  "assura-hir",
+ "assura-lsp",
  "assura-parser",
  "assura-resolve",
  "assura-smt",
@@ -114,7 +115,9 @@ dependencies = [
  "serde_json",
  "syn",
  "tempfile",
+ "tokio",
  "toml",
+ "tower-lsp",
 ]
 
 [[package]]

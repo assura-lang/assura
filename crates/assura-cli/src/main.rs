@@ -180,6 +180,9 @@ enum Commands {
     /// Check installation: Z3, CVC5, Rust toolchain, WASM target
     Doctor,
 
+    /// Start the Language Server Protocol server
+    Lsp,
+
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for
@@ -499,6 +502,7 @@ fn main() {
         }
         Some(Commands::AgentInstructions) => run_agent_instructions(),
         Some(Commands::Doctor) => run_doctor(),
+        Some(Commands::Lsp) => run_lsp(),
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "assura", &mut std::io::stdout());
         }
@@ -2630,6 +2634,22 @@ fn discover_rs_files(dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// `assura lsp` -- start the LSP server
+// ---------------------------------------------------------------------------
+
+fn run_lsp() {
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+    rt.block_on(async {
+        let stdin = tokio::io::stdin();
+        let stdout = tokio::io::stdout();
+        let (service, socket) = tower_lsp::LspService::new(assura_lsp::AssuraLanguageServer::new);
+        tower_lsp::Server::new(stdin, stdout, socket)
+            .serve(service)
+            .await;
+    });
+}
+
+// ---------------------------------------------------------------------------
 // `assura doctor` -- check installation health
 // ---------------------------------------------------------------------------
 
@@ -3141,6 +3161,7 @@ assura test-gen file.assura                # generate tests from contracts
 assura doctor                              # check dependencies
 assura coverage .                          # contract coverage report
 assura completions zsh                     # shell completions
+assura lsp                                 # start LSP server
 ```
 
 ## Error Code Ranges
