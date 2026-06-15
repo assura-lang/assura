@@ -3,9 +3,9 @@
 //! Takes a parsed `SourceFile` AST and produces well-formatted source text.
 
 use assura_parser::ast::{
-    BinOp, BindDecl, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef,
-    Literal, Pattern, ProphecyDecl, ServiceDecl, ServiceItem, SourceFile, TypeBody, TypeDef,
-    UnaryOp, extract_clause_params,
+    BinOp, BindDecl, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef, Expr,
+    ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl, ServiceItem,
+    SourceFile, TypeBody, TypeDef, UnaryOp, extract_clause_params,
 };
 
 /// Format a `SourceFile` AST back to well-formatted source text.
@@ -65,6 +65,7 @@ pub fn format_decl(decl: &Decl, out: &mut String) {
         Decl::Extern(e) => format_extern(e, out),
         Decl::Bind(b) => format_bind(b, out),
         Decl::Prophecy(p) => format_prophecy(p, out),
+        Decl::CodecRegistry(cr) => format_codec_registry(cr, out),
         Decl::FnDef(f) => format_fndef(f, out),
         Decl::Block {
             kind,
@@ -268,6 +269,64 @@ pub fn format_prophecy(p: &ProphecyDecl, out: &mut String) {
         out.push_str(&p.ty_tokens.join(" "));
     }
     out.push('\n');
+}
+
+pub fn format_codec_registry(cr: &CodecRegistryDecl, out: &mut String) {
+    out.push_str("codec_registry ");
+    out.push_str(&cr.name);
+    out.push_str(" {\n");
+    out.push_str("    output: ");
+    out.push_str(&cr.output_type.join(" "));
+    out.push_str(",\n");
+    for codec in &cr.codecs {
+        out.push_str("\n    codec ");
+        out.push_str(&codec.name);
+        out.push_str(" {\n");
+        out.push_str("        magic: ");
+        match &codec.magic {
+            MagicPattern::Bytes { bytes, prefix } => {
+                out.push('[');
+                for (i, b) in bytes.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&format!("0x{b:02X}"));
+                }
+                if *prefix {
+                    out.push_str(", ..");
+                }
+                out.push(']');
+            }
+            MagicPattern::Extension(exts) => {
+                out.push_str("extension(");
+                for (i, e) in exts.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&format!("\"{e}\""));
+                }
+                out.push(')');
+            }
+            MagicPattern::Probe(fn_name) => {
+                out.push_str(&format!("probe({fn_name})"));
+            }
+        }
+        out.push_str(",\n");
+        out.push_str("        decoder: ");
+        out.push_str(&codec.decoder);
+        if codec.contracts.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(",\n        contracts: {\n");
+            for clause in &codec.contracts {
+                out.push_str("            ");
+                format_clause(clause, out);
+            }
+            out.push_str("        }\n");
+        }
+        out.push_str("    }\n");
+    }
+    out.push_str("}\n");
 }
 
 pub fn format_fndef(f: &FnDef, out: &mut String) {

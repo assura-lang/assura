@@ -79,6 +79,7 @@ pub enum HirDeclKind {
     Bind(HirBind),
     FnDef(HirFnDef),
     Prophecy(HirProphecy),
+    CodecRegistry(HirCodecRegistry),
     Block(HirBlock),
 }
 
@@ -238,6 +239,22 @@ pub struct HirProphecy {
     pub id: DefId,
     pub name: String,
     pub ty: HirType,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirCodecRegistry {
+    pub id: DefId,
+    pub name: String,
+    pub output_type: Vec<String>,
+    pub codecs: Vec<HirCodecEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirCodecEntry {
+    pub name: String,
+    pub magic: assura_parser::ast::MagicPattern,
+    pub decoder: String,
+    pub contracts: Vec<HirClause>,
 }
 
 #[derive(Debug, Clone)]

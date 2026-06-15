@@ -16,6 +16,7 @@ pub(crate) fn decl(p: &mut Parser) {
         SyntaxKind::ENUM_KW => enum_def(p),
         SyntaxKind::EXTERN_KW => extern_decl(p),
         SyntaxKind::BIND_KW => bind_decl(p),
+        SyntaxKind::CODEC_REGISTRY_KW => codec_registry_decl(p),
         SyntaxKind::FN_KW | SyntaxKind::AXIOM_KW | SyntaxKind::LEMMA_KW => fn_def(p),
         // Modifier-prefixed fn: pure/ghost/opaque + fn/axiom/lemma
         SyntaxKind::PURE_KW | SyntaxKind::OPAQUE_KW => {
@@ -303,6 +304,120 @@ fn bind_decl(p: &mut Parser) {
     p.expect(SyntaxKind::R_BRACE);
 
     m.complete(p, SyntaxKind::BIND_DECL);
+}
+
+/// codec_registry Name { output: Type, codec Name { magic: [...], decoder: fn, contracts: { ... } } }
+fn codec_registry_decl(p: &mut Parser) {
+    let m = p.open();
+    p.expect(SyntaxKind::CODEC_REGISTRY_KW);
+    p.expect(SyntaxKind::IDENT); // registry name
+
+    p.expect(SyntaxKind::L_BRACE);
+    // output: Type,
+    if p.at(SyntaxKind::OUTPUT_KW) {
+        p.bump(); // output
+        p.expect(SyntaxKind::COLON);
+        // Consume type tokens until comma
+        while !p.eof()
+            && !p.at(SyntaxKind::COMMA)
+            && !p.at(SyntaxKind::CODEC_KW)
+            && !p.at(SyntaxKind::R_BRACE)
+        {
+            p.bump();
+        }
+        p.eat(SyntaxKind::COMMA);
+    }
+
+    // codec entries
+    while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+        if p.at(SyntaxKind::CODEC_KW) {
+            codec_entry(p);
+        } else {
+            p.err_and_bump("expected `codec` or `}`");
+        }
+    }
+    p.expect(SyntaxKind::R_BRACE);
+    m.complete(p, SyntaxKind::CODEC_REGISTRY_DECL);
+}
+
+/// codec Name { magic: [...], decoder: fn [, contracts: { ... }] }
+fn codec_entry(p: &mut Parser) {
+    let m = p.open();
+    p.expect(SyntaxKind::CODEC_KW);
+    p.expect(SyntaxKind::IDENT); // codec name
+
+    p.expect(SyntaxKind::L_BRACE);
+    while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+        let before = p.pos();
+        if p.at(SyntaxKind::MAGIC_KW) {
+            p.bump(); // magic
+            p.expect(SyntaxKind::COLON);
+            magic_pattern(p);
+            p.eat(SyntaxKind::COMMA);
+        } else if p.at_keyword_or_ident() && p.current_text() == "decoder" {
+            p.bump(); // decoder
+            p.expect(SyntaxKind::COLON);
+            // Consume decoder fn name tokens until comma or brace
+            while !p.eof() && !p.at(SyntaxKind::COMMA) && !p.at(SyntaxKind::R_BRACE) {
+                if p.at_keyword_or_ident() && p.current_text() == "contracts" {
+                    break;
+                }
+                p.bump();
+            }
+            p.eat(SyntaxKind::COMMA);
+        } else if p.at_keyword_or_ident() && p.current_text() == "contracts" {
+            p.bump(); // contracts
+            p.expect(SyntaxKind::COLON);
+            p.expect(SyntaxKind::L_BRACE);
+            while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+                if clauses::at_clause_start(p) {
+                    clauses::clause(p);
+                } else {
+                    p.err_and_bump("expected clause or `}`");
+                }
+            }
+            p.expect(SyntaxKind::R_BRACE);
+        } else {
+            // Skip unknown fields
+            p.err_and_bump("expected `magic`, `decoder`, `contracts`, or `}`");
+        }
+        if p.pos() == before {
+            p.err_and_bump("stuck in codec entry");
+            break;
+        }
+    }
+    p.expect(SyntaxKind::R_BRACE);
+    m.complete(p, SyntaxKind::CODEC_ENTRY);
+}
+
+/// MagicPattern: [bytes..] | extension("ext", ...) | probe(fn_name)
+fn magic_pattern(p: &mut Parser) {
+    if p.at(SyntaxKind::L_BRACKET) {
+        // BytePattern: [0x89, 0x50, ..., ..]
+        p.bump(); // [
+        while !p.eof() && !p.at(SyntaxKind::R_BRACKET) {
+            p.bump(); // byte literal, comma, or ..
+        }
+        p.expect(SyntaxKind::R_BRACKET);
+    } else if p.at_keyword_or_ident() && p.current_text() == "extension" {
+        p.bump(); // extension
+        p.expect(SyntaxKind::L_PAREN);
+        while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+            p.bump(); // string literals and commas
+        }
+        p.expect(SyntaxKind::R_PAREN);
+    } else if p.at_keyword_or_ident() && p.current_text() == "probe" {
+        p.bump(); // probe
+        p.expect(SyntaxKind::L_PAREN);
+        while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+            p.bump(); // function name
+        }
+        p.expect(SyntaxKind::R_PAREN);
+    } else {
+        p.error_at_current(
+            "expected byte pattern `[...]`, `extension(...)`, or `probe(...)`".into(),
+        );
+    }
 }
 
 /// `ghost prophecy <name> : <Type>`

@@ -298,6 +298,8 @@ pub enum SyntaxKind {
     EXTERN_DECL,
     BIND_DECL,
     PROPHECY_DECL,
+    CODEC_REGISTRY_DECL,
+    CODEC_ENTRY,
     FN_DEF,
     GENERIC_BLOCK,
 

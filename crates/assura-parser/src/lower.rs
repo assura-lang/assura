@@ -73,6 +73,13 @@ pub fn lower_source_file(root: &SyntaxNode) -> SourceFile {
                     span,
                 });
             }
+            SyntaxKind::CODEC_REGISTRY_DECL => {
+                let span = span_of(&child);
+                decls.push(Spanned {
+                    node: Decl::CodecRegistry(lower_codec_registry(&child)),
+                    span,
+                });
+            }
             SyntaxKind::FN_DEF => {
                 let span = span_of(&child);
                 decls.push(Spanned {
@@ -1139,6 +1146,180 @@ fn lower_bind(n: &SyntaxNode) -> BindDecl {
     }
 }
 
+fn lower_codec_registry(n: &SyntaxNode) -> CodecRegistryDecl {
+    let name = first_ident(n);
+
+    // Collect all non-whitespace tokens from the CODEC_REGISTRY_DECL node.
+    // We'll walk them to extract output_type and codec entries.
+    let tokens: Vec<(SyntaxKind, String)> = n
+        .descendants_with_tokens()
+        .filter_map(|el| el.into_token())
+        .filter(|t| {
+            let k = t.kind();
+            k != SyntaxKind::WHITESPACE && k != SyntaxKind::COMMENT
+        })
+        .map(|t| (t.kind(), t.text().to_string()))
+        .collect();
+
+    // Extract output type: tokens between "output" ":" and the first ","
+    let mut output_type = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i].0 == SyntaxKind::OUTPUT_KW {
+            i += 1; // skip "output"
+            if i < tokens.len() && tokens[i].1 == ":" {
+                i += 1; // skip ":"
+            }
+            while i < tokens.len() && tokens[i].1 != "," && tokens[i].0 != SyntaxKind::CODEC_KW {
+                output_type.push(tokens[i].1.clone());
+                i += 1;
+            }
+            break;
+        }
+        i += 1;
+    }
+
+    // Extract codec entries from child CODEC_ENTRY nodes
+    let codecs: Vec<CodecEntry> = n
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::CODEC_ENTRY)
+        .map(|c| lower_codec_entry(&c))
+        .collect();
+
+    CodecRegistryDecl {
+        name,
+        output_type,
+        codecs,
+    }
+}
+
+fn lower_codec_entry(n: &SyntaxNode) -> CodecEntry {
+    let name = first_ident(n);
+
+    let tokens: Vec<(SyntaxKind, String)> = n
+        .descendants_with_tokens()
+        .filter_map(|el| el.into_token())
+        .filter(|t| {
+            let k = t.kind();
+            k != SyntaxKind::WHITESPACE && k != SyntaxKind::COMMENT
+        })
+        .map(|t| (t.kind(), t.text().to_string()))
+        .collect();
+
+    let mut magic = MagicPattern::Bytes {
+        bytes: Vec::new(),
+        prefix: false,
+    };
+    let mut decoder = String::new();
+
+    let mut i = 0;
+    while i < tokens.len() {
+        // magic: [...]  or  magic: extension(...)  or  magic: probe(...)
+        if tokens[i].0 == SyntaxKind::MAGIC_KW {
+            i += 1; // skip "magic"
+            if i < tokens.len() && tokens[i].1 == ":" {
+                i += 1; // skip ":"
+            }
+            if i < tokens.len() && tokens[i].1 == "[" {
+                // BytePattern
+                i += 1; // skip "["
+                let mut bytes = Vec::new();
+                let mut prefix = false;
+                while i < tokens.len() && tokens[i].1 != "]" {
+                    let t = &tokens[i].1;
+                    if t == "," {
+                        i += 1;
+                        continue;
+                    }
+                    if t == ".." {
+                        prefix = true;
+                        i += 1;
+                        continue;
+                    }
+                    // The lexer splits "0x89" into Int("0") + Ident("x89").
+                    // Check for this two-token pattern first.
+                    if t == "0" && i + 1 < tokens.len() && tokens[i + 1].1.starts_with(['x', 'X']) {
+                        let hex_str = &tokens[i + 1].1[1..]; // skip 'x'
+                        if let Ok(b) = u8::from_str_radix(hex_str, 16) {
+                            bytes.push(b);
+                        }
+                        i += 2;
+                        continue;
+                    }
+                    // Single-token hex: 0x89 (if lexer keeps it whole)
+                    if let Some(stripped) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+                        if let Ok(b) = u8::from_str_radix(stripped, 16) {
+                            bytes.push(b);
+                        }
+                    } else if let Ok(b) = t.parse::<u8>() {
+                        bytes.push(b);
+                    }
+                    i += 1;
+                }
+                magic = MagicPattern::Bytes { bytes, prefix };
+            } else if i < tokens.len() && tokens[i].1 == "extension" {
+                i += 1; // skip "extension"
+                if i < tokens.len() && tokens[i].1 == "(" {
+                    i += 1; // skip "("
+                }
+                let mut exts = Vec::new();
+                while i < tokens.len() && tokens[i].1 != ")" {
+                    let t = &tokens[i].1;
+                    if t != "," {
+                        exts.push(t.trim_matches('"').to_string());
+                    }
+                    i += 1;
+                }
+                magic = MagicPattern::Extension(exts);
+            } else if i < tokens.len() && tokens[i].1 == "probe" {
+                i += 1; // skip "probe"
+                if i < tokens.len() && tokens[i].1 == "(" {
+                    i += 1; // skip "("
+                }
+                let fn_name = if i < tokens.len() && tokens[i].1 != ")" {
+                    let n = tokens[i].1.clone();
+                    i += 1;
+                    n
+                } else {
+                    String::new()
+                };
+                magic = MagicPattern::Probe(fn_name);
+            }
+        }
+
+        // decoder: fn_name
+        if i < tokens.len() && tokens[i].1 == "decoder" {
+            i += 1; // skip "decoder"
+            if i < tokens.len() && tokens[i].1 == ":" {
+                i += 1; // skip ":"
+            }
+            if i < tokens.len()
+                && tokens[i].1 != ","
+                && tokens[i].1 != "}"
+                && tokens[i].1 != "contracts"
+            {
+                decoder = tokens[i].1.clone();
+            }
+        }
+
+        i += 1;
+    }
+
+    // Extract contracts from CLAUSE child nodes
+    let contracts: Vec<Clause> = n
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::CLAUSE)
+        .map(|c| lower_clause(&c))
+        .collect();
+
+    CodecEntry {
+        name,
+        magic,
+        decoder,
+        contracts,
+    }
+}
+
 /// Extract parameters from a clause body like `a : Int , b : Int`.
 fn extract_params_from_clause_body(body: &Expr) -> Vec<Param> {
     let tokens = match body {
@@ -1830,6 +2011,116 @@ liveness Progress {
             );
         } else {
             panic!("expected Decl::Block, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn lower_codec_registry_basic() {
+        let src = r#"
+            codec_registry ImageFormats {
+                output: ImageOutput,
+
+                codec Png {
+                    magic: [0x89, 0x50, 0x4E, 0x47],
+                    decoder: decode_png
+                }
+
+                codec Bmp {
+                    magic: [0x42, 0x4D, ..],
+                    decoder: decode_bmp
+                }
+            }
+        "#;
+        let file = crate::parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::CodecRegistry(cr) = &file.decls[0].node {
+            assert_eq!(cr.name, "ImageFormats");
+            assert_eq!(cr.output_type, vec!["ImageOutput"]);
+            assert_eq!(cr.codecs.len(), 2);
+
+            assert_eq!(cr.codecs[0].name, "Png");
+            assert_eq!(cr.codecs[0].decoder, "decode_png");
+            if let MagicPattern::Bytes { bytes, prefix } = &cr.codecs[0].magic {
+                assert_eq!(bytes, &[0x89, 0x50, 0x4E, 0x47]);
+                assert!(!prefix);
+            } else {
+                panic!("expected MagicPattern::Bytes for Png");
+            }
+
+            assert_eq!(cr.codecs[1].name, "Bmp");
+            assert_eq!(cr.codecs[1].decoder, "decode_bmp");
+            if let MagicPattern::Bytes { bytes, prefix } = &cr.codecs[1].magic {
+                assert_eq!(bytes, &[0x42, 0x4D]);
+                assert!(prefix, "BMP should have prefix=true due to '..'");
+            } else {
+                panic!("expected MagicPattern::Bytes for Bmp");
+            }
+        } else {
+            panic!("expected Decl::CodecRegistry, got {:?}", file.decls[0].node);
+        }
+    }
+
+    #[test]
+    fn lower_codec_registry_probe_and_extension() {
+        let src = r#"
+            codec_registry Formats {
+                output: FormatOutput,
+
+                codec Hdr {
+                    magic: probe(is_hdr_format),
+                    decoder: decode_hdr
+                }
+
+                codec Text {
+                    magic: extension(".txt", ".md"),
+                    decoder: decode_text
+                }
+            }
+        "#;
+        let file = crate::parse_unwrap(src);
+        if let Decl::CodecRegistry(cr) = &file.decls[0].node {
+            assert_eq!(cr.codecs.len(), 2);
+
+            if let MagicPattern::Probe(fn_name) = &cr.codecs[0].magic {
+                assert_eq!(fn_name, "is_hdr_format");
+            } else {
+                panic!("expected MagicPattern::Probe for Hdr");
+            }
+
+            if let MagicPattern::Extension(exts) = &cr.codecs[1].magic {
+                assert_eq!(exts, &[".txt", ".md"]);
+            } else {
+                panic!("expected MagicPattern::Extension for Text");
+            }
+        } else {
+            panic!("expected Decl::CodecRegistry");
+        }
+    }
+
+    #[test]
+    fn lower_codec_registry_with_contracts() {
+        let src = r#"
+            codec_registry ImageFormats {
+                output: ImageOutput,
+
+                codec Png {
+                    magic: [0x89, 0x50],
+                    decoder: decode_png,
+                    contracts: {
+                        ensures { result.width >= 1 }
+                    }
+                }
+            }
+        "#;
+        let file = crate::parse_unwrap(src);
+        if let Decl::CodecRegistry(cr) = &file.decls[0].node {
+            assert_eq!(cr.codecs.len(), 1);
+            assert!(
+                !cr.codecs[0].contracts.is_empty(),
+                "contracts should be non-empty"
+            );
+        } else {
+            panic!("expected Decl::CodecRegistry");
         }
     }
 }

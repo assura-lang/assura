@@ -51,6 +51,8 @@ pub enum Decl {
     /// Ghost prophecy variable declaration
     Prophecy(ProphecyDecl),
     FnDef(FnDef),
+    /// Codec registry declaration (FMT.4)
+    CodecRegistry(CodecRegistryDecl),
     /// Catch-all for extended syntax (feature, incremental, liveness, etc.)
     Block {
         kind: String,
@@ -588,6 +590,43 @@ pub struct BindDecl {
 pub struct ProphecyDecl {
     pub name: String,
     pub ty_tokens: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Codec Registry (FMT.4)
+// ---------------------------------------------------------------------------
+
+/// A codec registry declaration: `codec_registry <name> { output: <type>, codec ... }`
+#[derive(Debug, Clone)]
+pub struct CodecRegistryDecl {
+    pub name: String,
+    /// The common output type (e.g., `ImageOutput`)
+    pub output_type: Vec<String>,
+    /// Individual codec entries
+    pub codecs: Vec<CodecEntry>,
+}
+
+/// A single codec in a registry: `codec <name> { magic: [...], decoder: <fn>, contracts: { ... } }`
+#[derive(Debug, Clone)]
+pub struct CodecEntry {
+    pub name: String,
+    /// Magic byte pattern for identification
+    pub magic: MagicPattern,
+    /// Decoder function name
+    pub decoder: String,
+    /// Per-codec contract clauses
+    pub contracts: Vec<Clause>,
+}
+
+/// The way a codec identifies its format
+#[derive(Debug, Clone)]
+pub enum MagicPattern {
+    /// Exact or prefix byte pattern: `[0x89, 0x50, ...]` or `[0xFF, 0xD8, ..]`
+    Bytes { bytes: Vec<u8>, prefix: bool },
+    /// File extension matching: `extension("png", "apng")`
+    Extension(Vec<String>),
+    /// Probe function: `probe(is_tga)`
+    Probe(String),
 }
 
 #[derive(Debug, Clone)]

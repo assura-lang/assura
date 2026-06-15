@@ -12394,3 +12394,88 @@ contract SeqCstRead {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// G008: Codec registry checks (FMT.4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn codec_registry_overlapping_magic_a52001() {
+    let source = r#"
+        codec_registry Formats {
+            output: Output,
+            codec Png {
+                magic: [0x89, 0x50, 0x4E, 0x47],
+                decoder: decode_png
+            }
+            codec PngAlt {
+                magic: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A],
+                decoder: decode_png_alt
+            }
+        }
+    "#;
+    let resolved = resolve_ok(source);
+    let result = type_check(&resolved);
+    match result {
+        Err(errs) => {
+            assert!(
+                errs.iter().any(|e| e.code == "A52001"),
+                "expected A52001 for overlapping magic patterns, got: {errs:?}"
+            );
+        }
+        Ok(_) => panic!("expected type error A52001 for overlapping magic patterns"),
+    }
+}
+
+#[test]
+fn codec_registry_no_overlap_ok() {
+    let source = r#"
+        codec_registry Formats {
+            output: Output,
+            codec Png {
+                magic: [0x89, 0x50, 0x4E, 0x47],
+                decoder: decode_png
+            }
+            codec Jpeg {
+                magic: [0xFF, 0xD8, 0xFF],
+                decoder: decode_jpeg
+            }
+        }
+    "#;
+    let resolved = resolve_ok(source);
+    let result = type_check(&resolved);
+    match &result {
+        Ok(_) => {}
+        Err(errs) => {
+            assert!(
+                !errs.iter().any(|e| e.code == "A52001"),
+                "unexpected A52001: {errs:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn codec_registry_empty_decoder_a52002() {
+    // This tests the edge case where a codec has no decoder field.
+    // The parser will produce an empty decoder string.
+    let source = r#"
+        codec_registry Formats {
+            output: Output,
+            codec Bad {
+                magic: [0x89, 0x50]
+            }
+        }
+    "#;
+    let resolved = resolve_ok(source);
+    let result = type_check(&resolved);
+    match result {
+        Err(errs) => {
+            assert!(
+                errs.iter().any(|e| e.code == "A52002"),
+                "expected A52002 for missing decoder, got: {errs:?}"
+            );
+        }
+        Ok(_) => panic!("expected type error A52002 for missing decoder"),
+    }
+}

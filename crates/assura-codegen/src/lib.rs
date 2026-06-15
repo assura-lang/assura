@@ -11,8 +11,8 @@
 pub mod type_map;
 
 use assura_parser::ast::{
-    BinOp, BindDecl, Clause, ClauseKind, ContractDecl, Decl, EnumDef, Expr, ExternDecl, FnDef,
-    Literal, ServiceDecl, ServiceItem, TypeBody, TypeDef, UnaryOp,
+    BinOp, BindDecl, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef, Expr,
+    ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem, TypeBody, TypeDef, UnaryOp,
 };
 use assura_types::TypedFile;
 
@@ -171,6 +171,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::Extern(_)
             | Decl::Bind(_)
             | Decl::Prophecy(_)
+            | Decl::CodecRegistry(_)
             | Decl::Block { .. } => {}
         }
     }
@@ -243,7 +244,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             }
             // EnumDef, Prophecy, and Block don't contribute type references
             // that need stub generation.
-            Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::Block { .. } => {}
+            Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::Block { .. } => {}
         }
     }
 
@@ -282,6 +283,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 | Decl::TypeDef(_)
                 | Decl::EnumDef(_)
                 | Decl::Prophecy(_)
+                | Decl::CodecRegistry(_)
                 | Decl::Block { .. } => {}
             }
             for tokens in token_lists {
@@ -355,6 +357,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::Service(_)
             | Decl::EnumDef(_)
             | Decl::Prophecy(_)
+            | Decl::CodecRegistry(_)
             | Decl::Block { .. } => {}
         }
         for tokens in token_lists {
@@ -399,6 +402,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::TypeDef(_)
             | Decl::EnumDef(_)
             | Decl::Prophecy(_)
+            | Decl::CodecRegistry(_)
             | Decl::Block { .. } => {}
         }
         for tokens in token_lists {
@@ -488,6 +492,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::Extern(_)
             | Decl::Bind(_)
             | Decl::Prophecy(_)
+            | Decl::CodecRegistry(_)
             | Decl::Block { .. } => {}
         }
     }
@@ -528,6 +533,8 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 }
                 // Prophecy variables are ghost; erased in codegen.
                 Decl::Prophecy(_) => {}
+                // CodecRegistry: TODO generate dispatch function
+                Decl::CodecRegistry(_) => {}
                 // Contracts and services go into their own files.
                 Decl::Contract(_) | Decl::Service(_) => {}
             }
@@ -550,6 +557,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 | Decl::Extern(_)
                 | Decl::Bind(_)
                 | Decl::Prophecy(_)
+                | Decl::CodecRegistry(_)
                 | Decl::Block { .. } => {}
             }
         }
@@ -620,6 +628,8 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 Decl::Service(s) => generate_service(s, &mut all_code),
                 // Prophecy variables are ghost; erased in codegen.
                 Decl::Prophecy(_) => {}
+                // CodecRegistry: generate dispatch function
+                Decl::CodecRegistry(cr) => generate_codec_registry(cr, &mut all_code),
                 Decl::Block {
                     kind, name, body, ..
                 } => {
@@ -4049,6 +4059,54 @@ fn generate_trait_method(body: &Expr, code: &mut String) {
 }
 
 // ---------------------------------------------------------------------------
+// Codec registry (FMT.4)
+// ---------------------------------------------------------------------------
+
+fn generate_codec_registry(cr: &CodecRegistryDecl, code: &mut String) {
+    // Generate a dispatch function that matches magic bytes
+    let output_ty = if cr.output_type.is_empty() {
+        "()".to_string()
+    } else {
+        cr.output_type.join(" ")
+    };
+    code.push_str(&format!(
+        "/// Codec registry `{}` dispatch function.\n",
+        cr.name
+    ));
+    code.push_str(&format!(
+        "pub fn dispatch_{}(data: &[u8]) -> Option<{}> {{\n",
+        cr.name.to_lowercase(),
+        output_ty
+    ));
+    for codec in &cr.codecs {
+        match &codec.magic {
+            MagicPattern::Bytes { bytes, prefix: _ } => {
+                let len = bytes.len();
+                let byte_checks: Vec<String> = bytes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, b)| format!("data[{i}] == 0x{b:02X}"))
+                    .collect();
+                let cond = byte_checks.join(" && ");
+                code.push_str(&format!("    if data.len() >= {len} && {cond} {{\n"));
+                code.push_str(&format!("        return Some({}(data));\n", codec.decoder));
+                code.push_str("    }\n");
+            }
+            MagicPattern::Extension(exts) => {
+                code.push_str(&format!("    // Extension-based detection: {:?}\n", exts));
+            }
+            MagicPattern::Probe(fn_name) => {
+                code.push_str(&format!(
+                    "    if {fn_name}(data) {{\n        return Some({}(data));\n    }}\n",
+                    codec.decoder
+                ));
+            }
+        }
+    }
+    code.push_str("    None\n}\n\n");
+}
+
+// ---------------------------------------------------------------------------
 // Generic blocks (feature, incremental, etc.)
 // ---------------------------------------------------------------------------
 
@@ -6551,6 +6609,74 @@ contract UseConst {
         assert!(
             code.contains("std::sync::atomic::Ordering::Acquire"),
             "ordering clause should emit Ordering constant, got:\n{code}"
+        );
+    }
+
+    #[test]
+    fn codegen_codec_registry_dispatch() {
+        use assura_parser::ast::CodecEntry;
+        let cr = CodecRegistryDecl {
+            name: "ImageFormats".into(),
+            output_type: vec!["ImageOutput".into()],
+            codecs: vec![
+                CodecEntry {
+                    name: "Png".into(),
+                    magic: MagicPattern::Bytes {
+                        bytes: vec![0x89, 0x50, 0x4E, 0x47],
+                        prefix: false,
+                    },
+                    decoder: "decode_png".into(),
+                    contracts: vec![],
+                },
+                CodecEntry {
+                    name: "Bmp".into(),
+                    magic: MagicPattern::Bytes {
+                        bytes: vec![0x42, 0x4D],
+                        prefix: true,
+                    },
+                    decoder: "decode_bmp".into(),
+                    contracts: vec![],
+                },
+            ],
+        };
+        let mut code = String::new();
+        generate_codec_registry(&cr, &mut code);
+        assert!(
+            code.contains("pub fn dispatch_imageformats"),
+            "should generate dispatch function, got:\n{code}"
+        );
+        assert!(
+            code.contains("decode_png(data)"),
+            "should call decode_png, got:\n{code}"
+        );
+        assert!(
+            code.contains("decode_bmp(data)"),
+            "should call decode_bmp, got:\n{code}"
+        );
+        assert!(
+            code.contains("0x89"),
+            "should check magic bytes, got:\n{code}"
+        );
+    }
+
+    #[test]
+    fn codegen_codec_registry_probe() {
+        use assura_parser::ast::CodecEntry;
+        let cr = CodecRegistryDecl {
+            name: "Probed".into(),
+            output_type: vec!["Out".into()],
+            codecs: vec![CodecEntry {
+                name: "Hdr".into(),
+                magic: MagicPattern::Probe("is_hdr_format".into()),
+                decoder: "decode_hdr".into(),
+                contracts: vec![],
+            }],
+        };
+        let mut code = String::new();
+        generate_codec_registry(&cr, &mut code);
+        assert!(
+            code.contains("is_hdr_format(data)"),
+            "should call probe function, got:\n{code}"
         );
     }
 }

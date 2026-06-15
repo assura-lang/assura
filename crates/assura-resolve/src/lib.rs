@@ -36,6 +36,7 @@ pub enum SymbolKind {
     ExternFn,
     BindFn,
     Prophecy,
+    CodecRegistry,
     BuiltinType,
     Operation,
     Query,
@@ -755,6 +756,16 @@ pub fn resolve_with_modules(
                     decl.span.clone(),
                 );
             }
+            Decl::CodecRegistry(cr) => {
+                try_insert(
+                    &mut table,
+                    &mut errors,
+                    module,
+                    &cr.name,
+                    SymbolKind::CodecRegistry,
+                    decl.span.clone(),
+                );
+            }
             Decl::Block { name, .. } => {
                 // Generic blocks (feature, incremental, liveness, etc.)
                 // create a child scope for their body but don't register
@@ -1181,6 +1192,7 @@ fn resolve_type_refs(
             // Prophecy variables have a type annotation but it's stored as
             // raw tokens, not structured params. No type ref resolution needed.
             Decl::Prophecy(_) => {}
+            Decl::CodecRegistry(_) => {}
             Decl::Block { .. } => {}
         }
     }
@@ -1438,8 +1450,9 @@ fn resolve_clause_body_names(
                     }
                 }
             }
-            // TypeDef, EnumDef, and Prophecy don't contain expressions.
-            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Prophecy(_) => {}
+            // TypeDef, EnumDef, Prophecy, and CodecRegistry don't contain expressions
+            // (codec registry contracts are checked separately).
+            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
         }
     }
 }
@@ -1746,6 +1759,19 @@ fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                 for tok in &p.ty_tokens {
                     if tok.chars().next().is_some_and(|c| c.is_uppercase()) {
                         names.insert(tok.clone());
+                    }
+                }
+            }
+            Decl::CodecRegistry(cr) => {
+                // Output type tokens may reference user-defined types
+                for tok in &cr.output_type {
+                    if tok.chars().next().is_some_and(|c| c.is_uppercase()) {
+                        names.insert(tok.clone());
+                    }
+                }
+                for codec in &cr.codecs {
+                    for clause in &codec.contracts {
+                        collect_expr_names(&clause.body, &mut names);
                     }
                 }
             }

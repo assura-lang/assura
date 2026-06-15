@@ -9,10 +9,10 @@ use assura_parser::ast::{self, Decl, Expr, ServiceItem, Spanned};
 use assura_resolve::ResolvedFile;
 
 use crate::{
-    DefId, HirBind, HirBlock, HirClause, HirClauseKind, HirContract, HirDecl, HirDeclKind,
-    HirEnumDef, HirEnumVariant, HirExpr, HirExtern, HirFieldDef, HirFile, HirFnDef, HirMatchArm,
-    HirParam, HirProphecy, HirService, HirServiceItem, HirType, HirTypeBody, HirTypeDef,
-    parse_type_tokens, resolve_hir_type,
+    DefId, HirBind, HirBlock, HirClause, HirClauseKind, HirCodecEntry, HirCodecRegistry,
+    HirContract, HirDecl, HirDeclKind, HirEnumDef, HirEnumVariant, HirExpr, HirExtern, HirFieldDef,
+    HirFile, HirFnDef, HirMatchArm, HirParam, HirProphecy, HirService, HirServiceItem, HirType,
+    HirTypeBody, HirTypeDef, parse_type_tokens, resolve_hir_type,
 };
 
 // ---------------------------------------------------------------------------
@@ -92,6 +92,7 @@ impl LowerCtx<'_> {
             Decl::Bind(b) => HirDeclKind::Bind(self.lower_bind(b)),
             Decl::FnDef(f) => HirDeclKind::FnDef(self.lower_fndef(f)),
             Decl::Prophecy(p) => HirDeclKind::Prophecy(self.lower_prophecy(p)),
+            Decl::CodecRegistry(cr) => HirDeclKind::CodecRegistry(self.lower_codec_registry(cr)),
             Decl::Block {
                 kind,
                 name,
@@ -251,6 +252,24 @@ impl LowerCtx<'_> {
             id: self.resolver.resolve(&p.name),
             name: p.name.clone(),
             ty,
+        }
+    }
+
+    fn lower_codec_registry(&self, cr: &ast::CodecRegistryDecl) -> HirCodecRegistry {
+        HirCodecRegistry {
+            id: self.resolver.resolve(&cr.name),
+            name: cr.name.clone(),
+            output_type: cr.output_type.clone(),
+            codecs: cr
+                .codecs
+                .iter()
+                .map(|c| HirCodecEntry {
+                    name: c.name.clone(),
+                    magic: c.magic.clone(),
+                    decoder: c.decoder.clone(),
+                    contracts: c.contracts.iter().map(|cl| self.lower_clause(cl)).collect(),
+                })
+                .collect(),
         }
     }
 

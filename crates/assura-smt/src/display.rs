@@ -265,7 +265,11 @@ pub fn collect_contract_names(file: &SourceFile) -> Vec<String> {
                 }
             }
             // Prophecy variables don't have verifiable clauses.
-            Decl::Prophecy(_) | Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Block { .. } => {}
+            Decl::Prophecy(_)
+            | Decl::CodecRegistry(_)
+            | Decl::TypeDef(_)
+            | Decl::EnumDef(_)
+            | Decl::Block { .. } => {}
         }
     }
     names
@@ -322,7 +326,8 @@ pub fn write_summary(
             Decl::FnDef(_) => fns += 1,
             Decl::Service(_) => services += 1,
             Decl::Bind(_) => externs += 1, // count binds with externs
-            Decl::Prophecy(_) => other += 1, // count prophecy with other
+            Decl::Prophecy(_) => other += 1,
+            Decl::CodecRegistry(_) => other += 1,
             Decl::Block { .. } => other += 1,
         }
     }

@@ -195,6 +195,14 @@ pub fn print_decl(decl: &Decl, indent: usize) {
                 }
             }
         }
+        Decl::CodecRegistry(cr) => {
+            println!(
+                "{pad}CodecRegistry: {} (output: {}, {} codec(s))",
+                cr.name,
+                cr.output_type.join(" "),
+                cr.codecs.len()
+            );
+        }
         Decl::Block {
             kind, name, body, ..
         } => {

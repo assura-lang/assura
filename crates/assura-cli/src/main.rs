@@ -888,6 +888,7 @@ fn run_check(
                         Decl::FnDef(_) => fns += 1,
                         Decl::Service(_) => services += 1,
                         Decl::Prophecy(_) => {}
+                        Decl::CodecRegistry(_) => {}
                         Decl::Block { .. } => {}
                     }
                 }

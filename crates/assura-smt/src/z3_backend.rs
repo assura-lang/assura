@@ -3208,7 +3208,7 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
             }
             // Prophecy variables don't have verifiable clauses directly;
             // they are used as existential witnesses in contract proofs.
-            Decl::Prophecy(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+            Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
     }
 

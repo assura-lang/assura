@@ -1,0 +1,15 @@
+// MUST REJECT A52001
+// Overlapping magic byte patterns in a codec registry.
+codec_registry ImageFormats {
+  output: ImageOutput,
+
+  codec Png {
+    magic: [0x89, 0x50, 0x4E, 0x47],
+    decoder: decode_png
+  }
+
+  codec PngAlt {
+    magic: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A],
+    decoder: decode_png_alt
+  }
+}

@@ -2593,8 +2593,11 @@ impl TaintChecker {
                         }
                     }
                 }
-                // Prophecy variables are ghost; no taint tracking needed.
-                Decl::Prophecy(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+                // Prophecy, CodecRegistry, TypeDef, EnumDef: no taint tracking needed.
+                Decl::Prophecy(_)
+                | Decl::CodecRegistry(_)
+                | Decl::TypeDef(_)
+                | Decl::EnumDef(_) => {}
             }
         }
 

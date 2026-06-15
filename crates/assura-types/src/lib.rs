@@ -647,6 +647,9 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
 
             // Prophecy variables: placeholder; enriched below from AST
             SymbolKind::Prophecy => Type::Unknown,
+
+            // Codec registries are not types; they define dispatch tables
+            SymbolKind::CodecRegistry => Type::Named(sym.name.clone()),
         };
 
         env.insert(sym.name.clone(), ty);
@@ -786,7 +789,7 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
             }
             // Bind params are registered above with Extern; Block and
             // other structural decls don't contribute to the type env.
-            Decl::Bind(_) | Decl::Block { .. } => {}
+            Decl::Bind(_) | Decl::CodecRegistry(_) | Decl::Block { .. } => {}
         }
     }
 
@@ -830,6 +833,7 @@ fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
             SymbolKind::Parameter | SymbolKind::Field => Type::Unknown,
             SymbolKind::EnumVariant => Type::Named(sym.name.clone()),
             SymbolKind::Prophecy => Type::Unknown,
+            SymbolKind::CodecRegistry => Type::Named(sym.name.clone()),
         };
         env.insert(sym.name.clone(), ty);
     }
@@ -953,7 +957,7 @@ fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
                 let ty = type_from_hir_type(&p.ty);
                 env.insert(p.name.clone(), ty);
             }
-            HirDeclKind::Block(_) => {}
+            HirDeclKind::CodecRegistry(_) | HirDeclKind::Block(_) => {}
         }
     }
 
@@ -1378,6 +1382,7 @@ pub fn type_check_hir_with_config(
     errors.extend(run_contract_composition_checks(source));
     errors.extend(run_contract_library_checks(source));
     errors.extend(run_crypto_conformance_checks(source));
+    errors.extend(run_codec_registry_checks(source));
 
     if !errors.is_empty() {
         return Err(errors);
@@ -1516,6 +1521,7 @@ pub fn type_check_with_config(
     errors.extend(run_contract_composition_checks(&resolved.source));
     errors.extend(run_contract_library_checks(&resolved.source));
     errors.extend(run_crypto_conformance_checks(&resolved.source));
+    errors.extend(run_codec_registry_checks(&resolved.source));
 
     if !errors.is_empty() {
         return Err(errors);
@@ -5356,6 +5362,73 @@ mod type_from_hir_type_tests {
         let ht = HirType::Unresolved(vec!["Float".into()]);
         assert_eq!(type_from_hir_type(&ht), Type::Float);
     }
+}
+
+// ---------------------------------------------------------------------------
+// G008: Codec registry validation (FMT.4)
+// ---------------------------------------------------------------------------
+
+/// Check codec registry declarations for:
+/// - A52001: Overlapping magic byte patterns between codecs
+/// - A52002: Empty decoder function name
+fn run_codec_registry_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    use assura_parser::ast::MagicPattern;
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        let cr = match &decl.node {
+            Decl::CodecRegistry(cr) => cr,
+            _ => continue,
+        };
+
+        // A52001: Check for overlapping magic byte prefixes
+        let byte_patterns: Vec<(usize, &[u8])> = cr
+            .codecs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| match &c.magic {
+                MagicPattern::Bytes { bytes, .. } if !bytes.is_empty() => {
+                    Some((i, bytes.as_slice()))
+                }
+                _ => None,
+            })
+            .collect();
+
+        for (i, (idx_a, bytes_a)) in byte_patterns.iter().enumerate() {
+            for (idx_b, bytes_b) in byte_patterns.iter().skip(i + 1) {
+                let min_len = bytes_a.len().min(bytes_b.len());
+                if bytes_a[..min_len] == bytes_b[..min_len] {
+                    errors.push(TypeError {
+                        code: "A52001".to_string(),
+                        message: format!(
+                            "overlapping magic byte patterns in codec registry `{}`: \
+                             codec `{}` and codec `{}` share a common prefix",
+                            cr.name, cr.codecs[*idx_a].name, cr.codecs[*idx_b].name,
+                        ),
+                        span: decl.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+
+        // A52002: Check for empty decoder names
+        for codec in &cr.codecs {
+            if codec.decoder.is_empty() {
+                errors.push(TypeError {
+                    code: "A52002".to_string(),
+                    message: format!(
+                        "codec `{}` in registry `{}` has no decoder function",
+                        codec.name, cr.name,
+                    ),
+                    span: decl.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    errors
 }
 
 #[cfg(test)]
