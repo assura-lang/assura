@@ -1776,11 +1776,7 @@ fn run_infer(filename: &str, function_filter: Option<&str>, output_path: Option<
         process::exit(1);
     }
 
-    // Derive module path from filename: src/foo/bar.rs -> crate::foo::bar
-    let module_path = filename
-        .trim_end_matches(".rs")
-        .replace('/', "::")
-        .replace("src::", "crate::");
+    let module_path = derive_rust_module_path(filename);
 
     let mut output = String::new();
     output.push_str(&format!(
@@ -1827,25 +1823,16 @@ fn extract_rust_fn_signatures(source: &str) -> Vec<RustFnSig> {
     while i < lines.len() {
         let line = lines[i].trim();
 
-        // Look for lines starting with "pub fn" or "pub(crate) fn" etc.
-        let is_pub;
-        let fn_part;
-        if let Some(rest) = line.strip_prefix("pub fn ") {
-            is_pub = true;
-            fn_part = rest;
-        } else if let Some(rest) = line.strip_prefix("pub(crate) fn ") {
-            is_pub = true;
-            fn_part = rest;
-        } else if let Some(rest) = line.strip_prefix("pub(super) fn ") {
-            is_pub = true;
-            fn_part = rest;
-        } else if let Some(rest) = line.strip_prefix("fn ") {
-            is_pub = false;
-            fn_part = rest;
-        } else {
-            i += 1;
-            continue;
-        }
+        // Strip leading modifiers to find `fn ` keyword.
+        // Handles: pub fn, pub(crate) fn, pub async fn, pub const fn,
+        //          pub unsafe fn, async fn, const fn, unsafe fn, etc.
+        let (is_pub, fn_part) = match strip_fn_prefix(line) {
+            Some(pair) => pair,
+            None => {
+                i += 1;
+                continue;
+            }
+        };
 
         // Collect full signature (may span multiple lines)
         let mut full_sig = fn_part.to_string();
@@ -1866,10 +1853,60 @@ fn extract_rust_fn_signatures(source: &str) -> Vec<RustFnSig> {
     sigs
 }
 
+/// Strip function declaration prefix and return (is_pub, rest_after_fn).
+/// Handles all modifier combinations: pub/pub(vis), async, const, unsafe.
+fn strip_fn_prefix(line: &str) -> Option<(bool, &str)> {
+    let mut rest = line;
+    let mut is_pub = false;
+
+    // Check for pub / pub(vis)
+    if let Some(after_pub) = rest.strip_prefix("pub") {
+        is_pub = true;
+        rest = after_pub;
+        // Handle pub(crate), pub(super), pub(in path)
+        let trimmed = rest.trim_start();
+        if let Some(after_paren) = trimmed.strip_prefix('(') {
+            if let Some(close) = after_paren.find(')') {
+                rest = &after_paren[close + 1..];
+            } else {
+                return None;
+            }
+        } else {
+            rest = trimmed;
+        }
+    }
+
+    // Strip optional modifiers: async, const, unsafe (in any order)
+    loop {
+        let trimmed = rest.trim_start();
+        if let Some(after) = trimmed.strip_prefix("async ") {
+            rest = after;
+        } else if let Some(after) = trimmed.strip_prefix("const ") {
+            rest = after;
+        } else if let Some(after) = trimmed.strip_prefix("unsafe ") {
+            rest = after;
+        } else {
+            rest = trimmed;
+            break;
+        }
+    }
+
+    // Must find `fn ` keyword
+    let after_fn = rest.strip_prefix("fn ")?;
+    Some((is_pub, after_fn))
+}
+
 /// Parse a single function signature string like "foo(x: i64, y: &str) -> bool {"
 fn parse_fn_signature(sig: &str, is_pub: bool) -> Option<RustFnSig> {
     let paren_open = sig.find('(')?;
-    let name = sig[..paren_open].trim().to_string();
+    let raw_name = sig[..paren_open].trim();
+
+    // Strip generic parameters: `encode<T: Serialize>` -> `encode`
+    let name = if let Some(angle) = raw_name.find('<') {
+        raw_name[..angle].trim().to_string()
+    } else {
+        raw_name.to_string()
+    };
 
     // Skip if name contains invalid chars (macros, etc.)
     if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
@@ -1968,6 +2005,86 @@ fn parse_param_list(params: &str) -> Vec<(String, String)> {
     }
 
     result
+}
+
+/// Derive a Rust module path from a filesystem path.
+///
+/// Walks up from the file looking for `Cargo.toml` to find the crate name.
+/// Converts hyphens to underscores (Rust identifier convention).
+/// Strips the `src/` segment and maps `lib.rs`/`mod.rs` to their parent module.
+///
+/// Examples:
+///   `crates/assura-codegen/src/type_map.rs` -> `assura_codegen::type_map`
+///   `src/lib.rs` -> `my_crate` (crate name from Cargo.toml)
+///   `src/foo/bar.rs` -> `my_crate::foo::bar`
+fn derive_rust_module_path(file_path: &str) -> String {
+    let path = Path::new(file_path);
+
+    // Find the src/ component and the crate root above it
+    let components: Vec<_> = path.components().collect();
+    let mut crate_name: Option<String> = None;
+    let mut src_index: Option<usize> = None;
+
+    for (i, comp) in components.iter().enumerate() {
+        if comp.as_os_str() == "src" {
+            src_index = Some(i);
+            // Crate root is the directory containing src/
+            let crate_root: std::path::PathBuf = if i > 0 {
+                components[..i].iter().collect()
+            } else {
+                std::path::PathBuf::from(".")
+            };
+            // Try to read crate name from Cargo.toml
+            let cargo_path = crate_root.join("Cargo.toml");
+            if let Ok(content) = fs::read_to_string(&cargo_path) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if let Some(rest) = trimmed.strip_prefix("name") {
+                        let rest = rest.trim_start();
+                        if let Some(rest) = rest.strip_prefix('=') {
+                            let rest = rest.trim();
+                            let name = rest.trim_matches('"').trim_matches('\'');
+                            crate_name = Some(name.replace('-', "_"));
+                            break;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    let crate_segment = crate_name.unwrap_or_else(|| "crate".to_string());
+
+    if let Some(si) = src_index {
+        // Build relative path from components after src/
+        if si + 1 < components.len() {
+            let after_src: std::path::PathBuf = components[si + 1..].iter().collect();
+            let rel_str = after_src
+                .to_string_lossy()
+                .trim_end_matches(".rs")
+                .replace(['/', '\\'], "::");
+
+            // lib.rs / mod.rs -> just the parent module (or crate root)
+            if rel_str == "lib" || rel_str == "mod" {
+                crate_segment
+            } else if rel_str.ends_with("::mod") || rel_str.ends_with("::lib") {
+                let trimmed = rel_str.trim_end_matches("::mod").trim_end_matches("::lib");
+                format!("{crate_segment}::{trimmed}")
+            } else {
+                format!("{crate_segment}::{rel_str}")
+            }
+        } else {
+            // Path ends at src/ itself (unusual)
+            crate_segment
+        }
+    } else {
+        // No src/ found; fallback: strip .rs, convert path separators, fix hyphens
+        file_path
+            .trim_end_matches(".rs")
+            .replace('/', "::")
+            .replace('-', "_")
+    }
 }
 
 /// Generate a bind skeleton for a single function.
@@ -2138,15 +2255,22 @@ fn run_audit(
         process::exit(2);
     }
 
-    let src_dir = root.join("src");
-    if !src_dir.exists() {
-        eprintln!("Error: no src/ directory found at {}", root.display());
+    // Discover src directories: support workspaces and single crates
+    let src_dirs = discover_workspace_src_dirs(root);
+    if src_dirs.is_empty() {
+        eprintln!("Error: no src/ directories found at {}", root.display());
         process::exit(2);
     }
 
-    let rs_files = discover_rs_files(&src_dir);
+    let mut rs_files = Vec::new();
+    for src_dir in &src_dirs {
+        rs_files.extend(discover_rs_files(src_dir));
+    }
+    rs_files.sort();
+    rs_files.dedup();
+
     if rs_files.is_empty() {
-        eprintln!("No .rs files found in {}", src_dir.display());
+        eprintln!("No .rs files found in scanned directories");
         process::exit(1);
     }
 
@@ -2208,10 +2332,7 @@ fn run_audit(
     assura_source.push_str("// Review and refine before relying on results.\n\n");
 
     for (file_path, sig) in &all_sigs {
-        let module_path = file_path
-            .trim_end_matches(".rs")
-            .replace('/', "::")
-            .replace("src::", "crate::");
+        let module_path = derive_rust_module_path(file_path);
 
         let rust_path = format!("{module_path}::{}", sig.name);
 
@@ -2413,6 +2534,90 @@ struct AuditFinding {
 }
 
 /// Recursively discover all .rs files under a directory.
+/// Discover src/ directories from a Cargo project root.
+///
+/// If `Cargo.toml` has a `[workspace]` section with `members`, scan each
+/// member's `src/` directory. Supports glob patterns like `crates/*`.
+/// If it's a single-crate project, return `root/src/` if it exists.
+fn discover_workspace_src_dirs(root: &Path) -> Vec<std::path::PathBuf> {
+    let cargo_toml = root.join("Cargo.toml");
+    let content = match fs::read_to_string(&cargo_toml) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut src_dirs = Vec::new();
+
+    // Check for workspace members
+    let mut in_workspace = false;
+    let mut in_members = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[workspace]" {
+            in_workspace = true;
+            continue;
+        }
+        if trimmed.starts_with('[') && trimmed != "[workspace]" {
+            if in_workspace {
+                in_workspace = false;
+                in_members = false;
+            }
+            continue;
+        }
+        if in_workspace {
+            if trimmed.starts_with("members") && trimmed.contains('[') {
+                in_members = true;
+            }
+            if in_members {
+                // Extract member paths from members = ["crates/*", "tools/*"]
+                for segment in trimmed.split('"') {
+                    let seg = segment.trim().trim_matches(',').trim();
+                    if seg.is_empty()
+                        || seg.starts_with('[')
+                        || seg.starts_with(']')
+                        || seg.contains('=')
+                        || seg == "members"
+                    {
+                        continue;
+                    }
+                    // Expand glob patterns like crates/*
+                    if seg.contains('*') {
+                        let prefix = seg.trim_end_matches("/*").trim_end_matches("\\*");
+                        let pattern_dir = root.join(prefix);
+                        if let Ok(entries) = fs::read_dir(&pattern_dir) {
+                            for entry in entries.flatten() {
+                                let member_src = entry.path().join("src");
+                                if member_src.is_dir() {
+                                    src_dirs.push(member_src);
+                                }
+                            }
+                        }
+                    } else {
+                        let member_src = root.join(seg).join("src");
+                        if member_src.is_dir() {
+                            src_dirs.push(member_src);
+                        }
+                    }
+                }
+                if trimmed.contains(']') {
+                    in_members = false;
+                }
+            }
+        }
+    }
+
+    // Fallback: single-crate project with src/
+    if src_dirs.is_empty() {
+        let src_dir = root.join("src");
+        if src_dir.is_dir() {
+            src_dirs.push(src_dir);
+        }
+    }
+
+    src_dirs.sort();
+    src_dirs
+}
+
 fn discover_rs_files(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
@@ -3940,5 +4145,165 @@ timeout = 2000
         let sorted = found.clone();
         assert_eq!(found, sorted, "results should be sorted");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- Regression tests for #42: module path derivation ---
+
+    #[test]
+    fn derive_module_path_crate_with_hyphen() {
+        // Simulates crates/assura-codegen/src/type_map.rs
+        let dir = std::env::temp_dir().join("assura_test_modpath_42");
+        let _ = std::fs::remove_dir_all(&dir);
+        let crate_dir = dir.join("crates/my-crate");
+        std::fs::create_dir_all(crate_dir.join("src")).unwrap();
+        std::fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+
+        let path = format!("{}/crates/my-crate/src/type_map.rs", dir.display());
+        let module = super::derive_rust_module_path(&path);
+        assert_eq!(
+            module, "my_crate::type_map",
+            "hyphens must become underscores"
+        );
+
+        // lib.rs should resolve to just the crate name
+        let lib_path = format!("{}/crates/my-crate/src/lib.rs", dir.display());
+        let lib_module = super::derive_rust_module_path(&lib_path);
+        assert_eq!(lib_module, "my_crate");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn derive_module_path_nested_module() {
+        let dir = std::env::temp_dir().join("assura_test_modpath_nested");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src/foo")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"example\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+
+        let path = format!("{}/src/foo/bar.rs", dir.display());
+        let module = super::derive_rust_module_path(&path);
+        assert_eq!(module, "example::foo::bar");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- Regression tests for #43: workspace discovery ---
+
+    #[test]
+    fn discover_workspace_src_dirs_single_crate() {
+        let dir = std::env::temp_dir().join("assura_test_ws_single");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"single\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let dirs = super::discover_workspace_src_dirs(&dir);
+        assert_eq!(dirs.len(), 1);
+        assert!(dirs[0].ends_with("src"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discover_workspace_src_dirs_workspace_glob() {
+        let dir = std::env::temp_dir().join("assura_test_ws_glob");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("crates/alpha/src")).unwrap();
+        std::fs::create_dir_all(dir.join("crates/beta/src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+
+        let dirs = super::discover_workspace_src_dirs(&dir);
+        assert_eq!(dirs.len(), 2, "should find both workspace members");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discover_workspace_src_dirs_explicit_members() {
+        let dir = std::env::temp_dir().join("assura_test_ws_explicit");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("lib/core/src")).unwrap();
+        std::fs::create_dir_all(dir.join("tools/cli/src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"lib/core\", \"tools/cli\"]\n",
+        )
+        .unwrap();
+
+        let dirs = super::discover_workspace_src_dirs(&dir);
+        assert_eq!(dirs.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- Regression tests for #44: function signature extraction ---
+
+    #[test]
+    fn extract_sigs_async_fn() {
+        let source = "pub async fn fetch(url: &str) -> Result<String, Error> {";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1, "should match pub async fn");
+        assert_eq!(sigs[0].name, "fetch");
+        assert!(sigs[0].is_pub);
+    }
+
+    #[test]
+    fn extract_sigs_const_fn() {
+        let source = "pub const fn max_size() -> usize { 1024 }";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1, "should match pub const fn");
+        assert_eq!(sigs[0].name, "max_size");
+    }
+
+    #[test]
+    fn extract_sigs_unsafe_fn() {
+        let source = "pub unsafe fn raw_ptr(p: *const u8) -> u8 {";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1, "should match pub unsafe fn");
+        assert_eq!(sigs[0].name, "raw_ptr");
+    }
+
+    #[test]
+    fn extract_sigs_pub_crate_async_fn() {
+        let source = "pub(crate) async fn internal_fetch(url: &str) -> String {";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1, "should match pub(crate) async fn");
+        assert_eq!(sigs[0].name, "internal_fetch");
+        assert!(sigs[0].is_pub);
+    }
+
+    #[test]
+    fn extract_sigs_generic_fn_name_stripped() {
+        let source = "pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        assert_eq!(
+            sigs[0].name, "encode",
+            "generic params must be stripped from name"
+        );
+    }
+
+    #[test]
+    fn extract_sigs_generic_with_where() {
+        let source = "pub fn process<T>(items: Vec<T>) -> Vec<T> where T: Clone + Debug {";
+        let sigs = super::extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 1);
+        assert_eq!(sigs[0].name, "process");
+        assert_eq!(sigs[0].return_type, "Vec<T>");
     }
 }
