@@ -718,10 +718,11 @@ fn infer_in_op() {
 }
 
 #[test]
-fn infer_raw_is_unknown() {
+fn infer_raw_is_error() {
     let env = TypeEnv::new();
     let expr = AstExpr::Raw(vec!["some".into(), "tokens".into()]);
-    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
+    // Raw tokens yield Error (not Unknown) since they cannot be parsed
+    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
 }
 
 #[test]
@@ -12478,4 +12479,212 @@ fn codec_registry_empty_decoder_a52002() {
         }
         Ok(_) => panic!("expected type error A52002 for missing decoder"),
     }
+}
+
+// -----------------------------------------------------------------------
+// G010: Type::Error propagation tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn error_type_suppresses_field_access() {
+    let mut env = TypeEnv::new();
+    env.insert("e".into(), Type::Error);
+    let expr = AstExpr::Field(Box::new(AstExpr::Ident("e".into())), "foo".into());
+    // Field access on Error receiver yields Error (no A03005 emitted)
+    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
+}
+
+#[test]
+fn error_type_suppresses_method_call() {
+    let mut env = TypeEnv::new();
+    env.insert("e".into(), Type::Error);
+    let expr = AstExpr::MethodCall {
+        receiver: Box::new(AstExpr::Ident("e".into())),
+        method: "anything".into(),
+        args: vec![],
+    };
+    // Method call on Error receiver yields Error (no A03005)
+    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
+}
+
+#[test]
+fn error_type_suppresses_index() {
+    let mut env = TypeEnv::new();
+    env.insert("e".into(), Type::Error);
+    let expr = AstExpr::Index {
+        expr: Box::new(AstExpr::Ident("e".into())),
+        index: Box::new(AstExpr::Literal(assura_parser::ast::Literal::Int(
+            "0".into(),
+        ))),
+    };
+    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
+}
+
+#[test]
+fn error_type_suppresses_call() {
+    let mut env = TypeEnv::new();
+    env.insert("f".into(), Type::Error);
+    let expr = AstExpr::Call {
+        func: Box::new(AstExpr::Ident("f".into())),
+        args: vec![],
+    };
+    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
+}
+
+#[test]
+fn error_compatible_with_any_type() {
+    assert!(types_compatible(&Type::Error, &Type::Int));
+    assert!(types_compatible(&Type::Bool, &Type::Error));
+    assert!(types_compatible(&Type::Error, &Type::Error));
+}
+
+#[test]
+fn is_indeterminate_works() {
+    assert!(Type::Unknown.is_indeterminate());
+    assert!(Type::Error.is_indeterminate());
+    assert!(!Type::Int.is_indeterminate());
+    assert!(!Type::Bool.is_indeterminate());
+    assert!(!Type::Named("Foo".into()).is_indeterminate());
+}
+
+// -----------------------------------------------------------------------
+// G010: Improved inference tests for Option/Result map
+// -----------------------------------------------------------------------
+
+#[test]
+fn option_map_with_known_function() {
+    let mut env = TypeEnv::new();
+    env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
+    env.insert(
+        "to_string_fn".into(),
+        Type::Fn {
+            params: vec![Type::Int],
+            ret: Box::new(Type::String),
+        },
+    );
+    let expr = AstExpr::MethodCall {
+        receiver: Box::new(AstExpr::Ident("opt".into())),
+        method: "map".into(),
+        args: vec![AstExpr::Ident("to_string_fn".into())],
+    };
+    assert_eq!(
+        infer_expr(&expr, &env).unwrap(),
+        Type::Option(Box::new(Type::String))
+    );
+}
+
+#[test]
+fn result_map_with_known_function() {
+    let mut env = TypeEnv::new();
+    env.insert(
+        "r".into(),
+        Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+    );
+    env.insert(
+        "double".into(),
+        Type::Fn {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Float),
+        },
+    );
+    let expr = AstExpr::MethodCall {
+        receiver: Box::new(AstExpr::Ident("r".into())),
+        method: "map".into(),
+        args: vec![AstExpr::Ident("double".into())],
+    };
+    assert_eq!(
+        infer_expr(&expr, &env).unwrap(),
+        Type::Result(Box::new(Type::Float), Box::new(Type::String))
+    );
+}
+
+#[test]
+fn result_map_err_with_known_function() {
+    let mut env = TypeEnv::new();
+    env.insert(
+        "r".into(),
+        Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+    );
+    env.insert(
+        "wrap_err".into(),
+        Type::Fn {
+            params: vec![Type::String],
+            ret: Box::new(Type::Named("AppError".into())),
+        },
+    );
+    let expr = AstExpr::MethodCall {
+        receiver: Box::new(AstExpr::Ident("r".into())),
+        method: "map_err".into(),
+        args: vec![AstExpr::Ident("wrap_err".into())],
+    };
+    assert_eq!(
+        infer_expr(&expr, &env).unwrap(),
+        Type::Result(
+            Box::new(Type::Int),
+            Box::new(Type::Named("AppError".into()))
+        )
+    );
+}
+
+#[test]
+fn option_filter_preserves_type() {
+    let mut env = TypeEnv::new();
+    env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
+    let expr = AstExpr::MethodCall {
+        receiver: Box::new(AstExpr::Ident("opt".into())),
+        method: "filter".into(),
+        args: vec![],
+    };
+    assert_eq!(
+        infer_expr(&expr, &env).unwrap(),
+        Type::Option(Box::new(Type::Int))
+    );
+}
+
+#[test]
+fn option_or_else_preserves_type() {
+    let mut env = TypeEnv::new();
+    env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
+    let expr = AstExpr::MethodCall {
+        receiver: Box::new(AstExpr::Ident("opt".into())),
+        method: "or_else".into(),
+        args: vec![],
+    };
+    assert_eq!(
+        infer_expr(&expr, &env).unwrap(),
+        Type::Option(Box::new(Type::Int))
+    );
+}
+
+#[test]
+fn type_param_call_returns_type_param() {
+    let mut env = TypeEnv::new();
+    env.insert("T".into(), Type::TypeParam("T".into()));
+    let expr = AstExpr::Call {
+        func: Box::new(AstExpr::Ident("T".into())),
+        args: vec![AstExpr::Literal(assura_parser::ast::Literal::Int(
+            "1".into(),
+        ))],
+    };
+    assert_eq!(
+        infer_expr(&expr, &env).unwrap(),
+        Type::TypeParam("T".into())
+    );
+}
+
+#[test]
+fn block_empty_returns_unit() {
+    let env = TypeEnv::new();
+    let expr = AstExpr::Block(vec![]);
+    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unit);
+}
+
+#[test]
+fn block_returns_last_expr_type() {
+    let env = TypeEnv::new();
+    let expr = AstExpr::Block(vec![
+        AstExpr::Literal(assura_parser::ast::Literal::Int("1".into())),
+        AstExpr::Literal(assura_parser::ast::Literal::Bool(true)),
+    ]);
+    assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }

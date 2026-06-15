@@ -121,6 +121,7 @@ pub(crate) fn env_with_result(env: &TypeEnv, result_ty: &Type) -> TypeEnv {
 /// - `Expr::Call { args: [Cast { ... }] }` (wrapped call)
 ///
 /// Returns the declared output type, or `Type::Unknown` if not extractable.
+/// Treats `Type::Error` as "not found" for the purposes of extraction.
 pub(crate) fn extract_output_type_from_body(body: &Expr) -> Type {
     match body {
         Expr::Cast { ty, .. } => parse_type_tokens(std::slice::from_ref(ty)),
@@ -130,7 +131,7 @@ pub(crate) fn extract_output_type_from_body(body: &Expr) -> Type {
                 let type_tokens: Vec<String> = tokens[colon_pos + 1..].to_vec();
                 if !type_tokens.is_empty() {
                     let ty = parse_type_tokens(&type_tokens);
-                    if ty != Type::Unknown {
+                    if !ty.is_indeterminate() {
                         return ty;
                     }
                 }
@@ -141,7 +142,7 @@ pub(crate) fn extract_output_type_from_body(body: &Expr) -> Type {
             // output(result: Int) parsed as Call with Cast args
             for arg in args {
                 let ty = extract_output_type_from_body(arg);
-                if ty != Type::Unknown {
+                if !ty.is_indeterminate() {
                     return ty;
                 }
             }
@@ -163,7 +164,7 @@ pub(crate) fn extract_contract_output_type(c: &assura_parser::ast::ContractDecl)
     for clause in &c.clauses {
         if clause.kind == ClauseKind::Output {
             let ty = extract_output_type_from_body(&clause.body);
-            if ty != Type::Unknown {
+            if !ty.is_indeterminate() {
                 return ty;
             }
         }
@@ -289,7 +290,7 @@ pub(crate) fn check_clause_bodies(
                         }
                         if clause.kind == ClauseKind::Output {
                             let ty = extract_output_type_from_body(&clause.body);
-                            if ty != Type::Unknown {
+                            if !ty.is_indeterminate() {
                                 output_ty = ty;
                             }
                         }
@@ -431,7 +432,7 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                         if clause.kind == HirClauseKind::Output {
                             let ast_clause = clause.to_ast_clause();
                             let ty = extract_output_type_from_body(&ast_clause.body);
-                            if ty != Type::Unknown {
+                            if !ty.is_indeterminate() {
                                 output_ty = ty;
                             }
                         }
@@ -497,7 +498,7 @@ fn hir_extract_contract_output_type(c: &assura_hir::HirContract) -> Type {
         if clause.kind == assura_hir::HirClauseKind::Output {
             let ast_clause = clause.to_ast_clause();
             let ty = extract_output_type_from_body(&ast_clause.body);
-            if ty != Type::Unknown {
+            if !ty.is_indeterminate() {
                 return ty;
             }
         }
@@ -571,7 +572,7 @@ pub(crate) fn check_clause_expr(
 ) {
     match infer_expr(body, env) {
         Ok(ty) => {
-            if clause_requires_bool(kind) && ty != Type::Unknown && ty != Type::Bool {
+            if clause_requires_bool(kind) && !ty.is_indeterminate() && ty != Type::Bool {
                 errors.push(TypeError {
                     code: "A03006".into(),
                     message: format!(
@@ -603,7 +604,7 @@ pub(crate) fn check_clause_hir_expr(
 ) {
     match crate::infer_hir_expr(body, env) {
         Ok(ty) => {
-            if clause_requires_bool(kind) && ty != Type::Unknown && ty != Type::Bool {
+            if clause_requires_bool(kind) && !ty.is_indeterminate() && ty != Type::Bool {
                 errors.push(TypeError {
                     code: "A03006".into(),
                     message: format!(

@@ -1840,7 +1840,7 @@ but lack real semantic analysis or parser integration.
     is no longer called in production code paths (only in tests for
     backward compatibility).
 
-- [ ] **G010**: Harden type inference: reduce Type::Unknown returns
+- [x] **G010**: Harden type inference: reduce Type::Unknown returns
   - Depends on: G009
   - **Current state**: `inference.rs` has 32 `Type::Unknown` returns.
     Many are legitimate (raw tokens, unknown callees), but several

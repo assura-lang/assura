@@ -80,8 +80,23 @@ pub enum Type {
         predicate: std::string::String,
     },
 
-    // --- Unknown / error recovery placeholder ---
+    // --- Genuinely unknown type (unresolved reference, unparsed tokens) ---
     Unknown,
+
+    // --- Error recovery: a type error was already reported upstream ---
+    /// Distinct from `Unknown`: `Error` suppresses cascading errors,
+    /// while `Unknown` means "we genuinely don't know yet".
+    Error,
+}
+
+impl Type {
+    /// Returns `true` if this type is indeterminate (either genuinely
+    /// unknown or an error-recovery placeholder). Use this instead of
+    /// matching `Type::Unknown` directly when deciding whether to
+    /// suppress further diagnostics.
+    pub fn is_indeterminate(&self) -> bool {
+        matches!(self, Type::Unknown | Type::Error)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -737,7 +752,7 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
                     for clause in clauses {
                         if clause.kind == ClauseKind::Output {
                             let ty = extract_output_type_from_body(&clause.body);
-                            if ty != Type::Unknown {
+                            if !ty.is_indeterminate() {
                                 ret = ty;
                                 break;
                             }
@@ -913,7 +928,7 @@ fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
                         if clause.kind == assura_hir::HirClauseKind::Output {
                             let ast_clause = clause.to_ast_clause();
                             let ty = extract_output_type_from_body(&ast_clause.body);
-                            if ty != Type::Unknown {
+                            if !ty.is_indeterminate() {
                                 ret = ty;
                             }
                         }
@@ -1033,6 +1048,7 @@ impl std::fmt::Display for Type {
                 }
             }
             Type::Unknown => write!(f, "Unknown"),
+            Type::Error => write!(f, "<error>"),
         }
     }
 }

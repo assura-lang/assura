@@ -42,6 +42,8 @@ pub(crate) fn element_type_of(domain_ty: &Type) -> Type {
         Type::List(elem) | Type::Set(elem) | Type::Sequence(elem) => *elem.clone(),
         Type::Map(key, _) => *key.clone(),
         Type::Int | Type::Nat => Type::Int, // range domain
+        // String indexable by code points
+        Type::String => Type::String,
         _ => Type::Unknown,
     }
 }
@@ -63,8 +65,9 @@ pub(crate) fn is_numeric(ty: &Type) -> bool {
         | Type::F64 => true,
         // A refined type is numeric if its base type is numeric
         Type::Refined { base, .. } => is_numeric(base),
-        // Named types may be numeric aliases; be lenient
-        Type::Named(_) | Type::Unknown => true,
+        // Named types may be numeric aliases; be lenient.
+        // Error/Unknown suppress diagnostics.
+        Type::Named(_) | Type::Unknown | Type::Error => true,
         _ => false,
     }
 }
@@ -102,7 +105,7 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             let inner_ty = infer_expr(inner, env)?;
             match op {
                 UnaryOp::Neg => {
-                    if inner_ty == Type::Unknown || is_numeric(&inner_ty) {
+                    if inner_ty.is_indeterminate() || is_numeric(&inner_ty) {
                         Ok(inner_ty)
                     } else {
                         Err(TypeError {
@@ -116,7 +119,7 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     }
                 }
                 UnaryOp::Not => {
-                    if inner_ty == Type::Unknown || inner_ty == Type::Bool {
+                    if inner_ty.is_indeterminate() || inner_ty == Type::Bool {
                         Ok(Type::Bool)
                     } else {
                         Err(TypeError {
@@ -137,7 +140,7 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             else_branch,
         } => {
             let cond_ty = infer_expr(cond, env)?;
-            if cond_ty != Type::Unknown && cond_ty != Type::Bool {
+            if !cond_ty.is_indeterminate() && cond_ty != Type::Bool {
                 return Err(TypeError {
                     code: "A03001".into(),
                     message: format!("if condition must be Bool, found `{cond_ty}`"),
@@ -148,9 +151,9 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             let then_ty = infer_expr(then_branch, env)?;
             if let Some(else_br) = else_branch {
                 let else_ty = infer_expr(else_br, env)?;
-                if then_ty == Type::Unknown {
+                if then_ty.is_indeterminate() {
                     Ok(else_ty)
-                } else if else_ty == Type::Unknown || types_compatible(&then_ty, &else_ty) {
+                } else if else_ty.is_indeterminate() || types_compatible(&then_ty, &else_ty) {
                     Ok(then_ty)
                 } else {
                     Err(TypeError {
@@ -195,7 +198,10 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
             // Check remaining items match the first
             for item in &items[1..] {
                 let item_ty = infer_expr(item, env)?;
-                if item_ty != Type::Unknown && first_ty != Type::Unknown && item_ty != first_ty {
+                if !item_ty.is_indeterminate()
+                    && !first_ty.is_indeterminate()
+                    && item_ty != first_ty
+                {
                     return Err(TypeError {
                         code: "A03001".into(),
                         message: format!(
@@ -314,6 +320,10 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 }
                 _ => {}
             }
+            // Suppress cascading on Error
+            if recv_ty == Type::Error {
+                return Ok(Type::Error);
+            }
             Ok(Type::Unknown)
         }
 
@@ -384,20 +394,55 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                         return Ok(*inner.clone());
                     }
                     "is_some" | "is_none" => return Ok(Type::Bool),
-                    "map" | "and_then" | "or_else" | "filter" => {
-                        return Ok(Type::Option(Box::new(Type::Unknown)));
+                    "map" => {
+                        // Option<T>.map(f) -> Option<ReturnType(f)>
+                        // If arg is a known function, infer its return type.
+                        let mapped_ty = infer_closure_return_from_args(args, env);
+                        return Ok(Type::Option(Box::new(mapped_ty)));
                     }
+                    "and_then" => {
+                        // and_then returns Option<U> where U is from closure
+                        let mapped_ty = infer_closure_return_from_args(args, env);
+                        if let Type::Option(_) = &mapped_ty {
+                            return Ok(mapped_ty);
+                        }
+                        return Ok(Type::Option(Box::new(mapped_ty)));
+                    }
+                    "or_else" => return Ok(recv_ty),
+                    "filter" => return Ok(recv_ty),
                     "flatten" => {
                         // Option<Option<T>>.flatten() => Option<T>
                         if let Type::Option(inner2) = inner.as_ref() {
                             return Ok(Type::Option(inner2.clone()));
                         }
-                        return Ok(Type::Option(Box::new(Type::Unknown)));
+                        return Ok(recv_ty);
                     }
                     "ok_or" | "ok_or_else" => {
-                        return Ok(Type::Result(inner.clone(), Box::new(Type::Unknown)));
+                        // Infer the error type from the first arg if possible
+                        let err_ty = if let Some(first_arg) = args.first() {
+                            infer_expr(first_arg, env).unwrap_or(Type::Unknown)
+                        } else {
+                            Type::Unknown
+                        };
+                        return Ok(Type::Result(inner.clone(), Box::new(err_ty)));
                     }
-                    "zip" => return Ok(Type::Option(Box::new(Type::Unknown))),
+                    "zip" => {
+                        // Option<T>.zip(Option<U>) -> Option<(T, U)>
+                        let other_ty = if let Some(first_arg) = args.first() {
+                            let arg_ty = infer_expr(first_arg, env).unwrap_or(Type::Unknown);
+                            if let Type::Option(other_inner) = arg_ty {
+                                *other_inner
+                            } else {
+                                arg_ty
+                            }
+                        } else {
+                            Type::Unknown
+                        };
+                        return Ok(Type::Option(Box::new(Type::Tuple(vec![
+                            *inner.clone(),
+                            other_ty,
+                        ]))));
+                    }
                     _ => {}
                 },
                 Type::Bytes => match method.as_str() {
@@ -412,10 +457,23 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                     }
                     "unwrap_err" | "expect_err" => return Ok(*err_ty.clone()),
                     "is_ok" | "is_err" => return Ok(Type::Bool),
-                    "map" | "and_then" => {
-                        return Ok(Type::Result(Box::new(Type::Unknown), err_ty.clone()));
+                    "map" => {
+                        // Result<T,E>.map(f) -> Result<ReturnType(f), E>
+                        let mapped_ty = infer_closure_return_from_args(args, env);
+                        return Ok(Type::Result(Box::new(mapped_ty), err_ty.clone()));
                     }
-                    "map_err" | "or_else" => {
+                    "and_then" => {
+                        let mapped_ty = infer_closure_return_from_args(args, env);
+                        if let Type::Result(_, _) = &mapped_ty {
+                            return Ok(mapped_ty);
+                        }
+                        return Ok(Type::Result(Box::new(mapped_ty), err_ty.clone()));
+                    }
+                    "map_err" => {
+                        let mapped_ty = infer_closure_return_from_args(args, env);
+                        return Ok(Type::Result(ok_ty.clone(), Box::new(mapped_ty)));
+                    }
+                    "or_else" => {
                         return Ok(Type::Result(ok_ty.clone(), Box::new(Type::Unknown)));
                     }
                     "ok" => return Ok(Type::Option(ok_ty.clone())),
@@ -455,6 +513,11 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 }
                 _ => {}
             }
+            // For Error/Unknown receivers, suppress cascading errors
+            if recv_ty.is_indeterminate() {
+                return Ok(recv_ty);
+            }
+            // Named types: genuinely unknown, may have methods we don't know about
             Ok(Type::Unknown)
         }
 
@@ -491,6 +554,8 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                         secondary: None,
                     })
                 }
+                // Error: suppress cascading errors
+                Type::Error => Ok(Type::Error),
                 // Unknown, Named, TypeParam, or user-defined: return Unknown.
                 _ => Ok(Type::Unknown),
             }
@@ -532,10 +597,10 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
                 let mut arm_env = env.clone();
                 bind_pattern_vars(&arm.pattern, &scrut_ty, &mut arm_env);
                 let arm_ty = infer_expr(&arm.body, &arm_env)?;
-                if arm_ty == Type::Unknown {
+                if arm_ty.is_indeterminate() {
                     continue;
                 }
-                if result_ty == Type::Unknown {
+                if result_ty.is_indeterminate() {
                     result_ty = arm_ty;
                 } else if !types_compatible(&result_ty, &arm_ty) {
                     return Err(TypeError {
@@ -571,15 +636,15 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
 
         // --- Block: infer type of last expression ---
         Expr::Block(exprs) => {
-            let mut last_ty = Type::Unknown;
+            let mut last_ty = Type::Unit;
             for e in exprs {
                 last_ty = infer_expr(e, env)?;
             }
             Ok(last_ty)
         }
 
-        // --- Raw: cannot infer from token sequence ---
-        Expr::Raw(_) => Ok(Type::Unknown),
+        // --- Raw: cannot infer from unparsed token sequence ---
+        Expr::Raw(_) => Ok(Type::Error),
     }
 }
 
@@ -595,7 +660,7 @@ pub(crate) fn types_compatible(a: &Type, b: &Type) -> bool {
     if a == b {
         return true;
     }
-    if *a == Type::Unknown || *b == Type::Unknown {
+    if a.is_indeterminate() || b.is_indeterminate() {
         return true;
     }
     // Named types are unresolved user-defined; be lenient
@@ -639,15 +704,17 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
     let lhs_ty = infer_expr(lhs, env)?;
     let rhs_ty = infer_expr(rhs, env)?;
 
-    // If either side is Unknown, be lenient
-    if lhs_ty == Type::Unknown || rhs_ty == Type::Unknown {
+    // If either side is indeterminate, be lenient
+    if lhs_ty.is_indeterminate() || rhs_ty.is_indeterminate() {
         return match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Concat => {
                 // Return whichever side is known, or Unknown
-                if lhs_ty != Type::Unknown {
+                if !lhs_ty.is_indeterminate() {
                     Ok(lhs_ty)
-                } else {
+                } else if !rhs_ty.is_indeterminate() {
                     Ok(rhs_ty)
+                } else {
+                    Ok(Type::Unknown)
                 }
             }
             BinOp::Eq
@@ -787,7 +854,8 @@ fn infer_binop(lhs: &Expr, op: &BinOp, rhs: &Expr, env: &TypeEnv) -> Result<Type
                 | Type::Map(_, _)
                 | Type::String
                 | Type::Named(_)
-                | Type::Unknown => {}
+                | Type::Unknown
+                | Type::Error => {}
                 _ => {
                     return Err(TypeError {
                         code: "A03001".into(),
@@ -843,9 +911,13 @@ fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv) -> Result<Type, TypeErr
             }
             Ok(Type::Unknown)
         }
+        // Error: suppress cascading
+        Type::Error => Ok(Type::Error),
         // Named type: could be a constructor. Return the Named type itself.
         Type::Named(name) => Ok(Type::Named(name)),
-        Type::TypeParam(_) => Ok(Type::Unknown),
+        // TypeParam: calling a type param (e.g. `T(args)`) is a
+        // constructor-style pattern; return the type param itself.
+        Type::TypeParam(name) => Ok(Type::TypeParam(name)),
         // Definitely not callable.
         other => Err(TypeError {
             code: "A03005".into(),
@@ -854,6 +926,27 @@ fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv) -> Result<Type, TypeErr
             secondary: None,
         }),
     }
+}
+
+/// Attempt to infer a return type from closure/function arguments passed
+/// to higher-order methods like `map`, `and_then`, etc.
+///
+/// If the first argument is a known function name in the environment, return
+/// its declared return type. Otherwise return `Type::Unknown`.
+fn infer_closure_return_from_args(args: &[Expr], env: &TypeEnv) -> Type {
+    if let Some(first_arg) = args.first() {
+        // If the argument is an identifier that resolves to a function, use its return type
+        if let Expr::Ident(name) = first_arg
+            && let Some(Type::Fn { ret, .. }) = env.lookup(name)
+        {
+            return *ret.clone();
+        }
+        // Try inferring the expression type
+        if let Ok(Type::Fn { ret, .. }) = infer_expr(first_arg, env) {
+            return *ret;
+        }
+    }
+    Type::Unknown
 }
 
 /// Infer the return type of a well-known builtin function call.
