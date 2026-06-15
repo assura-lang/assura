@@ -163,13 +163,51 @@ fn run_check_pipeline(source: &str) -> assura_pipeline::PipelineResult {
 
 /// Lightweight contract inference from Rust source text.
 fn infer_contracts_from_rust(source: &str) -> String {
+    // Use the full assura-rust-analyzer parser (syn-based) instead of naive
+    // line-by-line scanning. This handles multi-line signatures, generics,
+    // impl blocks, and doc comment annotations.
+    match assura_rust_analyzer::parse_rust_source(source) {
+        Ok(items) if !items.is_empty() => {
+            let mut output = String::new();
+            for item in &items {
+                let label = match &item.kind {
+                    assura_rust_analyzer::AnnotatedItemKind::Function { name, .. } => {
+                        format!("fn {name}")
+                    }
+                    assura_rust_analyzer::AnnotatedItemKind::Struct { name, .. } => {
+                        format!("struct {name}")
+                    }
+                    assura_rust_analyzer::AnnotatedItemKind::ImplBlock { self_type, .. } => {
+                        format!("impl {self_type}")
+                    }
+                };
+                output.push_str(&format!("// {label} (line {})\n", item.line));
+                for r in &item.contract.requires {
+                    output.push_str(&format!("//   @requires {}\n", r.body));
+                }
+                for e in &item.contract.ensures {
+                    output.push_str(&format!("//   @ensures {}\n", e.body));
+                }
+                output.push('\n');
+            }
+            output
+        }
+        Ok(_) => {
+            // No annotated items found; fall back to function signature extraction
+            extract_function_signatures(source)
+        }
+        Err(_) => {
+            // syn parse failed; fall back to function signature extraction
+            extract_function_signatures(source)
+        }
+    }
+}
+
+/// Fallback: extract function signatures from Rust source using simple parsing.
+fn extract_function_signatures(source: &str) -> String {
     let mut output = String::new();
     for line in source.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with("pub fn ") && !trimmed.starts_with("fn ") {
-            continue;
-        }
-        // Extract function name
         let after_fn = if let Some(rest) = trimmed.strip_prefix("pub fn ") {
             rest
         } else if let Some(rest) = trimmed.strip_prefix("fn ") {
@@ -185,7 +223,6 @@ fn infer_contracts_from_rust(source: &str) -> String {
             continue;
         }
 
-        // Extract params between parens
         let params_str = after_fn
             .find('(')
             .and_then(|start| {
@@ -195,7 +232,6 @@ fn infer_contracts_from_rust(source: &str) -> String {
             })
             .unwrap_or("");
 
-        // Extract return type
         let ret = after_fn
             .find("->")
             .map(|i| {
@@ -208,7 +244,6 @@ fn infer_contracts_from_rust(source: &str) -> String {
         let assura_ret = assura_codegen::type_map::rust_type_to_assura(ret);
         output.push_str(&format!("contract {name} {{\n"));
 
-        // Parse params for contract
         for param in params_str.split(',') {
             let param = param.trim();
             if param.is_empty() || param.starts_with("&self") || param == "self" {

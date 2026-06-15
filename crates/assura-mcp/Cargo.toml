@@ -16,6 +16,7 @@ assura-hir = { path = "../assura-hir" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 assura-config = { path = "../assura-config" }
 assura-pipeline = { path = "../assura-pipeline" }
+assura-rust-analyzer = { path = "../assura-rust-analyzer" }
 rmcp = { version = "1.7", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

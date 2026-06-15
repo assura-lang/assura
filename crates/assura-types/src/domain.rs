@@ -1,5 +1,7 @@
-// Structural domain checkers for MASTER-PLAN Phase 2/3; methods are wired in
-// as the corresponding tasks are implemented.
+// Structural domain checkers for MASTER-PLAN Phase 2/3.
+// Some checker struct fields and methods are constructed/used only in
+// future phases or are reserved for richer analysis. Suppressing dead_code
+// at the module level until each checker's full API surface is wired.
 #![allow(dead_code)]
 
 //! Domain-specific type checkers.
