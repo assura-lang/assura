@@ -20,6 +20,7 @@ mod diff;
 mod fmt_cmd;
 mod infer;
 mod init;
+mod ir_cmd;
 mod legacy;
 mod lsp_doctor;
 mod repl;
@@ -34,6 +35,7 @@ use diff::*;
 use fmt_cmd::*;
 use infer::*;
 use init::*;
+use ir_cmd::*;
 use legacy::*;
 use lsp_doctor::*;
 use repl::*;
@@ -301,6 +303,20 @@ enum Commands {
         format: String,
     },
 
+    /// Parse, validate, and codegen an Implementation IR file (Section 4)
+    Ir {
+        /// IR text file to process
+        file: String,
+
+        /// Contract file to validate against
+        #[arg(long)]
+        contract: Option<String>,
+
+        /// Output directory for generated Rust (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+
     /// Start the MCP (Model Context Protocol) server for AI agent integration
     Mcp,
 }
@@ -499,6 +515,11 @@ fn main() {
         Some(Commands::Diff { old, new, format }) => {
             run_diff(&old, &new, &format);
         }
+        Some(Commands::Ir {
+            file,
+            contract,
+            output,
+        }) => run_ir(&file, contract.as_deref(), output.as_deref(), verbosity),
         Some(Commands::Mcp) => {
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             rt.block_on(async {

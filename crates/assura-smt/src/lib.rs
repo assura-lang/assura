@@ -2731,9 +2731,7 @@ pub use incremental::*;
 pub use layer2::*;
 
 // IR module: Section 4 "Implementation IR" parser/codegen.
-// Not yet wired into the pipeline (AI agent workflow is future work),
-// but must compile in all profiles to prevent silent regressions.
-#[allow(dead_code)]
+// Wired into the CLI via `assura ir <file>`.
 pub mod ir;
 pub use ir::*;
 
