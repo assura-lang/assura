@@ -271,32 +271,11 @@ fn load_project_config(start_path: &Path) -> Option<(ProjectConfig, std::path::P
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline timing
+// Shared compilation pipeline (delegates to assura-pipeline)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy)]
-struct TimingInfo {
-    parse_ms: f64,
-    resolve_ms: Option<f64>,
-    hir_ms: Option<f64>,
-    typecheck_ms: Option<f64>,
-    token_count: usize,
-}
-
-// ---------------------------------------------------------------------------
-// Shared compilation pipeline
-// ---------------------------------------------------------------------------
-
-/// Result of running the full compilation pipeline (lex -> parse -> resolve -> typecheck).
-struct CompilationResult {
-    file: Option<SourceFile>,
-    resolved: Option<assura_resolve::ResolvedFile>,
-    hir: Option<assura_hir::HirFile>,
-    typed: Option<assura_types::TypedFile>,
-    diagnostics: Vec<assura_diagnostics::Diagnostic>,
-    has_errors: bool,
-    timing: TimingInfo,
-}
+/// Type alias: CLI code uses this name to destructure `CompilationOutput`.
+type CompilationResult = assura_pipeline::CompilationOutput;
 
 /// Format a counterexample as a clean single-line summary for diagnostics.
 ///
@@ -322,142 +301,12 @@ fn format_counterexample_summary(
 
 /// Run lex -> parse -> resolve -> typecheck on source text, collecting all diagnostics.
 fn compile(source: &str, filename: &str) -> CompilationResult {
-    compile_with_config(source, filename, &CompilerConfig::default())
+    assura_pipeline::compile(source, filename, &CompilerConfig::default())
 }
 
 /// Run the full pipeline with explicit configuration.
 fn compile_with_config(source: &str, filename: &str, config: &CompilerConfig) -> CompilationResult {
-    let mut diagnostics: Vec<assura_diagnostics::Diagnostic> = Vec::new();
-    let mut has_errors = false;
-
-    // --- Lex + Parse (single pass) ---
-    let lex_start = Instant::now();
-    let parse_result = assura_parser::parse_full(source);
-    let parse_ms = lex_start.elapsed().as_secs_f64() * 1000.0;
-
-    let token_count = parse_result.token_count;
-    let file = parse_result.file;
-
-    for le in &parse_result.lex_errors {
-        has_errors = true;
-        diagnostics.push(
-            assura_diagnostics::Diagnostic::error(
-                "A01001",
-                format!("unexpected character: {:?}", &source[le.span.clone()]),
-                le.span.clone(),
-            )
-            .with_file(filename),
-        );
-    }
-
-    for e in &parse_result.parse_errors {
-        has_errors = true;
-        diagnostics.push(
-            assura_diagnostics::Diagnostic::error("A01002", e.message.clone(), e.span.clone())
-                .with_file(filename),
-        );
-    }
-
-    // --- Resolve (only if we have a parsed file) ---
-    let resolve_start = Instant::now();
-    let resolved = if let Some(ref file) = file {
-        match assura_resolve::resolve(file) {
-            Ok(r) => {
-                for w in &r.warnings {
-                    let mut d = assura_diagnostics::Diagnostic::warning(
-                        w.code,
-                        w.message.clone(),
-                        w.span.clone(),
-                    )
-                    .with_file(filename);
-                    if let Some((span, msg)) = &w.secondary {
-                        d = d.with_secondary(span.clone(), msg.clone());
-                    }
-                    diagnostics.push(d);
-                }
-                Some(r)
-            }
-            Err(errs) => {
-                has_errors = true;
-                for e in &errs {
-                    let mut d = assura_diagnostics::Diagnostic::error(
-                        e.code,
-                        e.message.clone(),
-                        e.span.clone(),
-                    )
-                    .with_file(filename);
-                    if let Some((span, msg)) = &e.secondary {
-                        d = d.with_secondary(span.clone(), msg.clone());
-                    }
-                    diagnostics.push(d);
-                }
-                None
-            }
-        }
-    } else {
-        None
-    };
-    let resolve_ms = if file.is_some() {
-        Some(resolve_start.elapsed().as_secs_f64() * 1000.0)
-    } else {
-        None
-    };
-
-    // --- HIR lowering (only if resolution succeeded) ---
-    let hir_start = Instant::now();
-    let hir = resolved.as_ref().map(assura_hir::lower);
-    let hir_ms = if resolved.is_some() {
-        Some(hir_start.elapsed().as_secs_f64() * 1000.0)
-    } else {
-        None
-    };
-
-    // --- Type check (only if HIR/resolution succeeded) ---
-    let typecheck_start = Instant::now();
-    let typed = if let Some(ref hir_file) = hir {
-        match assura_types::type_check_hir_with_config(hir_file, &config.type_check) {
-            Ok(t) => Some(t),
-            Err(errs) => {
-                has_errors = true;
-                for e in &errs {
-                    let mut d = assura_diagnostics::Diagnostic::error(
-                        e.code.clone(),
-                        e.message.clone(),
-                        e.span.clone(),
-                    )
-                    .with_file(filename);
-                    if let Some((span, msg)) = &e.secondary {
-                        d = d.with_secondary(span.clone(), msg.clone());
-                    }
-                    diagnostics.push(d);
-                }
-                None
-            }
-        }
-    } else {
-        None
-    };
-    let typecheck_ms = if resolved.is_some() {
-        Some(typecheck_start.elapsed().as_secs_f64() * 1000.0)
-    } else {
-        None
-    };
-
-    CompilationResult {
-        file,
-        resolved,
-        hir,
-        typed,
-        diagnostics,
-        has_errors,
-        timing: TimingInfo {
-            parse_ms,
-            resolve_ms,
-            hir_ms,
-            typecheck_ms,
-            token_count,
-        },
-    }
+    assura_pipeline::compile(source, filename, config)
 }
 
 // ---------------------------------------------------------------------------

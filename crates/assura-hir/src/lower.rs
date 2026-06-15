@@ -4,6 +4,7 @@
 //! clause, expression, and type reference into its HIR equivalent.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use assura_parser::ast::{self, Decl, Expr, ServiceItem, Spanned};
 use assura_resolve::ResolvedFile;
@@ -66,7 +67,7 @@ pub fn lower(resolved: &ResolvedFile) -> HirFile {
         .collect();
 
     HirFile {
-        resolved: resolved.clone(),
+        resolved: Arc::new(resolved.clone()),
         decls,
     }
 }

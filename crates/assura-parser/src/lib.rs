@@ -70,6 +70,23 @@ pub struct LexError {
     pub span: std::ops::Range<usize>,
 }
 
+impl From<ParseError> for assura_diagnostics::Diagnostic {
+    fn from(e: ParseError) -> Self {
+        assura_diagnostics::Diagnostic::error(e.code, e.message, e.span)
+    }
+}
+
+impl LexError {
+    /// Convert to a `Diagnostic` using the source text for the error message.
+    pub fn to_diagnostic(&self, source: &str) -> assura_diagnostics::Diagnostic {
+        assura_diagnostics::Diagnostic::error(
+            "A01001",
+            format!("unexpected character: {:?}", &source[self.span.clone()]),
+            self.span.clone(),
+        )
+    }
+}
+
 /// Full parse result including lex errors and token count.
 pub struct ParseResult {
     pub file: Option<ast::SourceFile>,

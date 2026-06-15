@@ -191,8 +191,11 @@ dependencies = [
 name = "assura-lsp"
 version = "0.1.0"
 dependencies = [
+ "assura-config",
+ "assura-diagnostics",
  "assura-fmt",
  "assura-parser",
+ "assura-pipeline",
  "assura-resolve",
  "assura-types",
  "dashmap 6.2.1",
@@ -227,6 +230,7 @@ dependencies = [
 name = "assura-parser"
 version = "0.1.0"
 dependencies = [
+ "assura-diagnostics",
  "insta",
  "logos",
  "rowan",
@@ -237,6 +241,7 @@ name = "assura-pipeline"
 version = "0.1.0"
 dependencies = [
  "assura-config",
+ "assura-diagnostics",
  "assura-hir",
  "assura-parser",
  "assura-resolve",
@@ -260,7 +265,10 @@ name = "assura-server"
 version = "0.1.0"
 dependencies = [
  "assura-codegen",
+ "assura-config",
+ "assura-diagnostics",
  "assura-parser",
+ "assura-pipeline",
  "assura-resolve",
  "assura-smt",
  "assura-types",

@@ -181,7 +181,7 @@ impl SymbolTable {
 /// An error produced during name resolution.
 #[derive(Debug, Clone)]
 pub struct ResolutionError {
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
     pub span: Span,
     /// Optional secondary span (e.g., previous definition site).
@@ -858,7 +858,7 @@ fn resolve_imports(
         let path_str = imp.path.join(".");
         if !seen_paths.insert(path_str.clone()) {
             errors.push(ResolutionError {
-                code: "A02006",
+                code: "A02006".into(),
                 message: format!("duplicate import of module `{path_str}`"),
                 span: 0..0,
                 secondary: None,
@@ -875,7 +875,7 @@ fn resolve_imports(
     for imp in imports {
         if imp.path.is_empty() {
             errors.push(ResolutionError {
-                code: "A02008",
+                code: "A02008".into(),
                 message: "import path is empty".to_string(),
                 span: 0..0,
                 secondary: None,
@@ -891,7 +891,7 @@ fn resolve_imports(
         for segment in module_segments {
             if !is_valid_path_segment(segment) {
                 errors.push(ResolutionError {
-                    code: "A02008",
+                    code: "A02008".into(),
                     message: format!(
                         "invalid module path segment `{segment}` in import `{}`; \
                          segments must start with a lowercase letter or underscore",
@@ -923,7 +923,7 @@ fn resolve_imports(
                 // Circular import detected: module A imports B which
                 // imports A (or transitively).
                 errors.push(ResolutionError {
-                    code: "A02005",
+                    code: "A02005".into(),
                     message: format!("circular import of module `{path_str}`"),
                     // Imports don't carry spans in the current AST, so
                     // use a sentinel span.
@@ -1157,7 +1157,7 @@ fn check_type_tokens(
         }
         let suggestion = find_similar_name(name, table, scope_id);
         errors.push(ResolutionError {
-            code: "A02001",
+            code: "A02001".into(),
             message: format!("unknown type `{name}`"),
             span: span.clone(),
             secondary: None,
@@ -1603,7 +1603,7 @@ fn check_expr_idents(
             }
             let suggestion = find_similar_name(name, table, scope_id);
             errors.push(ResolutionError {
-                code: "A02001",
+                code: "A02001".into(),
                 message: format!("undefined name `{name}` in clause body"),
                 span: span.clone(),
                 secondary: None,
@@ -1693,7 +1693,7 @@ fn check_expr_idents(
             {
                 let suggestion = find_similar_name(lemma_name, table, scope_id);
                 errors.push(ResolutionError {
-                    code: "A02001",
+                    code: "A02001".into(),
                     message: format!("undefined lemma `{lemma_name}`"),
                     span: span.clone(),
                     secondary: None,
@@ -1728,7 +1728,7 @@ fn check_expr_idents(
                 {
                     let suggestion = find_similar_name(tok, table, scope_id);
                     errors.push(ResolutionError {
-                        code: "A02001",
+                        code: "A02001".into(),
                         message: format!("undefined name `{tok}` in clause body"),
                         span: span.clone(),
                         secondary: None,
@@ -1776,7 +1776,7 @@ fn try_insert(
         Ok(_) => true,
         Err(prev_span) => {
             errors.push(ResolutionError {
-                code: "A02003",
+                code: "A02003".into(),
                 message: format!("duplicate definition of `{name}`"),
                 span,
                 secondary: Some((prev_span, format!("`{name}` previously defined here"))),
@@ -2049,7 +2049,7 @@ fn check_unused_imports(
         if introduced.iter().all(|name| !referenced.contains(*name)) {
             let path_str = imp.path.join(".");
             errors.push(ResolutionError {
-                code: "A02007",
+                code: "A02007".into(),
                 message: format!("unused import `{path_str}`"),
                 span: 0..0,
                 secondary: None,

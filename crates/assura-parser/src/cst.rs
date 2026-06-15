@@ -132,6 +132,8 @@ pub(crate) struct Parser {
 /// A parse error with location and message.
 #[derive(Debug, Clone)]
 pub struct ParseError {
+    /// Error code from the spec (e.g. "A01002").
+    pub code: &'static str,
     /// Byte offset range in the source where the error occurred.
     pub span: std::ops::Range<usize>,
     /// Human-readable error message.
@@ -292,6 +294,7 @@ impl Parser {
     pub(crate) fn error_at_current(&mut self, message: String) {
         let span = self.current_span();
         self.errors.push(ParseError {
+            code: "A01002",
             span: span.start..span.end,
             message,
         });
@@ -300,7 +303,11 @@ impl Parser {
     /// Emit an error with a specific span.
     #[allow(dead_code)]
     pub(crate) fn error(&mut self, message: String, span: std::ops::Range<usize>) {
-        self.errors.push(ParseError { span, message });
+        self.errors.push(ParseError {
+            code: "A01002",
+            span,
+            message,
+        });
     }
 
     /// Consume the parser, returning events, tokens, and collected errors.

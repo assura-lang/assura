@@ -7,6 +7,8 @@
 //!
 //! Pipeline: Source -> AST (parser) -> ResolvedFile (resolve) -> HirFile (hir) -> TypedFile (types)
 
+use std::sync::Arc;
+
 use assura_parser::ast::{self, Span};
 use assura_resolve::{ResolvedFile, SymbolTable};
 
@@ -52,8 +54,9 @@ impl DefId {
 #[derive(Debug, Clone)]
 pub struct HirFile {
     /// The original resolved file (preserved for backward compatibility
-    /// with the type checker during migration).
-    pub resolved: ResolvedFile,
+    /// with the type checker during migration). Wrapped in `Arc` to avoid
+    /// cloning the entire AST into `TypedFile`.
+    pub resolved: Arc<ResolvedFile>,
     /// All declarations in the file, in source order.
     pub decls: Vec<HirDecl>,
 }

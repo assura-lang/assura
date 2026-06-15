@@ -12,8 +12,8 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use assura_parser::ast::{Decl, ServiceItem, SourceFile};
-use assura_resolve::{ResolutionError, ResolvedFile, SymbolKind, SymbolTable};
-use assura_types::{TypeEnv, TypeError};
+use assura_resolve::{ResolvedFile, SymbolKind, SymbolTable};
+use assura_types::TypeEnv;
 
 // ---------------------------------------------------------------------------
 // Per-document state
@@ -50,64 +50,59 @@ impl AssuraLanguageServer {
         }
     }
 
-    /// Parse, resolve, and type-check a document, publishing diagnostics.
+    /// Parse, resolve, HIR lower, and type-check a document, publishing diagnostics.
     async fn analyze_document(&self, uri: &Url, text: &str) {
         let rope = Rope::from_str(text);
-        let mut diagnostics = Vec::new();
+        let filename = uri.path();
 
-        // --- Parse ---
-        let (ast, parse_errors) = assura_parser::parse(text);
+        // Run the canonical pipeline (parse -> resolve -> HIR -> type check)
+        let output =
+            assura_pipeline::compile(text, filename, &assura_config::CompilerConfig::default());
 
-        for err in &parse_errors {
-            let range = byte_span_to_range(&rope, &err.span());
-            let message = format!("{err}");
-            diagnostics.push(Diagnostic {
-                range,
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: Some(NumberOrString::String("A01001".to_string())),
-                source: Some("assura".to_string()),
-                message,
-                ..Default::default()
-            });
-        }
-
-        let mut resolved: Option<ResolvedFile> = None;
-        let mut type_env: Option<TypeEnv> = None;
-
-        if let Some(ref source_file) = ast {
-            // --- Resolve ---
-            match assura_resolve::resolve(source_file) {
-                Ok(rf) => {
-                    // Emit resolution warnings (e.g., unused imports)
-                    for w in &rf.warnings {
-                        diagnostics.push(resolution_warning_to_diagnostic(&rope, w, uri));
-                    }
-                    // --- Type check ---
-                    match assura_types::type_check(&rf) {
-                        Ok(typed) => {
-                            type_env = Some(typed.type_env);
-                        }
-                        Err(type_errors) => {
-                            for te in &type_errors {
-                                diagnostics.push(type_error_to_diagnostic(&rope, te, uri));
-                            }
-                        }
-                    }
-                    resolved = Some(rf);
+        // Convert pipeline diagnostics to LSP diagnostics
+        let diagnostics: Vec<Diagnostic> = output
+            .diagnostics
+            .iter()
+            .map(|d| {
+                let range = byte_span_to_range(&rope, &d.primary);
+                let severity = Some(match d.severity {
+                    assura_diagnostics::Severity::Error => DiagnosticSeverity::ERROR,
+                    assura_diagnostics::Severity::Warning => DiagnosticSeverity::WARNING,
+                    assura_diagnostics::Severity::Info => DiagnosticSeverity::INFORMATION,
+                });
+                let related_information = if d.secondary.is_empty() {
+                    None
+                } else {
+                    Some(
+                        d.secondary
+                            .iter()
+                            .map(|s| DiagnosticRelatedInformation {
+                                location: Location::new(
+                                    uri.clone(),
+                                    byte_span_to_range(&rope, &s.span),
+                                ),
+                                message: s.message.clone(),
+                            })
+                            .collect(),
+                    )
+                };
+                Diagnostic {
+                    range,
+                    severity,
+                    code: Some(NumberOrString::String(d.code.clone())),
+                    source: Some("assura".to_string()),
+                    message: d.message.clone(),
+                    related_information,
+                    ..Default::default()
                 }
-                Err(res_errors) => {
-                    for re in &res_errors {
-                        diagnostics.push(resolution_error_to_diagnostic(&rope, re, uri));
-                    }
-                }
-            }
-        }
+            })
+            .collect();
 
         let state = DocumentState {
             rope,
-            ast,
-            resolved,
-            type_env,
+            ast: output.file,
+            resolved: output.resolved,
+            type_env: output.typed.map(|t| t.type_env),
         };
         self.documents.insert(uri.clone(), state);
 
@@ -847,64 +842,6 @@ fn is_ident_char(b: u8) -> bool {
 // Diagnostic conversion helpers
 // ---------------------------------------------------------------------------
 
-fn resolution_error_to_diagnostic(rope: &Rope, err: &ResolutionError, doc_uri: &Url) -> Diagnostic {
-    let range = byte_span_to_range(rope, &err.span);
-    Diagnostic {
-        range,
-        severity: Some(DiagnosticSeverity::ERROR),
-        code: Some(NumberOrString::String(err.code.to_string())),
-        source: Some("assura".to_string()),
-        message: err.message.clone(),
-        related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
-            vec![DiagnosticRelatedInformation {
-                location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
-                message: sec_msg.clone(),
-            }]
-        }),
-        ..Default::default()
-    }
-}
-
-fn resolution_warning_to_diagnostic(
-    rope: &Rope,
-    warn: &ResolutionError,
-    doc_uri: &Url,
-) -> Diagnostic {
-    let range = byte_span_to_range(rope, &warn.span);
-    Diagnostic {
-        range,
-        severity: Some(DiagnosticSeverity::WARNING),
-        code: Some(NumberOrString::String(warn.code.to_string())),
-        source: Some("assura".to_string()),
-        message: warn.message.clone(),
-        related_information: warn.secondary.as_ref().map(|(sec_span, sec_msg)| {
-            vec![DiagnosticRelatedInformation {
-                location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
-                message: sec_msg.clone(),
-            }]
-        }),
-        ..Default::default()
-    }
-}
-
-fn type_error_to_diagnostic(rope: &Rope, err: &TypeError, doc_uri: &Url) -> Diagnostic {
-    let range = byte_span_to_range(rope, &err.span);
-    Diagnostic {
-        range,
-        severity: Some(DiagnosticSeverity::ERROR),
-        code: Some(NumberOrString::String(err.code.clone())),
-        source: Some("assura".to_string()),
-        message: err.message.clone(),
-        related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
-            vec![DiagnosticRelatedInformation {
-                location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
-                message: sec_msg.clone(),
-            }]
-        }),
-        ..Default::default()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Constants for completion
 // ---------------------------------------------------------------------------
@@ -1047,6 +984,73 @@ const SNIPPETS: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_resolve::ResolutionError;
+    use assura_types::TypeError;
+
+    /// Convert a resolution error to an LSP diagnostic (test helper).
+    fn resolution_error_to_diagnostic(
+        rope: &Rope,
+        err: &ResolutionError,
+        doc_uri: &Url,
+    ) -> Diagnostic {
+        let range = byte_span_to_range(rope, &err.span);
+        Diagnostic {
+            range,
+            severity: Some(DiagnosticSeverity::ERROR),
+            code: Some(NumberOrString::String(err.code.to_string())),
+            source: Some("assura".to_string()),
+            message: err.message.clone(),
+            related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
+                vec![DiagnosticRelatedInformation {
+                    location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
+                    message: sec_msg.clone(),
+                }]
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Convert a resolution warning to an LSP diagnostic (test helper).
+    fn resolution_warning_to_diagnostic(
+        rope: &Rope,
+        warn: &ResolutionError,
+        doc_uri: &Url,
+    ) -> Diagnostic {
+        let range = byte_span_to_range(rope, &warn.span);
+        Diagnostic {
+            range,
+            severity: Some(DiagnosticSeverity::WARNING),
+            code: Some(NumberOrString::String(warn.code.to_string())),
+            source: Some("assura".to_string()),
+            message: warn.message.clone(),
+            related_information: warn.secondary.as_ref().map(|(sec_span, sec_msg)| {
+                vec![DiagnosticRelatedInformation {
+                    location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
+                    message: sec_msg.clone(),
+                }]
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Convert a type error to an LSP diagnostic (test helper).
+    fn type_error_to_diagnostic(rope: &Rope, err: &TypeError, doc_uri: &Url) -> Diagnostic {
+        let range = byte_span_to_range(rope, &err.span);
+        Diagnostic {
+            range,
+            severity: Some(DiagnosticSeverity::ERROR),
+            code: Some(NumberOrString::String(err.code.clone())),
+            source: Some("assura".to_string()),
+            message: err.message.clone(),
+            related_information: err.secondary.as_ref().map(|(sec_span, sec_msg)| {
+                vec![DiagnosticRelatedInformation {
+                    location: Location::new(doc_uri.clone(), byte_span_to_range(rope, sec_span)),
+                    message: sec_msg.clone(),
+                }]
+            }),
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn test_byte_to_position_empty() {
@@ -1146,7 +1150,7 @@ fn helper(n: Int) -> Int {
     #[test]
     fn test_resolution_error_diagnostic() {
         let err = ResolutionError {
-            code: "A02001",
+            code: "A02001".into(),
             message: "unknown type `Foo`".to_string(),
             span: 0..3,
             secondary: None,
@@ -1383,7 +1387,7 @@ fn f(n: Int) -> Int { n }
     #[test]
     fn test_resolution_warning_diagnostic() {
         let warn = ResolutionError {
-            code: "A02007",
+            code: "A02007".into(),
             message: "unused import".to_string(),
             span: 0..10,
             secondary: None,
@@ -1422,7 +1426,7 @@ fn f(n: Int) -> Int { n }
     #[test]
     fn test_resolution_error_with_secondary() {
         let err = ResolutionError {
-            code: "A02003",
+            code: "A02003".into(),
             message: "duplicate definition".to_string(),
             span: 20..25,
             secondary: Some((0..5, "first definition here".to_string())),

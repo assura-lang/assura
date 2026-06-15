@@ -143,112 +143,66 @@ fn run_check(
     _filename: &str,
     layer: i32,
 ) -> (Vec<Diagnostic>, Vec<VerificationResult>) {
-    let (ast, parse_errors) = assura_parser::parse(source);
+    let output =
+        assura_pipeline::compile(source, "<grpc>", &assura_config::CompilerConfig::default());
 
-    let mut diagnostics = Vec::new();
-    for err in &parse_errors {
-        let span = err.span();
-        let (line, column, end_line, end_column) = span_to_line_col(source, &span);
-        diagnostics.push(Diagnostic {
-            code: "A01002".into(),
-            message: format!("{err:?}"),
-            severity: "error".into(),
-            line,
-            column,
-            end_line,
-            end_column,
-        });
-    }
+    // Convert pipeline diagnostics to gRPC Diagnostic messages
+    let diagnostics: Vec<Diagnostic> = output
+        .diagnostics
+        .iter()
+        .map(|d| {
+            let (line, column, end_line, end_column) = span_to_line_col(source, &d.primary);
+            let severity = match d.severity {
+                assura_diagnostics::Severity::Error => "error",
+                assura_diagnostics::Severity::Warning => "warning",
+                assura_diagnostics::Severity::Info => "info",
+            };
+            Diagnostic {
+                code: d.code.clone(),
+                message: d.message.clone(),
+                severity: severity.into(),
+                line,
+                column,
+                end_line,
+                end_column,
+            }
+        })
+        .collect();
 
     let mut verifications = Vec::new();
 
-    if let Some(ast) = ast {
-        let resolve_result = assura_resolve::resolve(&ast);
-        match resolve_result {
-            Ok(resolved) => {
-                // Emit resolution warnings (e.g., unused imports)
-                for w in &resolved.warnings {
-                    let (line, column, end_line, end_column) = span_to_line_col(source, &w.span);
-                    diagnostics.push(Diagnostic {
-                        code: w.code.to_string(),
-                        message: w.message.clone(),
-                        severity: "warning".into(),
-                        line,
-                        column,
-                        end_line,
-                        end_column,
-                    });
+    // Layer 0 = structural checks only, Layer 1+ = also run SMT verification
+    if layer >= 1
+        && let Some(ref typed) = output.typed
+    {
+        for vr in assura_smt::verify(typed) {
+            let (clause, status, cex) = match &vr {
+                assura_smt::VerificationResult::Verified { clause_desc } => {
+                    (clause_desc.clone(), "verified".into(), String::new())
                 }
-                let type_result = assura_types::type_check(&resolved);
-                match type_result {
-                    Ok(typed) => {
-                        // Layer 0 = structural checks only (type checker),
-                        // Layer 1+ = also run SMT verification
-                        if layer < 1 {
-                            return (diagnostics, verifications);
-                        }
-                        for vr in assura_smt::verify(&typed) {
-                            let (clause, status, cex) = match &vr {
-                                assura_smt::VerificationResult::Verified { clause_desc } => {
-                                    (clause_desc.clone(), "verified".into(), String::new())
-                                }
-                                assura_smt::VerificationResult::Counterexample {
-                                    clause_desc,
-                                    model,
-                                    ..
-                                } => (clause_desc.clone(), "counterexample".into(), model.clone()),
-                                assura_smt::VerificationResult::Timeout { clause_desc } => {
-                                    (clause_desc.clone(), "timeout".into(), String::new())
-                                }
-                                assura_smt::VerificationResult::Unknown {
-                                    clause_desc,
-                                    reason,
-                                } => (
-                                    clause_desc.clone(),
-                                    format!("unknown: {reason}"),
-                                    String::new(),
-                                ),
-                            };
-                            let contract_name = clause.split("::").next().unwrap_or("").to_string();
-                            verifications.push(VerificationResult {
-                                contract_name,
-                                clause,
-                                status,
-                                counterexample: cex,
-                                time_ms: 0,
-                            });
-                        }
-                    }
-                    Err(type_errors) => {
-                        for te in type_errors {
-                            let (line, col, end_line, end_col) = span_to_line_col(source, &te.span);
-                            diagnostics.push(Diagnostic {
-                                code: te.code,
-                                message: te.message,
-                                severity: "error".into(),
-                                line,
-                                column: col,
-                                end_line,
-                                end_column: end_col,
-                            });
-                        }
-                    }
+                assura_smt::VerificationResult::Counterexample {
+                    clause_desc, model, ..
+                } => (clause_desc.clone(), "counterexample".into(), model.clone()),
+                assura_smt::VerificationResult::Timeout { clause_desc } => {
+                    (clause_desc.clone(), "timeout".into(), String::new())
                 }
-            }
-            Err(resolve_errors) => {
-                for re in resolve_errors {
-                    let (line, col, end_line, end_col) = span_to_line_col(source, &re.span);
-                    diagnostics.push(Diagnostic {
-                        code: re.code.to_string(),
-                        message: re.message,
-                        severity: "error".into(),
-                        line,
-                        column: col,
-                        end_line,
-                        end_column: end_col,
-                    });
-                }
-            }
+                assura_smt::VerificationResult::Unknown {
+                    clause_desc,
+                    reason,
+                } => (
+                    clause_desc.clone(),
+                    format!("unknown: {reason}"),
+                    String::new(),
+                ),
+            };
+            let contract_name = clause.split("::").next().unwrap_or("").to_string();
+            verifications.push(VerificationResult {
+                contract_name,
+                clause,
+                status,
+                counterexample: cex,
+                time_ms: 0,
+            });
         }
     }
 
@@ -256,14 +210,15 @@ fn run_check(
 }
 
 fn run_codegen(source: &str) -> std::collections::HashMap<String, String> {
-    let (ast, _) = assura_parser::parse(source);
+    let output = assura_pipeline::compile(
+        source,
+        "<codegen>",
+        &assura_config::CompilerConfig::default(),
+    );
 
     let mut files = std::collections::HashMap::new();
-    if let Some(ast) = ast
-        && let Ok(resolved) = assura_resolve::resolve(&ast)
-        && let Ok(typed) = assura_types::type_check(&resolved)
-    {
-        let generated = assura_codegen::codegen(&typed);
+    if let Some(ref typed) = output.typed {
+        let generated = assura_codegen::codegen(typed);
         for (path, content) in generated.files {
             files.insert(path, content);
         }
@@ -272,110 +227,21 @@ fn run_codegen(source: &str) -> std::collections::HashMap<String, String> {
 }
 
 fn lookup_error_code(code: &str) -> (String, String, String, String) {
-    let catalog: &[(&str, &str, &str, &str)] = &[
+    if let Some(info) = assura_diagnostics::explain(code) {
         (
-            "A01001",
-            "Unexpected character",
-            "The lexer encountered a character that is not part of any valid token.",
-            "Remove or replace the invalid character.",
-        ),
+            info.name.to_string(),
+            info.description.to_string(),
+            info.example.to_string(),
+            info.fix.to_string(),
+        )
+    } else {
         (
-            "A01002",
-            "Unexpected token",
-            "The parser found a token that does not fit the expected grammar at this position.",
-            "Check for missing colons, unmatched braces, or misspelled keywords.",
-        ),
-        (
-            "A02001",
-            "Undefined name",
-            "A name was used that has not been defined in the current scope.",
-            "Check spelling or add an import for the missing name.",
-        ),
-        (
-            "A02003",
-            "Duplicate definition",
-            "Two declarations in the same scope share the same name.",
-            "Rename one of the conflicting declarations.",
-        ),
-        (
-            "A02005",
-            "Circular import",
-            "Module imports form a cycle, which is not allowed.",
-            "Break the cycle by restructuring module dependencies.",
-        ),
-        (
-            "A03001",
-            "Type mismatch",
-            "An expression has a type that does not match what was expected.",
-            "Check that operand types are compatible with the operator or function.",
-        ),
-        (
-            "A03002",
-            "Argument count mismatch",
-            "A function call has the wrong number of arguments.",
-            "Match the number of arguments to the function's parameter list.",
-        ),
-        (
-            "A05001",
-            "Linear variable used twice",
-            "A linear variable was used more than once, violating linearity.",
-            "Ensure each linear variable is used exactly once.",
-        ),
-        (
-            "A05002",
-            "Linear variable unused",
-            "A linear variable was never consumed.",
-            "Use or explicitly drop the linear variable.",
-        ),
-        (
-            "A06001",
-            "Invalid state transition",
-            "An operation was called on a typestate object in the wrong state.",
-            "Check the state machine and ensure operations are called in valid states.",
-        ),
-        (
-            "A07001",
-            "Effect violation",
-            "A pure function called an effectful function.",
-            "Add the required effect to the function's effect declaration.",
-        ),
-        (
-            "A08001",
-            "Information flow violation",
-            "Data flowed from a higher security level to a lower one without declassification.",
-            "Add explicit declassification or restructure the data flow.",
-        ),
-        (
-            "A09001",
-            "Non-terminating recursion",
-            "A recursive function has no valid decreases measure.",
-            "Add a decreases clause with a well-founded measure.",
-        ),
-        (
-            "A10001",
-            "Non-exhaustive match",
-            "A match expression does not cover all possible variants.",
-            "Add the missing match arms or a wildcard pattern.",
-        ),
-    ];
-
-    for (c, title, desc, fix) in catalog {
-        if *c == code {
-            return (
-                title.to_string(),
-                desc.to_string(),
-                String::new(),
-                fix.to_string(),
-            );
-        }
+            format!("Error {code}"),
+            format!("No detailed explanation available for {code}."),
+            String::new(),
+            String::new(),
+        )
     }
-
-    (
-        format!("Error {code}"),
-        format!("No detailed explanation available for {code}."),
-        String::new(),
-        String::new(),
-    )
 }
 
 // JSON-over-HTTP fallback routes
@@ -603,6 +469,7 @@ contract Dup {
     fn codegen_valid_source_produces_files() {
         let source = r#"contract SafeAdd {
     input(a: Int, b: Int)
+    output(result: Int)
     requires { a > 0 }
     ensures { result == a + b }
 }"#;
@@ -856,7 +723,7 @@ contract Dup {
     async fn grpc_build_valid_source() {
         let server = AssuraServer;
         let request = Request::new(BuildRequest {
-            source: "contract SafeAdd { input(a: Int, b: Int) requires { a > 0 } ensures { result == a + b } }".into(),
+            source: "contract SafeAdd { input(a: Int, b: Int) output(result: Int) requires { a > 0 } ensures { result == a + b } }".into(),
             filename: "test.assura".into(),
         });
         let response = server.build(request).await.unwrap();
@@ -889,7 +756,7 @@ contract Dup {
         });
         let response = server.explain(request).await.unwrap();
         let resp = response.into_inner();
-        assert_eq!(resp.title, "Linear variable used twice");
+        assert_eq!(resp.title, "Linear variable used more than once");
         assert!(!resp.description.is_empty());
     }
 

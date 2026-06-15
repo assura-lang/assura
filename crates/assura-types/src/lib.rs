@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, ServiceItem};
 use assura_resolve::{ResolvedFile, SymbolKind, SymbolTable};
@@ -191,7 +192,7 @@ impl From<TypeError> for assura_diagnostics::Diagnostic {
 /// type environment constructed from its symbols.
 #[derive(Debug, Clone)]
 pub struct TypedFile {
-    pub resolved: ResolvedFile,
+    pub resolved: Arc<ResolvedFile>,
     pub type_env: TypeEnv,
     /// Pending decrease checks that need SMT verification.
     /// The CLI pipeline dispatches these to assura-smt::verify_decrease().
@@ -1412,7 +1413,7 @@ pub fn type_check_hir_with_config(
     }
 
     Ok(TypedFile {
-        resolved: resolved.clone(),
+        resolved: Arc::clone(&hir.resolved),
         pending_decrease_checks,
         type_env,
         hir: Some(hir.clone()),
@@ -1551,7 +1552,7 @@ pub fn type_check_with_config(
     }
 
     Ok(TypedFile {
-        resolved: resolved.clone(),
+        resolved: Arc::new(resolved.clone()),
         pending_decrease_checks,
         type_env,
         hir: None,

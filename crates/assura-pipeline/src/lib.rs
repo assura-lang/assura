@@ -1,11 +1,167 @@
 //! Shared compiler pipeline for the Assura language.
 //!
-//! Provides a single `run()` function that executes the full
-//! parse -> resolve -> HIR lower -> type check -> verify pipeline.
-//! Used by the CLI, REPL, and MCP server to avoid duplicating
-//! the pipeline chain.
+//! Provides `compile()` for full-fidelity pipeline results (used by CLI,
+//! LSP, server) and `run()` for a lightweight JSON-serializable summary
+//! (used by MCP).
+//!
+//! Pipeline: parse -> resolve -> HIR lower -> type check -> verify
 
+use std::time::Instant;
+
+use assura_config::CompilerConfig;
 use assura_parser::ast::Decl;
+
+// ---------------------------------------------------------------------------
+// CompilationOutput: the canonical pipeline result
+// ---------------------------------------------------------------------------
+
+/// Full-fidelity result of running the compiler pipeline.
+///
+/// Contains all intermediate artifacts and diagnostics. Every entry point
+/// (CLI, LSP, server, MCP) should use this instead of re-implementing the
+/// pipeline chain.
+pub struct CompilationOutput {
+    /// Parsed AST (`None` if parsing failed entirely).
+    pub file: Option<assura_parser::ast::SourceFile>,
+    /// Resolved file (`None` if resolution was not attempted or failed).
+    pub resolved: Option<assura_resolve::ResolvedFile>,
+    /// HIR-lowered file (`None` if HIR lowering was not attempted).
+    pub hir: Option<assura_hir::HirFile>,
+    /// Type-checked file (`None` if type checking was not attempted or failed).
+    pub typed: Option<assura_types::TypedFile>,
+    /// All diagnostics from every phase (parse, resolve, type check).
+    pub diagnostics: Vec<assura_diagnostics::Diagnostic>,
+    /// Whether any errors were found.
+    pub has_errors: bool,
+    /// Timing information for each phase.
+    pub timing: PhaseTiming,
+}
+
+/// Timing information for each pipeline phase.
+#[derive(Clone, Copy)]
+pub struct PhaseTiming {
+    /// Time to lex and parse, in milliseconds.
+    pub parse_ms: f64,
+    /// Time to resolve names (None if skipped).
+    pub resolve_ms: Option<f64>,
+    /// Time to lower to HIR (None if skipped).
+    pub hir_ms: Option<f64>,
+    /// Time to type-check (None if skipped).
+    pub typecheck_ms: Option<f64>,
+    /// Number of tokens produced by the lexer.
+    pub token_count: usize,
+}
+
+/// Run the full pipeline: lex -> parse -> resolve -> HIR lower -> type check.
+///
+/// Collects all diagnostics and intermediate artifacts. Does NOT run SMT
+/// verification (that is caller-controlled since it needs solver choice,
+/// caching, etc.).
+pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> CompilationOutput {
+    let mut diagnostics: Vec<assura_diagnostics::Diagnostic> = Vec::new();
+    let mut has_errors = false;
+
+    // --- Lex + Parse ---
+    let lex_start = Instant::now();
+    let parse_result = assura_parser::parse_full(source);
+    let parse_ms = lex_start.elapsed().as_secs_f64() * 1000.0;
+
+    let token_count = parse_result.token_count;
+    let file = parse_result.file;
+
+    for le in &parse_result.lex_errors {
+        has_errors = true;
+        diagnostics.push(le.to_diagnostic(source).with_file(filename));
+    }
+
+    for e in &parse_result.parse_errors {
+        has_errors = true;
+        let d: assura_diagnostics::Diagnostic = e.clone().into();
+        diagnostics.push(d.with_file(filename));
+    }
+
+    // --- Resolve ---
+    let resolve_start = Instant::now();
+    let resolved = if let Some(ref f) = file {
+        match assura_resolve::resolve(f) {
+            Ok(r) => {
+                for w in &r.warnings {
+                    let mut d: assura_diagnostics::Diagnostic = w.clone().into();
+                    d.severity = assura_diagnostics::Severity::Warning;
+                    diagnostics.push(d.with_file(filename));
+                }
+                Some(r)
+            }
+            Err(errs) => {
+                has_errors = true;
+                for e in &errs {
+                    let d: assura_diagnostics::Diagnostic = e.clone().into();
+                    diagnostics.push(d.with_file(filename));
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let resolve_ms = if file.is_some() {
+        Some(resolve_start.elapsed().as_secs_f64() * 1000.0)
+    } else {
+        None
+    };
+
+    // --- HIR lowering ---
+    let hir_start = Instant::now();
+    let hir = resolved.as_ref().map(assura_hir::lower);
+    let hir_ms = if resolved.is_some() {
+        Some(hir_start.elapsed().as_secs_f64() * 1000.0)
+    } else {
+        None
+    };
+
+    // --- Type check ---
+    let typecheck_start = Instant::now();
+    let typed = if let Some(ref hir_file) = hir {
+        match assura_types::type_check_hir_with_config(hir_file, &config.type_check) {
+            Ok(t) => Some(t),
+            Err(errs) => {
+                has_errors = true;
+                for e in &errs {
+                    let d: assura_diagnostics::Diagnostic = e.clone().into();
+                    diagnostics.push(d.with_file(filename));
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let typecheck_ms = if resolved.is_some() {
+        Some(typecheck_start.elapsed().as_secs_f64() * 1000.0)
+    } else {
+        None
+    };
+
+    CompilationOutput {
+        file,
+        resolved,
+        hir,
+        typed,
+        diagnostics,
+        has_errors,
+        timing: PhaseTiming {
+            parse_ms,
+            resolve_ms,
+            hir_ms,
+            typecheck_ms,
+            token_count,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PipelineResult: lightweight JSON-serializable summary (MCP compat)
+// ---------------------------------------------------------------------------
 
 /// A diagnostic from any pipeline phase.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -95,90 +251,52 @@ fn convert_verification(r: &assura_smt::VerificationResult) -> VerificationEntry
 
 /// Run the full compiler pipeline: parse -> resolve -> HIR -> typecheck -> verify.
 ///
-/// Returns a structured result suitable for JSON serialization or
-/// human-readable formatting.
+/// Returns a lightweight JSON-serializable summary. For full-fidelity results
+/// with intermediate artifacts, use `compile()` instead.
 pub fn run(source: &str) -> PipelineResult {
-    let (ast, parse_errors) = assura_parser::parse(source);
-    let parse_error_strs: Vec<PipelineDiagnostic> = parse_errors
-        .iter()
-        .map(|e| PipelineDiagnostic {
-            code: String::new(),
-            message: format!("{e:?}"),
-        })
-        .collect();
+    let output = compile(source, "<inline>", &CompilerConfig::default());
 
-    let ast = match ast {
-        Some(a) => a,
-        None => {
-            return PipelineResult {
-                success: false,
-                parse_errors: parse_error_strs,
-                declarations: vec![],
-                resolution_errors: vec![],
-                type_errors: vec![],
-                verification: vec![],
-            };
+    let declarations: Vec<String> = output
+        .file
+        .as_ref()
+        .map(|f| f.decls.iter().map(|d| decl_summary(&d.node)).collect())
+        .unwrap_or_default();
+
+    // Classify diagnostics by phase (based on error code prefix)
+    let mut parse_errors = Vec::new();
+    let mut resolution_errors = Vec::new();
+    let mut type_errors = Vec::new();
+    for d in &output.diagnostics {
+        let pd = PipelineDiagnostic {
+            code: d.code.clone(),
+            message: d.message.clone(),
+        };
+        if d.code.starts_with("A01") {
+            parse_errors.push(pd);
+        } else if d.code.starts_with("A02") {
+            resolution_errors.push(pd);
+        } else {
+            type_errors.push(pd);
         }
-    };
+    }
 
-    let declarations: Vec<String> = ast.decls.iter().map(|d| decl_summary(&d.node)).collect();
-
-    if !parse_errors.is_empty() {
+    if output.has_errors {
         return PipelineResult {
             success: false,
-            parse_errors: parse_error_strs,
             declarations,
-            resolution_errors: vec![],
-            type_errors: vec![],
+            parse_errors,
+            resolution_errors,
+            type_errors,
             verification: vec![],
         };
     }
 
-    // Resolution
-    let resolved = match assura_resolve::resolve(&ast) {
-        Ok(r) => r,
-        Err(errs) => {
-            return PipelineResult {
-                success: false,
-                parse_errors: vec![],
-                declarations,
-                resolution_errors: errs
-                    .iter()
-                    .map(|e| PipelineDiagnostic {
-                        code: e.code.to_string(),
-                        message: e.message.clone(),
-                    })
-                    .collect(),
-                type_errors: vec![],
-                verification: vec![],
-            };
-        }
-    };
-
-    // HIR lowering + type checking
-    let hir = assura_hir::lower(&resolved);
-    let typed = match assura_types::type_check_hir(&hir) {
-        Ok(t) => t,
-        Err(errs) => {
-            return PipelineResult {
-                success: false,
-                parse_errors: vec![],
-                declarations,
-                resolution_errors: vec![],
-                type_errors: errs
-                    .iter()
-                    .map(|e| PipelineDiagnostic {
-                        code: e.code.to_string(),
-                        message: e.message.clone(),
-                    })
-                    .collect(),
-                verification: vec![],
-            };
-        }
-    };
-
     // SMT verification
-    let results = assura_smt::verify(&typed);
+    let results = if let Some(ref typed) = output.typed {
+        assura_smt::verify(typed)
+    } else {
+        vec![]
+    };
     let verification: Vec<VerificationEntry> = results.iter().map(convert_verification).collect();
 
     let success = !results.iter().any(|r| {
