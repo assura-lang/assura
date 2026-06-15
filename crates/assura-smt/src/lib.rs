@@ -3246,7 +3246,9 @@ mod measure_unit_tests {
         pm.declare("future_val".into());
         let errs = pm.check_all_resolved();
         assert_eq!(errs.len(), 1);
-        assert!(errs[0].contains("never resolved"));
+        assert_eq!(errs[0].code, "A05025");
+        assert!(errs[0].message.contains("never resolved"));
+        assert_eq!(errs[0].variable, "future_val");
     }
 
     #[test]
@@ -3272,6 +3274,9 @@ mod measure_unit_tests {
         pm.declare("pv".into());
         let errs = pm.check_unconstrained();
         assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "A05026");
+        assert!(errs[0].message.contains("no constraints"));
+        assert_eq!(errs[0].variable, "pv");
     }
 
     #[test]

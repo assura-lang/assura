@@ -326,6 +326,17 @@ pub struct ProphecyVariable {
     pub constraints: Vec<String>,
 }
 
+/// Structured prophecy error with error code and context.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProphecyError {
+    /// Error code: "A05025" (unresolved) or "A05026" (double-resolved/unconstrained).
+    pub code: &'static str,
+    /// Human-readable error message.
+    pub message: String,
+    /// The prophecy variable name involved.
+    pub variable: String,
+}
+
 /// Manages prophecy variables for verification.
 #[derive(Debug, Clone)]
 pub struct ProphecyManager {
@@ -371,20 +382,28 @@ impl ProphecyManager {
     }
 
     /// Check that all prophecy variables are eventually resolved.
-    pub fn check_all_resolved(&self) -> Vec<String> {
+    pub fn check_all_resolved(&self) -> Vec<ProphecyError> {
         self.variables
             .iter()
             .filter(|(_, v)| !v.resolved)
-            .map(|(n, _)| format!("prophecy variable `{n}` was never resolved"))
+            .map(|(n, _)| ProphecyError {
+                code: "A05025",
+                message: format!("prophecy variable `{n}` was never resolved"),
+                variable: n.clone(),
+            })
             .collect()
     }
 
     /// Check for prophecy variables with no constraints (useless).
-    pub fn check_unconstrained(&self) -> Vec<String> {
+    pub fn check_unconstrained(&self) -> Vec<ProphecyError> {
         self.variables
             .iter()
             .filter(|(_, v)| v.constraints.is_empty())
-            .map(|(n, _)| format!("prophecy variable `{n}` has no constraints"))
+            .map(|(n, _)| ProphecyError {
+                code: "A05026",
+                message: format!("prophecy variable `{n}` has no constraints"),
+                variable: n.clone(),
+            })
             .collect()
     }
 

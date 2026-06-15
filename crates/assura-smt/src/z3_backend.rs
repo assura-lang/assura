@@ -3295,8 +3295,14 @@ pub(crate) fn verify_impl(typed: &TypedFile) -> Vec<VerificationResult> {
     }
     for err in pm.check_all_resolved() {
         results.push(VerificationResult::Unknown {
-            clause_desc: "prophecy".into(),
-            reason: err,
+            clause_desc: format!("prophecy [{}]", err.code),
+            reason: err.message,
+        });
+    }
+    for err in pm.check_unconstrained() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: format!("prophecy [{}]", err.code),
+            reason: err.message,
         });
     }
 
