@@ -7,3 +7,4 @@
 /fuzz/corpus
 /fuzz/artifacts
 .assura-cache/
+fuzz/Cargo.lock
