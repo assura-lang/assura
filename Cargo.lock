@@ -102,18 +102,22 @@ dependencies = [
  "assura-diagnostics",
  "assura-fmt",
  "assura-hir",
+ "assura-lsp",
  "assura-parser",
  "assura-resolve",
  "assura-smt",
  "assura-types",
  "clap",
+ "clap_complete",
  "logos",
  "notify",
  "serde",
  "serde_json",
  "syn",
  "tempfile",
+ "tokio",
  "toml",
+ "tower-lsp",
 ]
 
 [[package]]
@@ -489,6 +493,15 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0a7a9bfdb35811f9e59832f0f05975114d2251b415fb534108e6f34060fd772"
+dependencies = [
+ "clap",
 ]
 
 [[package]]
