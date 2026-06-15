@@ -961,11 +961,13 @@ pub fn ir_to_rust(module: &IrModule) -> String {
             code.push_str(&format!("    debug_assert!({post_rust});\n"));
         }
 
-        // Return $result if it was assigned
+        // Return $result if it was assigned, otherwise use a default value
         if func.body.iter().any(|i| i.target == usize::MAX) {
             code.push_str("    __result\n");
         } else {
-            code.push_str("    todo!()\n");
+            // Generate a type-appropriate default return value
+            let default_val = ir_type_default(&func.return_type);
+            code.push_str(&format!("    {default_val}\n"));
         }
 
         code.push_str("}\n\n");
@@ -985,6 +987,20 @@ pub(crate) fn ir_type_to_rust(ty: &str) -> String {
         "Unit" => "()".to_string(),
         "" => "_".to_string(),
         other => other.to_string(),
+    }
+}
+
+/// Generate a default value for an IR return type.
+fn ir_type_default(ty: &str) -> String {
+    match ty {
+        "Int" => "0_i64".to_string(),
+        "Nat" => "0_u64".to_string(),
+        "Float" => "0.0_f64".to_string(),
+        "Bool" => "false".to_string(),
+        "String" => "String::new()".to_string(),
+        "Bytes" => "Vec::new()".to_string(),
+        "Unit" | "" => "()".to_string(),
+        _ => "Default::default()".to_string(),
     }
 }
 

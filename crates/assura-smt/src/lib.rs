@@ -2981,13 +2981,13 @@ mod measure_unit_tests {
         assert_eq!(results.len(), 3);
         // check_structural returns Unknown (not Verified) because Z3 is not used
         assert!(
-            matches!(&results[0], Layer2Result::Unknown { invariant, reason } if invariant == "inv1" && reason.contains("requires Z3"))
+            matches!(&results[0], Layer2Result::Unknown { invariant, reason } if invariant == "inv1" && reason.contains("structural pre-check"))
         );
         assert!(
-            matches!(&results[1], Layer2Result::Unknown { invariant, reason } if invariant == "termination:fib" && reason.contains("requires Z3"))
+            matches!(&results[1], Layer2Result::Unknown { invariant, reason } if invariant == "termination:fib" && reason.contains("structural pre-check"))
         );
         assert!(
-            matches!(&results[2], Layer2Result::Unknown { invariant, reason } if invariant == "roundtrip:Message" && reason.contains("requires Z3"))
+            matches!(&results[2], Layer2Result::Unknown { invariant, reason } if invariant == "roundtrip:Message" && reason.contains("structural pre-check"))
         );
     }
 
@@ -4078,8 +4078,8 @@ mod quantified_verification_tests {
         });
         let results = verifier.verify();
         assert_eq!(results.len(), 1);
-        // String-based invariants currently return Unknown (need Expr-based API)
-        assert!(matches!(results[0], Layer2Result::Unknown { .. }));
+        // "i >= 0" is NOT universally true (i = -1 is a counterexample)
+        assert!(matches!(results[0], Layer2Result::Counterexample { .. }));
     }
 
     // =======================================================================
