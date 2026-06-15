@@ -181,8 +181,28 @@ impl MemoryChecker {
         match (sub, parent) {
             (Some(sub_r), Some(parent_r)) => {
                 // Structural containment check is deferred to SMT encoding.
-                // Here we just validate that both regions exist and reference
-                // the same buffer.
+                // Here we validate that both regions exist, reference the
+                // same buffer, and have non-empty bounds.
+                if sub_r.lower.is_empty() || sub_r.upper.is_empty() {
+                    return Some(MemoryError {
+                        code: "A08102".into(),
+                        message: format!(
+                            "sub-region `{sub_region}` has incomplete bounds (lower=`{}`, upper=`{}`)",
+                            sub_r.lower, sub_r.upper,
+                        ),
+                        span: span.clone(),
+                    });
+                }
+                if parent_r.lower.is_empty() || parent_r.upper.is_empty() {
+                    return Some(MemoryError {
+                        code: "A08102".into(),
+                        message: format!(
+                            "parent region `{parent_region}` has incomplete bounds (lower=`{}`, upper=`{}`)",
+                            parent_r.lower, parent_r.upper,
+                        ),
+                        span: span.clone(),
+                    });
+                }
                 if sub_r.buffer != parent_r.buffer {
                     Some(MemoryError {
                         code: "A08102".into(),

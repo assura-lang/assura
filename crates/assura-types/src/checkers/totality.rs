@@ -120,9 +120,21 @@ impl TotalityChecker {
             .map(|c| &c.body)
             .collect();
 
+        // Check for a well_founded clause, which uses structural ordering
+        let has_well_founded = fn_def
+            .clauses
+            .iter()
+            .any(|c| matches!(&c.kind, ClauseKind::Other(s) if s == "well_founded"));
+
         match decreases_exprs.len() {
             0 => None,
-            1 => Some(DecreasesMeasure::Natural(decreases_exprs[0].clone())),
+            1 => {
+                if has_well_founded {
+                    Some(DecreasesMeasure::WellFounded(decreases_exprs[0].clone()))
+                } else {
+                    Some(DecreasesMeasure::Natural(decreases_exprs[0].clone()))
+                }
+            }
             _ => Some(DecreasesMeasure::Lexicographic(
                 decreases_exprs.into_iter().cloned().collect(),
             )),
@@ -509,9 +521,17 @@ impl TotalityChecker {
                     })
                 }
             }
-            DecreasesMeasure::WellFounded(_) => {
-                // Well-founded ordering check is deferred to SMT
-                DecreaseCheckResult::Proved
+            DecreasesMeasure::WellFounded(wf_expr) => {
+                // Well-founded ordering: defer to SMT for the
+                // well-foundedness proof of the ordering relation.
+                if let Some(arg) = call_args.first() {
+                    DecreaseCheckResult::NeedsSmt {
+                        measure_expr: wf_expr.clone(),
+                        call_arg: arg.clone(),
+                    }
+                } else {
+                    DecreaseCheckResult::Proved
+                }
             }
         }
     }
@@ -598,8 +618,20 @@ impl TotalityChecker {
                     }
                 }
             }
-            DecreasesMeasure::WellFounded(_) => {
-                // Deferred to SMT
+            DecreasesMeasure::WellFounded(wf_expr) => {
+                // Well-founded ordering: check if the measure expression
+                // is well-founded (positive/bounded), defer to SMT if needed
+                if !Self::is_well_founded(wf_expr, fn_def) {
+                    errors.push(TotalityError {
+                        code: "A09003".into(),
+                        message: format!(
+                            "cannot prove well-founded measure is bounded \
+                             for function `{}`",
+                            fn_def.name
+                        ),
+                        span: span.clone(),
+                    });
+                }
             }
         }
 

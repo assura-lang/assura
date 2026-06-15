@@ -139,11 +139,7 @@ impl TaintChecker {
     /// (Untrusted < Validated < Trusted).
     pub fn infer_taint(&self, expr: &Expr) -> TaintLabel {
         match expr {
-            Expr::Ident(name) => self
-                .labels
-                .get(name)
-                .copied()
-                .unwrap_or(TaintLabel::Trusted),
+            Expr::Ident(name) => self.get_label(name).unwrap_or(TaintLabel::Trusted),
             Expr::Literal(_) => TaintLabel::Trusted,
             Expr::Field(receiver, _) => self.infer_taint(receiver),
             Expr::BinOp { lhs, rhs, .. } => {

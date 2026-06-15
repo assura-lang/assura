@@ -1,6 +1,5 @@
 // Structural checker stubs for MASTER-PLAN Phase 2/3; methods are wired in
 // as the corresponding tasks are implemented.
-#![allow(dead_code)]
 
 //! Analysis pass checker structs.
 

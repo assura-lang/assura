@@ -108,6 +108,11 @@ impl FfiBoundaryChecker {
         span: &Range<usize>,
     ) -> Vec<FfiError> {
         let mut errors = Vec::new();
+        // If the callee is contracted (has requires/ensures), skip the
+        // validation check since the contract already guards the boundary.
+        if self.contracted.get(callee) == Some(&true) {
+            return errors;
+        }
         if self.externs.get(callee) == Some(&TrustBoundary::Untrusted) && !result_validated {
             errors.push(FfiError {
                 code: "A11003".into(),

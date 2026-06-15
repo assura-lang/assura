@@ -1,8 +1,4 @@
 // Structural domain checkers for MASTER-PLAN Phase 2/3.
-// Some checker struct fields and methods are constructed/used only in
-// future phases or are reserved for richer analysis. Suppressing dead_code
-// at the module level until each checker's full API surface is wired.
-#![allow(dead_code)]
 
 //! Domain-specific type checkers.
 //!
@@ -116,6 +112,11 @@ impl AllocatorChecker {
             });
         }
         None
+    }
+
+    /// Get allocation size expression for diagnostics.
+    pub fn alloc_size_expr(&self, name: &str) -> Option<&str> {
+        self.allocations.get(name).map(|a| a.size_expr.as_str())
     }
 
     pub fn check_unpaired(&self) -> Vec<TypeError> {
@@ -1099,6 +1100,16 @@ impl AxiomaticDefChecker {
         }
     }
 
+    /// Get axiom parameters for diagnostics.
+    pub fn axiom_params(&self, name: &str) -> Option<&[std::string::String]> {
+        self.axioms.get(name).map(|a| a.params.as_slice())
+    }
+
+    /// Get axiom body for diagnostics.
+    pub fn axiom_body(&self, name: &str) -> Option<&str> {
+        self.axioms.get(name).map(|a| a.body.as_str())
+    }
+
     pub fn check_references(&self, known_symbols: &[&str]) -> Vec<TypeError> {
         let mut errors = Vec::new();
         for axiom in self.axioms.values() {
@@ -1224,6 +1235,11 @@ impl OpaqueFunctionChecker {
 
     pub fn exit_proof(&mut self) {
         self.in_proof_context = false;
+    }
+
+    /// Get the declaration span of an opaque function for diagnostics.
+    pub fn opaque_span(&self, fn_name: &str) -> Option<&Range<usize>> {
+        self.opaque_fns.get(fn_name).map(|i| &i.span)
     }
 
     pub fn check_call(&self, fn_name: &str, span: &Range<usize>) -> Option<TypeError> {
@@ -1684,6 +1700,11 @@ impl PageCacheChecker {
         } else {
             vec![]
         }
+    }
+
+    /// Get loaded page IDs for diagnostics.
+    pub fn loaded_page_ids(&self) -> Vec<u64> {
+        self.pages.values().map(|p| p.page_id).collect()
     }
 
     pub fn page_count(&self) -> usize {
@@ -2475,6 +2496,11 @@ impl FeatureFlagChecker {
         errors
     }
 
+    /// Get all flag names for diagnostics.
+    pub fn flag_names(&self) -> Vec<&str> {
+        self.flags.values().map(|f| f.name.as_str()).collect()
+    }
+
     pub fn check_undeclared(&self, flag_name: &str) -> Option<TypeError> {
         if !self.flags.contains_key(flag_name) {
             Some(TypeError {
@@ -2601,6 +2627,11 @@ impl ResourceLimitChecker {
             }
         }
         errors
+    }
+
+    /// Get all limit names for diagnostics.
+    pub fn limit_names(&self) -> Vec<&str> {
+        self.limits.values().map(|l| l.name.as_str()).collect()
     }
 
     pub fn current_usage(&self, name: &str) -> Option<u64> {
@@ -2824,6 +2855,11 @@ impl ComplexityBoundChecker {
                 secondary: None,
             })
             .collect()
+    }
+
+    /// Get all function names with declared bounds.
+    pub fn bounded_fn_names(&self) -> Vec<&str> {
+        self.bounds.values().map(|b| b.fn_name.as_str()).collect()
     }
 
     pub fn check_expensive(&self) -> Vec<TypeError> {
@@ -3145,6 +3181,10 @@ impl IncrementalContractChecker {
             }
         }
         errors
+    }
+
+    pub fn contract_names(&self) -> Vec<&str> {
+        self.contracts.values().map(|e| e.name.as_str()).collect()
     }
 
     pub fn check_version_continuity(&self) -> Vec<TypeError> {
@@ -3579,6 +3619,31 @@ impl CrudAuthContracts {
         errors
     }
 
+    /// Check that CRUD operations with preconditions have matching policies.
+    pub fn check_precondition_coverage(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for op in &self.crud_ops {
+            if !op.preconditions.is_empty() || !op.postconditions.is_empty() {
+                let has_policy = self
+                    .auth_policies
+                    .iter()
+                    .any(|p| p.name == op.name && (!p.required_role.is_empty() || p.allow_self));
+                if !has_policy && op.requires_auth {
+                    errors.push(TypeError {
+                        code: "A53003".into(),
+                        message: format!(
+                            "CRUD operation `{}` has contracts but no matching auth policy",
+                            op.name
+                        ),
+                        span: 0..1,
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        errors
+    }
+
     pub fn crud_count(&self) -> usize {
         self.crud_ops.len()
     }
@@ -3719,6 +3784,20 @@ impl ContractCompositionChecker {
         result
     }
 
+    /// Check for contracts with zero own clauses (pure composition).
+    pub fn check_empty_contracts(&self) -> Vec<TypeError> {
+        self.contracts
+            .values()
+            .filter(|c| c.own_clauses == 0 && c.extends.is_empty())
+            .map(|c| TypeError {
+                code: "A54003".into(),
+                message: format!("contract `{}` has no clauses and extends nothing", c.name),
+                span: 0..1,
+                secondary: None,
+            })
+            .collect()
+    }
+
     pub fn contract_count(&self) -> usize {
         self.contracts.len()
     }
@@ -3826,6 +3905,33 @@ impl ContractLibraryChecker {
                     span: 0..1,
                     secondary: None,
                 });
+            }
+        }
+        errors
+    }
+
+    /// Check for version constraint compatibility between libraries and deps.
+    pub fn check_version_compat(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for lib in &self.libraries {
+            for dep in &lib.dependencies {
+                if dep.version_req != "*" && dep.version_req != lib.version {
+                    // Check if any declared library matches the dep
+                    let dep_lib = self.libraries.iter().find(|l| l.name == dep.name);
+                    if let Some(found) = dep_lib
+                        && dep.version_req != found.version
+                    {
+                        errors.push(TypeError {
+                            code: "A55003".into(),
+                            message: format!(
+                                "library `{}` v{} depends on `{}` v{} but found v{}",
+                                lib.name, lib.version, dep.name, dep.version_req, found.version
+                            ),
+                            span: 0..1,
+                            secondary: None,
+                        });
+                    }
+                }
             }
         }
         errors

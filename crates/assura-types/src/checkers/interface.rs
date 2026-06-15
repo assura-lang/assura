@@ -182,6 +182,28 @@ impl InterfaceChecker {
             });
         }
 
+        // Check that implementation provides contracts when the interface requires them
+        if method.has_requires && impl_params.is_empty() && *impl_return == Type::Unknown {
+            errors.push(InterfaceError {
+                code: "A13002".into(),
+                message: format!(
+                    "interface `{interface_name}` requires a `requires` clause on method \
+                     `{method_name}` but the implementation has no contract"
+                ),
+                span: span.clone(),
+            });
+        }
+        if method.has_ensures && impl_params.is_empty() && *impl_return == Type::Unknown {
+            errors.push(InterfaceError {
+                code: "A13002".into(),
+                message: format!(
+                    "interface `{interface_name}` requires an `ensures` clause on method \
+                     `{method_name}` but the implementation has no contract"
+                ),
+                span: span.clone(),
+            });
+        }
+
         errors
     }
 

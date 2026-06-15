@@ -49,7 +49,7 @@ struct Transition {
 #[derive(Debug, Clone)]
 pub(crate) struct TypestateChecker {
     /// All declared states for this typestate variable.
-    states: Vec<std::string::String>,
+    pub(crate) states: Vec<std::string::String>,
     /// All declared transitions.
     transitions: Vec<Transition>,
     /// Current state of the tracked variable.

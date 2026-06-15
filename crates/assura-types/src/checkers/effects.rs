@@ -40,7 +40,7 @@ impl EffectSet {
 
     /// Returns `true` if this is a pure (empty) effect set.
     pub fn is_pure(&self) -> bool {
-        self.effects.is_empty()
+        self.is_empty()
     }
 
     /// Insert an effect into the set.
@@ -73,7 +73,7 @@ impl EffectSet {
 
 impl std::fmt::Display for EffectSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.effects.is_empty() {
+        if self.is_empty() {
             return write!(f, "pure");
         }
         let mut sorted: Vec<&str> = self.effects.iter().map(|s| s.as_str()).collect();
@@ -245,7 +245,9 @@ impl EffectChecker {
                         code: "A07001".into(),
                         message: format!(
                             "undeclared effect `{effect}`: \
-                             effect not in function's declared effect set {declared}"
+                             effect not in function's declared effect set \
+                             {declared} ({} declared)",
+                            declared.len()
                         ),
                         span: span.clone(),
                     });
@@ -276,7 +278,7 @@ impl EffectChecker {
             if is_block_kind_keyword(effect) {
                 continue;
             }
-            if !self.known_effects.contains(effect) && !self.is_sub_effect_of_known(effect) {
+            if !self.is_known(effect) && !self.is_sub_effect_of_known(effect) {
                 errors.push(EffectError {
                     code: "A07003".into(),
                     message: format!("unknown effect name `{effect}`"),

@@ -190,6 +190,11 @@ impl LinearContext {
         self.tracker.get_count(name)
     }
 
+    /// Get the declaration span for a variable in this context.
+    pub fn get_span(&self, name: &str) -> Option<Range<usize>> {
+        self.tracker.get_span(name)
+    }
+
     /// Create two independent copies of this context for branching.
     pub fn fork(&self) -> (LinearContext, LinearContext) {
         (self.clone(), self.clone())

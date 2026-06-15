@@ -302,8 +302,8 @@ impl StructuralInvariantChecker {
                         code: "A15004".into(),
                         message: format!(
                             "operation `{operation}` modifies `{type_name}` \
-                             but has no proof preserving invariant `{}`",
-                            inv.kind
+                             but has no proof preserving invariant `{}` ({})",
+                            inv.name, inv.kind
                         ),
                         span: span.clone(),
                     });
@@ -892,13 +892,20 @@ impl CryptoConformanceChecker {
             .get(algorithm)
             .filter(|s| !s.key_size_bits.contains(&key_size_bits))
         {
+            let mut msg = format!(
+                "key size {key_size_bits} bits does not match `{}` \
+                 which requires {:?} bits",
+                spec.name, spec.key_size_bits
+            );
+            if let Some(bs) = spec.block_size_bytes {
+                msg.push_str(&format!(" (block size: {bs} bytes)"));
+            }
+            if let Some(ts) = spec.tag_size_bytes {
+                msg.push_str(&format!(" (tag size: {ts} bytes)"));
+            }
             errors.push(CryptoConformanceError {
                 code: "A17001".into(),
-                message: format!(
-                    "key size {key_size_bits} bits does not match `{algorithm}` \
-                     which requires {:?} bits",
-                    spec.key_size_bits
-                ),
+                message: msg,
                 span: span.clone(),
             });
         }

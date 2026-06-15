@@ -232,6 +232,16 @@ impl DependentTypeChecker {
         errors
     }
 
+    /// Get a reference to the index variable bindings.
+    pub fn index_vars_ref(&self) -> &HashMap<String, DepIndex> {
+        &self.index_vars
+    }
+
+    /// Get a reference to the registered dependent types.
+    pub fn dep_types_ref(&self) -> &HashMap<String, DepType> {
+        &self.dep_types
+    }
+
     // --- Helper methods ---
 
     fn is_nat_expr(&self, expr: &Expr) -> bool {
