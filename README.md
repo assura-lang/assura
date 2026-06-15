@@ -96,6 +96,9 @@ cargo run -- explain A03001
 
 # Build and generate Rust code
 cargo run -- build demos/libwebp-huffman.assura
+
+# Print AI agent instructions (for setting up AI coding assistants)
+cargo run -- agent-instructions
 ```
 
 ## Example: CVE Prevention
@@ -132,6 +135,7 @@ A project activates only the categories it needs. CORE is always on.
 ## Documentation
 
 - [Tutorial](docs/TUTORIAL.md) (getting started, first contract, verification layers)
+- [Scenario Guides](docs/SCENARIOS.md) (greenfield dev, retrofit existing code, security audit, CI, team onboarding)
 - [Internals](docs/INTERNALS.md) (architecture, crate map, SMT encoding)
 - [Language Specification](docs/SPECIFICATION.md) (195 EBNF productions, 50 verification features, ~278 error codes)
 - [Implementation Roadmap](docs/ROADMAP.md)
