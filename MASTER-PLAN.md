@@ -1243,4 +1243,27 @@ Within each phase, tasks can run in the order listed. Tasks marked
   (VS Code extension), Phase 6.05 (docs site), or inline annotation
   features (#101-#105).
 
+### 2026-06-15: Session 5 (continued)
+- **Phase 8 complete**: All 7 inline contract annotation tasks implemented
+- **#101 done (8.01)**: assura-rust-analyzer crate with doc comment parser,
+  20 tests covering clauses, structs, impl blocks, edge cases
+- **#102 done (8.02)**: assura-macros proc macro crate with #[contract] and
+  #[trust], 13 integration tests
+- **#103 done (8.03)**: `assura check-rust` CLI command for Rust file
+  verification, 7 CLI integration tests
+- **#104 done (8.04)**: Enhanced `assura infer` with heuristic inference
+  (division-by-zero, unwrap, array indexing, unsafe, panic patterns)
+- **#105 done (8.05)**: Dual-source contract merge (ClauseSource,
+  MergedContract, ContractsConfig, InlineConfig), 14 tests
+- **#106 done (8.06)**: VS Code contract overlay with toggle command,
+  color-coded decorations, 6 LSP tests
+- **#107 done (8.07)**: Multi-language annotation framework with
+  LanguageAdapter trait, RustAdapter, PythonAdapter, 13 tests
+- Tech-debt issues #108 and #109 also fixed in this session
+- Test count: 2,274 (up from 2,213)
+- Only open issue: #45 (CodeQL, blocked on repo going public)
+- **Next session**: Phase 4 (multi-file compilation), Phase 6.04
+  (VS Code extension publish), Phase 6.05 (docs site), or Phase 7.05
+  (performance profiling).
+
 ---
