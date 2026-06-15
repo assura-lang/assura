@@ -1509,21 +1509,21 @@ fn generic_list_one_arg_ok() {
 }
 
 #[test]
-fn generic_list_zero_args_a03003() {
+fn generic_list_zero_args_a03002() {
     let src = source_with_decls(vec![]);
     let err = check_generic_instantiation("List", &[], &(0..1), &src).unwrap_err();
-    assert_eq!(err.code, "A03003");
+    assert_eq!(err.code, "A03002");
     assert!(err.message.contains("List"));
     assert!(err.message.contains("expected 1"));
     assert!(err.message.contains("found 0"));
 }
 
 #[test]
-fn generic_list_two_args_a03003() {
+fn generic_list_two_args_a03002() {
     let src = source_with_decls(vec![]);
     let err =
         check_generic_instantiation("List", &[Type::Int, Type::Bool], &(0..1), &src).unwrap_err();
-    assert_eq!(err.code, "A03003");
+    assert_eq!(err.code, "A03002");
     assert!(err.message.contains("expected 1"));
     assert!(err.message.contains("found 2"));
 }
@@ -1536,10 +1536,10 @@ fn generic_map_two_args_ok() {
 }
 
 #[test]
-fn generic_map_one_arg_a03003() {
+fn generic_map_one_arg_a03002() {
     let src = source_with_decls(vec![]);
     let err = check_generic_instantiation("Map", &[Type::String], &(0..1), &src).unwrap_err();
-    assert_eq!(err.code, "A03003");
+    assert_eq!(err.code, "A03002");
     assert!(err.message.contains("Map"));
     assert!(err.message.contains("expected 2"));
     assert!(err.message.contains("found 1"));
@@ -1567,7 +1567,7 @@ fn generic_result_two_args_ok() {
 }
 
 #[test]
-fn generic_result_three_args_a03003() {
+fn generic_result_three_args_a03002() {
     let src = source_with_decls(vec![]);
     let err = check_generic_instantiation(
         "Result",
@@ -1576,7 +1576,7 @@ fn generic_result_three_args_a03003() {
         &src,
     )
     .unwrap_err();
-    assert_eq!(err.code, "A03003");
+    assert_eq!(err.code, "A03002");
     assert!(err.message.contains("expected 2"));
     assert!(err.message.contains("found 3"));
 }
@@ -1609,7 +1609,7 @@ fn generic_user_defined_type_wrong_arity() {
     }))];
     let src = source_with_decls(decls);
     let err = check_generic_instantiation("Pair", &[Type::Int], &(0..1), &src).unwrap_err();
-    assert_eq!(err.code, "A03003");
+    assert_eq!(err.code, "A03002");
     assert!(err.message.contains("Pair"));
     assert!(err.message.contains("expected 2"));
     assert!(err.message.contains("found 1"));
@@ -1637,7 +1637,7 @@ fn generic_user_defined_enum_wrong_arity() {
     let src = source_with_decls(decls);
     let err =
         check_generic_instantiation("Maybe", &[Type::Int, Type::Bool], &(0..1), &src).unwrap_err();
-    assert_eq!(err.code, "A03003");
+    assert_eq!(err.code, "A03002");
     assert!(err.message.contains("Maybe"));
     assert!(err.message.contains("expected 1"));
     assert!(err.message.contains("found 2"));
@@ -1670,7 +1670,7 @@ fn generic_user_defined_non_generic_type_zero_args_ok() {
 }
 
 #[test]
-fn generic_user_defined_non_generic_type_with_args_a03003() {
+fn generic_user_defined_non_generic_type_with_args_a03002() {
     let decls = vec![spanned_decl(Decl::TypeDef(assura_parser::ast::TypeDef {
         name: "Foo".into(),
         type_params: vec![],
@@ -1678,7 +1678,7 @@ fn generic_user_defined_non_generic_type_with_args_a03003() {
     }))];
     let src = source_with_decls(decls);
     let err = check_generic_instantiation("Foo", &[Type::Int], &(0..1), &src).unwrap_err();
-    assert_eq!(err.code, "A03003");
+    assert_eq!(err.code, "A03002");
     assert!(err.message.contains("expected 0"));
     assert!(err.message.contains("found 1"));
 }

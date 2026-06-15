@@ -1077,7 +1077,7 @@ fn builtin_generic_arity(name: &str) -> Option<usize> {
 /// types, the expected arity is taken from the `type_params` count in the
 /// symbol table (looked up from the source AST declarations).
 ///
-/// Returns `Ok(())` on success, or `Err(TypeError)` with code A03003 if the
+/// Returns `Ok(())` on success, or `Err(TypeError)` with code A03002 if the
 /// argument count does not match.
 pub(crate) fn check_generic_instantiation(
     type_name: &str,
@@ -1090,7 +1090,7 @@ pub(crate) fn check_generic_instantiation(
         let actual = type_args.len();
         if actual != expected {
             return Err(TypeError {
-                code: "A03003".into(),
+                code: "A03002".into(),
                 message: format!(
                     "wrong number of type arguments for `{type_name}`: \
                      expected {expected}, found {actual}"
@@ -1107,7 +1107,7 @@ pub(crate) fn check_generic_instantiation(
         let actual = type_args.len();
         if actual != expected {
             return Err(TypeError {
-                code: "A03003".into(),
+                code: "A03002".into(),
                 message: format!(
                     "wrong number of type arguments for `{type_name}`: \
                      expected {expected}, found {actual}"
@@ -6317,7 +6317,7 @@ mod type_from_expr_tests {
         let err = check_generic_instantiation("List", &[Type::Int, Type::Bool], &span, &source);
         assert!(err.is_err());
         let e = err.unwrap_err();
-        assert_eq!(e.code, "A03003");
+        assert_eq!(e.code, "A03002");
         assert!(e.message.contains("expected 1, found 2"));
     }
 
@@ -6387,7 +6387,7 @@ mod type_from_expr_tests {
         };
         let errors = super::run_generic_instantiation_checks(&source);
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].code, "A03003");
+        assert_eq!(errors[0].code, "A03002");
     }
 }
 
