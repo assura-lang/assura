@@ -518,3 +518,378 @@ fn audit_medium_depth_adds_heuristics() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// =======================================================================
+// Issue #96: doctor command integration tests
+// =======================================================================
+
+#[test]
+fn doctor_exits_zero() {
+    let out = Command::new(assura_bin())
+        .arg("doctor")
+        .output()
+        .expect("failed to run assura doctor");
+    assert!(
+        out.status.success(),
+        "doctor should exit 0 when deps are present: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn doctor_output_contains_rustc() {
+    let out = Command::new(assura_bin())
+        .arg("doctor")
+        .output()
+        .expect("failed to run assura doctor");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("rustc"),
+        "doctor output should mention rustc: {stdout}"
+    );
+}
+
+#[test]
+fn doctor_output_contains_z3() {
+    let out = Command::new(assura_bin())
+        .arg("doctor")
+        .output()
+        .expect("failed to run assura doctor");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("z3"),
+        "doctor output should mention z3: {stdout}"
+    );
+}
+
+// =======================================================================
+// Issue #96: coverage command integration tests
+// =======================================================================
+
+/// Create a Rust crate with public functions and matching .assura contracts.
+fn create_coverage_test_crate(dir: &std::path::Path) {
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::create_dir_all(dir.join("contracts")).unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"cov-test\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn add(a: i64, b: i64) -> i64 { a + b }\npub fn sub(a: i64, b: i64) -> i64 { a - b }\npub fn mul(a: i64, b: i64) -> i64 { a * b }\n",
+    )
+    .unwrap();
+    // Contract covering only `add`
+    std::fs::write(
+        dir.join("contracts/math.assura"),
+        "contract add {\n    input(a: Int, b: Int)\n    output(result: Int)\n    ensures { result == a + b }\n}\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn coverage_human_output() {
+    let tmp = std::env::temp_dir().join("assura_cov_human");
+    let _ = std::fs::remove_dir_all(&tmp);
+    create_coverage_test_crate(&tmp);
+
+    let out = Command::new(assura_bin())
+        .args(["coverage", tmp.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura coverage");
+    assert!(
+        out.status.success(),
+        "coverage should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Contract Coverage"),
+        "should show coverage header: {stdout}"
+    );
+    assert!(
+        stdout.contains("With contracts"),
+        "should show covered count: {stdout}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn coverage_json_output_structure() {
+    let tmp = std::env::temp_dir().join("assura_cov_json");
+    let _ = std::fs::remove_dir_all(&tmp);
+    create_coverage_test_crate(&tmp);
+
+    let out = Command::new(assura_bin())
+        .args(["coverage", tmp.to_str().unwrap(), "--format", "json"])
+        .output()
+        .expect("failed to run assura coverage --format json");
+    assert!(
+        out.status.success(),
+        "coverage json should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    assert!(
+        parsed.get("total_functions").is_some(),
+        "JSON should have total_functions"
+    );
+    assert!(parsed.get("covered").is_some(), "JSON should have covered");
+    assert!(
+        parsed.get("coverage_percent").is_some(),
+        "JSON should have coverage_percent"
+    );
+    assert!(
+        parsed.get("covered_functions").is_some(),
+        "JSON should have covered_functions"
+    );
+    assert!(
+        parsed.get("uncovered_functions").is_some(),
+        "JSON should have uncovered_functions"
+    );
+    // Verify counts: 1 covered (add), 2 uncovered (sub, mul)
+    assert_eq!(parsed["covered"].as_u64().unwrap(), 1);
+    assert_eq!(parsed["total_functions"].as_u64().unwrap(), 3);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn coverage_min_coverage_fails_when_below() {
+    let tmp = std::env::temp_dir().join("assura_cov_min_fail");
+    let _ = std::fs::remove_dir_all(&tmp);
+    create_coverage_test_crate(&tmp);
+
+    // 1 out of 3 = 33.3%, requiring 90% should fail
+    let out = Command::new(assura_bin())
+        .args(["coverage", tmp.to_str().unwrap(), "--min-coverage", "90"])
+        .output()
+        .expect("failed to run assura coverage --min-coverage");
+    assert!(
+        !out.status.success(),
+        "coverage should fail when below min threshold"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn coverage_min_coverage_passes_when_above() {
+    let tmp = std::env::temp_dir().join("assura_cov_min_pass");
+    let _ = std::fs::remove_dir_all(&tmp);
+    create_coverage_test_crate(&tmp);
+
+    // 1 out of 3 = 33.3%, requiring 10% should pass
+    let out = Command::new(assura_bin())
+        .args(["coverage", tmp.to_str().unwrap(), "--min-coverage", "10"])
+        .output()
+        .expect("failed to run assura coverage --min-coverage");
+    assert!(
+        out.status.success(),
+        "coverage should pass when above min threshold: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn coverage_no_src_dir_fails() {
+    let tmp = std::env::temp_dir().join("assura_cov_no_src");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["coverage", tmp.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura coverage");
+    assert!(!out.status.success(), "coverage should fail without src/");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("src/"),
+        "should mention missing src/: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// =======================================================================
+// Issue #96: agent-instructions command integration tests
+// =======================================================================
+
+#[test]
+fn agent_instructions_exits_zero() {
+    let out = Command::new(assura_bin())
+        .arg("agent-instructions")
+        .output()
+        .expect("failed to run assura agent-instructions");
+    assert!(
+        out.status.success(),
+        "agent-instructions should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn agent_instructions_contains_type_mapping() {
+    let out = Command::new(assura_bin())
+        .arg("agent-instructions")
+        .output()
+        .expect("failed to run assura agent-instructions");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Type Mapping"),
+        "should contain 'Type Mapping': {stdout}"
+    );
+}
+
+#[test]
+fn agent_instructions_contains_cli_commands() {
+    let out = Command::new(assura_bin())
+        .arg("agent-instructions")
+        .output()
+        .expect("failed to run assura agent-instructions");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("CLI Commands"),
+        "should contain 'CLI Commands': {stdout}"
+    );
+}
+
+#[test]
+fn agent_instructions_contains_contract_syntax() {
+    let out = Command::new(assura_bin())
+        .arg("agent-instructions")
+        .output()
+        .expect("failed to run assura agent-instructions");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Contract Syntax"),
+        "should contain 'Contract Syntax': {stdout}"
+    );
+}
+
+// =======================================================================
+// Issue #96: completions command integration tests
+// =======================================================================
+
+#[test]
+fn completions_zsh_exits_zero() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "zsh"])
+        .output()
+        .expect("failed to run assura completions zsh");
+    assert!(
+        out.status.success(),
+        "completions zsh should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn completions_zsh_output_is_valid() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "zsh"])
+        .output()
+        .expect("failed to run assura completions zsh");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("compdef") || stdout.contains("_assura"),
+        "zsh completions should contain compdef or _assura: {}",
+        &stdout[..stdout.len().min(200)]
+    );
+}
+
+#[test]
+fn completions_bash_exits_zero() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "bash"])
+        .output()
+        .expect("failed to run assura completions bash");
+    assert!(
+        out.status.success(),
+        "completions bash should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn completions_fish_exits_zero() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "fish"])
+        .output()
+        .expect("failed to run assura completions fish");
+    assert!(
+        out.status.success(),
+        "completions fish should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// =======================================================================
+// Issue #96: explain command integration tests
+// =======================================================================
+
+#[test]
+fn explain_valid_code_exits_zero() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "A01001"])
+        .output()
+        .expect("failed to run assura explain");
+    assert!(
+        out.status.success(),
+        "explain A01001 should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn explain_valid_code_shows_info() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "A01001"])
+        .output()
+        .expect("failed to run assura explain");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("A01001"),
+        "explain output should contain the error code: {stdout}"
+    );
+    assert!(
+        stdout.contains("Example"),
+        "explain output should contain an example: {stdout}"
+    );
+    assert!(
+        stdout.contains("How to fix"),
+        "explain output should contain fix guidance: {stdout}"
+    );
+}
+
+#[test]
+fn explain_invalid_code_exits_nonzero() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "XXXXX"])
+        .output()
+        .expect("failed to run assura explain XXXXX");
+    assert!(!out.status.success(), "explain XXXXX should exit non-zero");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Unknown error code"),
+        "should say unknown code: {stderr}"
+    );
+}
+
+#[test]
+fn explain_lists_known_codes_on_failure() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "XXXXX"])
+        .output()
+        .expect("failed to run assura explain XXXXX");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Known error codes"),
+        "should list known codes on failure: {stderr}"
+    );
+    assert!(
+        stderr.contains("A01"),
+        "known codes should include A01 range: {stderr}"
+    );
+}
