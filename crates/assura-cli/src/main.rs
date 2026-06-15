@@ -851,6 +851,7 @@ fn run_check(opts: CheckOptions<'_>) {
         mut diagnostics,
         mut has_errors,
         timing,
+        ..
     } = compile_with_config(&source, filename, &compiler_config);
 
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
@@ -1326,6 +1327,7 @@ fn check_file_once(
         mut diagnostics,
         mut has_errors,
         timing,
+        ..
     } = compile(&source, filename);
 
     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
@@ -1668,6 +1670,7 @@ fn run_build(
         file: parsed_file,
         resolved,
         hir: _hir,
+        ..
     } = compile_with_config(&source, filename, &compiler_config);
 
     if verbosity == Verbosity::Verbose {
@@ -4062,6 +4065,7 @@ fn run_legacy(filename: &str, verbosity: Verbosity, show_ast: bool, show_tokens:
         diagnostics,
         has_errors,
         timing,
+        ..
     } = compile(&source, filename);
 
     if verbosity == Verbosity::Verbose {

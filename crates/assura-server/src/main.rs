@@ -143,8 +143,16 @@ fn run_check(
     _filename: &str,
     layer: i32,
 ) -> (Vec<Diagnostic>, Vec<VerificationResult>) {
-    let output =
-        assura_pipeline::compile(source, "<grpc>", &assura_config::CompilerConfig::default());
+    // Use compile() for layer 0 (no verify), compile_full() for layer 1+
+    let output = if layer >= 1 {
+        assura_pipeline::compile_full(
+            source,
+            "<grpc>",
+            &assura_config::CompilerConfig::default(),
+        )
+    } else {
+        assura_pipeline::compile(source, "<grpc>", &assura_config::CompilerConfig::default())
+    };
 
     // Convert pipeline diagnostics to gRPC Diagnostic messages
     let diagnostics: Vec<Diagnostic> = output
@@ -170,55 +178,48 @@ fn run_check(
         .collect();
 
     let mut verifications = Vec::new();
-
-    // Layer 0 = structural checks only, Layer 1+ = also run SMT verification
-    if layer >= 1
-        && let Some(ref typed) = output.typed
-    {
-        for vr in assura_smt::verify(typed) {
-            let (clause, status, cex) = match &vr {
-                assura_smt::VerificationResult::Verified { clause_desc } => {
-                    (clause_desc.clone(), "verified".into(), String::new())
-                }
-                assura_smt::VerificationResult::Counterexample {
-                    clause_desc, model, ..
-                } => (clause_desc.clone(), "counterexample".into(), model.clone()),
-                assura_smt::VerificationResult::Timeout { clause_desc } => {
-                    (clause_desc.clone(), "timeout".into(), String::new())
-                }
-                assura_smt::VerificationResult::Unknown {
-                    clause_desc,
-                    reason,
-                } => (
-                    clause_desc.clone(),
-                    format!("unknown: {reason}"),
-                    String::new(),
-                ),
-            };
-            let contract_name = clause.split("::").next().unwrap_or("").to_string();
-            verifications.push(VerificationResult {
-                contract_name,
-                clause,
-                status,
-                counterexample: cex,
-                time_ms: 0,
-            });
-        }
+    for vr in &output.verification {
+        let (clause, status, cex) = match vr {
+            assura_smt::VerificationResult::Verified { clause_desc } => {
+                (clause_desc.clone(), "verified".into(), String::new())
+            }
+            assura_smt::VerificationResult::Counterexample {
+                clause_desc, model, ..
+            } => (clause_desc.clone(), "counterexample".into(), model.clone()),
+            assura_smt::VerificationResult::Timeout { clause_desc } => {
+                (clause_desc.clone(), "timeout".into(), String::new())
+            }
+            assura_smt::VerificationResult::Unknown {
+                clause_desc,
+                reason,
+            } => (
+                clause_desc.clone(),
+                format!("unknown: {reason}"),
+                String::new(),
+            ),
+        };
+        let contract_name = clause.split("::").next().unwrap_or("").to_string();
+        verifications.push(VerificationResult {
+            contract_name,
+            clause,
+            status,
+            counterexample: cex,
+            time_ms: 0,
+        });
     }
 
     (diagnostics, verifications)
 }
 
 fn run_codegen(source: &str) -> std::collections::HashMap<String, String> {
-    let output = assura_pipeline::compile(
+    let output = assura_pipeline::compile_full(
         source,
         "<codegen>",
         &assura_config::CompilerConfig::default(),
     );
 
     let mut files = std::collections::HashMap::new();
-    if let Some(ref typed) = output.typed {
-        let generated = assura_codegen::codegen(typed);
+    if let Some(generated) = output.generated {
         for (path, content) in generated.files {
             files.insert(path, content);
         }

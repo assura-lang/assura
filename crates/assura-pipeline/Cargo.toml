@@ -13,6 +13,7 @@ assura-resolve = { path = "../assura-resolve" }
 assura-hir = { path = "../assura-hir" }
 assura-types = { path = "../assura-types" }
 assura-smt = { path = "../assura-smt" }
+assura-codegen = { path = "../assura-codegen" }
 assura-config = { path = "../assura-config" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 serde = { version = "1", features = ["derive"] }

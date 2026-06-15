@@ -29,6 +29,10 @@ pub struct CompilationOutput {
     pub hir: Option<assura_hir::HirFile>,
     /// Type-checked file (`None` if type checking was not attempted or failed).
     pub typed: Option<assura_types::TypedFile>,
+    /// SMT verification results (empty if verification was not run).
+    pub verification: Vec<assura_smt::VerificationResult>,
+    /// Generated Rust project (`None` if codegen was not run).
+    pub generated: Option<assura_codegen::GeneratedProject>,
     /// All diagnostics from every phase (parse, resolve, type check).
     pub diagnostics: Vec<assura_diagnostics::Diagnostic>,
     /// Whether any errors were found.
@@ -48,6 +52,10 @@ pub struct PhaseTiming {
     pub hir_ms: Option<f64>,
     /// Time to type-check (None if skipped).
     pub typecheck_ms: Option<f64>,
+    /// Time to run SMT verification (None if skipped).
+    pub verify_ms: Option<f64>,
+    /// Time to generate Rust code (None if skipped).
+    pub codegen_ms: Option<f64>,
     /// Number of tokens produced by the lexer.
     pub token_count: usize,
 }
@@ -147,6 +155,8 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
         resolved,
         hir,
         typed,
+        verification: vec![],
+        generated: None,
         diagnostics,
         has_errors,
         timing: PhaseTiming {
@@ -154,9 +164,40 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
             resolve_ms,
             hir_ms,
             typecheck_ms,
+            verify_ms: None,
+            codegen_ms: None,
             token_count,
         },
     }
+}
+
+/// Run the full pipeline: lex -> parse -> resolve -> HIR -> type check -> verify -> codegen.
+///
+/// Unlike `compile()`, this also runs SMT verification and code generation.
+/// Verification is skipped if type checking failed.
+/// Codegen is skipped if type checking or verification produced errors.
+pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> CompilationOutput {
+    let mut output = compile(source, filename, config);
+
+    if output.has_errors {
+        return output;
+    }
+
+    // --- SMT verification ---
+    let verify_start = Instant::now();
+    if let Some(ref typed) = output.typed {
+        output.verification = assura_smt::verify(typed);
+    }
+    output.timing.verify_ms = Some(verify_start.elapsed().as_secs_f64() * 1000.0);
+
+    // --- Codegen ---
+    let codegen_start = Instant::now();
+    if let Some(ref typed) = output.typed {
+        output.generated = Some(assura_codegen::codegen(typed));
+    }
+    output.timing.codegen_ms = Some(codegen_start.elapsed().as_secs_f64() * 1000.0);
+
+    output
 }
 
 // ---------------------------------------------------------------------------
@@ -252,9 +293,9 @@ fn convert_verification(r: &assura_smt::VerificationResult) -> VerificationEntry
 /// Run the full compiler pipeline: parse -> resolve -> HIR -> typecheck -> verify.
 ///
 /// Returns a lightweight JSON-serializable summary. For full-fidelity results
-/// with intermediate artifacts, use `compile()` instead.
+/// with intermediate artifacts, use `compile()` or `compile_full()` instead.
 pub fn run(source: &str) -> PipelineResult {
-    let output = compile(source, "<inline>", &CompilerConfig::default());
+    let output = compile_full(source, "<inline>", &CompilerConfig::default());
 
     let declarations: Vec<String> = output
         .file
@@ -291,15 +332,10 @@ pub fn run(source: &str) -> PipelineResult {
         };
     }
 
-    // SMT verification
-    let results = if let Some(ref typed) = output.typed {
-        assura_smt::verify(typed)
-    } else {
-        vec![]
-    };
-    let verification: Vec<VerificationEntry> = results.iter().map(convert_verification).collect();
+    let verification: Vec<VerificationEntry> =
+        output.verification.iter().map(convert_verification).collect();
 
-    let success = !results.iter().any(|r| {
+    let success = !output.verification.iter().any(|r| {
         matches!(
             r,
             assura_smt::VerificationResult::Counterexample { .. }
