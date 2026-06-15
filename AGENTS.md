@@ -284,7 +284,8 @@ end-to-end by running `cargo run --bin assura -- demos/libwebp-huffman.assura`:
 CLI main.rs
   -> assura-parser::parser::source_file()   # parse
   -> assura-resolve::resolve()              # name resolution (T009+)
-  -> assura-types::type_check()             # type checking (T013+)
+  -> assura-types::type_check()             # single-file type checking
+  -> assura-types::type_check_with_modules()  # multi-file (cross-module imports)
   -> assura-smt::verify()                   # SMT verification (T038+)
   -> assura-codegen::codegen()              # Rust code generation (T019+)
 ```
