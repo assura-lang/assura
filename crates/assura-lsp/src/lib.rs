@@ -338,6 +338,29 @@ impl LanguageServer for AssuraLanguageServer {
             });
         }
 
+        // Effect name completions
+        for effect in EFFECT_NAMES {
+            items.push(CompletionItem {
+                label: effect.to_string(),
+                kind: Some(CompletionItemKind::VALUE),
+                detail: Some("effect".to_string()),
+                ..Default::default()
+            });
+        }
+
+        // Snippet completions for common constructs
+        for (label, snippet, detail) in SNIPPETS {
+            items.push(CompletionItem {
+                label: label.to_string(),
+                kind: Some(CompletionItemKind::SNIPPET),
+                detail: Some(detail.to_string()),
+                insert_text: Some(snippet.to_string()),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                sort_text: Some(format!("0_{label}")),
+                ..Default::default()
+            });
+        }
+
         // Symbols from the resolved file
         if let Some(ref resolved) = state.resolved {
             for sym in &resolved.symbols.symbols {
@@ -936,6 +959,85 @@ const KEYWORDS: &[&str] = &[
     "states",
     "as",
     "where",
+    "bind",
+    "prophecy",
+    "match",
+    "let",
+    "abstract",
+    "decreases",
+    "variant",
+    "axiom",
+    "opaque",
+    "linear",
+    "unique",
+    "trusted",
+];
+
+/// Known effect names from the Assura specification.
+const EFFECT_NAMES: &[&str] = &[
+    "pure",
+    "io",
+    "database",
+    "logging",
+    "mem",
+    "net",
+    "fs",
+    "rng",
+    "time",
+    "alloc",
+    "diverge",
+    "random",
+    "console.read",
+    "console.write",
+    "filesystem.read",
+    "filesystem.write",
+    "network.connect",
+    "network.listen",
+    "database.read",
+    "database.write",
+    "log.info",
+    "log.warn",
+    "log.error",
+];
+
+/// Snippet templates for common Assura constructs.
+const SNIPPETS: &[(&str, &str, &str)] = &[
+    (
+        "contract",
+        "contract ${1:Name} {\n    input(${2:x}: ${3:Int})\n    output(${4:result}: ${5:Int})\n    requires { ${6:true} }\n    ensures { ${7:true} }\n}",
+        "Contract with input, output, requires, and ensures",
+    ),
+    (
+        "service",
+        "service ${1:Name} {\n    states: ${2:Init} -> ${3:Ready}\n\n    operation ${4:Do} {\n        requires: ${5:true}\n    }\n}",
+        "Service with states and operations",
+    ),
+    (
+        "fn",
+        "fn ${1:name}(${2:x}: ${3:Int}) -> ${4:Int}\n    requires { ${5:true} }\n    ensures { ${6:true} }",
+        "Function with pre/postconditions",
+    ),
+    (
+        "extern fn",
+        "extern fn ${1:name}(${2:x}: ${3:Int}) -> ${4:Int}\n    effects { ${5:io} }",
+        "Extern function with effects",
+    ),
+    ("module", "module ${1:name}", "Module declaration"),
+    (
+        "import",
+        "import ${1:module}.${2:Name}",
+        "Import declaration",
+    ),
+    (
+        "type",
+        "type ${1:Name} {\n    ${2:field}: ${3:Int}\n}",
+        "Type definition with fields",
+    ),
+    (
+        "enum",
+        "enum ${1:Name} {\n    ${2:Variant1}\n    ${3:Variant2}\n}",
+        "Enum definition with variants",
+    ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1526,5 +1628,167 @@ fn f(n: Int) -> Int { n }
         assert!(!is_valid_identifier("123"));
         assert!(!is_valid_identifier(""));
         assert!(!is_valid_identifier("a b"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Completion tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_completion_includes_builtin_types() {
+        // Verify completion items include all built-in types
+        let mut items = Vec::new();
+        for name in BUILTIN_TYPES {
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::CLASS),
+                detail: Some("built-in type".to_string()),
+                ..Default::default()
+            });
+        }
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"Int"));
+        assert!(labels.contains(&"Bool"));
+        assert!(labels.contains(&"String"));
+        assert!(labels.contains(&"List"));
+        assert!(labels.contains(&"Map"));
+        assert!(labels.contains(&"Set"));
+        assert!(labels.contains(&"Option"));
+        assert!(labels.contains(&"Result"));
+        assert!(labels.contains(&"Nat"));
+        assert!(labels.contains(&"Float"));
+        assert!(labels.contains(&"Bytes"));
+        assert!(labels.contains(&"Unit"));
+        assert!(labels.contains(&"Never"));
+        assert!(
+            items.len() >= 14,
+            "should have at least 14 built-in types, got {}",
+            items.len()
+        );
+    }
+
+    #[test]
+    fn test_completion_includes_keywords() {
+        let labels: Vec<&str> = KEYWORDS.iter().copied().collect();
+        // Core clause keywords
+        assert!(labels.contains(&"requires"));
+        assert!(labels.contains(&"ensures"));
+        assert!(labels.contains(&"effects"));
+        assert!(labels.contains(&"invariant"));
+        assert!(labels.contains(&"modifies"));
+        assert!(labels.contains(&"input"));
+        assert!(labels.contains(&"output"));
+        // Declaration keywords
+        assert!(labels.contains(&"contract"));
+        assert!(labels.contains(&"service"));
+        assert!(labels.contains(&"fn"));
+        assert!(labels.contains(&"extern"));
+        assert!(labels.contains(&"bind"));
+        assert!(labels.contains(&"prophecy"));
+        // Quantifier and expression keywords
+        assert!(labels.contains(&"forall"));
+        assert!(labels.contains(&"exists"));
+        assert!(labels.contains(&"match"));
+        assert!(labels.contains(&"let"));
+        assert!(labels.contains(&"old"));
+        // Verification keywords
+        assert!(labels.contains(&"ghost"));
+        assert!(labels.contains(&"lemma"));
+        assert!(labels.contains(&"axiom"));
+        assert!(labels.contains(&"opaque"));
+        assert!(labels.contains(&"decreases"));
+    }
+
+    #[test]
+    fn test_completion_includes_effect_names() {
+        let labels: Vec<&str> = EFFECT_NAMES.iter().copied().collect();
+        // Top-level effects
+        assert!(labels.contains(&"pure"));
+        assert!(labels.contains(&"io"));
+        assert!(labels.contains(&"database"));
+        assert!(labels.contains(&"logging"));
+        assert!(labels.contains(&"mem"));
+        assert!(labels.contains(&"net"));
+        assert!(labels.contains(&"fs"));
+        assert!(labels.contains(&"rng"));
+        assert!(labels.contains(&"time"));
+        assert!(labels.contains(&"alloc"));
+        assert!(labels.contains(&"diverge"));
+        assert!(labels.contains(&"random"));
+        // Sub-effects
+        assert!(labels.contains(&"console.read"));
+        assert!(labels.contains(&"filesystem.write"));
+        assert!(labels.contains(&"network.connect"));
+        assert!(labels.contains(&"database.read"));
+        assert!(labels.contains(&"log.info"));
+    }
+
+    #[test]
+    fn test_completion_includes_snippets() {
+        // Verify snippet templates exist for core constructs
+        let labels: Vec<&str> = SNIPPETS.iter().map(|(l, _, _)| *l).collect();
+        assert!(labels.contains(&"contract"));
+        assert!(labels.contains(&"service"));
+        assert!(labels.contains(&"fn"));
+        assert!(labels.contains(&"extern fn"));
+        assert!(labels.contains(&"module"));
+        assert!(labels.contains(&"import"));
+        assert!(labels.contains(&"type"));
+        assert!(labels.contains(&"enum"));
+        // Verify snippets have insert text
+        for (label, snippet, detail) in SNIPPETS {
+            assert!(!label.is_empty(), "snippet label should not be empty");
+            assert!(!snippet.is_empty(), "snippet body should not be empty");
+            assert!(!detail.is_empty(), "snippet detail should not be empty");
+            // Snippets should contain placeholder markers ($)
+            assert!(
+                snippet.contains("${") || snippet.contains("$1"),
+                "snippet for '{label}' should contain placeholders"
+            );
+        }
+    }
+
+    #[test]
+    fn test_completion_total_item_count() {
+        // The completion handler builds: types + keywords + effects + snippets + symbols
+        // Without symbols, we should have a baseline count
+        let base_count = BUILTIN_TYPES.len() + KEYWORDS.len() + EFFECT_NAMES.len() + SNIPPETS.len();
+        assert!(
+            base_count >= 80,
+            "should have at least 80 base completion items, got {base_count}"
+        );
+    }
+
+    #[test]
+    fn test_completion_snippet_contract_template() {
+        let (_, snippet, detail) = SNIPPETS.iter().find(|(l, _, _)| *l == "contract").unwrap();
+        assert!(snippet.contains("input"));
+        assert!(snippet.contains("output"));
+        assert!(snippet.contains("requires"));
+        assert!(snippet.contains("ensures"));
+        assert_eq!(
+            *detail,
+            "Contract with input, output, requires, and ensures"
+        );
+    }
+
+    #[test]
+    fn test_completion_no_duplicate_labels() {
+        // Build the same items as the completion handler (minus symbols)
+        let mut all_labels = Vec::new();
+        for name in BUILTIN_TYPES {
+            all_labels.push(format!("type:{name}"));
+        }
+        for kw in KEYWORDS {
+            all_labels.push(format!("keyword:{kw}"));
+        }
+        for effect in EFFECT_NAMES {
+            all_labels.push(format!("effect:{effect}"));
+        }
+        // Check for duplicates within each category
+        let mut seen = std::collections::HashSet::new();
+        for label in &all_labels {
+            assert!(seen.insert(label), "duplicate completion item: {label}");
+        }
     }
 }
