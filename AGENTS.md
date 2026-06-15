@@ -742,7 +742,8 @@ match on `Decl` becomes non-exhaustive. Use this checklist:
 | assura-smt | `display.rs` | Add to `collect_contract_names()` and stats counting |
 | assura-smt | `z3_backend.rs` | Add to verification dispatch loop |
 | assura-lsp | `lib.rs` | Add to hover, completion, and document symbols (3 match sites for SymbolKind, 1 for Decl) |
-| assura-cli | `main.rs` | Add to stats counting |
+| assura-cli | `main.rs` | Add to stats counting, REPL eval (line ~907), `extract_decl_summary()` (diff command) |
+| assura-mcp | `lib.rs` | Add to declaration listing in `run_check_pipeline()` |
 
 ### Common mistakes
 
