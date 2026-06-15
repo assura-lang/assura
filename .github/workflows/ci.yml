@@ -13,6 +13,13 @@ concurrency:
 # ---------------------------------------------------------------------------
 # Path filter: determine which groups of files changed so jobs can skip
 # themselves when their inputs are untouched.
+#
+# Filter groups:
+#   rust           - any Rust crate or workspace file changed
+#   codegen        - crates that affect code generation + demo files
+#   tooling-only   - only CLI/LSP/server/fmt changed (not core pipeline)
+#   editors-ts     - tree-sitter grammar
+#   editors-vscode - VS Code extension
 # ---------------------------------------------------------------------------
 jobs:
   changes:
@@ -22,10 +29,11 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      rust:    ${{ steps.filter.outputs.rust }}
-      editors-ts: ${{ steps.filter.outputs.editors-ts }}
+      rust:           ${{ steps.filter.outputs.rust }}
+      codegen:        ${{ steps.filter.outputs.codegen }}
+      tooling-only:   ${{ steps.filter.outputs.tooling-only }}
+      editors-ts:     ${{ steps.filter.outputs.editors-ts }}
       editors-vscode: ${{ steps.filter.outputs.editors-vscode }}
-      codegen: ${{ steps.filter.outputs.codegen }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -37,15 +45,28 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/ci.yml'
+            codegen:
+              - 'crates/assura-parser/**'
+              - 'crates/assura-resolve/**'
+              - 'crates/assura-hir/**'
+              - 'crates/assura-types/**'
+              - 'crates/assura-smt/**'
+              - 'crates/assura-codegen/**'
+              - 'crates/assura-config/**'
+              - 'crates/assura-diagnostics/**'
+              - 'demos/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            tooling-only:
+              - 'crates/assura-cli/**'
+              - 'crates/assura-lsp/**'
+              - 'crates/assura-server/**'
+              - 'crates/assura-fmt/**'
+              - 'crates/assura-bench/**'
             editors-ts:
               - 'editors/tree-sitter-assura/**'
             editors-vscode:
               - 'editors/vscode/**'
-            codegen:
-              - 'crates/**'
-              - 'demos/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
 
   # ── Fast gate: formatting check (~30 s) ──────────────────────────────────
   fmt:
@@ -60,12 +81,12 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check --all
 
-  # ── Clippy + Tests (parallel via nextest) ────────────────────────────────
-  lint-test:
+  # ── Clippy (fast lint feedback, parallel with tests) ─────────────────────
+  clippy:
     needs: [changes, fmt]
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
@@ -78,6 +99,8 @@ jobs:
       - name: Cache dependencies
         if: ${{ !vars.RUNNER }}
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-rust
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -95,6 +118,38 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
 
+  # ── Tests (parallel via nextest, parallel with clippy) ───────────────────
+  test:
+    needs: [changes, fmt]
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        if: ${{ !vars.RUNNER }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        if: ${{ !vars.RUNNER }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-rust
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y protobuf-compiler libz3-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Set Linux Z3 paths
+        if: runner.os == 'Linux'
+        run: |
+          echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
+          echo "CPATH=/usr/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
@@ -111,6 +166,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-rust
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features
 
@@ -158,13 +215,13 @@ jobs:
         working-directory: editors/vscode
         run: npx tsc -p ./
 
-  # ── Generated code compiles (runs in PARALLEL with lint-test) ───────────
+  # ── Generated code compiles (parallel with clippy + test) ───────────────
   codegen-validation:
     name: Generated code compiles
     needs: [changes, fmt]
     if: ${{ needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
@@ -175,6 +232,8 @@ jobs:
       - name: Cache dependencies
         if: ${{ !vars.RUNNER }}
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-rust
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -190,13 +249,13 @@ jobs:
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
       - name: Build compiler
-        run: cargo build --release --bin assura
+        run: cargo build --bin assura
 
       - name: Validate generated code for demos
         run: |
           for demo in demos/*.assura; do
             echo "=== Building $demo ==="
-            cargo run --release --bin assura -- build --no-check "$demo"
+            cargo run --bin assura -- build --no-check "$demo"
             echo "=== Checking generated Rust for $demo ==="
             (cd generated && cargo check)
             rm -rf generated
