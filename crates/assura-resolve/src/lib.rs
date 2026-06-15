@@ -364,7 +364,7 @@ pub fn resolve(source: &SourceFile) -> Result<ResolvedFile, Vec<ResolutionError>
 /// The `module_map` provides known modules for import resolution.
 /// The `visited` set tracks module paths currently being resolved,
 /// enabling detection of circular imports (A02005).
-pub(crate) fn resolve_with_modules(
+pub fn resolve_with_modules(
     source: &SourceFile,
     module_map: &ModuleMap,
     visited: &mut HashSet<String>,

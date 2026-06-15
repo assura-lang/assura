@@ -1541,10 +1541,10 @@ fn run_check_project(
     let mut total_modules = 0usize;
     let mut total_bindings = 0usize;
 
-    // Type-check each resolved file using project config
+    // Type-check each resolved file with cross-module type information
     for (module_path, resolved) in &resolved_files {
         total_modules += 1;
-        match assura_types::type_check_with_config(resolved, &config.type_check) {
+        match assura_types::type_check_with_modules(resolved, &resolved_files, &config.type_check) {
             Ok(typed) => {
                 let bindings = typed.type_env.len();
                 total_bindings += bindings;

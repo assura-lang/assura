@@ -12932,3 +12932,144 @@ fn incremental_contract_precondition_weakening() {
     // Fewer requires in v2 is allowed (weakening); more would be an error
     assert!(errors.is_empty());
 }
+
+// =======================================================================
+// 4.03: Cross-file type checking
+// =======================================================================
+
+#[test]
+fn cross_file_import_resolves_contract_type() {
+    // Module "math" defines contract Add
+    let math_src = "module math\ncontract Add { input(a: Int, b: Int) output(result: Int) }";
+    let math_file = assura_parser::parse_unwrap(math_src);
+    let mut module_map = std::collections::HashMap::new();
+    module_map.insert("math".to_string(), math_file.clone());
+
+    let math_resolved = assura_resolve::resolve_with_modules(
+        &math_file,
+        &module_map,
+        &mut std::collections::HashSet::new(),
+    )
+    .expect("math resolve failed");
+
+    // Module "main" imports Add from math
+    let main_src = "import math { Add }\ncontract Main { input(x: Int) output(result: Int) }";
+    let main_file = assura_parser::parse_unwrap(main_src);
+    let main_resolved = assura_resolve::resolve_with_modules(
+        &main_file,
+        &module_map,
+        &mut std::collections::HashSet::new(),
+    )
+    .expect("main resolve failed");
+
+    // Build modules map for cross-file type checking
+    let mut modules = std::collections::HashMap::new();
+    modules.insert("math".to_string(), math_resolved.clone());
+
+    let result = crate::type_check_with_modules(
+        &main_resolved,
+        &modules,
+        &assura_config::TypeCheckConfig::default(),
+    );
+    // Should succeed: imported Add is known, main's own types are valid
+    assert!(result.is_ok(), "cross-file type check should succeed");
+
+    // Verify the imported type is concrete (not Unknown)
+    let typed = result.unwrap();
+    let add_ty = typed.type_env.lookup("Add");
+    assert!(
+        add_ty.is_some(),
+        "imported contract Add should be in the type env"
+    );
+    assert_ne!(
+        add_ty.unwrap(),
+        &crate::Type::Unknown,
+        "imported contract Add should not be Type::Unknown"
+    );
+}
+
+#[test]
+fn cross_file_import_resolves_type_def() {
+    // Module "geom" defines type Vector
+    let geom_src = "module geom\ntype Vector { x: Float, y: Float }";
+    let geom_file = assura_parser::parse_unwrap(geom_src);
+    let mut module_map = std::collections::HashMap::new();
+    module_map.insert("geom".to_string(), geom_file.clone());
+
+    let geom_resolved = assura_resolve::resolve_with_modules(
+        &geom_file,
+        &module_map,
+        &mut std::collections::HashSet::new(),
+    )
+    .expect("geom resolve failed");
+
+    // Module "main" imports Vector from geom
+    let main_src =
+        "import geom { Vector }\ncontract UseVector { input(v: Vector) output(result: Float) }";
+    let main_file = assura_parser::parse_unwrap(main_src);
+    let main_resolved = assura_resolve::resolve_with_modules(
+        &main_file,
+        &module_map,
+        &mut std::collections::HashSet::new(),
+    )
+    .expect("main resolve failed");
+
+    let mut modules = std::collections::HashMap::new();
+    modules.insert("geom".to_string(), geom_resolved.clone());
+
+    let result = crate::type_check_with_modules(
+        &main_resolved,
+        &modules,
+        &assura_config::TypeCheckConfig::default(),
+    );
+    assert!(result.is_ok(), "cross-file type check should succeed");
+
+    let typed = result.unwrap();
+    // Verify struct fields were injected
+    assert!(
+        typed.type_env.struct_fields.contains_key("Vector"),
+        "imported struct Vector should have its fields in the type env"
+    );
+    let fields = &typed.type_env.struct_fields["Vector"];
+    assert_eq!(fields.len(), 2, "Vector should have 2 fields (x, y)");
+}
+
+#[test]
+fn cross_file_without_modules_still_works() {
+    // Single-file type checking (no imports, empty modules map)
+    let src = "contract Simple { input(x: Int) output(result: Int) }";
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+    let modules = std::collections::HashMap::new();
+
+    let result = crate::type_check_with_modules(
+        &resolved,
+        &modules,
+        &assura_config::TypeCheckConfig::default(),
+    );
+    assert!(
+        result.is_ok(),
+        "type checking with empty modules map should still work"
+    );
+}
+
+#[test]
+fn cross_file_unresolved_import_is_ignored() {
+    // Module "main" imports from a module that doesn't exist in the map
+    let main_src =
+        "import nonexistent { Foo }\ncontract Main { input(x: Int) output(result: Int) }";
+    let main_file = assura_parser::parse_unwrap(main_src);
+    let main_resolved = assura_resolve::resolve(&main_file).expect("resolve failed");
+    let modules = std::collections::HashMap::new();
+
+    let result = crate::type_check_with_modules(
+        &main_resolved,
+        &modules,
+        &assura_config::TypeCheckConfig::default(),
+    );
+    // Should succeed; unresolved imports are just Unknown types (no crash)
+    assert!(
+        result.is_ok(),
+        "unresolved imports should not cause type check failure"
+    );
+}
