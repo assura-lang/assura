@@ -2002,3 +2002,39 @@ G.4 Testing (after features land)
 - 7+ new must_reject fixtures for new error codes
 - 11+ e2e files covering all 50 verification features
 - All e2e files validated by the harness
+
+---
+
+## Progress Notes (Phase G, continued)
+
+### G010 completed (2026-06-14)
+Hardened type inference by adding `Type::Error` variant distinct from
+`Type::Unknown`. Error suppresses cascading diagnostics (field access,
+method calls, index, function calls on error-typed receivers all return
+Error instead of generating new A03005 errors). Improved inference for
+Option::map, Result::map/map_err, Option::zip (infers closure return
+types), TypeParam calls (return TypeParam, not Unknown), empty blocks
+(return Unit, not Unknown), and Raw expressions (return Error, not
+Unknown). Used `Type::is_indeterminate()` helper throughout inference
+and clause checking. Reduced Type::Unknown return sites from 19 to 10
+(target was <15). 14 new tests. 1,953 tests, all passing.
+
+### G012 completed (2026-06-14)
+Added 5 new must_reject fixtures: crypto_nonce_mismatch (A17002),
+crypto_nonce_reuse (A17003), crypto_no_tag_check (A17004),
+liveness_no_fairness (A-CORE-031), relaxed_without_view (A-CONC-016).
+Total must_reject fixtures: 33. Note: A-CORE-025/A-CORE-026 prophecy
+error codes do not exist in the type checker; ProphecyManager produces
+plain strings in the SMT layer, not TypeErrors.
+
+### G013 completed (2026-06-14)
+Added 11 new e2e test files covering all 50 verification features
+through the full pipeline (parse -> resolve -> type-check -> verify).
+One file per feature category: CORE.1-8, MEM.1-4, TYPE.1-3, SEC.1-5,
+CONC.1-6, STOR.1-6, FMT.1-6, NUM.1-2, TEST.1-2. Total e2e files: 19.
+All pass the e2e harness.
+
+### Phase G COMPLETE (2026-06-14)
+All 13 tasks (G001-G013) completed. All three milestones achieved:
+MG1 (all 50 features wired), MG2 (architecture clean), MG3 (full test
+coverage). 1,953 tests, all passing. The master plan v2 is complete.
