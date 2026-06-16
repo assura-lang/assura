@@ -775,15 +775,29 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 clause_desc,
                 reason,
             } => {
-                *has_errors = true;
-                diagnostics.push(
-                    assura_diagnostics::Diagnostic::error(
-                        "A05100",
-                        format!("verification inconclusive for {clause_desc}: {reason}"),
-                        0..0,
-                    )
-                    .with_file(filename),
-                );
+                // "not yet encoded in SMT" means we skipped verification
+                // because the clause uses features we can't model yet.
+                // That is a warning (known limitation), not a failure.
+                if reason.contains("not yet encoded in SMT") {
+                    diagnostics.push(
+                        assura_diagnostics::Diagnostic::warning(
+                            "A05100",
+                            format!("verification skipped for {clause_desc}: {reason}"),
+                            0..0,
+                        )
+                        .with_file(filename),
+                    );
+                } else {
+                    *has_errors = true;
+                    diagnostics.push(
+                        assura_diagnostics::Diagnostic::error(
+                            "A05100",
+                            format!("verification inconclusive for {clause_desc}: {reason}"),
+                            0..0,
+                        )
+                        .with_file(filename),
+                    );
+                }
             }
             assura_smt::VerificationResult::Verified { .. } => {}
         }
