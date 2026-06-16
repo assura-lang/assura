@@ -47,5 +47,5 @@ bind "openssl::encrypt" as safe_encrypt {
     (clause
       (expression
         (binary_expr
-          (expression (identifier))
+          (expression (result_expr))
           (expression (literal (number))))))))

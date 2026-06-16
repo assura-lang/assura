@@ -24,7 +24,7 @@ contract SafeDiv {
     (clause
       (expression
         (binary_expr
-          (expression (identifier))
+          (expression (result_expr))
           (expression (literal (number))))))))
 
 ===
@@ -48,7 +48,7 @@ contract Transform {
     (clause
       (expression (identifier)))
     (clause
-      (expression (identifier)))))
+      (expression (result_expr)))))
 
 ===
 Contract with generic type parameters

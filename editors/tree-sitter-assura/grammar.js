@@ -6,7 +6,7 @@ module.exports = grammar({
 
   extras: ($) => [/\s/, $.comment],
 
-  conflicts: ($) => [[$.if_expr]],
+  conflicts: (_) => [],
 
   word: ($) => $.identifier,
 
@@ -55,39 +55,65 @@ module.exports = grammar({
 
     clause: ($) =>
       seq(
-        choice(
-          "requires",
-          "ensures",
-          "effects",
-          "invariant",
-          "modifies",
-          "input",
-          "output",
-          "errors",
-          "reads",
-          "decreases",
-          "where",
-          "rule",
-          "data-flow",
-          "must-not",
-          "ghost",
-          "define",
-          "property",
-          "constant_time",
-          "bounds",
-          "trust",
-          "boundary",
-          "must_propagate",
-          "ordering",
-          "conforms",
-          "extends",
-          "interface",
-          $.identifier,
-        ),
-        choice(
-          seq("{", repeat($.expression), "}"),
-          $.expression,
-        ),
+        $._clause_keyword,
+        seq("{", repeat($.expression), "}"),
+      ),
+
+    _clause_keyword: (_) =>
+      choice(
+        "requires",
+        "ensures",
+        "effects",
+        "invariant",
+        "modifies",
+        "input",
+        "output",
+        "errors",
+        "reads",
+        "decreases",
+        "where",
+        "rule",
+        "data-flow",
+        "must-not",
+        "ghost",
+        "define",
+        "property",
+        "constant_time",
+        "bounds",
+        "trust",
+        "boundary",
+        "must_propagate",
+        "ordering",
+        "conforms",
+        "extends",
+        "interface",
+        "view",
+        "abstracts",
+        "transitions",
+        "equivalent",
+        "monotonic",
+        "transition",
+        "protocol",
+        "spec",
+        "crypto",
+        "prove",
+        "validate",
+        "assume",
+        "example",
+        "update",
+        "shared",
+        "concurrent",
+        "access_mode",
+        "bit_layout",
+        "bit_level",
+        "bit_field",
+        "mvcc",
+        "behavioral_equiv",
+        "key_size",
+        "nonce_size",
+        "nonce",
+        "send",
+        "monotone",
       ),
 
     // Service
@@ -125,7 +151,7 @@ module.exports = grammar({
 
     // Extern and function definitions
     extern_decl: ($) =>
-      seq(
+      prec.right(seq(
         "extern",
         $.identifier,
         "(",
@@ -133,10 +159,10 @@ module.exports = grammar({
         ")",
         optional(seq("->", $.type_ref)),
         repeat($.clause),
-      ),
+      )),
 
     fn_def: ($) =>
-      seq(
+      prec.right(seq(
         optional("ghost"),
         optional("lemma"),
         "fn",
@@ -147,7 +173,7 @@ module.exports = grammar({
         optional(seq("->", $.type_ref)),
         repeat($.clause),
         optional($.fn_body),
-      ),
+      )),
     fn_body: ($) => seq("{", repeat($.expression), "}"),
     param: ($) => seq($.identifier, ":", $.type_ref),
 
@@ -168,7 +194,7 @@ module.exports = grammar({
       seq($.identifier, $.identifier, optional($.block_body)),
     block_body: ($) =>
       choice(
-        seq("{", repeat(choice($.expression, $.clause)), "}"),
+        seq("{", repeat($.clause), "}"),
         seq("=", $.expression),
       ),
 
@@ -233,7 +259,7 @@ module.exports = grammar({
           ["+", 5], ["-", 5],
           ["*", 6], ["/", 6], ["%", 6], ["mod", 6],
           ["in", 3],
-          ["..", 0],
+          ["..", 1],
           ["++", 5],
         ].map(([op, prec_val]) =>
           prec.left(Number(prec_val), seq($.expression, op, $.expression)),
@@ -246,7 +272,7 @@ module.exports = grammar({
     paren_expr: ($) => seq("(", $.expression, ")"),
     list_expr: ($) => seq("[", commaSep($.expression), "]"),
     if_expr: ($) =>
-      seq("if", $.expression, "then", $.expression, optional(seq("else", $.expression))),
+      prec.right(seq("if", $.expression, "then", $.expression, optional(seq("else", $.expression)))),
     quantifier: ($) =>
       seq(choice("forall", "exists"), $.identifier, "in", $.expression, ":", $.expression),
     old_expr: ($) => seq("old", "(", $.expression, ")"),
@@ -263,7 +289,7 @@ module.exports = grammar({
         seq($.identifier, "(", commaSep($.pattern), ")"),
       ),
     let_expression: ($) =>
-      seq("let", $.identifier, "=", $.expression),
+      prec.right(seq("let", $.identifier, "=", $.expression)),
     block_expr: ($) => seq("{", repeat($.expression), "}"),
 
     // Names

@@ -1,0 +1,56 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Fuzz duration in seconds per target'
+        required: false
+        default: '60'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: assura-mac-1
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target/fuzz-ci
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked 2>/dev/null || true
+
+      - name: Fuzz lexer
+        run: |
+          cargo fuzz run fuzz_lex -- \
+            -max_total_time=${{ inputs.duration || '60' }} \
+            -max_len=4096
+
+      - name: Fuzz parser
+        run: |
+          cargo fuzz run fuzz_parse -- \
+            -max_total_time=${{ inputs.duration || '60' }} \
+            -max_len=4096
+
+      - name: Fuzz type checker
+        run: |
+          cargo fuzz run fuzz_typecheck -- \
+            -max_total_time=${{ inputs.duration || '60' }} \
+            -max_len=4096
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts/
+          retention-days: 30

@@ -275,6 +275,10 @@
           "named": true
         },
         {
+          "type": "result_expr",
+          "named": true
+        },
+        {
           "type": "unary_expr",
           "named": true
         }
@@ -922,6 +926,10 @@
     "named": false
   },
   {
+    "type": "++",
+    "named": false
+  },
+  {
     "type": ",",
     "named": false
   },
@@ -935,6 +943,10 @@
   },
   {
     "type": ".",
+    "named": false
+  },
+  {
+    "type": "..",
     "named": false
   },
   {
@@ -1082,11 +1094,47 @@
     "named": false
   },
   {
+    "type": "abstracts",
+    "named": false
+  },
+  {
+    "type": "access_mode",
+    "named": false
+  },
+  {
     "type": "as",
     "named": false
   },
   {
+    "type": "assume",
+    "named": false
+  },
+  {
+    "type": "behavioral_equiv",
+    "named": false
+  },
+  {
     "type": "bind",
+    "named": false
+  },
+  {
+    "type": "bit_field",
+    "named": false
+  },
+  {
+    "type": "bit_layout",
+    "named": false
+  },
+  {
+    "type": "bit_level",
+    "named": false
+  },
+  {
+    "type": "boundary",
+    "named": false
+  },
+  {
+    "type": "bounds",
     "named": false
   },
   {
@@ -1095,7 +1143,35 @@
     "extra": true
   },
   {
+    "type": "concurrent",
+    "named": false
+  },
+  {
+    "type": "conforms",
+    "named": false
+  },
+  {
+    "type": "constant_time",
+    "named": false
+  },
+  {
     "type": "contract",
+    "named": false
+  },
+  {
+    "type": "crypto",
+    "named": false
+  },
+  {
+    "type": "data-flow",
+    "named": false
+  },
+  {
+    "type": "decreases",
+    "named": false
+  },
+  {
+    "type": "define",
     "named": false
   },
   {
@@ -1115,11 +1191,23 @@
     "named": false
   },
   {
+    "type": "equivalent",
+    "named": false
+  },
+  {
     "type": "errors",
     "named": false
   },
   {
+    "type": "example",
+    "named": false
+  },
+  {
     "type": "exists",
+    "named": false
+  },
+  {
+    "type": "extends",
     "named": false
   },
   {
@@ -1163,7 +1251,15 @@
     "named": false
   },
   {
+    "type": "interface",
+    "named": false
+  },
+  {
     "type": "invariant",
+    "named": false
+  },
+  {
+    "type": "key_size",
     "named": false
   },
   {
@@ -1179,6 +1275,10 @@
     "named": false
   },
   {
+    "type": "mod",
+    "named": false
+  },
+  {
     "type": "modifies",
     "named": false
   },
@@ -1187,7 +1287,35 @@
     "named": false
   },
   {
+    "type": "monotone",
+    "named": false
+  },
+  {
+    "type": "monotonic",
+    "named": false
+  },
+  {
+    "type": "must-not",
+    "named": false
+  },
+  {
+    "type": "must_propagate",
+    "named": false
+  },
+  {
     "type": "mut",
+    "named": false
+  },
+  {
+    "type": "mvcc",
+    "named": false
+  },
+  {
+    "type": "nonce",
+    "named": false
+  },
+  {
+    "type": "nonce_size",
     "named": false
   },
   {
@@ -1203,11 +1331,27 @@
     "named": false
   },
   {
+    "type": "ordering",
+    "named": false
+  },
+  {
     "type": "output",
     "named": false
   },
   {
     "type": "project",
+    "named": false
+  },
+  {
+    "type": "property",
+    "named": false
+  },
+  {
+    "type": "protocol",
+    "named": false
+  },
+  {
+    "type": "prove",
     "named": false
   },
   {
@@ -1227,7 +1371,27 @@
     "named": false
   },
   {
+    "type": "result_expr",
+    "named": true
+  },
+  {
+    "type": "rule",
+    "named": false
+  },
+  {
+    "type": "send",
+    "named": false
+  },
+  {
     "type": "service",
+    "named": false
+  },
+  {
+    "type": "shared",
+    "named": false
+  },
+  {
+    "type": "spec",
     "named": false
   },
   {
@@ -1243,11 +1407,39 @@
     "named": false
   },
   {
+    "type": "transition",
+    "named": false
+  },
+  {
+    "type": "transitions",
+    "named": false
+  },
+  {
     "type": "true",
     "named": false
   },
   {
+    "type": "trust",
+    "named": false
+  },
+  {
     "type": "type",
+    "named": false
+  },
+  {
+    "type": "update",
+    "named": false
+  },
+  {
+    "type": "validate",
+    "named": false
+  },
+  {
+    "type": "view",
+    "named": false
+  },
+  {
+    "type": "where",
     "named": false
   },
   {

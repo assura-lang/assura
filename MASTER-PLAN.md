@@ -1274,7 +1274,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: No fuzz CI (targets exist, no workflow), no benchmark CI,
   assura-macros missing from release publish, nightly examples check
   uses `|| true`, `cargo publish --no-verify || true`.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   ls .github/workflows/fuzz.yml
   grep "assura-macros" .github/workflows/release.yml
@@ -1314,10 +1314,11 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: at_clause_start() vs is_clause_stopper() keyword list
   divergence, #129 missing clause_kind arms, tree-sitter grammar
   missing decreases/where/view/abstracts/transitions/result/mod.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo test -p assura-parser clause_kind
   cd editors/tree-sitter-assura && npx tree-sitter generate && npx tree-sitter test
+  # 23/23 tests pass, zero conflicts
   ```
 
 ### 9.12: Improve generated code quality -- #143 (was #144)

@@ -50,7 +50,7 @@ fn add(a: Int, b: Int) -> Int
     (clause
       (expression
         (binary_expr
-          (expression (identifier))
+          (expression (result_expr))
           (expression
             (binary_expr
               (expression (identifier))
