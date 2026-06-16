@@ -113,3 +113,55 @@ pub(crate) fn run_totality_checks(
 
     (errors, pending_smt)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_source(src: &str) -> assura_parser::ast::SourceFile {
+        let (sf, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        sf.unwrap()
+    }
+
+    // --- Frame checks ---
+
+    #[test]
+    fn frame_no_modifies_no_errors() {
+        let sf = parse_source("contract Simple { requires { true } }");
+        let env = TypeEnv::new();
+        let r = assura_resolve::resolve(&sf).unwrap();
+        assert!(run_frame_checks(&r.source, &env, &r.symbols).is_empty());
+    }
+
+    #[test]
+    fn frame_modifies_with_variable_no_errors() {
+        let sf = parse_source("contract C { modifies { x } }");
+        let env = TypeEnv::new();
+        let r = assura_resolve::resolve(&sf).unwrap();
+        assert!(run_frame_checks(&r.source, &env, &r.symbols).is_empty());
+    }
+
+    // --- Totality checks ---
+
+    #[test]
+    fn totality_non_recursive_no_errors() {
+        let sf = parse_source("fn add(a: Int, b: Int) -> Int\n    requires { a > 0 }");
+        let (errs, _pending) = run_totality_checks(&sf);
+        assert!(
+            errs.is_empty(),
+            "non-recursive fn should have no totality errors: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn totality_partial_function_no_errors() {
+        let src = "fn diverge(x: Int) -> Int\n    partial\n    requires { x > 0 }";
+        let sf = parse_source(src);
+        let (errs, _pending) = run_totality_checks(&sf);
+        assert!(
+            errs.is_empty(),
+            "partial fn should not trigger totality error: {errs:?}"
+        );
+    }
+}

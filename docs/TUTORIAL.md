@@ -102,12 +102,10 @@ assura check contracts/lib.assura
 Output:
 
 ```
-OK  contracts/lib.assura
-    imports:   0
-    declares:  1 contract(s)
-    resolve:   OK
-    typecheck: OK
-    verify:    OK
+Verification (1 clause(s)):
+  SafeDivision:
+    ensures              ... verified
+contracts/lib.assura: check passed (no errors)
 ```
 
 ### Verbose mode

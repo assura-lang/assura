@@ -201,174 +201,241 @@ impl Layer2Verifier {
     #[cfg(feature = "z3-verify")]
     fn verify_with_z3(&self) -> Vec<Layer2Result> {
         use std::time::Instant;
-        use z3::ast::Ast;
-        use z3::{Config, Context, SatResult, Solver, ast};
+        use z3::{Config, SatResult, Solver, ast};
 
         let mut cfg = Config::new();
-        cfg.set_param_value("timeout", &self.config.timeout_ms.to_string());
-        let ctx = Context::new(&cfg);
+        cfg.set_timeout_msec(self.config.timeout_ms);
 
-        let mut results = Vec::new();
+        z3::with_z3_config(&cfg, || {
+            let mut results = Vec::new();
 
-        // --- Quantified invariants ---
-        for inv in &self.invariants {
-            if inv.bound_vars.is_empty() {
-                results.push(Layer2Result::Unknown {
-                    invariant: inv.name.clone(),
-                    reason: "quantified invariant has no bound variables".into(),
-                });
-                continue;
-            }
-
-            let start = Instant::now();
-            let solver = Solver::new(&ctx);
-
-            // Create bound variables
-            let mut bound_consts = Vec::new();
-            for (var_name, sort_name) in &inv.bound_vars {
-                match sort_name.as_str() {
-                    "Int" | "Nat" => {
-                        bound_consts.push((
-                            var_name.clone(),
-                            ast::Int::new_const(&ctx, var_name.as_str()),
-                        ));
-                    }
-                    _ => {
-                        // Unknown sort, treat as Int
-                        bound_consts.push((
-                            var_name.clone(),
-                            ast::Int::new_const(&ctx, var_name.as_str()),
-                        ));
-                    }
-                }
-            }
-
-            // Parse and encode the body as a Z3 Bool
-            match parse_predicate_to_z3(&ctx, &inv.body, &bound_consts) {
-                Some(body_z3) => {
-                    // To verify `forall x: P(x)`, negate and check:
-                    // if `exists x: !P(x)` is UNSAT, the invariant holds.
-                    solver.assert(&body_z3.not());
-
-                    match solver.check() {
-                        SatResult::Unsat => {
-                            results.push(Layer2Result::Verified {
-                                invariant: inv.name.clone(),
-                                time_ms: start.elapsed().as_millis() as u64,
-                            });
-                        }
-                        SatResult::Sat => {
-                            let model_entries = if let Some(m) = solver.get_model() {
-                                bound_consts
-                                    .iter()
-                                    .filter_map(|(name, c)| {
-                                        m.eval(c, true).map(|v| (name.clone(), v.to_string()))
-                                    })
-                                    .collect()
-                            } else {
-                                vec![]
-                            };
-                            results.push(Layer2Result::Counterexample {
-                                invariant: inv.name.clone(),
-                                model: model_entries,
-                            });
-                        }
-                        SatResult::Unknown => {
-                            let reason = solver
-                                .get_reason_unknown()
-                                .unwrap_or_else(|| "unknown".into());
-                            if reason.contains("timeout") {
-                                results.push(Layer2Result::Timeout {
-                                    invariant: inv.name.clone(),
-                                    timeout_ms: self.config.timeout_ms,
-                                });
-                            } else {
-                                results.push(Layer2Result::Unknown {
-                                    invariant: inv.name.clone(),
-                                    reason,
-                                });
-                            }
-                        }
-                    }
-                }
-                None => {
+            // --- Quantified invariants ---
+            for inv in &self.invariants {
+                if inv.bound_vars.is_empty() {
                     results.push(Layer2Result::Unknown {
                         invariant: inv.name.clone(),
-                        reason: format!("cannot parse invariant body: {}", inv.body),
-                    });
-                }
-            }
-        }
-
-        // --- Termination obligations ---
-        if self.config.enable_termination {
-            for obl in &self.termination_obligations {
-                if obl.measure.is_empty() {
-                    results.push(Layer2Result::Unknown {
-                        invariant: format!("termination:{}", obl.fn_name),
-                        reason: "no measure provided".into(),
+                        reason: "quantified invariant has no bound variables".into(),
                     });
                     continue;
                 }
 
                 let start = Instant::now();
-                let solver = Solver::new(&ctx);
+                let solver = Solver::new();
 
-                // Termination check: measure must be non-negative, and each
-                // recursive call must strictly decrease the measure.
-                let measure_var = ast::Int::new_const(&ctx, obl.measure.as_str());
+                // Create bound variables
+                let mut bound_consts = Vec::new();
+                for (var_name, sort_name) in &inv.bound_vars {
+                    match sort_name.as_str() {
+                        "Int" | "Nat" => {
+                            bound_consts
+                                .push((var_name.clone(), ast::Int::new_const(var_name.as_str())));
+                        }
+                        _ => {
+                            // Unknown sort, treat as Int
+                            bound_consts
+                                .push((var_name.clone(), ast::Int::new_const(var_name.as_str())));
+                        }
+                    }
+                }
 
-                // Assert measure >= 0 (well-founded)
-                let zero = ast::Int::from_i64(&ctx, 0);
-                solver.assert(&measure_var.ge(&zero));
+                // Parse and encode the body as a Z3 Bool
+                match parse_predicate_to_z3(&inv.body, &bound_consts) {
+                    Some(body_z3) => {
+                        // To verify `forall x: P(x)`, negate and check:
+                        // if `exists x: !P(x)` is UNSAT, the invariant holds.
+                        solver.assert(body_z3.not());
 
-                if obl.recursive_calls.is_empty() {
-                    // No recursive calls means trivially terminating
-                    results.push(Layer2Result::Verified {
-                        invariant: format!("termination:{}", obl.fn_name),
-                        time_ms: start.elapsed().as_millis() as u64,
-                    });
-                } else {
-                    // For each recursive call, the measure must decrease.
-                    // We check: exists measure >= 0 such that NOT(measure' < measure)
-                    // for any recursive call. If UNSAT, termination holds.
-                    let mut all_decrease = ast::Bool::from_bool(&ctx, true);
-                    for (i, _call) in obl.recursive_calls.iter().enumerate() {
-                        let call_measure =
-                            ast::Int::new_const(&ctx, format!("measure_call_{i}").as_str());
-                        // call_measure >= 0
-                        solver.assert(&call_measure.ge(&zero));
-                        // call_measure < measure (must decrease)
-                        all_decrease =
-                            ast::Bool::and(&ctx, &[&all_decrease, &call_measure.lt(&measure_var)]);
+                        match solver.check() {
+                            SatResult::Unsat => {
+                                results.push(Layer2Result::Verified {
+                                    invariant: inv.name.clone(),
+                                    time_ms: start.elapsed().as_millis() as u64,
+                                });
+                            }
+                            SatResult::Sat => {
+                                let model_entries = if let Some(m) = solver.get_model() {
+                                    bound_consts
+                                        .iter()
+                                        .filter_map(|(name, c)| {
+                                            m.eval(c, true).map(|v| (name.clone(), v.to_string()))
+                                        })
+                                        .collect()
+                                } else {
+                                    vec![]
+                                };
+                                results.push(Layer2Result::Counterexample {
+                                    invariant: inv.name.clone(),
+                                    model: model_entries,
+                                });
+                            }
+                            SatResult::Unknown => {
+                                let reason = solver
+                                    .get_reason_unknown()
+                                    .unwrap_or_else(|| "unknown".into());
+                                if reason.contains("timeout") {
+                                    results.push(Layer2Result::Timeout {
+                                        invariant: inv.name.clone(),
+                                        timeout_ms: self.config.timeout_ms,
+                                    });
+                                } else {
+                                    results.push(Layer2Result::Unknown {
+                                        invariant: inv.name.clone(),
+                                        reason,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        results.push(Layer2Result::Unknown {
+                            invariant: inv.name.clone(),
+                            reason: format!("cannot parse invariant body: {}", inv.body),
+                        });
+                    }
+                }
+            }
+
+            // --- Termination obligations ---
+            if self.config.enable_termination {
+                for obl in &self.termination_obligations {
+                    if obl.measure.is_empty() {
+                        results.push(Layer2Result::Unknown {
+                            invariant: format!("termination:{}", obl.fn_name),
+                            reason: "no measure provided".into(),
+                        });
+                        continue;
                     }
 
-                    // Negate: if exists assignment where NOT all decrease, we have
-                    // a counterexample
-                    solver.assert(&all_decrease.not());
+                    let start = Instant::now();
+                    let solver = Solver::new();
+
+                    // Termination check: measure must be non-negative, and each
+                    // recursive call must strictly decrease the measure.
+                    let measure_var = ast::Int::new_const(obl.measure.as_str());
+
+                    // Assert measure >= 0 (well-founded)
+                    let zero = ast::Int::from_i64(0);
+                    solver.assert(measure_var.ge(&zero));
+
+                    if obl.recursive_calls.is_empty() {
+                        // No recursive calls means trivially terminating
+                        results.push(Layer2Result::Verified {
+                            invariant: format!("termination:{}", obl.fn_name),
+                            time_ms: start.elapsed().as_millis() as u64,
+                        });
+                    } else {
+                        // For each recursive call, the measure must decrease.
+                        // We check: exists measure >= 0 such that NOT(measure' < measure)
+                        // for any recursive call. If UNSAT, termination holds.
+                        let mut all_decrease = ast::Bool::from_bool(true);
+                        for (i, _call) in obl.recursive_calls.iter().enumerate() {
+                            let call_measure =
+                                ast::Int::new_const(format!("measure_call_{i}").as_str());
+                            // call_measure >= 0
+                            solver.assert(call_measure.ge(&zero));
+                            // call_measure < measure (must decrease)
+                            all_decrease =
+                                ast::Bool::and(&[&all_decrease, &call_measure.lt(&measure_var)]);
+                        }
+
+                        // Negate: if exists assignment where NOT all decrease, we have
+                        // a counterexample
+                        solver.assert(all_decrease.not());
+
+                        match solver.check() {
+                            SatResult::Unsat => {
+                                results.push(Layer2Result::Verified {
+                                    invariant: format!("termination:{}", obl.fn_name),
+                                    time_ms: start.elapsed().as_millis() as u64,
+                                });
+                            }
+                            SatResult::Sat => {
+                                let model_entries = if let Some(m) = solver.get_model() {
+                                    vec![(
+                                        obl.measure.clone(),
+                                        m.eval(&measure_var, true)
+                                            .map(|v| v.to_string())
+                                            .unwrap_or_else(|| "?".into()),
+                                    )]
+                                } else {
+                                    vec![]
+                                };
+                                results.push(Layer2Result::Counterexample {
+                                    invariant: format!("termination:{}", obl.fn_name),
+                                    model: model_entries,
+                                });
+                            }
+                            SatResult::Unknown => {
+                                let reason = solver
+                                    .get_reason_unknown()
+                                    .unwrap_or_else(|| "unknown".into());
+                                if reason.contains("timeout") {
+                                    results.push(Layer2Result::Timeout {
+                                        invariant: format!("termination:{}", obl.fn_name),
+                                        timeout_ms: self.config.timeout_ms,
+                                    });
+                                } else {
+                                    results.push(Layer2Result::Unknown {
+                                        invariant: format!("termination:{}", obl.fn_name),
+                                        reason,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Roundtrip obligations ---
+            if self.config.enable_roundtrip {
+                for obl in &self.roundtrip_obligations {
+                    let start = Instant::now();
+                    let solver = Solver::new();
+
+                    // Model roundtrip as: forall x, deserialize(serialize(x)) == x
+                    // Using uninterpreted functions.
+                    let int_sort = z3::Sort::int();
+                    let ser_fn =
+                        z3::FuncDecl::new(obl.serialize_fn.as_str(), &[&int_sort], &int_sort);
+                    let deser_fn =
+                        z3::FuncDecl::new(obl.deserialize_fn.as_str(), &[&int_sort], &int_sort);
+
+                    let x = ast::Int::new_const("x");
+
+                    // serialize(x)
+                    let ser_x = ser_fn.apply(&[&x]);
+                    // deserialize(serialize(x))
+                    let deser_ser_x = deser_fn.apply(&[&ser_x]);
+
+                    // Assert roundtrip property: deserialize(serialize(x)) == x
+                    // Check negation: exists x such that deser(ser(x)) != x
+                    let x_ast: z3::ast::Dynamic = x.clone().into();
+                    let eq = deser_ser_x.eq(&x_ast);
+                    solver.assert(eq.not());
 
                     match solver.check() {
                         SatResult::Unsat => {
+                            // Roundtrip holds for all x (with uninterpreted functions,
+                            // this is only UNSAT if there's no model at all, which means
+                            // Z3 can prove it from axioms alone). In practice, uninterpreted
+                            // functions without axioms will be SAT (a model exists where
+                            // deser(ser(x)) != x). So we report Verified only if UNSAT.
                             results.push(Layer2Result::Verified {
-                                invariant: format!("termination:{}", obl.fn_name),
+                                invariant: format!("roundtrip:{}", obl.type_name),
                                 time_ms: start.elapsed().as_millis() as u64,
                             });
                         }
                         SatResult::Sat => {
-                            let model_entries = if let Some(m) = solver.get_model() {
-                                vec![(
-                                    obl.measure.clone(),
-                                    m.eval(&measure_var, true)
-                                        .map(|v| v.to_string())
-                                        .unwrap_or_else(|| "?".into()),
-                                )]
-                            } else {
-                                vec![]
-                            };
-                            results.push(Layer2Result::Counterexample {
-                                invariant: format!("termination:{}", obl.fn_name),
-                                model: model_entries,
-                            });
+                            // With pure uninterpreted functions and no axioms constraining
+                            // ser/deser to be inverses, SAT is expected. Report as Unknown
+                            // with an explanation: the roundtrip property requires axioms
+                            // from the actual serialize/deserialize implementations.
+                            results.push(Layer2Result::Unknown {
+                            invariant: format!("roundtrip:{}", obl.type_name),
+                            reason:
+                                "roundtrip requires implementation axioms for serialize/deserialize"
+                                    .into(),
+                        });
                         }
                         SatResult::Unknown => {
                             let reason = solver
@@ -376,12 +443,12 @@ impl Layer2Verifier {
                                 .unwrap_or_else(|| "unknown".into());
                             if reason.contains("timeout") {
                                 results.push(Layer2Result::Timeout {
-                                    invariant: format!("termination:{}", obl.fn_name),
+                                    invariant: format!("roundtrip:{}", obl.type_name),
                                     timeout_ms: self.config.timeout_ms,
                                 });
                             } else {
                                 results.push(Layer2Result::Unknown {
-                                    invariant: format!("termination:{}", obl.fn_name),
+                                    invariant: format!("roundtrip:{}", obl.type_name),
                                     reason,
                                 });
                             }
@@ -389,80 +456,9 @@ impl Layer2Verifier {
                     }
                 }
             }
-        }
 
-        // --- Roundtrip obligations ---
-        if self.config.enable_roundtrip {
-            for obl in &self.roundtrip_obligations {
-                let start = Instant::now();
-                let solver = Solver::new(&ctx);
-
-                // Model roundtrip as: forall x, deserialize(serialize(x)) == x
-                // Using uninterpreted functions.
-                let int_sort = z3::Sort::int(&ctx);
-                let ser_fn =
-                    z3::FuncDecl::new(&ctx, obl.serialize_fn.as_str(), &[&int_sort], &int_sort);
-                let deser_fn =
-                    z3::FuncDecl::new(&ctx, obl.deserialize_fn.as_str(), &[&int_sort], &int_sort);
-
-                let x = ast::Int::new_const(&ctx, "x");
-
-                // serialize(x)
-                let ser_x = ser_fn.apply(&[&x]);
-                // deserialize(serialize(x))
-                let deser_ser_x = deser_fn.apply(&[&ser_x]);
-
-                // Assert roundtrip property: deserialize(serialize(x)) == x
-                // Check negation: exists x such that deser(ser(x)) != x
-                let x_ast: z3::ast::Dynamic = x.clone().into();
-                let eq = deser_ser_x._eq(&x_ast);
-                solver.assert(&eq.not());
-
-                match solver.check() {
-                    SatResult::Unsat => {
-                        // Roundtrip holds for all x (with uninterpreted functions,
-                        // this is only UNSAT if there's no model at all, which means
-                        // Z3 can prove it from axioms alone). In practice, uninterpreted
-                        // functions without axioms will be SAT (a model exists where
-                        // deser(ser(x)) != x). So we report Verified only if UNSAT.
-                        results.push(Layer2Result::Verified {
-                            invariant: format!("roundtrip:{}", obl.type_name),
-                            time_ms: start.elapsed().as_millis() as u64,
-                        });
-                    }
-                    SatResult::Sat => {
-                        // With pure uninterpreted functions and no axioms constraining
-                        // ser/deser to be inverses, SAT is expected. Report as Unknown
-                        // with an explanation: the roundtrip property requires axioms
-                        // from the actual serialize/deserialize implementations.
-                        results.push(Layer2Result::Unknown {
-                            invariant: format!("roundtrip:{}", obl.type_name),
-                            reason:
-                                "roundtrip requires implementation axioms for serialize/deserialize"
-                                    .into(),
-                        });
-                    }
-                    SatResult::Unknown => {
-                        let reason = solver
-                            .get_reason_unknown()
-                            .unwrap_or_else(|| "unknown".into());
-                        if reason.contains("timeout") {
-                            results.push(Layer2Result::Timeout {
-                                invariant: format!("roundtrip:{}", obl.type_name),
-                                timeout_ms: self.config.timeout_ms,
-                            });
-                        } else {
-                            results.push(Layer2Result::Unknown {
-                                invariant: format!("roundtrip:{}", obl.type_name),
-                                reason,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        results
+            results
+        }) // end with_z3_config
     }
 }
 
@@ -471,21 +467,15 @@ impl Layer2Verifier {
 /// Supports: `x >= 0`, `x > 0`, `x < y`, `x == y`, `x != y`, `x + y > z`,
 /// `true`, `false`, and conjunctions with `&&`.
 #[cfg(feature = "z3-verify")]
-fn parse_predicate_to_z3<'ctx>(
-    ctx: &'ctx z3::Context,
-    body: &str,
-    vars: &[(String, z3::ast::Int<'ctx>)],
-) -> Option<z3::ast::Bool<'ctx>> {
-    use z3::ast::Ast;
-
+fn parse_predicate_to_z3(body: &str, vars: &[(String, z3::ast::Int)]) -> Option<z3::ast::Bool> {
     let body = body.trim();
 
     // Handle boolean literals
     if body == "true" {
-        return Some(z3::ast::Bool::from_bool(ctx, true));
+        return Some(z3::ast::Bool::from_bool(true));
     }
     if body == "false" {
-        return Some(z3::ast::Bool::from_bool(ctx, false));
+        return Some(z3::ast::Bool::from_bool(false));
     }
 
     // Handle conjunction: split on &&
@@ -493,10 +483,10 @@ fn parse_predicate_to_z3<'ctx>(
         let parts: Vec<&str> = body.split("&&").collect();
         let mut conjuncts = Vec::new();
         for part in parts {
-            conjuncts.push(parse_predicate_to_z3(ctx, part.trim(), vars)?);
+            conjuncts.push(parse_predicate_to_z3(part.trim(), vars)?);
         }
-        let refs: Vec<&z3::ast::Bool<'ctx>> = conjuncts.iter().collect();
-        return Some(z3::ast::Bool::and(ctx, &refs));
+        let refs: Vec<&z3::ast::Bool> = conjuncts.iter().collect();
+        return Some(z3::ast::Bool::and(&refs));
     }
 
     // Handle disjunction: split on ||
@@ -504,10 +494,10 @@ fn parse_predicate_to_z3<'ctx>(
         let parts: Vec<&str> = body.split("||").collect();
         let mut disjuncts = Vec::new();
         for part in parts {
-            disjuncts.push(parse_predicate_to_z3(ctx, part.trim(), vars)?);
+            disjuncts.push(parse_predicate_to_z3(part.trim(), vars)?);
         }
-        let refs: Vec<&z3::ast::Bool<'ctx>> = disjuncts.iter().collect();
-        return Some(z3::ast::Bool::or(ctx, &refs));
+        let refs: Vec<&z3::ast::Bool> = disjuncts.iter().collect();
+        return Some(z3::ast::Bool::or(&refs));
     }
 
     // Handle comparison operators (check multi-char ops first to avoid
@@ -524,13 +514,13 @@ fn parse_predicate_to_z3<'ctx>(
         if let Some(pos) = body.find(op_str) {
             let lhs_str = body[..pos].trim();
             let rhs_str = body[pos + op_str.len()..].trim();
-            let lhs = parse_int_expr(ctx, lhs_str, vars)?;
-            let rhs = parse_int_expr(ctx, rhs_str, vars)?;
+            let lhs = parse_int_expr(lhs_str, vars)?;
+            let rhs = parse_int_expr(rhs_str, vars)?;
             return Some(match op_kind {
                 "ge" => lhs.ge(&rhs),
                 "le" => lhs.le(&rhs),
-                "ne" => lhs._eq(&rhs).not(),
-                "eq" => lhs._eq(&rhs),
+                "ne" => lhs.eq(&rhs).not(),
+                "eq" => lhs.eq(&rhs),
                 "gt" => lhs.gt(&rhs),
                 "lt" => lhs.lt(&rhs),
                 _ => unreachable!(),
@@ -545,41 +535,37 @@ fn parse_predicate_to_z3<'ctx>(
 ///
 /// Supports: variable names, integer literals, `x + y`, `x - y`, `x * y`.
 #[cfg(feature = "z3-verify")]
-fn parse_int_expr<'ctx>(
-    ctx: &'ctx z3::Context,
-    expr: &str,
-    vars: &[(String, z3::ast::Int<'ctx>)],
-) -> Option<z3::ast::Int<'ctx>> {
+fn parse_int_expr(expr: &str, vars: &[(String, z3::ast::Int)]) -> Option<z3::ast::Int> {
     let expr = expr.trim();
 
     // Handle addition
     if let Some(pos) = expr.rfind('+')
         && pos > 0
     {
-        let lhs = parse_int_expr(ctx, &expr[..pos], vars)?;
-        let rhs = parse_int_expr(ctx, &expr[pos + 1..], vars)?;
-        return Some(z3::ast::Int::add(ctx, &[&lhs, &rhs]));
+        let lhs = parse_int_expr(&expr[..pos], vars)?;
+        let rhs = parse_int_expr(&expr[pos + 1..], vars)?;
+        return Some(z3::ast::Int::add(&[&lhs, &rhs]));
     }
 
     // Handle subtraction (but not negative numbers)
     if let Some(pos) = expr.rfind('-')
         && pos > 0
     {
-        let lhs = parse_int_expr(ctx, &expr[..pos], vars)?;
-        let rhs = parse_int_expr(ctx, &expr[pos + 1..], vars)?;
-        return Some(z3::ast::Int::sub(ctx, &[&lhs, &rhs]));
+        let lhs = parse_int_expr(&expr[..pos], vars)?;
+        let rhs = parse_int_expr(&expr[pos + 1..], vars)?;
+        return Some(z3::ast::Int::sub(&[&lhs, &rhs]));
     }
 
     // Handle multiplication
     if let Some(pos) = expr.rfind('*') {
-        let lhs = parse_int_expr(ctx, &expr[..pos], vars)?;
-        let rhs = parse_int_expr(ctx, &expr[pos + 1..], vars)?;
-        return Some(z3::ast::Int::mul(ctx, &[&lhs, &rhs]));
+        let lhs = parse_int_expr(&expr[..pos], vars)?;
+        let rhs = parse_int_expr(&expr[pos + 1..], vars)?;
+        return Some(z3::ast::Int::mul(&[&lhs, &rhs]));
     }
 
     // Integer literal
     if let Ok(n) = expr.parse::<i64>() {
-        return Some(z3::ast::Int::from_i64(ctx, n));
+        return Some(z3::ast::Int::from_i64(n));
     }
 
     // Variable lookup
@@ -611,6 +597,7 @@ pub fn verify_quantified_expr(
     }
     #[cfg(not(feature = "z3-verify"))]
     {
+        let _ = quantified_body;
         VerificationResult::Unknown {
             clause_desc: name.into(),
             reason: format!(

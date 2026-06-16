@@ -357,6 +357,11 @@ pub(crate) fn is_clause_stopper_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::MUST_NOT_MASK_KW
             | SyntaxKind::PROTOCOL_KW
             | SyntaxKind::TRANSITION_KW
+            // Prophecy and ghost declarations
+            | SyntaxKind::PROPHECY_KW
+            | SyntaxKind::GHOST_KW
+            | SyntaxKind::BIND_KW
+            | SyntaxKind::CODEC_REGISTRY_KW
     )
 }
 

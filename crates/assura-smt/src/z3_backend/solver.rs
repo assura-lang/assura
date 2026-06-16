@@ -41,7 +41,7 @@ pub(super) fn clause_desc(parent_name: &str, kind: &ClauseKind) -> String {
 /// Iterates over the constant declarations in the model, evaluates
 /// each one with model completion, and collects `(name, value)` pairs.
 /// Internal variables (prefixed with `__`) are excluded.
-pub(super) fn extract_counter_model(model: &Model<'_>) -> CounterexampleModel {
+pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
     let mut variables: Vec<(String, String)> = Vec::new();
     for decl in model.iter() {
         // Skip non-constant declarations (uninterpreted functions with
@@ -74,11 +74,7 @@ pub(super) fn extract_counter_model(model: &Model<'_>) -> CounterexampleModel {
 
 /// Interpret solver result for a validity check (ensures/rule).
 /// We negate the goal and check-sat: UNSAT = valid.
-pub(super) fn check_validity(
-    solver: &Solver<'_>,
-    desc: String,
-    results: &mut Vec<VerificationResult>,
-) {
+pub(super) fn check_validity(solver: &Solver, desc: String, results: &mut Vec<VerificationResult>) {
     match solver.check() {
         SatResult::Unsat => {
             results.push(VerificationResult::Verified { clause_desc: desc });
@@ -115,7 +111,7 @@ pub(super) fn check_validity(
 /// Interpret solver result for a satisfiability check (invariant).
 /// We assert the formula directly: SAT = satisfiable = good.
 pub(super) fn check_satisfiability(
-    solver: &Solver<'_>,
+    solver: &Solver,
     desc: String,
     results: &mut Vec<VerificationResult>,
 ) {

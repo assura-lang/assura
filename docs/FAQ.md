@@ -55,14 +55,11 @@ or `Counterexample`.
    && x < 1000000` enumerate a huge space. Use tighter bounds or
    refinement types.
 
-3. **Increase the timeout.** The default is 5 seconds. Use:
-   ```bash
-   assura check file.assura --layer 1
-   ```
-   Or set it in `assura.toml`:
+3. **Increase the timeout.** The default is 1 second for Layer 1
+   (10 seconds for Layer 2). Increase it in `assura.toml`:
    ```toml
    [verify]
-   timeout_ms = 30000
+   timeout = 30000
    ```
 
 4. **Use Layer 0 first.** Structural checks (Layer 0) are instant and
@@ -320,7 +317,7 @@ output = "generated"
 target = "native"    # or "wasm"
 
 [verify]
-timeout_ms = 5000
+timeout = 5000
 layer = 255          # 0=structural, 1=SMT, 255=all
 solver = "z3"        # "z3", "cvc5", or "portfolio"
 

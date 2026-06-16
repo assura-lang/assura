@@ -163,18 +163,25 @@ Every change must pass `cargo build`, `cargo test --workspace`,
 
 ### Crate Versioning (CRITICAL)
 
-These versions are load-bearing. The APIs change between majors.
+Keep dependencies up to date. Run `cargo outdated -R` periodically.
 
-| Crate | Version | Do NOT upgrade to |
-|-------|---------|-------------------|
+| Crate | Version | Notes |
+|-------|---------|-------|
 | rowan | 0.16 | stable, upgrades OK |
-| ariadne | 0.4 | 0.5+ (different Report/Label API) |
+| ariadne | 0.6 | Report::build takes (kind, span) with 2 args; span is (Id, Range) |
 | logos | 0.16 | stable, upgrades OK |
+| z3 | 0.20 | No lifetime params on AST types; no &ctx first arg; pre-generated FFI bindings |
+| sha2 | 0.11 | Uses digest 0.11, high-level API unchanged |
 
 **rowan 0.16 patterns**: `GreenNodeBuilder`, `SyntaxNode::new_root()`,
 `Language` trait on `AssuraLanguage`, `SyntaxKind` enum with `From<u16>`.
 The parser uses an events/markers pattern (Open/Close/Advance) with
 Pratt parsing for expressions.
+
+**z3 0.20 patterns**: No lifetime params (`Bool`, not `Bool<'ctx>`).
+No `&ctx` first arg on constructors (`Int::from_i64(n)`, not
+`Int::from_i64(&ctx, n)`). Use `.eq()` not `._eq()`. Context
+created via `z3::with_z3_config(&cfg, || { ... })`.
 
 ### Specification Compliance
 
@@ -266,7 +273,7 @@ These are final. Do not revisit without explicit discussion.
 | Compiler language | Rust | docs/INVESTIGATION.md |
 | Lexer | logos 0.16 | Fast, derive macro |
 | Parser | rowan 0.16 CST + hand-written recursive descent | Lossless CST, Pratt expressions |
-| Error display | ariadne 0.4 | Colored spans |
+| Error display | ariadne 0.6 | Colored spans |
 | SMT solver | Z3 primary (z3 crate), CVC5 fallback | docs/ROADMAP.md |
 | Codegen target | Rust source via prettyplease | NOT syn/quote |
 | Codegen output | `generated/` dir as Cargo workspace | Section 10.3 of spec |
@@ -529,9 +536,9 @@ sudo apt-get install -y libz3-dev
 z3 --version
 ```
 
-The `z3` Rust crate version should be `0.12` (latest stable with good
-API). Pin it in Cargo.toml. The crate links against libz3 at build
-time; if it can't find it, set `Z3_SYS_Z3_HEADER` and `LD_LIBRARY_PATH`.
+The `z3` Rust crate version is `0.20` (uses pre-generated FFI
+bindings, no `bindgen` needed at build time). The crate links against
+libz3 at build time; if it can't find it, set `LD_LIBRARY_PATH`.
 
 For CI (T029), add this to the GitHub Actions workflow:
 

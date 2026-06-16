@@ -149,7 +149,11 @@ fn hash_clauses(contract_name: &str, clauses: &[assura_parser::ast::Clause]) -> 
         hasher.update(format!("{:?}", clause.kind).as_bytes());
         hasher.update(format!("{:?}", clause.body).as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
 }
 
 /// Verification cache backed by the filesystem.

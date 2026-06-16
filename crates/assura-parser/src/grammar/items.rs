@@ -26,6 +26,7 @@ pub(crate) fn decl(p: &mut Parser) {
                 generic_block(p);
             }
         }
+        SyntaxKind::PROPHECY_KW => prophecy_decl(p),
         SyntaxKind::GHOST_KW => {
             if p.nth(1) == SyntaxKind::PROPHECY_KW {
                 prophecy_decl(p);
@@ -420,22 +421,16 @@ fn magic_pattern(p: &mut Parser) {
     }
 }
 
-/// `ghost prophecy <name> : <Type>`
+/// `[ghost] prophecy <name> : <Type>`
 fn prophecy_decl(p: &mut Parser) {
     let m = p.open();
-    p.expect(SyntaxKind::GHOST_KW);
+    p.eat(SyntaxKind::GHOST_KW);
     p.expect(SyntaxKind::PROPHECY_KW);
     p.expect(SyntaxKind::IDENT); // name
     if p.at(SyntaxKind::COLON) {
         p.bump(); // ':'
-        // Consume type tokens until end-of-statement
-        while !p.eof()
-            && !p.at(SyntaxKind::GHOST_KW)
-            && !p.at(SyntaxKind::CONTRACT_KW)
-            && !p.at(SyntaxKind::FN_KW)
-            && !p.at(SyntaxKind::SERVICE_KW)
-            && !p.at(SyntaxKind::R_BRACE)
-        {
+        // Consume type tokens until next declaration or clause keyword
+        while !p.eof() && !clauses::is_clause_stopper(p) {
             p.bump();
         }
     }
