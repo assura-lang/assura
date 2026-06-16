@@ -1442,45 +1442,30 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     type_check_with_config(resolved, &assura_config::TypeCheckConfig::default())
 }
 
-/// Type-check a resolved file with cross-module type information.
+/// Run all domain and structural checkers on the source AST.
 ///
-/// Unlike [`type_check_with_config`], this populates the `TypeEnv` with
-/// type information from imported modules so that cross-file references
-/// (contract input/output types, struct fields, enum variants) resolve
-/// to concrete types instead of `Type::Unknown`.
-pub fn type_check_with_modules(
-    resolved: &ResolvedFile,
-    modules: &HashMap<String, ResolvedFile>,
+/// This is the single dispatch point for all 50+ checkers. All three
+/// type-check entry points (`type_check_with_config`, `type_check_with_modules`,
+/// `type_check_hir_with_config`) call this after their specific clause-body
+/// checking and env-building.
+fn run_all_checks(
+    source: &assura_parser::ast::SourceFile,
+    type_env: &TypeEnv,
+    symbols: &SymbolTable,
     config: &assura_config::TypeCheckConfig,
-) -> Result<TypedFile, Vec<TypeError>> {
-    let mut type_env = build_type_env(&resolved.symbols, &resolved.source);
+) -> (Vec<TypeError>, Vec<PendingDecreaseCheck>) {
+    let mut errors = Vec::new();
 
-    // Inject type information from imported modules
-    for imp in &resolved.imports {
-        if imp.status != ImportStatus::Resolved {
-            continue;
-        }
-        let module_key = imp.path.join(".");
-        if let Some(imported_resolved) = modules.get(&module_key) {
-            inject_imported_types(&mut type_env, imp, &imported_resolved.source);
-        }
-    }
-
-    // Run the same checking pipeline as type_check_with_config
-    let source = &resolved.source;
-    let mut errors = check_clause_bodies(source, &type_env);
-    errors.extend(run_axiomatic_checks(source, &resolved.symbols));
+    errors.extend(run_axiomatic_checks(source, symbols));
     errors.extend(run_liveness_checks(source));
     errors.extend(run_crud_auth_checks(source));
     errors.extend(run_linearity_checks(source));
     errors.extend(run_typestate_checks(source));
 
+    // Effect checking with config-driven filtering
     let mut effect_errors = run_effect_checks(source);
     if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
-        effect_errors.retain(|e| {
-            let msg = &e.message;
-            !config.allowed_effects.iter().any(|a| msg.contains(a))
-        });
+        effect_errors.retain(|e| !config.allowed_effects.iter().any(|a| e.message.contains(a)));
     }
     if config.strict_effects {
         errors.extend(effect_errors);
@@ -1492,12 +1477,12 @@ pub fn type_check_with_modules(
     errors.extend(run_info_flow_checks(source));
     errors.extend(run_ffi_checks(source));
     errors.extend(run_error_propagation_checks(source));
-    errors.extend(run_frame_checks(source, &type_env, &resolved.symbols));
+    errors.extend(run_frame_checks(source, type_env, symbols));
     let (totality_errors, pending_decrease_checks) = run_totality_checks(source);
     errors.extend(totality_errors);
-    errors.extend(run_fixed_width_checks(source, &type_env));
+    errors.extend(run_fixed_width_checks(source, type_env));
     errors.extend(run_collection_contract_checks(source));
-    errors.extend(run_match_exhaustiveness_checks(source, &resolved.symbols));
+    errors.extend(run_match_exhaustiveness_checks(source, symbols));
     errors.extend(run_constant_time_checks(source));
     errors.extend(run_determinism_checks(source));
     errors.extend(run_memory_checks(source));
@@ -1539,6 +1524,38 @@ pub fn type_check_with_modules(
     errors.extend(run_crypto_conformance_checks(source));
     errors.extend(run_codec_registry_checks(source));
     errors.extend(run_generic_instantiation_checks(source));
+
+    (errors, pending_decrease_checks)
+}
+
+/// Type-check a resolved file with cross-module type information.
+///
+/// Unlike [`type_check_with_config`], this populates the `TypeEnv` with
+/// type information from imported modules so that cross-file references
+/// (contract input/output types, struct fields, enum variants) resolve
+/// to concrete types instead of `Type::Unknown`.
+pub fn type_check_with_modules(
+    resolved: &ResolvedFile,
+    modules: &HashMap<String, ResolvedFile>,
+    config: &assura_config::TypeCheckConfig,
+) -> Result<TypedFile, Vec<TypeError>> {
+    let mut type_env = build_type_env(&resolved.symbols, &resolved.source);
+
+    // Inject type information from imported modules
+    for imp in &resolved.imports {
+        if imp.status != ImportStatus::Resolved {
+            continue;
+        }
+        let module_key = imp.path.join(".");
+        if let Some(imported_resolved) = modules.get(&module_key) {
+            inject_imported_types(&mut type_env, imp, &imported_resolved.source);
+        }
+    }
+
+    let mut errors = check_clause_bodies(&resolved.source, &type_env);
+    let (check_errors, pending_decrease_checks) =
+        run_all_checks(&resolved.source, &type_env, &resolved.symbols, config);
+    errors.extend(check_errors);
 
     if !errors.is_empty() {
         return Err(errors);
@@ -1709,79 +1726,10 @@ pub fn type_check_hir_with_config(
     let resolved = hir.resolved();
     let type_env = build_type_env_from_hir(hir);
 
-    // Check clause bodies using HIR declarations (structured types for
-    // return types, HirExpr->Expr bridge for inference)
-    let source = &resolved.source;
     let mut errors = check_clause_bodies_hir(hir, &type_env);
-    errors.extend(run_axiomatic_checks(source, &resolved.symbols));
-    errors.extend(run_liveness_checks(source));
-    errors.extend(run_crud_auth_checks(source));
-    errors.extend(run_linearity_checks(source));
-    errors.extend(run_typestate_checks(source));
-
-    // Apply config-driven effect checking (same logic as AST path)
-    let mut effect_errors = run_effect_checks(source);
-    if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
-        effect_errors.retain(|e| !config.allowed_effects.iter().any(|a| e.message.contains(a)));
-    }
-    if config.strict_effects {
-        errors.extend(effect_errors);
-    } else {
-        errors.extend(effect_errors.into_iter().filter(|e| e.code != "A07003"));
-    }
-    errors.extend(run_taint_checks(source));
-    errors.extend(run_info_flow_checks(source));
-    errors.extend(run_ffi_checks(source));
-    errors.extend(run_error_propagation_checks(source));
-    errors.extend(run_frame_checks(source, &type_env, &resolved.symbols));
-    let (totality_errors, pending_decrease_checks) = run_totality_checks(source);
-    errors.extend(totality_errors);
-    errors.extend(run_fixed_width_checks(source, &type_env));
-    errors.extend(run_collection_contract_checks(source));
-    errors.extend(run_match_exhaustiveness_checks(source, &resolved.symbols));
-    errors.extend(run_constant_time_checks(source));
-    errors.extend(run_determinism_checks(source));
-    errors.extend(run_memory_checks(source));
-    errors.extend(run_secure_erasure_checks(source));
-    errors.extend(run_interface_checks(source));
-    errors.extend(run_structural_invariant_checks(source));
-    errors.extend(run_shared_mem_checks(source));
-    errors.extend(run_lock_order_checks(source));
-    errors.extend(run_weak_memory_checks(source));
-    errors.extend(run_allocator_checks(source));
-    errors.extend(run_circular_buffer_checks(source));
-    errors.extend(run_callback_reentrancy_checks(source));
-    errors.extend(run_temporal_deadline_checks(source));
-    errors.extend(run_binary_format_checks(source));
-    errors.extend(run_bit_level_checks(source));
-    errors.extend(run_string_encoding_checks(source));
-    errors.extend(run_checksum_checks(source));
-    errors.extend(run_protocol_grammar_checks(source));
-    errors.extend(run_opaque_function_checks(source));
-    errors.extend(run_crash_recovery_checks(source));
-    errors.extend(run_page_cache_checks(source));
-    errors.extend(run_mvcc_checks(source));
-    errors.extend(run_rollback_checks(source));
-    errors.extend(run_monotonic_state_checks(source));
-    errors.extend(run_storage_failure_checks(source));
-    errors.extend(run_numerical_precision_checks(source));
-    errors.extend(run_precomputed_table_checks(source));
-    errors.extend(run_platform_abstraction_checks(source));
-    errors.extend(run_feature_flag_checks(source));
-    errors.extend(run_resource_limit_checks(source));
-    errors.extend(run_unsafe_escape_checks(source));
-    errors.extend(run_complexity_bound_checks(source));
-    errors.extend(run_behavioral_equivalence_checks(source));
-    errors.extend(run_multi_pass_refinement_checks(source));
-    errors.extend(run_incremental_contract_checks(source));
-    errors.extend(run_scoped_invariant_checks(source));
-    errors.extend(run_contract_composition_checks(source));
-    errors.extend(run_contract_library_checks(source));
-    errors.extend(run_crypto_conformance_checks(source));
-    errors.extend(run_codec_registry_checks(source));
-
-    // T015: generic instantiation arity checking
-    errors.extend(run_generic_instantiation_checks(source));
+    let (check_errors, pending_decrease_checks) =
+        run_all_checks(&resolved.source, &type_env, &resolved.symbols, config);
+    errors.extend(check_errors);
 
     if !errors.is_empty() {
         return Err(errors);
@@ -1805,140 +1753,10 @@ pub fn type_check_with_config(
 ) -> Result<TypedFile, Vec<TypeError>> {
     let type_env = build_type_env(&resolved.symbols, &resolved.source);
 
-    // T014: walk clause bodies and infer expression types. Collect any
-    // concrete type-mismatch errors (A03001). Unknown types from unresolved
-    // identifiers are silently propagated (no false positives).
     let mut errors = check_clause_bodies(&resolved.source, &type_env);
-
-    // T077: check axiomatic definition references and usage
-    errors.extend(run_axiomatic_checks(&resolved.source, &resolved.symbols));
-    // G006: validate liveness block structure
-    errors.extend(run_liveness_checks(&resolved.source));
-
-    // T109: check CRUD/auth coverage on services
-    errors.extend(run_crud_auth_checks(&resolved.source));
-
-    // T031/T032: linearity checking (usage tracking + context splitting)
-    errors.extend(run_linearity_checks(&resolved.source));
-
-    // T034: typestate checking (DFA state transitions on services)
-    errors.extend(run_typestate_checks(&resolved.source));
-
-    // T036: effect checking (declared vs actual effect containment)
-    // Apply config: allowed/denied effects and strict mode
-    let mut effect_errors = run_effect_checks(&resolved.source);
-    if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
-        effect_errors.retain(|e| {
-            // Keep errors for denied effects; filter out errors for allowed effects
-            let msg = &e.message;
-            !config.allowed_effects.iter().any(|a| msg.contains(a))
-        });
-    }
-    if config.strict_effects {
-        errors.extend(effect_errors);
-    } else {
-        // In non-strict mode, only keep A07001 (undeclared effect usage),
-        // not A07003 (unknown effect names)
-        errors.extend(effect_errors.into_iter().filter(|e| e.code != "A07003"));
-    }
-
-    // T047: taint tracking (untrusted data flow analysis)
-    errors.extend(run_taint_checks(&resolved.source));
-
-    // S003: information flow tracking (security label propagation)
-    errors.extend(run_info_flow_checks(&resolved.source));
-
-    // T058: FFI boundary contracts (extern declarations)
-    errors.extend(run_ffi_checks(&resolved.source));
-
-    // T064: error propagation checking (must_propagate on error types)
-    errors.extend(run_error_propagation_checks(&resolved.source));
-
-    // T045: frame checking (modifies clause scope validation)
-    errors.extend(run_frame_checks(
-        &resolved.source,
-        &type_env,
-        &resolved.symbols,
-    ));
-
-    // T053: totality checking (termination via decreases measures)
-    let (totality_errors, pending_decrease_checks) = run_totality_checks(&resolved.source);
-    errors.extend(totality_errors);
-
-    // T055: fixed-width integer overflow detection
-    errors.extend(run_fixed_width_checks(&resolved.source, &type_env));
-
-    // T108: collection contracts validation (sort, filter, map, reverse, deduplicate)
-    errors.extend(run_collection_contract_checks(&resolved.source));
-
-    // T017: match expression exhaustiveness checking
-    errors.extend(run_match_exhaustiveness_checks(
-        &resolved.source,
-        &resolved.symbols,
-    ));
-
-    // T059: constant-time checking (secret-dependent branching/indexing)
-    errors.extend(run_constant_time_checks(&resolved.source));
-
-    // T067: determinism checking (pure functions must be deterministic)
-    errors.extend(run_determinism_checks(&resolved.source));
-
-    // T046: memory safety checking (buffer bounds via annotations)
-    errors.extend(run_memory_checks(&resolved.source));
-
-    // T060: secure erasure checking (sensitive data must be zeroed)
-    errors.extend(run_secure_erasure_checks(&resolved.source));
-
-    // T062: interface contracts (method completeness, signature matching)
-    errors.extend(run_interface_checks(&resolved.source));
-
-    // T063: structural invariants (recursive type properties)
-    errors.extend(run_structural_invariant_checks(&resolved.source));
-
-    // T065: shared memory protocols (concurrent access validation)
-    errors.extend(run_shared_mem_checks(&resolved.source));
-
-    // T068: lock ordering (deadlock prevention via static hierarchy)
-    errors.extend(run_lock_order_checks(&resolved.source));
-
-    // G007: weak memory ordering validation (CONC.6)
-    errors.extend(run_weak_memory_checks(&resolved.source));
-
-    // Domain checkers from domain.rs
-    errors.extend(run_allocator_checks(&resolved.source));
-    errors.extend(run_circular_buffer_checks(&resolved.source));
-    errors.extend(run_callback_reentrancy_checks(&resolved.source));
-    errors.extend(run_temporal_deadline_checks(&resolved.source));
-    errors.extend(run_binary_format_checks(&resolved.source));
-    errors.extend(run_bit_level_checks(&resolved.source));
-    errors.extend(run_string_encoding_checks(&resolved.source));
-    errors.extend(run_checksum_checks(&resolved.source));
-    errors.extend(run_protocol_grammar_checks(&resolved.source));
-    errors.extend(run_opaque_function_checks(&resolved.source));
-    errors.extend(run_crash_recovery_checks(&resolved.source));
-    errors.extend(run_page_cache_checks(&resolved.source));
-    errors.extend(run_mvcc_checks(&resolved.source));
-    errors.extend(run_rollback_checks(&resolved.source));
-    errors.extend(run_monotonic_state_checks(&resolved.source));
-    errors.extend(run_storage_failure_checks(&resolved.source));
-    errors.extend(run_numerical_precision_checks(&resolved.source));
-    errors.extend(run_precomputed_table_checks(&resolved.source));
-    errors.extend(run_platform_abstraction_checks(&resolved.source));
-    errors.extend(run_feature_flag_checks(&resolved.source));
-    errors.extend(run_resource_limit_checks(&resolved.source));
-    errors.extend(run_unsafe_escape_checks(&resolved.source));
-    errors.extend(run_complexity_bound_checks(&resolved.source));
-    errors.extend(run_behavioral_equivalence_checks(&resolved.source));
-    errors.extend(run_multi_pass_refinement_checks(&resolved.source));
-    errors.extend(run_incremental_contract_checks(&resolved.source));
-    errors.extend(run_scoped_invariant_checks(&resolved.source));
-    errors.extend(run_contract_composition_checks(&resolved.source));
-    errors.extend(run_contract_library_checks(&resolved.source));
-    errors.extend(run_crypto_conformance_checks(&resolved.source));
-    errors.extend(run_codec_registry_checks(&resolved.source));
-
-    // T015: generic instantiation arity checking
-    errors.extend(run_generic_instantiation_checks(&resolved.source));
+    let (check_errors, pending_decrease_checks) =
+        run_all_checks(&resolved.source, &type_env, &resolved.symbols, config);
+    errors.extend(check_errors);
 
     if !errors.is_empty() {
         return Err(errors);

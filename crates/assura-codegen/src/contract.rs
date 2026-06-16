@@ -251,7 +251,7 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
 }
 
 pub(crate) fn generate_contract(c: &ContractDecl, code: &mut String) {
-    // Check if this contract is an interface declaration
+    // Interface contracts become traits (no wrapping module needed)
     let is_interface = c
         .clauses
         .iter()
@@ -261,181 +261,14 @@ pub(crate) fn generate_contract(c: &ContractDecl, code: &mut String) {
         return;
     }
 
-    // Check if this contract implements an interface
-    let implements: Vec<String> = c
-        .clauses
-        .iter()
-        .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "implements"))
-        .filter_map(|cl| match &cl.body {
-            Expr::Ident(name) => Some(name.clone()),
-            Expr::Raw(tokens) if tokens.len() == 1 => Some(tokens[0].clone()),
-            _ => None,
-        })
-        .collect();
-
-    let tps = if c.type_params.is_empty() {
-        String::new()
-    } else {
-        format!("<{}>", c.type_params.join(", "))
-    };
-
+    // Single-file mode: wrap contents in a pub mod.
+    // prettyplease handles indentation, so we just emit the module wrapper.
     code.push_str(&format!(
         "/// Contract: {}\npub mod contract_{} {{\n",
         c.name,
         c.name.to_lowercase()
     ));
-
-    // Extract input params and output type from clauses
-    let mut input_params: Vec<(String, String)> = Vec::new();
-    let mut output_type = "()".to_string();
-    let mut requires_exprs: Vec<String> = Vec::new();
-    let mut ensures_exprs: Vec<String> = Vec::new();
-
-    let mut effects: Vec<String> = Vec::new();
-    let mut modifies: Vec<String> = Vec::new();
-    let mut invariants: Vec<String> = Vec::new();
-
-    for clause in &c.clauses {
-        match &clause.kind {
-            ClauseKind::Input => {
-                extract_input_params(&clause.body, &mut input_params);
-            }
-            ClauseKind::Output => {
-                output_type = extract_output_type(&clause.body);
-            }
-            ClauseKind::Requires => {
-                requires_exprs.push(expr_to_rust(&clause.body));
-            }
-            ClauseKind::Ensures => {
-                ensures_exprs.push(expr_to_rust(&clause.body));
-            }
-            ClauseKind::Effects => {
-                effects.push(expr_to_rust(&clause.body));
-            }
-            ClauseKind::Modifies => {
-                modifies.push(expr_to_rust(&clause.body));
-            }
-            ClauseKind::Invariant => {
-                invariants.push(expr_to_rust(&clause.body));
-            }
-            // Other clause kinds don't produce direct codegen output.
-            ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Ordering
-            | ClauseKind::Other(_) => {}
-        }
-    }
-
-    // Generate error enum if errors clause is present
-    let error_variants = collect_error_variants(&c.clauses);
-    let error_enum_name = if !error_variants.is_empty() {
-        let name = format!("{}Error", c.name);
-        code.push_str("    ");
-        // Generate the enum inside the module (indented)
-        let mut enum_code = String::new();
-        generate_error_enum(&c.name, &error_variants, &mut enum_code);
-        // Indent each line for the module context
-        for line in enum_code.lines() {
-            code.push_str(&format!("    {line}\n"));
-        }
-        code.push('\n');
-        Some(name)
-    } else {
-        None
-    };
-
-    // Determine return type
-    let return_type = if let Some(ref err_name) = error_enum_name {
-        format!("Result<{output_type}, {err_name}>")
-    } else {
-        output_type.clone()
-    };
-
-    // Generate doc comments for requires, effects, and modifies
-    for req in &requires_exprs {
-        code.push_str(&format!("    /// Requires: {req}\n"));
-    }
-    for eff in &effects {
-        code.push_str(&format!("    /// Effects: {eff}\n"));
-    }
-    for m in &modifies {
-        code.push_str(&format!("    /// Modifies: {m}\n"));
-    }
-
-    // Generate the contract function signature
-    let params_s: String = input_params
-        .iter()
-        .map(|(name, ty)| format!("{name}: {ty}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    code.push_str(&format!(
-        "    pub fn check{tps}({params_s}) -> {return_type} {{\n"
-    ));
-
-    // Collect old() expressions from ensures clauses and save pre-state values
-    for clause in &c.clauses {
-        if clause.kind == ClauseKind::Ensures {
-            for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!("        let __old_{var} = {rust_expr}.clone();\n"));
-            }
-        }
-    }
-
-    // Generate requires assertions
-    for req in &requires_exprs {
-        generate_debug_assert_indented(code, req, "requires", 2);
-    }
-
-    if ensures_exprs.is_empty() && invariants.is_empty() {
-        code.push_str("        todo!(\"implementation provided by AI agent\")\n");
-    } else {
-        code.push_str(&format!(
-            "        let __result: {output_type} = todo!(\"implementation provided by AI agent\");\n"
-        ));
-        for ens in &ensures_exprs {
-            generate_debug_assert_indented(code, ens, "ensures", 2);
-        }
-        for inv in &invariants {
-            generate_debug_assert_indented(code, inv, "invariant", 2);
-        }
-        if error_enum_name.is_some() {
-            code.push_str("        Ok(__result)\n");
-        } else {
-            code.push_str("        __result\n");
-        }
-    }
-    code.push_str("    }\n");
-
-    // Generate struct + impl Trait if the contract implements an interface
-    if !implements.is_empty() {
-        // Generate a struct for this contract
-        code.push_str(&format!("\n    pub struct {}{tps};\n\n", c.name));
-        // Generate impl blocks for each implemented trait
-        for iface in &implements {
-            code.push_str(&format!("    impl{tps} {iface} for {}{tps} {{\n", c.name));
-            // Extract method clauses and generate stubs
-            for clause in &c.clauses {
-                if let ClauseKind::Other(k) = &clause.kind
-                    && k == "method"
-                {
-                    let method_name = match &clause.body {
-                        Expr::Ident(n) => Some(n.as_str()),
-                        Expr::Raw(tokens) if tokens.len() == 1 => Some(tokens[0].as_str()),
-                        _ => None,
-                    };
-                    if let Some(method_name) = method_name {
-                        code.push_str(&format!("        fn {method_name}(&self) {{ todo!() }}\n"));
-                    }
-                }
-            }
-            code.push_str("    }\n");
-        }
-    }
-
+    generate_contract_contents(c, code);
     code.push_str("}\n\n");
 }
 
@@ -533,105 +366,20 @@ pub(crate) fn contract_is_testable(c: &ContractDecl) -> bool {
 /// - Falls back to `prop_assume!` for complex requires constraints
 /// - Asserts ensures clauses with `prop_assert!`
 pub(crate) fn generate_proptest_for_contract(c: &ContractDecl, code: &mut String) {
-    if !contract_is_testable(c) {
-        return;
-    }
-
-    let mut input_params: Vec<(String, String)> = Vec::new();
-    let mut requires_exprs: Vec<String> = Vec::new();
-    let mut requires_ast: Vec<&Expr> = Vec::new();
-    let mut ensures_exprs: Vec<String> = Vec::new();
-
-    for clause in &c.clauses {
-        match &clause.kind {
-            ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
-            ClauseKind::Requires => {
-                requires_exprs.push(expr_to_rust(&clause.body));
-                requires_ast.push(&clause.body);
-            }
-            ClauseKind::Ensures => {
-                ensures_exprs.push(expr_to_rust(&clause.body));
-            }
-            ClauseKind::Output
-            | ClauseKind::Effects
-            | ClauseKind::Modifies
-            | ClauseKind::Invariant
-            | ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Ordering
-            | ClauseKind::Other(_) => {}
-        }
-    }
-
-    if input_params.is_empty() || ensures_exprs.is_empty() {
-        return;
-    }
-
-    // Build refined strategies from requires constraints
-    let mut refined: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut unrefined_requires: Vec<String> = Vec::new();
-    for (i, ast) in requires_ast.iter().enumerate() {
-        if let Some((param, strategy)) = try_refine_strategy(ast) {
-            refined.insert(param, strategy);
-        } else {
-            unrefined_requires.push(requires_exprs[i].clone());
-        }
-    }
-
+    // Single-file mode: call path is super::contract_<name>::check()
     let fn_name = c.name.to_lowercase();
-    let contract_mod = format!("contract_{fn_name}");
-
-    code.push_str("#[cfg(test)]\n");
-    code.push_str(&format!("mod proptest_{fn_name} {{\n"));
-    code.push_str("    use proptest::prelude::*;\n\n");
-    code.push_str("    proptest! {\n");
-    code.push_str("        #[test]\n");
-
-    // Build parameter list with strategies
-    let param_strs: Vec<String> = input_params
-        .iter()
-        .map(|(name, ty)| {
-            if let Some(strategy) = refined.get(name) {
-                format!("{name} in {strategy}")
-            } else {
-                let strategy = proptest_strategy_for_type(ty);
-                format!("{name} in {strategy}")
-            }
-        })
-        .collect();
-    code.push_str(&format!(
-        "        fn test_{fn_name}({}) {{\n",
-        param_strs.join(", ")
-    ));
-
-    // Emit prop_assume! for requires that could not be encoded as strategies
-    for req in &unrefined_requires {
-        code.push_str(&format!("            prop_assume!({req});\n"));
-    }
-
-    // Call the contract check function
-    let call_args: Vec<&str> = input_params.iter().map(|(n, _)| n.as_str()).collect();
-    code.push_str(&format!(
-        "            let result = super::{contract_mod}::check({});\n",
-        call_args.join(", ")
-    ));
-
-    // Emit prop_assert! for each ensures clause
-    for ens in &ensures_exprs {
-        code.push_str(&format!("            prop_assert!({ens});\n"));
-    }
-
-    code.push_str("        }\n");
-    code.push_str("    }\n");
-    code.push_str("}\n\n");
+    generate_proptest_impl(c, code, &format!("super::contract_{fn_name}::check"));
 }
 
 /// Generate proptest for a contract in multi-file mode (the test module
 /// is inside the contract's own .rs file, so the call is `super::check()`).
 pub(crate) fn generate_proptest_for_contract_contents(c: &ContractDecl, code: &mut String) {
+    generate_proptest_impl(c, code, "super::check");
+}
+
+/// Shared proptest generation. `check_call_path` is the path to the
+/// contract's check function from inside the test module.
+fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: &str) {
     if !contract_is_testable(c) {
         return;
     }
@@ -709,7 +457,7 @@ pub(crate) fn generate_proptest_for_contract_contents(c: &ContractDecl, code: &m
 
     let call_args: Vec<&str> = input_params.iter().map(|(n, _)| n.as_str()).collect();
     code.push_str(&format!(
-        "            let result = super::check({});\n",
+        "            let result = {check_call_path}({});\n",
         call_args.join(", ")
     ));
 
