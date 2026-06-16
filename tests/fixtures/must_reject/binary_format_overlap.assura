@@ -1,0 +1,11 @@
+// MUST REJECT A26001
+module test.fmt_overlap;
+
+contract PacketParser {
+    input(data: Bytes)
+    binary_format packet
+    field header(0, 4)
+    field payload(2, 8)
+    requires { true }
+    ensures { true }
+}

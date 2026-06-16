@@ -1,0 +1,10 @@
+// MUST REJECT A25003
+module test.deadln;
+
+contract TimedOp {
+    input(x: Int)
+    deadline respond
+    operation respond
+    requires { x > 0 }
+    ensures { x > 0 }
+}

@@ -1,0 +1,9 @@
+// MUST REJECT A43001
+module test.table_incomplete;
+
+contract LookupTable {
+    input(index: Nat)
+    precomputed_table { sine_table }
+    requires { index < 256 }
+    ensures { index >= 0 }
+}

@@ -1,0 +1,9 @@
+// MUST REJECT A36001
+module test.bad_rollback;
+
+contract TxnRollback {
+    input(x: Int)
+    savepoint sp1
+    requires { savepoint(sp1) > 0 }
+    ensures { rollback(sp2) > 0 }
+}

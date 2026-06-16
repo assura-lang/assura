@@ -1,0 +1,11 @@
+// MUST REJECT A21001
+module test.lockorder;
+
+contract ConcurrentOps {
+    input(x: Int)
+    lock_order mutex_a mutex_b
+    acquire mutex_b
+    acquire mutex_a
+    requires { x > 0 }
+    ensures { x > 0 }
+}

@@ -1,0 +1,12 @@
+// MUST REJECT A33001
+// BLOCKED: #117 -- MVCC checker snapshot isolation is dead code
+module test.mvcc_conflict;
+
+contract ConcurrentWrites {
+    input(x: Int)
+    mvcc true
+    requires { begin_txn() > 0 }
+    requires { write(key, 1) > 0 }
+    requires { write(key, 2) > 0 }
+    ensures { commit(1) > 0 }
+}

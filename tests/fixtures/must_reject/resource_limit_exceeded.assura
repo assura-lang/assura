@@ -1,0 +1,10 @@
+// MUST REJECT A46002
+module test.resource_exceeded;
+
+contract MemoryHog {
+    input(n: Nat)
+    resource_limit memory
+    use_resource memory
+    requires { n > 0 }
+    ensures { n > 0 }
+}

@@ -1,0 +1,16 @@
+// MUST REJECT A30001
+// BLOCKED: protocol state machine checker needs clause body expression parsing
+module test.proto_bad;
+
+contract TlsHandshake {
+    input(msg: Bytes)
+    protocol init
+    state init
+    state hello_sent
+    state established
+    transition init(client_hello, hello_sent)
+    transition hello_sent(server_hello, established)
+    transition init(data, established)
+    requires { true }
+    ensures { true }
+}

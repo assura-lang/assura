@@ -179,8 +179,34 @@ SourceFile {
                                 "must_be",
                             ),
                             body: Raw(
+                                [],
+                            ),
+                        },
+                        Clause {
+                            kind: Other(
+                                "deterministic",
+                            ),
+                            body: Raw(
                                 [
-                                    "deterministic",
+                                    "let",
+                                    "primary",
+                                    "=",
+                                    "pow",
+                                    "2",
+                                    ",",
+                                    "ROOT_BITS",
+                                    "as",
+                                    "U32",
+                                    "let",
+                                    "max_secondary",
+                                    "=",
+                                    "max_over_valid_codes",
+                                    "alphabet_size",
+                                    ",",
+                                    "ROOT_BITS",
+                                    "primary",
+                                    "+",
+                                    "max_secondary",
                                 ],
                             ),
                         },
@@ -229,10 +255,8 @@ SourceFile {
                         kind: Other(
                             "verify_against",
                         ),
-                        body: Raw(
-                            [
-                                "worst_case_table_size",
-                            ],
+                        body: Ident(
+                            "worst_case_table_size",
                         ),
                     },
                 ],
@@ -438,10 +462,8 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "pure",
-                                ],
+                            body: Ident(
+                                "pure",
                             ),
                         },
                     ],

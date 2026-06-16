@@ -1,0 +1,9 @@
+// MUST REJECT A29001
+module test.checksum_bad;
+
+contract PacketReader {
+    input(data: Bytes)
+    checksum payload
+    requires { true }
+    ensures { payload > 0 }
+}

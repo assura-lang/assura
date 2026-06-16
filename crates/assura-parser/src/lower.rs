@@ -295,6 +295,11 @@ fn clause_kind_from_syntax(k: SyntaxKind, text: &str) -> Option<ClauseKind> {
         SyntaxKind::BOUNDARY_KW => Some(ClauseKind::Other("boundary".into())),
         SyntaxKind::MUST_PROPAGATE_KW => Some(ClauseKind::Other("must_propagate".into())),
         SyntaxKind::IDENT => Some(ClauseKind::Other(text.to_string())),
+        // Map all other keyword tokens (domain-specific like circular_buffer,
+        // deadline, etc.) to Other with their textual name. Without this,
+        // they fall through to None and the NEXT token (an IDENT) is
+        // mistakenly treated as the clause keyword.
+        other if other.is_keyword() => Some(ClauseKind::Other(text.to_string())),
         _ => None,
     }
 }
@@ -355,6 +360,10 @@ fn lower_clause_body(n: &SyntaxNode) -> Expr {
 
     if tokens.is_empty() {
         Expr::Raw(vec![])
+    } else if tokens.len() == 1 && tokens[0].chars().all(|c| c.is_alphanumeric() || c == '_') {
+        // Single identifier token: promote to Expr::Ident so downstream
+        // checkers can pattern-match on Expr::Ident rather than Raw.
+        Expr::Ident(tokens.into_iter().next().unwrap())
     } else {
         Expr::Raw(tokens)
     }

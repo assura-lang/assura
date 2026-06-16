@@ -1,0 +1,9 @@
+// MUST REJECT A22001
+module test.alloc_leak;
+
+contract LeakyAlloc {
+    input(size: Nat)
+    alloc buf
+    requires { size > 0 }
+    ensures { size > 0 }
+}

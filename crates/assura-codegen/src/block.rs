@@ -60,6 +60,18 @@ pub(crate) fn generate_block(kind: &BlockKind, name: &str, body: &[Clause], code
         return;
     }
 
+    // Feature blocks with only Other clauses: compile-time only, no Rust codegen needed.
+    // Feature blocks that contain structural clauses (Ordering, Effects, Ensures, etc.)
+    // are handled by the generic block codegen below.
+    if *kind == BlockKind::Feature
+        && body
+            .iter()
+            .all(|c| matches!(c.kind, ClauseKind::Other(_) | ClauseKind::Requires))
+    {
+        code.push_str(&format!("// {kind} {name}: compile-time feature flag\n\n"));
+        return;
+    }
+
     // Table blocks: generate a doc comment describing the table.
     // The actual compile-time verification happens in the SMT layer,
     // not in generated Rust code.

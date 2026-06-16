@@ -1,0 +1,9 @@
+// MUST REJECT A38001
+module test.storage_fail;
+
+contract DiskWrite {
+    input(data: Bytes)
+    storage_failure partial_write
+    requires { true }
+    ensures { true }
+}

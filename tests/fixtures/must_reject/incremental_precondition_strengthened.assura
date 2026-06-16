@@ -1,0 +1,9 @@
+// MUST REJECT A51003
+module test.incremental_bad;
+
+incremental SafeDiv {
+    version SafeDiv(1, 0, 0, 1, 1)
+    version SafeDiv(2, 0, 0, 3, 1)
+    requires { true }
+    ensures { true }
+}

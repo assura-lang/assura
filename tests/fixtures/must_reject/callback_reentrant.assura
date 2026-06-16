@@ -1,0 +1,11 @@
+// MUST REJECT A24001
+// BLOCKED: checker needs FnDef declarations with call tracing, not Contract clauses
+module test.reentrant;
+
+contract Vault {
+    input(amount: Nat)
+    non_reentrant withdraw
+    callback withdraw
+    requires { amount > 0 }
+    ensures { amount > 0 }
+}

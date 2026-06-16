@@ -2510,13 +2510,13 @@ impl ResourceLimitChecker {
         for (name, limit) in &self.limits {
             if let Some(&current) = self.usage.get(name)
                 && limit.max_value > 0
-                && current > limit.max_value * 9 / 10
+                && current > limit.max_value / 10 * 9
             {
                 errors.push(TypeError {
                     code: "A46003".into(),
                     message: format!(
                         "resource `{name}` at {}% of limit",
-                        current * 100 / limit.max_value
+                        current / (limit.max_value / 100).max(1)
                     ),
                     span: 0..1,
                     secondary: None,

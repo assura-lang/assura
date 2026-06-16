@@ -1,0 +1,8 @@
+// MUST REJECT A47001
+module test.unsafe_no_proof;
+
+unsafe dangerous_cast {
+    obligation { memory_safety }
+    requires { true }
+    ensures { true }
+}

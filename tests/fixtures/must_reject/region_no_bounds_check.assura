@@ -1,0 +1,8 @@
+// MUST REJECT A08101
+// BLOCKED: memory region bounds checker needs typed param analysis
+module test.region_no_bounds;
+
+fn read_buf(buf: Bytes[1024], index: Nat) -> Nat {
+    requires { true }
+    ensures { result >= 0 }
+}

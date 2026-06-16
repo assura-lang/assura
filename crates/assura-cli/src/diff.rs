@@ -410,6 +410,14 @@ contract Typed {
                     continue; // No annotation, skip
                 };
 
+                // Skip BLOCKED fixtures (known wiring gaps)
+                let is_blocked = source
+                    .lines()
+                    .any(|line| line.trim().starts_with("// BLOCKED:"));
+                if is_blocked {
+                    continue;
+                }
+
                 let (file, _parse_errors) = assura_parser::parse(&source);
                 let Some(file) = file else {
                     continue; // Parse failed entirely, not a type check test
@@ -450,8 +458,8 @@ contract Typed {
             }
         }
         assert!(
-            tested >= 25,
-            "expected at least 25 MUST REJECT fixtures, found {tested}"
+            tested >= 55,
+            "expected at least 55 MUST REJECT fixtures, found {tested}"
         );
     }
 

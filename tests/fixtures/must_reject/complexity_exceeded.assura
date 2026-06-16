@@ -1,0 +1,10 @@
+// MUST REJECT A48001
+module test.complexity_exceeded;
+
+contract SlowSort {
+    input(n: Nat)
+    complexity quadratic
+    measured_complexity exponential
+    requires { n > 0 }
+    ensures { n >= 0 }
+}

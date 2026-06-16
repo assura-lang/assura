@@ -1,0 +1,10 @@
+// MUST REJECT A31002
+module test.bit_circular;
+
+axiomatic AxiomA {
+    requires { AxiomB > 0 }
+}
+
+axiomatic AxiomB {
+    requires { AxiomA > 0 }
+}

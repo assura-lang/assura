@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 72
 expression: ast
 ---
 SourceFile {
@@ -311,10 +310,8 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "pure",
-                                ],
+                            body: Ident(
+                                "pure",
                             ),
                         },
                     ],
@@ -440,20 +437,22 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Modifies,
-                            body: Raw(
-                                [
-                                    "dst",
-                                ],
+                            body: Ident(
+                                "dst",
                             ),
                         },
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "pure",
-                                    "incremental",
-                                    "InflateDecoder",
-                                ],
+                            body: Ident(
+                                "pure",
+                            ),
+                        },
+                        Clause {
+                            kind: Other(
+                                "incremental",
+                            ),
+                            body: Ident(
+                                "InflateDecoder",
                             ),
                         },
                     ],
@@ -561,10 +560,8 @@ SourceFile {
                         },
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "pure",
-                                ],
+                            body: Ident(
+                                "pure",
                             ),
                         },
                     ],

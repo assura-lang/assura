@@ -1,0 +1,9 @@
+// MUST REJECT A28001
+module test.encoding_mismatch;
+
+contract TextProcessor {
+    input(data: Bytes)
+    encoding { data }
+    requires { true }
+    ensures { data > 0 }
+}

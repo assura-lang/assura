@@ -1,0 +1,7 @@
+// MUST REJECT A16001
+module test.erasure_missing;
+
+fn handle_key(key: sensitive Bytes) -> Bool {
+    requires { true }
+    ensures { result == true }
+}

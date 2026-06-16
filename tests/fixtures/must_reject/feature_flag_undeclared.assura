@@ -1,0 +1,10 @@
+// MUST REJECT A45003
+module test.flag_undeclared;
+
+contract FeatureGate {
+    input(x: Int)
+    feature_flag beta_mode
+    when_flag experimental_mode
+    requires { x > 0 }
+    ensures { x > 0 }
+}

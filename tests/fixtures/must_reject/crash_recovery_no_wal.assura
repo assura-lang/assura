@@ -1,0 +1,10 @@
+// MUST REJECT A33001
+module test.crash_no_wal;
+
+contract UnsafeWrite {
+    input(data: Bytes)
+    crash_recovery txn1
+    write_data txn1
+    requires { true }
+    ensures { true }
+}

@@ -1,0 +1,12 @@
+// MUST REJECT A44001
+module test.plat_missing;
+
+contract CrossPlatform {
+    input(x: Int)
+    platform linux
+    platform windows
+    platform macos
+    abstraction file_ops(linux, windows)
+    requires { x > 0 }
+    ensures { x > 0 }
+}

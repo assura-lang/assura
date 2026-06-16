@@ -1,0 +1,9 @@
+// MUST REJECT A50001
+module test.refinement_incomplete;
+
+contract DesignToCode {
+    input(x: Int)
+    refinement_pass { r1(spec, design, 5) }
+    requires { x > 0 }
+    ensures { x > 0 }
+}

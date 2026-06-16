@@ -1,0 +1,9 @@
+// MUST REJECT A52001
+module test.invariant_leaked;
+
+contract TreeRebalance {
+    input(n: Nat)
+    suspend_invariant sorted
+    requires { n > 0 }
+    ensures { n > 0 }
+}

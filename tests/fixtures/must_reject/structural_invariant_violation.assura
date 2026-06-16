@@ -1,0 +1,14 @@
+// MUST REJECT A15001
+module test.struct_inv;
+
+type LinkedList {
+    value: Int,
+    next: LinkedList,
+}
+
+contract ListOps {
+    input(length: Nat)
+    structural_invariant sorted
+    requires { length > 0 }
+    ensures { length > 0 }
+}

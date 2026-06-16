@@ -1,0 +1,9 @@
+// MUST REJECT A42003
+module test.precision_loss;
+
+contract FloatAccum {
+    input(x: Float)
+    precision accum
+    requires { x > 0.0 }
+    ensures { accum > 0.0 }
+}

@@ -1,0 +1,9 @@
+// MUST REJECT A23003
+module test.ring_empty_read;
+
+contract EmptyRead {
+    input(value: Int)
+    circular_buffer ring
+    requires { ring > 0 }
+    ensures { ring > 0 }
+}

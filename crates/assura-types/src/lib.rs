@@ -3448,9 +3448,12 @@ fn run_error_propagation_checks(source: &assura_parser::ast::SourceFile) -> Vec<
             for clause in &c.clauses {
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_propagate"
-                    && let Expr::Raw(tokens) = &clause.body
                 {
-                    policy.must_propagate.extend(tokens.iter().cloned());
+                    match &clause.body {
+                        Expr::Raw(tokens) => policy.must_propagate.extend(tokens.iter().cloned()),
+                        Expr::Ident(name) => policy.must_propagate.push(name.clone()),
+                        _ => {}
+                    }
                 }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_check"
@@ -5169,7 +5172,7 @@ fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
     let mut checker = LockOrderChecker::new();
     let mut errors = Vec::new();
 
-    // First pass: collect lock ordering declarations from blocks
+    // First pass: collect lock ordering declarations from blocks and inline clauses
     for decl in &source.decls {
         if let Decl::Block { kind, body, .. } = &decl.node
             && *kind == BlockKind::LockOrder
@@ -5177,6 +5180,23 @@ fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
             for (priority, clause) in body.iter().enumerate() {
                 if let Expr::Ident(lock_name) = &clause.body {
                     checker.define_order(lock_name.clone(), priority as u32);
+                }
+            }
+        }
+        // Also pick up inline lock_order clauses inside contracts/fns
+        let clauses = match &decl.node {
+            Decl::Contract(c) => c.clauses.as_slice(),
+            Decl::FnDef(f) => f.clauses.as_slice(),
+            _ => continue,
+        };
+        let mut inline_priority = 0u32;
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "lock_order"
+            {
+                for name in collect_ident_references(&clause.body) {
+                    checker.define_order(name, inline_priority);
+                    inline_priority += 1;
                 }
             }
         }
@@ -5192,7 +5212,7 @@ fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
 
         for clause in clauses {
             if let ClauseKind::Other(k) = &clause.kind
-                && (k == "acquires" || k == "locks")
+                && (k == "acquires" || k == "acquire" || k == "locks")
             {
                 let lock_names = collect_ident_references(&clause.body);
                 for name in &lock_names {
@@ -6547,11 +6567,21 @@ fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) -> Vec<TypeErr
     if let Expr::Ident(name) = expr {
         checker.create_savepoint(name.clone());
     }
-    // Scan sub-expressions in blocks/lists
+    // Scan sub-expressions recursively
     match expr {
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
                 scan_errors.extend(rollback_scan_expr(e, checker));
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            scan_errors.extend(rollback_scan_expr(lhs, checker));
+            scan_errors.extend(rollback_scan_expr(rhs, checker));
+        }
+        Expr::Call { func, args } => {
+            scan_errors.extend(rollback_scan_expr(func, checker));
+            for a in args {
+                scan_errors.extend(rollback_scan_expr(a, checker));
             }
         }
         _ => {}
@@ -7074,7 +7104,7 @@ fn run_feature_flag_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeE
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
-                && (k == "feature_flag" || k == "feature" || k == "flag")
+                && k == "feature_flag"
             {
                 found = true;
                 match &clause.body {

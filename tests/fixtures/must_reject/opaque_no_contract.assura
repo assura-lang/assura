@@ -1,0 +1,10 @@
+// MUST REJECT A32001
+// BLOCKED: opaque checker requires fn definition cross-reference, not contract clause
+module test.opaque_no_contract;
+
+contract OpaqueNoSpec {
+    input(x: Int)
+    opaque true
+    requires { x > 0 }
+    ensures { x > 0 }
+}

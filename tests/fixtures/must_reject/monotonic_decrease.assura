@@ -1,0 +1,10 @@
+// MUST REJECT A37003
+module test.monotonic_bad;
+
+contract Counter {
+    input(x: Nat)
+    monotonic counter
+    monotonic_update counter decrease
+    requires { x > 0 }
+    ensures { x > 0 }
+}

@@ -43,7 +43,8 @@ pub(crate) fn at_clause_start(p: &mut Parser) -> bool {
             | SyntaxKind::OPERATION_KW
             | SyntaxKind::QUERY_KW
             | SyntaxKind::STATES_KW
-    ) || is_ident_clause_start(p)
+    ) || is_domain_keyword_clause(p)
+        || is_ident_clause_start(p)
 }
 
 /// Ident-based keywords that START a new clause (used by `at_clause_start()`).
@@ -73,6 +74,73 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "decryption",
     "spec",
     "crypto",
+    // Domain checker clause keywords (used by assura-types wiring functions)
+    "alloc",
+    "dealloc",
+    "arena",
+    "circular_buffer",
+    "ring_buffer",
+    "push",
+    "pop",
+    "non_reentrant",
+    "callback",
+    "deterministic",
+    "deadline",
+    "operation",
+    "crash_recovery",
+    "wal",
+    "write_data",
+    "write_wal",
+    "page_cache",
+    "mvcc",
+    "snapshot_isolation",
+    "savepoint",
+    "rollback",
+    "monotonic",
+    "monotonic_update",
+    "storage_failure",
+    "binary_format",
+    "field",
+    "encoding",
+    "string_encoding",
+    "checksum",
+    "protocol",
+    "state",
+    "transition",
+    "state_machine",
+    "precision",
+    "numerical_precision",
+    "precomputed_table",
+    "lookup_table",
+    "platform",
+    "target_platform",
+    "abstraction",
+    "feature_flag",
+    "when_flag",
+    "resource_limit",
+    "limit",
+    "use_resource",
+    "obligation",
+    "safety_proof",
+    "complexity",
+    "measured_complexity",
+    "time_complexity",
+    "equivalent",
+    "behavioral_equiv",
+    "refinement_pass",
+    "discharge_pass",
+    "version",
+    "suspend_invariant",
+    "restore_invariant",
+    "structural_invariant",
+    "must_check",
+    "catch",
+    "opaque",
+    "reveal",
+    "crypto_spec",
+    "lock",
+    "order",
+    "acquire",
 ];
 
 /// Ident-based keywords that STOP a clause body but do NOT start one.
@@ -87,6 +155,46 @@ const IDENT_CLAUSE_STOPPERS_ONLY: &[&str] = &[
 ];
 
 /// Ident-based clause starters that aren't keyword tokens.
+/// Domain-specific keyword tokens that can start a clause inside contract/fn bodies.
+/// These have dedicated SyntaxKind variants (not plain IDENT) but are used as clause
+/// keywords by the type checker's wiring functions.
+fn is_domain_keyword_clause(p: &mut Parser) -> bool {
+    matches!(
+        p.current(),
+        SyntaxKind::ALLOCATOR_KW
+            | SyntaxKind::ATOMIC_KW
+            | SyntaxKind::CIRCULAR_BUFFER_KW
+            | SyntaxKind::REGION_KW
+            | SyntaxKind::SHARED_MEMORY_KW
+            | SyntaxKind::CALLBACK_KW
+            | SyntaxKind::DEADLINE_KW
+            | SyntaxKind::DETERMINISTIC_KW
+            | SyntaxKind::LOCK_ORDER_KW
+            | SyntaxKind::TIMEOUT_KW
+            | SyntaxKind::MONOTONIC_KW
+            | SyntaxKind::PRECISION_KW
+            | SyntaxKind::PLATFORM_KW
+            | SyntaxKind::COMPLEXITY_KW
+            | SyntaxKind::EQUIVALENT_KW
+            | SyntaxKind::INCREMENTAL_KW
+            | SyntaxKind::OPAQUE_KW
+            | SyntaxKind::STRUCTURAL_INVARIANT_KW
+            | SyntaxKind::UNSAFE_ESCAPE_KW
+            | SyntaxKind::LIMIT_KW
+            | SyntaxKind::FEATURE_KW
+            | SyntaxKind::FORMAT_KW
+            | SyntaxKind::CODEC_KW
+            | SyntaxKind::SNAPSHOT_KW
+            | SyntaxKind::RECOVERY_KW
+            | SyntaxKind::FENCE_KW
+            | SyntaxKind::ACQUIRE_KW
+            | SyntaxKind::RELEASE_KW
+            | SyntaxKind::SPEC_KW
+            | SyntaxKind::REFINEMENT_KW
+            | SyntaxKind::LAYOUT_KW
+    )
+}
+
 fn is_ident_clause_start(p: &mut Parser) -> bool {
     if p.current() != SyntaxKind::IDENT {
         return false;
@@ -153,6 +261,36 @@ pub(crate) fn is_clause_stopper_kind(k: SyntaxKind) -> bool {
             // Generic block keywords
             | SyntaxKind::TABLE_KW
             | SyntaxKind::FEATURE_KW
+            // Domain-specific clause keywords
+            | SyntaxKind::ALLOCATOR_KW
+            | SyntaxKind::ATOMIC_KW
+            | SyntaxKind::CIRCULAR_BUFFER_KW
+            | SyntaxKind::REGION_KW
+            | SyntaxKind::SHARED_MEMORY_KW
+            | SyntaxKind::CALLBACK_KW
+            | SyntaxKind::DEADLINE_KW
+            | SyntaxKind::DETERMINISTIC_KW
+            | SyntaxKind::LOCK_ORDER_KW
+            | SyntaxKind::TIMEOUT_KW
+            | SyntaxKind::MONOTONIC_KW
+            | SyntaxKind::PRECISION_KW
+            | SyntaxKind::PLATFORM_KW
+            | SyntaxKind::COMPLEXITY_KW
+            | SyntaxKind::EQUIVALENT_KW
+            | SyntaxKind::INCREMENTAL_KW
+            | SyntaxKind::OPAQUE_KW
+            | SyntaxKind::STRUCTURAL_INVARIANT_KW
+            | SyntaxKind::UNSAFE_ESCAPE_KW
+            | SyntaxKind::LIMIT_KW
+            | SyntaxKind::FORMAT_KW
+            | SyntaxKind::CODEC_KW
+            | SyntaxKind::SNAPSHOT_KW
+            | SyntaxKind::RECOVERY_KW
+            | SyntaxKind::FENCE_KW
+            | SyntaxKind::ACQUIRE_KW
+            | SyntaxKind::RELEASE_KW
+            | SyntaxKind::REFINEMENT_KW
+            | SyntaxKind::LAYOUT_KW
     )
 }
 

@@ -1,0 +1,10 @@
+// MUST REJECT A31002
+module test.axiomatic_circular;
+
+axiomatic Axiom1 {
+    requires { Axiom2 > 0 }
+}
+
+axiomatic Axiom2 {
+    requires { Axiom1 > 0 }
+}

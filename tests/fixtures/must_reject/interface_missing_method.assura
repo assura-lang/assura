@@ -1,0 +1,16 @@
+// MUST REJECT A13001
+module test.iface_missing;
+
+contract Sortable {
+    interface true
+    method sort
+    method compare
+    requires { true }
+}
+
+contract MySorter {
+    implements Sortable
+    method sort
+    requires { true }
+    ensures { true }
+}

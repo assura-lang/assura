@@ -130,10 +130,8 @@ SourceFile {
                         },
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "pure",
-                                ],
+                            body: Ident(
+                                "pure",
                             ),
                         },
                     ],
@@ -215,10 +213,8 @@ SourceFile {
                         },
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "pure",
-                                ],
+                            body: Ident(
+                                "pure",
                             ),
                         },
                         Clause {
