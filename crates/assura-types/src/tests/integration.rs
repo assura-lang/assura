@@ -1804,3 +1804,106 @@ fn precomputed_table_missing_generator_flagged() {
     assert!(!errs.is_empty(), "missing generator should flag A43002");
     assert_eq!(errs[0].code, "A43002");
 }
+
+// ===========================================================================
+// Match exhaustiveness checks (A10001, A10002)
+// ===========================================================================
+
+#[test]
+fn match_non_exhaustive_missing_variant_a10001() {
+    // When the scrutinee ident matches an enum name, A10001 fires for
+    // missing variants.  (The current check uses the ident name, not the
+    // inferred type, so the scrutinee must literally be the enum name.)
+    let src = r#"
+        enum Status { Active, Inactive, Pending }
+        contract CheckStatus {
+            input(s: Int)
+            ensures { match Status { Active => true, Inactive => false } }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        errs.iter().any(|e| e.code == "A10001"),
+        "missing variant Pending should produce A10001: {errs:?}"
+    );
+}
+
+#[test]
+fn match_all_variants_covered_no_a10001() {
+    // All 3 variants covered: no A10001.
+    let src = r#"
+        enum Status { Active, Inactive, Pending }
+        contract CheckStatus {
+            input(s: Int)
+            ensures { match Status { Active => true, Inactive => false, Pending => false } }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        !errs.iter().any(|e| e.code == "A10001"),
+        "all variants covered, should not produce A10001: {errs:?}"
+    );
+}
+
+#[test]
+fn match_unknown_scrutinee_no_wildcard_a10002() {
+    // match on a variable whose type is not a known enum, without a wildcard.
+    let src = r#"
+        contract CheckValue {
+            input(x: Int)
+            ensures { match x { 1 => true, 2 => false } }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        errs.iter().any(|e| e.code == "A10002"),
+        "match without wildcard on unknown type should produce A10002: {errs:?}"
+    );
+}
+
+// ===========================================================================
+// Extern trust boundary check (A11005)
+// ===========================================================================
+
+#[test]
+fn collection_sort_without_length_postcondition_a03007() {
+    // A contract named "sort" (a length-preserving op) without an ensures
+    // mentioning len should produce A03007.
+    let src = r#"
+        contract Sort {
+            input(items: List<Int>)
+            ensures { result >= 0 }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        errs.iter().any(|e| e.code == "A03007"),
+        "sort without len postcondition should produce A03007: {errs:?}"
+    );
+}
+
+#[test]
+fn collection_sort_with_length_postcondition_no_a03007() {
+    // A contract named "sort" WITH a len postcondition should not warn.
+    let src = r#"
+        contract Sort {
+            input(items: List<Int>)
+            ensures { len(result) == len(items) }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        !errs.iter().any(|e| e.code == "A03007"),
+        "sort with len postcondition should not produce A03007: {errs:?}"
+    );
+}

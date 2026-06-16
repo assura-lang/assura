@@ -371,10 +371,52 @@ pub fn expr_to_string(expr: &Expr) -> String {
 }
 
 /// Truncate a string to `max` characters, appending `...` if truncated.
+///
+/// Uses char boundaries to avoid panics on multi-byte UTF-8 strings.
 pub fn truncate(s: &str, max: usize) -> String {
-    if s.len() > max {
-        format!("{}...", &s[..max])
+    if s.chars().count() > max {
+        let end = s.char_indices().nth(max).map_or(s.len(), |(idx, _)| idx);
+        format!("{}...", &s[..end])
     } else {
         s.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_ascii_short() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_ascii_exact() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_ascii_long() {
+        assert_eq!(truncate("hello world", 5), "hello...");
+    }
+
+    #[test]
+    fn truncate_multibyte_utf8() {
+        // Each emoji is 4 bytes; truncating at char boundary 2 must not
+        // panic by slicing inside a multi-byte sequence.
+        let s = "🦀🔥🎉";
+        let result = truncate(s, 2);
+        assert_eq!(result, "🦀🔥...");
+    }
+
+    #[test]
+    fn truncate_empty() {
+        assert_eq!(truncate("", 5), "");
+    }
+
+    #[test]
+    fn truncate_zero_max() {
+        assert_eq!(truncate("abc", 0), "...");
     }
 }
