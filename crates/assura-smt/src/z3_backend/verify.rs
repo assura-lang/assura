@@ -10,8 +10,7 @@ use crate::cache::SessionCache;
 use crate::*;
 use assura_parser::ast::{BinOp, BlockKind, Clause};
 use assura_types::checkers::expr_references_var;
-use z3::ast::Ast;
-use z3::{Config, Context, SatResult, Solver, ast};
+use z3::{SatResult, Solver, ast};
 
 // -----------------------------------------------------------------------
 // Contract clause verification
@@ -19,7 +18,6 @@ use z3::{Config, Context, SatResult, Solver, ast};
 
 /// Verify a set of clauses from a contract, fn, or extern declaration.
 fn verify_clauses(
-    ctx: &Context,
     parent_name: &str,
     clauses: &[Clause],
     lemma_defs: &std::collections::HashMap<String, Vec<&Expr>>,
@@ -95,9 +93,9 @@ fn verify_clauses(
             continue;
         }
 
-        let solver = Solver::new(ctx);
+        let solver = Solver::new();
 
-        let mut encoder = Encoder::new(ctx);
+        let mut encoder = Encoder::new();
 
         // Register known function names for trigger inference
         for other_clause in clauses {
@@ -107,7 +105,7 @@ fn verify_clauses(
         // Assert all requires as assumptions
         for req in &requires {
             let req_val = encoder.encode_expr(&req.body);
-            let req_bool = req_val.as_bool(ctx);
+            let req_bool = req_val.as_bool();
             solver.assert(&req_bool);
         }
         // Assert background axioms from requires encoding (e.g., map
@@ -123,7 +121,7 @@ fn verify_clauses(
             if let Some(ensures_bodies) = lemma_defs.get(lemma_name) {
                 for ensures_body in ensures_bodies {
                     let ens_val = encoder.encode_expr(ensures_body);
-                    let ens_bool = ens_val.as_bool(ctx);
+                    let ens_bool = ens_val.as_bool();
                     solver.assert(&ens_bool);
                 }
             }
@@ -141,14 +139,14 @@ fn verify_clauses(
                 let old_name = format!("{var_name}__old");
                 let old_var = encoder.get_or_create_int(&old_name);
                 // Assert frame axiom: current == old
-                let axiom = current._eq(&old_var);
+                let axiom = current.eq(&old_var);
                 solver.assert(&axiom);
             }
         }
 
         // Encode the clause body
         let clause_val = encoder.encode_expr(&clause.body);
-        let clause_bool = clause_val.as_bool(ctx);
+        let clause_bool = clause_val.as_bool();
 
         // Assert background axioms (e.g., len >= 0) collected during encoding
         for axiom in &encoder.background_axioms {
@@ -159,7 +157,7 @@ fn verify_clauses(
         match clause.kind {
             ClauseKind::Ensures | ClauseKind::Rule => {
                 // Validity check: assert NOT clause, check-sat
-                solver.assert(&clause_bool.not());
+                solver.assert(clause_bool.not());
                 check_validity(&solver, desc, results);
             }
             ClauseKind::Invariant => {
@@ -175,10 +173,10 @@ fn verify_clauses(
             ClauseKind::Decreases => {
                 // Decreases: verify the expression is non-negative (well-founded).
                 // Encode as: the clause expression (decreasing measure) >= 0 must hold.
-                let zero = ast::Int::from_i64(ctx, 0);
-                let measure = clause_val.as_int(ctx, &mut encoder.fresh_counter);
+                let zero = ast::Int::from_i64(0);
+                let measure = clause_val.as_int(&mut encoder.fresh_counter);
                 let non_neg = measure.ge(&zero);
-                solver.assert(&non_neg.not());
+                solver.assert(non_neg.not());
                 check_validity(&solver, desc, results);
             }
             _ => {}
@@ -198,17 +196,12 @@ fn verify_clauses(
 }
 
 /// Verify a standalone invariant expression (e.g., service invariant).
-fn verify_invariant_expr(
-    ctx: &Context,
-    parent_name: &str,
-    expr: &Expr,
-    results: &mut Vec<VerificationResult>,
-) {
+fn verify_invariant_expr(parent_name: &str, expr: &Expr, results: &mut Vec<VerificationResult>) {
     let desc = format!("{parent_name}::invariant");
-    let solver = Solver::new(ctx);
-    let mut encoder = Encoder::new(ctx);
+    let solver = Solver::new();
+    let mut encoder = Encoder::new();
     let val = encoder.encode_expr(expr);
-    let bool_val = val.as_bool(ctx);
+    let bool_val = val.as_bool();
     solver.assert(&bool_val);
     check_satisfiability(&solver, desc, results);
 }
@@ -317,27 +310,27 @@ pub(crate) fn verify_quantified_impl(
     assumptions: &[Expr],
     quantified_body: &Expr,
 ) -> VerificationResult {
-    let mut cfg = Config::new();
+    let solver = Solver::new();
     // Layer 2 timeout: 10 seconds
-    cfg.set_param_value("timeout", "10000");
-    let ctx = Context::new(&cfg);
-    let solver = Solver::new(&ctx);
+    let mut params = z3::Params::new();
+    params.set_u32("timeout", 10000);
+    solver.set_params(&params);
 
-    let mut encoder = Encoder::new(&ctx);
+    let mut encoder = Encoder::new();
 
     // Assert assumptions
     for assumption in assumptions {
         let val = encoder.encode_expr(assumption);
-        let bool_val = val.as_bool(&ctx);
+        let bool_val = val.as_bool();
         solver.assert(&bool_val);
     }
 
     // Encode the quantified body
     let body_val = encoder.encode_expr(quantified_body);
-    let body_bool = body_val.as_bool(&ctx);
+    let body_bool = body_val.as_bool();
 
     // Negate and check: UNSAT means the formula holds
-    solver.assert(&body_bool.not());
+    solver.assert(body_bool.not());
 
     match solver.check() {
         SatResult::Unsat => VerificationResult::Verified {
@@ -378,14 +371,10 @@ pub(crate) fn verify_contract_impl(
     contract_name: &str,
     clauses: &[Clause],
 ) -> Vec<VerificationResult> {
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "1000");
-    let ctx = Context::new(&cfg);
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let lemma_defs = std::collections::HashMap::new();
     verify_clauses(
-        &ctx,
         contract_name,
         clauses,
         &lemma_defs,
@@ -399,9 +388,7 @@ pub(crate) fn verify_impl_with_timeout(
     typed: &TypedFile,
     timeout_ms: u64,
 ) -> Vec<VerificationResult> {
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", &timeout_ms.to_string());
-    let ctx = Context::new(&cfg);
+    let _ = timeout_ms; // timeout is set per-solver in verify_clauses
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
 
@@ -411,79 +398,37 @@ pub(crate) fn verify_impl_with_timeout(
     for decl in &typed.resolved.source.decls {
         match &decl.node {
             Decl::Contract(c) => {
-                verify_clauses(
-                    &ctx,
-                    &c.name,
-                    &c.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                );
+                verify_clauses(&c.name, &c.clauses, &lemma_defs, &mut cache, &mut results);
             }
             Decl::FnDef(f) => {
-                verify_clauses(
-                    &ctx,
-                    &f.name,
-                    &f.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                );
+                verify_clauses(&f.name, &f.clauses, &lemma_defs, &mut cache, &mut results);
             }
             Decl::Extern(e) => {
-                verify_clauses(
-                    &ctx,
-                    &e.name,
-                    &e.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                );
+                verify_clauses(&e.name, &e.clauses, &lemma_defs, &mut cache, &mut results);
             }
             Decl::Service(s) => {
                 for item in &s.items {
                     match item {
                         ServiceItem::Operation { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
-                            verify_clauses(
-                                &ctx,
-                                &qname,
-                                clauses,
-                                &lemma_defs,
-                                &mut cache,
-                                &mut results,
-                            );
+                            verify_clauses(&qname, clauses, &lemma_defs, &mut cache, &mut results);
                         }
                         ServiceItem::Query { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
-                            verify_clauses(
-                                &ctx,
-                                &qname,
-                                clauses,
-                                &lemma_defs,
-                                &mut cache,
-                                &mut results,
-                            );
+                            verify_clauses(&qname, clauses, &lemma_defs, &mut cache, &mut results);
                         }
                         ServiceItem::Invariant(expr) => {
-                            verify_invariant_expr(&ctx, &s.name, expr, &mut results);
+                            verify_invariant_expr(&s.name, expr, &mut results);
                         }
                         _ => {}
                     }
                 }
             }
             Decl::Block { name, body, .. } => {
-                verify_clauses(&ctx, name, body, &lemma_defs, &mut cache, &mut results);
+                verify_clauses(name, body, &lemma_defs, &mut cache, &mut results);
             }
             Decl::Bind(b) => {
-                verify_clauses(
-                    &ctx,
-                    &b.name,
-                    &b.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                );
+                verify_clauses(&b.name, &b.clauses, &lemma_defs, &mut cache, &mut results);
             }
             // Prophecy variables don't have verifiable clauses directly;
             // they are used as existential witnesses in contract proofs.

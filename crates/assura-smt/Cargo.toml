@@ -18,11 +18,11 @@ assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
 assura-config = { path = "../assura-config" }
-z3 = { version = "0.12", optional = true }
+z3 = { version = "0.20", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rayon = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 tempfile = "3"

@@ -7,8 +7,7 @@ use crate::*;
 use assura_parser::ast::{BinOp, Literal, UnaryOp};
 use assura_types::checkers::expr_references_var;
 use std::collections::HashMap;
-use z3::ast::Ast;
-use z3::{Context, ast};
+use z3::ast;
 
 // -----------------------------------------------------------------------
 // Z3 value wrapper
@@ -16,10 +15,10 @@ use z3::{Context, ast};
 
 /// A Z3 expression that can be either an integer or boolean sort.
 #[derive(Clone)]
-pub(super) enum Z3Value<'ctx> {
-    Bool(ast::Bool<'ctx>),
-    Int(ast::Int<'ctx>),
-    Real(ast::Real<'ctx>),
+pub(super) enum Z3Value {
+    Bool(ast::Bool),
+    Int(ast::Int),
+    Real(ast::Real),
 }
 
 /// Binary operator kind for raw token parsing.
@@ -41,36 +40,36 @@ pub(super) enum RawOp {
     Implies,
 }
 
-impl<'ctx> Z3Value<'ctx> {
+impl Z3Value {
     /// Extract as Bool. If Int, create `!= 0` comparison.
-    pub(super) fn as_bool(&self, ctx: &'ctx Context) -> ast::Bool<'ctx> {
+    pub(super) fn as_bool(&self) -> ast::Bool {
         match self {
             Z3Value::Bool(b) => b.clone(),
-            Z3Value::Int(i) => i._eq(&ast::Int::from_i64(ctx, 0)).not(),
-            Z3Value::Real(r) => r._eq(&ast::Real::from_real(ctx, 0, 1)).not(),
+            Z3Value::Int(i) => i.eq(ast::Int::from_i64(0)).not(),
+            Z3Value::Real(r) => r.eq(ast::Real::from_rational(0, 1)).not(),
         }
     }
 
     /// Extract as Int. If Bool or Real, return a fresh uninterpreted int.
-    pub(super) fn as_int(&self, ctx: &'ctx Context, counter: &mut u32) -> ast::Int<'ctx> {
+    pub(super) fn as_int(&self, counter: &mut u32) -> ast::Int {
         match self {
             Z3Value::Int(i) => i.clone(),
             Z3Value::Bool(_) | Z3Value::Real(_) => {
                 *counter += 1;
-                ast::Int::new_const(ctx, format!("__coerce_{counter}"))
+                ast::Int::new_const(format!("__coerce_{counter}"))
             }
         }
     }
 
     /// Extract as Real. If Int, convert via `int2real`. If Bool, return
     /// a fresh uninterpreted real.
-    pub(super) fn as_real(&self, ctx: &'ctx Context, counter: &mut u32) -> ast::Real<'ctx> {
+    pub(super) fn as_real(&self, counter: &mut u32) -> ast::Real {
         match self {
             Z3Value::Real(r) => r.clone(),
             Z3Value::Int(i) => ast::Real::from_int(i),
             Z3Value::Bool(_) => {
                 *counter += 1;
-                ast::Real::new_const(ctx, format!("__coerce_real_{counter}"))
+                ast::Real::new_const(format!("__coerce_real_{counter}"))
             }
         }
     }
@@ -81,23 +80,21 @@ impl<'ctx> Z3Value<'ctx> {
 // -----------------------------------------------------------------------
 
 /// Translates Assura AST expressions into Z3 formulas.
-pub(super) struct Encoder<'ctx> {
-    pub(super) ctx: &'ctx Context,
-    pub(super) vars: HashMap<String, Z3Value<'ctx>>,
+pub(super) struct Encoder {
+    pub(super) vars: HashMap<String, Z3Value>,
     /// Tracks known function arities for uninterpreted function encoding
     pub(super) func_arities: HashMap<String, usize>,
     pub(super) fresh_counter: u32,
     /// Background axioms collected during encoding (e.g., len >= 0).
     /// These are asserted into the solver before each verification check.
-    pub(super) background_axioms: Vec<z3::ast::Bool<'ctx>>,
+    pub(super) background_axioms: Vec<z3::ast::Bool>,
     /// Trigger manager for quantifier e-matching hints
     pub(super) trigger_manager: crate::advanced::TriggerManager,
 }
 
-impl<'ctx> Encoder<'ctx> {
-    pub(super) fn new(ctx: &'ctx Context) -> Self {
+impl Encoder {
+    pub(super) fn new() -> Self {
         Self {
-            ctx,
             vars: HashMap::new(),
             func_arities: HashMap::new(),
             fresh_counter: 0,
@@ -107,11 +104,11 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Get or create a named integer variable.
-    pub(super) fn get_or_create_int(&mut self, name: &str) -> ast::Int<'ctx> {
+    pub(super) fn get_or_create_int(&mut self, name: &str) -> ast::Int {
         if let Some(val) = self.vars.get(name) {
-            return val.as_int(self.ctx, &mut self.fresh_counter);
+            return val.as_int(&mut self.fresh_counter);
         }
-        let v = ast::Int::new_const(self.ctx, name);
+        let v = ast::Int::new_const(name);
         self.vars.insert(name.to_string(), Z3Value::Int(v.clone()));
         v
     }
@@ -127,10 +124,10 @@ impl<'ctx> Encoder<'ctx> {
     fn guard_quantifier_body(
         &mut self,
         domain: &Expr,
-        bound: &ast::Int<'ctx>,
-        body: &ast::Bool<'ctx>,
+        bound: &ast::Int,
+        body: &ast::Bool,
         is_forall: bool,
-    ) -> ast::Bool<'ctx> {
+    ) -> ast::Bool {
         // Check if domain is a range expression: lo..hi
         if let Expr::BinOp {
             op: BinOp::Range,
@@ -138,33 +135,23 @@ impl<'ctx> Encoder<'ctx> {
             rhs: hi,
         } = domain
         {
-            let lo_val = self
-                .encode_expr(lo)
-                .as_int(self.ctx, &mut self.fresh_counter);
-            let hi_val = self
-                .encode_expr(hi)
-                .as_int(self.ctx, &mut self.fresh_counter);
+            let lo_val = self.encode_expr(lo).as_int(&mut self.fresh_counter);
+            let hi_val = self.encode_expr(hi).as_int(&mut self.fresh_counter);
             let ge_lo = bound.ge(&lo_val);
             let lt_hi = bound.lt(&hi_val);
-            let in_range = ast::Bool::and(self.ctx, &[&ge_lo, &lt_hi]);
+            let in_range = ast::Bool::and(&[&ge_lo, &lt_hi]);
             if is_forall {
                 in_range.implies(body)
             } else {
-                ast::Bool::and(self.ctx, &[&in_range, body])
+                ast::Bool::and(&[&in_range, body])
             }
         } else {
             // Non-range domain: encode as uninterpreted contains(domain, x)
-            let int_sort = z3::Sort::int(self.ctx);
-            let bool_sort = z3::Sort::bool(self.ctx);
-            let contains_fn = z3::FuncDecl::new(
-                self.ctx,
-                "__domain_contains",
-                &[&int_sort, &int_sort],
-                &bool_sort,
-            );
-            let domain_val = self
-                .encode_expr(domain)
-                .as_int(self.ctx, &mut self.fresh_counter);
+            let int_sort = z3::Sort::int();
+            let bool_sort = z3::Sort::bool();
+            let contains_fn =
+                z3::FuncDecl::new("__domain_contains", &[&int_sort, &int_sort], &bool_sort);
+            let domain_val = self.encode_expr(domain).as_int(&mut self.fresh_counter);
             let membership = contains_fn
                 .apply(&[
                     &ast::Dynamic::from_ast(&domain_val),
@@ -175,7 +162,7 @@ impl<'ctx> Encoder<'ctx> {
             if is_forall {
                 membership.implies(body)
             } else {
-                ast::Bool::and(self.ctx, &[&membership, body])
+                ast::Bool::and(&[&membership, body])
             }
         }
     }
@@ -187,8 +174,8 @@ impl<'ctx> Encoder<'ctx> {
         &mut self,
         body: &Expr,
         bound_var: &str,
-        bound_z3: &ast::Int<'ctx>,
-    ) -> Vec<z3::Pattern<'ctx>> {
+        bound_z3: &ast::Int,
+    ) -> Vec<z3::Pattern> {
         let mut patterns = Vec::new();
 
         // Check TriggerManager for user-provided or inferred triggers
@@ -196,11 +183,10 @@ impl<'ctx> Encoder<'ctx> {
         if let Some(trigger) = self.trigger_manager.infer_trigger(&body_str) {
             for term in &trigger.terms {
                 if let Some(fname) = term.split('(').next() {
-                    let int_sort = z3::Sort::int(self.ctx);
-                    let func = z3::FuncDecl::new(self.ctx, fname.trim(), &[&int_sort], &int_sort);
-                    let bound_dyn: &dyn z3::ast::Ast<'ctx> = bound_z3;
-                    let app = func.apply(&[bound_dyn]);
-                    let pat = z3::Pattern::new(self.ctx, &[&app]);
+                    let int_sort = z3::Sort::int();
+                    let func = z3::FuncDecl::new(fname.trim(), &[&int_sort], &int_sort);
+                    let app = func.apply(&[bound_z3 as &dyn z3::ast::Ast]);
+                    let pat = z3::Pattern::new(&[&app]);
                     patterns.push(pat);
                 }
             }
@@ -220,37 +206,31 @@ impl<'ctx> Encoder<'ctx> {
         &self,
         expr: &Expr,
         bound_var: &str,
-        bound_z3: &ast::Int<'ctx>,
-        patterns: &mut Vec<z3::Pattern<'ctx>>,
+        bound_z3: &ast::Int,
+        patterns: &mut Vec<z3::Pattern>,
     ) {
         match expr {
             Expr::Call { func, args } => {
                 let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
                 if refs_bound && let Expr::Ident(fname) = func.as_ref() {
-                    let int_sort = z3::Sort::int(self.ctx);
+                    let int_sort = z3::Sort::int();
                     let arity = args.len();
-                    let param_sorts: Vec<&z3::Sort<'_>> = (0..arity).map(|_| &int_sort).collect();
-                    let func_decl =
-                        z3::FuncDecl::new(self.ctx, fname.as_str(), &param_sorts, &int_sort);
-                    let z3_args: Vec<ast::Dynamic<'ctx>> = args
+                    let param_sorts: Vec<&z3::Sort> = (0..arity).map(|_| &int_sort).collect();
+                    let func_decl = z3::FuncDecl::new(fname.as_str(), &param_sorts, &int_sort);
+                    let z3_args: Vec<ast::Dynamic> = args
                         .iter()
                         .map(|a| {
                             if expr_references_var(a, bound_var) {
                                 ast::Dynamic::from_ast(bound_z3)
                             } else {
-                                ast::Dynamic::from_ast(&ast::Int::new_const(
-                                    self.ctx,
-                                    "__trigger_other",
-                                ))
+                                ast::Dynamic::from_ast(&ast::Int::new_const("__trigger_other"))
                             }
                         })
                         .collect();
-                    let arg_refs: Vec<&dyn z3::ast::Ast<'ctx>> = z3_args
-                        .iter()
-                        .map(|d| d as &dyn z3::ast::Ast<'ctx>)
-                        .collect();
+                    let arg_refs: Vec<&dyn z3::ast::Ast> =
+                        z3_args.iter().map(|d| d as &dyn z3::ast::Ast).collect();
                     let app = func_decl.apply(&arg_refs);
-                    let pat = z3::Pattern::new(self.ctx, &[&app]);
+                    let pat = z3::Pattern::new(&[&app]);
                     patterns.push(pat);
                 }
                 for a in args {
@@ -290,35 +270,32 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Create a fresh unconstrained boolean.
-    fn fresh_bool(&mut self) -> ast::Bool<'ctx> {
+    fn fresh_bool(&mut self) -> ast::Bool {
         self.fresh_counter += 1;
-        ast::Bool::new_const(self.ctx, format!("__fresh_{}", self.fresh_counter))
+        ast::Bool::new_const(format!("__fresh_{}", self.fresh_counter))
     }
 
     /// Create a fresh unconstrained integer.
-    pub(super) fn fresh_int(&mut self) -> ast::Int<'ctx> {
+    pub(super) fn fresh_int(&mut self) -> ast::Int {
         self.fresh_counter += 1;
-        ast::Int::new_const(self.ctx, format!("__fresh_{}", self.fresh_counter))
+        ast::Int::new_const(format!("__fresh_{}", self.fresh_counter))
     }
 
     /// Create an uninterpreted function declaration (Int^arity -> Int).
     /// Z3 internally deduplicates declarations with the same name and sorts.
-    fn make_func(&mut self, name: &str, arity: usize) -> z3::FuncDecl<'ctx> {
+    fn make_func(&mut self, name: &str, arity: usize) -> z3::FuncDecl {
         self.func_arities.insert(name.to_string(), arity);
-        let int_sort = z3::Sort::int(self.ctx);
+        let int_sort = z3::Sort::int();
         let param_sorts: Vec<&z3::Sort> = (0..arity).map(|_| &int_sort).collect();
-        z3::FuncDecl::new(self.ctx, name, &param_sorts, &int_sort)
+        z3::FuncDecl::new(name, &param_sorts, &int_sort)
     }
 
     /// Encode a function call as an uninterpreted function application.
     /// Known boolean methods return Bool; everything else returns Int.
-    fn encode_call(&mut self, func_name: &str, args: &[Expr]) -> Z3Value<'ctx> {
-        let arg_vals: Vec<ast::Int<'ctx>> = args
+    fn encode_call(&mut self, func_name: &str, args: &[Expr]) -> Z3Value {
+        let arg_vals: Vec<ast::Int> = args
             .iter()
-            .map(|a| {
-                self.encode_expr(a)
-                    .as_int(self.ctx, &mut self.fresh_counter)
-            })
+            .map(|a| self.encode_expr(a).as_int(&mut self.fresh_counter))
             .collect();
         // Methods known to return Bool
         if matches!(
@@ -337,10 +314,10 @@ impl<'ctx> Encoder<'ctx> {
                 | "is_subset"
                 | "is_superset"
         ) {
-            let bool_sort = z3::Sort::bool(self.ctx);
-            let int_sort = z3::Sort::int(self.ctx);
+            let bool_sort = z3::Sort::bool();
+            let int_sort = z3::Sort::int();
             let param_sorts: Vec<&z3::Sort> = (0..arg_vals.len()).map(|_| &int_sort).collect();
-            let decl = z3::FuncDecl::new(self.ctx, func_name, &param_sorts, &bool_sort);
+            let decl = z3::FuncDecl::new(func_name, &param_sorts, &bool_sort);
             let arg_refs: Vec<&dyn z3::ast::Ast> =
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
             let result = decl.apply(&arg_refs);
@@ -355,7 +332,7 @@ impl<'ctx> Encoder<'ctx> {
                 let start = &arg_vals[1];
                 let end = &arg_vals[2];
                 let result = self.fresh_int();
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 // 0 <= start
                 self.background_axioms.push(start.ge(&zero));
                 // start <= end
@@ -372,8 +349,8 @@ impl<'ctx> Encoder<'ctx> {
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
-                let diff = ast::Int::sub(self.ctx, &[end, start]);
-                self.background_axioms.push(res_len._eq(&diff));
+                let diff = ast::Int::sub(&[end, start]);
+                self.background_axioms.push(res_len.eq(&diff));
                 self.background_axioms.push(res_len.ge(&zero));
                 return Z3Value::Int(result);
             }
@@ -395,11 +372,11 @@ impl<'ctx> Encoder<'ctx> {
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(len_l.ge(&zero));
                 self.background_axioms.push(len_r.ge(&zero));
-                let sum = ast::Int::add(self.ctx, &[&len_l, &len_r]);
-                self.background_axioms.push(len_result._eq(&sum));
+                let sum = ast::Int::add(&[&len_l, &len_r]);
+                self.background_axioms.push(len_result.eq(&sum));
                 self.background_axioms.push(len_result.ge(&zero));
                 return Z3Value::Int(result);
             }
@@ -407,7 +384,7 @@ impl<'ctx> Encoder<'ctx> {
             "index_of" | "find" | "indexOf" if arg_vals.len() == 2 => {
                 let str_val = &arg_vals[0];
                 let result = self.fresh_int();
-                let neg_one = ast::Int::from_i64(self.ctx, -1);
+                let neg_one = ast::Int::from_i64(-1);
                 self.background_axioms.push(result.ge(&neg_one));
                 let len_decl = self.make_func("__field_len", 1);
                 let str_len = len_decl
@@ -421,7 +398,7 @@ impl<'ctx> Encoder<'ctx> {
             "char_at" | "charAt" if arg_vals.len() == 2 => {
                 let str_val = &arg_vals[0];
                 let idx = &arg_vals[1];
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(idx.ge(&zero));
                 let len_decl = self.make_func("__field_len", 1);
                 let str_len = len_decl
@@ -439,7 +416,7 @@ impl<'ctx> Encoder<'ctx> {
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(res_len.ge(&zero));
                 return Z3Value::Int(result);
             }
@@ -451,7 +428,7 @@ impl<'ctx> Encoder<'ctx> {
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
-                let one = ast::Int::from_i64(self.ctx, 1);
+                let one = ast::Int::from_i64(1);
                 self.background_axioms.push(res_len.ge(&one));
                 return Z3Value::Int(result);
             }
@@ -470,7 +447,7 @@ impl<'ctx> Encoder<'ctx> {
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(res_len.ge(&zero));
                 self.background_axioms.push(res_len.le(&str_len));
                 return Z3Value::Int(result);
@@ -482,7 +459,7 @@ impl<'ctx> Encoder<'ctx> {
             // abs(x) => if x >= 0 then x else -x
             "abs" if arg_vals.len() == 1 => {
                 let x = &arg_vals[0];
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 let neg_x = x.unary_minus();
                 let cond = x.ge(&zero);
                 return Z3Value::Int(cond.ite(x, &neg_x));
@@ -513,7 +490,7 @@ impl<'ctx> Encoder<'ctx> {
                 .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
-            self.background_axioms.push(get_at_idx._eq(val));
+            self.background_axioms.push(get_at_idx.eq(val));
             // len(result) == len(original)
             // Use "len" to match the function name users write in contracts
             let len_decl = self.make_func("len", 1);
@@ -525,8 +502,8 @@ impl<'ctx> Encoder<'ctx> {
                 .apply(&[&result as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
-            self.background_axioms.push(new_len._eq(&old_len));
-            let zero = ast::Int::from_i64(self.ctx, 0);
+            self.background_axioms.push(new_len.eq(&old_len));
+            let zero = ast::Int::from_i64(0);
             self.background_axioms.push(new_len.ge(&zero));
             return Z3Value::Int(result);
         }
@@ -546,7 +523,7 @@ impl<'ctx> Encoder<'ctx> {
                 .apply(&[&new_map as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
-            self.background_axioms.push(get_result._eq(value));
+            self.background_axioms.push(get_result.eq(value));
             // size(new_map) >= size(map)
             let size_decl = self.make_func("size", 1);
             let old_size = size_decl
@@ -557,7 +534,7 @@ impl<'ctx> Encoder<'ctx> {
                 .apply(&[&new_map as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
-            let zero = ast::Int::from_i64(self.ctx, 0);
+            let zero = ast::Int::from_i64(0);
             self.background_axioms.push(new_size.ge(&old_size));
             self.background_axioms.push(new_size.ge(&zero));
             return Z3Value::Int(new_map);
@@ -569,7 +546,7 @@ impl<'ctx> Encoder<'ctx> {
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
             let result = decl.apply(&arg_refs);
             let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
-            let zero = ast::Int::from_i64(self.ctx, 0);
+            let zero = ast::Int::from_i64(0);
             self.background_axioms.push(len_val.ge(&zero));
             return Z3Value::Int(len_val);
         }
@@ -582,19 +559,17 @@ impl<'ctx> Encoder<'ctx> {
 
     /// Encode field access as uninterpreted function: field_name(object).
     /// Known boolean fields return Bool; size fields return non-negative Int.
-    fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value<'ctx> {
-        let obj_val = self
-            .encode_expr(obj)
-            .as_int(self.ctx, &mut self.fresh_counter);
+    fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value {
+        let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
         let func_name = format!("__field_{field}");
         // Boolean-valued fields
         if matches!(
             field,
             "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
         ) {
-            let bool_sort = z3::Sort::bool(self.ctx);
-            let int_sort = z3::Sort::int(self.ctx);
-            let decl = z3::FuncDecl::new(self.ctx, func_name.as_str(), &[&int_sort], &bool_sort);
+            let bool_sort = z3::Sort::bool();
+            let int_sort = z3::Sort::int();
+            let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
             let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
             return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
         }
@@ -604,7 +579,7 @@ impl<'ctx> Encoder<'ctx> {
             let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
             let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
             // Assert len >= 0 as a background axiom
-            let zero = ast::Int::from_i64(self.ctx, 0);
+            let zero = ast::Int::from_i64(0);
             self.background_axioms.push(len_val.ge(&zero));
             return Z3Value::Int(len_val);
         }
@@ -614,16 +589,12 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Encode indexing as uninterpreted function: __index(collection, index).
-    fn encode_index(&mut self, collection: &Expr, index: &Expr) -> Z3Value<'ctx> {
-        let coll_val = self
-            .encode_expr(collection)
-            .as_int(self.ctx, &mut self.fresh_counter);
-        let idx_val = self
-            .encode_expr(index)
-            .as_int(self.ctx, &mut self.fresh_counter);
+    fn encode_index(&mut self, collection: &Expr, index: &Expr) -> Z3Value {
+        let coll_val = self.encode_expr(collection).as_int(&mut self.fresh_counter);
+        let idx_val = self.encode_expr(index).as_int(&mut self.fresh_counter);
 
         // Add bounds checking axiom: 0 <= index < len(collection)
-        let zero = ast::Int::from_i64(self.ctx, 0);
+        let zero = ast::Int::from_i64(0);
         let ge_zero = idx_val.ge(&zero);
         // len(collection) via uninterpreted function
         let len_decl = self.make_func("__len", 1);
@@ -638,11 +609,11 @@ impl<'ctx> Encoder<'ctx> {
 
         // Use Z3 Array theory: select(array, index)
         // Model arrays as Array<Int, Int> for uniform element access.
-        let int_sort = z3::Sort::int(self.ctx);
-        let _arr_sort = z3::Sort::array(self.ctx, &int_sort, &int_sort);
+        let int_sort = z3::Sort::int();
+        let _arr_sort = z3::Sort::array(&int_sort, &int_sort);
         let arr_name = format!("__arr_{}", self.fresh_counter);
         self.fresh_counter += 1;
-        let arr = z3::ast::Array::new_const(self.ctx, arr_name.as_str(), &int_sort, &int_sort);
+        let arr = z3::ast::Array::new_const(arr_name.as_str(), &int_sort, &int_sort);
         // Constrain: the array is associated with this collection
         // (same collection -> same array via naming, but we also
         // link values through the select result).
@@ -658,7 +629,7 @@ impl<'ctx> Encoder<'ctx> {
         ]);
         let uif_val = uif_result.as_int().unwrap_or_else(|| self.fresh_int());
         // Link the two: select(arr, i) == __index(coll, i)
-        self.background_axioms.push(result._eq(&uif_val));
+        self.background_axioms.push(result.eq(&uif_val));
 
         Z3Value::Int(result)
     }
@@ -677,37 +648,31 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Encode a literal value to Z3.
-    fn encode_literal(&self, lit: &Literal) -> Z3Value<'ctx> {
+    fn encode_literal(&self, lit: &Literal) -> Z3Value {
         match lit {
             Literal::Int(s) => {
                 let n: i64 = s.parse().unwrap_or(0);
-                Z3Value::Int(ast::Int::from_i64(self.ctx, n))
+                Z3Value::Int(ast::Int::from_i64(n))
             }
             Literal::Float(s) => {
                 let n: i64 = s.parse::<f64>().unwrap_or(0.0) as i64;
-                Z3Value::Int(ast::Int::from_i64(self.ctx, n))
+                Z3Value::Int(ast::Int::from_i64(n))
             }
-            Literal::Bool(b) => Z3Value::Bool(ast::Bool::from_bool(self.ctx, *b)),
-            Literal::Str(_) => {
-                Z3Value::Int(ast::Int::from_i64(self.ctx, self.fresh_counter as i64))
-            }
+            Literal::Bool(b) => Z3Value::Bool(ast::Bool::from_bool(*b)),
+            Literal::Str(_) => Z3Value::Int(ast::Int::from_i64(self.fresh_counter as i64)),
         }
     }
 
     /// Bind pattern variables as fresh Z3 integer constants so they
     /// are available in the arm body.
-    fn bind_pattern_vars(
-        &mut self,
-        pattern: &assura_parser::ast::Pattern,
-        _scrutinee: &Z3Value<'ctx>,
-    ) {
+    fn bind_pattern_vars(&mut self, pattern: &assura_parser::ast::Pattern, _scrutinee: &Z3Value) {
         match pattern {
             assura_parser::ast::Pattern::Ident(name) => {
                 // Ident patterns in match bind the variable to the scrutinee,
                 // but for SMT we use a fresh variable since we cannot always
                 // decompose the scrutinee.
                 if !self.vars.contains_key(name) {
-                    let v = ast::Int::new_const(self.ctx, name.as_str());
+                    let v = ast::Int::new_const(name.as_str());
                     self.vars.insert(name.clone(), Z3Value::Int(v));
                 }
             }
@@ -728,12 +693,12 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Encode an AST expression into a Z3 value.
-    pub(super) fn encode_expr(&mut self, expr: &Expr) -> Z3Value<'ctx> {
+    pub(super) fn encode_expr(&mut self, expr: &Expr) -> Z3Value {
         match expr {
             // --- Literals ---
             Expr::Literal(Literal::Int(s)) => {
                 let n: i64 = s.parse().unwrap_or(0);
-                Z3Value::Int(ast::Int::from_i64(self.ctx, n))
+                Z3Value::Int(ast::Int::from_i64(n))
             }
             Expr::Literal(Literal::Float(s)) => {
                 // Encode as Z3 Real. Parse the float string and convert
@@ -741,42 +706,42 @@ impl<'ctx> Encoder<'ctx> {
                 let f: f64 = s.parse().unwrap_or(0.0);
                 // Clamp to i32 safe range then encode as rational to avoid
                 // overflow for values > 2147 (i32::MAX / 1_000_000).
-                let denom = 1_000_000i32;
+                let denom = 1_000_000i64;
                 let clamped = f.clamp(-2_000_000_000.0, 2_000_000_000.0);
-                let numer = (clamped * denom as f64) as i32;
-                Z3Value::Real(ast::Real::from_real(self.ctx, numer, denom))
+                let numer = (clamped * denom as f64) as i64;
+                Z3Value::Real(ast::Real::from_rational(numer, denom))
             }
             Expr::Literal(Literal::Str(s)) => {
                 // Encode as a named integer constant. Two identical string
                 // literals produce the same constant, so equality works.
                 // Different strings get different constants.
                 let const_name = format!("__str_{s}");
-                let str_val = ast::Int::new_const(self.ctx, const_name);
+                let str_val = ast::Int::new_const(const_name);
                 // String length axiom: len("hello") == 5
                 let len_decl = self.make_func("__field_len", 1);
                 let len_result = len_decl
                     .apply(&[&str_val as &dyn z3::ast::Ast])
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
-                let str_len = ast::Int::from_i64(self.ctx, s.len() as i64);
-                self.background_axioms.push(len_result._eq(&str_len));
+                let str_len = ast::Int::from_i64(s.len() as i64);
+                self.background_axioms.push(len_result.eq(&str_len));
                 Z3Value::Int(str_val)
             }
-            Expr::Literal(Literal::Bool(b)) => Z3Value::Bool(ast::Bool::from_bool(self.ctx, *b)),
+            Expr::Literal(Literal::Bool(b)) => Z3Value::Bool(ast::Bool::from_bool(*b)),
 
             // --- Identifiers ---
             Expr::Ident(name) => {
                 if name == "true" {
-                    return Z3Value::Bool(ast::Bool::from_bool(self.ctx, true));
+                    return Z3Value::Bool(ast::Bool::from_bool(true));
                 }
                 if name == "false" {
-                    return Z3Value::Bool(ast::Bool::from_bool(self.ctx, false));
+                    return Z3Value::Bool(ast::Bool::from_bool(false));
                 }
                 if let Some(val) = self.vars.get(name) {
                     return val.clone();
                 }
                 // Default: create integer variable (most common in contracts)
-                let v = ast::Int::new_const(self.ctx, name.as_str());
+                let v = ast::Int::new_const(name.as_str());
                 self.vars.insert(name.clone(), Z3Value::Int(v.clone()));
                 Z3Value::Int(v)
             }
@@ -790,15 +755,15 @@ impl<'ctx> Encoder<'ctx> {
                 match op {
                     UnaryOp::Neg => {
                         if Self::is_real(&val) {
-                            let r = val.as_real(self.ctx, &mut self.fresh_counter);
+                            let r = val.as_real(&mut self.fresh_counter);
                             Z3Value::Real(r.unary_minus())
                         } else {
-                            let i = val.as_int(self.ctx, &mut self.fresh_counter);
+                            let i = val.as_int(&mut self.fresh_counter);
                             Z3Value::Int(i.unary_minus())
                         }
                     }
                     UnaryOp::Not => {
-                        let b = val.as_bool(self.ctx);
+                        let b = val.as_bool();
                         Z3Value::Bool(b.not())
                     }
                 }
@@ -815,20 +780,15 @@ impl<'ctx> Encoder<'ctx> {
                 // old(obj.field) -> encode obj as old, then access field
                 Expr::Field(obj, field) => {
                     let old_obj = self.encode_expr(&Expr::Old(obj.clone()));
-                    let old_obj_int = old_obj.as_int(self.ctx, &mut self.fresh_counter);
+                    let old_obj_int = old_obj.as_int(&mut self.fresh_counter);
                     let func_name = format!("__field_{field}");
                     if matches!(
                         field.as_str(),
                         "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
                     ) {
-                        let bool_sort = z3::Sort::bool(self.ctx);
-                        let int_sort = z3::Sort::int(self.ctx);
-                        let decl = z3::FuncDecl::new(
-                            self.ctx,
-                            func_name.as_str(),
-                            &[&int_sort],
-                            &bool_sort,
-                        );
+                        let bool_sort = z3::Sort::bool();
+                        let int_sort = z3::Sort::int();
+                        let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
                         let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
                         Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()))
                     } else {
@@ -842,7 +802,7 @@ impl<'ctx> Encoder<'ctx> {
                     receiver, method, ..
                 } => {
                     let old_recv = self.encode_expr(&Expr::Old(receiver.clone()));
-                    let old_int = old_recv.as_int(self.ctx, &mut self.fresh_counter);
+                    let old_int = old_recv.as_int(&mut self.fresh_counter);
                     let decl = self.make_func(method, 1);
                     let result = decl.apply(&[&old_int as &dyn z3::ast::Ast]);
                     Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
@@ -853,28 +813,28 @@ impl<'ctx> Encoder<'ctx> {
 
             // --- Forall quantifier ---
             Expr::Forall { var, domain, body } => {
-                let bound = ast::Int::new_const(self.ctx, var.as_str());
+                let bound = ast::Int::new_const(var.as_str());
                 self.vars.insert(var.clone(), Z3Value::Int(bound.clone()));
                 let body_val = self.encode_expr(body);
-                let body_bool = body_val.as_bool(self.ctx);
+                let body_bool = body_val.as_bool();
                 let guarded = self.guard_quantifier_body(domain, &bound, &body_bool, true);
                 // Infer trigger patterns from function calls in the body
                 let patterns = self.infer_quantifier_patterns(body, var, &bound);
-                let pattern_refs: Vec<&z3::Pattern<'ctx>> = patterns.iter().collect();
-                let result = ast::forall_const(self.ctx, &[&bound], &pattern_refs, &guarded);
+                let pattern_refs: Vec<&z3::Pattern> = patterns.iter().collect();
+                let result = ast::forall_const(&[&bound], &pattern_refs, &guarded);
                 Z3Value::Bool(result)
             }
 
             // --- Exists quantifier ---
             Expr::Exists { var, domain, body } => {
-                let bound = ast::Int::new_const(self.ctx, var.as_str());
+                let bound = ast::Int::new_const(var.as_str());
                 self.vars.insert(var.clone(), Z3Value::Int(bound.clone()));
                 let body_val = self.encode_expr(body);
-                let body_bool = body_val.as_bool(self.ctx);
+                let body_bool = body_val.as_bool();
                 let guarded = self.guard_quantifier_body(domain, &bound, &body_bool, false);
                 let patterns = self.infer_quantifier_patterns(body, var, &bound);
-                let pattern_refs: Vec<&z3::Pattern<'ctx>> = patterns.iter().collect();
-                let result = ast::exists_const(self.ctx, &[&bound], &pattern_refs, &guarded);
+                let pattern_refs: Vec<&z3::Pattern> = patterns.iter().collect();
+                let result = ast::exists_const(&[&bound], &pattern_refs, &guarded);
                 Z3Value::Bool(result)
             }
 
@@ -885,7 +845,7 @@ impl<'ctx> Encoder<'ctx> {
                 else_branch,
             } => {
                 let cond_val = self.encode_expr(cond);
-                let cond_bool = cond_val.as_bool(self.ctx);
+                let cond_bool = cond_val.as_bool();
                 let then_val = self.encode_expr(then_branch);
 
                 if let Some(else_br) = else_branch {
@@ -901,14 +861,14 @@ impl<'ctx> Encoder<'ctx> {
                             Z3Value::Real(cond_bool.ite(t, &ast::Real::from_int(e)))
                         }
                         _ => {
-                            let t = then_val.as_bool(self.ctx);
-                            let e = else_val.as_bool(self.ctx);
+                            let t = then_val.as_bool();
+                            let e = else_val.as_bool();
                             Z3Value::Bool(cond_bool.ite(&t, &e))
                         }
                     }
                 } else {
                     // No else: `if P then Q` = `P => Q`
-                    let then_bool = then_val.as_bool(self.ctx);
+                    let then_bool = then_val.as_bool();
                     Z3Value::Bool(cond_bool.implies(&then_bool))
                 }
             }
@@ -928,7 +888,7 @@ impl<'ctx> Encoder<'ctx> {
                 for arg in args {
                     let _ = self.encode_expr(arg);
                 }
-                Z3Value::Bool(ast::Bool::from_bool(self.ctx, true))
+                Z3Value::Bool(ast::Bool::from_bool(true))
             }
 
             // --- Match: encode as ITE chain over arm bodies ---
@@ -948,42 +908,35 @@ impl<'ctx> Encoder<'ctx> {
                     // For ident patterns, check scrut == pattern_name
                     let cond = match &arm.pattern {
                         assura_parser::ast::Pattern::Ident(name) => {
-                            let pat_val =
-                                Z3Value::Int(ast::Int::from_i64(self.ctx, self.pattern_hash(name)));
+                            let pat_val = Z3Value::Int(ast::Int::from_i64(self.pattern_hash(name)));
                             match (&scrut, &pat_val) {
-                                (Z3Value::Int(a), Z3Value::Int(b)) => a._eq(b),
+                                (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
                                 // Overapproximate: type mismatch means we
                                 // cannot compare, so assume the arm could
                                 // match (sound: may produce spurious
                                 // counterexamples but never hides real ones)
-                                _ => ast::Bool::from_bool(self.ctx, true),
+                                _ => ast::Bool::from_bool(true),
                             }
                         }
                         assura_parser::ast::Pattern::Literal(lit) => {
                             let lit_val = self.encode_literal(lit);
                             match (&scrut, &lit_val) {
-                                (Z3Value::Int(a), Z3Value::Int(b)) => a._eq(b),
-                                (Z3Value::Bool(a), Z3Value::Bool(b)) => a._eq(b),
-                                (Z3Value::Real(a), Z3Value::Real(b)) => a._eq(b),
+                                (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
+                                (Z3Value::Bool(a), Z3Value::Bool(b)) => a.eq(b),
+                                (Z3Value::Real(a), Z3Value::Real(b)) => a.eq(b),
                                 // Cross-sort: promote Int to Real
-                                (Z3Value::Int(a), Z3Value::Real(b)) => {
-                                    ast::Real::from_int(a)._eq(b)
-                                }
-                                (Z3Value::Real(a), Z3Value::Int(b)) => {
-                                    a._eq(&ast::Real::from_int(b))
-                                }
+                                (Z3Value::Int(a), Z3Value::Real(b)) => ast::Real::from_int(a).eq(b),
+                                (Z3Value::Real(a), Z3Value::Int(b)) => a.eq(ast::Real::from_int(b)),
                                 // Overapproximate: unresolvable type
                                 // mismatch, assume arm could match
-                                _ => ast::Bool::from_bool(self.ctx, true),
+                                _ => ast::Bool::from_bool(true),
                             }
                         }
                         // Constructor and Tuple patterns bind variables
                         // but always match in this overapproximation.
                         assura_parser::ast::Pattern::Constructor { .. }
-                        | assura_parser::ast::Pattern::Tuple(_) => {
-                            ast::Bool::from_bool(self.ctx, true)
-                        }
-                        _ => ast::Bool::from_bool(self.ctx, true),
+                        | assura_parser::ast::Pattern::Tuple(_) => ast::Bool::from_bool(true),
+                        _ => ast::Bool::from_bool(true),
                     };
                     // Build ITE: if cond then body else else_val
                     match (&body, &else_val) {
@@ -1075,11 +1028,11 @@ impl<'ctx> Encoder<'ctx> {
     /// Uses a simple precedence-climbing approach to handle common
     /// contract clause patterns: comparisons, arithmetic, and logical
     /// operators over identifiers and integer literals.
-    fn encode_raw_tokens(&mut self, tokens: &[String]) -> Z3Value<'ctx> {
+    fn encode_raw_tokens(&mut self, tokens: &[String]) -> Z3Value {
         if tokens.is_empty() {
             // Empty clause body is vacuously true (e.g. an ensures
             // clause with no expression defaults to trivially satisfied).
-            return Z3Value::Bool(ast::Bool::from_bool(self.ctx, true));
+            return Z3Value::Bool(ast::Bool::from_bool(true));
         }
 
         // Try to parse as a structured expression
@@ -1090,7 +1043,7 @@ impl<'ctx> Encoder<'ctx> {
     /// Parse raw tokens with operator precedence.
     ///
     /// Returns (value, next_position).
-    fn parse_raw_expr(&mut self, tokens: &[String], min_prec: u8) -> (Z3Value<'ctx>, usize) {
+    fn parse_raw_expr(&mut self, tokens: &[String], min_prec: u8) -> (Z3Value, usize) {
         let (mut lhs, mut pos) = self.parse_raw_atom(tokens, 0);
 
         while pos < tokens.len() {
@@ -1129,10 +1082,10 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Parse a single atom from raw tokens.
-    fn parse_raw_atom(&mut self, tokens: &[String], start: usize) -> (Z3Value<'ctx>, usize) {
+    fn parse_raw_atom(&mut self, tokens: &[String], start: usize) -> (Z3Value, usize) {
         if start >= tokens.len() {
             // Past end of tokens: treat as vacuously true.
-            return (Z3Value::Bool(ast::Bool::from_bool(self.ctx, true)), start);
+            return (Z3Value::Bool(ast::Bool::from_bool(true)), start);
         }
 
         let tok = &tokens[start];
@@ -1140,14 +1093,14 @@ impl<'ctx> Encoder<'ctx> {
         // --- Unary not ---
         if tok == "not" || tok == "!" {
             let (val, next) = self.parse_raw_atom(tokens, start + 1);
-            let b = val.as_bool(self.ctx);
+            let b = val.as_bool();
             return (Z3Value::Bool(b.not()), next);
         }
 
         // --- Unary minus ---
         if tok == "-" {
             let (val, next) = self.parse_raw_atom(tokens, start + 1);
-            let i = val.as_int(self.ctx, &mut self.fresh_counter);
+            let i = val.as_int(&mut self.fresh_counter);
             return (Z3Value::Int(i.unary_minus()), next);
         }
 
@@ -1173,16 +1126,10 @@ impl<'ctx> Encoder<'ctx> {
 
         // --- Boolean literals ---
         if tok == "true" {
-            return (
-                Z3Value::Bool(ast::Bool::from_bool(self.ctx, true)),
-                start + 1,
-            );
+            return (Z3Value::Bool(ast::Bool::from_bool(true)), start + 1);
         }
         if tok == "false" {
-            return (
-                Z3Value::Bool(ast::Bool::from_bool(self.ctx, false)),
-                start + 1,
-            );
+            return (Z3Value::Bool(ast::Bool::from_bool(false)), start + 1);
         }
 
         // --- `result` keyword ---
@@ -1258,27 +1205,25 @@ impl<'ctx> Encoder<'ctx> {
                 let (_domain_val, _) = self.parse_raw_expr(domain_tokens, 0);
 
                 // Bind the quantifier variable
-                let bound = ast::Int::new_const(self.ctx, var_name.as_str());
+                let bound = ast::Int::new_const(var_name.as_str());
                 self.vars
                     .insert(var_name.clone(), Z3Value::Int(bound.clone()));
 
                 // Parse body
                 let (body_val, _) = self.parse_raw_expr(body_tokens, 0);
-                let body_bool = body_val.as_bool(self.ctx);
+                let body_bool = body_val.as_bool();
 
                 // Build Z3 quantifier
                 let bound_ref = &bound;
-                let pattern = z3::Pattern::new(self.ctx, &[bound_ref as &dyn z3::ast::Ast]);
+                let pattern = z3::Pattern::new(&[bound_ref as &dyn z3::ast::Ast]);
                 let q = if is_forall {
                     z3::ast::forall_const(
-                        self.ctx,
                         &[bound_ref as &dyn z3::ast::Ast],
                         &[&pattern],
                         &body_bool,
                     )
                 } else {
                     z3::ast::exists_const(
-                        self.ctx,
                         &[bound_ref as &dyn z3::ast::Ast],
                         &[&pattern],
                         &body_bool,
@@ -1290,17 +1235,17 @@ impl<'ctx> Encoder<'ctx> {
 
         // --- Integer literal ---
         if let Ok(n) = tok.parse::<i64>() {
-            return (Z3Value::Int(ast::Int::from_i64(self.ctx, n)), start + 1);
+            return (Z3Value::Int(ast::Int::from_i64(n)), start + 1);
         }
 
         // --- Float literal ---
         if tok.contains('.')
             && let Ok(f) = tok.parse::<f64>()
         {
-            let denom = 1_000_000i32;
-            let numer = (f * denom as f64) as i32;
+            let denom = 1_000_000i64;
+            let numer = (f * denom as f64) as i64;
             return (
-                Z3Value::Real(ast::Real::from_real(self.ctx, numer, denom)),
+                Z3Value::Real(ast::Real::from_rational(numer, denom)),
                 start + 1,
             );
         }
@@ -1332,7 +1277,7 @@ impl<'ctx> Encoder<'ctx> {
             }
             // Parse arguments by splitting on commas at depth 0
             let arg_tokens = &tokens[next + 1..p];
-            let mut arg_vals: Vec<ast::Int<'ctx>> = Vec::new();
+            let mut arg_vals: Vec<ast::Int> = Vec::new();
             if !(arg_tokens.is_empty() || arg_tokens.len() == 1 && arg_tokens[0] == ")") {
                 let mut arg_start = 0;
                 let mut d = 0usize;
@@ -1344,7 +1289,7 @@ impl<'ctx> Encoder<'ctx> {
                             let chunk = &arg_tokens[arg_start..i];
                             if !chunk.is_empty() {
                                 let (v, _) = self.parse_raw_expr(chunk, 0);
-                                arg_vals.push(v.as_int(self.ctx, &mut self.fresh_counter));
+                                arg_vals.push(v.as_int(&mut self.fresh_counter));
                             }
                             arg_start = i + 1;
                         }
@@ -1355,7 +1300,7 @@ impl<'ctx> Encoder<'ctx> {
                 let chunk = &arg_tokens[arg_start..];
                 if !chunk.is_empty() {
                     let (v, _) = self.parse_raw_expr(chunk, 0);
-                    arg_vals.push(v.as_int(self.ctx, &mut self.fresh_counter));
+                    arg_vals.push(v.as_int(&mut self.fresh_counter));
                 }
             }
             let end = p + 1; // skip closing ')'
@@ -1367,7 +1312,7 @@ impl<'ctx> Encoder<'ctx> {
             match func_name {
                 "abs" if arg_vals.len() == 1 => {
                     let x = &arg_vals[0];
-                    let zero = ast::Int::from_i64(self.ctx, 0);
+                    let zero = ast::Int::from_i64(0);
                     let neg_x = x.unary_minus();
                     let cond = x.ge(&zero);
                     return (Z3Value::Int(cond.ite(x, &neg_x)), end);
@@ -1400,11 +1345,11 @@ impl<'ctx> Encoder<'ctx> {
                     | "is_subset"
                     | "is_superset"
             ) {
-                let bool_sort = z3::Sort::bool(self.ctx);
-                let int_sort = z3::Sort::int(self.ctx);
+                let bool_sort = z3::Sort::bool();
+                let int_sort = z3::Sort::int();
                 let arity = arg_vals.len().max(1);
                 let param_sorts: Vec<&z3::Sort> = (0..arity).map(|_| &int_sort).collect();
-                let decl = z3::FuncDecl::new(self.ctx, func_name, &param_sorts, &bool_sort);
+                let decl = z3::FuncDecl::new(func_name, &param_sorts, &bool_sort);
                 let arg_refs: Vec<&dyn z3::ast::Ast> =
                     arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
                 let result = if arg_refs.is_empty() {
@@ -1429,7 +1374,7 @@ impl<'ctx> Encoder<'ctx> {
                     decl.apply(&arg_refs)
                 };
                 let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(len_val.ge(&zero));
                 return (Z3Value::Int(len_val), end);
             }
@@ -1455,82 +1400,82 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Apply a raw binary operation.
-    fn apply_raw_op(&mut self, op: RawOp, lhs: Z3Value<'ctx>, rhs: Z3Value<'ctx>) -> Z3Value<'ctx> {
+    fn apply_raw_op(&mut self, op: RawOp, lhs: Z3Value, rhs: Z3Value) -> Z3Value {
         match op {
             RawOp::Add => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
-                Z3Value::Int(ast::Int::add(self.ctx, &[&l, &r]))
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
+                Z3Value::Int(ast::Int::add(&[&l, &r]))
             }
             RawOp::Sub => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
-                Z3Value::Int(ast::Int::sub(self.ctx, &[&l, &r]))
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
+                Z3Value::Int(ast::Int::sub(&[&l, &r]))
             }
             RawOp::Mul => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
-                Z3Value::Int(ast::Int::mul(self.ctx, &[&l, &r]))
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
+                Z3Value::Int(ast::Int::mul(&[&l, &r]))
             }
             RawOp::Div => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Int(l.div(&r))
             }
             RawOp::Mod => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Int(l.rem(&r))
             }
             RawOp::Eq => match (&lhs, &rhs) {
-                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l._eq(r)),
+                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r)),
                 _ => {
-                    let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l._eq(&r))
+                    let l = lhs.as_int(&mut self.fresh_counter);
+                    let r = rhs.as_int(&mut self.fresh_counter);
+                    Z3Value::Bool(l.eq(&r))
                 }
             },
             RawOp::Neq => match (&lhs, &rhs) {
-                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l._eq(r).not()),
+                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r).not()),
                 _ => {
-                    let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l._eq(&r).not())
+                    let l = lhs.as_int(&mut self.fresh_counter);
+                    let r = rhs.as_int(&mut self.fresh_counter);
+                    Z3Value::Bool(l.eq(&r).not())
                 }
             },
             RawOp::Lt => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.lt(&r))
             }
             RawOp::Lte => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.le(&r))
             }
             RawOp::Gt => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.gt(&r))
             }
             RawOp::Gte => {
-                let l = lhs.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rhs.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lhs.as_int(&mut self.fresh_counter);
+                let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.ge(&r))
             }
             RawOp::And => {
-                let l = lhs.as_bool(self.ctx);
-                let r = rhs.as_bool(self.ctx);
-                Z3Value::Bool(ast::Bool::and(self.ctx, &[&l, &r]))
+                let l = lhs.as_bool();
+                let r = rhs.as_bool();
+                Z3Value::Bool(ast::Bool::and(&[&l, &r]))
             }
             RawOp::Or => {
-                let l = lhs.as_bool(self.ctx);
-                let r = rhs.as_bool(self.ctx);
-                Z3Value::Bool(ast::Bool::or(self.ctx, &[&l, &r]))
+                let l = lhs.as_bool();
+                let r = rhs.as_bool();
+                Z3Value::Bool(ast::Bool::or(&[&l, &r]))
             }
             RawOp::Implies => {
-                let l = lhs.as_bool(self.ctx);
-                let r = rhs.as_bool(self.ctx);
+                let l = lhs.as_bool();
+                let r = rhs.as_bool();
                 Z3Value::Bool(l.implies(&r))
             }
         }
@@ -1550,7 +1495,7 @@ impl<'ctx> Encoder<'ctx> {
     }
 
     /// Encode a binary operation.
-    fn encode_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> Z3Value<'ctx> {
+    fn encode_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> Z3Value {
         // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
         // The parser produces BinOp(BinOp(a, <, b), <, c). We detect
         // when a comparison's LHS is itself a comparison, extract the
@@ -1566,9 +1511,9 @@ impl<'ctx> Encoder<'ctx> {
             // Encode: (inner_lhs inner_op inner_rhs) && (inner_rhs op rhs)
             let left_cmp = self.encode_binop(inner_lhs, inner_op, inner_rhs);
             let right_cmp = self.encode_binop(inner_rhs, op, rhs);
-            let l = left_cmp.as_bool(self.ctx);
-            let r = right_cmp.as_bool(self.ctx);
-            return Z3Value::Bool(ast::Bool::and(self.ctx, &[&l, &r]));
+            let l = left_cmp.as_bool();
+            let r = right_cmp.as_bool();
+            return Z3Value::Bool(ast::Bool::and(&[&l, &r]));
         }
 
         let lv = self.encode_expr(lhs);
@@ -1578,157 +1523,157 @@ impl<'ctx> Encoder<'ctx> {
             // --- Arithmetic: produce Int or Real depending on operands ---
             BinOp::Add => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Real(ast::Real::add(self.ctx, &[&l, &r]))
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
+                    Z3Value::Real(ast::Real::add(&[&l, &r]))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Int(ast::Int::add(self.ctx, &[&l, &r]))
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
+                    Z3Value::Int(ast::Int::add(&[&l, &r]))
                 }
             }
             BinOp::Sub => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Real(ast::Real::sub(self.ctx, &[&l, &r]))
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
+                    Z3Value::Real(ast::Real::sub(&[&l, &r]))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Int(ast::Int::sub(self.ctx, &[&l, &r]))
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
+                    Z3Value::Int(ast::Int::sub(&[&l, &r]))
                 }
             }
             BinOp::Mul => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Real(ast::Real::mul(self.ctx, &[&l, &r]))
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
+                    Z3Value::Real(ast::Real::mul(&[&l, &r]))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Int(ast::Int::mul(self.ctx, &[&l, &r]))
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
+                    Z3Value::Int(ast::Int::mul(&[&l, &r]))
                 }
             }
             BinOp::Div => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
                     Z3Value::Real(l.div(&r))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
                     Z3Value::Int(l.div(&r))
                 }
             }
             BinOp::Mod => {
-                let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lv.as_int(&mut self.fresh_counter);
+                let r = rv.as_int(&mut self.fresh_counter);
                 Z3Value::Int(l.rem(&r))
             }
 
             // --- Comparison: produce Bool (promote to Real if needed) ---
             BinOp::Eq => match (&lv, &rv) {
-                (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l._eq(r)),
-                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l._eq(r)),
-                (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l._eq(r)),
+                (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l.eq(r)),
+                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r)),
+                (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l.eq(r)),
                 _ if Self::is_real(&lv) || Self::is_real(&rv) => {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l._eq(&r))
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
+                    Z3Value::Bool(l.eq(&r))
                 }
                 _ => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l._eq(&r))
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
+                    Z3Value::Bool(l.eq(&r))
                 }
             },
             BinOp::Neq => match (&lv, &rv) {
-                (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l._eq(r).not()),
-                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l._eq(r).not()),
-                (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l._eq(r).not()),
+                (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l.eq(r).not()),
+                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r).not()),
+                (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l.eq(r).not()),
                 _ if Self::is_real(&lv) || Self::is_real(&rv) => {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l._eq(&r).not())
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
+                    Z3Value::Bool(l.eq(&r).not())
                 }
                 _ => {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
-                    Z3Value::Bool(l._eq(&r).not())
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
+                    Z3Value::Bool(l.eq(&r).not())
                 }
             },
             BinOp::Lt => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
                     Z3Value::Bool(l.lt(&r))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
                     Z3Value::Bool(l.lt(&r))
                 }
             }
             BinOp::Lte => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
                     Z3Value::Bool(l.le(&r))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
                     Z3Value::Bool(l.le(&r))
                 }
             }
             BinOp::Gt => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
                     Z3Value::Bool(l.gt(&r))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
                     Z3Value::Bool(l.gt(&r))
                 }
             }
             BinOp::Gte => {
                 if Self::is_real(&lv) || Self::is_real(&rv) {
-                    let l = lv.as_real(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_real(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_real(&mut self.fresh_counter);
+                    let r = rv.as_real(&mut self.fresh_counter);
                     Z3Value::Bool(l.ge(&r))
                 } else {
-                    let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                    let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                    let l = lv.as_int(&mut self.fresh_counter);
+                    let r = rv.as_int(&mut self.fresh_counter);
                     Z3Value::Bool(l.ge(&r))
                 }
             }
 
             // --- Logical: produce Bool ---
             BinOp::And => {
-                let l = lv.as_bool(self.ctx);
-                let r = rv.as_bool(self.ctx);
-                Z3Value::Bool(ast::Bool::and(self.ctx, &[&l, &r]))
+                let l = lv.as_bool();
+                let r = rv.as_bool();
+                Z3Value::Bool(ast::Bool::and(&[&l, &r]))
             }
             BinOp::Or => {
-                let l = lv.as_bool(self.ctx);
-                let r = rv.as_bool(self.ctx);
-                Z3Value::Bool(ast::Bool::or(self.ctx, &[&l, &r]))
+                let l = lv.as_bool();
+                let r = rv.as_bool();
+                Z3Value::Bool(ast::Bool::or(&[&l, &r]))
             }
             BinOp::Implies => {
-                let l = lv.as_bool(self.ctx);
-                let r = rv.as_bool(self.ctx);
+                let l = lv.as_bool();
+                let r = rv.as_bool();
                 Z3Value::Bool(l.implies(&r))
             }
 
             // --- Membership: uninterpreted function __contains(set, elem) ---
             BinOp::In | BinOp::NotIn => {
-                let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lv.as_int(&mut self.fresh_counter);
+                let r = rv.as_int(&mut self.fresh_counter);
                 let decl = self.make_func("__contains", 2);
                 let result = decl.apply(&[&r as &dyn z3::ast::Ast, &l as &dyn z3::ast::Ast]);
                 let contains_int = result.as_int().unwrap_or_else(|| self.fresh_int());
                 // __contains returns 0 for false, non-zero for true
-                let zero = ast::Int::from_i64(self.ctx, 0);
-                let is_member = contains_int._eq(&zero).not();
+                let zero = ast::Int::from_i64(0);
+                let is_member = contains_int.eq(&zero).not();
                 if matches!(op, BinOp::NotIn) {
                     Z3Value::Bool(is_member.not())
                 } else {
@@ -1738,8 +1683,8 @@ impl<'ctx> Encoder<'ctx> {
             BinOp::Concat => {
                 // String/list concat: result is a fresh value with
                 // length axiom: len(a ++ b) == len(a) + len(b)
-                let l = lv.as_int(self.ctx, &mut self.fresh_counter);
-                let r = rv.as_int(self.ctx, &mut self.fresh_counter);
+                let l = lv.as_int(&mut self.fresh_counter);
+                let r = rv.as_int(&mut self.fresh_counter);
                 let result = self.fresh_int();
                 let len_decl = self.make_func("__field_len", 1);
                 let len_l = len_decl
@@ -1755,12 +1700,12 @@ impl<'ctx> Encoder<'ctx> {
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
                 // len(a) >= 0, len(b) >= 0
-                let zero = ast::Int::from_i64(self.ctx, 0);
+                let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(len_l.ge(&zero));
                 self.background_axioms.push(len_r.ge(&zero));
                 // len(a ++ b) == len(a) + len(b)
-                let sum = ast::Int::add(self.ctx, &[&len_l, &len_r]);
-                self.background_axioms.push(len_result._eq(&sum));
+                let sum = ast::Int::add(&[&len_l, &len_r]);
+                self.background_axioms.push(len_result.eq(&sum));
                 // len(a ++ b) >= 0
                 self.background_axioms.push(len_result.ge(&zero));
                 Z3Value::Int(result)
