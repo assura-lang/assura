@@ -22,7 +22,9 @@
 pub use assura_config::SolverChoice;
 
 // Re-export parser/types that sub-modules import via `use super::*;`
-pub(crate) use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
+#[cfg(feature = "z3-verify")]
+pub(crate) use assura_parser::ast::ServiceItem;
+pub(crate) use assura_parser::ast::{ClauseKind, Decl, Expr};
 pub(crate) use assura_types::TypedFile;
 
 // ---------------------------------------------------------------------------

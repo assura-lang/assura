@@ -597,6 +597,7 @@ pub fn verify_quantified_expr(
     }
     #[cfg(not(feature = "z3-verify"))]
     {
+        let _ = quantified_body;
         VerificationResult::Unknown {
             clause_desc: name.into(),
             reason: format!(

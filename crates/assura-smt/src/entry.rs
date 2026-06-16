@@ -102,6 +102,7 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
 
 /// Merge portfolio results: prefer Z3 result unless it was Timeout/Unknown,
 /// in which case use CVC5 result.
+#[cfg(feature = "z3-verify")]
 fn merge_portfolio_results(
     z3: Vec<VerificationResult>,
     cvc5: Vec<VerificationResult>,
