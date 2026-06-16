@@ -29,6 +29,19 @@ pub(crate) const DEFAULT_FEATURE_MAX: i64 = 256;
 /// Default hash output length (bytes).
 pub(crate) const DEFAULT_HASH_BITS: i64 = 32;
 
+// ---- Numeric precision defaults ----
+
+/// Default ULP (Unit in the Last Place) tolerance for numerical precision checks.
+pub(crate) const DEFAULT_ULP_TOLERANCE: f64 = 1.0;
+
+// ---- Parameter extraction defaults ----
+// These represent "if the user didn't specify, use zero/one as the identity."
+
+/// Default integer for absent clause arguments (zero value).
+pub(crate) const DEFAULT_PARAM_ZERO: i64 = 0;
+/// Default integer for absent clause arguments (unit value).
+pub(crate) const DEFAULT_PARAM_ONE: i64 = 1;
+
 // ---------------------------------------------------------------------------
 // Type representation
 // ---------------------------------------------------------------------------

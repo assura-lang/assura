@@ -290,7 +290,10 @@ pub(crate) fn run_numerical_precision_checks(
                                 .and_then(extract_int_literal)
                                 .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
                                 as u32;
-                            let ulp = args.get(1).and_then(extract_float_literal).unwrap_or(1.0);
+                            let ulp = args
+                                .get(1)
+                                .and_then(extract_float_literal)
+                                .unwrap_or(DEFAULT_ULP_TOLERANCE);
                             checker.declare(name.clone(), bits, ulp, decl.span.clone());
                         }
                     }
@@ -320,7 +323,7 @@ pub(crate) fn run_numerical_precision_checks(
                             .iter()
                             .find(|(k, _)| *k == "ulp")
                             .and_then(|(_, v)| extract_float_literal(v))
-                            .unwrap_or(1.0);
+                            .unwrap_or(DEFAULT_ULP_TOLERANCE);
                         checker.declare(name, bits, ulp, decl.span.clone());
                     }
                 }
@@ -538,7 +541,10 @@ pub(crate) fn run_precomputed_table_checks(
                 && (k == "verified_entries" || k == "table_verified")
                 && let Some((name, args)) = extract_call(&clause.body)
             {
-                let count = args.first().and_then(extract_int_literal).unwrap_or(0) as usize;
+                let count = args
+                    .first()
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ZERO) as usize;
                 checker.mark_entries_verified(name, count);
             }
         }

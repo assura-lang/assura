@@ -7,6 +7,7 @@ use assura_parser::ast::{ClauseKind, Decl, Expr};
 use crate::TypeError;
 use crate::checkers::*;
 use crate::domain::*;
+use crate::types::*;
 
 pub(crate) fn run_platform_abstraction_checks(
     source: &assura_parser::ast::SourceFile,
@@ -258,13 +259,19 @@ pub(crate) fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile)
                 if (k == "use_resource" || k == "consume")
                     && let Some((name, args)) = extract_call(&clause.body)
                 {
-                    let amount = args.first().and_then(extract_int_literal).unwrap_or(1) as u64;
+                    let amount = args
+                        .first()
+                        .and_then(extract_int_literal)
+                        .unwrap_or(DEFAULT_PARAM_ONE) as u64;
                     checker.record_usage(name, amount);
                 }
                 if (k == "release_resource" || k == "free_resource")
                     && let Some((name, args)) = extract_call(&clause.body)
                 {
-                    let amount = args.first().and_then(extract_int_literal).unwrap_or(1) as u64;
+                    let amount = args
+                        .first()
+                        .and_then(extract_int_literal)
+                        .unwrap_or(DEFAULT_PARAM_ONE) as u64;
                     checker.release_usage(name, amount);
                 }
             }

@@ -113,7 +113,10 @@ pub(crate) fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> 
 /// Scan an expression for page cache operations (load_page, pin, dirty, evict, page_count).
 fn page_cache_scan_expr(expr: &Expr, checker: &mut PageCacheChecker) {
     if let Some((name, args)) = extract_call(expr) {
-        let page_id = args.first().and_then(extract_int_literal).unwrap_or(0) as u64;
+        let page_id = args
+            .first()
+            .and_then(extract_int_literal)
+            .unwrap_or(DEFAULT_PARAM_ZERO) as u64;
         match name {
             "load_page" | "load" | "fetch_page" => checker.load_page(page_id),
             "pin" | "pin_page" => checker.pin(page_id),
@@ -193,11 +196,17 @@ fn mvcc_scan_expr(expr: &Expr, checker: &mut MvccChecker) {
                     .and_then(extract_ident)
                     .unwrap_or("default")
                     .to_string();
-                let txn_id = args.get(1).and_then(extract_int_literal).unwrap_or(1) as u64;
+                let txn_id = args
+                    .get(1)
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ONE) as u64;
                 checker.write_version(key, txn_id);
             }
             "commit" | "commit_txn" => {
-                let txn_id = args.first().and_then(extract_int_literal).unwrap_or(1) as u64;
+                let txn_id = args
+                    .first()
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ONE) as u64;
                 checker.commit_txn(txn_id);
             }
             _ => {}
@@ -343,8 +352,10 @@ pub(crate) fn run_monotonic_state_checks(
                                         _ => MonotonicDirection::Increasing,
                                     })
                                     .unwrap_or(MonotonicDirection::Increasing);
-                                let initial =
-                                    args.get(1).and_then(extract_int_literal).unwrap_or(0);
+                                let initial = args
+                                    .get(1)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ZERO);
                                 checker.declare(
                                     name.clone(),
                                     direction,

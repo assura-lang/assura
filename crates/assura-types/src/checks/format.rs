@@ -41,10 +41,16 @@ pub(crate) fn run_binary_format_checks(source: &assura_parser::ast::SourceFile) 
                     match &clause.body {
                         Expr::Call { func, args } => {
                             if let Expr::Ident(name) = func.as_ref() {
-                                let offset = args.first().and_then(extract_int_literal).unwrap_or(0)
+                                let offset = args
+                                    .first()
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ZERO)
                                     as usize;
-                                let size =
-                                    args.get(1).and_then(extract_int_literal).unwrap_or(1) as usize;
+                                let size = args
+                                    .get(1)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ONE)
+                                    as usize;
                                 let endianness =
                                     args.get(2).and_then(extract_ident).map(|e| match e {
                                         "big" | "be" => Endianness::Big,
@@ -81,12 +87,14 @@ pub(crate) fn run_binary_format_checks(source: &assura_parser::ast::SourceFile) 
                                 .iter()
                                 .find(|(k, _)| *k == "offset")
                                 .and_then(|(_, v)| extract_int_literal(v))
-                                .unwrap_or(0) as usize;
+                                .unwrap_or(DEFAULT_PARAM_ZERO)
+                                as usize;
                             let size = kvs
                                 .iter()
                                 .find(|(k, _)| *k == "size")
                                 .and_then(|(_, v)| extract_int_literal(v))
-                                .unwrap_or(1) as usize;
+                                .unwrap_or(DEFAULT_PARAM_ONE)
+                                as usize;
                             let endianness = kvs
                                 .iter()
                                 .find(|(k, _)| *k == "endian" || *k == "endianness")
@@ -152,12 +160,16 @@ pub(crate) fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> V
                         match &clause.body {
                             Expr::Call { func, args } => {
                                 if let Expr::Ident(name) = func.as_ref() {
-                                    let bit_offset =
-                                        args.first().and_then(extract_int_literal).unwrap_or(0)
-                                            as usize;
-                                    let bit_width =
-                                        args.get(1).and_then(extract_int_literal).unwrap_or(1)
-                                            as usize;
+                                    let bit_offset = args
+                                        .first()
+                                        .and_then(extract_int_literal)
+                                        .unwrap_or(DEFAULT_PARAM_ZERO)
+                                        as usize;
+                                    let bit_width = args
+                                        .get(1)
+                                        .and_then(extract_int_literal)
+                                        .unwrap_or(DEFAULT_PARAM_ONE)
+                                        as usize;
                                     let cross_byte_ok = args
                                         .get(2)
                                         .and_then(extract_ident)
@@ -332,8 +344,11 @@ pub(crate) fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Ve
                                     .and_then(extract_ident)
                                     .map(parse_checksum_algorithm)
                                     .unwrap_or(ChecksumAlgorithm::Crc32);
-                                let start =
-                                    args.get(1).and_then(extract_int_literal).unwrap_or(0) as usize;
+                                let start = args
+                                    .get(1)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ZERO)
+                                    as usize;
                                 let end = args
                                     .get(2)
                                     .and_then(extract_int_literal)
@@ -363,7 +378,8 @@ pub(crate) fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Ve
                                 .iter()
                                 .find(|(k, _)| *k == "start")
                                 .and_then(|(_, v)| extract_int_literal(v))
-                                .unwrap_or(0) as usize;
+                                .unwrap_or(DEFAULT_PARAM_ZERO)
+                                as usize;
                             let end = kvs
                                 .iter()
                                 .find(|(k, _)| *k == "end")

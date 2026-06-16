@@ -9,6 +9,7 @@ use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr};
 use crate::checkers::*;
 use crate::convert::parse_type_tokens;
 use crate::domain::*;
+use crate::types::*;
 use crate::{Type, TypeError};
 
 // ---------------------------------------------------------------------------
@@ -733,8 +734,11 @@ pub(crate) fn run_multi_pass_refinement_checks(
                                 .and_then(extract_ident)
                                 .unwrap_or("concrete")
                                 .to_string();
-                            let order =
-                                args.get(2).and_then(extract_int_literal).unwrap_or(1) as usize;
+                            let order = args
+                                .get(2)
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PARAM_ONE)
+                                as usize;
                             checker.add_pass(name.clone(), from, to, order, decl.span.clone());
                         }
                     }
@@ -767,11 +771,11 @@ pub(crate) fn run_multi_pass_refinement_checks(
                             .and_then(|(_, v)| extract_ident(v))
                             .unwrap_or("concrete")
                             .to_string();
-                        let order = kvs
-                            .iter()
-                            .find(|(k, _)| *k == "order")
-                            .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(1) as usize;
+                        let order =
+                            kvs.iter()
+                                .find(|(k, _)| *k == "order")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE) as usize;
                         checker.add_pass(name, from, to, order, decl.span.clone());
                     }
                 }
@@ -794,7 +798,10 @@ pub(crate) fn run_multi_pass_refinement_checks(
                 && (k == "discharge_pass" || k == "pass_proved")
                 && let Some((name, args)) = extract_call(&clause.body)
             {
-                let count = args.first().and_then(extract_int_literal).unwrap_or(1) as usize;
+                let count = args
+                    .first()
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ONE) as usize;
                 checker.discharge(name, count);
             }
         }
@@ -836,12 +843,21 @@ pub(crate) fn run_incremental_contract_checks(
                 match &clause.body {
                     Expr::Call { func, args } => {
                         if let Expr::Ident(name) = func.as_ref() {
-                            let major =
-                                args.first().and_then(extract_int_literal).unwrap_or(1) as u32;
-                            let minor =
-                                args.get(1).and_then(extract_int_literal).unwrap_or(0) as u32;
-                            let patch =
-                                args.get(2).and_then(extract_int_literal).unwrap_or(0) as u32;
+                            let major = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PARAM_ONE)
+                                as u32;
+                            let minor = args
+                                .get(1)
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PARAM_ZERO)
+                                as u32;
+                            let patch = args
+                                .get(2)
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PARAM_ZERO)
+                                as u32;
                             let version = major * 10000 + minor * 100 + patch;
                             checker.add_version(
                                 name.clone(),
@@ -862,21 +878,21 @@ pub(crate) fn run_incremental_contract_checks(
                             .and_then(|(_, v)| extract_ident(v))
                             .unwrap_or("unnamed")
                             .to_string();
-                        let major = kvs
-                            .iter()
-                            .find(|(k, _)| *k == "major")
-                            .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(1) as u32;
-                        let minor = kvs
-                            .iter()
-                            .find(|(k, _)| *k == "minor")
-                            .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(0) as u32;
-                        let patch = kvs
-                            .iter()
-                            .find(|(k, _)| *k == "patch")
-                            .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(0) as u32;
+                        let major =
+                            kvs.iter()
+                                .find(|(k, _)| *k == "major")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE) as u32;
+                        let minor =
+                            kvs.iter()
+                                .find(|(k, _)| *k == "minor")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ZERO) as u32;
+                        let patch =
+                            kvs.iter()
+                                .find(|(k, _)| *k == "patch")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ZERO) as u32;
                         let version = major * 10000 + minor * 100 + patch;
                         checker.add_version(name, version, requires_count, ensures_count);
                     }

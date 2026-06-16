@@ -270,7 +270,10 @@ pub(crate) fn run_temporal_deadline_checks(
                 && (k == "worst_case" || k == "bound")
                 && let Some((op, args)) = extract_call(&clause.body)
             {
-                let ms = args.first().and_then(extract_int_literal).unwrap_or(0) as u64;
+                let ms = args
+                    .first()
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ZERO) as u64;
                 checker.register_bound(op.to_string(), ms);
             }
         }
