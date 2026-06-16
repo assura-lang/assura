@@ -1148,6 +1148,205 @@ Stdlib, IR parser, Cranelift backend.
 
 ---
 
+## Phase 9: Code Perfection (no historical artifacts)
+
+> Deep audit found 13 categories of rough edges across 88K LOC.
+> This phase eliminates every imperfection so the codebase looks
+> like a pristine, production-quality compiler from day one.
+>
+> **Created**: 2026-06-15 after 3-agent parallel audit covering
+> code quality, architecture consistency, and documentation accuracy.
+
+### 9.01: Fix 4 latent correctness bugs -- #132
+
+- Depends on: none
+- **What**: BinOp::Add default for unknown operators (lower.rs:590),
+  Type::Unknown instead of is_indeterminate() (interface.rs:186,196),
+  naive "result" string replacement (assura-macros:167),
+  CVC5 silently dropping 12 expression forms (cvc5_backend.rs:303-312)
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep -n "unwrap_or(BinOp::Add)" crates/assura-parser/src/lower.rs
+  # Must return 0
+  grep -n "== Type::Unknown" crates/assura-types/src/checkers/interface.rs
+  # Must return 0
+  cargo test -p assura-macros result_replacement
+  cargo test -p assura-smt cvc5
+  cargo test --workspace
+  ```
+
+### 9.02: Rewrite INTERNALS.md and fix AGENTS.md versions -- #133
+
+- Depends on: none
+- **What**: INTERNALS.md references chumsky 0.9 (not used), wrong
+  file names (parser.rs), wrong API signatures, missing 5 crates.
+  AGENTS.md version table says logos 0.15 (actual: 0.16).
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep -ci "chumsky" docs/INTERNALS.md
+  # Must return 0
+  grep "logos.*0.15" AGENTS.md docs/INTERNALS.md
+  # Must return 0
+  for c in assura-pipeline assura-mcp assura-rust-analyzer assura-macros assura-stdlib; do
+    grep -c "$c" docs/INTERNALS.md
+  done
+  # Each must return >= 1
+  ```
+
+### 9.03: Split 5 monolith files -- #134
+
+- Depends on: 9.05 (dedup first, then split the smaller result)
+- **What**: types/lib.rs (8,305), domain.rs (4,144), smt/lib.rs (4,468),
+  z3_backend.rs (3,654), resolve/lib.rs (4,266). Total: ~24,600 lines
+  across 5 files. Split into ~30 focused modules.
+- [ ] **Acceptance Tests**:
+  ```bash
+  find crates -name "*.rs" -path "*/src/*" ! -path "*/tests/*" \
+    | xargs wc -l | sort -n | tail -5
+  # Largest file < 2,500 lines
+  cargo test --workspace
+  ```
+
+### 9.04: Eliminate triple-duplicated checker pipeline -- #135
+
+- Depends on: none
+- **What**: 57-checker dispatch list copy-pasted in 3 entry points.
+  Also duplicated build_type_env and check_clause_bodies paths.
+- [ ] **Acceptance Tests**:
+  ```bash
+  # After: run_all_checks called from all 3 paths
+  grep -c "run_all_checks" crates/assura-types/src/lib.rs
+  # Must be >= 3 (one call per entry point)
+  # The 57 individual run_*_checks calls should be in ONE function
+  cargo test --workspace
+  ```
+
+### 9.05: Replace 250+ wildcard match arms with exhaustive patterns -- #136
+
+- Depends on: none
+- **What**: `_ => {}` across lib.rs (155), z3_backend.rs (41),
+  inference.rs (25), lower.rs (15), CLI (16), codegen (10).
+  Silently skip new enum variants.
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep -rn "_ => {}" crates/assura-types/src/lib.rs \
+    crates/assura-smt/src/z3_backend.rs crates/assura-codegen/src/ \
+    crates/assura-parser/src/lower.rs | grep -v test | wc -l
+  # Target: 0
+  cargo test --workspace
+  cargo clippy --workspace -- -D warnings
+  ```
+
+### 9.06: Fix code style inconsistencies -- #137
+
+- Depends on: none
+- **What**: 136 `std::string::String` in domain.rs, 67 hardcoded
+  numeric defaults without named constants, 5 glob re-exports,
+  `&Vec<T>` instead of `&[T]`, Debug format as semantic data.
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep -c "std::string::String" crates/assura-types/src/domain.rs
+  # Must return 0
+  grep -c "pub use.*\*" crates/assura-smt/src/lib.rs
+  # Must return 0
+  cargo test --workspace
+  ```
+
+### 9.07: Fix error handling (silent swallowing, sentinel spans) -- #138
+
+- Depends on: none
+- **What**: 12 sentinel `0..0` spans on import errors,
+  cache/display errors silently swallowed, SMT encoding
+  results discarded, file read failures ignored in watch mode.
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep -n "span: 0..0" crates/assura-resolve/src/lib.rs
+  # Must return 0
+  cargo test --workspace
+  ```
+
+### 9.08: CI gaps (fuzz, benchmark, release publish, nightly) -- #139
+
+- Depends on: none
+- **What**: No fuzz CI (targets exist, no workflow), no benchmark CI,
+  assura-macros missing from release publish, nightly examples check
+  uses `|| true`, `cargo publish --no-verify || true`.
+- [ ] **Acceptance Tests**:
+  ```bash
+  ls .github/workflows/fuzz.yml
+  grep "assura-macros" .github/workflows/release.yml
+  # Both must succeed
+  ```
+
+### 9.09: Improve test quality -- #140
+
+- Depends on: none
+- **What**: 5 assertion-free tests in assura-macros, 7 discarded
+  results in assura-types tests, domain checker test coverage
+  at 7.7 tests/struct (target: 10+).
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep -rn "let _ =" crates/assura-macros/tests/ | wc -l
+  # Must return 0
+  grep -rn "let _ = check_expr" crates/assura-types/src/tests/ | wc -l
+  # Must return 0
+  cargo test --workspace
+  ```
+
+### 9.10: Add doc comments to public API -- #141
+
+- Depends on: 9.03 (add docs after splitting, not before)
+- **What**: TypeEnv methods, parse_type_tokens, extraction helpers,
+  55 run_*_checks functions, domain checker methods, Encoder struct,
+  encode_expr, SymbolTable methods, module-level docs.
+- [ ] **Acceptance Tests**:
+  ```bash
+  cargo doc --workspace --no-deps 2>&1 | grep -c "missing documentation"
+  # Target: 0 warnings
+  ```
+
+### 9.11: Parser clause keyword sync and tree-sitter grammar -- #142
+
+- Depends on: none
+- **What**: at_clause_start() vs is_clause_stopper() keyword list
+  divergence, #129 missing clause_kind arms, tree-sitter grammar
+  missing decreases/where/view/abstracts/transitions/result/mod.
+- [ ] **Acceptance Tests**:
+  ```bash
+  cargo test -p assura-parser clause_kind
+  cd editors/tree-sitter-assura && npx tree-sitter generate && npx tree-sitter test
+  ```
+
+### 9.12: Improve generated code quality -- #143 (was #144)
+
+- Depends on: none
+- **What**: Remove `unreachable_code` from generated allow list,
+  deduplicate contract/proptest function pairs, reduce 5 Decl
+  iteration passes, replace 30+ hardcoded method names with data.
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep "unreachable_code" crates/assura-codegen/src/lib.rs
+  # Must return 0
+  cargo test --workspace
+  ```
+
+### 9.13: Remove dead code paths and cleanup -- #144 (was #143)
+
+- Depends on: none
+- **What**: Layer 2 dead code path (layer2.rs:614), unused typed
+  in diff.rs:364, diagnostics O(n) lookup, SolverChoice duplication,
+  format_rust() silent degradation.
+- [ ] **Acceptance Tests**:
+  ```bash
+  grep -n "let _ = typed" crates/assura-cli/src/diff.rs
+  # Must return 0
+  grep -rn "enum SolverChoice" crates/ | wc -l
+  # Must return 1
+  cargo test --workspace
+  ```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -1162,16 +1361,21 @@ Phase 8 (inline annotations):
          ├──> 8.03 ──> 8.04
          ├──> 8.05 ──> 8.06
          └──> 8.07
+
+Phase 9 (code perfection):
+  9.01, 9.02, 9.06, 9.07, 9.08, 9.09, 9.11, 9.12, 9.13 -- independent, parallel
+  9.04 ──> 9.05 ──> 9.03 ──> 9.10
+  (dedup pipeline, then replace wildcards, then split files, then add docs)
 ```
 
-Phases 1, 2, and 3 can run in parallel. Phase 4 depends on Phase 1.
-Phase 5 depends on Phase 2. Phase 6 depends on Phases 4 and 5.
-Phase 7 depends on Phases 3, 4, and 5.
-Phase 8 can start independently (no dependency on Phases 1-7).
-Within Phase 8, task 8.01 is the foundation; all others depend on it.
+Phases 1-8: complete (except 6.01 CodeQL, blocked on public repo).
+Phase 9: all tasks independent except 9.03 depends on 9.04+9.05,
+and 9.10 depends on 9.03. The critical path is:
+  9.04 (dedup) -> 9.05 (wildcards) -> 9.03 (split) -> 9.10 (docs)
 
-Within each phase, tasks can run in the order listed. Tasks marked
-"Depends on: none" within a phase can run in parallel.
+Within the independent tasks, recommended order by impact:
+  9.01 (correctness) > 9.02 (docs) > 9.06 (style) > 9.07 (errors)
+  > 9.08 (CI) > 9.11 (parser) > 9.12 (codegen) > 9.13 (cleanup) > 9.09 (tests)
 
 ---
 
@@ -1293,5 +1497,28 @@ Within each phase, tasks can run in the order listed. Tasks marked
     workflow, symlinked existing docs into src/
 - **Only 6.01 (CodeQL) remains** (blocked on repo going public, issue #45)
 - Project state: 2,300+ tests passing, 16 crates, mdBook builds clean
+
+### Session 8 (2026-06-15): Code perfection audit
+
+- **3-agent parallel audit** of entire 88K LOC codebase covering:
+  code quality, architecture consistency, and documentation accuracy
+- **13 issues created** (#132-#144) organized into Phase 9 (code perfection)
+- Key findings:
+  - 4 latent correctness bugs (BinOp::Add default, Type::Unknown,
+    result replacement, CVC5 gaps)
+  - INTERNALS.md critically stale (references chumsky 0.9, wrong files)
+  - AGENTS.md version table stale (logos 0.15 vs actual 0.16)
+  - 5 monolith files totaling 24,600 lines need splitting
+  - Triple-duplicated 57-checker pipeline (3 copy-pasted blocks)
+  - 250+ wildcard match arms hiding exhaustiveness bugs
+  - 136 `std::string::String` in domain.rs
+  - 67 hardcoded numeric defaults without named constants
+  - 12 sentinel `0..0` spans on import errors
+  - CI missing fuzz/benchmark workflows
+  - Parser clause keyword lists diverge
+- Phase 9 has 13 tasks, 9 independent + critical path:
+  9.04 (dedup) -> 9.05 (wildcards) -> 9.03 (split) -> 9.10 (docs)
+- **Next session**: Start with 9.01 (correctness bugs) and 9.02 (docs),
+  then 9.04 (pipeline dedup) to unlock the critical path
 
 ---
