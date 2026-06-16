@@ -2329,4 +2329,1118 @@ fn library_default() {
     assert!(lc.check_empty_exports().is_empty());
 }
 
+// =======================================================================
+// Additional coverage tests for issue #149
+// Target: 10+ tests per checker struct
+// =======================================================================
+
+// -----------------------------------------------------------------------
+// ProtocolGrammarChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn protocol_current_state() {
+    let mut checker = ProtocolGrammarChecker::new("idle".into());
+    checker.add_state("active".into());
+    checker.add_transition("idle".into(), "active".into(), "GO".into());
+    // From idle, GO is valid
+    assert!(checker.check_send("GO", &(0..1)).is_none());
+    // STOP is not valid from idle
+    assert!(checker.check_send("STOP", &(0..1)).is_some());
+}
+
+#[test]
+fn protocol_transition_updates_state() {
+    let mut checker = ProtocolGrammarChecker::new("idle".into());
+    checker.add_state("connected".into());
+    checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
+    assert!(checker.transition("CONNECT", &(0..1)).is_none());
+    // After transition, CONNECT should no longer be valid (we're in "connected")
+    assert!(checker.check_send("CONNECT", &(0..1)).is_some());
+}
+
+#[test]
+fn protocol_send_valid_no_error() {
+    let mut checker = ProtocolGrammarChecker::new("idle".into());
+    checker.add_state("ready".into());
+    checker.add_transition("idle".into(), "ready".into(), "INIT".into());
+    assert!(checker.check_send("INIT", &(0..1)).is_none());
+}
+
+#[test]
+fn protocol_send_after_transition() {
+    let mut checker = ProtocolGrammarChecker::new("idle".into());
+    checker.add_state("connected".into());
+    checker.add_state("ready".into());
+    checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
+    checker.add_transition("connected".into(), "ready".into(), "SETUP".into());
+    checker.transition("CONNECT", &(0..1));
+    // In connected state, SETUP is valid
+    assert!(checker.check_send("SETUP", &(0..1)).is_none());
+    // But CONNECT is no longer valid from connected state
+    let err = checker.check_send("CONNECT", &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A30002");
+}
+
+#[test]
+fn protocol_required_fields_all_present() {
+    let mut checker = ProtocolGrammarChecker::new("idle".into());
+    checker.add_required_fields(
+        "LOGIN".into(),
+        vec!["username".into(), "password".into(), "token".into()],
+    );
+    let errors =
+        checker.check_required_fields("LOGIN", &["username", "password", "token"], &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn protocol_required_fields_multiple_missing() {
+    let mut checker = ProtocolGrammarChecker::new("idle".into());
+    checker.add_required_fields(
+        "DATA".into(),
+        vec!["payload".into(), "checksum".into(), "seq".into()],
+    );
+    let errors = checker.check_required_fields("DATA", &[], &(0..1));
+    assert_eq!(errors.len(), 3);
+    assert!(errors.iter().all(|e| e.code == "A30003"));
+}
+
+#[test]
+fn protocol_no_required_fields_defined() {
+    let checker = ProtocolGrammarChecker::new("idle".into());
+    // No required fields registered for MSG -> empty errors
+    let errors = checker.check_required_fields("MSG", &["data"], &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn protocol_cycle_back_to_initial() {
+    let mut checker = ProtocolGrammarChecker::new("idle".into());
+    checker.add_state("active".into());
+    checker.add_transition("idle".into(), "active".into(), "START".into());
+    checker.add_transition("active".into(), "idle".into(), "STOP".into());
+    assert!(checker.transition("START", &(0..1)).is_none());
+    // After transition to active, STOP should be valid
+    assert!(checker.check_send("STOP", &(0..1)).is_none());
+    assert!(checker.transition("STOP", &(0..1)).is_none());
+    // Back to idle, START should be valid again
+    assert!(checker.check_send("START", &(0..1)).is_none());
+    // Can restart
+    assert!(checker.transition("START", &(0..1)).is_none());
+    // Now in active again, STOP is valid
+    assert!(checker.check_send("STOP", &(0..1)).is_none());
+}
+
+// -----------------------------------------------------------------------
+// TaintChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn taint_checker_register_validator() {
+    let mut checker = TaintChecker::new();
+    checker.register_validator("custom_validate".into());
+    checker.declare("raw".into(), TaintLabel::Untrusted);
+    let expr = AstExpr::Call {
+        func: Box::new(AstExpr::Ident("custom_validate".into())),
+        args: vec![AstExpr::Ident("raw".into())],
+    };
+    assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
+}
+
+#[test]
+fn taint_checker_sanitize_is_builtin_validator() {
+    let checker = TaintChecker::new();
+    let expr = AstExpr::Call {
+        func: Box::new(AstExpr::Ident("sanitize".into())),
+        args: vec![AstExpr::Ident("input".into())],
+    };
+    assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
+}
+
+#[test]
+fn taint_infer_field_propagates() {
+    let mut checker = TaintChecker::new();
+    checker.declare("req".into(), TaintLabel::Untrusted);
+    let expr = AstExpr::Field(Box::new(AstExpr::Ident("req".into())), "body".into());
+    assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
+}
+
+#[test]
+fn taint_infer_method_call_validation() {
+    let mut checker = TaintChecker::new();
+    checker.register_validator("clean".into());
+    checker.declare("x".into(), TaintLabel::Untrusted);
+    let expr = AstExpr::MethodCall {
+        receiver: Box::new(AstExpr::Ident("x".into())),
+        method: "clean".into(),
+        args: vec![],
+    };
+    assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
+}
+
+#[test]
+fn taint_infer_if_expression_propagates() {
+    let mut checker = TaintChecker::new();
+    checker.declare("cond".into(), TaintLabel::Trusted);
+    checker.declare("a".into(), TaintLabel::Untrusted);
+    let expr = AstExpr::If {
+        cond: Box::new(AstExpr::Ident("cond".into())),
+        then_branch: Box::new(AstExpr::Ident("a".into())),
+        else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("0".into())))),
+    };
+    // min(Trusted, Untrusted, Trusted) = Untrusted
+    assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
+}
+
+#[test]
+fn taint_infer_list_propagates() {
+    let mut checker = TaintChecker::new();
+    checker.declare("bad".into(), TaintLabel::Untrusted);
+    let expr = AstExpr::List(vec![
+        AstExpr::Literal(AstLit::Int("1".into())),
+        AstExpr::Ident("bad".into()),
+    ]);
+    assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
+}
+
+#[test]
+fn taint_checker_has_taint_info() {
+    let mut checker = TaintChecker::new();
+    assert!(!checker.has_taint_info());
+    checker.declare("x".into(), TaintLabel::Untrusted);
+    assert!(checker.has_taint_info());
+}
+
+#[test]
+fn taint_checker_get_label() {
+    let mut checker = TaintChecker::new();
+    checker.declare("x".into(), TaintLabel::Validated);
+    assert_eq!(checker.get_label("x"), Some(TaintLabel::Validated));
+    assert_eq!(checker.get_label("y"), None);
+}
+
+#[test]
+fn taint_checker_alloc_validated_ok() {
+    let mut checker = TaintChecker::new();
+    checker.declare("sz".into(), TaintLabel::Validated);
+    let expr = AstExpr::Call {
+        func: Box::new(AstExpr::Ident("malloc".into())),
+        args: vec![AstExpr::Ident("sz".into())],
+    };
+    let errors = checker.check_expr(&expr, &(0..1));
+    assert!(errors.is_empty(), "validated alloc size should pass");
+}
+
+// -----------------------------------------------------------------------
+// TotalityChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn totality_new_default() {
+    let checker = TotalityChecker::default();
+    // Non-recursive function is trivially total
+    let f = AstFnDef {
+        name: "foo".into(),
+        params: vec![],
+        return_ty: vec![],
+        clauses: vec![],
+        is_ghost: false,
+        is_lemma: false,
+        return_type_expr: None,
+    };
+    let (errors, pending) = checker.check_function_totality(&f, &(0..1));
+    assert!(errors.is_empty());
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn totality_partial_fn_skipped() {
+    let mut checker = TotalityChecker::new();
+    checker.mark_partial("loop_forever".into());
+    // Even with recursive calls, partial functions are skipped
+    let f = AstFnDef {
+        name: "loop_forever".into(),
+        params: vec![AstParam {
+            name: "n".into(),
+            ty: vec!["Int".into()],
+            parsed_type: None,
+        }],
+        return_ty: vec![],
+        clauses: vec![AstClause {
+            kind: ClauseKind::Ensures,
+            body: AstExpr::Call {
+                func: Box::new(AstExpr::Ident("loop_forever".into())),
+                args: vec![AstExpr::Ident("n".into())],
+            },
+        }],
+        is_ghost: false,
+        is_lemma: false,
+        return_type_expr: None,
+    };
+    let (errors, pending) = checker.check_function_totality(&f, &(0..1));
+    assert!(errors.is_empty());
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn totality_recursive_no_decreases_a09001() {
+    let checker = TotalityChecker::new();
+    let f = AstFnDef {
+        name: "rec".into(),
+        params: vec![AstParam {
+            name: "n".into(),
+            ty: vec!["Int".into()],
+            parsed_type: None,
+        }],
+        return_ty: vec![],
+        clauses: vec![AstClause {
+            kind: ClauseKind::Ensures,
+            body: AstExpr::Call {
+                func: Box::new(AstExpr::Ident("rec".into())),
+                args: vec![AstExpr::BinOp {
+                    lhs: Box::new(AstExpr::Ident("n".into())),
+                    op: AstBinOp::Sub,
+                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                }],
+            },
+        }],
+        is_ghost: false,
+        is_lemma: false,
+        return_type_expr: None,
+    };
+    let (errors, _) = checker.check_function_totality(&f, &(0..1));
+    assert!(!errors.is_empty());
+    assert!(errors.iter().any(|e| e.code == "A09001"));
+}
+
+#[test]
+fn totality_non_recursive_is_total() {
+    let checker = TotalityChecker::new();
+    let f = AstFnDef {
+        name: "add".into(),
+        params: vec![],
+        return_ty: vec![],
+        clauses: vec![AstClause {
+            kind: ClauseKind::Ensures,
+            body: AstExpr::BinOp {
+                lhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                op: AstBinOp::Add,
+                rhs: Box::new(AstExpr::Literal(AstLit::Int("2".into()))),
+            },
+        }],
+        is_ghost: false,
+        is_lemma: false,
+        return_type_expr: None,
+    };
+    let (errors, pending) = checker.check_function_totality(&f, &(0..1));
+    assert!(errors.is_empty());
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn totality_decreases_with_nat_param() {
+    let checker = TotalityChecker::new();
+    let f = AstFnDef {
+        name: "count".into(),
+        params: vec![AstParam {
+            name: "n".into(),
+            ty: vec!["Nat".into()],
+            parsed_type: None,
+        }],
+        return_ty: vec![],
+        clauses: vec![
+            AstClause {
+                kind: ClauseKind::Decreases,
+                body: AstExpr::Ident("n".into()),
+            },
+            AstClause {
+                kind: ClauseKind::Ensures,
+                body: AstExpr::Call {
+                    func: Box::new(AstExpr::Ident("count".into())),
+                    args: vec![AstExpr::BinOp {
+                        lhs: Box::new(AstExpr::Ident("n".into())),
+                        op: AstBinOp::Sub,
+                        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+                    }],
+                },
+            },
+        ],
+        is_ghost: false,
+        is_lemma: false,
+        return_type_expr: None,
+    };
+    let (errors, pending) = checker.check_function_totality(&f, &(0..1));
+    // With Nat param, well-foundedness is automatically satisfied
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn totality_is_partial_from_clause() {
+    let checker = TotalityChecker::new();
+    let f = AstFnDef {
+        name: "diverge".into(),
+        params: vec![],
+        return_ty: vec![],
+        clauses: vec![AstClause {
+            kind: ClauseKind::Other("partial".into()),
+            body: AstExpr::Literal(AstLit::Bool(true)),
+        }],
+        is_ghost: false,
+        is_lemma: false,
+        return_type_expr: None,
+    };
+    assert!(checker.is_partial(&f));
+}
+
+// -----------------------------------------------------------------------
+// TypestateChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn typestate_self_loop_transition() {
+    let states = vec!["Running".into()];
+    let transitions = vec![("tick".into(), "Running".into(), "Running".into())];
+    let mut checker = TypestateChecker::new(states, transitions, "Running".into(), 0..4);
+    assert!(checker.transition("tick", 0..1).is_ok());
+    assert_eq!(checker.current_state(), "Running");
+    assert!(checker.transition("tick", 0..1).is_ok());
+}
+
+#[test]
+fn typestate_empty_transitions_no_errors() {
+    let states = vec!["Init".into()];
+    let checker = TypestateChecker::new(states, vec![], "Init".into(), 0..4);
+    assert!(checker.validate_transitions().is_empty());
+}
+
+#[test]
+fn typestate_branch_consistency_same_state() {
+    let states = vec!["S1".into()];
+    let a = TypestateChecker::new(states.clone(), vec![], "S1".into(), 0..1);
+    let b = TypestateChecker::new(states, vec![], "S1".into(), 0..1);
+    assert!(TypestateChecker::check_branch_consistency(&a, &b, 0..1).is_none());
+}
+
+#[test]
+fn typestate_validate_linear_true() {
+    let states = vec!["S".into()];
+    let checker = TypestateChecker::new(states, vec![], "S".into(), 0..1);
+    assert!(checker.validate_linear(true).is_none());
+}
+
+#[test]
+fn typestate_validate_multiple_undeclared_states() {
+    let states = vec!["Init".into()];
+    let transitions = vec![
+        ("a".into(), "X".into(), "Y".into()), // X and Y both undeclared
+    ];
+    let checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
+    let errors = checker.validate_transitions();
+    assert_eq!(errors.len(), 2);
+    assert!(errors.iter().all(|e| e.code == "A06003"));
+}
+
+// -----------------------------------------------------------------------
+// EffectChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn effect_checker_sub_effect_of_known_io() {
+    let checker = EffectChecker::new();
+    // io.custom should be accepted because "io" is a known group
+    let set = EffectSet::from_effect_names(["io.custom"]);
+    let errors = checker.check_known(&set, &(0..1));
+    assert!(errors.is_empty(), "io.custom is a sub-effect of known io");
+}
+
+#[test]
+fn effect_checker_capitalized_name_skipped() {
+    let checker = EffectChecker::new();
+    // Capitalized names are skipped in check_known (they're type names)
+    let set = EffectSet::from_effect_names(["InflateDecoder"]);
+    let errors = checker.check_known(&set, &(0..1));
+    assert!(errors.is_empty(), "capitalized names are skipped");
+}
+
+#[test]
+fn effect_checker_block_keyword_skipped() {
+    let checker = EffectChecker::new();
+    // Block-kind keywords like "incremental" should not be flagged
+    let set = EffectSet::from_effect_names(["incremental"]);
+    let errors = checker.check_known(&set, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn effect_expand_net_includes_network_subeffects() {
+    let checker = EffectChecker::new();
+    let declared = EffectSet::from_effect_names(["net"]);
+    let expanded = checker.expand(&declared);
+    assert!(expanded.contains("network.connect"));
+    assert!(expanded.contains("network.send"));
+    assert!(expanded.contains("network.receive"));
+}
+
+#[test]
+fn effect_expand_fs_includes_filesystem_subeffects() {
+    let checker = EffectChecker::new();
+    let declared = EffectSet::from_effect_names(["fs"]);
+    let expanded = checker.expand(&declared);
+    assert!(expanded.contains("filesystem.read"));
+    assert!(expanded.contains("filesystem.write"));
+}
+
+// -----------------------------------------------------------------------
+// InfoFlowChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn info_flow_dc_same_level_assignment_ok() {
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_assignment(
+        SecurityLabel::Confidential,
+        SecurityLabel::Confidential,
+        &(0..1),
+    );
+    assert!(err.is_none());
+}
+
+#[test]
+fn info_flow_dc_upward_ok() {
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_assignment(SecurityLabel::Restricted, SecurityLabel::Public, &(0..1));
+    assert!(err.is_none(), "public to restricted is upward flow, OK");
+}
+
+#[test]
+fn info_flow_dc_downward_a08001() {
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_assignment(SecurityLabel::Public, SecurityLabel::Restricted, &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A08001");
+}
+
+#[test]
+fn info_flow_dc_declassify_annotated_ok() {
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_declassify(
+        SecurityLabel::Restricted,
+        SecurityLabel::Public,
+        true,
+        &(0..1),
+    );
+    assert!(err.is_none());
+}
+
+#[test]
+fn info_flow_dc_declassify_not_annotated_a08002() {
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_declassify(
+        SecurityLabel::Restricted,
+        SecurityLabel::Public,
+        false,
+        &(0..1),
+    );
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A08002");
+}
+
+#[test]
+fn info_flow_dc_purpose_mismatch_a08003() {
+    let mut checker = InfoFlowChecker::new();
+    checker.declare_purpose("email".into(), "marketing".into());
+    let err = checker.check_purpose_label("email", "billing", &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A08003");
+}
+
+#[test]
+fn info_flow_dc_implicit_flow_a08004() {
+    let checker = InfoFlowChecker::new();
+    let err =
+        checker.check_implicit_flow(SecurityLabel::Confidential, SecurityLabel::Public, &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A08004");
+}
+
+#[test]
+fn info_flow_dc_covert_channel_a08005() {
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_covert_channel(SecurityLabel::Confidential, "sleep", &(0..1));
+    assert!(err.is_some());
+    assert_eq!(err.unwrap().code, "A08005");
+}
+
+#[test]
+fn info_flow_dc_covert_channel_public_ok() {
+    let checker = InfoFlowChecker::new();
+    let err = checker.check_covert_channel(SecurityLabel::Public, "sleep", &(0..1));
+    assert!(err.is_none());
+}
+
+#[test]
+fn info_flow_dc_has_labels() {
+    let mut checker = InfoFlowChecker::new();
+    assert!(!checker.has_labels());
+    checker.declare("x".into(), SecurityLabel::Public);
+    assert!(checker.has_labels());
+}
+
+// -----------------------------------------------------------------------
+// MemoryChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn memory_checker_dc_buffer_names() {
+    let mut checker = MemoryChecker::new();
+    checker.register_buffer("a".into(), "a.len".into());
+    checker.register_buffer("b".into(), "b.len".into());
+    let mut names = checker.buffer_names();
+    names.sort();
+    assert_eq!(names, vec!["a", "b"]);
+}
+
+#[test]
+fn memory_checker_dc_non_buffer_check_returns_none() {
+    let checker = MemoryChecker::new();
+    // Checking a non-registered buffer returns None (out of scope)
+    let result = checker.check_bounds_in_requires("unregistered", &[], &(0..1));
+    assert!(result.is_none());
+}
+
+#[test]
+fn memory_checker_dc_multiple_regions() {
+    let mut checker = MemoryChecker::new();
+    checker.register_buffer("buf".into(), "buf.len".into());
+    checker.register_region(MemoryRegion {
+        name: "r1".into(),
+        lower: "0".into(),
+        upper: "10".into(),
+        buffer: "buf".into(),
+    });
+    checker.register_region(MemoryRegion {
+        name: "r2".into(),
+        lower: "10".into(),
+        upper: "20".into(),
+        buffer: "buf".into(),
+    });
+    assert_eq!(checker.regions().len(), 2);
+    assert!(checker.check_region_buffers(&(0..1)).is_empty());
+}
+
+#[test]
+fn memory_checker_dc_region_containment_undefined_parent() {
+    let mut checker = MemoryChecker::new();
+    checker.register_buffer("buf".into(), "buf.len".into());
+    checker.register_region(MemoryRegion {
+        name: "sub".into(),
+        lower: "0".into(),
+        upper: "5".into(),
+        buffer: "buf".into(),
+    });
+    let result = checker.check_region_containment("sub", "missing_parent", &(0..1));
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().code, "A08102");
+}
+
+#[test]
+fn memory_checker_dc_region_incomplete_bounds() {
+    let mut checker = MemoryChecker::new();
+    checker.register_buffer("buf".into(), "buf.len".into());
+    checker.register_region(MemoryRegion {
+        name: "empty_bounds".into(),
+        lower: "".into(),
+        upper: "".into(),
+        buffer: "buf".into(),
+    });
+    checker.register_region(MemoryRegion {
+        name: "parent".into(),
+        lower: "0".into(),
+        upper: "100".into(),
+        buffer: "buf".into(),
+    });
+    let result = checker.check_region_containment("empty_bounds", "parent", &(0..1));
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().code, "A08102");
+}
+
+// -----------------------------------------------------------------------
+// FrameChecker additional tests (via frame module functions)
+// -----------------------------------------------------------------------
+
+#[test]
+fn frame_dc_extract_modifies_single() {
+    let expr = AstExpr::Ident("x".into());
+    let targets = extract_modifies_targets(&expr);
+    assert_eq!(targets, vec!["x"]);
+}
+
+#[test]
+fn frame_dc_extract_modifies_field() {
+    let expr = AstExpr::Field(Box::new(AstExpr::Ident("obj".into())), "count".into());
+    let targets = extract_modifies_targets(&expr);
+    assert_eq!(targets, vec!["obj.count"]);
+}
+
+#[test]
+fn frame_dc_extract_modifies_block_multiple() {
+    let expr = AstExpr::Block(vec![
+        AstExpr::Ident("a".into()),
+        AstExpr::Ident("b".into()),
+        AstExpr::Ident("c".into()),
+    ]);
+    let targets = extract_modifies_targets(&expr);
+    assert_eq!(targets, vec!["a", "b", "c"]);
+}
+
+#[test]
+fn frame_dc_extract_modifies_list() {
+    let expr = AstExpr::List(vec![AstExpr::Ident("x".into()), AstExpr::Ident("y".into())]);
+    let targets = extract_modifies_targets(&expr);
+    assert_eq!(targets, vec!["x", "y"]);
+}
+
+#[test]
+fn frame_dc_extract_modifies_paren() {
+    let expr = AstExpr::Paren(Box::new(AstExpr::Ident("z".into())));
+    let targets = extract_modifies_targets(&expr);
+    assert_eq!(targets, vec!["z"]);
+}
+
+#[test]
+fn frame_dc_collect_old_references_basic() {
+    let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+    let refs = collect_old_references(&expr);
+    assert_eq!(refs, vec!["x"]);
+}
+
+#[test]
+fn frame_dc_collect_old_references_field() {
+    let expr = AstExpr::Old(Box::new(AstExpr::Field(
+        Box::new(AstExpr::Ident("obj".into())),
+        "val".into(),
+    )));
+    let refs = collect_old_references(&expr);
+    assert!(refs.contains(&"obj.val".to_string()));
+}
+
+#[test]
+fn frame_dc_collect_old_references_nested_expr() {
+    let expr = AstExpr::BinOp {
+        lhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("a".into())))),
+        op: AstBinOp::Add,
+        rhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("b".into())))),
+    };
+    let refs = collect_old_references(&expr);
+    assert!(refs.contains(&"a".to_string()));
+    assert!(refs.contains(&"b".to_string()));
+}
+
+#[test]
+fn frame_dc_collect_ident_references() {
+    let expr = AstExpr::BinOp {
+        lhs: Box::new(AstExpr::Ident("x".into())),
+        op: AstBinOp::Add,
+        rhs: Box::new(AstExpr::Ident("y".into())),
+    };
+    let refs = collect_ident_references(&expr);
+    assert!(refs.contains(&"x".to_string()));
+    assert!(refs.contains(&"y".to_string()));
+}
+
+#[test]
+fn frame_dc_collect_ident_references_skips_keywords() {
+    let expr = AstExpr::Ident("result".into());
+    let refs = collect_ident_references(&expr);
+    assert!(refs.is_empty(), "result should be skipped");
+}
+
+// -----------------------------------------------------------------------
+// SecureErasureChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn secure_erasure_dc_sensitive_names() {
+    let mut checker = SecureErasureChecker::new();
+    checker.mark_sensitive("key1".into());
+    checker.mark_sensitive("key2".into());
+    let mut names = checker.sensitive_names();
+    names.sort();
+    assert_eq!(names, vec!["key1", "key2"]);
+}
+
+#[test]
+fn secure_erasure_dc_return_sensitive_ok() {
+    let mut checker = SecureErasureChecker::new();
+    checker.mark_sensitive("derived".into());
+    let errors = checker.check_return("derived", true, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn secure_erasure_dc_copy_non_sensitive_source_ok() {
+    let checker = SecureErasureChecker::new();
+    // Source is not sensitive, so copy is fine
+    let errors = checker.check_copy("public_data", "dest", false, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn secure_erasure_dc_check_all_erased_all_zeroized() {
+    let mut checker = SecureErasureChecker::new();
+    checker.mark_sensitive("k1".into());
+    checker.mark_sensitive("k2".into());
+    checker.mark_zeroized("k1".into());
+    checker.mark_zeroized("k2".into());
+    let errors = checker.check_all_erased(&(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn secure_erasure_dc_default_empty() {
+    let checker = SecureErasureChecker::default();
+    assert!(checker.sensitive_names().is_empty());
+    assert!(checker.check_all_erased(&(0..1)).is_empty());
+}
+
+// -----------------------------------------------------------------------
+// ConstantTimeChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn ct_dc_check_expr_index_with_secret() {
+    let mut checker = ConstantTimeChecker::new();
+    checker.mark_secret("key_byte".into());
+    let expr = AstExpr::Index {
+        expr: Box::new(AstExpr::Ident("table".into())),
+        index: Box::new(AstExpr::Ident("key_byte".into())),
+    };
+    let errors = checker.check_expr(&expr, &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A14002");
+}
+
+#[test]
+fn ct_dc_check_expr_nested_if() {
+    let mut checker = ConstantTimeChecker::new();
+    checker.mark_secret("s".into());
+    let expr = AstExpr::If {
+        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+        then_branch: Box::new(AstExpr::If {
+            cond: Box::new(AstExpr::Ident("s".into())),
+            then_branch: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+            else_branch: None,
+        }),
+        else_branch: None,
+    };
+    let errors = checker.check_expr(&expr, &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A14001");
+}
+
+#[test]
+fn ct_dc_no_secrets_no_errors() {
+    let checker = ConstantTimeChecker::new();
+    let expr = AstExpr::If {
+        cond: Box::new(AstExpr::Ident("x".into())),
+        then_branch: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+        else_branch: None,
+    };
+    let errors = checker.check_expr(&expr, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn ct_dc_references_secret_through_call() {
+    let mut checker = ConstantTimeChecker::new();
+    checker.mark_secret("hmac_key".into());
+    let expr = AstExpr::Call {
+        func: Box::new(AstExpr::Ident("compute".into())),
+        args: vec![AstExpr::Ident("hmac_key".into())],
+    };
+    assert!(checker.references_secret(&expr));
+}
+
+#[test]
+fn ct_dc_references_secret_through_index() {
+    let mut checker = ConstantTimeChecker::new();
+    checker.mark_secret("idx".into());
+    let expr = AstExpr::Index {
+        expr: Box::new(AstExpr::Ident("table".into())),
+        index: Box::new(AstExpr::Ident("idx".into())),
+    };
+    assert!(checker.references_secret(&expr));
+}
+
+// -----------------------------------------------------------------------
+// DeterminismChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn determinism_dc_is_non_deterministic() {
+    let checker = DeterminismChecker::new();
+    assert!(checker.is_non_deterministic("HashMap"));
+    assert!(checker.is_non_deterministic("HashSet"));
+    assert!(checker.is_non_deterministic("random"));
+    assert!(checker.is_non_deterministic("thread_rng"));
+    assert!(!checker.is_non_deterministic("Vec"));
+    assert!(!checker.is_non_deterministic("BTreeMap"));
+}
+
+#[test]
+fn determinism_dc_custom_source() {
+    let mut checker = DeterminismChecker::new();
+    checker.add_non_det_source("UuidV4::new".into());
+    assert!(checker.is_non_deterministic("UuidV4::new"));
+}
+
+#[test]
+fn determinism_dc_non_det_fn_skips_check() {
+    let checker = DeterminismChecker::new();
+    // Not marked deterministic -> no errors even with random
+    let errors = checker.check_fn_body("my_fn", &["random".into()], &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn determinism_dc_multiple_violations() {
+    let mut checker = DeterminismChecker::new();
+    checker.mark_deterministic("pure_fn".into());
+    let errors = checker.check_fn_body(
+        "pure_fn",
+        &["HashMap".into(), "HashSet".into(), "random".into()],
+        &(0..1),
+    );
+    assert_eq!(errors.len(), 3);
+    assert!(errors.iter().all(|e| e.code == "A20001"));
+}
+
+#[test]
+fn determinism_dc_hashset_iteration_a20002() {
+    let mut checker = DeterminismChecker::new();
+    checker.mark_deterministic("process".into());
+    let errors = checker.check_iteration("process", "HashSet<i32>", &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A20002");
+}
+
+// -----------------------------------------------------------------------
+// FfiBoundaryChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn ffi_dc_audited_no_contract_ok() {
+    let mut checker = FfiBoundaryChecker::new();
+    checker.register_extern("audited_fn".into(), TrustBoundary::Audited);
+    let errors = checker.check_extern_decl("audited_fn", true, false, &(0..1));
+    assert!(errors.is_empty(), "audited extern doesn't need a contract");
+}
+
+#[test]
+fn ffi_dc_call_contracted_untrusted_ok() {
+    let mut checker = FfiBoundaryChecker::new();
+    checker.register_extern("ffi_read".into(), TrustBoundary::Untrusted);
+    checker.mark_contracted("ffi_read".into());
+    // Contracted FFI call skips validation check
+    let errors = checker.check_ffi_call("ffi_read", false, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn ffi_dc_unsafe_no_unsafe_ok() {
+    let checker = FfiBoundaryChecker::new();
+    let errors = checker.check_unsafe_confinement("pure_fn", false, false, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn ffi_dc_call_unknown_extern_ok() {
+    let checker = FfiBoundaryChecker::new();
+    // Calling an unregistered extern is fine (it's not untrusted)
+    let errors = checker.check_ffi_call("unknown_fn", false, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn ffi_dc_default_empty() {
+    let checker = FfiBoundaryChecker::default();
+    let errors = checker.check_extern_decl("x", true, true, &(0..1));
+    assert!(errors.is_empty());
+}
+
+// -----------------------------------------------------------------------
+// LockOrderChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn lock_order_dc_single_lock_ok() {
+    let mut checker = LockOrderChecker::new();
+    checker.define_order("mutex".into(), 1);
+    let errors = checker.acquire("mutex", &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn lock_order_dc_release_reverse_ok() {
+    let mut checker = LockOrderChecker::new();
+    checker.define_order("a".into(), 1);
+    checker.define_order("b".into(), 2);
+    checker.acquire("a", &(0..1));
+    checker.acquire("b", &(0..1));
+    // Release in reverse order: b first, then a
+    let errors = checker.release("b", &(0..1));
+    assert!(errors.is_empty());
+    let errors = checker.release("a", &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn lock_order_dc_release_wrong_order_a21002() {
+    let mut checker = LockOrderChecker::new();
+    checker.define_order("a".into(), 1);
+    checker.define_order("b".into(), 2);
+    checker.acquire("a", &(0..1));
+    checker.acquire("b", &(0..1));
+    // Release a before b -> wrong order
+    let errors = checker.release("a", &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A21002");
+}
+
+#[test]
+fn lock_order_dc_undefined_a21003() {
+    let checker = LockOrderChecker::new();
+    let errors = checker.check_ordering_defined("unknown_lock", &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A21003");
+}
+
+#[test]
+fn lock_order_dc_defined_ok() {
+    let mut checker = LockOrderChecker::new();
+    checker.define_order("known_lock".into(), 5);
+    let errors = checker.check_ordering_defined("known_lock", &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn lock_order_dc_same_priority_violation() {
+    let mut checker = LockOrderChecker::new();
+    checker.define_order("lock_a".into(), 1);
+    checker.define_order("lock_b".into(), 1);
+    checker.acquire("lock_a", &(0..1));
+    let errors = checker.acquire("lock_b", &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A21001");
+}
+
+// -----------------------------------------------------------------------
+// SharedMemChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn shared_mem_dc_write_none_a18002() {
+    let checker = SharedMemChecker::new();
+    let errors = checker.check_write("buffer", &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A18002");
+}
+
+#[test]
+fn shared_mem_dc_read_unregistered_a18001() {
+    let checker = SharedMemChecker::new();
+    let errors = checker.check_read("unregistered", &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A18001");
+}
+
+#[test]
+fn shared_mem_dc_data_race_both_exclusive_a18003() {
+    let checker = SharedMemChecker::new();
+    let errors =
+        checker.check_data_race("obj", AccessMode::Exclusive, AccessMode::Exclusive, &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A18003");
+}
+
+#[test]
+fn shared_mem_dc_no_race_both_none() {
+    let checker = SharedMemChecker::new();
+    let errors = checker.check_data_race("obj", AccessMode::None, AccessMode::None, &(0..1));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn shared_mem_dc_set_mode_overwrite() {
+    let mut checker = SharedMemChecker::new();
+    checker.set_mode("buf".into(), AccessMode::None);
+    let errors = checker.check_read("buf", &(0..1));
+    assert_eq!(errors.len(), 1);
+    // Upgrade to exclusive
+    checker.set_mode("buf".into(), AccessMode::Exclusive);
+    let errors = checker.check_read("buf", &(0..1));
+    assert!(errors.is_empty());
+}
+
+// -----------------------------------------------------------------------
+// CrashRecoveryChecker additional tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn crash_recovery_dc_multiple_txns() {
+    let mut cr = CrashRecoveryChecker::new();
+    cr.begin_write("t1".into());
+    cr.begin_write("t2".into());
+    cr.write_wal("t1");
+    cr.write_data("t1");
+    cr.fsync("t1");
+    cr.commit("t1");
+    // t2 still has no WAL
+    cr.write_data("t2");
+    let errs = cr.check_write_ahead();
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].code, "A33001");
+}
+
+#[test]
+fn crash_recovery_dc_commit_with_fsync_ok() {
+    let mut cr = CrashRecoveryChecker::new();
+    cr.begin_write("t1".into());
+    cr.write_wal("t1");
+    cr.write_data("t1");
+    cr.fsync("t1");
+    cr.commit("t1");
+    assert!(cr.check_commit_durability().is_empty());
+}
+
+#[test]
+fn crash_recovery_dc_ordering_correct() {
+    let mut cr = CrashRecoveryChecker::new();
+    cr.begin_write("t1".into());
+    cr.write_wal("t1");
+    cr.write_data("t1");
+    cr.fsync("t1");
+    assert!(cr.check_ordering().is_empty());
+}
+
+#[test]
+fn crash_recovery_dc_no_txns_check_all_ok() {
+    let cr = CrashRecoveryChecker::new();
+    assert!(cr.check_all().is_empty());
+}
+
+#[test]
+fn crash_recovery_dc_wal_then_data_then_fsync_ok() {
+    let mut cr = CrashRecoveryChecker::new();
+    cr.begin_write("tx".into());
+    cr.write_wal("tx");
+    cr.write_data("tx");
+    cr.fsync("tx");
+    assert!(cr.check_ordering().is_empty());
+    assert!(cr.check_write_ahead().is_empty());
+}
+
 // -----------------------------------------------------------------------
