@@ -6908,13 +6908,16 @@ fn run_numerical_precision_checks(source: &assura_parser::ast::SourceFile) -> Ve
             _ => continue,
         };
         for clause in clauses {
-            if clause.kind == ClauseKind::Ensures {
+            if matches!(
+                clause.kind,
+                ClauseKind::Ensures | ClauseKind::Requires | ClauseKind::Invariant
+            ) {
                 let refs = collect_ident_references(&clause.body);
                 for name in &refs {
                     // Detect narrowing operations (e.g., 64-bit -> 32-bit)
-                    if let Some(err) = checker.check_precision_loss(name, 32) {
-                        // Only flag if there is a cast-like expression pattern
-                        if clause_contains_cast(&clause.body, name) {
+                    if clause_contains_cast(&clause.body, name) {
+                        let target_bits = extract_cast_target_bits(&clause.body, name);
+                        if let Some(err) = checker.check_precision_loss(name, target_bits) {
                             errors.push(err);
                         }
                     }
@@ -6933,6 +6936,61 @@ fn run_numerical_precision_checks(source: &assura_parser::ast::SourceFile) -> Ve
         }
     }
     errors
+}
+
+/// Extract the target bit width from a type name (e.g., "f32" -> 32, "f16" -> 16, "Int" -> 64).
+pub(crate) fn type_name_to_bits(ty: &str) -> u32 {
+    match ty {
+        "f16" | "Float16" => 16,
+        "f32" | "Float32" => 32,
+        "f64" | "Float64" | "Float" => 64,
+        "i8" | "u8" | "Int8" | "Nat8" => 8,
+        "i16" | "u16" | "Int16" | "Nat16" => 16,
+        "i32" | "u32" | "Int32" | "Nat32" => 32,
+        "i64" | "u64" | "Int" | "Nat" | "Int64" | "Nat64" => 64,
+        _ => 32, // conservative default for unknown types
+    }
+}
+
+/// Extract the target bit width from a cast expression involving a variable.
+/// Returns the narrowest cast target found, or 32 as a default.
+fn extract_cast_target_bits(expr: &Expr, var_name: &str) -> u32 {
+    match expr {
+        Expr::Cast { expr: inner, ty } => {
+            if let Expr::Ident(name) = inner.as_ref()
+                && name == var_name
+            {
+                return type_name_to_bits(ty);
+            }
+            extract_cast_target_bits(inner, var_name)
+        }
+        Expr::Call { func, args } => {
+            if let Expr::Ident(fn_name) = func.as_ref()
+                && (fn_name == "as_f32"
+                    || fn_name == "as_f16"
+                    || fn_name == "narrow"
+                    || fn_name == "truncate")
+                && args
+                    .iter()
+                    .any(|a| matches!(a, Expr::Ident(n) if n == var_name))
+            {
+                return match fn_name.as_str() {
+                    "as_f16" => 16,
+                    "as_f32" => 32,
+                    _ => 32,
+                };
+            }
+            args.iter()
+                .map(|a| extract_cast_target_bits(a, var_name))
+                .min()
+                .unwrap_or(32)
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            extract_cast_target_bits(lhs, var_name).min(extract_cast_target_bits(rhs, var_name))
+        }
+        Expr::Paren(inner) => extract_cast_target_bits(inner, var_name),
+        _ => 32,
+    }
 }
 
 /// Check if a clause body contains a cast-like expression for a variable.
@@ -7513,10 +7571,10 @@ fn run_behavioral_equivalence_checks(source: &assura_parser::ast::SourceFile) ->
     let mut checker = BehavioralEquivalenceChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
+        let (clauses, parent_name) = match &decl.node {
+            Decl::Contract(c) => (&c.clauses, c.name.as_str()),
+            Decl::FnDef(f) => (&f.clauses, f.name.as_str()),
+            Decl::Block { body, name, .. } => (body, name.as_str()),
             _ => continue,
         };
         for clause in clauses {
@@ -7531,7 +7589,7 @@ fn run_behavioral_equivalence_checks(source: &assura_parser::ast::SourceFile) ->
                         format!("{a}_equiv_{b}"),
                         a.clone(),
                         b.clone(),
-                        String::new(),
+                        parent_name.to_string(),
                         decl.span.clone(),
                     );
                 }

@@ -1506,3 +1506,301 @@ fn same_type_comparison_passes() {
     let result = type_check(&resolved);
     assert!(result.is_ok(), "Int >= Int should pass: {:?}", result.err());
 }
+
+// =========================================================================
+// Issue #117: MVCC snapshot isolation and phantom read checks wired
+// =========================================================================
+
+#[test]
+fn mvcc_phantom_read_detected() {
+    use crate::domain::MvccChecker;
+    let mut checker = MvccChecker::new();
+    let tx1 = checker.begin_txn();
+    let tx2 = checker.begin_txn();
+    checker.write_version("key".into(), tx2);
+    checker.commit_txn(tx2);
+    // tx1 started before tx2 committed, so reading key sees a phantom
+    let errs = checker.check_phantom(tx1);
+    assert!(!errs.is_empty(), "phantom read should be detected");
+    assert_eq!(errs[0].code, "A35003");
+}
+
+#[test]
+fn mvcc_no_phantom_when_txn_committed_before() {
+    use crate::domain::MvccChecker;
+    let mut checker = MvccChecker::new();
+    let tx1 = checker.begin_txn();
+    checker.write_version("key".into(), tx1);
+    checker.commit_txn(tx1);
+    let tx2 = checker.begin_txn();
+    // tx2 starts after tx1 committed, no phantom
+    let errs = checker.check_phantom(tx2);
+    assert!(errs.is_empty(), "no phantom expected for later txn");
+}
+
+// =========================================================================
+// Issue #119: Resource limits - record_usage, check_near_limit, check_unbounded
+// =========================================================================
+
+#[test]
+fn resource_limit_near_limit_detected() {
+    let mut checker = ResourceLimitChecker::new();
+    checker.declare_limit("memory".into(), 1000, "bytes".into());
+    checker.record_usage("memory", 950); // 95% of limit
+    let errs = checker.check_near_limit();
+    assert!(!errs.is_empty(), "near-limit warning should fire at 95%");
+    assert_eq!(errs[0].code, "A46003");
+}
+
+#[test]
+fn resource_limit_unbounded_detected() {
+    let checker = ResourceLimitChecker::new();
+    // No limit declared for "cpu"
+    let err = checker.check_unbounded("cpu");
+    assert!(err.is_some(), "unbounded resource should be detected");
+    assert_eq!(err.unwrap().code, "A46002");
+}
+
+#[test]
+fn resource_limit_under_threshold_no_warning() {
+    let mut checker = ResourceLimitChecker::new();
+    checker.declare_limit("memory".into(), 1000, "bytes".into());
+    checker.record_usage("memory", 500); // 50% of limit
+    let errs = checker.check_near_limit();
+    assert!(
+        errs.is_empty(),
+        "50% usage should not trigger near-limit warning"
+    );
+}
+
+// =========================================================================
+// Issue #120: Complexity bounds - record_measured, check_bounds
+// =========================================================================
+
+#[test]
+fn complexity_bound_verified_no_error() {
+    let mut checker = ComplexityBoundChecker::new();
+    checker.declare_bound("search".into(), ComplexityClass::Logarithmic, 0..1);
+    checker.record_measured("search", ComplexityClass::Logarithmic);
+    let errs = checker.check_bounds();
+    assert!(errs.is_empty(), "matching complexity should not error");
+}
+
+#[test]
+fn complexity_bound_violation_detected() {
+    let mut checker = ComplexityBoundChecker::new();
+    checker.declare_bound("sort".into(), ComplexityClass::Linear, 0..1);
+    checker.record_measured("sort", ComplexityClass::Quadratic);
+    let errs = checker.check_bounds();
+    assert!(
+        !errs.is_empty(),
+        "quadratic exceeding linear bound should error"
+    );
+    assert_eq!(errs[0].code, "A48001");
+}
+
+#[test]
+fn complexity_exponential_warning() {
+    let mut checker = ComplexityBoundChecker::new();
+    checker.declare_bound("solve".into(), ComplexityClass::Exponential, 0..1);
+    let errs = checker.check_expensive();
+    assert!(!errs.is_empty(), "exponential bound should trigger warning");
+    assert_eq!(errs[0].code, "A48003");
+}
+
+// =========================================================================
+// Issue #122: Behavioral equivalence - contract ref extracted, mark_verified
+// =========================================================================
+
+#[test]
+fn behavioral_equivalence_with_contract_ref_no_a49003() {
+    let mut checker = BehavioralEquivalenceChecker::new();
+    checker.declare(
+        "eq1".into(),
+        "implA".into(),
+        "implB".into(),
+        "MyContract".into(),
+        0..1,
+    );
+    let errs = checker.check_contract_ref();
+    assert!(
+        errs.is_empty(),
+        "non-empty contract ref should not trigger A49003"
+    );
+}
+
+#[test]
+fn behavioral_equivalence_missing_contract_ref_a49003() {
+    let mut checker = BehavioralEquivalenceChecker::new();
+    checker.declare(
+        "eq1".into(),
+        "implA".into(),
+        "implB".into(),
+        String::new(),
+        0..1,
+    );
+    let errs = checker.check_contract_ref();
+    assert_eq!(errs.len(), 1, "empty contract ref should trigger A49003");
+    assert_eq!(errs[0].code, "A49003");
+}
+
+#[test]
+fn behavioral_equivalence_verified_no_a49001() {
+    let mut checker = BehavioralEquivalenceChecker::new();
+    checker.declare(
+        "eq1".into(),
+        "implA".into(),
+        "implB".into(),
+        "MyContract".into(),
+        0..1,
+    );
+    checker.mark_verified("eq1");
+    let errs = checker.check_unverified();
+    assert!(
+        errs.is_empty(),
+        "verified equivalence should not trigger A49001"
+    );
+}
+
+#[test]
+fn behavioral_equivalence_self_equiv_detected() {
+    let mut checker = BehavioralEquivalenceChecker::new();
+    checker.declare(
+        "eq_self".into(),
+        "implA".into(),
+        "implA".into(),
+        "SomeContract".into(),
+        0..1,
+    );
+    let errs = checker.check_self_equivalence();
+    assert_eq!(errs.len(), 1, "self-equivalence should be detected");
+    assert_eq!(errs[0].code, "A49002");
+}
+
+// =========================================================================
+// Issue #123: Multi-pass refinement - discharge, check_complete, check_chain
+// =========================================================================
+
+#[test]
+fn multi_pass_discharge_clears_obligations() {
+    use crate::domain::MultiPassRefinementChecker;
+    let mut checker = MultiPassRefinementChecker::new();
+    checker.add_pass("p1".into(), "L0".into(), "L1".into(), 3, 0..1);
+    checker.discharge("p1", 3);
+    let errs = checker.check_complete();
+    assert!(errs.is_empty(), "fully discharged pass should not error");
+}
+
+#[test]
+fn multi_pass_partial_discharge_flags_incomplete() {
+    use crate::domain::MultiPassRefinementChecker;
+    let mut checker = MultiPassRefinementChecker::new();
+    checker.add_pass("p1".into(), "L0".into(), "L1".into(), 5, 0..1);
+    checker.discharge("p1", 2);
+    let errs = checker.check_complete();
+    assert!(
+        !errs.is_empty(),
+        "partially discharged pass should flag A50001"
+    );
+    assert_eq!(errs[0].code, "A50001");
+}
+
+#[test]
+fn multi_pass_chain_gap_detected() {
+    use crate::domain::MultiPassRefinementChecker;
+    let mut checker = MultiPassRefinementChecker::new();
+    checker.add_pass("p1".into(), "L0".into(), "L1".into(), 0, 0..1);
+    checker.add_pass("p2".into(), "L2".into(), "L3".into(), 0, 0..1);
+    // Gap: p1 ends at L1, p2 starts at L2
+    let errs = checker.check_chain();
+    assert!(!errs.is_empty(), "chain gap should be detected");
+    assert_eq!(errs[0].code, "A50002");
+}
+
+// =========================================================================
+// Issue #124: Numerical precision - target bits extraction
+// =========================================================================
+
+#[test]
+fn precision_loss_detected_for_narrowing_cast() {
+    let mut checker = NumericalPrecisionChecker::new();
+    checker.declare("x".into(), 64, 1.0, 0..1);
+    let err = checker.check_precision_loss("x", 32);
+    assert!(
+        err.is_some(),
+        "64-bit narrowed to 32-bit should flag A42001"
+    );
+    assert_eq!(err.unwrap().code, "A42001");
+}
+
+#[test]
+fn precision_loss_not_flagged_for_same_width() {
+    let mut checker = NumericalPrecisionChecker::new();
+    checker.declare("x".into(), 32, 1.0, 0..1);
+    let err = checker.check_precision_loss("x", 32);
+    assert!(err.is_none(), "same width should not flag precision loss");
+}
+
+#[test]
+fn ulp_bound_violation_detected() {
+    let mut checker = NumericalPrecisionChecker::new();
+    checker.declare("y".into(), 64, 1.0, 0..1);
+    let err = checker.check_ulp_bound("y", 2.5);
+    assert!(err.is_some(), "ULP 2.5 > min 1.0 should trigger A42002");
+    assert_eq!(err.unwrap().code, "A42002");
+}
+
+#[test]
+fn cancellation_detected() {
+    let mut checker = NumericalPrecisionChecker::new();
+    checker.declare("z".into(), 64, 1.0, 0..1);
+    let err = checker.check_cancellation("z", 0.99999);
+    assert!(err.is_some(), "ratio 0.99999 should trigger A42003");
+    assert_eq!(err.unwrap().code, "A42003");
+}
+
+#[test]
+fn type_name_to_bits_mapping() {
+    assert_eq!(crate::type_name_to_bits("f16"), 16);
+    assert_eq!(crate::type_name_to_bits("f32"), 32);
+    assert_eq!(crate::type_name_to_bits("f64"), 64);
+    assert_eq!(crate::type_name_to_bits("Float"), 64);
+    assert_eq!(crate::type_name_to_bits("Int"), 64);
+    assert_eq!(crate::type_name_to_bits("i8"), 8);
+    assert_eq!(crate::type_name_to_bits("unknown_type"), 32);
+}
+
+// =========================================================================
+// Issue #125: Precomputed tables - mark_entries_verified, check_coverage
+// =========================================================================
+
+#[test]
+fn precomputed_table_fully_verified() {
+    let mut checker = PrecomputedTableChecker::new();
+    checker.declare_table("sin_table".into(), 100, "gen_sin".into(), 0..1);
+    checker.mark_entries_verified("sin_table", 100);
+    let errs = checker.check_coverage();
+    assert!(
+        errs.is_empty(),
+        "fully verified table should not flag A43001"
+    );
+}
+
+#[test]
+fn precomputed_table_partial_coverage_flagged() {
+    let mut checker = PrecomputedTableChecker::new();
+    checker.declare_table("cos_table".into(), 100, "gen_cos".into(), 0..1);
+    checker.mark_entries_verified("cos_table", 50);
+    let errs = checker.check_coverage();
+    assert!(!errs.is_empty(), "50% coverage should flag A43001");
+    assert_eq!(errs[0].code, "A43001");
+}
+
+#[test]
+fn precomputed_table_missing_generator_flagged() {
+    let mut checker = PrecomputedTableChecker::new();
+    checker.declare_table("lookup".into(), 10, String::new(), 0..1);
+    let errs = checker.check_generator();
+    assert!(!errs.is_empty(), "missing generator should flag A43002");
+    assert_eq!(errs[0].code, "A43002");
+}
