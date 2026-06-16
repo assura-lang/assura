@@ -93,7 +93,8 @@ impl MemoryChecker {
         self.buffers.contains_key(name)
     }
 
-    /// Get the capacity expression for a buffer variable.
+    /// Get the capacity expression for a buffer variable (test-only).
+    #[cfg(test)]
     pub fn buffer_capacity(&self, name: &str) -> Option<&str> {
         self.buffers.get(name).map(|s| s.as_str())
     }

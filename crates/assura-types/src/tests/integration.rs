@@ -12,7 +12,7 @@ fn domain_allocator_checker_no_annotation_passes() {
 #[test]
 fn domain_allocator_checker_direct_api() {
     let mut checker = AllocatorChecker::new();
-    checker.record_alloc("buf".into(), "1024".into(), None, 0..1);
+    checker.record_alloc("buf".into(), None, 0..1);
     let errors = checker.check_unpaired();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A22001");

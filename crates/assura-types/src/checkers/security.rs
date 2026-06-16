@@ -313,7 +313,8 @@ impl StructuralInvariantChecker {
         errors
     }
 
-    /// Get all invariants for a type (including inherited through recursive substructure).
+    /// Get all invariants for a type (test-only).
+    #[cfg(test)]
     pub fn get_invariants(&self, type_name: &str) -> Vec<&StructuralInvariant> {
         self.invariants
             .get(type_name)

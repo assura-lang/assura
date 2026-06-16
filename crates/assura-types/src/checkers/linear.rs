@@ -148,7 +148,8 @@ impl UsageTracker {
         }
     }
 
-    /// Get the declaration span for a variable.
+    /// Get the declaration span for a variable (test-only).
+    #[cfg(test)]
     pub fn get_span(&self, name: &str) -> Option<Range<usize>> {
         self.usages.get(name).map(|(_, _, span)| span.clone())
     }
@@ -185,14 +186,10 @@ impl LinearContext {
         self.tracker.declare(name, grade, span);
     }
 
-    /// Get the current usage count for a variable in this context.
+    /// Get the current usage count for a variable (test-only).
+    #[cfg(test)]
     pub fn get_count(&self, name: &str) -> Option<u32> {
         self.tracker.get_count(name)
-    }
-
-    /// Get the declaration span for a variable in this context.
-    pub fn get_span(&self, name: &str) -> Option<Range<usize>> {
-        self.tracker.get_span(name)
     }
 
     /// Create two independent copies of this context for branching.

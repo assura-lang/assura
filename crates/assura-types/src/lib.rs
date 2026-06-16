@@ -819,16 +819,6 @@ fn build_type_env(symbols: &SymbolTable, source: &assura_parser::ast::SourceFile
             env.insert(sdef.name.clone(), sdef.base_type.clone());
         }
     }
-    // Verify stdlib type lookup and metadata are consistent
-    let _count = stdlib.type_count();
-    for sdef in stdlib.all_types() {
-        let _is_known = stdlib.is_stdlib_type(&sdef.name);
-        if let Some(looked_up) = stdlib.lookup(&sdef.name) {
-            let _refinement = &looked_up.refinement;
-            let _description = &looked_up.description;
-        }
-    }
-
     env
 }
 
@@ -2022,20 +2012,9 @@ fn run_axiomatic_checks(
         {
             checker.declare_axiom(AxiomDef {
                 name: name.clone(),
-                params: Vec::new(),
-                body: std::string::String::new(),
                 span: decl.span.clone(),
                 references: Vec::new(),
             });
-        }
-    }
-    // Read axiom params and body for each declared axiom
-    for decl in &source.decls {
-        if let Decl::Block { kind, name, .. } = &decl.node
-            && *kind == BlockKind::Axiomatic
-        {
-            let _params = checker.axiom_params(name);
-            let _body = checker.axiom_body(name);
         }
     }
     // Mark axioms as used if they are referenced in clause bodies
@@ -2105,8 +2084,6 @@ fn run_crud_auth_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
                     }
                 }
             }
-            let _crud_total = checker.crud_count();
-            let _policy_total = checker.policy_count();
             errors.extend(checker.check_auth_coverage());
             errors.extend(checker.check_delete_protection());
             errors.extend(checker.check_precondition_coverage());
@@ -2156,15 +2133,7 @@ fn run_linearity_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
                 for clause in &f.clauses {
                     errors.extend(check_expr_linearity(&clause.body, &mut ctx));
                 }
-                // Use get_count and get_span for secondary diagnostics
-                let check_errors = ctx.check();
-                for err in &check_errors {
-                    if let Some(var_name) = err.message.split('`').nth(1) {
-                        let _count = ctx.get_count(var_name);
-                        let _decl_span = ctx.get_span(var_name);
-                    }
-                }
-                errors.extend(check_errors);
+                errors.extend(ctx.check());
             }
             Decl::Extern(e) => {
                 let tracker = UsageTracker::new();
@@ -3179,8 +3148,12 @@ fn check_contract_info_flow(
                     if let Some(err) =
                         checker.check_declassify(label, SecurityLabel::Public, false, span)
                     {
-                        // Only report if the variable flows to a public context
-                        let _ = err; // Declassification without annotation checked by check_expr
+                        errors.push(TypeError {
+                            code: err.code,
+                            message: err.message,
+                            span: err.span,
+                            secondary: None,
+                        });
                     }
                 }
             }
@@ -4019,16 +3992,6 @@ fn run_collection_contract_checks(source: &assura_parser::ast::SourceFile) -> Ve
     let cc = CollectionContracts::new();
     let mut errors = Vec::new();
 
-    // Access all contracts and count for completeness tracking
-    let _total = cc.contract_count();
-    for contract in cc.all_contracts() {
-        // Read collection_type, preconditions, postconditions, preserves_elements
-        let _ctype = &contract.collection_type;
-        let _pre = &contract.preconditions;
-        let _post = &contract.postconditions;
-        let _preserves = contract.preserves_elements;
-    }
-
     for decl in &source.decls {
         let (name, clauses) = match &decl.node {
             Decl::Contract(c) => (&c.name, &c.clauses),
@@ -4721,9 +4684,6 @@ fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> 
         }
 
         for buf_name in checker.buffer_names() {
-            // Query capacity for diagnostic context
-            let _cap = checker.buffer_capacity(&buf_name);
-
             // Any requires clause referencing the buffer counts as a
             // bounds constraint (the author is aware of the buffer).
             let has_any_constraint = requires_exprs
@@ -5218,9 +5178,6 @@ fn run_structural_invariant_checks(source: &assura_parser::ast::SourceFile) -> V
                         }
                     }
                 }
-
-                // Query registered invariants for diagnostic summary
-                let _invs = checker.get_invariants(&c.name);
             }
             _ => {}
         }
@@ -5507,7 +5464,7 @@ fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
                 if k == "allocator" || k == "alloc" || k == "arena" {
                     has_alloc = true;
                     if let Expr::Ident(name) = &clause.body {
-                        checker.record_alloc(name.clone(), String::new(), None, decl.span.clone());
+                        checker.record_alloc(name.clone(), None, decl.span.clone());
                     }
                 }
                 if (k == "dealloc" || k == "free")
@@ -5544,22 +5501,6 @@ fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
     }
     if !has_alloc {
         return Vec::new();
-    }
-    // Include allocation size info in diagnostics
-    for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
-        };
-        for clause in clauses {
-            if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
-                let refs = collect_ident_references(&clause.body);
-                for name in &refs {
-                    let _size = checker.alloc_size_expr(name);
-                }
-            }
-        }
     }
     // Check arena use-after-drop for all allocations
     let mut errors = Vec::new();
@@ -5657,7 +5598,6 @@ fn run_circular_buffer_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
                 secondary: None,
             });
         }
-        let _physical = buf.logical_to_physical(0);
     }
     errors
 }
@@ -6341,8 +6281,6 @@ fn run_protocol_grammar_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
             }
         }
     }
-    // Report current state for debugging
-    let _final_state = checker.current_state();
     errors
 }
 
@@ -6412,12 +6350,13 @@ fn run_opaque_function_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
                         errors.push(err);
                     }
                     // Check body access for opaque functions
-                    if checker.is_opaque(name) {
-                        if let Some(err) = checker.check_body_access(name, &decl.span) {
-                            errors.push(err);
-                        }
-                        // Track opaque declaration span for secondary diagnostics
-                        let _decl_span = checker.opaque_span(name);
+                    if checker.is_opaque(name)
+                        && let Some(mut err) = checker.check_body_access(name, &decl.span)
+                    {
+                        err.secondary = checker.opaque_span(name).map(|s| {
+                            (s.clone(), format!("opaque function `{name}` declared here"))
+                        });
+                        errors.push(err);
                     }
                 }
             }
@@ -6520,10 +6459,7 @@ fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
         }
     }
     match checker {
-        Some(ch) => {
-            let _page_ids = ch.loaded_page_ids();
-            ch.check_capacity()
-        }
+        Some(ch) => ch.check_capacity(),
         None => Vec::new(),
     }
 }
@@ -6539,14 +6475,7 @@ fn page_cache_scan_expr(expr: &Expr, checker: &mut PageCacheChecker) {
             "mark_dirty" | "dirty" => checker.mark_dirty(page_id),
             "flush" | "flush_page" => checker.flush(page_id),
             "evict" | "evict_page" => {
-                if let Some(err) = checker.evict(page_id) {
-                    // Error is not collected here but the method is called;
-                    // page_cache_scan_expr is used for side-effects
-                    let _ = err;
-                }
-            }
-            "page_count" | "cache_size" => {
-                let _count = checker.page_count();
+                checker.evict(page_id);
             }
             _ => {}
         }
@@ -6806,13 +6735,11 @@ fn run_monotonic_state_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
             if clause.kind == ClauseKind::Ensures {
                 let refs = collect_ident_references(&clause.body);
                 for name in &refs {
-                    if let Some(err) = checker.check_access(name) {
-                        // Only report if the variable is referenced but not declared
+                    if let Some(mut err) = checker.check_access(name) {
+                        if let Some(val) = checker.current_value(name) {
+                            err.message.push_str(&format!(" (current value: {val})"));
+                        }
                         errors.push(err);
-                    }
-                    // Include current value in diagnostics if available
-                    if let Some(val) = checker.current_value(name) {
-                        let _ = val; // Value used for diagnostic context
                     }
                 }
             }
@@ -6862,8 +6789,6 @@ fn run_storage_failure_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
     let mut errors = checker.check_unhandled();
     errors.extend(checker.check_critical_coverage());
     errors.extend(checker.check_spurious_handlers());
-    // Track failure count for diagnostic context
-    let _count = checker.failure_count();
     errors
 }
 
@@ -7066,7 +6991,6 @@ fn run_precomputed_table_checks(source: &assura_parser::ast::SourceFile) -> Vec<
             }
         }
     }
-    let _count = checker.table_count();
     let mut errors = checker.check_coverage();
     errors.extend(checker.check_generator());
     errors.extend(checker.check_non_empty());
@@ -7151,8 +7075,6 @@ fn run_feature_flag_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeE
     if !found {
         return Vec::new();
     }
-    // Gather declared flag names for diagnostics
-    let _flag_names = checker.flag_names();
     // Mark flags as used and check for undeclared references in clause bodies
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -7245,8 +7167,7 @@ fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
     if !found {
         return Vec::new();
     }
-    // Gather declared limit names for diagnostics
-    let _limit_names = checker.limit_names();
+    let mut errors = Vec::new();
     // Track resource usage and release from clause bodies
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -7275,16 +7196,13 @@ fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
                 let refs = collect_ident_references(&clause.body);
                 for name in &refs {
                     if let Some(err) = checker.check_unbounded(name) {
-                        // Only report if resource is not already declared
-                        let _ = err;
+                        errors.push(err);
                     }
-                    // Track current usage for diagnostics
-                    let _usage = checker.current_usage(name);
                 }
             }
         }
     }
-    let mut errors = checker.check_limits();
+    errors.extend(checker.check_limits());
     errors.extend(checker.check_near_limit());
     errors
 }
@@ -7355,7 +7273,6 @@ fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) -> Vec<Type
             _ => {}
         }
     }
-    let _count = checker.unsafe_count();
     let mut errors = checker.check_unproven();
     errors.extend(checker.check_obligations());
     errors.extend(checker.check_empty_obligations());
@@ -7401,8 +7318,6 @@ fn run_complexity_bound_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
     if !found {
         return Vec::new();
     }
-    // Gather bounded function names for diagnostics
-    let _fn_names = checker.bounded_fn_names();
     // Record measured complexity from annotations
     for decl in &source.decls {
         let clauses = match &decl.node {
@@ -7592,7 +7507,6 @@ fn run_multi_pass_refinement_checks(source: &assura_parser::ast::SourceFile) -> 
             }
         }
     }
-    let _count = checker.pass_count();
     let mut errors = checker.check_complete();
     errors.extend(checker.check_chain());
     errors.extend(checker.check_non_trivial());
@@ -7679,8 +7593,6 @@ fn run_incremental_contract_checks(source: &assura_parser::ast::SourceFile) -> V
     if !found {
         return Vec::new();
     }
-    // Validate contract names are tracked
-    let _names = checker.contract_names();
     let mut errors = checker.check_precondition_weakening();
     errors.extend(checker.check_postcondition_strengthening());
     errors.extend(checker.check_version_continuity());
@@ -7748,8 +7660,6 @@ fn run_scoped_invariant_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
             }
         }
     }
-    // Track suspension depth for diagnostics
-    let _depth = checker.suspension_depth();
     errors.extend(checker.check_all_restored());
     errors
 }
@@ -7783,7 +7693,6 @@ fn run_contract_composition_checks(source: &assura_parser::ast::SourceFile) -> V
     if !found {
         return Vec::new();
     }
-    let _count = checker.contract_count();
     let mut errors = checker.check_extends();
     errors.extend(checker.check_circular());
     errors.extend(checker.check_diamond());
@@ -7829,7 +7738,6 @@ fn run_contract_library_checks(source: &assura_parser::ast::SourceFile) -> Vec<T
     if !found {
         return Vec::new();
     }
-    let _count = checker.library_count();
     let mut errors = checker.check_empty_exports();
     errors.extend(checker.check_circular_deps());
     errors.extend(checker.check_duplicates());

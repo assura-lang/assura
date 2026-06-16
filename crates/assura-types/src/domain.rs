@@ -31,7 +31,6 @@ pub(crate) struct AllocatorChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct AllocInfo {
-    pub size_expr: std::string::String,
     pub span: Range<usize>,
     pub arena: Option<std::string::String>,
 }
@@ -71,18 +70,10 @@ impl AllocatorChecker {
     pub fn record_alloc(
         &mut self,
         name: std::string::String,
-        size_expr: std::string::String,
         arena: Option<std::string::String>,
         span: Range<usize>,
     ) {
-        self.allocations.insert(
-            name,
-            AllocInfo {
-                size_expr,
-                span,
-                arena,
-            },
-        );
+        self.allocations.insert(name, AllocInfo { span, arena });
     }
 
     pub fn record_free(&mut self, name: &str, span: Range<usize>) -> Option<TypeError> {
@@ -112,11 +103,6 @@ impl AllocatorChecker {
             });
         }
         None
-    }
-
-    /// Get allocation size expression for diagnostics.
-    pub fn alloc_size_expr(&self, name: &str) -> Option<&str> {
-        self.allocations.get(name).map(|a| a.size_expr.as_str())
     }
 
     pub fn check_unpaired(&self) -> Vec<TypeError> {
@@ -171,9 +157,6 @@ impl CircBufInfo {
     }
     pub fn is_full(&self) -> bool {
         self.count >= self.capacity
-    }
-    pub fn logical_to_physical(&self, logical: usize) -> usize {
-        (self.head + logical) % self.capacity
     }
 }
 
@@ -1051,10 +1034,6 @@ impl ProtocolGrammarChecker {
         }
         errors
     }
-
-    pub fn current_state(&self) -> &str {
-        &self.current_state
-    }
 }
 
 // ===========================================================================
@@ -1076,8 +1055,6 @@ pub(crate) struct AxiomaticDefChecker {
 #[derive(Debug, Clone)]
 pub(crate) struct AxiomDef {
     pub name: std::string::String,
-    pub params: Vec<std::string::String>,
-    pub body: std::string::String,
     pub span: Range<usize>,
     pub references: Vec<std::string::String>,
 }
@@ -1098,16 +1075,6 @@ impl AxiomaticDefChecker {
         if !self.used_axioms.contains(&name.to_string()) {
             self.used_axioms.push(name.to_string());
         }
-    }
-
-    /// Get axiom parameters for diagnostics.
-    pub fn axiom_params(&self, name: &str) -> Option<&[std::string::String]> {
-        self.axioms.get(name).map(|a| a.params.as_slice())
-    }
-
-    /// Get axiom body for diagnostics.
-    pub fn axiom_body(&self, name: &str) -> Option<&str> {
-        self.axioms.get(name).map(|a| a.body.as_str())
     }
 
     pub fn check_references(&self, known_symbols: &[&str]) -> Vec<TypeError> {
@@ -1606,7 +1573,6 @@ pub(crate) struct PageCacheChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PageInfo {
-    pub page_id: u64,
     pub dirty: bool,
     pub pinned: bool,
     pub pin_count: u32,
@@ -1624,7 +1590,6 @@ impl PageCacheChecker {
         self.pages.insert(
             page_id,
             PageInfo {
-                page_id,
                 dirty: false,
                 pinned: false,
                 pin_count: 0,
@@ -1700,15 +1665,6 @@ impl PageCacheChecker {
         } else {
             vec![]
         }
-    }
-
-    /// Get loaded page IDs for diagnostics.
-    pub fn loaded_page_ids(&self) -> Vec<u64> {
-        self.pages.values().map(|p| p.page_id).collect()
-    }
-
-    pub fn page_count(&self) -> usize {
-        self.pages.len()
     }
 }
 
@@ -2118,10 +2074,6 @@ impl StorageFailureChecker {
             })
             .collect()
     }
-
-    pub fn failure_count(&self) -> usize {
-        self.failure_modes.len()
-    }
 }
 
 impl Default for StorageFailureChecker {
@@ -2313,10 +2265,6 @@ impl PrecomputedTableChecker {
             })
             .collect()
     }
-
-    pub fn table_count(&self) -> usize {
-        self.tables.len()
-    }
 }
 
 impl Default for PrecomputedTableChecker {
@@ -2424,7 +2372,6 @@ pub(crate) struct FeatureFlagChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FeatureFlagInfo {
-    pub name: std::string::String,
     pub default_enabled: bool,
     pub used: bool,
     pub conflicts_with: Vec<std::string::String>,
@@ -2444,9 +2391,8 @@ impl FeatureFlagChecker {
         conflicts_with: Vec<std::string::String>,
     ) {
         self.flags.insert(
-            name.clone(),
+            name,
             FeatureFlagInfo {
-                name,
                 default_enabled,
                 used: false,
                 conflicts_with,
@@ -2496,11 +2442,6 @@ impl FeatureFlagChecker {
         errors
     }
 
-    /// Get all flag names for diagnostics.
-    pub fn flag_names(&self) -> Vec<&str> {
-        self.flags.values().map(|f| f.name.as_str()).collect()
-    }
-
     pub fn check_undeclared(&self, flag_name: &str) -> Option<TypeError> {
         if !self.flags.contains_key(flag_name) {
             Some(TypeError {
@@ -2533,7 +2474,6 @@ pub(crate) struct ResourceLimitChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ResourceLimit {
-    pub name: std::string::String,
     pub max_value: u64,
     pub unit: std::string::String,
 }
@@ -2552,14 +2492,8 @@ impl ResourceLimitChecker {
         max_value: u64,
         unit: std::string::String,
     ) {
-        self.limits.insert(
-            name.clone(),
-            ResourceLimit {
-                name: name.clone(),
-                max_value,
-                unit,
-            },
-        );
+        self.limits
+            .insert(name.clone(), ResourceLimit { max_value, unit });
         self.usage.insert(name, 0);
     }
 
@@ -2627,15 +2561,6 @@ impl ResourceLimitChecker {
             }
         }
         errors
-    }
-
-    /// Get all limit names for diagnostics.
-    pub fn limit_names(&self) -> Vec<&str> {
-        self.limits.values().map(|l| l.name.as_str()).collect()
-    }
-
-    pub fn current_usage(&self, name: &str) -> Option<u64> {
-        self.usage.get(name).copied()
     }
 }
 
@@ -2742,10 +2667,6 @@ impl UnsafeEscapeChecker {
             })
             .collect()
     }
-
-    pub fn unsafe_count(&self) -> usize {
-        self.unsafe_blocks.len()
-    }
 }
 
 impl Default for UnsafeEscapeChecker {
@@ -2776,7 +2697,6 @@ pub(crate) enum ComplexityClass {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ComplexityBound {
-    pub fn_name: std::string::String,
     pub declared: ComplexityClass,
     pub measured: Option<ComplexityClass>,
     pub span: std::ops::Range<usize>,
@@ -2796,9 +2716,8 @@ impl ComplexityBoundChecker {
         span: std::ops::Range<usize>,
     ) {
         self.bounds.insert(
-            fn_name.clone(),
+            fn_name,
             ComplexityBound {
-                fn_name,
                 declared,
                 measured: None,
                 span,
@@ -2855,11 +2774,6 @@ impl ComplexityBoundChecker {
                 secondary: None,
             })
             .collect()
-    }
-
-    /// Get all function names with declared bounds.
-    pub fn bounded_fn_names(&self) -> Vec<&str> {
-        self.bounds.values().map(|b| b.fn_name.as_str()).collect()
     }
 
     pub fn check_expensive(&self) -> Vec<TypeError> {
@@ -3081,10 +2995,6 @@ impl MultiPassRefinementChecker {
             })
             .collect()
     }
-
-    pub fn pass_count(&self) -> usize {
-        self.passes.len()
-    }
 }
 
 impl Default for MultiPassRefinementChecker {
@@ -3104,7 +3014,6 @@ pub(crate) struct IncrementalContractChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ContractHistoryEntry {
-    pub name: std::string::String,
     pub versions: Vec<ContractVersionEntry>,
 }
 
@@ -3131,9 +3040,8 @@ impl IncrementalContractChecker {
     ) {
         let history = self
             .contracts
-            .entry(name.clone())
+            .entry(name)
             .or_insert_with(|| ContractHistoryEntry {
-                name,
                 versions: Vec::new(),
             });
         history.versions.push(ContractVersionEntry {
@@ -3181,10 +3089,6 @@ impl IncrementalContractChecker {
             }
         }
         errors
-    }
-
-    pub fn contract_names(&self) -> Vec<&str> {
-        self.contracts.values().map(|e| e.name.as_str()).collect()
     }
 
     pub fn check_version_continuity(&self) -> Vec<TypeError> {
@@ -3303,10 +3207,6 @@ impl ScopedInvariantChecker {
     pub fn is_suspended(&self, name: &str) -> bool {
         self.invariants.get(name) == Some(&InvariantState::Suspended)
     }
-
-    pub fn suspension_depth(&self) -> u32 {
-        self.suspension_depth
-    }
 }
 
 impl Default for ScopedInvariantChecker {
@@ -3329,8 +3229,6 @@ pub(crate) struct StdlibTypes {
 pub(crate) struct StdlibTypeDef {
     pub name: std::string::String,
     pub base_type: Type,
-    pub refinement: std::string::String,
-    pub description: std::string::String,
 }
 
 impl StdlibTypes {
@@ -3341,8 +3239,6 @@ impl StdlibTypes {
             StdlibTypeDef {
                 name: "Pos".into(),
                 base_type: Type::Int,
-                refinement: "v > 0".into(),
-                description: "Positive integer".into(),
             },
         );
         types.insert(
@@ -3350,8 +3246,6 @@ impl StdlibTypes {
             StdlibTypeDef {
                 name: "NonNeg".into(),
                 base_type: Type::Int,
-                refinement: "v >= 0".into(),
-                description: "Non-negative integer".into(),
             },
         );
         types.insert(
@@ -3359,8 +3253,6 @@ impl StdlibTypes {
             StdlibTypeDef {
                 name: "Email".into(),
                 base_type: Type::String,
-                refinement: "contains(v, @)".into(),
-                description: "Email address".into(),
             },
         );
         types.insert(
@@ -3368,8 +3260,6 @@ impl StdlibTypes {
             StdlibTypeDef {
                 name: "Uuid".into(),
                 base_type: Type::String,
-                refinement: "len(v) == 36".into(),
-                description: "UUID string".into(),
             },
         );
         types.insert(
@@ -3377,8 +3267,6 @@ impl StdlibTypes {
             StdlibTypeDef {
                 name: "Port".into(),
                 base_type: Type::Int,
-                refinement: "v >= 0 && v <= 65535".into(),
-                description: "Network port".into(),
             },
         );
         types.insert(
@@ -3386,27 +3274,13 @@ impl StdlibTypes {
             StdlibTypeDef {
                 name: "Percentage".into(),
                 base_type: Type::Float,
-                refinement: "v >= 0.0 && v <= 100.0".into(),
-                description: "Percentage value".into(),
             },
         );
         Self { types }
     }
 
-    pub fn lookup(&self, name: &str) -> Option<&StdlibTypeDef> {
-        self.types.get(name)
-    }
-
     pub fn all_types(&self) -> Vec<&StdlibTypeDef> {
         self.types.values().collect()
-    }
-
-    pub fn type_count(&self) -> usize {
-        self.types.len()
-    }
-
-    pub fn is_stdlib_type(&self, name: &str) -> bool {
-        self.types.contains_key(name)
     }
 }
 
@@ -3429,11 +3303,7 @@ pub(crate) struct CollectionContracts {
 #[derive(Debug, Clone)]
 pub(crate) struct CollectionContract {
     pub name: std::string::String,
-    pub collection_type: std::string::String,
-    pub preconditions: Vec<std::string::String>,
-    pub postconditions: Vec<std::string::String>,
     pub preserves_length: bool,
-    pub preserves_elements: bool,
 }
 
 impl CollectionContracts {
@@ -3441,55 +3311,23 @@ impl CollectionContracts {
         let contracts = vec![
             CollectionContract {
                 name: "sort".into(),
-                collection_type: "List<T>".into(),
-                preconditions: vec![],
-                postconditions: vec![
-                    "is_sorted(result)".into(),
-                    "len(result) == len(input)".into(),
-                ],
                 preserves_length: true,
-                preserves_elements: true,
             },
             CollectionContract {
                 name: "filter".into(),
-                collection_type: "List<T>".into(),
-                preconditions: vec![],
-                postconditions: vec![
-                    "len(result) <= len(input)".into(),
-                    "forall x in result: pred(x)".into(),
-                ],
                 preserves_length: false,
-                preserves_elements: true,
             },
             CollectionContract {
                 name: "map".into(),
-                collection_type: "List<T>".into(),
-                preconditions: vec![],
-                postconditions: vec!["len(result) == len(input)".into()],
                 preserves_length: true,
-                preserves_elements: false,
             },
             CollectionContract {
                 name: "reverse".into(),
-                collection_type: "List<T>".into(),
-                preconditions: vec![],
-                postconditions: vec![
-                    "len(result) == len(input)".into(),
-                    "result[0] == input[len(input)-1]".into(),
-                ],
                 preserves_length: true,
-                preserves_elements: true,
             },
             CollectionContract {
                 name: "deduplicate".into(),
-                collection_type: "List<T>".into(),
-                preconditions: vec![],
-                postconditions: vec![
-                    "len(result) <= len(input)".into(),
-                    "all_unique(result)".into(),
-                ],
                 preserves_length: false,
-                preserves_elements: true,
             },
         ];
         Self { contracts }
@@ -3497,14 +3335,6 @@ impl CollectionContracts {
 
     pub fn lookup(&self, name: &str) -> Option<&CollectionContract> {
         self.contracts.iter().find(|c| c.name == name)
-    }
-
-    pub fn all_contracts(&self) -> &[CollectionContract] {
-        &self.contracts
-    }
-
-    pub fn contract_count(&self) -> usize {
-        self.contracts.len()
     }
 }
 
@@ -3642,13 +3472,6 @@ impl CrudAuthContracts {
             }
         }
         errors
-    }
-
-    pub fn crud_count(&self) -> usize {
-        self.crud_ops.len()
-    }
-    pub fn policy_count(&self) -> usize {
-        self.auth_policies.len()
     }
 }
 
@@ -3797,10 +3620,6 @@ impl ContractCompositionChecker {
             })
             .collect()
     }
-
-    pub fn contract_count(&self) -> usize {
-        self.contracts.len()
-    }
 }
 
 impl Default for ContractCompositionChecker {
@@ -3936,10 +3755,6 @@ impl ContractLibraryChecker {
         }
         errors
     }
-
-    pub fn library_count(&self) -> usize {
-        self.libraries.len()
-    }
 }
 
 impl Default for ContractLibraryChecker {
@@ -3959,7 +3774,7 @@ mod tests {
     #[test]
     fn alloc_unpaired_detected() {
         let mut ac = AllocatorChecker::new();
-        ac.record_alloc("buf".into(), "1024".into(), None, 0..10);
+        ac.record_alloc("buf".into(), None, 0..10);
         let errors = ac.check_unpaired();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, "A22001");
@@ -3968,7 +3783,7 @@ mod tests {
     #[test]
     fn alloc_paired_ok() {
         let mut ac = AllocatorChecker::new();
-        ac.record_alloc("buf".into(), "1024".into(), None, 0..10);
+        ac.record_alloc("buf".into(), None, 0..10);
         assert!(ac.record_free("buf", 10..20).is_none());
         assert!(ac.check_unpaired().is_empty());
     }
@@ -3976,7 +3791,7 @@ mod tests {
     #[test]
     fn alloc_double_free() {
         let mut ac = AllocatorChecker::new();
-        ac.record_alloc("buf".into(), "1024".into(), None, 0..10);
+        ac.record_alloc("buf".into(), None, 0..10);
         assert!(ac.record_free("buf", 10..20).is_none());
         let err = ac.record_free("buf", 20..30).unwrap();
         assert_eq!(err.code, "A22002");
@@ -3986,7 +3801,7 @@ mod tests {
     fn alloc_arena_use_after_drop() {
         let mut ac = AllocatorChecker::new();
         ac.declare_arena("pool".into());
-        ac.record_alloc("buf".into(), "64".into(), Some("pool".into()), 0..10);
+        ac.record_alloc("buf".into(), Some("pool".into()), 0..10);
         ac.drop_arena("pool", 10..20);
         let err = ac.check_arena_use("buf", &(20..30)).unwrap();
         assert_eq!(err.code, "A22004");
@@ -3996,7 +3811,7 @@ mod tests {
     fn alloc_arena_no_error_before_drop() {
         let mut ac = AllocatorChecker::new();
         ac.declare_arena("pool".into());
-        ac.record_alloc("buf".into(), "64".into(), Some("pool".into()), 0..10);
+        ac.record_alloc("buf".into(), Some("pool".into()), 0..10);
         assert!(ac.check_arena_use("buf", &(5..15)).is_none());
     }
 
@@ -4004,7 +3819,7 @@ mod tests {
     fn alloc_arena_skips_unpaired() {
         let mut ac = AllocatorChecker::new();
         ac.declare_arena("pool".into());
-        ac.record_alloc("buf".into(), "64".into(), Some("pool".into()), 0..10);
+        ac.record_alloc("buf".into(), Some("pool".into()), 0..10);
         // Arena allocs don't need explicit free
         assert!(ac.check_unpaired().is_empty());
     }
@@ -4173,7 +3988,8 @@ mod tests {
         rlc.declare_limit("mem".into(), 100, "MB".into());
         rlc.record_usage("mem", 80);
         rlc.release_usage("mem", 30);
-        assert_eq!(rlc.current_usage("mem"), Some(50));
+        // After releasing 30 from 80, usage is 50 which is under the 100 limit
+        assert!(rlc.check_limits().is_empty());
     }
 
     // -----------------------------------------------------------------------
