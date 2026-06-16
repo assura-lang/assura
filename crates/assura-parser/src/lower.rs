@@ -1993,6 +1993,58 @@ contract UseProphecy {
     }
 
     #[test]
+    fn test_consecutive_prophecy_declarations() {
+        // Regression test for #158: consecutive prophecy decls merged into one block
+        let src = "module test\nprophecy alpha: Int\nprophecy beta: Int";
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        // Must produce TWO separate Prophecy decls, not one merged Block
+        let prophecies: Vec<_> = file
+            .decls
+            .iter()
+            .filter(|d| matches!(&d.node, Decl::Prophecy(_)))
+            .collect();
+        assert_eq!(
+            prophecies.len(),
+            2,
+            "expected 2 prophecy decls, got {}: {:#?}",
+            prophecies.len(),
+            file.decls
+                .iter()
+                .map(|d| format!("{:?}", d.node))
+                .collect::<Vec<_>>()
+        );
+        if let Decl::Prophecy(p) = &prophecies[0].node {
+            assert_eq!(p.name, "alpha");
+        }
+        if let Decl::Prophecy(p) = &prophecies[1].node {
+            assert_eq!(p.name, "beta");
+        }
+    }
+
+    #[test]
+    fn test_consecutive_ghost_prophecy_declarations() {
+        // ghost prophecy form should also work consecutively
+        let src = "ghost prophecy a: Int\nghost prophecy b: Float";
+        let (file, errs) = crate::parse(src);
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        let file = file.unwrap();
+        let prophecies: Vec<_> = file
+            .decls
+            .iter()
+            .filter(|d| matches!(&d.node, Decl::Prophecy(_)))
+            .collect();
+        assert_eq!(prophecies.len(), 2);
+        if let Decl::Prophecy(p) = &prophecies[0].node {
+            assert_eq!(p.name, "a");
+        }
+        if let Decl::Prophecy(p) = &prophecies[1].node {
+            assert_eq!(p.name, "b");
+        }
+    }
+
+    #[test]
     fn test_liveness_block() {
         let src = r#"
 liveness Progress {
