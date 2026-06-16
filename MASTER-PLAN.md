@@ -1550,4 +1550,36 @@ Within the independent tasks, recommended order by impact:
   - 6.03: crates.io placeholder (needs registry interaction)
 - **Only 2 open issues**: #45 (CodeQL), #147 (quantifier triggers/test gen)
 
+### Session 11 (2026-06-16): Issues closed, multi-perspective audit
+
+- **#145 closed**: 9 BLOCKED must_reject fixtures unblocked (session 10 carryover)
+- **#147 closed**: CORE.5 quantifier triggers (QuantifierTriggerChecker with
+  strict_triggers clause, A-CORE-050 error code) and TEST.1 TestGenerator
+  (populates TypedFile.generated_tests from contract requires/ensures)
+- **#148 closed**: Extracted 3 named constants (DEFAULT_ULP_TOLERANCE,
+  DEFAULT_PARAM_ZERO, DEFAULT_PARAM_ONE) replacing hardcoded numeric
+  defaults across 6 checker files
+- **#149 closed**: Domain checker test coverage increased from 7.7 to
+  10.5 tests/struct (324 tests across 31 Checker structs, +104 new tests)
+- **Deep verification pass**: All clean:
+  - 4 demo files parse and verify
+  - 0 stubs (todo!/unimplemented!/Vec::new in run_*_checks)
+  - 0 dead code suppressions
+  - 1 BLOCKED fixture (prophecy, legitimate)
+  - Tree-sitter: 23/23 tests pass
+  - Fuzz: 3 targets list correctly
+- **Multi-perspective audit (Rotation 1)**: 7 new tech-debt issues filed:
+  - #150: BLOCKED prophecy fixture needs SMT-aware test harness
+  - #151: tree-sitter ABI 14 deprecation (missing tree-sitter.json)
+  - #152: error code format inconsistency (A-WORD-NNN vs Axxxxx)
+  - #153: spec error code A22003 has no implementing checker
+  - #154: CLI infer generates TODO placeholders instead of meaningful clauses
+  - #155: CLI exits 0 on verification Timeout/Unknown (soundness gap)
+  - #156: 22 type inference errors use 0..0 span (no source location)
+- Test count: 2,415 (up from ~2,329)
+- Open issues: #45 (CodeQL, blocked), #150-#156 (tech-debt from audit)
+- **3 tasks remain `[ ]`**: 3.12 (Cranelift), 6.01 (CodeQL), 6.03 (crates.io)
+- **Next session**: Fix #150-#156, continue multi-perspective rotation,
+  evaluate OSS launch readiness for #45
+
 ---
