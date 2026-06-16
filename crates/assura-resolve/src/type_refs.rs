@@ -1,0 +1,439 @@
+//! Type reference resolution (T012): checking that type names in fields,
+//! parameters, and return types resolve to known types.
+
+use assura_parser::ast::{
+    Decl, EnumDef, ExternDecl, FieldDef, FnDef, Param, ServiceItem, SourceFile, Span, TypeBody,
+    TypeDef,
+};
+
+use crate::errors::ResolutionError;
+use crate::imports::{ImportStatus, ResolvedImport};
+use crate::symbols::SymbolTable;
+
+/// Tokens that are clearly syntax or modifiers, not type names.
+pub(crate) const TYPE_SYNTAX_TOKENS: &[&str] = &[
+    "<",
+    ">",
+    ",",
+    "|",
+    "{",
+    "}",
+    "&",
+    "(",
+    ")",
+    "[",
+    "]",
+    ":",
+    ";",
+    "=",
+    "->",
+    "..",
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "!",
+    "?",
+    "@",
+    "#",
+    "==",
+    "!=",
+    "<=",
+    ">=",
+    // Modifiers and keywords that appear in type positions
+    "pub",
+    "ghost",
+    "pure",
+    "mut",
+    "and",
+    "or",
+    "not",
+    "in",
+    "if",
+    "then",
+    "else",
+    "let",
+    "for",
+    "forall",
+    "exists",
+    "old",
+    "true",
+    "false",
+    "taint",
+    "untrusted",
+    "validated",
+    "secret",
+    "deterministic",
+    "effects",
+    "requires",
+    "ensures",
+    "invariant",
+    "modifies",
+    "where",
+    // Self and result
+    "self",
+    "result",
+    "Self",
+];
+
+/// Check whether a token looks like a type name candidate.
+///
+/// A type name is an identifier that starts with an uppercase letter and
+/// is not a syntax/modifier token. We only check names that start with
+/// uppercase because lowercase names are more likely to be values,
+/// keywords, or effect names (e.g., `io.read`, `pure`).
+pub(crate) fn is_type_name_candidate(tok: &str) -> bool {
+    if TYPE_SYNTAX_TOKENS.contains(&tok) {
+        return false;
+    }
+    // Must start with uppercase ASCII letter
+    tok.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// Extract candidate type names from a raw token sequence (`Vec<String>`).
+///
+/// Skips syntax, modifiers, and lowercase identifiers. Returns the list
+/// of uppercase-initial identifiers that should resolve as types.
+fn extract_type_names(tokens: &[String]) -> Vec<&str> {
+    tokens
+        .iter()
+        .filter(|t| is_type_name_candidate(t))
+        .map(|t| t.as_str())
+        .collect()
+}
+
+/// Returns `true` if we should be lenient about unknown type names.
+///
+/// We are lenient when the file may have access to types from external
+/// sources that we cannot resolve yet: unresolved imports, a project
+/// declaration (which enables profiles providing types like `Region`),
+/// or a module declaration (which implies a multi-module project with
+/// a potential prelude). Only bare standalone files with none of these
+/// get strict checking.
+pub(crate) fn should_be_lenient(source: &SourceFile, imports: &[ResolvedImport]) -> bool {
+    // Project declaration implies profile-provided types
+    if source.project.is_some() {
+        return true;
+    }
+    // Module declaration implies multi-module project
+    if source.module.is_some() {
+        return true;
+    }
+    // Any unresolved import means external types may exist
+    imports
+        .iter()
+        .any(|imp| imp.status == ImportStatus::Unresolved)
+}
+
+/// Simple edit distance (Levenshtein) for "did you mean?" suggestions.
+pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
+        row[0] = i;
+    }
+    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) {
+        *val = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
+}
+
+/// Find the closest matching name in the symbol table for "did you mean?" hints.
+/// Returns `Some("did you mean `X`?")` if a close match exists.
+pub(crate) fn find_similar_name(
+    name: &str,
+    table: &SymbolTable,
+    scope_id: usize,
+) -> Option<String> {
+    let threshold = match name.len() {
+        0..=2 => 1,
+        3..=5 => 2,
+        _ => 3,
+    };
+    let mut best: Option<(&str, usize)> = None;
+    // Walk all visible symbols from this scope upward
+    let mut current = Some(scope_id);
+    while let Some(id) = current {
+        for sym_name in table.scopes[id].symbols.keys() {
+            let dist = edit_distance(name, sym_name);
+            if dist <= threshold && dist < name.len() && (best.is_none() || dist < best.unwrap().1)
+            {
+                best = Some((sym_name, dist));
+            }
+        }
+        current = table.scopes[id].parent;
+    }
+    best.map(|(similar, _)| format!("did you mean `{similar}`?"))
+}
+
+/// Check a list of type-name tokens against the symbol table. Reports
+/// A02001 for names that cannot be resolved. When unresolved imports
+/// exist, unknown names are silently skipped (they may come from an
+/// external module).
+fn check_type_tokens(
+    tokens: &[String],
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for name in extract_type_names(tokens) {
+        if table.lookup(name, scope_id).is_some() {
+            continue;
+        }
+        // In lenient mode (unresolved imports), skip unknown types
+        if lenient {
+            continue;
+        }
+        let suggestion = find_similar_name(name, table, scope_id);
+        errors.push(ResolutionError {
+            code: "A02001".into(),
+            message: format!("unknown type `{name}`"),
+            span: span.clone(),
+            secondary: None,
+            suggestion,
+        });
+    }
+}
+
+/// Check type references in field definitions.
+fn check_fields(
+    fields: &[FieldDef],
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for f in fields {
+        check_type_tokens(&f.ty, table, scope_id, span, lenient, errors);
+    }
+}
+
+/// Check type references in function/extern parameters and return type.
+fn check_fn_signature(
+    params: &[Param],
+    return_ty: &[String],
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for p in params {
+        check_type_tokens(&p.ty, table, scope_id, span, lenient, errors);
+    }
+    if !return_ty.is_empty() {
+        check_type_tokens(return_ty, table, scope_id, span, lenient, errors);
+    }
+}
+
+/// Build a map from declaration name to its scope ID by scanning the scope
+/// list. When multiple scopes share a name (e.g., nested `Config` types),
+/// this finds the one whose parent matches the expected parent scope.
+pub(crate) fn find_scope_for(
+    table: &SymbolTable,
+    name: &str,
+    parent_scope: usize,
+) -> Option<usize> {
+    // Prefer the scope whose parent matches; fall back to any match.
+    let mut fallback = None;
+    for (i, scope) in table.scopes.iter().enumerate() {
+        if scope.name == name {
+            if scope.parent == Some(parent_scope) {
+                return Some(i);
+            }
+            if fallback.is_none() {
+                fallback = Some(i);
+            }
+        }
+    }
+    fallback
+}
+
+/// Walk all declarations and resolve type references.
+pub(crate) fn resolve_type_refs(
+    source: &SourceFile,
+    table: &SymbolTable,
+    imports: &[ResolvedImport],
+    module_scope: usize,
+    errors: &mut Vec<ResolutionError>,
+) {
+    let lenient = should_be_lenient(source, imports);
+    let decls = &source.decls;
+
+    for decl in decls {
+        match &decl.node {
+            Decl::TypeDef(t) => {
+                resolve_typedef_refs(t, table, &decl.span, module_scope, lenient, errors);
+            }
+            Decl::FnDef(f) => {
+                resolve_fndef_refs(f, table, &decl.span, module_scope, lenient, errors);
+            }
+            Decl::Extern(ex) => {
+                resolve_extern_refs(ex, table, &decl.span, module_scope, lenient, errors);
+            }
+            Decl::Bind(b) => {
+                // Bind has the same param/return structure as extern
+                resolve_extern_refs_generic(
+                    &b.params,
+                    &b.return_ty,
+                    table,
+                    &decl.span,
+                    module_scope,
+                    lenient,
+                    errors,
+                );
+            }
+            Decl::Contract(_) => {
+                // Contract clauses don't have structured type refs in
+                // the current AST; nothing to check here yet.
+            }
+            Decl::Service(s) => {
+                let svc_scope =
+                    find_scope_for(table, &s.name, module_scope).unwrap_or(module_scope);
+                for item in &s.items {
+                    match item {
+                        ServiceItem::TypeDef(t) => {
+                            resolve_typedef_refs(t, table, &decl.span, svc_scope, lenient, errors);
+                        }
+                        ServiceItem::EnumDef(e) => {
+                            // Check enum variant field types
+                            let enum_scope =
+                                find_scope_for(table, &e.name, svc_scope).unwrap_or(svc_scope);
+                            check_enum_variant_types(
+                                e, table, enum_scope, &decl.span, lenient, errors,
+                            );
+                        }
+                        ServiceItem::States(_)
+                        | ServiceItem::Operation { .. }
+                        | ServiceItem::Query { .. }
+                        | ServiceItem::Invariant(_)
+                        | ServiceItem::Other { .. } => {}
+                    }
+                }
+            }
+            Decl::EnumDef(e) => {
+                // Check enum variant field types against the symbol table
+                let enum_scope =
+                    find_scope_for(table, &e.name, module_scope).unwrap_or(module_scope);
+                check_enum_variant_types(e, table, enum_scope, &decl.span, lenient, errors);
+            }
+            // Prophecy variables have a type annotation but it's stored as
+            // raw tokens, not structured params. No type ref resolution needed.
+            Decl::Prophecy(_) => {}
+            Decl::CodecRegistry(_) => {}
+            Decl::Block { .. } => {}
+        }
+    }
+}
+
+/// Resolve type references inside a type definition.
+fn resolve_typedef_refs(
+    t: &TypeDef,
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    // Use the type's own scope (which has type params) if found
+    let scope = find_scope_for(table, &t.name, parent_scope).unwrap_or(parent_scope);
+    match &t.body {
+        TypeBody::Struct(fields) => {
+            check_fields(fields, table, scope, span, lenient, errors);
+        }
+        TypeBody::Alias(tokens) => {
+            check_type_tokens(tokens, table, scope, span, lenient, errors);
+        }
+        TypeBody::Refined(tokens) => {
+            check_type_tokens(tokens, table, scope, span, lenient, errors);
+        }
+        TypeBody::Empty => {}
+    }
+}
+
+/// Resolve type references in a function definition.
+fn resolve_fndef_refs(
+    f: &FnDef,
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    let scope = find_scope_for(table, &f.name, parent_scope).unwrap_or(parent_scope);
+    check_fn_signature(&f.params, &f.return_ty, table, scope, span, lenient, errors);
+}
+
+/// Resolve type references in an extern function declaration.
+fn resolve_extern_refs(
+    ex: &ExternDecl,
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    let scope = find_scope_for(table, &ex.name, parent_scope).unwrap_or(parent_scope);
+    check_fn_signature(
+        &ex.params,
+        &ex.return_ty,
+        table,
+        scope,
+        span,
+        lenient,
+        errors,
+    );
+}
+
+fn resolve_extern_refs_generic(
+    params: &[Param],
+    return_ty: &[String],
+    table: &SymbolTable,
+    span: &Span,
+    parent_scope: usize,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    check_fn_signature(
+        params,
+        return_ty,
+        table,
+        parent_scope,
+        span,
+        lenient,
+        errors,
+    );
+}
+
+/// Check type references in enum variant fields.
+///
+/// Each variant has a `fields: Vec<String>` of type tokens. We check each
+/// token against the symbol table using `check_type_tokens`.
+fn check_enum_variant_types(
+    e: &EnumDef,
+    table: &SymbolTable,
+    scope_id: usize,
+    span: &Span,
+    lenient: bool,
+    errors: &mut Vec<ResolutionError>,
+) {
+    for variant in &e.variants {
+        if !variant.fields.is_empty() {
+            check_type_tokens(&variant.fields, table, scope_id, span, lenient, errors);
+        }
+    }
+}
