@@ -3,7 +3,6 @@
 //! raw-token parsing, and counterexample extraction.
 
 use super::*;
-use super::{CounterexampleModel, Expr};
 use assura_parser::ast::{BinOp, BlockKind, Clause, Literal, UnaryOp};
 use assura_types::checkers::expr_references_var;
 use std::collections::HashMap;
