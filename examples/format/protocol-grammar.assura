@@ -1,0 +1,43 @@
+// EXPECTED: verified
+// Feature: FMT.6 Protocol Grammar
+// Message format conformance.
+
+module examples.fmt.protocol_grammar;
+
+// TLV (Type-Length-Value) message validation
+contract TLVMessage {
+    input(msg_type: Nat, length: Nat, buf_remaining: Nat)
+
+    requires { msg_type > 0 }
+    requires { msg_type <= 255 }
+    requires { length <= buf_remaining }
+    requires { buf_remaining > 0 }
+
+    ensures { length <= buf_remaining }
+    ensures { msg_type <= 255 }
+}
+
+// Protocol version negotiation
+contract VersionNegotiation {
+    input(client_version: Nat, server_min: Nat, server_max: Nat)
+
+    requires { server_min <= server_max }
+    requires { server_min > 0 }
+    requires { client_version >= server_min }
+    requires { client_version <= server_max }
+
+    ensures { client_version >= server_min }
+    ensures { client_version <= server_max }
+}
+
+// Framing: message length prefix matches actual payload
+contract MessageFraming {
+    input(declared_len: Nat, actual_len: Nat, max_msg: Nat)
+
+    requires { declared_len == actual_len }
+    requires { declared_len <= max_msg }
+    requires { max_msg > 0 }
+
+    ensures { declared_len == actual_len }
+    ensures { declared_len <= max_msg }
+}

@@ -1,0 +1,37 @@
+// EXPECTED: verified
+// Feature: FMT.2 Bit-Level Format
+// Bitfield extraction contracts ensure that bit masks and shifts
+// produce values within the expected range.
+
+module examples.fmt.bit_level_format;
+
+// Extract N bits from a position: position + width fits in 32 bits
+contract BitExtract {
+    input(position: Nat, width: Nat)
+
+    requires { width > 0 }
+    requires { width <= 32 }
+    requires { position + width <= 32 }
+
+    ensures { position + width <= 32 }
+}
+
+// Pack two values into a single word: no overlap
+contract BitPack {
+    input(lo_bits: Nat, hi_bits: Nat)
+
+    requires { lo_bits > 0 }
+    requires { hi_bits > 0 }
+    requires { lo_bits + hi_bits <= 32 }
+
+    ensures { lo_bits + hi_bits <= 32 }
+}
+
+// Flag test: bit position is valid
+contract FlagTest {
+    input(bit_position: Nat)
+
+    requires { bit_position < 32 }
+
+    ensures { bit_position < 32 }
+}

@@ -1,0 +1,38 @@
+// EXPECTED: verified
+// Feature: PLAT.1 Platform Abstraction
+// Platform-specific contracts allow different implementations for
+// different targets while sharing the same verification obligations.
+
+module examples.plat.platform_abstraction;
+
+// Page size varies by platform but has known bounds
+contract PlatformPageSize {
+    input(page_size: Nat)
+
+    requires { page_size >= 4096 }
+    requires { page_size <= 65536 }
+
+    ensures { page_size >= 4096 }
+}
+
+// Memory-mapped I/O: address must be in the platform's MMIO range
+contract MMIOAccess {
+    input(address: Nat, mmio_base: Nat, mmio_size: Nat)
+
+    requires { mmio_size > 0 }
+    requires { address >= mmio_base }
+    requires { address < mmio_base + mmio_size }
+
+    ensures { address >= mmio_base }
+    ensures { address < mmio_base + mmio_size }
+}
+
+// Endianness conversion: byte-swap is self-inverse
+contract EndianConvert {
+    input(value: Nat, converted: Nat, roundtrip: Nat)
+
+    requires { value <= 4294967295 }
+    requires { roundtrip == value }
+
+    ensures { roundtrip == value }
+}

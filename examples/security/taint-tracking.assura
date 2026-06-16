@@ -1,0 +1,42 @@
+// EXPECTED: verified
+// Feature: SEC.1 Taint Tracking
+// Untrusted data from external sources must be validated before use
+// in security-critical operations.
+
+module examples.security.taint_tracking;
+
+// Read raw bytes from the network: always untrusted
+extern fn net_read(max_bytes: Nat) -> Bytes
+    requires { max_bytes > 0 }
+    requires { max_bytes <= 65536 }
+    effects { net }
+
+// Validate a packet length from the wire
+contract PacketLengthValidation {
+    input(raw_len: Nat, max_allowed: Nat)
+
+    requires { max_allowed > 0 }
+    requires { raw_len <= max_allowed }
+
+    ensures { raw_len <= max_allowed }
+}
+
+// Validate a user-provided index before array access
+contract IndexValidation {
+    input(user_index: Nat, array_len: Nat)
+
+    requires { array_len > 0 }
+    requires { user_index < array_len }
+
+    ensures { user_index < array_len }
+}
+
+// SQL parameter length must be within bounds
+contract SqlSanitization {
+    input(param_len: Nat, max_param: Nat)
+
+    requires { max_param > 0 }
+    requires { param_len <= max_param }
+
+    ensures { param_len <= max_param }
+}

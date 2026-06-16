@@ -1,0 +1,37 @@
+// EXPECTED: verified
+// Feature: CONC.4 Lock Ordering
+// A total order on locks prevents deadlocks. Every function that
+// acquires multiple locks must acquire them in ascending order.
+
+module examples.conc.lock_ordering;
+
+// Lock hierarchy: database < cache < network
+lock_order DatabaseLocks {
+    requires { database_rank == 1 }
+    requires { cache_rank == 2 }
+    requires { network_rank == 3 }
+
+    ensures { database_rank < cache_rank }
+    ensures { cache_rank < network_rank }
+}
+
+// Acquiring two locks: must respect the ordering
+contract TwoLockAcquire {
+    input(first_rank: Nat, second_rank: Nat)
+
+    requires { first_rank < second_rank }
+    requires { first_rank >= 1 }
+
+    ensures { first_rank < second_rank }
+}
+
+// Nested lock acquisition: each deeper lock has a higher rank
+contract NestedLocks {
+    input(outer_rank: Nat, middle_rank: Nat, inner_rank: Nat)
+
+    requires { outer_rank < middle_rank }
+    requires { middle_rank < inner_rank }
+
+    ensures { outer_rank < middle_rank }
+    ensures { middle_rank < inner_rank }
+}

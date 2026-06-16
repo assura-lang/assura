@@ -1,0 +1,39 @@
+// EXPECTED: verified
+// Feature: CONC.5 Temporal Deadlines
+// Deadline contracts ensure bounded waiting times.
+
+module examples.conc.temporal_deadlines;
+
+// Bounded wait: timeout prevents infinite blocking
+contract BoundedWait {
+    input(timeout_ms: Nat, elapsed_ms: Nat)
+
+    requires { timeout_ms > 0 }
+    requires { elapsed_ms <= timeout_ms }
+
+    ensures { elapsed_ms <= timeout_ms }
+}
+
+// Retry with exponential backoff: total time stays bounded
+contract ExponentialBackoff {
+    input(base_ms: Nat, max_retries: Nat, attempt: Nat)
+
+    requires { base_ms > 0 }
+    requires { base_ms <= 1000 }
+    requires { max_retries > 0 }
+    requires { attempt < max_retries }
+
+    ensures { base_ms > 0 }
+    ensures { attempt < max_retries }
+}
+
+// Heartbeat: deadline is positive
+contract HeartbeatCheck {
+    input(last_seen_ms: Nat, now_ms: Nat, deadline_ms: Nat)
+
+    requires { deadline_ms > 0 }
+    requires { now_ms >= last_seen_ms }
+
+    ensures { now_ms >= last_seen_ms }
+    ensures { deadline_ms > 0 }
+}

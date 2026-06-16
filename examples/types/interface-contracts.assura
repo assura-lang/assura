@@ -1,0 +1,34 @@
+// EXPECTED: verified
+// Feature: TYPE.1 Interface Contracts
+// Interfaces define contract obligations that all implementors must satisfy.
+
+module examples.types.interface_contracts;
+
+// Interface: comparable values must have a total order
+interface Comparable {
+    fn compare(a: Int, b: Int) -> Int
+        requires { a >= 0 }
+        ensures { a >= 0 }
+
+    fn less_than(a: Int, b: Int) -> Bool
+        requires { a < b }
+        ensures { a < b }
+}
+
+// Contract: a sortable collection requires valid bounds
+contract SortedInsert {
+    input(sorted_len: Nat, capacity: Nat)
+
+    requires { sorted_len < capacity }
+    requires { capacity > 0 }
+
+    ensures { sorted_len < capacity }
+    ensures { sorted_len + 1 <= capacity }
+}
+
+// Interface: hashable values produce deterministic hashes
+interface Hashable {
+    fn hash(value: Int, seed: Nat) -> Nat
+        requires { seed > 0 }
+        ensures { seed > 0 }
+}

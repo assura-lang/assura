@@ -1,0 +1,42 @@
+// EXPECTED: verified
+// Feature: STOR.2 Page Cache
+// Dirty/clean page tracking ensures modified pages are written back.
+
+module examples.storage.page_cache;
+
+// A clean page can be evicted without write-back
+contract CleanEviction {
+    input(dirty_count: Nat, pin_count: Nat)
+
+    requires { dirty_count == 0 }
+    requires { pin_count == 0 }
+
+    ensures { dirty_count == 0 }
+    ensures { pin_count == 0 }
+}
+
+// A dirty page must be flushed before eviction
+contract DirtyFlush {
+    input(dirty_count: Nat, page_id: Nat)
+
+    requires { dirty_count > 0 }
+    requires { page_id > 0 }
+
+    ensures { dirty_count > 0 }
+    ensures { page_id > 0 }
+}
+
+// Cache occupancy: used pages never exceed capacity
+contract CacheCapacity {
+    input(used: Nat, capacity: Nat, dirty_count: Nat)
+
+    requires { capacity > 0 }
+    requires { used <= capacity }
+    requires { dirty_count <= used }
+
+    invariant { used <= capacity }
+    invariant { dirty_count <= used }
+
+    ensures { used <= capacity }
+    ensures { dirty_count <= used }
+}

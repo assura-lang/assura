@@ -1,0 +1,43 @@
+// EXPECTED: verified
+// Feature: STOR.5 Monotonic State
+// Version numbers and sequence counters must only increase.
+
+module examples.storage.monotonic_state;
+
+// Version number only increases
+contract MonotonicVersion {
+    input(current: Nat, next: Nat)
+
+    requires { next > current }
+
+    ensures { next > current }
+}
+
+// Sequence number gap detection
+contract SequenceGap {
+    input(expected: Nat, received: Nat)
+
+    requires { received >= expected }
+
+    ensures { received >= expected }
+    ensures { received - expected >= 0 }
+}
+
+// Monotonic clock: timestamps never go backwards
+contract MonotonicClock {
+    input(prev_ts: Nat, curr_ts: Nat)
+
+    requires { curr_ts >= prev_ts }
+
+    ensures { curr_ts >= prev_ts }
+}
+
+// Log sequence number is always increasing
+contract LSNMonotonicity {
+    input(lsn_before: Nat, lsn_after: Nat, entries_written: Nat)
+
+    requires { entries_written > 0 }
+    requires { lsn_after == lsn_before + entries_written }
+
+    ensures { lsn_after > lsn_before }
+}

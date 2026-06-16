@@ -1,0 +1,39 @@
+// EXPECTED: verified
+// Feature: PLAT.3 Resource Limits
+// Resource budget contracts bound CPU time, memory, and file handles.
+// Operations that exceed the budget are rejected at compile time.
+
+module examples.plat.resource_limits;
+
+// File descriptor budget: open fds never exceed the limit
+contract FdBudget {
+    input(open_fds: Nat, fd_limit: Nat)
+
+    requires { fd_limit > 0 }
+    requires { open_fds < fd_limit }
+
+    ensures { open_fds < fd_limit }
+}
+
+// Memory budget: total allocation stays within quota
+contract MemoryBudget {
+    input(allocated: Nat, quota: Nat, request: Nat)
+
+    requires { quota > 0 }
+    requires { request > 0 }
+    requires { allocated + request <= quota }
+
+    ensures { allocated + request <= quota }
+}
+
+// Thread pool: active threads never exceed pool size
+contract ThreadPoolLimit {
+    input(active: Nat, pool_size: Nat)
+
+    requires { pool_size > 0 }
+    requires { active <= pool_size }
+
+    invariant { active <= pool_size }
+
+    ensures { active <= pool_size }
+}

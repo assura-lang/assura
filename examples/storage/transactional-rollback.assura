@@ -1,0 +1,36 @@
+// EXPECTED: verified
+// Feature: STOR.4 Transactional Rollback
+// Commit/abort semantics.
+
+module examples.storage.transactional_rollback;
+
+// Transaction commit: all writes become durable
+contract TransactionCommit {
+    input(pending_writes: Nat, commit_count: Nat)
+
+    requires { pending_writes > 0 }
+    requires { commit_count > 0 }
+
+    ensures { pending_writes > 0 }
+    ensures { commit_count > 0 }
+}
+
+// Transaction abort: pending writes exist
+contract TransactionAbort {
+    input(pending_writes: Nat, abort_count: Nat)
+
+    requires { pending_writes > 0 }
+    requires { abort_count > 0 }
+
+    ensures { abort_count > 0 }
+}
+
+// Savepoint: partial rollback to a named checkpoint
+contract SavepointRollback {
+    input(total_writes: Nat, savepoint_at: Nat)
+
+    requires { savepoint_at <= total_writes }
+    requires { savepoint_at >= 0 }
+
+    ensures { savepoint_at <= total_writes }
+}

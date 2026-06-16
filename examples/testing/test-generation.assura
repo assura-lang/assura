@@ -1,0 +1,43 @@
+// EXPECTED: verified
+// Feature: TEST.1 Test Generation
+// Test generation annotations mark contracts for automated testing.
+
+module examples.testing.test_generation;
+
+// Sortedness: input length is valid
+contract SortProperty {
+    input(input_len: Nat)
+
+    requires { input_len > 0 }
+
+    example { input_len == 5 }
+    example { input_len == 100 }
+
+    ensures { input_len > 0 }
+}
+
+// Roundtrip: value is preserved
+contract RoundtripProperty {
+    input(value: Int)
+
+    requires { value >= 0 }
+
+    example { value == 0 }
+    example { value == 42 }
+
+    ensures { value >= 0 }
+}
+
+// Idempotency: applying twice equals applying once
+contract IdempotentNormalize {
+    input(x: Int)
+
+    requires { x >= 0 }
+    requires { x <= 255 }
+
+    example { x == 0 }
+    example { x == 255 }
+
+    ensures { x >= 0 }
+    ensures { x <= 255 }
+}

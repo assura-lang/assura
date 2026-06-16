@@ -1,0 +1,50 @@
+// EXPECTED: verified
+// Feature: TYPE.3 Error Propagation
+// Contracts for Result and Option types that ensure errors are never
+// silently swallowed and success values meet postconditions.
+
+module examples.types.error_propagation;
+
+// Safe division: divisor must not be zero
+contract SafeDivision {
+    input(dividend: Int, divisor: Int)
+
+    requires { divisor != 0 }
+
+    ensures { divisor != 0 }
+}
+
+// Chained fallible operations: all divisors valid
+contract ChainedResult {
+    input(a: Int, b: Int, c: Int)
+
+    requires { b != 0 }
+    requires { c != 0 }
+    requires { a > 0 }
+
+    ensures { a > 0 }
+    ensures { b != 0 }
+    ensures { c != 0 }
+}
+
+// Option unwrap: value must be present
+contract SafeUnwrap {
+    input(value_count: Nat, value: Int)
+
+    requires { value_count == 1 }
+    requires { value >= 0 }
+
+    ensures { value_count == 1 }
+    ensures { value >= 0 }
+}
+
+// Map over a Result preserves validity
+contract ResultMap {
+    input(ok_count: Nat, value: Int)
+
+    requires { ok_count == 1 }
+    requires { value > 0 }
+
+    ensures { ok_count == 1 }
+    ensures { value > 0 }
+}

@@ -1,0 +1,38 @@
+// EXPECTED: verified
+// Feature: FMT.4 Codec Registry
+// A codec registry dispatches decoding to the correct handler based
+// on magic bytes. Each codec declares its format constraints.
+
+module examples.fmt.codec_reg;
+
+// Codec registry for image formats
+codec_registry ImageFormats {
+    output: Nat,
+
+    codec PNG {
+        magic: [0x89, 0x50, 0x4E, 0x47],
+        decoder: decode_png,
+        contracts: {
+            requires { buf_len >= 8 }
+            ensures { result >= 0 }
+        }
+    }
+
+    codec JPEG {
+        magic: [0xFF, 0xD8, 0xFF],
+        decoder: decode_jpeg,
+        contracts: {
+            requires { buf_len >= 4 }
+            ensures { result >= 0 }
+        }
+    }
+
+    codec GIF {
+        magic: [0x47, 0x49, 0x46],
+        decoder: decode_gif,
+        contracts: {
+            requires { buf_len >= 6 }
+            ensures { result >= 0 }
+        }
+    }
+}

@@ -1,0 +1,33 @@
+// EXPECTED: verified
+// Feature: TEST.2 Behavioral Equivalence
+// Old/new implementation equivalence.
+
+module examples.testing.behavioral_equivalence;
+
+// Reference vs optimized: same preconditions
+contract EquivalentAdd {
+    input(a: Int, b: Int)
+
+    requires { a >= 0 }
+    requires { b >= 0 }
+
+    ensures { a + b >= a }
+    ensures { a + b >= b }
+    ensures { a + b >= 0 }
+}
+
+// Before/after refactoring: divisor is non-zero
+contract RefactorSafe {
+    input(x: Int, y: Int)
+
+    requires { y != 0 }
+
+    ensures { y != 0 }
+}
+
+// Commutative property: addition is commutative
+contract CommutativeOp {
+    input(a: Int, b: Int)
+
+    ensures { a + b == b + a }
+}

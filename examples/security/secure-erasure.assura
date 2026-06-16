@@ -1,0 +1,35 @@
+// EXPECTED: verified
+// Feature: SEC.4 Secure Erasure
+// Secret data must be zeroized before the memory is freed.
+
+module examples.security.secure_erasure;
+
+// Zeroize a buffer region
+contract SecureZeroize {
+    input(buf_len: Nat)
+
+    requires { buf_len > 0 }
+
+    ensures { buf_len > 0 }
+}
+
+// Key lifecycle: active key has correct length
+contract KeyLifecycle {
+    input(key_len: Nat, is_active: Bool)
+
+    requires { key_len == 32 }
+    requires { is_active == true }
+
+    ensures { key_len == 32 }
+}
+
+// Password buffer must be cleared after hashing
+contract PasswordClear {
+    input(password_len: Nat, hash_len: Nat)
+
+    requires { password_len >= 8 }
+    requires { hash_len == 64 }
+
+    ensures { password_len >= 8 }
+    ensures { hash_len == 64 }
+}

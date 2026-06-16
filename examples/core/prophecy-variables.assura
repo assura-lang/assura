@@ -1,0 +1,32 @@
+// EXPECTED: verified
+// Feature: CORE.7 Prophecy Variables
+// Prophecy variables declare a future value that will be determined
+// later. They let contracts reason about eventual outcomes.
+
+module examples.core.prophecy_variables;
+
+// Prophecy: the final selected index in a search
+ghost prophecy chosen_index: Nat
+
+// The search operates on a non-empty haystack
+contract SearchPrecondition {
+    input(haystack_len: Nat, needle: Int)
+
+    requires { haystack_len > 0 }
+    requires { needle >= 0 }
+
+    ensures { haystack_len > 0 }
+}
+
+// Prophecy: the convergence iteration count
+ghost prophecy convergence_step: Nat
+
+// An iterative solver has valid configuration
+contract SolverConfig {
+    input(tolerance: Float, max_iter: Nat)
+
+    requires { tolerance > 0 }
+    requires { max_iter > 0 }
+
+    ensures { max_iter > 0 }
+}

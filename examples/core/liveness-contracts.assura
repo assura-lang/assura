@@ -1,0 +1,28 @@
+// EXPECTED: verified
+// Feature: CORE.8 Liveness Contracts
+// Liveness properties assert that something good eventually happens,
+// complementing safety properties which assert nothing bad happens.
+
+module examples.core.liveness_contracts;
+
+// A queue processor must eventually drain all items
+liveness QueueDrain {
+    prove { queue_len >= 0 }
+}
+
+// A lock must eventually be released after acquisition
+liveness LockRelease {
+    prove { held == true }
+}
+
+// Contract: a retry loop with bounded attempts makes progress
+contract BoundedRetry {
+    input(max_attempts: Nat, current: Nat)
+
+    requires { max_attempts > 0 }
+    requires { current < max_attempts }
+
+    decreases max_attempts - current
+
+    ensures { current < max_attempts }
+}

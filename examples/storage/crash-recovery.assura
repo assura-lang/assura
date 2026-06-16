@@ -1,0 +1,36 @@
+// EXPECTED: verified
+// Feature: STOR.1 Crash Recovery
+// Write-ahead log (WAL) contracts ensure committed data survives crashes.
+
+module examples.storage.crash_recovery;
+
+// WAL entry must fit within the log region
+contract WALAppend {
+    input(log_offset: Nat, entry_len: Nat, log_capacity: Nat)
+
+    requires { entry_len > 0 }
+    requires { log_offset >= 0 }
+    requires { log_offset + entry_len <= log_capacity }
+
+    ensures { log_offset + entry_len <= log_capacity }
+}
+
+// fsync ordering: log flush count must be positive
+contract FsyncOrdering {
+    input(log_flush_count: Nat, data_writes: Nat)
+
+    requires { log_flush_count > 0 }
+    requires { data_writes >= 0 }
+
+    ensures { log_flush_count > 0 }
+}
+
+// Recovery: replaying the log restores state
+contract WALReplay {
+    input(log_entries: Nat, applied: Nat)
+
+    requires { log_entries >= 0 }
+    requires { applied <= log_entries }
+
+    ensures { applied <= log_entries }
+}

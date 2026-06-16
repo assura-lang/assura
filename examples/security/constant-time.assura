@@ -1,0 +1,41 @@
+// EXPECTED: verified
+// Feature: SEC.3 Constant-Time Operations
+// Cryptographic operations must execute in constant time to prevent
+// timing side-channel attacks.
+
+module examples.security.const_tm;
+
+// Constant-time byte comparison: no early exit
+contract ConstantTimeCompare {
+    input(len_a: Nat, len_b: Nat, len: Nat)
+
+    requires { len > 0 }
+    requires { len_a >= len }
+    requires { len_b >= len }
+
+    constant_time { len }
+
+    ensures { len_a >= len }
+    ensures { len_b >= len }
+}
+
+// Constant-time conditional select
+contract ConstantTimeSelect {
+    input(condition: Bool, a: Int, b: Int)
+
+    requires { a >= 0 }
+    requires { b >= 0 }
+
+    constant_time { a }
+
+    ensures { a >= 0 }
+    ensures { b >= 0 }
+}
+
+// HMAC verification must be constant-time
+#[constant_time]
+fn hmac_verify(expected_len: Nat, actual_len: Nat) -> Bool
+    requires { expected_len > 0 }
+    requires { actual_len > 0 }
+    requires { expected_len == actual_len }
+    ensures { expected_len == actual_len }

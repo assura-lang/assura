@@ -1,0 +1,40 @@
+// EXPECTED: verified
+// Feature: FMT.1 Binary Format
+// Field layout contracts for binary file/protocol headers. Every field
+// offset and size is statically verified to prevent buffer overruns.
+
+module examples.fmt.binary_format;
+
+// Fixed-size header: total field sizes equal the header size
+contract FixedHeader {
+    input(magic_size: Nat, version_size: Nat, flags_size: Nat, total: Nat)
+
+    requires { magic_size == 4 }
+    requires { version_size == 2 }
+    requires { flags_size == 2 }
+    requires { total == magic_size + version_size + flags_size }
+
+    ensures { total == 8 }
+}
+
+// Variable-length field must not exceed the remaining buffer
+contract VariableField {
+    input(buf_len: Nat, header_len: Nat, payload_len: Nat)
+
+    requires { header_len == 8 }
+    requires { payload_len <= buf_len - header_len }
+    requires { buf_len >= header_len }
+
+    ensures { header_len + payload_len <= buf_len }
+}
+
+// Field alignment: each field starts at an aligned offset
+contract AlignedLayout {
+    input(offset: Nat, alignment: Nat, field_size: Nat)
+
+    requires { alignment > 0 }
+    requires { offset mod alignment == 0 }
+    requires { field_size > 0 }
+
+    ensures { offset mod alignment == 0 }
+}

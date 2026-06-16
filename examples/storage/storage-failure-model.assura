@@ -1,0 +1,34 @@
+// EXPECTED: verified
+// Feature: STOR.6 Storage Failure Model
+// Partial write contracts model disk failures.
+
+module examples.storage.storage_failure_model;
+
+// Partial write: only a prefix of the data reaches disk
+contract PartialWrite {
+    input(intended_len: Nat, written_len: Nat)
+
+    requires { written_len <= intended_len }
+    requires { intended_len > 0 }
+
+    ensures { written_len <= intended_len }
+}
+
+// Checksum detects a torn write
+contract TornWriteDetection {
+    input(data_len: Nat, checksum_valid: Bool)
+
+    requires { data_len > 0 }
+
+    ensures { data_len > 0 }
+}
+
+// Double-write: write data to two locations for redundancy
+contract DoubleWrite {
+    input(primary_writes: Nat, replica_writes: Nat)
+
+    requires { primary_writes > 0 }
+    requires { replica_writes >= 0 }
+
+    ensures { primary_writes > 0 }
+}

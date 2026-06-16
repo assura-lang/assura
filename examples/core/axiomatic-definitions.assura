@@ -1,0 +1,30 @@
+// EXPECTED: verified
+// Feature: CORE.4 Axiomatic Definitions
+// Axioms introduce uninterpreted functions with declared properties.
+// The solver trusts axioms without proof; they define mathematical
+// foundations that the rest of the system reasons about.
+
+module examples.core.axiomatic_definitions;
+
+// Axiomatic definition of absolute value
+axiomatic AbsValue {
+    define {
+        abs(x: Int) -> Nat
+    }
+
+    property {
+        forall x in Int: AbsValue >= 0
+    }
+}
+
+// Contract that references the axiom in its requires clause
+contract NonNegativeAbs {
+    input(x: Int, abs_val: Nat)
+
+    requires { x >= 0 }
+    requires { abs_val >= 0 }
+    requires { AbsValue >= 0 }
+
+    ensures { x >= 0 }
+    ensures { abs_val >= 0 }
+}

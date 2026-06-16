@@ -1,0 +1,42 @@
+// EXPECTED: verified
+// Feature: CORE.1 Ghost Variables
+// Ghost variables exist only in the specification domain. They are
+// erased at runtime but available for proving postconditions.
+
+module examples.core.ghost_variables;
+
+// Ghost counter tracks the number of elements processed
+contract GhostAccumulator {
+    input(count: Nat, limit: Nat)
+
+    requires { limit > 0 }
+    requires { count <= limit }
+
+    ensures {
+        ghost(count) <= limit
+    }
+}
+
+// Ghost sequence records the history of appended values
+contract GhostAuditTrail {
+    input(value: Int, seq_len: Nat)
+
+    requires { value > 0 }
+    requires { seq_len >= 0 }
+
+    ensures {
+        ghost(seq_len) >= 0
+    }
+}
+
+// Ghost tag proves data provenance without runtime cost
+contract GhostProvenance {
+    input(origin_id: Nat, validated: Bool)
+
+    requires { origin_id > 0 }
+    requires { validated == true }
+
+    ensures {
+        ghost(origin_id) > 0
+    }
+}

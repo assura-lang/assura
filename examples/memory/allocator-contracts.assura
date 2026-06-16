@@ -1,0 +1,42 @@
+// EXPECTED: verified
+// Feature: MEM.3 Allocator Contracts
+// Every allocation must be paired with a deallocation, and freed
+// memory must never be accessed again.
+
+module examples.memory.allocator_contracts;
+
+// Allocation requires positive size
+extern fn mem_alloc(size: Nat) -> Nat
+    requires { size > 0 }
+    requires { size <= 1048576 }
+    ensures { size > 0 }
+    effects { alloc }
+
+// Deallocation requires a valid, non-null pointer
+extern fn mem_free(ptr: Nat, size: Nat) -> Unit
+    requires { ptr > 0 }
+    requires { size > 0 }
+    effects { alloc }
+
+// Pool allocator maintains free-list consistency
+contract PoolAllocator {
+    input(pool_size: Nat, block_size: Nat, free_count: Nat)
+
+    requires { block_size > 0 }
+    requires { pool_size > 0 }
+    requires { pool_size mod block_size == 0 }
+    requires { free_count <= pool_size / block_size }
+
+    ensures { free_count <= pool_size / block_size }
+}
+
+// Slab allocator alignment
+contract SlabAlignment {
+    input(base: Nat, alignment: Nat, slot: Nat)
+
+    requires { alignment > 0 }
+    requires { base mod alignment == 0 }
+    requires { slot >= 0 }
+
+    ensures { base mod alignment == 0 }
+}

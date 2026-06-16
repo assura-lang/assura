@@ -1,0 +1,37 @@
+// EXPECTED: verified
+// Feature: CONC.1 Shared Memory
+// Atomic protocol contracts for shared-memory concurrency.
+
+module examples.conc.shared_mem;
+
+// Atomic compare-and-swap preconditions
+contract AtomicCAS {
+    input(current: Int, expected: Int, desired: Int)
+
+    requires { current >= 0 }
+    requires { desired >= 0 }
+
+    ensures { current >= 0 }
+    ensures { desired >= 0 }
+}
+
+// Atomic increment is bounded
+contract AtomicIncrement {
+    input(counter: Nat, delta: Nat)
+
+    requires { delta > 0 }
+    requires { counter >= 0 }
+    requires { counter + delta <= 4294967295 }
+
+    ensures { counter + delta > counter }
+    ensures { counter + delta <= 4294967295 }
+}
+
+// Atomic flag: set count is non-negative
+contract AtomicOnceFlag {
+    input(set_count: Nat)
+
+    requires { set_count >= 1 }
+
+    ensures { set_count >= 1 }
+}

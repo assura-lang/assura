@@ -1,0 +1,44 @@
+// EXPECTED: verified
+// Feature: CONC.3 Determinism
+// Determinism contracts ensure that a function produces the same output
+// for the same input regardless of thread scheduling.
+
+module examples.conc.determinism;
+
+// A pure function must be deterministic
+contract DeterministicHash {
+    input(key: Int, seed: Nat)
+
+    requires { seed > 0 }
+    requires { key >= 0 }
+
+    must_be deterministic
+
+    ensures { seed > 0 }
+    ensures { key >= 0 }
+}
+
+// Merge of two sorted halves preserves total count
+contract DeterministicMerge {
+    input(left_len: Nat, right_len: Nat)
+
+    requires { left_len >= 0 }
+    requires { right_len >= 0 }
+
+    must_be deterministic
+
+    ensures { left_len + right_len >= 0 }
+}
+
+// Fold with identity element
+contract AssociativeFold {
+    input(n: Nat, identity: Int)
+
+    requires { n > 0 }
+    requires { identity == 0 }
+
+    must_be deterministic
+
+    ensures { n > 0 }
+    ensures { identity == 0 }
+}

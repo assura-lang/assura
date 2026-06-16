@@ -1,0 +1,37 @@
+// EXPECTED: verified
+// Feature: STOR.3 MVCC Snapshots
+// Multi-version concurrency control: readers see a consistent snapshot
+// at a given version, writers create new versions without blocking readers.
+
+module examples.storage.mvcc_snapshots;
+
+// Snapshot reads only see versions <= snapshot_version
+contract SnapshotIsolation {
+    input(read_version: Nat, write_version: Nat, snapshot_version: Nat)
+
+    requires { read_version <= snapshot_version }
+    requires { write_version > snapshot_version }
+
+    ensures { read_version <= snapshot_version }
+}
+
+// Write-write conflict: two transactions cannot write the same key
+contract WriteConflictDetection {
+    input(txn_a_version: Nat, txn_b_version: Nat, key_version: Nat)
+
+    requires { txn_a_version != txn_b_version }
+    requires { key_version < txn_a_version }
+    requires { key_version < txn_b_version }
+
+    ensures { txn_a_version != txn_b_version }
+}
+
+// Version chain: each version points to its predecessor
+contract VersionChain {
+    input(current_version: Nat, prev_version: Nat)
+
+    requires { current_version > prev_version }
+    requires { prev_version >= 0 }
+
+    ensures { current_version > prev_version }
+}

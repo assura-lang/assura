@@ -1,0 +1,44 @@
+// EXPECTED: verified
+// Feature: MEM.2 Fixed-Width Integers
+// Contracts that prevent integer overflow and underflow by bounding
+// arithmetic operations to their representable range.
+
+module examples.memory.fixed_width_integers;
+
+// Safe addition within u16 range
+contract SafeU16Add {
+    input(a: Nat, b: Nat)
+
+    requires { a >= 0 }
+    requires { b >= 0 }
+    requires { a <= 65535 }
+    requires { b <= 65535 }
+    requires { a + b <= 65535 }
+
+    ensures { a + b <= 65535 }
+    ensures { a + b >= a }
+    ensures { a + b >= b }
+}
+
+// Safe multiplication within u32 range
+contract SafeU32Mul {
+    input(a: Nat, b: Nat)
+
+    requires { a >= 0 }
+    requires { b >= 0 }
+    requires { a <= 65535 }
+    requires { b <= 65535 }
+
+    ensures { a * b >= 0 }
+}
+
+// Signed i8 range check
+contract SafeI8Range {
+    input(x: Int)
+
+    requires { x >= -128 }
+    requires { x <= 127 }
+
+    ensures { x >= -128 }
+    ensures { x <= 127 }
+}

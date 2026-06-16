@@ -1,0 +1,38 @@
+// EXPECTED: verified
+// Feature: TEST.3 Multi-Pass Refinement
+// Progressive verification: start simple, add stronger properties.
+
+module examples.testing.multi_pass_refinement;
+
+// Pass 1: basic type safety
+contract Pass1TypeSafe {
+    input(x: Int)
+
+    requires { x >= 0 }
+
+    ensures { x >= 0 }
+}
+
+// Pass 2: add bounds
+contract Pass2Correctness {
+    input(x: Int)
+
+    requires { x >= 0 }
+    requires { x <= 1000 }
+
+    ensures { x >= 0 }
+    ensures { x <= 1000 }
+    ensures { x * 2 >= 0 }
+}
+
+// Pass 3: add steps bound
+contract Pass3Performance {
+    input(x: Int, steps: Nat)
+
+    requires { x >= 0 }
+    requires { x <= 1000 }
+    requires { steps <= 10 }
+
+    ensures { x <= 1000 }
+    ensures { steps <= 10 }
+}

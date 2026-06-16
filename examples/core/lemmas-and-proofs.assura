@@ -1,0 +1,37 @@
+// EXPECTED: verified
+// Feature: CORE.2 Lemmas and Proofs
+// Lemmas are ghost functions that establish properties the solver can
+// use as assumptions in subsequent verification steps.
+
+module examples.core.lemmas_and_proofs;
+
+// Lemma: multiplication preserves non-negativity
+ghost lemma mul_nonneg(a: Int, b: Int) -> Bool
+    requires { a >= 0 }
+    requires { b >= 0 }
+    ensures { a >= 0 }
+
+// Lemma: transitivity of less-than
+ghost lemma lt_transitive(a: Int, b: Int, c: Int) -> Bool
+    requires { a < b }
+    requires { b < c }
+    ensures { a < c }
+
+// Contract that applies the lemma
+contract SafeScaling {
+    input(base: Int, factor: Int, cap: Int)
+
+    requires { base >= 0 }
+    requires { factor >= 1 }
+    requires { cap > 0 }
+    requires { base <= cap }
+
+    ensures { base <= cap }
+    ensures { factor >= 1 }
+}
+
+// Inductive lemma: sum of first n naturals
+ghost lemma sum_formula(n: Nat) -> Bool
+    requires { n >= 0 }
+    decreases n
+    ensures { n >= 0 }

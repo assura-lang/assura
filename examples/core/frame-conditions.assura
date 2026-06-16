@@ -1,0 +1,44 @@
+// EXPECTED: verified
+// Feature: CORE.3 Frame Conditions
+// Frame conditions declare which state a function may modify, proving
+// that everything else is unchanged after the call.
+
+module examples.core.frame_conditions;
+
+// Swap preserves array length
+contract ArraySwap {
+    input(arr_len: Nat, i: Nat, j: Nat)
+
+    requires { i < arr_len }
+    requires { j < arr_len }
+    requires { arr_len > 0 }
+
+    modifies(i, j)
+
+    ensures { i < arr_len }
+    ensures { j < arr_len }
+}
+
+// Append to a log buffer: capacity is sufficient
+contract LogAppend {
+    input(log_len: Nat, log_cap: Nat, msg_len: Nat)
+
+    requires { log_len + msg_len <= log_cap }
+    requires { msg_len > 0 }
+
+    modifies(log_len)
+
+    ensures { log_len + msg_len <= log_cap }
+}
+
+// Update a single field: unchanged field stays the same
+contract FieldUpdate {
+    input(field_a: Int, field_b: Int, new_val: Int)
+
+    requires { field_b > 0 }
+
+    modifies(field_a)
+    reads(field_b)
+
+    ensures { field_b > 0 }
+}

@@ -1,0 +1,42 @@
+// EXPECTED: verified
+// Feature: NUM.1 Numerical Precision
+// ULP bounds ensure floating-point results are within acceptable error.
+
+module examples.numerical.numerical_precision;
+
+// Floating-point inputs must be non-negative
+contract FloatAdditionPrecondition {
+    input(a: Float, b: Float, machine_epsilon: Float)
+
+    requires { machine_epsilon > 0 }
+    requires { a >= 0 }
+    requires { b >= 0 }
+
+    ensures { a >= 0 }
+    ensures { b >= 0 }
+    ensures { machine_epsilon > 0 }
+}
+
+// Fixed-point scaling: value is within range
+contract FixedPointScale {
+    input(value: Int, scale_factor: Nat, max_val: Int)
+
+    requires { scale_factor > 0 }
+    requires { value >= 0 }
+    requires { value <= max_val }
+    requires { max_val >= 0 }
+
+    ensures { value <= max_val }
+    ensures { value >= 0 }
+}
+
+// Newton-Raphson: error bounds shrink
+contract NewtonStep {
+    input(error_before: Float, error_after: Float)
+
+    requires { error_before > 0 }
+    requires { error_after >= 0 }
+    requires { error_after < error_before }
+
+    ensures { error_after < error_before }
+}

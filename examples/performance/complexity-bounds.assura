@@ -1,0 +1,43 @@
+// EXPECTED: verified
+// Feature: PERF.2 Complexity Bounds
+// Big-O complexity contracts bound the number of operations a
+// function performs, preventing accidental quadratic behavior.
+
+module examples.perf.complexity_bounds;
+
+// Binary search: O(log n) steps
+contract BinarySearchBound {
+    input(n: Nat, steps: Nat)
+
+    requires { n > 0 }
+    requires { steps <= 32 }
+
+    bounds { steps <= 32 }
+
+    ensures { steps <= 32 }
+}
+
+// Linear scan: exactly n comparisons
+contract LinearScanBound {
+    input(n: Nat, comparisons: Nat)
+
+    requires { n > 0 }
+    requires { comparisons == n }
+
+    bounds { comparisons == n }
+
+    ensures { comparisons == n }
+}
+
+// Merge sort: n * log(n) comparisons
+contract MergeSortBound {
+    input(n: Nat, comparisons: Nat, log_n: Nat)
+
+    requires { n > 1 }
+    requires { log_n > 0 }
+    requires { comparisons <= n * log_n }
+
+    bounds { comparisons <= n * log_n }
+
+    ensures { comparisons <= n * log_n }
+}

@@ -1,0 +1,38 @@
+// EXPECTED: verified
+// Feature: MISC.1 Incremental Contracts
+// State machine contracts for coroutine-like computations.
+
+module examples.misc.incremental_contracts;
+
+// Incremental parser: processes input chunk by chunk
+incremental ChunkParser {
+    step {
+        requires { chunk_size > 0 }
+        ensures { chunk_size > 0 }
+    }
+
+    resume {
+        requires { bytes_remaining > 0 }
+        ensures { bytes_remaining > 0 }
+    }
+}
+
+// Incremental hasher: data is not yet finalized
+contract IncrementalHash {
+    input(total_fed: Nat, chunk_len: Nat, finalize_count: Nat)
+
+    requires { chunk_len > 0 }
+    requires { finalize_count == 0 }
+
+    ensures { chunk_len > 0 }
+    ensures { finalize_count == 0 }
+}
+
+// Streaming aggregator: count increases
+contract StreamingAverage {
+    input(sum: Int, count: Nat, new_value: Int)
+
+    requires { count >= 0 }
+
+    ensures { count + 1 > count }
+}

@@ -1,0 +1,35 @@
+// EXPECTED: verified
+// Feature: CONC.2 Reentrancy Safety
+// Callback contracts ensure that reentrant calls do not corrupt state.
+
+module examples.conc.reentrancy_safety;
+
+// A non-reentrant function: calling depth must be zero
+contract NonReentrant {
+    input(call_depth: Nat)
+
+    requires { call_depth == 0 }
+
+    ensures { call_depth == 0 }
+}
+
+// Event handler must not trigger itself
+contract EventHandlerSafety {
+    input(handling_count: Nat, event_id: Nat)
+
+    requires { handling_count == 0 }
+    requires { event_id > 0 }
+
+    ensures { handling_count == 0 }
+    ensures { event_id > 0 }
+}
+
+// Mutex-guarded callback: lock depth must be bounded
+contract GuardedCallback {
+    input(lock_depth: Nat, max_depth: Nat)
+
+    requires { max_depth == 1 }
+    requires { lock_depth < max_depth }
+
+    ensures { lock_depth < max_depth }
+}

@@ -1,0 +1,41 @@
+// EXPECTED: verified
+// Feature: MISC.2 Scoped Invariant Suspension
+// Temporarily breaking an invariant is safe as long as it is restored.
+
+module examples.misc.scoped_invariant_suspension;
+
+// Sorted array: temporarily unsorted during insertion
+contract SortedArrayInsert {
+    input(length: Nat, capacity: Nat, insert_pos: Nat)
+
+    requires { length < capacity }
+    requires { insert_pos <= length }
+    requires { capacity > 0 }
+
+    invariant { length <= capacity }
+
+    ensures { length < capacity }
+    ensures { insert_pos <= length }
+}
+
+// Balanced tree: rotation preserves bounds
+contract TreeRotation {
+    input(left_height: Nat, right_height: Nat)
+
+    requires { left_height <= right_height + 1 }
+    requires { right_height <= left_height + 1 }
+
+    ensures { left_height <= right_height + 1 }
+    ensures { right_height <= left_height + 1 }
+}
+
+// Reference count: transfer preserves positivity
+contract RefCountTransfer {
+    input(old_count: Nat, transfer_count: Nat)
+
+    requires { old_count > 0 }
+    requires { transfer_count > 0 }
+    requires { transfer_count <= old_count }
+
+    ensures { old_count - transfer_count >= 0 }
+}

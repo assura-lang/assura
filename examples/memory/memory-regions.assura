@@ -1,0 +1,38 @@
+// EXPECTED: verified
+// Feature: MEM.1 Memory Regions
+// Memory regions are bounded, non-overlapping areas of memory. Every
+// read/write requires a compile-time proof that the access is in bounds.
+
+module examples.memory.memory_regions;
+
+// Two regions must not overlap
+contract RegionSeparation {
+    input(r1_base: Nat, r1_size: Nat, r2_base: Nat, r2_size: Nat)
+
+    requires { r1_size > 0 }
+    requires { r2_size > 0 }
+    requires { r1_base + r1_size <= r2_base }
+
+    ensures { r1_base + r1_size <= r2_base }
+}
+
+// Safe copy between two non-overlapping regions
+contract SafeMemcpy {
+    input(dst_base: Nat, dst_cap: Nat, src_base: Nat, src_len: Nat, count: Nat)
+
+    requires { count <= src_len }
+    requires { count <= dst_cap }
+    requires { dst_base + dst_cap <= src_base }
+
+    ensures { count <= dst_cap }
+}
+
+// Sub-region slicing stays within parent bounds
+contract SubRegion {
+    input(parent_size: Nat, offset: Nat, slice_len: Nat)
+
+    requires { offset + slice_len <= parent_size }
+    requires { parent_size > 0 }
+
+    ensures { offset + slice_len <= parent_size }
+}

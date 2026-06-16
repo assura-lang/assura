@@ -1,0 +1,46 @@
+// EXPECTED: verified
+// Feature: FMT.3 String Encoding
+// UTF-8 invariants and length calculations.
+
+module examples.fmt.string_encoding;
+
+// UTF-8 leading byte determines the sequence length
+contract Utf8LeadingByte {
+    input(byte_val: Nat)
+
+    requires { byte_val <= 127 }
+
+    ensures { byte_val <= 127 }
+}
+
+// A valid codepoint is in the basic multilingual plane
+contract ValidCodepoint {
+    input(codepoint: Nat)
+
+    requires { codepoint <= 1114111 }
+
+    ensures { codepoint <= 1114111 }
+}
+
+// Byte length >= character count for multi-byte encodings
+contract StringLengthInvariant {
+    input(byte_len: Nat, char_count: Nat)
+
+    requires { byte_len >= char_count }
+    requires { char_count >= 0 }
+
+    ensures { byte_len >= char_count }
+}
+
+// Truncation must not split a multi-byte sequence
+contract SafeTruncation {
+    input(byte_len: Nat, max_bytes: Nat, last_char_size: Nat)
+
+    requires { max_bytes > 0 }
+    requires { max_bytes <= byte_len }
+    requires { last_char_size >= 1 }
+    requires { last_char_size <= 4 }
+
+    ensures { max_bytes <= byte_len }
+    ensures { last_char_size <= 4 }
+}

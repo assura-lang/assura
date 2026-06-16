@@ -1,0 +1,40 @@
+// EXPECTED: verified
+// Feature: PERF.1 Unsafe Escape
+// When performance requires bypassing verification, contracts still
+// enforce proof obligations: the caller must prove preconditions
+// before entering the unverified section.
+
+module examples.perf.unsafe_esc;
+
+// Unchecked indexing: the caller proves bounds before access
+contract UncheckedIndexBounds {
+    input(index: Nat, array_len: Nat)
+
+    requires { array_len > 0 }
+    requires { index < array_len }
+
+    ensures { index < array_len }
+}
+
+// SIMD operation: alignment and length must be multiples of 16
+contract SimdAlignment {
+    input(base: Nat, length: Nat)
+
+    requires { base mod 16 == 0 }
+    requires { length mod 16 == 0 }
+    requires { length > 0 }
+
+    ensures { base mod 16 == 0 }
+    ensures { length mod 16 == 0 }
+}
+
+// Zero-copy view: the backing data must outlive the view
+contract ZeroCopyView {
+    input(data_len: Nat, view_offset: Nat, view_len: Nat)
+
+    requires { view_offset + view_len <= data_len }
+    requires { data_len > 0 }
+    requires { view_len > 0 }
+
+    ensures { view_offset + view_len <= data_len }
+}

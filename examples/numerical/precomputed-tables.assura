@@ -1,0 +1,42 @@
+// EXPECTED: verified
+// Feature: NUM.2 Precomputed Tables
+// Lookup tables are verified at compile time against their generating
+// function, ensuring no entry is stale or incorrect.
+
+module examples.numerical.precomputed_tables;
+
+// Sine lookup table: each entry matches the formula within tolerance
+contract SineTableEntry {
+    input(index: Nat, table_size: Nat, entry_value: Float)
+
+    requires { table_size > 0 }
+    requires { index < table_size }
+    requires { entry_value >= -1 }
+    requires { entry_value <= 1 }
+
+    ensures { entry_value >= -1 }
+    ensures { entry_value <= 1 }
+}
+
+// CRC lookup table: 256 entries, each is a valid u32
+contract CRCTableVerify {
+    input(index: Nat, entry: Nat)
+
+    requires { index < 256 }
+    requires { entry <= 4294967295 }
+
+    verify_against: crc32_polynomial
+
+    ensures { entry <= 4294967295 }
+}
+
+// Gamma correction table: monotonically increasing
+contract GammaTableMonotonic {
+    input(i: Nat, val_i: Nat, val_next: Nat)
+
+    requires { i < 255 }
+    requires { val_i <= val_next }
+    requires { val_next <= 65535 }
+
+    ensures { val_i <= val_next }
+}

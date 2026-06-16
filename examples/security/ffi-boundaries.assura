@@ -1,0 +1,42 @@
+// EXPECTED: verified
+// Feature: SEC.2 FFI Boundaries
+// Foreign function interface contracts specify preconditions that the
+// Assura side must prove before calling into unsafe external code.
+
+module examples.security.ffi_boundaries;
+
+// C library zlib: compress requires valid buffer sizes
+extern fn zlib_compress(src_len: Nat, dst_cap: Nat) -> Int
+    requires { src_len > 0 }
+    requires { dst_cap >= src_len }
+    ensures { src_len > 0 }
+    effects { mem }
+
+// C library: memcpy requires non-overlapping regions
+extern fn c_memcpy(dst: Nat, src: Nat, n: Nat) -> Nat
+    requires { n > 0 }
+    requires { dst + n <= src }
+    ensures { n > 0 }
+    effects { mem }
+
+// Bind an existing Rust function with a contract
+bind "crypto::aes::encrypt_block" as aes_encrypt {
+    input(plaintext_len: Nat, key_len: Nat)
+
+    requires { plaintext_len == 16 }
+    requires { key_len == 16 }
+
+    ensures { plaintext_len == 16 }
+    effects { mem }
+}
+
+// Contract for calling a dynamically-loaded plugin
+contract PluginCall {
+    input(plugin_id: Nat, input_len: Nat, output_cap: Nat)
+
+    requires { plugin_id > 0 }
+    requires { input_len > 0 }
+    requires { output_cap >= input_len }
+
+    ensures { output_cap >= input_len }
+}

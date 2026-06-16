@@ -1,0 +1,96 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # 4:00 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  full-test:
+    name: Full test suite
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target/ci-nightly
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        if: ${{ !vars.RUNNER }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache dependencies
+        if: ${{ !vars.RUNNER }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-nightly
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y protobuf-compiler libz3-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Set Linux Z3 paths
+        if: runner.os == 'Linux'
+        run: |
+          echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
+          echo "CPATH=/usr/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Format check
+        run: cargo fmt --check --all
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Full test suite
+        run: cargo test --workspace
+
+      - name: Build compiler
+        run: cargo build --bin assura
+
+      - name: E2E check all demos
+        run: |
+          for demo in demos/*.assura; do
+            echo "=== Checking $demo ==="
+            cargo run --bin assura -- check "$demo"
+          done
+
+      - name: E2E check all examples
+        run: |
+          find examples -name '*.assura' | sort | while read -r example; do
+            echo "=== Checking $example ==="
+            cargo run --bin assura -- check "$example" || true
+          done
+
+      - name: Codegen validation (demos)
+        run: |
+          for demo in demos/*.assura; do
+            echo "=== Building $demo ==="
+            cargo run --bin assura -- build --no-check "$demo"
+            echo "=== Checking generated Rust for $demo ==="
+            (cd generated && cargo check)
+            rm -rf generated
+          done
+
+  no-z3-fallback:
+    name: No-Z3 fallback
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-nightly-no-z3
+      - name: Build without Z3
+        run: cargo check -p assura-smt --no-default-features

@@ -1,0 +1,53 @@
+// EXPECTED: verified
+// Feature: TYPE.2 Recursive Invariants
+// Recursive data structures carry invariants that hold at every node.
+
+module examples.types.recursive_invariants;
+
+// Binary search tree node ordering invariant
+contract BSTInvariant {
+    input(key: Int, left_max: Int, right_min: Int)
+
+    requires { left_max < key }
+    requires { key < right_min }
+
+    ensures { left_max < key }
+    ensures { key < right_min }
+    ensures { left_max < right_min }
+}
+
+// Balanced tree height invariant
+contract BalancedHeight {
+    input(left_height: Nat, right_height: Nat)
+
+    requires { left_height <= right_height + 1 }
+    requires { right_height <= left_height + 1 }
+
+    ensures { left_height <= right_height + 1 }
+    ensures { right_height <= left_height + 1 }
+}
+
+// Linked list length is non-negative
+contract LinkedListLength {
+    input(length: Nat, node_count: Nat)
+
+    requires { length == node_count }
+    requires { length >= 0 }
+
+    invariant { length >= 0 }
+
+    ensures { length == node_count }
+}
+
+// Recursive tree size = 1 + left_size + right_size
+contract TreeSizeInvariant {
+    input(left_size: Nat, right_size: Nat, total: Nat)
+
+    requires { total == 1 + left_size + right_size }
+    requires { left_size >= 0 }
+    requires { right_size >= 0 }
+
+    ensures { total > left_size }
+    ensures { total > right_size }
+    ensures { total >= 1 }
+}

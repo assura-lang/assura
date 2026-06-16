@@ -1,0 +1,46 @@
+// EXPECTED: verified
+// Feature: MEM.4 Circular Buffers
+// Ring buffer contracts ensure head/tail indices wrap correctly and
+// the buffer never overflows or underflows.
+
+module examples.memory.circular_buffers;
+
+// Ring buffer write: count stays within capacity
+contract RingBufferWrite {
+    input(capacity: Nat, head: Nat, tail: Nat, count: Nat)
+
+    requires { capacity > 1 }
+    requires { head < capacity }
+    requires { tail < capacity }
+    requires { count < capacity }
+
+    ensures { count + 1 <= capacity }
+}
+
+// Ring buffer read: count stays non-negative
+contract RingBufferRead {
+    input(capacity: Nat, head: Nat, tail: Nat, count: Nat)
+
+    requires { capacity > 0 }
+    requires { head < capacity }
+    requires { tail < capacity }
+    requires { count > 0 }
+    requires { count <= capacity }
+
+    ensures { count - 1 >= 0 }
+}
+
+// Ring buffer index invariant
+contract RingBufferInvariant {
+    input(capacity: Nat, head: Nat, tail: Nat)
+
+    requires { capacity > 0 }
+    requires { head < capacity }
+    requires { tail < capacity }
+
+    invariant { head < capacity }
+    invariant { tail < capacity }
+
+    ensures { head < capacity }
+    ensures { tail < capacity }
+}

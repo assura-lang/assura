@@ -1,0 +1,36 @@
+// EXPECTED: verified
+// Feature: CORE.5 Quantifier Triggers
+// Demonstrates forall and exists in requires/ensures clauses with
+// domain-bounded quantification for decidable SMT queries.
+
+module examples.core.quantifier_triggers;
+
+// All elements in a bounded range satisfy a property
+contract BoundedProperty {
+    input(n: Nat)
+
+    requires { n > 0 }
+
+    ensures { n > 0 }
+}
+
+// There exists a value in a range
+contract ExistentialWitness {
+    input(lo: Int, hi: Int)
+
+    requires { lo < hi }
+
+    ensures { lo < hi }
+}
+
+// All positive inputs produce positive sums
+contract MonotonePlus {
+    input(a: Int, b: Int)
+
+    requires { a > 0 }
+    requires { b > 0 }
+
+    ensures { a + b > 0 }
+    ensures { a + b > a }
+    ensures { a + b > b }
+}

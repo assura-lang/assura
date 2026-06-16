@@ -1,0 +1,39 @@
+// EXPECTED: verified
+// Feature: CONC.6 Weak Memory Ordering
+// Memory ordering annotations specify which atomic ordering is
+// required for each operation.
+
+module examples.conc.weak_memory_ordering;
+
+// Store-release + load-acquire: the standard synchronization pair
+contract ReleaseAcquirePair {
+    input(writer_value: Int)
+
+    ordering: release
+    ordering: acquire
+
+    requires { writer_value > 0 }
+
+    ensures { writer_value > 0 }
+}
+
+// Sequentially consistent counter
+contract SeqCstCounter {
+    input(value: Nat, increment: Nat)
+
+    ordering: seq_cst
+
+    requires { increment > 0 }
+    requires { value >= 0 }
+
+    ensures { value + increment > value }
+}
+
+// Relaxed load for non-critical statistics
+contract RelaxedStats {
+    input(counter: Nat)
+
+    ordering: relaxed
+
+    requires { counter >= 0 }
+}
