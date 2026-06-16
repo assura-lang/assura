@@ -148,11 +148,6 @@ impl UsageTracker {
         }
     }
 
-    /// Get the declaration span for a variable (test-only).
-    #[cfg(test)]
-    pub fn get_span(&self, name: &str) -> Option<Range<usize>> {
-        self.usages.get(name).map(|(_, _, span)| span.clone())
-    }
 }
 
 // ---------------------------------------------------------------------------
