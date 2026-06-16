@@ -788,6 +788,20 @@ or `.clause_kind` field. The `clause_desc` is a human-readable string
 like `"SafeDivision: ensures"`. Do not pattern-match assuming struct
 fields that do not exist.
 
+**Unknown severity classification**: Not all `Unknown` results are errors.
+The CLI (`check.rs`) classifies them by reason string:
+
+| Reason contains | Severity | Exit code | Rationale |
+|-----------------|----------|-----------|-----------|
+| "not yet encoded in SMT" | Warning | 0 | Known compiler limitation, not a verification failure |
+| Anything else | Error | 1 | Genuine solver inconclusive (non-linear arithmetic, timeout fallback, etc.) |
+
+When adding new `VerificationResult::Unknown` producers, choose the
+reason string carefully. If the reason represents a known limitation
+where we intentionally skip verification, include "not yet encoded in
+SMT" so the CLI treats it as a warning. If the solver genuinely could
+not decide, use a different reason string.
+
 ## MCP Server (rmcp 1.7) API Shape
 
 The `assura-mcp` crate uses `rmcp` 1.7 with `server` and `transport-io`
