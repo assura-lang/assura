@@ -611,10 +611,13 @@ pub fn verify_quantified_expr(
     }
     #[cfg(not(feature = "z3-verify"))]
     {
-        let _ = (assumptions, quantified_body);
         VerificationResult::Unknown {
             clause_desc: name.into(),
-            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+            reason: format!(
+                "Z3 not available (compiled without z3-verify feature); \
+                 {} assumption(s) and quantified body were not checked",
+                assumptions.len(),
+            ),
         }
     }
 }

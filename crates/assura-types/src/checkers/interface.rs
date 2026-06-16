@@ -183,7 +183,7 @@ impl InterfaceChecker {
         }
 
         // Check that implementation provides contracts when the interface requires them
-        if method.has_requires && impl_params.is_empty() && *impl_return == Type::Unknown {
+        if method.has_requires && impl_params.is_empty() && impl_return.is_indeterminate() {
             errors.push(InterfaceError {
                 code: "A13002".into(),
                 message: format!(
@@ -193,7 +193,7 @@ impl InterfaceChecker {
                 span: span.clone(),
             });
         }
-        if method.has_ensures && impl_params.is_empty() && *impl_return == Type::Unknown {
+        if method.has_ensures && impl_params.is_empty() && impl_return.is_indeterminate() {
             errors.push(InterfaceError {
                 code: "A13002".into(),
                 message: format!(

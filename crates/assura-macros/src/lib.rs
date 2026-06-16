@@ -98,6 +98,33 @@ fn flush_clause(
     }
 }
 
+/// Replace the standalone word `result` with `__assura_result`, respecting
+/// identifier boundaries so that e.g. `partial_result` is left intact.
+fn replace_result_word(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let needle = b"result";
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if i + needle.len() <= bytes.len() && &bytes[i..i + needle.len()] == needle {
+            let before_ok =
+                i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+            let after_ok = i + needle.len() >= bytes.len()
+                || !(bytes[i + needle.len()].is_ascii_alphanumeric()
+                    || bytes[i + needle.len()] == b'_');
+            if before_ok && after_ok {
+                out.push_str("__assura_result");
+                i += needle.len();
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
 /// Mark a function with Assura contract annotations.
 ///
 /// In debug builds, generates `debug_assert!` statements from `@requires`
@@ -163,8 +190,9 @@ pub fn contract(_attr: TokenStream, item: TokenStream) -> TokenStream {
             .iter()
             .map(|pred| {
                 let msg = format!("assura: postcondition failed: {pred}");
-                // Replace `result` with `__assura_result` in the predicate
-                let adjusted = pred.replace("result", "__assura_result");
+                // Replace `result` with `__assura_result` using word-boundary
+                // awareness so identifiers like `partial_result` are not mangled.
+                let adjusted = replace_result_word(pred);
                 match syn::parse_str::<syn::Expr>(&adjusted) {
                     Ok(expr) => quote! {
                         debug_assert!(#expr, #msg);
@@ -256,5 +284,44 @@ pub fn trust(attr: TokenStream, item: TokenStream) -> TokenStream {
             #vis #sig #block
         }
         .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replace_result_word_standalone() {
+        assert_eq!(replace_result_word("result > 0"), "__assura_result > 0");
+    }
+
+    #[test]
+    fn replace_result_word_does_not_mangle_partial_result() {
+        assert_eq!(
+            replace_result_word("partial_result > 0"),
+            "partial_result > 0"
+        );
+    }
+
+    #[test]
+    fn replace_result_word_in_parens() {
+        assert_eq!(
+            replace_result_word("(result) == 42"),
+            "(__assura_result) == 42"
+        );
+    }
+
+    #[test]
+    fn replace_result_word_suffix() {
+        assert_eq!(replace_result_word("result_count > 0"), "result_count > 0");
+    }
+
+    #[test]
+    fn replace_result_word_multiple() {
+        assert_eq!(
+            replace_result_word("result > 0 && result < 100"),
+            "__assura_result > 0 && __assura_result < 100"
+        );
     }
 }

@@ -37,6 +37,9 @@ pub(crate) fn at_clause_start(p: &mut Parser) -> bool {
             | SyntaxKind::IMPL_KW
             | SyntaxKind::CONFORMS_KW
             | SyntaxKind::ORDERING_KW
+            | SyntaxKind::TRUST_KW
+            | SyntaxKind::BOUNDARY_KW
+            | SyntaxKind::MUST_PROPAGATE_KW
     ) || is_ident_clause_start(p)
 }
 
@@ -125,6 +128,10 @@ pub(crate) fn is_clause_stopper_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::CONFORMS_KW
             // Memory ordering
             | SyntaxKind::ORDERING_KW
+            // Trust and boundary
+            | SyntaxKind::TRUST_KW
+            | SyntaxKind::BOUNDARY_KW
+            | SyntaxKind::MUST_PROPAGATE_KW
             // Generic block keywords
             | SyntaxKind::TABLE_KW
             | SyntaxKind::FEATURE_KW

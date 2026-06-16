@@ -1,5 +1,5 @@
 use super::*;
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Literal, UnaryOp};
+use assura_parser::ast::{BinOp, Clause, ClauseKind, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
 
 /// Verify a single contract's clauses using the CVC5 binary.
@@ -300,16 +300,53 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         Expr::Paren(inner) => expr_to_smtlib(inner),
         Expr::Cast { expr: inner, .. } => expr_to_smtlib(inner),
         Expr::Ghost(inner) => expr_to_smtlib(inner),
-        Expr::Field(_, _) => None,
-        Expr::Index { .. } => None,
-        Expr::Block(_) => None,
-        Expr::Raw(_) => None,
-        Expr::Tuple(_) => None,
-        Expr::Match { .. } => None,
-        Expr::MethodCall { .. } => None,
-        Expr::List(_) => None,
-        Expr::Apply { .. } => None,
-        Expr::Let { .. } => None,
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let v = sanitize_smtlib_name(name);
+            let val = expr_to_smtlib(value)?;
+            let b = expr_to_smtlib(body)?;
+            Some(format!("(let (({v} {val})) {b})"))
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            // Encode simple two-arm matches as nested ite chains
+            if arms.is_empty() {
+                return None;
+            }
+            let s = expr_to_smtlib(scrutinee)?;
+            let mut result = None;
+            for arm in arms.iter().rev() {
+                let body = expr_to_smtlib(&arm.body)?;
+                match &arm.pattern {
+                    Pattern::Wildcard | Pattern::Ident(_) => {
+                        // Default arm
+                        result = Some(body);
+                    }
+                    Pattern::Literal(lit) => {
+                        let lit_smt = match lit {
+                            Literal::Int(n) => n.clone(),
+                            Literal::Float(f) => f.clone(),
+                            Literal::Bool(b) => b.to_string(),
+                            Literal::Str(_) => return None,
+                        };
+                        let default = result.as_ref()?;
+                        result = Some(format!("(ite (= {s} {lit_smt}) {body} {default})"));
+                    }
+                    _ => return None, // Complex patterns cannot be encoded
+                }
+            }
+            result
+        }
+        Expr::Field(_, _) => None, // SMT-LIB cannot represent field access
+        Expr::Index { .. } => None, // SMT-LIB cannot represent indexing
+        Expr::Block(_) => None,    // SMT-LIB cannot represent block expressions
+        Expr::Raw(_) => None,      // SMT-LIB cannot represent raw token sequences
+        Expr::Tuple(_) => None,    // SMT-LIB cannot represent tuple expressions
+        Expr::MethodCall { .. } => None, // SMT-LIB cannot represent method calls
+        Expr::List(_) => None,     // SMT-LIB cannot represent list literals
+        Expr::Apply { .. } => None, // SMT-LIB cannot represent apply expressions
     }
 }
 
@@ -345,7 +382,13 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
                 collect_vars(e, vars);
             }
         }
-        Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+        Expr::Forall {
+            var, body, domain, ..
+        }
+        | Expr::Exists {
+            var, body, domain, ..
+        } => {
+            vars.insert(sanitize_smtlib_name(var));
             collect_vars(body, vars);
             collect_vars(domain, vars);
         }

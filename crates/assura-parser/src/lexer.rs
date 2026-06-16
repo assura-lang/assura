@@ -221,6 +221,8 @@ pub enum Token {
     // --- SEC: trust and security (Section 14.SEC) ---
     #[token("algorithm")]
     Algorithm,
+    #[token("boundary")]
+    Boundary,
     #[token("axiom_spec")]
     AxiomSpec,
     #[token("callee_guarantees")]
@@ -245,6 +247,8 @@ pub enum Token {
     SecureErase,
     #[token("spec")]
     Spec,
+    #[token("trust")]
+    Trust,
 
     // --- CONC: concurrency (Section 14.CONC) ---
     #[token("acq_rel")]

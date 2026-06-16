@@ -4,6 +4,7 @@
 //! emit `Diagnostic` values. The CLI renders these uniformly via
 //! ariadne (human mode) or serde (JSON mode).
 
+use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::LazyLock;
 
@@ -1664,14 +1665,24 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
     ]
 }
 
-/// Lazily-initialized catalog for O(1) lookups.
+/// Lazily-initialized catalog as a flat list (for iteration/enumeration).
 static CATALOG: LazyLock<Vec<ErrorInfo>> = LazyLock::new(error_catalog);
 
-/// Look up an error code in the catalog.
+/// Lazily-initialized lookup table for O(1) access by error code.
+static CATALOG_MAP: LazyLock<HashMap<&'static str, usize>> = LazyLock::new(|| {
+    let catalog = &*CATALOG;
+    let mut map = HashMap::with_capacity(catalog.len());
+    for (i, info) in catalog.iter().enumerate() {
+        map.insert(info.code, i);
+    }
+    map
+});
+
+/// Look up an error code in the catalog (O(1) via HashMap).
 ///
 /// Returns `None` if the code is not recognized.
 pub fn explain(code: &str) -> Option<&'static ErrorInfo> {
-    CATALOG.iter().find(|e| e.code == code)
+    CATALOG_MAP.get(code).map(|&idx| &CATALOG[idx])
 }
 
 // ---------------------------------------------------------------------------

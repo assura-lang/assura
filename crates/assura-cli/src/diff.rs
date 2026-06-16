@@ -359,9 +359,12 @@ contract Typed {
         let file = assura_parser::parse_unwrap(source);
         let resolved = assura_resolve::resolve(&file).unwrap();
         let typed = assura_types::type_check(&resolved);
-        // Type checking may succeed with warnings, or produce errors
-        // depending on strictness. Just verify it doesn't panic.
-        let _ = typed;
+        // `requires { x + 1 }` is an Int expression where Bool is expected,
+        // so type checking should report at least one error.
+        assert!(
+            typed.is_err(),
+            "expected type error for non-Bool requires clause"
+        );
     }
 
     /// Walk tests/fixtures/errors/*.assura looking for `// MUST REJECT Axxxxx`

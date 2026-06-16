@@ -285,6 +285,9 @@ fn clause_kind_from_syntax(k: SyntaxKind, text: &str) -> Option<ClauseKind> {
         SyntaxKind::IMPL_KW => Some(ClauseKind::Other("implements".into())),
         SyntaxKind::CONFORMS_KW => Some(ClauseKind::Other("conforms".into())),
         SyntaxKind::ORDERING_KW => Some(ClauseKind::Ordering),
+        SyntaxKind::TRUST_KW => Some(ClauseKind::Other("trust".into())),
+        SyntaxKind::BOUNDARY_KW => Some(ClauseKind::Other("boundary".into())),
+        SyntaxKind::MUST_PROPAGATE_KW => Some(ClauseKind::Other("must_propagate".into())),
         SyntaxKind::IDENT => Some(ClauseKind::Other(text.to_string())),
         _ => None,
     }
@@ -582,12 +585,20 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
         .map(|c| lower_expr(&c))
         .unwrap_or(Expr::Raw(vec![]));
 
-    // Find the operator token
-    let op = n
+    // Find the operator token. If no recognized operator is found,
+    // fall back to Expr::Raw since the CST is malformed.
+    let Some(op) = n
         .children_with_tokens()
         .filter_map(|el| el.into_token())
-        .find_map(|t| bin_op_from_kind(t.kind()))
-        .unwrap_or(BinOp::Add);
+        .find_map(|t| bin_op_from_token(t.kind(), t.text()))
+    else {
+        let tokens: Vec<String> = n
+            .children_with_tokens()
+            .filter_map(|el| el.into_token())
+            .map(|t| t.text().to_string())
+            .collect();
+        return Expr::Raw(tokens);
+    };
 
     Expr::BinOp {
         lhs: Box::new(lhs),
@@ -596,7 +607,7 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
     }
 }
 
-fn bin_op_from_kind(k: SyntaxKind) -> Option<BinOp> {
+fn bin_op_from_token(k: SyntaxKind, text: &str) -> Option<BinOp> {
     match k {
         SyntaxKind::PLUS => Some(BinOp::Add),
         SyntaxKind::MINUS => Some(BinOp::Sub),
@@ -617,6 +628,7 @@ fn bin_op_from_kind(k: SyntaxKind) -> Option<BinOp> {
         SyntaxKind::IS_KW => Some(BinOp::Eq),
         SyntaxKind::CONCAT => Some(BinOp::Concat),
         SyntaxKind::DOT_DOT => Some(BinOp::Range),
+        SyntaxKind::IDENT if text == "mod" => Some(BinOp::Mod),
         _ => None,
     }
 }

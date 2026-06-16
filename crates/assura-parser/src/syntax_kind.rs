@@ -130,6 +130,7 @@ pub enum SyntaxKind {
 
     // --- SEC ---
     ALGORITHM_KW,
+    BOUNDARY_KW,
     AXIOM_SPEC_KW,
     CALLEE_GUARANTEES_KW,
     CALLER_GUARANTEES_KW,
@@ -142,6 +143,7 @@ pub enum SyntaxKind {
     SECRET_KW,
     SECURE_ERASE_KW,
     SPEC_KW,
+    TRUST_KW,
 
     // --- CONC ---
     ACQ_REL_KW,
@@ -534,6 +536,7 @@ impl From<&Token> for SyntaxKind {
 
             // SEC
             Token::Algorithm => Self::ALGORITHM_KW,
+            Token::Boundary => Self::BOUNDARY_KW,
             Token::AxiomSpec => Self::AXIOM_SPEC_KW,
             Token::CalleeGuarantees => Self::CALLEE_GUARANTEES_KW,
             Token::CallerGuarantees => Self::CALLER_GUARANTEES_KW,
@@ -546,6 +549,7 @@ impl From<&Token> for SyntaxKind {
             Token::Secret => Self::SECRET_KW,
             Token::SecureErase => Self::SECURE_ERASE_KW,
             Token::Spec => Self::SPEC_KW,
+            Token::Trust => Self::TRUST_KW,
 
             // CONC
             Token::AcqRel => Self::ACQ_REL_KW,

@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 58
 expression: ast
 ---
 SourceFile {
@@ -89,7 +88,7 @@ SourceFile {
                                             lhs: Ident(
                                                 "a",
                                             ),
-                                            op: Add,
+                                            op: Mod,
                                             rhs: Ident(
                                                 "b",
                                             ),
