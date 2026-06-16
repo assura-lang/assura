@@ -1164,7 +1164,7 @@ Stdlib, IR parser, Cranelift backend.
   Type::Unknown instead of is_indeterminate() (interface.rs:186,196),
   naive "result" string replacement (assura-macros:167),
   CVC5 silently dropping 12 expression forms (cvc5_backend.rs:303-312)
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -n "unwrap_or(BinOp::Add)" crates/assura-parser/src/lower.rs
   # Must return 0
