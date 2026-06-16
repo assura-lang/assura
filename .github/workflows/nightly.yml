@@ -20,6 +20,8 @@ jobs:
       CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup Rust toolchain
         if: ${{ !vars.RUNNER }}
@@ -68,7 +70,7 @@ jobs:
       - name: E2E check all examples
         run: |
           failed=0
-          find examples -name '*.assura' | sort | while read -r example; do
+          for example in $(find examples -name '*.assura' | sort); do
             echo "=== Checking $example ==="
             if ! cargo run --bin assura -- check "$example"; then
               echo "FAIL: $example"
@@ -93,6 +95,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
