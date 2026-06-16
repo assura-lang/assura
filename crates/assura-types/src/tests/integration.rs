@@ -557,7 +557,7 @@ contract RelaxedRead {
 }
 
 #[test]
-fn ordering_acquire_with_ensures_no_error() {
+fn ordering_acquire_with_ensures_no_a23016() {
     let source = r#"
 contract AcquireRead {
     input(counter: Int)
@@ -567,20 +567,17 @@ contract AcquireRead {
 "#;
     let resolved = resolve_ok(source);
     let result = type_check(&resolved);
-    // No A23016 should be emitted for acquire ordering
-    match &result {
-        Ok(_) => {} // pass
-        Err(errs) => {
-            assert!(
-                !errs.iter().any(|e| e.code == "A23016"),
-                "unexpected A23016 for acquire ordering: {errs:?}"
-            );
-        }
+    // Acquire ordering with ensures must not produce A23016
+    if let Err(errs) = &result {
+        assert!(
+            !errs.iter().any(|e| e.code == "A23016"),
+            "unexpected A23016 for acquire ordering: {errs:?}"
+        );
     }
 }
 
 #[test]
-fn ordering_relaxed_without_ensures_no_error() {
+fn ordering_relaxed_without_ensures_no_a23016() {
     let source = r#"
 contract RelaxedNoEnsures {
     input(counter: Int)
@@ -591,19 +588,16 @@ contract RelaxedNoEnsures {
     let resolved = resolve_ok(source);
     let result = type_check(&resolved);
     // No A23016 without ensures clause
-    match &result {
-        Ok(_) => {} // pass
-        Err(errs) => {
-            assert!(
-                !errs.iter().any(|e| e.code == "A23016"),
-                "unexpected A23016 without ensures clause: {errs:?}"
-            );
-        }
+    if let Err(errs) = &result {
+        assert!(
+            !errs.iter().any(|e| e.code == "A23016"),
+            "unexpected A23016 without ensures clause: {errs:?}"
+        );
     }
 }
 
 #[test]
-fn ordering_seq_cst_with_ensures_no_error() {
+fn ordering_seq_cst_with_ensures_no_a23016() {
     let source = r#"
 contract SeqCstRead {
     input(counter: Int)
@@ -613,14 +607,12 @@ contract SeqCstRead {
 "#;
     let resolved = resolve_ok(source);
     let result = type_check(&resolved);
-    match &result {
-        Ok(_) => {}
-        Err(errs) => {
-            assert!(
-                !errs.iter().any(|e| e.code == "A23016"),
-                "unexpected A23016 for seq_cst ordering: {errs:?}"
-            );
-        }
+    // seq_cst ordering with ensures must not produce A23016
+    if let Err(errs) = &result {
+        assert!(
+            !errs.iter().any(|e| e.code == "A23016"),
+            "unexpected A23016 for seq_cst ordering: {errs:?}"
+        );
     }
 }
 
@@ -1467,10 +1459,10 @@ fn cross_type_comparison_string_vs_int_rejected() {
     "#;
     let resolved = resolve_ok(src);
     let result = type_check(&resolved);
-    // Should produce type errors for String >= Int
+    let errs = result.expect_err("String >= Int comparison should be rejected");
     assert!(
-        result.is_err(),
-        "String >= Int comparison should be rejected"
+        errs.iter().any(|e| e.code.as_str().starts_with("A03")),
+        "expected a type error (A03xxx), got: {errs:?}"
     );
 }
 
@@ -1486,9 +1478,10 @@ fn cross_type_arithmetic_string_plus_int_rejected() {
     "#;
     let resolved = resolve_ok(src);
     let result = type_check(&resolved);
+    let errs = result.expect_err("String + Int arithmetic should be rejected");
     assert!(
-        result.is_err(),
-        "String + Int arithmetic should be rejected"
+        errs.iter().any(|e| e.code.as_str().starts_with("A03")),
+        "expected a type error (A03xxx), got: {errs:?}"
     );
 }
 
