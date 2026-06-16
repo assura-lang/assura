@@ -1212,11 +1212,11 @@ Stdlib, IR parser, Cranelift backend.
 - Depends on: none
 - **What**: 57-checker dispatch list copy-pasted in 3 entry points.
   Also duplicated build_type_env and check_clause_bodies paths.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
-  # After: run_all_checks called from all 3 paths
-  grep -c "run_all_checks" crates/assura-types/src/lib.rs
-  # Must be >= 3 (one call per entry point)
+  # After: run_all_checks called from all 3 paths (moved to pipeline.rs)
+  grep -c "run_all_checks" crates/assura-types/src/pipeline.rs
+  # Must be >= 3 (one call per entry point) -- returns 5 (1 defn + 3 calls + 1 doc)
   # The 57 individual run_*_checks calls should be in ONE function
   cargo test --workspace
   ```
