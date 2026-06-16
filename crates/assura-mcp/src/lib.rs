@@ -539,7 +539,7 @@ contract Bar {
     fn tool_explain_unknown_code() {
         let server = AssuraMcpServer::new();
         let params = ExplainParams {
-            code: "A99999".into(),
+            code: "A00000".into(),
         };
         let result = server.assura_explain(Parameters(params));
         assert!(

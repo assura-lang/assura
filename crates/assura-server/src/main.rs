@@ -502,8 +502,8 @@ contract Dup {
 
     #[test]
     fn explain_unknown_code() {
-        let (title, description, _, _) = lookup_error_code("A99999");
-        assert!(title.contains("A99999"));
+        let (title, description, _, _) = lookup_error_code("A00000");
+        assert!(title.contains("A00000"));
         assert!(description.contains("No detailed explanation"));
     }
 
