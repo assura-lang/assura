@@ -658,6 +658,25 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Remove the linear variable reference from the ghost block. \
                  Ghost code should only read or reference non-linear variables.",
         },
+        // -- A05025: Unresolved prophecy variable --
+        ErrorInfo {
+            code: "A05025",
+            name: "Unresolved prophecy variable",
+            description: "A prophecy variable is referenced in a contract clause but \
+                          never resolved via a resolve() or resolve_prophecy() call. \
+                          Prophecy variables represent future values that must eventually \
+                          be determined; leaving one unresolved means the verification \
+                          is incomplete.",
+            example: r#"  prophecy future_val: Int
+
+  contract UseProphecy {
+      input(x: Int)
+      requires { x > 0 }
+      ensures { result > future_val }   // A05025: never resolved
+  }"#,
+            fix: "Add a resolve(future_val) call in an ensures or requires clause to \
+                 bind the prophecy variable to a concrete value.",
+        },
         // -- A07004: Pure function has side effects --
         ErrorInfo {
             code: "A07004",
