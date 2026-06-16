@@ -1019,6 +1019,7 @@ fn check_raw_quantifier_bounds(
 // Display and formatting
 // ---------------------------------------------------------------------------
 
+/// Human-readable display formatting for verification results.
 pub mod display;
 
 // ---------------------------------------------------------------------------
@@ -2729,9 +2730,13 @@ contract DecreasesTest {
 // Additional verification modules
 // ---------------------------------------------------------------------------
 
+/// Advanced verification: prophecy variables, triggers, quantifier strategies.
 pub mod advanced;
+/// Verification result caching (content-addressed by clause hash).
 pub mod cache;
+/// Incremental verification: skip re-checking unchanged clauses.
 pub mod incremental;
+/// Layer 2 verification: cross-contract and module-level properties.
 pub mod layer2;
 // Re-export key types from submodules so callers and tests can use them
 // without qualifying the module path.
@@ -2740,8 +2745,7 @@ pub use cache::*;
 pub use incremental::*;
 pub use layer2::*;
 
-// IR module: Section 4 "Implementation IR" parser/codegen.
-// Wired into the CLI via `assura ir <file>`.
+/// Implementation IR (Section 4): parser, codegen, and `assura ir` CLI command.
 pub mod ir;
 pub use ir::*;
 

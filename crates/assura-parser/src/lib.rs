@@ -1,9 +1,14 @@
+/// AST node types produced by lowering the CST.
 pub mod ast;
 pub(crate) mod cst;
+/// Pretty-printing for AST nodes (Debug-like, human-readable).
 pub mod display;
 pub(crate) mod grammar;
+/// Token definitions (logos-derived lexer).
 pub mod lexer;
+/// CST-to-AST lowering: converts the lossless `rowan` tree into typed AST nodes.
 pub mod lower;
+/// `SyntaxKind` enum (rowan `Language` trait) and `SyntaxNode`/`SyntaxToken` aliases.
 pub mod syntax_kind;
 
 /// Re-export parse errors from the CST module for downstream use.

@@ -59,6 +59,7 @@ pub struct ProjectConfig {
     pub inline: InlineConfig,
 }
 
+/// Package metadata from `[package]` in assura.toml.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default)]
 pub struct PackageConfig {
@@ -75,6 +76,7 @@ impl Default for PackageConfig {
     }
 }
 
+/// Build settings from `[build]` in assura.toml.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default)]
 pub struct BuildConfig {
@@ -91,6 +93,7 @@ impl Default for BuildConfig {
     }
 }
 
+/// Verification settings from `[verify]` in assura.toml.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct VerifyConfig {
@@ -109,6 +112,7 @@ impl Default for VerifyConfig {
     }
 }
 
+/// Verification profile from `[profile]` in assura.toml.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct ProfileConfig {

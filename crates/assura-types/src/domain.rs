@@ -1,5 +1,3 @@
-// Structural domain checkers for MASTER-PLAN Phase 2/3.
-
 //! Domain-specific type checkers.
 //!
 //! Each checker validates contracts against a specific domain (memory,

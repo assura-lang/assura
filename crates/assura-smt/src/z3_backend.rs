@@ -1,3 +1,7 @@
+//! Z3 backend: encodes Assura contract clauses as Z3 ASTs and checks
+//! satisfiability. Handles expression encoding, quantifiers, measures,
+//! raw-token parsing, and counterexample extraction.
+
 use super::*;
 use super::{CounterexampleModel, Expr};
 use assura_parser::ast::{BinOp, BlockKind, Clause, Literal, UnaryOp};

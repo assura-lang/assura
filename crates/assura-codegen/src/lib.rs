@@ -8,6 +8,7 @@
 //! codegen (T021), project generation (T022), and struct/enum codegen
 //! (T023) extend this foundation.
 
+/// Assura-to-Rust type mapping (Int -> i64, Nat -> u64, etc.).
 pub mod type_map;
 
 mod block;

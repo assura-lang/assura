@@ -26,6 +26,7 @@ pub struct Symbol {
     pub scope_id: usize,
 }
 
+/// The kind of a symbol registered in the symbol table.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolKind {
     TypeDef,

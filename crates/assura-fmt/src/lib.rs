@@ -401,6 +401,7 @@ pub(crate) fn format_block(
     }
 }
 
+/// Format a single clause (requires/ensures/invariant/effects/etc.) to text.
 pub fn format_clause(clause: &Clause, out: &mut String) {
     let kind_str = match &clause.kind {
         ClauseKind::Requires => "requires",

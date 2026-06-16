@@ -30,9 +30,13 @@ const DEFAULT_FEATURE_MAX: i64 = 256;
 /// Default hash output length (bytes).
 const DEFAULT_HASH_BITS: i64 = 32;
 
+/// Structural checkers: linearity, typestate, effects, info-flow, generics, etc.
 pub mod checkers;
+/// Clause-body type checking (requires/ensures/invariant expressions).
 pub mod clauses;
+/// Domain-specific checkers (memory, concurrency, security, formatting, etc.).
 pub mod domain;
+/// Expression type inference (`infer_expr`).
 pub mod inference;
 use checkers::*;
 pub use checkers::{FrameChecker, PendingDecreaseCheck, TaintLabel};

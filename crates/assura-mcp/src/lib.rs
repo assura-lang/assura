@@ -15,6 +15,7 @@ use serde::Deserialize;
 // Tool parameter types
 // ---------------------------------------------------------------------------
 
+/// Parameters for the `check` MCP tool (parse + type-check + verify).
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CheckParams {
     /// Assura source code to verify (inline). Provide either `source` or `file`.
@@ -25,6 +26,7 @@ pub struct CheckParams {
     pub file: Option<String>,
 }
 
+/// Parameters for the `infer` MCP tool (infer contracts from Rust source).
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct InferParams {
     /// Rust source code to infer contracts from (inline). Provide either `source` or `file`.
@@ -35,12 +37,14 @@ pub struct InferParams {
     pub file: Option<String>,
 }
 
+/// Parameters for the `explain` MCP tool (explain an error code).
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ExplainParams {
     /// Assura error code to explain (e.g. "A03001").
     pub code: String,
 }
 
+/// Parameters for the `type_map` MCP tool (Rust type -> Assura type mapping).
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct TypeMapParams {
     /// Rust type to map to an Assura type (e.g. "Vec<Option<i64>>").
@@ -51,6 +55,7 @@ pub struct TypeMapParams {
 // Server
 // ---------------------------------------------------------------------------
 
+/// MCP server exposing Assura compiler tools to AI agents.
 #[derive(Debug, Clone)]
 pub struct AssuraMcpServer {
     #[expect(dead_code)]
