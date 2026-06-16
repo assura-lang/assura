@@ -1,4 +1,4 @@
-// MUST REJECT A-CORE-050
+// MUST REJECT A53006
 module test.quantifier_trigger;
 
 contract SortedArray {

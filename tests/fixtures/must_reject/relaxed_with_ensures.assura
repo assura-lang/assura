@@ -1,4 +1,4 @@
-// MUST REJECT A-CONC-016
+// MUST REJECT A23016
 // Relaxed ordering with ensures clause: stale value risk.
 contract RelaxedCounter {
     input(counter: Int)

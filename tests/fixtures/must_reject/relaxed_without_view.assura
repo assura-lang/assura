@@ -1,4 +1,4 @@
-// MUST REJECT A-CONC-016
+// MUST REJECT A23016
 // Relaxed memory ordering with ensures clause: the read value may be
 // stale, so value-dependent assertions are unsound without a view check.
 contract StaleRelaxedRead {

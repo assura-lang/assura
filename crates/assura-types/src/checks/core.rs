@@ -27,7 +27,7 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
                 .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "prove"));
             if !has_prove {
                 errors.push(TypeError {
-                    code: "A-CORE-030".into(),
+                    code: "A31006".into(),
                     message: format!(
                         "liveness block `{name}` has no `prove` clause; \
                          at least one liveness property must be stated"
@@ -46,7 +46,7 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
             });
             if has_leads_to && !has_fair {
                 errors.push(TypeError {
-                    code: "A-CORE-031".into(),
+                    code: "A31007".into(),
                     message: format!(
                         "liveness block `{name}` uses `leads_to` but has no \
                          `assume fair` clause; fairness is required for \
@@ -293,5 +293,314 @@ fn collect_quantifiers(
             collect_quantifiers(body, checker, fallback_span);
         }
         _ => {}
+    }
+}
+
+/// Structural check: top-level prophecy declarations must have a
+/// matching resolve() call somewhere in the file. Without one, the
+/// prophecy variable is never resolved, which is always an error.
+///
+/// Error code: A05025 (unresolved prophecy variable).
+pub(crate) fn run_prophecy_resolution_checks(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+
+    use assura_parser::ast::BlockKind;
+
+    // Collect top-level prophecy declarations (both forms)
+    let prophecies: Vec<(&str, &std::ops::Range<usize>)> = source
+        .decls
+        .iter()
+        .filter_map(|d| match &d.node {
+            Decl::Prophecy(p) => Some((p.name.as_str(), &d.span)),
+            Decl::Block {
+                kind: BlockKind::Other(k),
+                name,
+                ..
+            } if k == "prophecy" => Some((name.as_str(), &d.span)),
+            _ => None,
+        })
+        .collect();
+
+    if prophecies.is_empty() {
+        return errors;
+    }
+
+    let prophecy_names: std::collections::HashSet<&str> =
+        prophecies.iter().map(|(n, _)| *n).collect();
+
+    // Scan all clause bodies for references and resolve() calls
+    let mut referenced_names = std::collections::HashSet::new();
+    let mut resolved_names = std::collections::HashSet::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            collect_resolve_calls(&clause.body, &mut resolved_names);
+            collect_ident_refs(&clause.body, &prophecy_names, &mut referenced_names);
+        }
+    }
+
+    // Only flag prophecies that are referenced but never resolved
+    for (name, span) in prophecies {
+        if referenced_names.contains(name) && !resolved_names.contains(name) {
+            errors.push(TypeError {
+                code: "A05025".into(),
+                message: format!("prophecy variable `{name}` is never resolved"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+    }
+
+    errors
+}
+
+/// Recursively collect identifier references that match known prophecy names.
+fn collect_ident_refs(
+    expr: &Expr,
+    prophecy_names: &std::collections::HashSet<&str>,
+    found: &mut std::collections::HashSet<String>,
+) {
+    match expr {
+        Expr::Ident(name) => {
+            if prophecy_names.contains(name.as_str()) {
+                found.insert(name.clone());
+            }
+        }
+        Expr::Raw(tokens) => {
+            // Raw clause bodies have parentheses stripped; scan tokens
+            // for prophecy name references.
+            for tok in tokens {
+                if prophecy_names.contains(tok.as_str()) {
+                    found.insert(tok.clone());
+                }
+            }
+        }
+        Expr::Call { func, args } => {
+            collect_ident_refs(func, prophecy_names, found);
+            for arg in args {
+                collect_ident_refs(arg, prophecy_names, found);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_ident_refs(lhs, prophecy_names, found);
+            collect_ident_refs(rhs, prophecy_names, found);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            collect_ident_refs(expr, prophecy_names, found);
+        }
+        Expr::Block(es) | Expr::List(es) => {
+            for e in es {
+                collect_ident_refs(e, prophecy_names, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Recursively collect names passed to resolve() or resolve_prophecy() calls.
+fn collect_resolve_calls(expr: &Expr, names: &mut std::collections::HashSet<String>) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(fname) = func.as_ref()
+                && (fname == "resolve" || fname == "resolve_prophecy")
+                && let Some(Expr::Ident(var)) = args.first()
+            {
+                names.insert(var.clone());
+            }
+            for arg in args {
+                collect_resolve_calls(arg, names);
+            }
+        }
+        Expr::Raw(tokens) => {
+            // Raw clause bodies have parentheses stripped, producing
+            // ["resolve", "var_name"] instead of a Call node. Scan for
+            // the resolve/resolve_prophecy keyword followed by a name.
+            for window in tokens.windows(2) {
+                if (window[0] == "resolve" || window[0] == "resolve_prophecy") && window[1] != "(" {
+                    names.insert(window[1].clone());
+                }
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_resolve_calls(lhs, names);
+            collect_resolve_calls(rhs, names);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            collect_resolve_calls(expr, names);
+        }
+        Expr::Block(es) | Expr::List(es) => {
+            for e in es {
+                collect_resolve_calls(e, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_source(src: &str) -> assura_parser::ast::SourceFile {
+        let (sf, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        sf.unwrap()
+    }
+
+    // --- prophecy resolution checks ---
+
+    #[test]
+    fn prophecy_referenced_but_unresolved() {
+        let src = r#"
+module test;
+prophecy future_val: Int
+contract Use {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result > future_val }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_prophecy_resolution_checks(&sf);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A05025");
+        assert!(errors[0].message.contains("future_val"));
+    }
+
+    #[test]
+    fn prophecy_referenced_and_resolved() {
+        let src = r#"
+module test;
+prophecy future_val: Int
+contract Use {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result > future_val }
+    ensures { resolve(future_val) }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_prophecy_resolution_checks(&sf);
+        assert!(errors.is_empty(), "expected no errors: {errors:?}");
+    }
+
+    #[test]
+    fn prophecy_declared_but_unused() {
+        // Declared but never referenced in any clause: not an error.
+        let src = r#"
+module test;
+prophecy unused_val: Int
+contract Unrelated {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result >= 0 }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_prophecy_resolution_checks(&sf);
+        assert!(
+            errors.is_empty(),
+            "unused prophecy should not error: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn multiple_prophecies_mixed() {
+        // Two prophecies in separate contracts to avoid parser merging
+        // of consecutive prophecy declarations (known parser limitation).
+        let src = r#"
+module test;
+prophecy alpha: Int
+
+contract UseAlpha {
+    input(x: Int)
+    ensures { result > alpha }
+    ensures { resolve(alpha) }
+}
+
+prophecy beta: Int
+
+contract UseBeta {
+    input(x: Int)
+    ensures { result > beta }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_prophecy_resolution_checks(&sf);
+        assert_eq!(errors.len(), 1, "only beta should error: {errors:?}");
+        assert!(errors[0].message.contains("beta"));
+    }
+
+    #[test]
+    fn prophecy_resolved_via_resolve_prophecy() {
+        let src = r#"
+module test;
+prophecy pv: Int
+contract Use {
+    input(x: Int)
+    ensures { result > pv }
+    ensures { resolve_prophecy(pv) }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_prophecy_resolution_checks(&sf);
+        assert!(
+            errors.is_empty(),
+            "resolve_prophecy should count: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn no_prophecies_no_errors() {
+        let src = r#"
+module test;
+contract Simple {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result >= 0 }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_prophecy_resolution_checks(&sf);
+        assert!(errors.is_empty());
+    }
+
+    // --- liveness checks ---
+
+    #[test]
+    fn liveness_block_missing_prove() {
+        let src = r#"
+module test;
+liveness EventualResponse {
+    assume { fair }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_liveness_checks(&sf);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A31006");
+    }
+
+    #[test]
+    fn liveness_block_with_prove_ok() {
+        let src = r#"
+module test;
+liveness EventualResponse {
+    prove { leads_to(request, response) }
+    assume { fair }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_liveness_checks(&sf);
+        assert!(
+            errors.is_empty(),
+            "valid liveness block should pass: {errors:?}"
+        );
     }
 }

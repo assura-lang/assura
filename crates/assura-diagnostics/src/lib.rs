@@ -658,6 +658,25 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Remove the linear variable reference from the ghost block. \
                  Ghost code should only read or reference non-linear variables.",
         },
+        // -- A05025: Unresolved prophecy variable --
+        ErrorInfo {
+            code: "A05025",
+            name: "Unresolved prophecy variable",
+            description: "A prophecy variable is referenced in a contract clause but \
+                          never resolved via a resolve() or resolve_prophecy() call. \
+                          Prophecy variables represent future values that must eventually \
+                          be determined; leaving one unresolved means the verification \
+                          is incomplete.",
+            example: r#"  prophecy future_val: Int
+
+  contract UseProphecy {
+      input(x: Int)
+      requires { x > 0 }
+      ensures { result > future_val }   // A05025: never resolved
+  }"#,
+            fix: "Add a resolve(future_val) call in an ensures or requires clause to \
+                 bind the prophecy variable to a concrete value.",
+        },
         // -- A07004: Pure function has side effects --
         ErrorInfo {
             code: "A07004",
@@ -977,6 +996,40 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Use atomic operations or a lock to ensure multi-field updates \
                  are observed as a single unit.",
         },
+        // -- A22003: Unbounded allocation --
+        ErrorInfo {
+            code: "A22003",
+            name: "Unbounded allocation detected",
+            description: "An allocation has no proved upper bound on its size. Without a \
+                          bound, the allocator may consume unlimited memory.",
+            example: r#"  contract LeakyBuffer {
+    input(size: Nat)
+    alloc buf                   // -> A22003 (no bounded clause)
+    requires { size > 0 }
+  }"#,
+            fix: "Add a `bounded buf` clause to prove the allocation has an upper bound.",
+        },
+        // -- A23016, A23019: Weak memory ordering --
+        ErrorInfo {
+            code: "A23016",
+            name: "Relaxed read without view check",
+            description: "A relaxed memory ordering is used in a contract with an ensures \
+                          clause. Values read with Relaxed ordering may be stale; use \
+                          Acquire for value-dependent assertions.",
+            example: r#"  contract ReadCounter {
+    requires(ordering: relaxed)
+    ensures(result >= 0)  // -> A23016 (relaxed + ensures)
+  }"#,
+            fix: "Use Acquire ordering when the read value is used in postconditions.",
+        },
+        ErrorInfo {
+            code: "A23019",
+            name: "Fence ordering mismatch",
+            description: "A fence operation uses an unknown memory ordering. Expected one \
+                          of: relaxed, acquire, release, acqrel, seq_cst.",
+            example: r#"  contract Sync { requires(ordering: invalid_ordering) }  // -> A23019"#,
+            fix: "Use a valid memory ordering: relaxed, acquire, release, acqrel, or seq_cst.",
+        },
         // -- A31004-A31005: Binary format --
         ErrorInfo {
             code: "A31004",
@@ -995,6 +1048,25 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             example: r#"  // Reserved bytes at offset 12-15 must be 0x00
   // Found non-zero values -> A31005"#,
             fix: "Ensure reserved fields are zeroed out. Check the format specification.",
+        },
+        ErrorInfo {
+            code: "A31006",
+            name: "Liveness unproven within bound K",
+            description: "A liveness block has no `prove` clause. At least one liveness \
+                          property must be stated for verification.",
+            example: r#"  liveness block HeartbeatLiveness { }  // -> A31006 (no prove clause)"#,
+            fix: "Add a `prove` clause with a liveness property (e.g., `prove { leads_to(...) }`).",
+        },
+        ErrorInfo {
+            code: "A31007",
+            name: "Missing fairness assumption",
+            description: "A liveness block uses `leads_to` but has no `assume fair` clause. \
+                          Fairness assumptions are required for leads-to proofs.",
+            example: r#"  liveness block Progress {
+    prove { leads_to(waiting, served) }
+    // Missing: assume { fair }  -> A31007
+  }"#,
+            fix: "Add an `assume { fair }` clause to the liveness block.",
         },
         // -- A32004: Crash recovery --
         ErrorInfo {
@@ -1412,6 +1484,15 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
                           being initialized.",
             example: r#"  // Using refinement.prev_result in pass 0 -> A53005"#,
             fix: "Initialize the refinement state before the first pass.",
+        },
+        ErrorInfo {
+            code: "A53006",
+            name: "Quantifier missing trigger annotation",
+            description: "A quantifier has no `triggers` clause. Without triggers, \
+                          the SMT solver may enumerate all possible values, causing \
+                          verification timeouts.",
+            example: r#"  forall x in xs: x > 0  // -> A53006 (no triggers clause)"#,
+            fix: "Add a `triggers` clause to guide the SMT solver.",
         },
         // -- A54004-A54005: Ghost variables --
         ErrorInfo {

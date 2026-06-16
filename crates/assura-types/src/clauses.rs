@@ -7,7 +7,7 @@ use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
 
 use crate::{
     Type, TypeEnv, TypeError, check_ghost_fn_effects, check_lemma_fn_effects, infer_expr,
-    parse_type_tokens, type_from_hir_type,
+    infer_expr_spanned, parse_type_tokens, type_from_hir_type,
 };
 
 // ---------------------------------------------------------------------------
@@ -540,12 +540,9 @@ fn collect_expr_errors(
     errors: &mut Vec<TypeError>,
     ctx_span: &std::ops::Range<usize>,
 ) {
-    match infer_expr(expr, env) {
+    match infer_expr_spanned(expr, env, ctx_span.clone()) {
         Ok(_) => {}
-        Err(mut e) => {
-            if e.span == (0..0) {
-                e.span = ctx_span.clone();
-            }
+        Err(e) => {
             errors.push(e);
         }
     }
@@ -580,7 +577,7 @@ pub(crate) fn check_clause_expr(
     errors: &mut Vec<TypeError>,
     ctx_span: &std::ops::Range<usize>,
 ) {
-    match infer_expr(body, env) {
+    match infer_expr_spanned(body, env, ctx_span.clone()) {
         Ok(ty) => {
             if clause_requires_bool(kind) && !ty.is_indeterminate() && ty != Type::Bool {
                 errors.push(TypeError {
@@ -594,10 +591,7 @@ pub(crate) fn check_clause_expr(
                 });
             }
         }
-        Err(mut e) => {
-            if e.span == (0..0) {
-                e.span = ctx_span.clone();
-            }
+        Err(e) => {
             errors.push(e);
         }
     }
@@ -612,7 +606,7 @@ pub(crate) fn check_clause_hir_expr(
     errors: &mut Vec<TypeError>,
     ctx_span: &std::ops::Range<usize>,
 ) {
-    match crate::infer_hir_expr(body, env) {
+    match crate::infer_hir_expr_spanned(body, env, ctx_span.clone()) {
         Ok(ty) => {
             if clause_requires_bool(kind) && !ty.is_indeterminate() && ty != Type::Bool {
                 errors.push(TypeError {
@@ -626,10 +620,7 @@ pub(crate) fn check_clause_hir_expr(
                 });
             }
         }
-        Err(mut e) => {
-            if e.span == (0..0) {
-                e.span = ctx_span.clone();
-            }
+        Err(e) => {
             errors.push(e);
         }
     }

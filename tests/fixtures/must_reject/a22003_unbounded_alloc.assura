@@ -1,0 +1,9 @@
+// MUST REJECT A22003
+module test.unbounded_alloc;
+
+contract UnboundedHeap {
+    input(size: Nat)
+    alloc buf
+    requires { size > 0 }
+    ensures { size > 0 }
+}

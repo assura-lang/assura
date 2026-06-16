@@ -496,8 +496,8 @@ liveness BadBlock {
     let resolved = resolve_ok(source);
     let errs = type_check(&resolved).unwrap_err();
     assert!(
-        errs.iter().any(|e| e.code == "A-CORE-030"),
-        "expected A-CORE-030 for liveness block with no prove clause, got: {errs:?}"
+        errs.iter().any(|e| e.code == "A31006"),
+        "expected A31006 for liveness block with no prove clause, got: {errs:?}"
     );
 }
 
@@ -510,12 +510,12 @@ liveness GoodBlock {
 }
 "#;
     let resolved = resolve_ok(source);
-    // Should type-check without A-CORE-030 errors
+    // Should type-check without A31006 errors
     let result = type_check(&resolved);
     if let Err(errs) = &result {
         assert!(
-            !errs.iter().any(|e| e.code == "A-CORE-030"),
-            "should not emit A-CORE-030 when prove clause is present, got: {errs:?}"
+            !errs.iter().any(|e| e.code == "A31006"),
+            "should not emit A31006 when prove clause is present, got: {errs:?}"
         );
     }
 }
@@ -530,8 +530,8 @@ liveness LeadsToNoFair {
     let resolved = resolve_ok(source);
     let errs = type_check(&resolved).unwrap_err();
     assert!(
-        errs.iter().any(|e| e.code == "A-CORE-031"),
-        "expected A-CORE-031 for leads_to without assume fair, got: {errs:?}"
+        errs.iter().any(|e| e.code == "A31007"),
+        "expected A31007 for leads_to without assume fair, got: {errs:?}"
     );
 }
 
@@ -551,13 +551,13 @@ contract RelaxedRead {
     let resolved = resolve_ok(source);
     let errs = type_check(&resolved).unwrap_err();
     assert!(
-        errs.iter().any(|e| e.code == "A-CONC-016"),
-        "expected A-CONC-016 for relaxed ordering with ensures, got: {errs:?}"
+        errs.iter().any(|e| e.code == "A23016"),
+        "expected A23016 for relaxed ordering with ensures, got: {errs:?}"
     );
 }
 
 #[test]
-fn ordering_acquire_with_ensures_no_error() {
+fn ordering_acquire_with_ensures_no_a23016() {
     let source = r#"
 contract AcquireRead {
     input(counter: Int)
@@ -567,20 +567,17 @@ contract AcquireRead {
 "#;
     let resolved = resolve_ok(source);
     let result = type_check(&resolved);
-    // No A-CONC-016 should be emitted for acquire ordering
-    match &result {
-        Ok(_) => {} // pass
-        Err(errs) => {
-            assert!(
-                !errs.iter().any(|e| e.code == "A-CONC-016"),
-                "unexpected A-CONC-016 for acquire ordering: {errs:?}"
-            );
-        }
+    // Acquire ordering with ensures must not produce A23016
+    if let Err(errs) = &result {
+        assert!(
+            !errs.iter().any(|e| e.code == "A23016"),
+            "unexpected A23016 for acquire ordering: {errs:?}"
+        );
     }
 }
 
 #[test]
-fn ordering_relaxed_without_ensures_no_error() {
+fn ordering_relaxed_without_ensures_no_a23016() {
     let source = r#"
 contract RelaxedNoEnsures {
     input(counter: Int)
@@ -590,20 +587,17 @@ contract RelaxedNoEnsures {
 "#;
     let resolved = resolve_ok(source);
     let result = type_check(&resolved);
-    // No A-CONC-016 without ensures clause
-    match &result {
-        Ok(_) => {} // pass
-        Err(errs) => {
-            assert!(
-                !errs.iter().any(|e| e.code == "A-CONC-016"),
-                "unexpected A-CONC-016 without ensures clause: {errs:?}"
-            );
-        }
+    // No A23016 without ensures clause
+    if let Err(errs) = &result {
+        assert!(
+            !errs.iter().any(|e| e.code == "A23016"),
+            "unexpected A23016 without ensures clause: {errs:?}"
+        );
     }
 }
 
 #[test]
-fn ordering_seq_cst_with_ensures_no_error() {
+fn ordering_seq_cst_with_ensures_no_a23016() {
     let source = r#"
 contract SeqCstRead {
     input(counter: Int)
@@ -613,14 +607,12 @@ contract SeqCstRead {
 "#;
     let resolved = resolve_ok(source);
     let result = type_check(&resolved);
-    match &result {
-        Ok(_) => {}
-        Err(errs) => {
-            assert!(
-                !errs.iter().any(|e| e.code == "A-CONC-016"),
-                "unexpected A-CONC-016 for seq_cst ordering: {errs:?}"
-            );
-        }
+    // seq_cst ordering with ensures must not produce A23016
+    if let Err(errs) = &result {
+        assert!(
+            !errs.iter().any(|e| e.code == "A23016"),
+            "unexpected A23016 for seq_cst ordering: {errs:?}"
+        );
     }
 }
 
@@ -1467,10 +1459,10 @@ fn cross_type_comparison_string_vs_int_rejected() {
     "#;
     let resolved = resolve_ok(src);
     let result = type_check(&resolved);
-    // Should produce type errors for String >= Int
+    let errs = result.expect_err("String >= Int comparison should be rejected");
     assert!(
-        result.is_err(),
-        "String >= Int comparison should be rejected"
+        errs.iter().any(|e| e.code.as_str().starts_with("A03")),
+        "expected a type error (A03xxx), got: {errs:?}"
     );
 }
 
@@ -1486,9 +1478,10 @@ fn cross_type_arithmetic_string_plus_int_rejected() {
     "#;
     let resolved = resolve_ok(src);
     let result = type_check(&resolved);
+    let errs = result.expect_err("String + Int arithmetic should be rejected");
     assert!(
-        result.is_err(),
-        "String + Int arithmetic should be rejected"
+        errs.iter().any(|e| e.code.as_str().starts_with("A03")),
+        "expected a type error (A03xxx), got: {errs:?}"
     );
 }
 
@@ -1951,8 +1944,8 @@ contract X {
     let result = type_check(&resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
-        errs.iter().any(|e| e.code == "A-CORE-050"),
-        "strict_triggers should fire A-CORE-050 for quantifier without trigger: {errs:?}"
+        errs.iter().any(|e| e.code == "A53006"),
+        "strict_triggers should fire A53006 for quantifier without trigger: {errs:?}"
     );
 }
 
@@ -1969,8 +1962,8 @@ contract X {
     let result = type_check(&resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
-        !errs.iter().any(|e| e.code == "A-CORE-050"),
-        "without strict_triggers, A-CORE-050 should not fire: {errs:?}"
+        !errs.iter().any(|e| e.code == "A53006"),
+        "without strict_triggers, A53006 should not fire: {errs:?}"
     );
 }
 

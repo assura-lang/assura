@@ -375,7 +375,7 @@ pub(crate) fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> 
 /// - The ordering value is a recognized memory ordering keyword
 ///   (relaxed, acquire, release, acqrel, seq_cst)
 /// - Contracts with `ordering: relaxed` that also have `ensures` clauses
-///   depending on the value get A-CONC-016 warnings (relaxed read
+///   depending on the value get A23016 warnings (relaxed read
 ///   without view check)
 pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     use assura_parser::ast::MemoryOrdering;
@@ -407,7 +407,7 @@ pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) ->
                         ordering_value = Some(ord);
                     } else {
                         errors.push(TypeError {
-                            code: "A-CONC-019".into(),
+                            code: "A23019".into(),
                             message: format!(
                                 "unknown memory ordering `{s}` in `{name}`; \
                                  expected one of: relaxed, acquire, release, acqrel, seq_cst"
@@ -423,10 +423,10 @@ pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) ->
             }
         }
 
-        // A-CONC-016: relaxed read with ensures (value-dependent assertion)
+        // A23016: relaxed read with ensures (value-dependent assertion)
         if ordering_value == Some(MemoryOrdering::Relaxed) && has_ensures {
             errors.push(TypeError {
-                code: "A-CONC-016".into(),
+                code: "A23016".into(),
                 message: format!(
                     "relaxed ordering in `{name}` with ensures clause: \
                      value read with Relaxed may be stale; \
@@ -498,6 +498,22 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
     if !has_alloc {
         return Vec::new();
     }
+    // Check bounded annotations: mark allocations that have a proved bound
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "bounded" || k == "alloc_bound")
+                && let Expr::Ident(name) = &clause.body
+            {
+                checker.mark_bounded(name);
+            }
+        }
+    }
     // Check arena use-after-drop for all allocations
     let mut errors = Vec::new();
     for decl in &source.decls {
@@ -518,6 +534,7 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
         }
     }
     errors.extend(checker.check_unpaired());
+    errors.extend(checker.check_unbounded());
     errors
 }
 
@@ -626,4 +643,89 @@ pub(crate) fn run_circular_buffer_checks(
         }
     }
     errors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_capacity_buffer() {
+        assert_eq!(
+            extract_capacity_annotation("Buffer<1024>"),
+            Some("1024".into())
+        );
+    }
+
+    #[test]
+    fn extract_capacity_region() {
+        assert_eq!(
+            extract_capacity_annotation("Region<MAX_SIZE>"),
+            Some("MAX_SIZE".into())
+        );
+    }
+
+    #[test]
+    fn extract_capacity_fixed_buffer() {
+        assert_eq!(
+            extract_capacity_annotation("FixedBuffer<256>"),
+            Some("256".into())
+        );
+    }
+
+    #[test]
+    fn extract_capacity_no_match() {
+        assert_eq!(extract_capacity_annotation("Int"), None);
+        assert_eq!(extract_capacity_annotation("String"), None);
+        assert_eq!(extract_capacity_annotation("List<Int>"), None);
+    }
+
+    #[test]
+    fn extract_capacity_empty_angle() {
+        assert_eq!(extract_capacity_annotation("Buffer<>"), Some("".into()));
+    }
+
+    fn parse_source(src: &str) -> assura_parser::ast::SourceFile {
+        let (sf, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        sf.unwrap()
+    }
+
+    #[test]
+    fn allocator_unbounded_via_source() {
+        let src = r#"
+module test;
+contract Alloc {
+    input(size: Nat)
+    alloc buf
+    requires { size > 0 }
+    ensures { size > 0 }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_allocator_checks(&sf);
+        let has_a22003 = errors.iter().any(|e| e.code == "A22003");
+        assert!(has_a22003, "expected A22003 unbounded alloc: {errors:?}");
+    }
+
+    #[test]
+    fn allocator_bounded_via_source() {
+        let src = r#"
+module test;
+contract Alloc {
+    input(size: Nat)
+    alloc buf
+    bounded buf
+    requires { size > 0 }
+    ensures { size > 0 }
+}
+"#;
+        let sf = parse_source(src);
+        let errors = run_allocator_checks(&sf);
+        let has_a22003 = errors.iter().any(|e| e.code == "A22003");
+        assert!(
+            !has_a22003,
+            "bounded alloc should not produce A22003: {errors:?}"
+        );
+    }
 }

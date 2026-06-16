@@ -117,6 +117,7 @@ fn run_all_checks(
     errors.extend(run_codec_registry_checks(source));
     errors.extend(run_generic_instantiation_checks(source));
     errors.extend(run_quantifier_trigger_checks(source));
+    errors.extend(run_prophecy_resolution_checks(source));
 
     (errors, pending_decrease_checks)
 }

@@ -447,10 +447,27 @@ contract Typed {
                             type_errors
                         );
                     }
-                    Ok(_) => {
-                        panic!(
-                            "{}: expected error {code} but type checking succeeded",
-                            path.display()
+                    Ok(typed) => {
+                        // Type check passed; try SMT verification for
+                        // error codes in the A05xxx range (prophecy,
+                        // verification failures).
+                        let vr = assura_smt::verify(&typed);
+                        let found = vr.iter().any(|r| match r {
+                            assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                                clause_desc.contains(&code)
+                            }
+                            assura_smt::VerificationResult::Counterexample {
+                                clause_desc, ..
+                            } => clause_desc.contains(&code),
+                            _ => false,
+                        });
+                        assert!(
+                            found,
+                            "{}: expected error {code} but type checking succeeded \
+                             and SMT verification did not produce it. \
+                             Verification results: {:?}",
+                            path.display(),
+                            vr
                         );
                     }
                 }
@@ -1447,6 +1464,25 @@ timeout = 2000
         assert!(out.contains("bind \"crate::math::add\" as add"));
         assert!(out.contains("input(a: Int, b: Int)"));
         assert!(out.contains("output(result: Int)"));
+        // Numeric params get heuristic requires clauses
+        assert!(
+            out.contains("requires { a >= 0 }"),
+            "expected requires for numeric param a:\n{out}"
+        );
+        assert!(
+            out.contains("requires { b >= 0 }"),
+            "expected requires for numeric param b:\n{out}"
+        );
+        // Numeric return gets heuristic ensures clause
+        assert!(
+            out.contains("ensures { result >= 0 }"),
+            "expected ensures for numeric return:\n{out}"
+        );
+        // Should NOT have TODO placeholders when heuristic clauses are generated
+        assert!(
+            !out.contains("// TODO:"),
+            "should not have TODO when clauses generated:\n{out}"
+        );
         // Should parse through our own parser
         let (parsed, errs) = assura_parser::parse(&out);
         assert!(
@@ -1470,6 +1506,46 @@ timeout = 2000
         assert!(out.contains("input(msg: String)"));
         // Unit return should not produce output line
         assert!(!out.contains("output(result:"));
+        // No numeric params or return: should fall back to TODO comments
+        assert!(
+            out.contains("// TODO: add requires clauses"),
+            "expected TODO fallback for non-numeric function:\n{out}"
+        );
+    }
+
+    #[test]
+    fn generate_bind_skeleton_mixed_params() {
+        // Mix of numeric and non-numeric params; only numeric ones get requires
+        let sig = super::RustFnSig {
+            name: "process".to_string(),
+            params: vec![
+                ("label".to_string(), "String".to_string()),
+                ("count".to_string(), "u32".to_string()),
+            ],
+            return_type: "bool".to_string(),
+            is_pub: true,
+        };
+        let mut out = String::new();
+        super::generate_bind_skeleton("crate::ops", &sig, &mut out);
+        assert!(
+            out.contains("requires { count >= 0 }"),
+            "expected requires for numeric param count:\n{out}"
+        );
+        // Non-numeric param should NOT get a requires
+        assert!(
+            !out.contains("requires { label"),
+            "non-numeric param should not get requires:\n{out}"
+        );
+        // Bool return should NOT get ensures
+        assert!(
+            !out.contains("ensures"),
+            "Bool return should not get ensures:\n{out}"
+        );
+        // Has at least one clause so no TODO
+        assert!(
+            !out.contains("// TODO:"),
+            "should not have TODO when clauses generated:\n{out}"
+        );
     }
 
     #[test]

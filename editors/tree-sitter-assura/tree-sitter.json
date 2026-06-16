@@ -1,0 +1,27 @@
+{
+  "grammars": [
+    {
+      "name": "assura",
+      "camelcase": "Assura",
+      "scope": "source.assura",
+      "path": ".",
+      "file-types": ["assura"],
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm",
+      "indents": "queries/indents.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for the Assura contract language",
+    "authors": [
+      {
+        "name": "Assura Contributors"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/assura-lang/assura"
+    }
+  }
+}

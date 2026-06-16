@@ -649,9 +649,27 @@ pub(crate) fn generate_bind_skeleton(module_path: &str, sig: &RustFnSig, out: &m
         out.push_str(&format!("    output(result: {assura_ret})\n"));
     }
 
-    // Skeleton requires/ensures
-    out.push_str("    // TODO: add requires clauses (preconditions)\n");
-    out.push_str("    // TODO: add ensures clauses (postconditions)\n");
+    // Heuristic clause generation based on parameter and return types
+    let mut has_clause = false;
+
+    for (name, rust_ty) in &sig.params {
+        let param_assura = rust_type_to_assura(rust_ty);
+        if matches!(param_assura.as_str(), "Int" | "Nat" | "Float") {
+            out.push_str(&format!("    requires {{ {name} >= 0 }}\n"));
+            has_clause = true;
+        }
+    }
+
+    if matches!(assura_ret.as_str(), "Int" | "Nat" | "Float") {
+        out.push_str("    ensures { result >= 0 }\n");
+        has_clause = true;
+    }
+
+    if !has_clause {
+        out.push_str("    // TODO: add requires clauses (preconditions)\n");
+        out.push_str("    // TODO: add ensures clauses (postconditions)\n");
+    }
+
     out.push_str("}\n\n");
 }
 
