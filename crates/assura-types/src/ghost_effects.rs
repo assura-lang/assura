@@ -14,7 +14,7 @@ use crate::TypeError;
 ///
 /// If no `effects` clause exists, returns `None` (meaning no explicit
 /// declaration, which is NOT the same as pure).
-fn extract_fn_effects(f: &assura_parser::ast::FnDef) -> Option<Vec<std::string::String>> {
+fn extract_fn_effects(f: &assura_parser::ast::FnDef) -> Option<Vec<String>> {
     for clause in &f.clauses {
         if clause.kind == ClauseKind::Effects {
             // Extract effect names from the clause body
@@ -27,7 +27,7 @@ fn extract_fn_effects(f: &assura_parser::ast::FnDef) -> Option<Vec<std::string::
 }
 
 /// Recursively extract effect name strings from an expression.
-fn extract_effect_names(expr: &Expr, names: &mut Vec<std::string::String>) {
+fn extract_effect_names(expr: &Expr, names: &mut Vec<String>) {
     match expr {
         Expr::Ident(s) => names.push(s.clone()),
         Expr::Raw(tokens) => {

@@ -784,7 +784,7 @@ fn linear_context_merge_takes_max_usage() {
     a.use_var("x");
     b.use_var("x");
 
-    let _ = ctx.merge(&a, &b);
+    ctx.merge(&a, &b);
     // Max of 3 and 1 = 3
     assert_eq!(ctx.get_count("x"), Some(3));
 }
@@ -836,7 +836,7 @@ fn linear_double_use_a05001() {
         op: AstBinOp::Add,
         rhs: Box::new(AstExpr::Ident("buf".into())),
     };
-    let _ = check_expr_linearity(&expr, &mut ctx);
+    check_expr_linearity(&expr, &mut ctx);
     let errors = ctx.check();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A05001");
@@ -944,7 +944,7 @@ fn linear_triple_use_a05001() {
         op: AstBinOp::Add,
         rhs: Box::new(AstExpr::Ident("fd".into())),
     };
-    let _ = check_expr_linearity(&expr, &mut ctx);
+    check_expr_linearity(&expr, &mut ctx);
     let errors = ctx.check();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A05001");
@@ -1010,7 +1010,7 @@ fn linear_two_vars_one_double_used_one_unused() {
         op: AstBinOp::Add,
         rhs: Box::new(AstExpr::Ident("a".into())),
     };
-    let _ = check_expr_linearity(&expr, &mut ctx);
+    check_expr_linearity(&expr, &mut ctx);
     let errors = ctx.check();
     assert_eq!(errors.len(), 2);
 

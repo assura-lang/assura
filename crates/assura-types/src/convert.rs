@@ -182,7 +182,7 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
                     .collect::<Vec<&str>>()
                     .join(" ")
             } else {
-                std::string::String::new()
+                String::new()
             };
 
             return Type::Refined {

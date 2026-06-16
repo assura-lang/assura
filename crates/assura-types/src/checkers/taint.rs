@@ -80,13 +80,13 @@ pub(crate) fn extract_taint_label(type_tokens: &[String]) -> Option<TaintLabel> 
 #[derive(Debug, Clone)]
 pub(crate) struct TaintChecker {
     /// Maps variable name to its taint label.
-    labels: HashMap<std::string::String, TaintLabel>,
+    labels: HashMap<String, TaintLabel>,
     /// Names of functions known to validate/sanitize input.
     /// These functions convert Untrusted -> Validated.
-    validation_fns: std::collections::HashSet<std::string::String>,
+    validation_fns: std::collections::HashSet<String>,
     /// Names of functions whose parameters require validated/trusted input.
     /// Maps function name to its parameter taint requirements.
-    trusted_sinks: HashMap<std::string::String, Vec<Option<TaintLabel>>>,
+    trusted_sinks: HashMap<String, Vec<Option<TaintLabel>>>,
 }
 
 impl TaintChecker {
@@ -104,21 +104,17 @@ impl TaintChecker {
     }
 
     /// Declare a variable with a taint label.
-    pub fn declare(&mut self, name: std::string::String, label: TaintLabel) {
+    pub fn declare(&mut self, name: String, label: TaintLabel) {
         self.labels.insert(name, label);
     }
 
     /// Register a function as a validation/sanitization function.
-    pub fn register_validator(&mut self, name: std::string::String) {
+    pub fn register_validator(&mut self, name: String) {
         self.validation_fns.insert(name);
     }
 
     /// Register a function as a trusted sink with parameter taint requirements.
-    pub fn register_trusted_sink(
-        &mut self,
-        name: std::string::String,
-        param_labels: Vec<Option<TaintLabel>>,
-    ) {
+    pub fn register_trusted_sink(&mut self, name: String, param_labels: Vec<Option<TaintLabel>>) {
         self.trusted_sinks.insert(name, param_labels);
     }
 

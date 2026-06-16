@@ -99,7 +99,7 @@ pub(crate) fn extract_kv_pairs(expr: &Expr) -> Vec<(&str, &Expr)> {
 ///   we have assignment analysis in the implementation IR)
 pub struct FrameChecker {
     /// The set of variables/fields declared in the modifies clause.
-    modified: std::collections::HashSet<std::string::String>,
+    modified: std::collections::HashSet<String>,
 }
 
 impl FrameChecker {
@@ -136,7 +136,7 @@ impl FrameChecker {
     }
 
     /// Get the set of modified variable names.
-    pub fn modified_set(&self) -> &std::collections::HashSet<std::string::String> {
+    pub fn modified_set(&self) -> &std::collections::HashSet<String> {
         &self.modified
     }
 
@@ -184,7 +184,7 @@ impl FrameChecker {
     ///
     /// Returns the list of variable names for which frame axioms should
     /// be injected.
-    pub fn frame_axiom_vars(&self, ensures_body: &Expr) -> Vec<std::string::String> {
+    pub fn frame_axiom_vars(&self, ensures_body: &Expr) -> Vec<String> {
         if !self.has_modifies() {
             return Vec::new();
         }
@@ -193,8 +193,7 @@ impl FrameChecker {
         let ident_refs = collect_ident_references(ensures_body);
 
         // Collect all referenced variables (both in old() and directly)
-        let mut all_refs: std::collections::HashSet<std::string::String> =
-            std::collections::HashSet::new();
+        let mut all_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
         for r in &old_refs {
             all_refs.insert(r.clone());
         }
@@ -203,7 +202,7 @@ impl FrameChecker {
         }
 
         // Variables NOT in the modifies set get frame axioms
-        let mut frame_vars: Vec<std::string::String> = all_refs
+        let mut frame_vars: Vec<String> = all_refs
             .into_iter()
             .filter(|name| !self.modified.contains(name))
             .filter(|name| {

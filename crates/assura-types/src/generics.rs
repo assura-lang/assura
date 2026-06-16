@@ -100,7 +100,7 @@ fn user_defined_type_param_count(
 /// the corresponding concrete type. Types not in the bindings map are left
 /// unchanged.
 #[cfg(test)]
-pub(crate) fn substitute(ty: &Type, bindings: &HashMap<std::string::String, Type>) -> Type {
+pub(crate) fn substitute(ty: &Type, bindings: &HashMap<String, Type>) -> Type {
     match ty {
         Type::TypeParam(name) => bindings.get(name).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(inner) => Type::List(Box::new(substitute(inner, bindings))),

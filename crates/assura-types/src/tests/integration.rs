@@ -1015,7 +1015,7 @@ fn rollback_checker_resource_leak() {
     let mut checker = RollbackChecker::new();
     checker.create_savepoint("sp1".into());
     checker.acquire_resource("file_handle".into());
-    let _ = checker.rollback_to("sp1");
+    checker.rollback_to("sp1");
     let errors = checker.check_resource_leak();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A36002");
@@ -1029,7 +1029,7 @@ fn rollback_checker_no_leak_when_released() {
     checker.create_savepoint("sp1".into());
     checker.acquire_resource("conn".into());
     checker.release_resource("conn");
-    let _ = checker.rollback_to("sp1");
+    checker.rollback_to("sp1");
     let errors = checker.check_resource_leak();
     assert!(errors.is_empty());
 }

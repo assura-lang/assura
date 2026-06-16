@@ -12,21 +12,21 @@ use super::*;
 /// - `Expr::List([...])` for comma-separated list
 ///
 /// Returns a set of string representations (e.g., `"x"`, `"node.keys"`).
-pub(crate) fn extract_modifies_targets(expr: &Expr) -> Vec<std::string::String> {
+pub(crate) fn extract_modifies_targets(expr: &Expr) -> Vec<String> {
     let mut targets = Vec::new();
     collect_modifies_targets(expr, &mut targets);
     targets
 }
 
 /// Recursively collect modifies targets from an expression.
-fn collect_modifies_targets(expr: &Expr, targets: &mut Vec<std::string::String>) {
+fn collect_modifies_targets(expr: &Expr, targets: &mut Vec<String>) {
     match expr {
         Expr::Ident(name) => {
             targets.push(name.clone());
         }
         Expr::Field(receiver, field) => {
             // Build dotted path: "obj.field"
-            let mut path = std::string::String::new();
+            let mut path = String::new();
             build_field_path(receiver, &mut path);
             if !path.is_empty() {
                 path.push('.');
@@ -62,7 +62,7 @@ fn collect_modifies_targets(expr: &Expr, targets: &mut Vec<std::string::String>)
 }
 
 /// Build a dotted field path from nested Field expressions.
-fn build_field_path(expr: &Expr, path: &mut std::string::String) {
+fn build_field_path(expr: &Expr, path: &mut String) {
     match expr {
         Expr::Ident(name) => {
             path.push_str(name);
@@ -81,13 +81,13 @@ fn build_field_path(expr: &Expr, path: &mut std::string::String) {
 /// Walks the expression tree and whenever it finds `Expr::Old(inner)`,
 /// extracts the variable/field name from `inner`. This is used to find
 /// which pre-state variables an `ensures` clause references.
-pub(crate) fn collect_old_references(expr: &Expr) -> Vec<std::string::String> {
+pub(crate) fn collect_old_references(expr: &Expr) -> Vec<String> {
     let mut refs = Vec::new();
     collect_old_refs_inner(expr, &mut refs);
     refs
 }
 
-fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
+fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
     match expr {
         Expr::Old(inner) => {
             // Extract the name from the inner expression
@@ -96,7 +96,7 @@ fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
                     refs.push(name.clone());
                 }
                 Expr::Field(receiver, field) => {
-                    let mut path = std::string::String::new();
+                    let mut path = String::new();
                     build_field_path(receiver, &mut path);
                     if !path.is_empty() {
                         path.push('.');
@@ -188,13 +188,13 @@ fn collect_old_refs_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
 ///
 /// Used to find which variables an ensures clause mentions so we can
 /// determine which frame axioms to inject.
-pub(crate) fn collect_ident_references(expr: &Expr) -> Vec<std::string::String> {
+pub(crate) fn collect_ident_references(expr: &Expr) -> Vec<String> {
     let mut refs = Vec::new();
     collect_idents_inner(expr, &mut refs);
     refs
 }
 
-fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
+fn collect_idents_inner(expr: &Expr, refs: &mut Vec<String>) {
     match expr {
         Expr::Ident(name) => {
             if name != "true" && name != "false" && name != "result" && name != "self" {
@@ -204,7 +204,7 @@ fn collect_idents_inner(expr: &Expr, refs: &mut Vec<std::string::String>) {
         Expr::Literal(_) | Expr::Raw(_) => {}
         Expr::Old(inner) => collect_idents_inner(inner, refs),
         Expr::Field(receiver, field) => {
-            let mut path = std::string::String::new();
+            let mut path = String::new();
             build_field_path(receiver, &mut path);
             if !path.is_empty() {
                 path.push('.');

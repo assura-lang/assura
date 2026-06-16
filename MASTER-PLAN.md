@@ -1181,7 +1181,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: INTERNALS.md references chumsky 0.9 (not used), wrong
   file names (parser.rs), wrong API signatures, missing 5 crates.
   AGENTS.md version table says logos 0.15 (actual: 0.16).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -ci "chumsky" docs/INTERNALS.md
   # Must return 0
@@ -1243,10 +1243,10 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: 136 `std::string::String` in domain.rs, 67 hardcoded
   numeric defaults without named constants, 5 glob re-exports,
   `&Vec<T>` instead of `&[T]`, Debug format as semantic data.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -c "std::string::String" crates/assura-types/src/domain.rs
-  # Must return 0
+  # Must return 0 (domain.rs was split; all checker files also cleaned)
   grep -c "pub use.*\*" crates/assura-smt/src/lib.rs
   # Must return 0
   cargo test --workspace
@@ -1284,7 +1284,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: 5 assertion-free tests in assura-macros, 7 discarded
   results in assura-types tests, domain checker test coverage
   at 7.7 tests/struct (target: 10+).
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -rn "let _ =" crates/assura-macros/tests/ | wc -l
   # Must return 0

@@ -382,7 +382,7 @@ pub(crate) struct InfoFlowError {
     /// Error code (A08001-A08005).
     pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
-    pub message: std::string::String,
+    pub message: String,
     /// Source location where the error was detected.
     pub span: Range<usize>,
 }
@@ -396,15 +396,15 @@ pub(crate) struct InfoFlowError {
 #[derive(Debug, Clone)]
 pub(crate) struct InfoFlowChecker {
     /// Maps variable name to its security label.
-    labels: HashMap<std::string::String, SecurityLabel>,
+    labels: HashMap<String, SecurityLabel>,
     /// Maps variable name to its GDPR purpose label (e.g. "analytics",
     /// "billing", "marketing").
-    purpose_labels: HashMap<std::string::String, std::string::String>,
+    purpose_labels: HashMap<String, String>,
     /// Set of variables that carry an explicit `@declassify` annotation.
-    declassify_annotations: std::collections::HashSet<std::string::String>,
+    declassify_annotations: std::collections::HashSet<String>,
     /// Names of functions that are considered timing-sensitive (potential
     /// covert channels).
-    timing_sensitive_fns: std::collections::HashSet<std::string::String>,
+    timing_sensitive_fns: std::collections::HashSet<String>,
 }
 
 impl InfoFlowChecker {
@@ -427,22 +427,22 @@ impl InfoFlowChecker {
     }
 
     /// Declare a variable with a security label.
-    pub fn declare(&mut self, name: std::string::String, label: SecurityLabel) {
+    pub fn declare(&mut self, name: String, label: SecurityLabel) {
         self.labels.insert(name, label);
     }
 
     /// Declare a variable with a GDPR purpose label.
-    pub fn declare_purpose(&mut self, name: std::string::String, purpose: std::string::String) {
+    pub fn declare_purpose(&mut self, name: String, purpose: String) {
         self.purpose_labels.insert(name, purpose);
     }
 
     /// Mark a variable as having an explicit `@declassify` annotation.
-    pub fn mark_declassify(&mut self, name: std::string::String) {
+    pub fn mark_declassify(&mut self, name: String) {
         self.declassify_annotations.insert(name);
     }
 
     /// Register a function as timing-sensitive (potential covert channel).
-    pub fn register_timing_sensitive(&mut self, name: std::string::String) {
+    pub fn register_timing_sensitive(&mut self, name: String) {
         self.timing_sensitive_fns.insert(name);
     }
 

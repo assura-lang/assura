@@ -69,10 +69,10 @@ pub enum Type {
     Sequence(Box<Type>),
 
     // --- User-defined named type ---
-    Named(std::string::String),
+    Named(String),
 
     // --- Generic type parameter ---
-    TypeParam(std::string::String),
+    TypeParam(String),
 
     // --- Function type ---
     Fn {
@@ -86,7 +86,7 @@ pub enum Type {
     // --- Refined type: base type with predicate ---
     Refined {
         base: Box<Type>,
-        predicate: std::string::String,
+        predicate: String,
     },
 
     // --- Genuinely unknown type (unresolved reference, unparsed tokens) ---
@@ -117,9 +117,9 @@ impl Type {
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
     /// Maps symbol name -> Type.
-    pub bindings: HashMap<std::string::String, Type>,
+    pub bindings: HashMap<String, Type>,
     /// Maps struct type name -> { field_name -> field_type }.
-    pub struct_fields: HashMap<std::string::String, Vec<(std::string::String, Type)>>,
+    pub struct_fields: HashMap<String, Vec<(String, Type)>>,
 }
 
 impl TypeEnv {
@@ -133,7 +133,7 @@ impl TypeEnv {
 
     /// Insert a binding. Returns the previous type if the name was already
     /// bound.
-    pub fn insert(&mut self, name: std::string::String, ty: Type) -> Option<Type> {
+    pub fn insert(&mut self, name: String, ty: Type) -> Option<Type> {
         self.bindings.insert(name, ty)
     }
 
@@ -170,11 +170,11 @@ pub struct TypeError {
     /// Error code from the spec (A03xxx series).
     pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
-    pub message: std::string::String,
+    pub message: String,
     /// Source location where the error was detected.
     pub span: Range<usize>,
     /// Optional secondary span with label (e.g., "expected type declared here").
-    pub secondary: Option<(Range<usize>, std::string::String)>,
+    pub secondary: Option<(Range<usize>, String)>,
 }
 
 impl From<TypeError> for assura_diagnostics::Diagnostic {

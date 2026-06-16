@@ -199,7 +199,7 @@ fn interaction_linear_effect_pure_function_with_linear_resource() {
 
     // Resource consumed (linear OK)
     let expr = AstExpr::Ident("handle".into());
-    let _ = check_expr_linearity(&expr, &mut ctx);
+    check_expr_linearity(&expr, &mut ctx);
     let linear_errors = ctx.check();
     assert!(linear_errors.is_empty());
 
@@ -227,7 +227,7 @@ fn interaction_linear_effect_undeclared_effect_on_resource() {
         method: "send".into(),
         args: vec![AstExpr::Literal(AstLit::Str("data".into()))],
     };
-    let _ = check_expr_linearity(&expr, &mut ctx);
+    check_expr_linearity(&expr, &mut ctx);
     let linear_errors = ctx.check();
     assert!(linear_errors.is_empty());
 
@@ -816,7 +816,7 @@ fn interaction_full_pipeline_linear_typestate_effect_pass() {
         method: "close".into(),
         args: vec![],
     };
-    let _ = check_expr_linearity(&expr, &mut ctx);
+    check_expr_linearity(&expr, &mut ctx);
     let linear_errors = ctx.check();
     assert!(linear_errors.is_empty(), "linear: {linear_errors:?}");
 

@@ -31,19 +31,28 @@ pub(crate) use assura_types::TypedFile;
 
 /// Measure definitions (T054): sorts, axioms, and built-in measures.
 pub mod measures;
-pub use measures::*;
+pub use measures::{
+    MeasureAxiom, MeasureAxiomTag, MeasureDefinition, MeasureSort, register_builtin_measures,
+};
 
 /// Verification result types: `VerificationResult` and `CounterexampleModel`.
 pub mod result;
-pub use result::*;
+pub use result::{CounterexampleModel, VerificationResult};
 
 /// Public entry point functions for SMT verification.
 mod entry;
-pub use entry::*;
+pub use entry::{
+    check_refinement_subtype, check_refinement_subtype_with_context, has_verifiable_clauses,
+    verify, verify_buffer_bounds, verify_contract, verify_contract_with_solver, verify_decrease,
+    verify_parallel, verify_parallel_with_solver, verify_region_containment, verify_taint_safety,
+    verify_with_measures, verify_with_options,
+};
 
 /// SMT-LIB2 dump and quantifier bound validation.
 pub mod smt_dump;
-pub use smt_dump::*;
+pub use smt_dump::{
+    SmtQuery, UnboundedQuantifierWarning, dump_smt_queries, validate_quantifier_bounds,
+};
 
 // ---------------------------------------------------------------------------
 // Display and formatting
@@ -94,14 +103,27 @@ pub mod incremental;
 pub mod layer2;
 // Re-export key types from submodules so callers and tests can use them
 // without qualifying the module path.
-pub use advanced::*;
-pub use cache::*;
-pub use incremental::*;
-pub use layer2::*;
+pub use advanced::{
+    CodecDispatcher, CodecEntry, DispatchResult, LivenessChecker, LivenessKind, LivenessObligation,
+    MemoryAccess, MemoryOrdering, ProphecyError, ProphecyManager, ProphecyVariable, TriggerManager,
+    TriggerPattern, WeakMemoryChecker,
+};
+pub use cache::{SessionCache, SessionCacheEntry, VerificationCache};
+pub use incremental::{IncrementalCompiler, ModuleState};
+pub use layer2::{
+    Layer2Config, Layer2Result, Layer2Verifier, QuantifiedInvariant, RoundtripObligation,
+    TerminationObligation, verify_quantified_expr,
+};
 
 /// Implementation IR (Section 4): parser, codegen, and `assura ir` CLI command.
 pub mod ir;
-pub use ir::*;
+pub use ir::{
+    IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrModule, IrNode, IrParser,
+    IrPred, IrPredArg, IrSlotDecl, IrValidation, ir_to_rust, parse_ir_module,
+    validate_ir_against_contract,
+};
+#[cfg(test)]
+pub(crate) use ir::{ir_type_to_rust, parse_arith_op, parse_cmp_op, parse_ir_pred_str};
 
 #[cfg(test)]
 #[path = "tests_measures.rs"]

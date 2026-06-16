@@ -20,7 +20,7 @@ pub(crate) struct TotalityError {
     /// Error code from the spec (A09xxx series).
     pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
-    pub message: std::string::String,
+    pub message: String,
     /// Source location where the error was detected.
     pub span: Range<usize>,
 }
@@ -69,7 +69,7 @@ pub struct PendingDecreaseCheck {
 /// - **A09004**: Mutually recursive functions without collective termination proof
 pub(crate) struct TotalityChecker {
     /// Names of functions known to be partial (escape hatch).
-    partial_fns: std::collections::HashSet<std::string::String>,
+    partial_fns: std::collections::HashSet<String>,
 }
 
 impl TotalityChecker {
@@ -81,7 +81,7 @@ impl TotalityChecker {
     }
 
     /// Register a function as `partial` (opt out of termination checking).
-    pub fn mark_partial(&mut self, name: std::string::String) {
+    pub fn mark_partial(&mut self, name: String) {
         self.partial_fns.insert(name);
     }
 

@@ -10,7 +10,7 @@ use super::*;
 /// The special value `"pure"` represents an empty effect set.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct EffectSet {
-    effects: std::collections::HashSet<std::string::String>,
+    effects: std::collections::HashSet<String>,
 }
 
 impl EffectSet {
@@ -25,9 +25,7 @@ impl EffectSet {
     ///
     /// The name `"pure"` is treated as an empty set; it is not stored as
     /// an actual effect label.
-    pub fn from_effect_names(
-        effects: impl IntoIterator<Item = impl Into<std::string::String>>,
-    ) -> Self {
+    pub fn from_effect_names(effects: impl IntoIterator<Item = impl Into<String>>) -> Self {
         let mut set = std::collections::HashSet::new();
         for e in effects {
             let name = e.into();
@@ -44,7 +42,7 @@ impl EffectSet {
     }
 
     /// Insert an effect into the set.
-    pub fn insert(&mut self, effect: std::string::String) {
+    pub fn insert(&mut self, effect: String) {
         if effect != "pure" {
             self.effects.insert(effect);
         }
@@ -88,7 +86,7 @@ pub(crate) struct EffectError {
     /// Error code from the spec (A07xxx series).
     pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
-    pub message: std::string::String,
+    pub message: String,
     /// Source location where the error was detected.
     pub span: Range<usize>,
 }
@@ -194,7 +192,7 @@ impl EffectChecker {
         let mut expanded = declared.clone();
         // Iterate over the original set (not the expanding one) to avoid
         // borrow issues.
-        let originals: Vec<std::string::String> = declared.effects.iter().cloned().collect();
+        let originals: Vec<String> = declared.effects.iter().cloned().collect();
         for effect in &originals {
             if let Some(children) = self.hierarchy.get(effect.as_str()) {
                 for &child in children {

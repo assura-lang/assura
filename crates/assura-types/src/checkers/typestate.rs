@@ -16,7 +16,7 @@ pub(crate) struct TypestateError {
     /// Error code from the spec (A06xxx series).
     pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
-    pub message: std::string::String,
+    pub message: String,
     /// Source location where the error was detected.
     pub span: Range<usize>,
 }
@@ -28,9 +28,9 @@ pub(crate) struct TypestateError {
 /// and after the call the object moves to `next_state`.
 #[derive(Debug, Clone)]
 struct Transition {
-    operation: std::string::String,
-    from_state: std::string::String,
-    to_state: std::string::String,
+    operation: String,
+    from_state: String,
+    to_state: String,
 }
 
 /// Typestate checker that tracks a DFA of states and transitions.
@@ -49,11 +49,11 @@ struct Transition {
 #[derive(Debug, Clone)]
 pub(crate) struct TypestateChecker {
     /// All declared states for this typestate variable.
-    pub(crate) states: Vec<std::string::String>,
+    pub(crate) states: Vec<String>,
     /// All declared transitions.
     transitions: Vec<Transition>,
     /// Current state of the tracked variable.
-    current: std::string::String,
+    current: String,
     /// Source span of the typestate declaration (for error reporting).
     decl_span: Range<usize>,
 }
@@ -68,13 +68,9 @@ impl TypestateChecker {
     /// * `initial_state` - The starting state
     /// * `decl_span` - Source span of the typestate declaration
     pub fn new(
-        states: Vec<std::string::String>,
-        transitions: Vec<(
-            std::string::String,
-            std::string::String,
-            std::string::String,
-        )>,
-        initial_state: std::string::String,
+        states: Vec<String>,
+        transitions: Vec<(String, String, String)>,
+        initial_state: String,
         decl_span: Range<usize>,
     ) -> Self {
         let transitions = transitions

@@ -10,13 +10,13 @@ use super::*;
 #[derive(Debug, Clone)]
 pub(crate) struct MemoryRegion {
     /// Name of the region (e.g., "valid_range").
-    pub name: std::string::String,
+    pub name: String,
     /// Lower bound expression (as variable name or literal).
-    pub lower: std::string::String,
+    pub lower: String,
     /// Upper bound expression (as variable name or literal).
-    pub upper: std::string::String,
+    pub upper: String,
     /// The buffer variable this region is associated with.
-    pub buffer: std::string::String,
+    pub buffer: String,
 }
 
 /// An error produced by the memory checker.
@@ -32,7 +32,7 @@ pub(crate) struct MemoryError {
     /// Error code from the spec (A08xxx series).
     pub code: assura_diagnostics::ErrorCode,
     /// Human-readable error message.
-    pub message: std::string::String,
+    pub message: String,
     /// Source location where the error was detected.
     pub span: Range<usize>,
 }
@@ -56,7 +56,7 @@ pub(crate) struct MemoryError {
 pub(crate) struct MemoryChecker {
     /// Known buffer-typed variables and their capacity expressions.
     /// Maps variable name -> capacity field name (e.g., "buf" -> "buf.len").
-    buffers: HashMap<std::string::String, std::string::String>,
+    buffers: HashMap<String, String>,
     /// Ghost region declarations.
     regions: Vec<MemoryRegion>,
 }
@@ -74,7 +74,7 @@ impl MemoryChecker {
     ///
     /// Buffer types are: Bytes, List<T>, Sequence<T>, and any user type
     /// with `.len` or `.capacity` fields.
-    pub fn register_buffer(&mut self, name: std::string::String, capacity: std::string::String) {
+    pub fn register_buffer(&mut self, name: String, capacity: String) {
         self.buffers.insert(name, capacity);
     }
 

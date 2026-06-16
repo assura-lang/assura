@@ -39,7 +39,7 @@ impl std::fmt::Display for UsageGrade {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct UsageTracker {
     /// Maps variable name -> (expected grade, actual usage count, declaration span).
-    usages: HashMap<std::string::String, (UsageGrade, u32, Range<usize>)>,
+    usages: HashMap<String, (UsageGrade, u32, Range<usize>)>,
 }
 
 impl UsageTracker {
@@ -54,7 +54,7 @@ impl UsageTracker {
     ///
     /// If the variable was already declared, updates its grade and resets
     /// the count.
-    pub fn declare(&mut self, name: std::string::String, grade: UsageGrade, span: Range<usize>) {
+    pub fn declare(&mut self, name: String, grade: UsageGrade, span: Range<usize>) {
         self.usages.insert(name, (grade, 0, span));
     }
 

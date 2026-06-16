@@ -9,7 +9,7 @@ pub(crate) struct FixedWidthError {
     /// Error code (A10101-A10104).
     pub code: assura_diagnostics::ErrorCode,
     /// Human-readable message.
-    pub message: std::string::String,
+    pub message: String,
     /// Source span where the issue was detected.
     pub span: Range<usize>,
 }
@@ -31,7 +31,7 @@ pub(crate) struct FixedWidthError {
 #[derive(Debug, Clone)]
 pub(crate) struct FixedWidthChecker {
     /// Maps variable name to its fixed-width type.
-    bindings: HashMap<std::string::String, Type>,
+    bindings: HashMap<String, Type>,
 }
 
 impl FixedWidthChecker {
@@ -43,7 +43,7 @@ impl FixedWidthChecker {
     }
 
     /// Register a variable with its fixed-width integer type.
-    pub fn declare(&mut self, name: std::string::String, ty: Type) {
+    pub fn declare(&mut self, name: String, ty: Type) {
         self.bindings.insert(name, ty);
     }
 
@@ -296,7 +296,7 @@ impl FixedWidthChecker {
     }
 
     /// Suggest a checked alternative for an arithmetic operator.
-    pub fn suggest_checked_alternative(op: &BinOp) -> std::string::String {
+    pub fn suggest_checked_alternative(op: &BinOp) -> String {
         match op {
             BinOp::Add => "checked_add".into(),
             BinOp::Sub => "checked_sub".into(),

@@ -23,7 +23,7 @@ fn contract_debug_assert_precondition() {
 #[should_panic(expected = "assura: precondition failed")]
 fn contract_debug_assert_precondition_fails() {
     // divisor == 0 should trigger the precondition assert in debug mode
-    let _ = safe_divide(10, 0);
+    safe_divide(10, 0);
 }
 
 #[contract]
@@ -41,7 +41,7 @@ fn contract_no_ensures_works() {
 #[test]
 #[should_panic(expected = "assura: precondition failed")]
 fn contract_no_ensures_fails_precondition() {
-    let _ = non_negative_only(-1);
+    non_negative_only(-1);
 }
 
 #[contract]
@@ -61,7 +61,7 @@ fn contract_multiple_requires() {
 #[test]
 #[should_panic(expected = "assura: precondition failed")]
 fn contract_multiple_requires_first_fails() {
-    let _ = both_positive(0, 2);
+    both_positive(0, 2);
 }
 
 #[contract]
@@ -102,7 +102,7 @@ fn trust_no_reason_passthrough() {
 #[contract]
 /// @requires x > 0
 fn void_with_precondition(x: i32) {
-    let _ = x;
+    _ = x;
 }
 
 #[test]
@@ -134,5 +134,5 @@ fn contract_multiline_predicate() {
 #[test]
 #[should_panic(expected = "assura: precondition failed")]
 fn contract_multiline_predicate_fails() {
-    let _ = bounded(0);
+    bounded(0);
 }

@@ -19,7 +19,7 @@ use crate::{Type, TypeError};
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Pattern {
     /// Matches a specific enum variant by name.
-    Variant(std::string::String),
+    Variant(String),
     /// Wildcard `_` pattern that matches anything.
     Wildcard,
     /// Matches a specific literal value.
@@ -42,8 +42,8 @@ pub(crate) enum Pattern {
 /// (non-exhaustive match) and include the missing variants in the diagnostic.
 pub(crate) fn check_exhaustiveness(
     patterns: &[Pattern],
-    enum_variants: &[std::string::String],
-) -> Option<Vec<std::string::String>> {
+    enum_variants: &[String],
+) -> Option<Vec<String>> {
     // A wildcard covers all variants immediately.
     if patterns.iter().any(|p| matches!(p, Pattern::Wildcard)) {
         return None;
@@ -58,7 +58,7 @@ pub(crate) fn check_exhaustiveness(
         })
         .collect();
 
-    let missing: Vec<std::string::String> = enum_variants
+    let missing: Vec<String> = enum_variants
         .iter()
         .filter(|v| !covered.contains(v.as_str()))
         .cloned()
