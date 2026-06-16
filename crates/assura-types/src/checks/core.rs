@@ -27,7 +27,7 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
                 .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "prove"));
             if !has_prove {
                 errors.push(TypeError {
-                    code: "A-CORE-030".into(),
+                    code: "A31006".into(),
                     message: format!(
                         "liveness block `{name}` has no `prove` clause; \
                          at least one liveness property must be stated"
@@ -46,7 +46,7 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
             });
             if has_leads_to && !has_fair {
                 errors.push(TypeError {
-                    code: "A-CORE-031".into(),
+                    code: "A31007".into(),
                     message: format!(
                         "liveness block `{name}` uses `leads_to` but has no \
                          `assume fair` clause; fairness is required for \

@@ -375,7 +375,7 @@ pub(crate) fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> 
 /// - The ordering value is a recognized memory ordering keyword
 ///   (relaxed, acquire, release, acqrel, seq_cst)
 /// - Contracts with `ordering: relaxed` that also have `ensures` clauses
-///   depending on the value get A-CONC-016 warnings (relaxed read
+///   depending on the value get A23016 warnings (relaxed read
 ///   without view check)
 pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     use assura_parser::ast::MemoryOrdering;
@@ -407,7 +407,7 @@ pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) ->
                         ordering_value = Some(ord);
                     } else {
                         errors.push(TypeError {
-                            code: "A-CONC-019".into(),
+                            code: "A23019".into(),
                             message: format!(
                                 "unknown memory ordering `{s}` in `{name}`; \
                                  expected one of: relaxed, acquire, release, acqrel, seq_cst"
@@ -423,10 +423,10 @@ pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) ->
             }
         }
 
-        // A-CONC-016: relaxed read with ensures (value-dependent assertion)
+        // A23016: relaxed read with ensures (value-dependent assertion)
         if ordering_value == Some(MemoryOrdering::Relaxed) && has_ensures {
             errors.push(TypeError {
-                code: "A-CONC-016".into(),
+                code: "A23016".into(),
                 message: format!(
                     "relaxed ordering in `{name}` with ensures clause: \
                      value read with Relaxed may be stale; \

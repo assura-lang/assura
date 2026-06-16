@@ -4495,8 +4495,8 @@ Layer assignment:
 | Code | Message | Cause |
 |---|---|---|
 | A-CORE-029 | Liveness violation: lasso found | BMC found a cycle where property never holds |
-| A-CORE-030 | Liveness unproven within bound K | No lasso found but k-induction did not converge |
-| A-CORE-031 | Missing fairness assumption | Liveness depends on scheduling but no `assume fair` |
+| A31006 | Liveness unproven within bound K | No lasso found but k-induction did not converge |
+| A31007 | Missing fairness assumption | Liveness depends on scheduling but no `assume fair` |
 | A-CORE-032 | Invalid fairness target | `assume fair` references undefined action or state |
 | A-CORE-033 | Bounded liveness exceeded | `eventually_within(N)` but property not reached in N steps |
 
@@ -7007,10 +7007,10 @@ fn is_pinned(guard: &Guard) -> bool {
 
 | Code | Message | Cause |
 |---|---|---|
-| A-CONC-016 | Relaxed read without view check | Read depends on value ordering but uses Relaxed |
+| A23016 | Relaxed read without view check | Read depends on value ordering but uses Relaxed |
 | A-CONC-017 | Missing release before acquire | Data written without Release read with Acquire |
 | A-CONC-018 | View inconsistency | Thread asserts value visible but view has not merged |
-| A-CONC-019 | Fence ordering mismatch | Fence type does not match surrounding operations |
+| A23019 | Fence ordering mismatch | Fence type does not match surrounding operations |
 | A-CONC-020 | SeqCst total order violation | SeqCst operations form a cycle in total order |
 
 ##### Rust Codegen
@@ -11178,6 +11178,7 @@ refinement PngAdam7 {
 | A53003 | After-all predicate not satisfied | Final output does not match expected |
 | A53004 | Pass count exceeds declared maximum | More passes than `passes` specifies |
 | A53005 | Refinement state not initialized before first pass | Missing initialization |
+| A53006 | Quantifier missing trigger annotation | Quantifier has no `triggers` clause for verification performance |
 
 ##### Rust Codegen
 

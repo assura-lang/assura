@@ -977,6 +977,27 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Use atomic operations or a lock to ensure multi-field updates \
                  are observed as a single unit.",
         },
+        // -- A23016, A23019: Weak memory ordering --
+        ErrorInfo {
+            code: "A23016",
+            name: "Relaxed read without view check",
+            description: "A relaxed memory ordering is used in a contract with an ensures \
+                          clause. Values read with Relaxed ordering may be stale; use \
+                          Acquire for value-dependent assertions.",
+            example: r#"  contract ReadCounter {
+    requires(ordering: relaxed)
+    ensures(result >= 0)  // -> A23016 (relaxed + ensures)
+  }"#,
+            fix: "Use Acquire ordering when the read value is used in postconditions.",
+        },
+        ErrorInfo {
+            code: "A23019",
+            name: "Fence ordering mismatch",
+            description: "A fence operation uses an unknown memory ordering. Expected one \
+                          of: relaxed, acquire, release, acqrel, seq_cst.",
+            example: r#"  contract Sync { requires(ordering: invalid_ordering) }  // -> A23019"#,
+            fix: "Use a valid memory ordering: relaxed, acquire, release, acqrel, or seq_cst.",
+        },
         // -- A31004-A31005: Binary format --
         ErrorInfo {
             code: "A31004",
@@ -995,6 +1016,25 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             example: r#"  // Reserved bytes at offset 12-15 must be 0x00
   // Found non-zero values -> A31005"#,
             fix: "Ensure reserved fields are zeroed out. Check the format specification.",
+        },
+        ErrorInfo {
+            code: "A31006",
+            name: "Liveness unproven within bound K",
+            description: "A liveness block has no `prove` clause. At least one liveness \
+                          property must be stated for verification.",
+            example: r#"  liveness block HeartbeatLiveness { }  // -> A31006 (no prove clause)"#,
+            fix: "Add a `prove` clause with a liveness property (e.g., `prove { leads_to(...) }`).",
+        },
+        ErrorInfo {
+            code: "A31007",
+            name: "Missing fairness assumption",
+            description: "A liveness block uses `leads_to` but has no `assume fair` clause. \
+                          Fairness assumptions are required for leads-to proofs.",
+            example: r#"  liveness block Progress {
+    prove { leads_to(waiting, served) }
+    // Missing: assume { fair }  -> A31007
+  }"#,
+            fix: "Add an `assume { fair }` clause to the liveness block.",
         },
         // -- A32004: Crash recovery --
         ErrorInfo {
@@ -1412,6 +1452,15 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
                           being initialized.",
             example: r#"  // Using refinement.prev_result in pass 0 -> A53005"#,
             fix: "Initialize the refinement state before the first pass.",
+        },
+        ErrorInfo {
+            code: "A53006",
+            name: "Quantifier missing trigger annotation",
+            description: "A quantifier has no `triggers` clause. Without triggers, \
+                          the SMT solver may enumerate all possible values, causing \
+                          verification timeouts.",
+            example: r#"  forall x in xs: x > 0  // -> A53006 (no triggers clause)"#,
+            fix: "Add a `triggers` clause to guide the SMT solver.",
         },
         // -- A54004-A54005: Ghost variables --
         ErrorInfo {

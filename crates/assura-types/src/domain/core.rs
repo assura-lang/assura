@@ -415,9 +415,9 @@ impl Default for TestGenerator {
 /// Validates quantifier trigger annotations for verification performance.
 ///
 /// Error codes:
-/// - A-CORE-050: quantifier has no trigger annotation
-/// - A-CORE-051: trigger references variable not bound by the quantifier
-/// - A-CORE-052: trigger term is a sub-expression of the quantifier body (matching loop risk)
+/// - A53006: quantifier has no trigger annotation
+/// - A53007: trigger references variable not bound by the quantifier
+/// - A53008: trigger term is a sub-expression of the quantifier body (matching loop risk)
 #[derive(Debug, Clone)]
 pub struct QuantifierTriggerChecker {
     quantifiers: Vec<QuantifierInfo>,
@@ -456,7 +456,7 @@ impl QuantifierTriggerChecker {
         for q in &self.quantifiers {
             if !q.has_trigger {
                 errors.push(TypeError {
-                    code: "A-CORE-050".into(),
+                    code: "A53006".into(),
                     message: format!(
                         "quantifier over `{}` has no trigger annotation; \
                          add a `triggers` clause for verification performance",
