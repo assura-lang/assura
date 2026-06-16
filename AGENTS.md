@@ -264,7 +264,7 @@ These are final. Do not revisit without explicit discussion.
 | Decision | Choice | Reference |
 |----------|--------|-----------|
 | Compiler language | Rust | docs/INVESTIGATION.md |
-| Lexer | logos 0.15 | Fast, derive macro |
+| Lexer | logos 0.16 | Fast, derive macro |
 | Parser | rowan 0.16 CST + hand-written recursive descent | Lossless CST, Pratt expressions |
 | Error display | ariadne 0.4 | Colored spans |
 | SMT solver | Z3 primary (z3 crate), CVC5 fallback | docs/ROADMAP.md |

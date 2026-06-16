@@ -12,10 +12,14 @@ The compiler processes `.assura` source files through a linear pipeline:
 Source (.assura)
   |
   v
-Lexer (logos 0.15)           crates/assura-parser/src/lexer.rs
-  | produces Vec<(Token, Span)>
+Lexer (logos 0.16)           crates/assura-parser/src/lexer.rs
+  | produces tokens via logos derive
   v
-Parser (chumsky 0.9)         crates/assura-parser/src/parser.rs
+Parser (rowan 0.16 CST)      crates/assura-parser/src/cst.rs
+  | hand-written recursive descent + Pratt expression parsing
+  | produces GreenNode (lossless concrete syntax tree)
+  v
+CST -> AST Lowering          crates/assura-parser/src/lower.rs
   | produces SourceFile (AST)
   v
 Name Resolution              crates/assura-resolve/src/lib.rs
@@ -27,7 +31,7 @@ HIR Lowering                 crates/assura-hir/src/lower.rs
 Type Checking                crates/assura-types/src/lib.rs
   | produces TypedFile + Vec<TypeError>
   v
-SMT Verification (Z3)       crates/assura-smt/src/lib.rs
+SMT Verification (Z3/CVC5)  crates/assura-smt/src/lib.rs
   | produces Vec<VerificationResult>
   v
 Code Generation              crates/assura-codegen/src/lib.rs
@@ -44,45 +48,77 @@ optionally invokes `cargo check` on the generated Rust project.
 
 | Crate | LOC | Tests | Purpose |
 |-------|-----|-------|---------|
-| `assura-parser` | ~2,800 | ~50 | Lexing (logos) + parsing (chumsky 0.9) |
-| `assura-resolve` | ~3,400 | ~80 | Name resolution, scope analysis, symbol table |
-| `assura-hir` | ~800 | ~23 | High-level IR, AST-to-HIR lowering |
-| `assura-types` | ~25,000 | ~860 | Type checking, 50+ domain-specific checkers |
-| `assura-smt` | ~7,000 | ~170 | Z3 SMT solver integration, verification |
-| `assura-codegen` | ~3,300 | ~100 | Rust code generation via prettyplease |
-| `assura-diagnostics` | ~200 | ~6 | Unified Diagnostic type for all passes |
-| `assura-cli` | ~2,400 | ~45 | CLI binary (check, build, init, fmt, explain) |
-| `assura-lsp` | ~850 | ~33 | Language Server Protocol (tower-lsp) |
-| `assura-server` | ~500 | ~26 | gRPC (tonic) + HTTP (axum) API server |
-| `assura-bench` | ~170 | - | Criterion benchmarks for all pipeline stages |
+| `assura-parser` | 8,100 | 149 | Lexer (logos 0.16), CST (rowan 0.16), recursive descent parser, Pratt expressions, CST-to-AST lowering |
+| `assura-resolve` | 4,300 | 91 | Name resolution, scope analysis, symbol table |
+| `assura-hir` | 1,800 | 31 | High-level IR, AST-to-HIR lowering |
+| `assura-types` | 33,800 | 1,081 | Type checking, 50+ domain-specific checkers |
+| `assura-smt` | 13,800 | 397 | Z3/CVC5 SMT solver integration, verification |
+| `assura-codegen` | 7,200 | 159 | Rust code generation via prettyplease |
+| `assura-diagnostics` | 2,000 | 23 | Unified Diagnostic type, error catalog with O(1) lookup |
+| `assura-cli` | 6,200 | 74 | CLI binary (check, build, init, fmt, explain, infer, audit, diff, REPL) |
+| `assura-fmt` | 1,300 | 56 | Source code formatter |
+| `assura-config` | 900 | 34 | `assura.toml` configuration parsing |
+| `assura-pipeline` | 400 | 7 | Orchestrates multi-file compilation pipeline |
+| `assura-macros` | 300 | 20 | `#[contract]` and `#[trust]` proc macros for Rust interop |
+| `assura-stdlib` | 300 | 13 | Standard library type and contract definitions |
+| `assura-lsp` | 2,000 | 55 | Language Server Protocol (tower-lsp 0.20) |
+| `assura-mcp` | 600 | 24 | Model Context Protocol server (rmcp 1.7) |
+| `assura-server` | 800 | 27 | gRPC (tonic 0.14) + HTTP (axum 0.8) API server |
+| `assura-rust-analyzer` | 1,600 | 40 | Rust source analysis for `assura infer` and `assura audit` |
+| `assura-bench` | 2 | - | Criterion benchmarks for all pipeline stages |
+| **Total** | **~85,000** | **2,334** | |
 
 ## Crate Details
 
 ### assura-parser
 
-**Entry point:** `assura_parser::parse(source: &str) -> (Option<SourceFile>, Vec<Simple<Token>>)`
+**Entry point:** `assura_parser::parse(source: &str) -> SourceFile`
 
-The parser performs lexing and parsing in one call. It uses `logos` for
-tokenization and `chumsky` 0.9 parser combinators for grammar parsing.
+Also: `parse_unwrap(source)` (panics on error, for tests) and
+`parse_cst(source) -> (GreenNode, Vec<ParseError>)` (raw CST access).
+
+The parser uses a three-stage architecture:
+
+1. **Lexing** (`lexer.rs`): `logos` 0.16 derive macro tokenizes ~200
+   token types (keywords, operators, literals).
+2. **CST construction** (`cst.rs`): Hand-written recursive descent
+   parser builds a lossless rowan `GreenNode` tree using an
+   events/markers pattern (Open/Close/Advance). Expressions use Pratt
+   parsing with 8 binding power levels.
+3. **Lowering** (`lower.rs`): Converts the CST `SyntaxNode` tree into
+   a typed AST (`SourceFile`).
 
 **Key types:**
 - `lexer::Token`: All ~200 token types (keywords, operators, literals)
+- `syntax_kind::SyntaxKind`: Rowan node/token kinds, with `From<&Token>`
 - `ast::SourceFile`: Top-level AST node containing `Vec<Spanned<Decl>>`
-- `ast::Decl`: Declaration variants (Contract, Service, TypeDef, EnumDef, Extern, FnDef, Block, Import)
+- `ast::Decl`: Declaration variants (Contract, Service, TypeDef, EnumDef,
+  Extern, FnDef, Block, Import, Module, Bind, Trait)
 - `ast::Clause`: Contract clause with kind and body
-- `ast::Expr`: Expression AST (literals, binary ops, calls, quantifiers, etc.)
-- `ast::Literal`: Literal values (Int, Float, String, Bool, Char)
+- `ast::Expr`: Expression AST (22 variants: literals, binary ops, calls,
+  quantifiers, match, let, field access, index, etc.)
+- `ast::Literal`: Literal values (Int, Float, Str, Bool)
 
 **Source files:**
-- `lexer.rs`: Token enum with `#[derive(Logos)]`, keyword mappings
-- `ast.rs`: All AST node types, `Spanned<T>` wrapper, shared utilities
-- `parser.rs`: chumsky combinators for all grammar productions
-- `lib.rs`: `parse()` function that wires lex + parse
+- `lexer.rs`: Token enum with `#[derive(Logos)]`, ~200 keyword mappings
+- `syntax_kind.rs`: `SyntaxKind` enum for rowan, `AssuraLanguage` trait impl
+- `cst.rs`: Parser engine with events/markers, `GreenNodeBuilder`
+- `grammar/mod.rs`: Top-level grammar (source_file, project, module, import)
+- `grammar/items.rs`: Declaration grammar (contract, type, enum, fn, service, extern, bind, trait)
+- `grammar/clauses.rs`: Clause grammar (requires, ensures, invariant, effects, etc.)
+- `grammar/expressions.rs`: Pratt expression parser (8 precedence levels)
+- `grammar/params.rs`: Parameter lists, return types, type parameters
+- `ast.rs`: All AST node types, `Spanned<T>` wrapper
+- `lower.rs`: CST-to-AST lowering
+- `display.rs`: Human-readable Display impls for AST nodes
+- `lib.rs`: `parse()` entry point wiring lex + CST + lower
 
 **Important patterns:**
 - All AST nodes carry `Span = Range<usize>` (byte offsets)
-- The parser uses `parse_recovery()` for error recovery
-- `Expr::Raw(Vec<String>)` only appears in non-expression clause bodies (input, output, effects); expression clauses (requires, ensures, invariant, decreases) always produce structured `Expr`
+- The CST is lossless (whitespace, comments preserved for formatting)
+- `Expr::Raw(Vec<String>)` only appears in non-expression clause bodies
+  (input, output, effects); expression clauses (requires, ensures,
+  invariant, decreases) always produce structured `Expr`
 
 ### assura-resolve
 
@@ -125,21 +161,28 @@ during migration.
 
 **Entry point:** `assura_types::type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>>`
 
-The largest crate. Runs 50+ checkers organized into phases:
+The largest crate (33,800 lines). Runs 50+ checkers organized into phases:
 
 **Source files:**
-- `lib.rs` (~3,000 lines): Entry point, `Type` enum, `TypeEnv`, core wiring
-- `checkers.rs` (~5,700 lines): 20+ analysis pass checkers (linearity, typestate, effects, taint, totality, etc.)
-- `domain.rs` (~3,800 lines): 34 domain-specific checkers (allocators, crypto, concurrency, formats, storage, etc.)
-- `inference.rs` (~860 lines): Expression type inference
-- `clauses.rs` (~540 lines): Clause body type checking
-- `tests.rs` (~11,000 lines): All unit tests
+- `lib.rs`: Entry point, `Type` enum, `TypeEnv`, core checker wiring
+- `checkers.rs`: 20+ analysis pass checkers (linearity, typestate, effects,
+  taint, totality, etc.)
+- `checkers/interface.rs`: Interface conformance checking
+- `domain.rs`: 34 domain-specific checkers (allocators, crypto,
+  concurrency, formats, storage, etc.)
+- `inference.rs`: Expression type inference
+- `clauses.rs`: Clause body type checking
+- `tests.rs`: Unit tests
 
 **Key types:**
-- `Type`: All type variants (Int, Nat, Float, Bool, String, Generic, Refined, Linear, Typestate, etc.)
+- `Type`: All type variants (Int, Nat, Float, Bool, String, Generic,
+  Refined, Linear, Typestate, Effect, etc.) with `is_indeterminate()`
+  for `Unknown`/`Error` handling
 - `TypeEnv`: Type environment mapping names to `Type`
-- `TypedFile`: Type-checked output with `resolved`, `typed_bindings`, `pending_decrease_checks`
-- `TypeError`: Error with code, severity, message, primary span, secondary spans
+- `TypedFile`: Type-checked output with `resolved`, `typed_bindings`,
+  `pending_decrease_checks`
+- `TypeError`: Error with code, severity, message, primary span,
+  secondary spans
 
 **Checker phases (executed in order):**
 1. Expression type inference
@@ -158,21 +201,23 @@ The largest crate. Runs 50+ checkers organized into phases:
 **Entry point:** `assura_smt::verify(typed: &TypedFile) -> Vec<VerificationResult>`
 
 Z3 integration behind the `z3-verify` feature flag (enabled by default).
+CVC5 fallback via external binary in portfolio mode.
 
 **Key types:**
-- `VerificationResult`: Verified, Counterexample(model), Timeout, Unknown, Skipped, Error
+- `VerificationResult`: Enum with `Verified`, `Counterexample`,
+  `Timeout`, `Unknown`, `Skipped`, `Error` variants
 - `CounterexampleModel`: Structured counterexample with variable assignments
 - `MeasureDefinition`: Termination measure for recursion checking
+- `Encoder`: Translates `Expr` into Z3 AST (arithmetic, comparisons,
+  quantifiers, field access, function calls)
 
-**Public functions:**
-- `verify(typed)`: Verify all contracts in a typed file
-- `verify_contract(typed, contract_name)`: Verify a single contract
-- `check_refinement_subtype(antecedent, consequent)`: Subtype check via Z3
-- `verify_buffer_bounds(requires, ensures)`: Buffer safety verification
-- `verify_taint_safety(...)`: Taint tracking verification
-- `verify_decrease(...)`: Termination measure decrease verification
-- `verify_quantified_expr(...)`: Layer 2 quantifier verification (10s timeout)
-- `validate_quantifier_bounds(typed)`: Check for unbounded quantifiers
+**Source files:**
+- `lib.rs`: Entry point, `Encoder`, Z3 feature-gated wiring
+- `z3_backend.rs`: Z3-specific encoding and solving
+- `cvc5_backend.rs`: CVC5 SMT-LIB output and external binary invocation
+- `layer2.rs`: Layer 2 quantifier verification (10s timeout)
+- `advanced.rs`: Advanced verification (prophecy variables, triggers)
+- `display.rs`: Contract name collection and stats
 
 **Verification layers:**
 - Layer 1 (1s timeout): Quantifier-free (QF_UFLIA, QF_UFLRA)
@@ -192,31 +237,20 @@ Generates a Cargo project with valid Rust source code.
 - `BackendConfig`: Target, output directory, feature flags
 - `CodegenBackend`: Native or Wasm target
 
+**Source files:**
+- `lib.rs`: Main codegen logic, declaration iteration, Cargo.toml generation
+- `block.rs`: Block-level code generation, `format_rust()` via prettyplease
+- `type_map.rs`: Reverse type mapping (Rust -> Assura) for `assura infer`
+
 **What gets generated:**
-- `Cargo.toml` with dependencies (proptest in dev-deps if contracts have tests)
+- `Cargo.toml` with dependencies (proptest in dev-deps for tests)
 - `src/lib.rs` (single-contract files) or multi-file layout
 - Struct/enum definitions from AST `TypeDef`, `EnumDef`
 - Function stubs with `todo!()` bodies
 - `debug_assert!` from `requires` clauses
 - Typestate-encoded services (`PhantomData<State>` pattern)
 - Proptest property-based tests from `ensures` clauses
-- `feature_max` constants
-- Checked wrappers for `bind` declarations (call real Rust function,
-  assert requires/ensures)
-
-**Submodule: `type_map.rs`**
-
-Reverse type mapping (Rust -> Assura). `rust_type_to_assura()` converts
-Rust type strings to canonical Assura types. Handles primitives,
-collections, Option/Result, references (erased), smart pointers (erased),
-tuples, and nested generics. Used by `assura infer` and `assura audit`.
-
-**Multi-file layout (2+ contracts/services):**
-```
-src/lib.rs                  // shared types, pub mod declarations
-src/contract_{name}.rs      // per-contract module
-src/{service_name}.rs       // per-service module
-```
+- Checked wrappers for `bind` declarations
 
 ### assura-diagnostics
 
@@ -235,41 +269,88 @@ pub struct Diagnostic {
 
 `From` conversions exist for `ResolutionError` and `TypeError`.
 
+The error catalog provides `explain(code)` with O(1) HashMap lookup for
+all ~278 error codes defined in the spec.
+
 ### assura-cli
 
-The CLI binary with subcommands:
+The CLI binary (`assura`) with subcommands:
 - `assura check <file>`: Parse, resolve, type-check, verify (exit 1 on errors)
 - `assura build <file>`: Full pipeline + codegen + optional `cargo check`
 - `assura init`: Scaffold a new `.assura` project
 - `assura fmt <file>`: Format source with consistent style
 - `assura explain <code>`: Explain an error code
 - `assura infer <file.rs>`: Generate skeleton Assura bind contracts from
-  a Rust source file. Uses reverse type mapping. Supports `--function`
-  filter and `--output` file.
+  a Rust source file
 - `assura audit <path>`: Scan a Cargo crate, discover public functions,
-  generate skeleton contracts, and verify them. Reports counterexamples.
-  Supports `--format json`, `--focus`, `--max-functions`, `--unsafe-only`.
+  generate skeleton contracts, and verify them
+- `assura diff <a> <b>`: Compare two `.assura` files structurally
+- REPL mode: Interactive contract evaluation
 
 **Flags:** `--verbose` (`-v`), `--quiet` (`-q`), `--watch` (`-w`),
 `--output <dir>`, `--no-check`, `--ast`, `--tokens`, `--json`
 
+### assura-fmt
+
+Source code formatter for `.assura` files. Produces consistently
+styled output with proper indentation, clause alignment, and
+whitespace normalization.
+
+### assura-config
+
+Parses `assura.toml` project configuration files. Handles solver
+timeouts, codegen backend selection, and project-level settings.
+
+### assura-pipeline
+
+Orchestrates multi-file compilation. Discovers `.assura` files,
+resolves cross-module imports, and runs the pipeline on each file
+in dependency order.
+
+### assura-macros
+
+Procedural macros for Rust interop:
+- `#[contract]`: Generates `debug_assert!` from `@requires` /
+  `@ensures` annotations on Rust functions
+- `#[trust]`: Marks a function as trusted (skips verification)
+
+### assura-stdlib
+
+Standard library definitions. Provides built-in type and contract
+definitions (numeric types, collections, Option, Result) that are
+implicitly available in all `.assura` files.
+
 ### assura-lsp
 
-Language Server Protocol server built with `tower-lsp`:
+Language Server Protocol server built with `tower-lsp` 0.20:
 - `textDocument/diagnostic`: Parse/type errors as diagnostics
 - `textDocument/hover`: Type info on hover
 - `textDocument/definition`: Go to symbol definition
 - `textDocument/completion`: Keyword and type completions
 - `textDocument/documentSymbol`: Document outline
 
+### assura-mcp
+
+Model Context Protocol server built with `rmcp` 1.7:
+- `check`: Run the compiler pipeline on source text
+- `explain`: Look up error code descriptions
+- `list_declarations`: List contracts and types in a file
+
 ### assura-server
 
-gRPC (tonic) + HTTP (axum) API server:
+gRPC (tonic 0.14) + HTTP (axum 0.8) API server:
 - `Check` RPC: Type-check source and return diagnostics
 - `Build` RPC: Generate Rust code from source
 - `Explain` RPC: Look up error code descriptions
 - `Health` RPC: Server health check
 - HTTP endpoints mirror gRPC RPCs for REST clients
+
+### assura-rust-analyzer
+
+Rust source file analysis for `assura infer` and `assura audit`.
+Parses Rust files with `syn`, extracts function signatures, and
+converts Rust types to Assura types via the reverse type mapping
+in `assura-codegen/src/type_map.rs`.
 
 ## How to Add a New Checker to assura-types
 
@@ -422,6 +503,7 @@ gRPC (tonic) + HTTP (axum) API server:
 | A08xxx | Information flow | assura-types (checkers.rs) |
 | A09xxx | Totality | assura-types (checkers.rs) |
 | A10xxx | Pattern exhaustiveness | assura-types (lib.rs) |
+| A13xxx | Interface conformance | assura-types (checkers/interface.rs) |
 | A22xxx-A55xxx | Domain-specific | assura-types (domain.rs) |
 
 ## Building and Testing
@@ -430,7 +512,7 @@ gRPC (tonic) + HTTP (axum) API server:
 # Build all crates
 cargo build --workspace
 
-# Run all tests (1,395+)
+# Run all tests (2,334)
 cargo test --workspace
 
 # Run clippy (required to pass before commit)
@@ -455,19 +537,19 @@ cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --works
 
 | Library | Version | Used For |
 |---------|---------|----------|
-| logos | 0.15 | Lexer (derive macro) |
-| chumsky | 0.9 | Parser combinators (NOT 0.10+) |
+| logos | 0.16 | Lexer (derive macro) |
+| rowan | 0.16 | Lossless concrete syntax tree |
 | ariadne | 0.4 | Error display (NOT 0.5+) |
-| z3 | 0.12 | SMT solver bindings |
-| prettyplease | 0.2 | Rust source formatting |
-| syn | 2 | Rust AST validation |
-| tower-lsp | latest | LSP server framework |
-| tonic | latest | gRPC server |
-| axum | latest | HTTP server |
-| criterion | 0.5 | Benchmarks |
-| notify | 7 | Filesystem watching (--watch) |
+| z3 | 0.12 | SMT solver bindings (optional, behind `z3-verify` feature) |
+| prettyplease | 0.2 | Rust source formatting in codegen |
+| syn | 2 | Rust AST validation and source analysis |
+| tower-lsp | 0.20 | LSP server framework |
+| rmcp | 1.7 | MCP server framework |
+| tonic | 0.14 | gRPC server |
+| axum | 0.8 | HTTP server |
+| criterion | 0.8 | Benchmarks |
+| notify | 8 | Filesystem watching (--watch) |
 
-**Version constraints:** chumsky must stay at 0.9 (0.10+ has a completely
-different API). ariadne must stay at 0.4 (0.5+ changes the Report/Label
-API). These are pinned because upgrades would require rewriting
-thousands of lines.
+**Version constraint:** ariadne must stay at 0.4 (0.5+ changes the
+Report/Label API). This is pinned because an upgrade would require
+rewriting the error display code in assura-cli.
