@@ -883,9 +883,11 @@ pub(crate) fn check_file_once(
         eprintln!();
     }
 
-    let _ = resolved;
-    let _ = hir;
-    let _ = timing;
+    // These variables are used conditionally in verbose mode above.
+    // Explicitly mark as intentionally unused after that point.
+    let _resolved = resolved;
+    let _hir = hir;
+    let _timing = timing;
 
     verify_and_report(VerifyContext {
         filename,
@@ -937,7 +939,8 @@ pub(crate) fn run_watch_loop(
         last_hash = content_hash(&source);
         incremental.register_module(filename.to_string(), last_hash.clone());
     }
-    let _ = check_file_once(filename, output_mode, verbosity, layer);
+    // In watch mode, we continue regardless of errors (intentionally ignoring result)
+    let _had_errors = check_file_once(filename, output_mode, verbosity, layer);
     incremental.mark_checked(filename, 1);
     eprintln!();
     eprintln!("[watch] Watching {filename} for changes. Press Ctrl+C to stop.");
@@ -1003,7 +1006,7 @@ pub(crate) fn run_watch_loop(
         eprint!("\x1B[2J\x1B[H");
         eprintln!("[watch] File changed, re-checking {filename}...");
         eprintln!();
-        let _ = check_file_once(filename, output_mode, verbosity, layer);
+        let _had_errors = check_file_once(filename, output_mode, verbosity, layer);
         incremental.mark_checked(filename, iteration);
         iteration += 1;
         eprintln!();

@@ -2414,8 +2414,12 @@ contract RangeForall {
 }
 "#;
         let results = verify_source(source);
-        // Should not panic; the domain guard is encoded
-        let _ = results;
+        // Contract has only requires (no ensures), so no verifiable clauses.
+        // This test verifies the encoding doesn't panic during processing.
+        assert!(
+            results.is_empty(),
+            "requires-only contract should have no verifiable clauses"
+        );
     }
 
     #[test]
@@ -2430,7 +2434,10 @@ contract RangeExists {
 }
 "#;
         let results = verify_source(source);
-        let _ = results;
+        assert!(
+            results.is_empty(),
+            "requires-only contract should have no verifiable clauses"
+        );
     }
 
     #[test]
@@ -2445,7 +2452,10 @@ contract SetForall {
 }
 "#;
         let results = verify_source(source);
-        let _ = results;
+        assert!(
+            results.is_empty(),
+            "requires-only contract should have no verifiable clauses"
+        );
     }
 
     // =======================================================================

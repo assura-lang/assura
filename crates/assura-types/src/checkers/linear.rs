@@ -422,10 +422,9 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
             // Ghost blocks are erased at runtime. Variable references
             // inside ghost blocks do NOT count as linear uses.
         }
-        Expr::Apply { args, .. } => {
+        Expr::Apply { .. } => {
             // Apply expressions are erased at runtime (like ghost).
-            // Arguments are verified but do not count as linear uses.
-            let _ = args;
+            // Linear uses inside them are not counted.
         }
         Expr::Match { scrutinee, arms } => {
             // Check scrutinee in current context (always evaluated).
