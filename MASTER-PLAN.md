@@ -1258,7 +1258,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: 12 sentinel `0..0` spans on import errors,
   cache/display errors silently swallowed, SMT encoding
   results discarded, file read failures ignored in watch mode.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -n "span: 0..0" crates/assura-resolve/src/lib.rs
   # Must return 0
@@ -1299,7 +1299,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: TypeEnv methods, parse_type_tokens, extraction helpers,
   55 run_*_checks functions, domain checker methods, Encoder struct,
   encode_expr, SymbolTable methods, module-level docs.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   cargo doc --workspace --no-deps 2>&1 | grep -c "missing documentation"
   # Target: 0 warnings
@@ -1323,7 +1323,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: Remove `unreachable_code` from generated allow list,
   deduplicate contract/proptest function pairs, reduce 5 Decl
   iteration passes, replace 30+ hardcoded method names with data.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep "unreachable_code" crates/assura-codegen/src/lib.rs
   # Must return 0
@@ -1336,7 +1336,7 @@ Stdlib, IR parser, Cranelift backend.
 - **What**: Layer 2 dead code path (layer2.rs:614), unused typed
   in diff.rs:364, diagnostics O(n) lookup, SolverChoice duplication,
   format_rust() silent degradation.
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   grep -n "let _ = typed" crates/assura-cli/src/diff.rs
   # Must return 0
