@@ -332,6 +332,24 @@ fn allocator_default() {
     assert!(checker.check_unpaired().is_empty());
 }
 
+#[test]
+fn allocator_unbounded_detected() {
+    let mut checker = AllocatorChecker::new();
+    checker.record_alloc("heap_buf".into(), None, 0..4);
+    let errors = checker.check_unbounded();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A22003");
+    assert!(errors[0].message.contains("unbounded"));
+}
+
+#[test]
+fn allocator_bounded_no_error() {
+    let mut checker = AllocatorChecker::new();
+    checker.record_alloc("heap_buf".into(), None, 0..4);
+    checker.mark_bounded("heap_buf");
+    assert!(checker.check_unbounded().is_empty());
+}
+
 // =======================================================================
 // T057: CircularBufferChecker tests
 // =======================================================================

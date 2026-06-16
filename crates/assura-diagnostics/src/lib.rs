@@ -977,6 +977,19 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Use atomic operations or a lock to ensure multi-field updates \
                  are observed as a single unit.",
         },
+        // -- A22003: Unbounded allocation --
+        ErrorInfo {
+            code: "A22003",
+            name: "Unbounded allocation detected",
+            description: "An allocation has no proved upper bound on its size. Without a \
+                          bound, the allocator may consume unlimited memory.",
+            example: r#"  contract LeakyBuffer {
+    input(size: Nat)
+    alloc buf                   // -> A22003 (no bounded clause)
+    requires { size > 0 }
+  }"#,
+            fix: "Add a `bounded buf` clause to prove the allocation has an upper bound.",
+        },
         // -- A23016, A23019: Weak memory ordering --
         ErrorInfo {
             code: "A23016",

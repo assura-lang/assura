@@ -498,6 +498,22 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
     if !has_alloc {
         return Vec::new();
     }
+    // Check bounded annotations: mark allocations that have a proved bound
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "bounded" || k == "alloc_bound")
+                && let Expr::Ident(name) = &clause.body
+            {
+                checker.mark_bounded(name);
+            }
+        }
+    }
     // Check arena use-after-drop for all allocations
     let mut errors = Vec::new();
     for decl in &source.decls {
@@ -518,6 +534,7 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
         }
     }
     errors.extend(checker.check_unpaired());
+    errors.extend(checker.check_unbounded());
     errors
 }
 

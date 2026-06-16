@@ -59,6 +59,23 @@ fn alloc_arena_skips_unpaired() {
     assert!(ac.check_unpaired().is_empty());
 }
 
+#[test]
+fn alloc_unbounded_detected() {
+    let mut ac = AllocatorChecker::new();
+    ac.record_alloc("buf".into(), None, 0..10);
+    let errors = ac.check_unbounded();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A22003");
+}
+
+#[test]
+fn alloc_bounded_ok() {
+    let mut ac = AllocatorChecker::new();
+    ac.record_alloc("buf".into(), None, 0..10);
+    ac.mark_bounded("buf");
+    assert!(ac.check_unbounded().is_empty());
+}
+
 // -----------------------------------------------------------------------
 // CircularBufferChecker
 // -----------------------------------------------------------------------

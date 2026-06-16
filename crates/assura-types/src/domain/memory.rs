@@ -16,7 +16,7 @@ use crate::TypeError;
 /// Error codes:
 /// - A22001: allocation not paired with deallocation
 /// - A22002: double free (deallocating already freed allocation)
-/// - A22003: size mismatch between allocation and deallocation
+/// - A22003: unbounded allocation detected (no allocation bound proved)
 /// - A22004: arena lifetime violation (use after arena drop)
 #[derive(Debug, Clone)]
 pub(crate) struct AllocatorChecker {
@@ -29,6 +29,7 @@ pub(crate) struct AllocatorChecker {
 pub(crate) struct AllocInfo {
     pub span: Range<usize>,
     pub arena: Option<String>,
+    pub bounded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +65,38 @@ impl AllocatorChecker {
     }
 
     pub fn record_alloc(&mut self, name: String, arena: Option<String>, span: Range<usize>) {
-        self.allocations.insert(name, AllocInfo { span, arena });
+        self.allocations.insert(
+            name,
+            AllocInfo {
+                span,
+                arena,
+                bounded: false,
+            },
+        );
+    }
+
+    /// Mark an allocation as having a proved bound.
+    pub fn mark_bounded(&mut self, name: &str) {
+        if let Some(info) = self.allocations.get_mut(name) {
+            info.bounded = true;
+        }
+    }
+
+    /// Return errors for allocations that have no proved bound.
+    pub fn check_unbounded(&self) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for (name, info) in &self.allocations {
+            if !info.bounded {
+                errors.push(TypeError {
+                    code: "A22003".into(),
+                    message: format!("unbounded allocation: `{name}` has no allocation bound"),
+                    span: info.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors.sort_by_key(|e| e.span.start);
+        errors
     }
 
     pub fn record_free(&mut self, name: &str, span: Range<usize>) -> Option<TypeError> {
