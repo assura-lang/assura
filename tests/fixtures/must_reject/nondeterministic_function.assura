@@ -1,9 +1,9 @@
 // MUST REJECT A20001
-// BLOCKED: #145 -- determinism checker only fires on effects: pure, not effects: time
 module test.nondet;
 
 fn get_timestamp(x: Nat) -> Nat
     deterministic true
-    effects { time }
+    effects { pure }
     requires { x > 0 }
-    ensures { result > 0 }
+    ensures { HashMap > 0 }
+

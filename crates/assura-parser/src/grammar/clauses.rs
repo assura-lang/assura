@@ -43,6 +43,9 @@ pub(crate) fn at_clause_start(p: &mut Parser) -> bool {
             | SyntaxKind::OPERATION_KW
             | SyntaxKind::QUERY_KW
             | SyntaxKind::STATES_KW
+            | SyntaxKind::MUST_NOT_MASK_KW
+            | SyntaxKind::PROTOCOL_KW
+            | SyntaxKind::TRANSITION_KW
     ) || is_domain_keyword_clause(p)
         || is_ident_clause_start(p)
 }
@@ -141,6 +144,13 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "lock",
     "order",
     "acquire",
+    "send",
+    "message",
+    "must_not_mask",
+    "must_propagate",
+    "must_check",
+    "must_preserve_detail",
+    "update",
 ];
 
 /// Ident-based keywords that STOP a clause body but do NOT start one.
@@ -153,6 +163,52 @@ const IDENT_CLAUSE_STOPPERS_ONLY: &[&str] = &[
     "safety",
     "security",
 ];
+
+/// Check if a SyntaxKind is a domain keyword clause starter (without needing Parser).
+pub(crate) fn is_domain_keyword_clause_kind(k: SyntaxKind) -> bool {
+    matches!(
+        k,
+        SyntaxKind::ALLOCATOR_KW
+            | SyntaxKind::ATOMIC_KW
+            | SyntaxKind::CIRCULAR_BUFFER_KW
+            | SyntaxKind::REGION_KW
+            | SyntaxKind::SHARED_MEMORY_KW
+            | SyntaxKind::CALLBACK_KW
+            | SyntaxKind::DEADLINE_KW
+            | SyntaxKind::DETERMINISTIC_KW
+            | SyntaxKind::LOCK_ORDER_KW
+            | SyntaxKind::TIMEOUT_KW
+            | SyntaxKind::MONOTONIC_KW
+            | SyntaxKind::PRECISION_KW
+            | SyntaxKind::PLATFORM_KW
+            | SyntaxKind::COMPLEXITY_KW
+            | SyntaxKind::EQUIVALENT_KW
+            | SyntaxKind::INCREMENTAL_KW
+            | SyntaxKind::OPAQUE_KW
+            | SyntaxKind::STRUCTURAL_INVARIANT_KW
+            | SyntaxKind::UNSAFE_ESCAPE_KW
+            | SyntaxKind::LIMIT_KW
+            | SyntaxKind::FEATURE_KW
+            | SyntaxKind::FORMAT_KW
+            | SyntaxKind::CODEC_KW
+            | SyntaxKind::SNAPSHOT_KW
+            | SyntaxKind::RECOVERY_KW
+            | SyntaxKind::FENCE_KW
+            | SyntaxKind::ACQUIRE_KW
+            | SyntaxKind::RELEASE_KW
+            | SyntaxKind::SPEC_KW
+            | SyntaxKind::REFINEMENT_KW
+            | SyntaxKind::LAYOUT_KW
+            | SyntaxKind::MUST_NOT_MASK_KW
+            | SyntaxKind::PROTOCOL_KW
+            | SyntaxKind::TRANSITION_KW
+    )
+}
+
+/// Check if ident text is a clause starter keyword.
+pub(crate) fn is_ident_clause_text(text: &str) -> bool {
+    IDENT_CLAUSE_STARTERS.contains(&text)
+}
 
 /// Ident-based clause starters that aren't keyword tokens.
 /// Domain-specific keyword tokens that can start a clause inside contract/fn bodies.
@@ -291,6 +347,9 @@ pub(crate) fn is_clause_stopper_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::RELEASE_KW
             | SyntaxKind::REFINEMENT_KW
             | SyntaxKind::LAYOUT_KW
+            | SyntaxKind::MUST_NOT_MASK_KW
+            | SyntaxKind::PROTOCOL_KW
+            | SyntaxKind::TRANSITION_KW
     )
 }
 
@@ -317,6 +376,9 @@ fn is_expr_clause_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::RULE_KW
             | SyntaxKind::MUST_NOT_KW
             | SyntaxKind::CONFORMS_KW
+            | SyntaxKind::MONOTONIC_KW
+            | SyntaxKind::TRANSITION_KW
+            | SyntaxKind::PROTOCOL_KW
     )
 }
 
@@ -355,6 +417,11 @@ fn is_ident_expr_clause(p: &mut Parser) -> bool {
             | "validate"
             | "assume"
             | "example"
+            | "update"
+            | "monotonic"
+            | "monotone"
+            | "send"
+            | "transition"
     )
 }
 

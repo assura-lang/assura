@@ -116,17 +116,24 @@ pub(crate) fn run_callback_reentrancy_checks(
     if !found {
         return Vec::new();
     }
-    // Walk call references in clause bodies and simulate call/return for re-entrancy
+    // Walk call references in clause bodies and simulate call/return for re-entrancy.
+    //
+    // A declaration that marks a function as non_reentrant AND references that
+    // same function in its requires/ensures clause bodies represents a potential
+    // re-entrant call pattern. This catches both:
+    // - A function calling itself (self-re-entry)
+    // - A contract with non_reentrant annotation that references the guarded fn
     let mut errors = Vec::new();
     for decl in &source.decls {
         let (fn_name, clauses) = match &decl.node {
             Decl::FnDef(f) => (f.name.as_str(), &f.clauses),
+            Decl::Contract(c) => (c.name.as_str(), &c.clauses),
             _ => continue,
         };
         // Enter the function scope
         let enter_errors = checker.enter_call(fn_name, &decl.span);
         errors.extend(enter_errors);
-        // Check for callback registration in clause bodies
+        // Check for callback registration and re-entrant calls in clause bodies
         for clause in clauses {
             if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
                 let refs = collect_ident_references(&clause.body);
@@ -134,10 +141,56 @@ pub(crate) fn run_callback_reentrancy_checks(
                     if let Some(err) = checker.check_register_callback(name, &decl.span) {
                         errors.push(err);
                     }
+                    // Simulate re-entrant call: if a non-reentrant function
+                    // references itself (or another non-reentrant function
+                    // already on the stack) in its clause bodies, that is
+                    // a re-entrant call pattern.
+                    let re_enter_errors = checker.enter_call(name, &decl.span);
+                    errors.extend(re_enter_errors);
+                    checker.exit_call();
                 }
             }
         }
         checker.exit_call();
+    }
+    // Static re-entrancy detection: if a declaration marks a function as
+    // non_reentrant and also references that function in clause bodies,
+    // flag the potential re-entrant invocation.
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => c.clauses.as_slice(),
+            Decl::FnDef(f) => f.clauses.as_slice(),
+            _ => continue,
+        };
+        // Collect non-reentrant targets declared in this decl
+        let mut nr_targets: Vec<String> = Vec::new();
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "non_reentrant"
+                && let Expr::Ident(name) = &clause.body
+            {
+                nr_targets.push(name.clone());
+            }
+        }
+        if nr_targets.is_empty() {
+            continue;
+        }
+        // Check if clause bodies reference the non-reentrant targets
+        for clause in clauses {
+            if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                let refs = collect_ident_references(&clause.body);
+                for name in &refs {
+                    if nr_targets.contains(name) {
+                        errors.push(TypeError {
+                            code: "A24001".into(),
+                            message: format!("re-entrant call to non-reentrant function `{name}`"),
+                            span: decl.span.clone(),
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+        }
     }
     // Include depth information in diagnostics if there are errors
     if !errors.is_empty() {

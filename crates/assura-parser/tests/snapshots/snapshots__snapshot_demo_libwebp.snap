@@ -305,16 +305,21 @@ SourceFile {
                     return_ty: [
                         "U32",
                         "@",
-                        "taint",
-                        ":",
-                        "untrusted",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "U32 @ taint : untrusted",
+                            "U32 @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Ident(
+                                "untrusted",
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Raw(
@@ -375,16 +380,21 @@ SourceFile {
                         "U16",
                         ">",
                         "@",
-                        "taint",
-                        ":",
-                        "untrusted",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "List < U16 > @ taint : untrusted",
+                            "List < U16 > @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Ident(
+                                "untrusted",
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Raw(
@@ -448,18 +458,25 @@ SourceFile {
                     return_ty: [
                         "ValidCodeLengths",
                         "@",
-                        "taint",
-                        ":",
-                        "validated",
-                        "|",
-                        "HuffmanError",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "ValidCodeLengths @ taint : validated | HuffmanError",
+                            "ValidCodeLengths @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Raw(
+                                [
+                                    "validated",
+                                    "|",
+                                    "HuffmanError",
+                                ],
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Ident(

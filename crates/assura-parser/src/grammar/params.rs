@@ -212,6 +212,10 @@ pub(crate) fn fn_return_type(p: &mut Parser) {
 }
 
 /// Tokens that stop return type collection.
+///
+/// Any token that starts a clause (keyword or ident-based) must also stop
+/// return type collection, otherwise the clause tokens get consumed as
+/// return type tokens and are never parsed as clauses.
 fn is_return_type_stopper(k: SyntaxKind, p: &Parser) -> bool {
     if matches!(
         k,
@@ -243,21 +247,18 @@ fn is_return_type_stopper(k: SyntaxKind, p: &Parser) -> bool {
     ) {
         return true;
     }
-    // Ident-based stoppers
+    // Clause stopper kinds (includes CONSTANT_TIME_KW, SPEC_KW, etc.)
+    if super::clauses::is_clause_stopper_kind(k) {
+        return true;
+    }
+    // Domain keyword clause starters (SyntaxKind-based)
+    if super::clauses::is_domain_keyword_clause_kind(k) {
+        return true;
+    }
+    // Ident-based clause starters
     if k == SyntaxKind::IDENT {
         let text = p.tokens.get(p.pos()).map(|t| t.text.as_str()).unwrap_or("");
-        return matches!(
-            text,
-            "promise"
-                | "bound"
-                | "feature"
-                | "feature_max"
-                | "table"
-                | "incremental"
-                | "liveness"
-                | "safety"
-                | "security"
-        );
+        return super::clauses::is_ident_clause_text(text);
     }
     false
 }

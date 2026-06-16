@@ -152,11 +152,14 @@ pub(crate) fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<
 /// "Region<MAX_SIZE>".
 fn extract_capacity_annotation(ty: &str) -> Option<String> {
     for prefix in &["Buffer", "Region", "FixedBuffer"] {
-        if let Some(rest) = ty.strip_prefix(prefix)
-            && let Some(inner) = rest.strip_prefix('<')
-            && let Some(cap) = inner.strip_suffix('>')
-        {
-            return Some(cap.trim().to_string());
+        if let Some(rest) = ty.strip_prefix(prefix) {
+            let rest = rest.trim_start();
+            if let Some(inner) = rest.strip_prefix('<') {
+                let inner = inner.trim_end();
+                if let Some(cap) = inner.strip_suffix('>') {
+                    return Some(cap.trim().to_string());
+                }
+            }
         }
     }
     None

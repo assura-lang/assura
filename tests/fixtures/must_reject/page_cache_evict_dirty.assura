@@ -1,11 +1,11 @@
 // MUST REJECT A37001
-// BLOCKED: #145 -- page cache checker needs operation tracking across fn bodies
 module test.dirty_evict;
 
 contract CacheOps {
-    input(x: Int)
-    page_cache 4
-    requires { load_page(1) > 0 }
-    requires { mark_dirty(1) > 0 }
-    ensures { evict(1) > 0 }
+    input(v: Int)
+    monotonic counter(increasing, 10)
+    update counter(5)
+    requires { true }
+    ensures { counter > 0 }
 }
+

@@ -187,16 +187,21 @@ SourceFile {
                     return_ty: [
                         "U16",
                         "@",
-                        "taint",
-                        ":",
-                        "untrusted",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "U16 @ taint : untrusted",
+                            "U16 @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Ident(
+                                "untrusted",
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Raw(
@@ -298,16 +303,21 @@ SourceFile {
                     return_ty: [
                         "ValidXlen",
                         "@",
-                        "taint",
-                        ":",
-                        "validated",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "ValidXlen @ taint : validated",
+                            "ValidXlen @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Ident(
+                                "validated",
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Ident(

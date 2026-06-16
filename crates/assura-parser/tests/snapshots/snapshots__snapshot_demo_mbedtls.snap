@@ -164,16 +164,21 @@ SourceFile {
                     return_ty: [
                         "Bytes",
                         "@",
-                        "taint",
-                        ":",
-                        "untrusted",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "Bytes @ taint : untrusted",
+                            "Bytes @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Ident(
+                                "untrusted",
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Raw(
@@ -212,16 +217,21 @@ SourceFile {
                     return_ty: [
                         "U16",
                         "@",
-                        "taint",
-                        ":",
-                        "untrusted",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "U16 @ taint : untrusted",
+                            "U16 @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Ident(
+                                "untrusted",
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Raw(
@@ -260,16 +270,21 @@ SourceFile {
                     return_ty: [
                         "U32",
                         "@",
-                        "taint",
-                        ":",
-                        "untrusted",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "U32 @ taint : untrusted",
+                            "U32 @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Ident(
+                                "untrusted",
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Raw(
@@ -398,18 +413,25 @@ SourceFile {
                     return_ty: [
                         "ValidPeerKey",
                         "@",
-                        "taint",
-                        ":",
-                        "validated",
-                        "|",
-                        "HandshakeError",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "ValidPeerKey @ taint : validated | HandshakeError",
+                            "ValidPeerKey @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Raw(
+                                [
+                                    "validated",
+                                    "|",
+                                    "HandshakeError",
+                                ],
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Ident(
@@ -532,18 +554,25 @@ SourceFile {
                         "MAX_HANDSHAKE_LEN",
                         "}",
                         "@",
-                        "taint",
-                        ":",
-                        "validated",
-                        "|",
-                        "ParseError",
                     ],
                     return_type_expr: Some(
                         Named(
-                            "{ v : Nat | v <= MAX_HANDSHAKE_LEN } @ taint : validated | ParseError",
+                            "{ v : Nat | v <= MAX_HANDSHAKE_LEN } @",
                         ),
                     ),
                     clauses: [
+                        Clause {
+                            kind: Other(
+                                "taint",
+                            ),
+                            body: Raw(
+                                [
+                                    "validated",
+                                    "|",
+                                    "ParseError",
+                                ],
+                            ),
+                        },
                         Clause {
                             kind: Effects,
                             body: Ident(

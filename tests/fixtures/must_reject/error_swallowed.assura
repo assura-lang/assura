@@ -1,16 +1,15 @@
 // MUST REJECT A12002
-// BLOCKED: #145 -- catch clause in fn body not parsed into AST clauses
 module test.error_swallowed;
 
 contract FilePolicy {
     input(path: String)
-    must_propagate IoError
+    must_not_mask IoError GenericError
     requires { true }
     ensures { true }
 }
 
-fn read_file(path: String) -> Result {
-    catch IoError swallow
+fn read_file(path: String) -> Result
+    catch IoError translate_to GenericError
     requires { true }
     ensures { true }
-}
+
