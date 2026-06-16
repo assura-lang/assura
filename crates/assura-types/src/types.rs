@@ -205,6 +205,9 @@ pub struct TypedFile {
     pub pending_decrease_checks: Vec<PendingDecreaseCheck>,
     /// The HIR file, if available (set when type checking through the HIR path).
     pub hir: Option<assura_hir::HirFile>,
+    /// Generated tests from contracts (TEST.1). Populated by the type
+    /// checking pipeline when contracts have testable constraints.
+    pub generated_tests: Vec<crate::GeneratedTest>,
 }
 
 // ---------------------------------------------------------------------------

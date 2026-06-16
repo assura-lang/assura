@@ -1932,3 +1932,96 @@ fn collection_sort_with_length_postcondition_no_a03007() {
         "sort with len postcondition should not produce A03007: {errs:?}"
     );
 }
+
+// ==========================================================================
+// CORE.5: Quantifier trigger checker wiring tests
+// ==========================================================================
+
+#[test]
+fn quantifier_trigger_strict_fires_a_core_050() {
+    let src = r#"
+contract X {
+    input(x: Int)
+    strict_triggers true
+    requires { forall i in x: i >= 0 }
+    ensures { x > 0 }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        errs.iter().any(|e| e.code == "A-CORE-050"),
+        "strict_triggers should fire A-CORE-050 for quantifier without trigger: {errs:?}"
+    );
+}
+
+#[test]
+fn quantifier_trigger_no_strict_does_not_fire() {
+    let src = r#"
+contract X {
+    input(x: Int)
+    requires { forall i in x: i >= 0 }
+    ensures { x > 0 }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        !errs.iter().any(|e| e.code == "A-CORE-050"),
+        "without strict_triggers, A-CORE-050 should not fire: {errs:?}"
+    );
+}
+
+// ==========================================================================
+// TEST.1: TestGenerator pipeline integration
+// ==========================================================================
+
+#[test]
+fn test_generator_populates_typed_file() {
+    let src = r#"
+contract SafeDiv {
+    input(a: Int, b: Int)
+    requires { b > 0 }
+    ensures { result >= 0 }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let typed = type_check(&resolved).expect("should type check");
+    assert!(
+        !typed.generated_tests.is_empty(),
+        "TypedFile should contain generated tests for a contract with requires/ensures"
+    );
+    // Should have property + boundary + smoke tests
+    let has_property = typed
+        .generated_tests
+        .iter()
+        .any(|t| t.kind == TestKind::Property);
+    let has_boundary = typed
+        .generated_tests
+        .iter()
+        .any(|t| t.kind == TestKind::Boundary);
+    let has_smoke = typed
+        .generated_tests
+        .iter()
+        .any(|t| t.kind == TestKind::Smoke);
+    assert!(has_property, "should have property test");
+    assert!(has_boundary, "should have boundary test");
+    assert!(has_smoke, "should have smoke test");
+}
+
+#[test]
+fn test_generator_empty_for_no_constraints() {
+    let src = r#"
+contract Empty {
+    input(x: Int)
+}
+"#;
+    let resolved = resolve_ok(src);
+    let typed = type_check(&resolved).expect("should type check");
+    assert!(
+        typed.generated_tests.is_empty(),
+        "contract with no requires/ensures should produce no tests"
+    );
+}

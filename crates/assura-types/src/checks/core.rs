@@ -192,3 +192,106 @@ pub(crate) fn run_crud_auth_checks(source: &assura_parser::ast::SourceFile) -> V
     }
     errors
 }
+
+/// CORE.5: Validate quantifier trigger annotations.
+///
+/// Scans clause bodies for `forall`/`exists` quantifiers and checks each
+/// has a trigger annotation (a `triggers` sub-expression). Without triggers
+/// the SMT solver may explore the quantifier body exhaustively, causing
+/// verification timeouts.
+///
+/// Only fires on contracts/functions that opt in via a `strict_triggers true`
+/// clause. Without this clause, quantifiers are allowed without trigger
+/// annotations for ergonomic reasons (most simple quantifiers over finite
+/// ranges do not need triggers).
+pub(crate) fn run_quantifier_trigger_checks(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    let mut checker = QuantifierTriggerChecker::new();
+
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Extern(e) => &e.clauses,
+            _ => continue,
+        };
+
+        // Only check quantifiers if the decl has `strict_triggers true`
+        let has_strict = clauses
+            .iter()
+            .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "strict_triggers"));
+        if !has_strict {
+            continue;
+        }
+
+        for clause in clauses {
+            collect_quantifiers(&clause.body, &mut checker, &decl.span);
+        }
+    }
+
+    checker.check_triggers()
+}
+
+/// Recursively walk an expression tree collecting quantifier occurrences.
+fn collect_quantifiers(
+    expr: &Expr,
+    checker: &mut QuantifierTriggerChecker,
+    fallback_span: &std::ops::Range<usize>,
+) {
+    match expr {
+        Expr::Forall { var, domain, body } | Expr::Exists { var, domain, body } => {
+            // Check if the quantifier has a trigger annotation.
+            // A trigger annotation is detected when the domain or body contains
+            // a `triggers` identifier reference.
+            let has_trigger =
+                expr_contains_text(domain, "triggers") || expr_contains_text(body, "triggers");
+            checker.add_quantifier(var.clone(), has_trigger, fallback_span.clone());
+            collect_quantifiers(domain, checker, fallback_span);
+            collect_quantifiers(body, checker, fallback_span);
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_quantifiers(lhs, checker, fallback_span);
+            collect_quantifiers(rhs, checker, fallback_span);
+        }
+        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Paren(e) => {
+            collect_quantifiers(e, checker, fallback_span);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_quantifiers(cond, checker, fallback_span);
+            collect_quantifiers(then_branch, checker, fallback_span);
+            if let Some(eb) = else_branch {
+                collect_quantifiers(eb, checker, fallback_span);
+            }
+        }
+        Expr::Call { func, args } => {
+            collect_quantifiers(func, checker, fallback_span);
+            for a in args {
+                collect_quantifiers(a, checker, fallback_span);
+            }
+        }
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                collect_quantifiers(e, checker, fallback_span);
+            }
+        }
+        Expr::Field(e, _) | Expr::Index { expr: e, .. } => {
+            collect_quantifiers(e, checker, fallback_span);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_quantifiers(scrutinee, checker, fallback_span);
+            for arm in arms {
+                collect_quantifiers(&arm.body, checker, fallback_span);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_quantifiers(value, checker, fallback_span);
+            collect_quantifiers(body, checker, fallback_span);
+        }
+        _ => {}
+    }
+}

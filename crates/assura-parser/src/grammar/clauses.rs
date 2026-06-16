@@ -157,6 +157,7 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "bit_layout",
     "bit_level",
     "bit_field",
+    "strict_triggers",
 ];
 
 /// Ident-based keywords that STOP a clause body but do NOT start one.

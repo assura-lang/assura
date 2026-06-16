@@ -1,0 +1,9 @@
+// MUST REJECT A-CORE-050
+module test.quantifier_trigger;
+
+contract SortedArray {
+    input(arr: List<Int>, x: Int)
+    strict_triggers true
+    requires { forall i in arr: i >= 0 }
+    ensures { result >= 0 }
+}

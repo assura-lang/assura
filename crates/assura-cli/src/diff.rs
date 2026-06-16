@@ -458,8 +458,8 @@ contract Typed {
             }
         }
         assert!(
-            tested >= 85,
-            "expected at least 85 MUST REJECT fixtures, found {tested}"
+            tested >= 86,
+            "expected at least 86 MUST REJECT fixtures, found {tested}"
         );
     }
 

@@ -116,8 +116,64 @@ fn run_all_checks(
     errors.extend(run_crypto_conformance_checks(source));
     errors.extend(run_codec_registry_checks(source));
     errors.extend(run_generic_instantiation_checks(source));
+    errors.extend(run_quantifier_trigger_checks(source));
 
     (errors, pending_decrease_checks)
+}
+
+/// Generate tests from contracts using TestGenerator (TEST.1).
+///
+/// Scans all contract declarations, extracts testable constraints, and
+/// produces property-based, boundary-value, and smoke tests.
+fn generate_tests_from_contracts(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<crate::GeneratedTest> {
+    use crate::domain::{TestGenerator, TestableContract};
+    use assura_parser::ast::extract_clause_params;
+
+    let mut tgen = TestGenerator::new();
+
+    for decl in &source.decls {
+        if let Decl::Contract(c) = &decl.node {
+            let mut params = Vec::new();
+            let mut requires = Vec::new();
+            let mut ensures = Vec::new();
+
+            for clause in &c.clauses {
+                match clause.kind {
+                    ClauseKind::Input => {
+                        for p in extract_clause_params(&clause.body) {
+                            let ty = if p.ty.is_empty() {
+                                Type::Unknown
+                            } else {
+                                crate::convert::parse_type_tokens(&p.ty)
+                            };
+                            params.push((p.name, ty));
+                        }
+                    }
+                    ClauseKind::Requires => {
+                        requires.push(format!("{:?}", clause.body));
+                    }
+                    ClauseKind::Ensures => {
+                        ensures.push(format!("{:?}", clause.body));
+                    }
+                    _ => {}
+                }
+            }
+
+            // Only generate tests for contracts that have testable constraints
+            if !requires.is_empty() || !ensures.is_empty() {
+                tgen.add_contract(TestableContract {
+                    name: c.name.clone(),
+                    params,
+                    requires,
+                    ensures,
+                });
+            }
+        }
+    }
+
+    tgen.generate_all()
 }
 
 /// Type-check a resolved file with cross-module type information.
@@ -153,11 +209,14 @@ pub fn type_check_with_modules(
         return Err(errors);
     }
 
+    let generated_tests = generate_tests_from_contracts(&resolved.source);
+
     Ok(TypedFile {
         resolved: Arc::new(resolved.clone()),
         pending_decrease_checks,
         type_env,
         hir: None,
+        generated_tests,
     })
 }
 
@@ -327,11 +386,14 @@ pub fn type_check_hir_with_config(
         return Err(errors);
     }
 
+    let generated_tests = generate_tests_from_contracts(&resolved.source);
+
     Ok(TypedFile {
         resolved: Arc::clone(&hir.resolved),
         pending_decrease_checks,
         type_env,
         hir: Some(hir.clone()),
+        generated_tests,
     })
 }
 
@@ -354,10 +416,13 @@ pub fn type_check_with_config(
         return Err(errors);
     }
 
+    let generated_tests = generate_tests_from_contracts(&resolved.source);
+
     Ok(TypedFile {
         resolved: Arc::new(resolved.clone()),
         pending_decrease_checks,
         type_env,
         hir: None,
+        generated_tests,
     })
 }

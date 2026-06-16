@@ -27,4 +27,6 @@ pub(crate) use safety::*;
 pub(crate) use storage::*;
 
 // Re-export public items
-pub use core::{GeneratedTest, TestGenerator, TestKind, TestableContract};
+pub use core::{
+    GeneratedTest, QuantifierTriggerChecker, TestGenerator, TestKind, TestableContract,
+};
