@@ -1525,4 +1525,29 @@ Within the independent tasks, recommended order by impact:
 - **Next session**: Start with 9.01 (correctness bugs) and 9.02 (docs),
   then 9.04 (pipeline dedup) to unlock the critical path
 
+### Sessions 9-10 (2026-06-15 to 2026-06-16): Issue #145, fixture fixes, Phase 9 completion
+
+- **#145 closed**: Unblocked 9 must_reject fixtures with parser/type wiring fixes
+- **#146 closed**: Added 7 new must_reject fixtures, unblocked 2 BLOCKED fixtures
+- **Phase 9 COMPLETE** (all 13 tasks verified and marked [x]):
+  - 9.01: 4 latent correctness bugs fixed (#132)
+  - 9.02: INTERNALS.md rewritten, AGENTS.md logos version corrected (#133)
+  - 9.03: 5 monolith files split (largest non-test: 2,428 lines) (#134)
+  - 9.04: Triple-duplicated pipeline unified in pipeline.rs (#135)
+  - 9.05: Enum wildcard match arms eliminated (10 remaining are string/char) (#136)
+  - 9.06: 78 std::string::String replaced, 9 glob re-exports removed (#137)
+  - 9.07: Sentinel 0..0 spans fixed (#138)
+  - 9.08: fuzz.yml workflow added, release.yml already correct (#139)
+  - 9.09: Assertion-free tests and discarded results fixed (#140)
+  - 9.10: Doc comments added (#141)
+  - 9.11: Tree-sitter grammar: 4 conflicts resolved, 30+ keywords added (#142)
+  - 9.12: Generated code quality improved (#143)
+  - 9.13: Dead code paths removed (#144)
+- **77 must_reject fixtures** (1 BLOCKED: prophecy needs SMT-level changes)
+- **Only 3 tasks remain `[ ]` in entire plan**:
+  - 3.12: Cranelift backend (partial, needs real JIT implementation)
+  - 6.01: CodeQL (blocked on repo going public, issue #45)
+  - 6.03: crates.io placeholder (needs registry interaction)
+- **Only 2 open issues**: #45 (CodeQL), #147 (quantifier triggers/test gen)
+
 ---
