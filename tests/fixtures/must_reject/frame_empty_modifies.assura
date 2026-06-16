@@ -1,0 +1,9 @@
+// MUST REJECT A14001
+module test.frame_empty;
+
+contract EmptyModifies {
+    input(x: Int)
+    modifies:
+    requires { x > 0 }
+    ensures { x > 0 }
+}

@@ -1,0 +1,9 @@
+// MUST REJECT A27001
+module test.bit_overflow;
+
+contract PacketHeader {
+    input(raw: Bytes)
+    bit_layout: 8
+    bit_field: flags(4, 6)
+    ensures { true }
+}

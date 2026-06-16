@@ -1,0 +1,11 @@
+// MUST REJECT A05025
+// BLOCKED: prophecy validation is in assura-smt, not assura-types; test_must_reject_fixtures only calls type_check
+module test.prophecy_unresolved;
+
+prophecy future_val: Int
+
+contract UseProphecy {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { result > future_val }
+}

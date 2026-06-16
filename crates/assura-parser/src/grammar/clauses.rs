@@ -151,6 +151,12 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "must_check",
     "must_preserve_detail",
     "update",
+    "shared",
+    "concurrent",
+    "access_mode",
+    "bit_layout",
+    "bit_level",
+    "bit_field",
 ];
 
 /// Ident-based keywords that STOP a clause body but do NOT start one.
@@ -379,6 +385,7 @@ fn is_expr_clause_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::MONOTONIC_KW
             | SyntaxKind::TRANSITION_KW
             | SyntaxKind::PROTOCOL_KW
+            | SyntaxKind::EQUIVALENT_KW
     )
 }
 
@@ -422,6 +429,13 @@ fn is_ident_expr_clause(p: &mut Parser) -> bool {
             | "monotone"
             | "send"
             | "transition"
+            | "behavioral_equiv"
+            | "shared"
+            | "concurrent"
+            | "access_mode"
+            | "bit_layout"
+            | "bit_level"
+            | "bit_field"
     )
 }
 

@@ -1,0 +1,6 @@
+// MUST REJECT A54001
+module test.ghost_impure;
+
+ghost fn helper(x: Int) -> Int
+    effects: io
+    ensures { result == x + 1 }

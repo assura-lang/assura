@@ -203,12 +203,16 @@ fn mvcc_scan_expr(expr: &Expr, checker: &mut MvccChecker) {
             _ => {}
         }
     }
-    // Scan sub-expressions in blocks/lists
+    // Scan sub-expressions
     match expr {
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
                 mvcc_scan_expr(e, checker);
             }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            mvcc_scan_expr(lhs, checker);
+            mvcc_scan_expr(rhs, checker);
         }
         _ => {}
     }

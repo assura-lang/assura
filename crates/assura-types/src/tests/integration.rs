@@ -1678,6 +1678,31 @@ fn behavioral_equivalence_self_equiv_detected() {
 }
 
 // =========================================================================
+// Issue #145/#122: Behavioral equivalence via full pipeline
+// =========================================================================
+
+#[test]
+fn behavioral_equivalence_unverified_pipeline_a49001() {
+    let src = r#"
+module test.equiv_unverified;
+
+contract SortEquiv {
+    input(n: Nat)
+    equivalent sort_v1 == sort_v2
+    requires { n > 0 }
+    ensures { n > 0 }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    let errors = result.unwrap_err();
+    assert!(
+        errors.iter().any(|e| e.code == "A49001"),
+        "unverified equivalence should produce A49001, got: {errors:?}"
+    );
+}
+
+// =========================================================================
 // Issue #123: Multi-pass refinement - discharge, check_complete, check_chain
 // =========================================================================
 

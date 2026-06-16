@@ -1,0 +1,7 @@
+// MUST REJECT A10101
+module test.fixed_overflow;
+
+fn add_bytes(a: U8, b: U8) -> U8
+    requires { a > 200 }
+    requires { b > 200 }
+    ensures { result == a + b }

@@ -1,5 +1,4 @@
 // MUST REJECT A49001
-// BLOCKED: #122 -- clause body tokens not parsed as BinOp expression
 module test.equiv_unverified;
 
 contract SortEquiv {

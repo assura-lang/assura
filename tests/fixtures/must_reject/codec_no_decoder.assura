@@ -1,0 +1,10 @@
+// MUST REJECT A52002
+module test.codec_no_decoder;
+
+codec_registry AudioFormats {
+    output: AudioOutput,
+
+    codec Wav {
+        magic: [0x52, 0x49, 0x46, 0x46]
+    }
+}

@@ -1,0 +1,10 @@
+// MUST REJECT A18002
+module test.shared_write;
+
+contract SharedWrite {
+    input(x: Int)
+    shared: buffer => shared_read
+    modifies: buffer
+    requires { x > 0 }
+    ensures { x > 0 }
+}
