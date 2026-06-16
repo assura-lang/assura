@@ -65,6 +65,14 @@ Three verification tiers, fastest first:
 
 ## Quick Start
 
+### Prerequisites
+
+The compiler needs Z3 for SMT verification. Check your setup with:
+
+```bash
+cargo run -- doctor
+```
+
 ### Build from source
 
 ```bash
@@ -96,6 +104,12 @@ cargo run -- explain A03001
 
 # Build and generate Rust code
 cargo run -- build demos/libwebp-huffman.assura
+
+# Format a contract file
+cargo run -- fmt demos/libwebp-huffman.assura
+
+# Infer contracts from Rust source
+cargo run -- infer src/main.rs
 
 # Print AI agent instructions (for setting up AI coding assistants)
 cargo run -- agent-instructions
