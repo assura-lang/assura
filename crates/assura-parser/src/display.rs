@@ -371,9 +371,12 @@ pub fn expr_to_string(expr: &Expr) -> String {
 }
 
 /// Truncate a string to `max` characters, appending `...` if truncated.
+///
+/// Uses char boundaries to avoid panics on multi-byte UTF-8 strings.
 pub fn truncate(s: &str, max: usize) -> String {
-    if s.len() > max {
-        format!("{}...", &s[..max])
+    if s.chars().count() > max {
+        let end = s.char_indices().nth(max).map_or(s.len(), |(idx, _)| idx);
+        format!("{}...", &s[..end])
     } else {
         s.to_string()
     }
