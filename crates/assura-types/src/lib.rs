@@ -12,6 +12,24 @@ use std::sync::Arc;
 use assura_parser::ast::{BinOp, BlockKind, ClauseKind, Decl, Expr, ServiceItem};
 use assura_resolve::{ImportStatus, ResolvedFile, SymbolKind, SymbolTable};
 
+// ---- Domain-checker default constants ----
+// Typed as `i64` to match `extract_int_literal` return type.
+
+/// Default circular buffer / allocator capacity (bytes).
+const DEFAULT_BUFFER_CAPACITY: i64 = 256;
+/// Default temporal deadline (milliseconds).
+const DEFAULT_DEADLINE_MS: i64 = 1000;
+/// Default bit-level container width (bits).
+const DEFAULT_BIT_CONTAINER_BITS: i64 = 64;
+/// Default checksum / region size (bytes).
+const DEFAULT_REGION_SIZE: i64 = 1024;
+/// Default page-cache page size (bytes).
+const DEFAULT_PAGE_SIZE: i64 = 1024;
+/// Default feature-flag maximum count.
+const DEFAULT_FEATURE_MAX: i64 = 256;
+/// Default hash output length (bytes).
+const DEFAULT_HASH_BITS: i64 = 32;
+
 pub mod checkers;
 pub mod clauses;
 pub mod domain;
@@ -5571,13 +5589,16 @@ fn run_circular_buffer_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
                 match &clause.body {
                     Expr::Call { func, args } => {
                         if let Expr::Ident(name) = func.as_ref() {
-                            let cap =
-                                args.first().and_then(extract_int_literal).unwrap_or(256) as usize;
+                            let cap = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_BUFFER_CAPACITY)
+                                as usize;
                             checker.declare(name.clone(), cap);
                         }
                     }
                     Expr::Ident(name) => {
-                        checker.declare(name.clone(), 256);
+                        checker.declare(name.clone(), DEFAULT_BUFFER_CAPACITY as usize);
                     }
                     _ => {
                         let kvs = extract_kv_pairs(&clause.body);
@@ -5591,7 +5612,8 @@ fn run_circular_buffer_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
                             .iter()
                             .find(|(k, _)| *k == "capacity" || *k == "size")
                             .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(256) as usize;
+                            .unwrap_or(DEFAULT_BUFFER_CAPACITY)
+                            as usize;
                         checker.declare(name, cap);
                     }
                 }
@@ -5747,8 +5769,11 @@ fn run_temporal_deadline_checks(source: &assura_parser::ast::SourceFile) -> Vec<
                 match &clause.body {
                     Expr::Call { func, args } => {
                         if let Expr::Ident(name) = func.as_ref() {
-                            let ms =
-                                args.first().and_then(extract_int_literal).unwrap_or(1000) as u64;
+                            let ms = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_DEADLINE_MS)
+                                as u64;
                             if let Some(err) = checker.enter_deadline(name.clone(), ms, &decl.span)
                             {
                                 return vec![err];
@@ -5773,7 +5798,7 @@ fn run_temporal_deadline_checks(source: &assura_parser::ast::SourceFile) -> Vec<
                             .iter()
                             .find(|(k, _)| *k == "ms" || *k == "timeout")
                             .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(1000) as u64;
+                            .unwrap_or(DEFAULT_DEADLINE_MS) as u64;
                         if let Some(err) = checker.enter_deadline(name.to_string(), ms, &decl.span)
                         {
                             return vec![err];
@@ -5958,12 +5983,14 @@ fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErro
                     found = true;
                     // Extract container size: bit_layout(bits)
                     let bits = match &clause.body {
-                        Expr::Call { func: _, args } => {
-                            args.first().and_then(extract_int_literal).unwrap_or(64) as usize
-                        }
-                        Expr::Literal(_) => {
-                            extract_int_literal(&clause.body).unwrap_or(64) as usize
-                        }
+                        Expr::Call { func: _, args } => args
+                            .first()
+                            .and_then(extract_int_literal)
+                            .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                            as usize,
+                        Expr::Literal(_) => extract_int_literal(&clause.body)
+                            .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                            as usize,
                         _ => 64,
                     };
                     container_bits = bits;
@@ -6156,7 +6183,10 @@ fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
                                     .unwrap_or(ChecksumAlgorithm::Crc32);
                                 let start =
                                     args.get(1).and_then(extract_int_literal).unwrap_or(0) as usize;
-                                let end = args.get(2).and_then(extract_int_literal).unwrap_or(1024)
+                                let end = args
+                                    .get(2)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_REGION_SIZE)
                                     as usize;
                                 checker.declare_region(name.clone(), algo, start, end);
                             }
@@ -6187,7 +6217,8 @@ fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError
                                 .iter()
                                 .find(|(k, _)| *k == "end")
                                 .and_then(|(_, v)| extract_int_literal(v))
-                                .unwrap_or(1024) as usize;
+                                .unwrap_or(DEFAULT_REGION_SIZE)
+                                as usize;
                             checker.declare_region(name, algo, start, end);
                         }
                     }
@@ -6482,17 +6513,19 @@ fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeErr
                 // Extract capacity from annotation body
                 let capacity = match &clause.body {
                     Expr::Call { args, .. } => {
-                        args.first().and_then(extract_int_literal).unwrap_or(1024) as usize
+                        args.first()
+                            .and_then(extract_int_literal)
+                            .unwrap_or(DEFAULT_PAGE_SIZE) as usize
                     }
                     Expr::Literal(assura_parser::ast::Literal::Int(s)) => {
-                        s.parse::<usize>().unwrap_or(1024)
+                        s.parse::<usize>().unwrap_or(DEFAULT_PAGE_SIZE as usize)
                     }
                     _ => {
                         let kvs = extract_kv_pairs(&clause.body);
                         kvs.iter()
                             .find(|(k, _)| *k == "capacity" || *k == "size" || *k == "max_pages")
                             .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(1024) as usize
+                            .unwrap_or(DEFAULT_PAGE_SIZE) as usize
                     }
                 };
                 if checker.is_none() {
@@ -6863,14 +6896,22 @@ fn run_numerical_precision_checks(source: &assura_parser::ast::SourceFile) -> Ve
                 match &clause.body {
                     Expr::Call { func, args } => {
                         if let Expr::Ident(name) = func.as_ref() {
-                            let bits =
-                                args.first().and_then(extract_int_literal).unwrap_or(64) as u32;
+                            let bits = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                                as u32;
                             let ulp = args.get(1).and_then(extract_float_literal).unwrap_or(1.0);
                             checker.declare(name.clone(), bits, ulp, decl.span.clone());
                         }
                     }
                     Expr::Ident(name) => {
-                        checker.declare(name.clone(), 64, 1.0, decl.span.clone());
+                        checker.declare(
+                            name.clone(),
+                            DEFAULT_BIT_CONTAINER_BITS as u32,
+                            1.0,
+                            decl.span.clone(),
+                        );
                     }
                     _ => {
                         let kvs = extract_kv_pairs(&clause.body);
@@ -6884,7 +6925,8 @@ fn run_numerical_precision_checks(source: &assura_parser::ast::SourceFile) -> Ve
                             .iter()
                             .find(|(k, _)| *k == "bits")
                             .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(64) as u32;
+                            .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                            as u32;
                         let ulp = kvs
                             .iter()
                             .find(|(k, _)| *k == "ulp")
@@ -6983,7 +7025,7 @@ fn extract_cast_target_bits(expr: &Expr, var_name: &str) -> u32 {
             args.iter()
                 .map(|a| extract_cast_target_bits(a, var_name))
                 .min()
-                .unwrap_or(32)
+                .unwrap_or(DEFAULT_HASH_BITS as u32)
         }
         Expr::BinOp { lhs, rhs, .. } => {
             extract_cast_target_bits(lhs, var_name).min(extract_cast_target_bits(rhs, var_name))
@@ -7042,8 +7084,11 @@ fn run_precomputed_table_checks(source: &assura_parser::ast::SourceFile) -> Vec<
                 match &clause.body {
                     Expr::Call { func, args } => {
                         if let Expr::Ident(name) = func.as_ref() {
-                            let size =
-                                args.first().and_then(extract_int_literal).unwrap_or(256) as usize;
+                            let size = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_FEATURE_MAX)
+                                as usize;
                             let gen_fn = args
                                 .get(1)
                                 .and_then(extract_ident)
@@ -7053,7 +7098,12 @@ fn run_precomputed_table_checks(source: &assura_parser::ast::SourceFile) -> Vec<
                         }
                     }
                     Expr::Ident(name) => {
-                        checker.declare_table(name.clone(), 256, String::new(), decl.span.clone());
+                        checker.declare_table(
+                            name.clone(),
+                            DEFAULT_FEATURE_MAX as usize,
+                            String::new(),
+                            decl.span.clone(),
+                        );
                     }
                     _ => {
                         let kvs = extract_kv_pairs(&clause.body);
@@ -7067,7 +7117,8 @@ fn run_precomputed_table_checks(source: &assura_parser::ast::SourceFile) -> Vec<
                             .iter()
                             .find(|(k, _)| *k == "size" || *k == "entries")
                             .and_then(|(_, v)| extract_int_literal(v))
-                            .unwrap_or(256) as usize;
+                            .unwrap_or(DEFAULT_FEATURE_MAX)
+                            as usize;
                         let gen_fn = kvs
                             .iter()
                             .find(|(k, _)| *k == "generator" || *k == "gen")

@@ -72,8 +72,8 @@ impl TriggerManager {
         warnings
     }
 
-    pub fn get_triggers(&self, formula_name: &str) -> Option<&Vec<TriggerPattern>> {
-        self.triggers.get(formula_name)
+    pub fn get_triggers(&self, formula_name: &str) -> Option<&[TriggerPattern]> {
+        self.triggers.get(formula_name).map(|v| v.as_slice())
     }
 }
 

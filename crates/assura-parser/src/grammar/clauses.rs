@@ -40,40 +40,58 @@ pub(crate) fn at_clause_start(p: &mut Parser) -> bool {
             | SyntaxKind::TRUST_KW
             | SyntaxKind::BOUNDARY_KW
             | SyntaxKind::MUST_PROPAGATE_KW
+            | SyntaxKind::OPERATION_KW
+            | SyntaxKind::QUERY_KW
+            | SyntaxKind::STATES_KW
     ) || is_ident_clause_start(p)
 }
+
+/// Ident-based keywords that START a new clause (used by `at_clause_start()`).
+/// These are a subset of the stopper keywords: everything that starts a clause
+/// also stops the previous one, but not vice versa.
+const IDENT_CLAUSE_STARTERS: &[&str] = &[
+    "step",
+    "resume",
+    "assume",
+    "prove",
+    "validate",
+    "taint",
+    "verify",
+    "example",
+    "strategy",
+    "promise",
+    "bound",
+    "writes",
+    "method",
+    "implements",
+    "key_size",
+    "nonce_size",
+    "tag_verified",
+    "tag_check",
+    "nonce",
+    "decrypt",
+    "decryption",
+    "spec",
+    "crypto",
+];
+
+/// Ident-based keywords that STOP a clause body but do NOT start one.
+/// These are declaration-like keywords (feature_max, incremental, etc.)
+/// that terminate the current clause but are not themselves clause heads.
+const IDENT_CLAUSE_STOPPERS_ONLY: &[&str] = &[
+    "feature_max",
+    "incremental",
+    "liveness",
+    "safety",
+    "security",
+];
 
 /// Ident-based clause starters that aren't keyword tokens.
 fn is_ident_clause_start(p: &mut Parser) -> bool {
     if p.current() != SyntaxKind::IDENT {
         return false;
     }
-    matches!(
-        p.current_text(),
-        "step"
-            | "resume"
-            | "assume"
-            | "prove"
-            | "validate"
-            | "taint"
-            | "verify"
-            | "example"
-            | "strategy"
-            | "promise"
-            | "bound"
-            | "writes"
-            | "method"
-            | "implements"
-            | "key_size"
-            | "nonce_size"
-            | "tag_verified"
-            | "tag_check"
-            | "nonce"
-            | "decrypt"
-            | "decryption"
-            | "spec"
-            | "crypto"
-    )
+    IDENT_CLAUSE_STARTERS.contains(&p.current_text())
 }
 
 /// True if this kind is a clause stopper (starts a new clause/decl).
@@ -144,40 +162,8 @@ pub(crate) fn is_clause_stopper(p: &mut Parser) -> bool {
         return true;
     }
     if p.current() == SyntaxKind::IDENT {
-        return matches!(
-            p.current_text(),
-            "step"
-                | "resume"
-                | "assume"
-                | "prove"
-                | "validate"
-                | "taint"
-                | "verify"
-                | "example"
-                | "strategy"
-                | "promise"
-                | "bound"
-                | "writes"
-                | "operation"
-                | "query"
-                | "states"
-                | "method"
-                | "implements"
-                | "feature_max"
-                | "incremental"
-                | "liveness"
-                | "safety"
-                | "security"
-                | "key_size"
-                | "nonce_size"
-                | "tag_verified"
-                | "tag_check"
-                | "nonce"
-                | "decrypt"
-                | "decryption"
-                | "spec"
-                | "crypto"
-        );
+        let text = p.current_text();
+        return IDENT_CLAUSE_STARTERS.contains(&text) || IDENT_CLAUSE_STOPPERS_ONLY.contains(&text);
     }
     false
 }

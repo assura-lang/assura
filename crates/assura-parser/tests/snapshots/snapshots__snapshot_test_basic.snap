@@ -22,6 +22,7 @@ SourceFile {
             items: [
                 "abs",
             ],
+            span: 17..37,
         },
     ],
     decls: [

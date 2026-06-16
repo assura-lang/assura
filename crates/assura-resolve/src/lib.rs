@@ -75,6 +75,8 @@ pub struct ResolvedImport {
     pub items: Vec<String>,
     /// How this import was resolved.
     pub status: ImportStatus,
+    /// Source span of the import declaration.
+    pub span: std::ops::Range<usize>,
 }
 
 /// An in-memory map of known modules, keyed by their dotted path.
@@ -860,7 +862,7 @@ fn resolve_imports(
             errors.push(ResolutionError {
                 code: "A02006".into(),
                 message: format!("duplicate import of module `{path_str}`"),
-                span: 0..0,
+                span: imp.span.clone(),
                 secondary: None,
                 suggestion: None,
             });
@@ -877,7 +879,7 @@ fn resolve_imports(
             errors.push(ResolutionError {
                 code: "A02008".into(),
                 message: "import path is empty".to_string(),
-                span: 0..0,
+                span: imp.span.clone(),
                 secondary: None,
                 suggestion: None,
             });
@@ -897,7 +899,7 @@ fn resolve_imports(
                          segments must start with a lowercase letter or underscore",
                         imp.path.join(".")
                     ),
-                    span: 0..0,
+                    span: imp.span.clone(),
                     secondary: None,
                     suggestion: None,
                 });
@@ -925,9 +927,7 @@ fn resolve_imports(
                 errors.push(ResolutionError {
                     code: "A02005".into(),
                     message: format!("circular import of module `{path_str}`"),
-                    // Imports don't carry spans in the current AST, so
-                    // use a sentinel span.
-                    span: 0..0,
+                    span: imp.span.clone(),
                     secondary: None,
                     suggestion: None,
                 });
@@ -947,6 +947,7 @@ fn resolve_imports(
                 alias: imp.alias.clone(),
                 items: imp.items.clone(),
                 status,
+                span: imp.span.clone(),
             }
         })
         .collect()
@@ -2051,7 +2052,7 @@ fn check_unused_imports(
             errors.push(ResolutionError {
                 code: "A02007".into(),
                 message: format!("unused import `{path_str}`"),
-                span: 0..0,
+                span: imp.span.clone(),
                 secondary: None,
                 suggestion: None,
             });

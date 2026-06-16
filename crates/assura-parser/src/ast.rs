@@ -34,6 +34,7 @@ pub struct ImportDecl {
     pub path: Vec<String>,
     pub alias: Option<String>,
     pub items: Vec<String>,
+    pub span: Span,
 }
 
 // ---------------------------------------------------------------------------

@@ -65,10 +65,29 @@ module.exports = grammar({
           "output",
           "errors",
           "reads",
+          "decreases",
+          "where",
+          "rule",
+          "data-flow",
+          "must-not",
+          "ghost",
+          "define",
+          "property",
+          "constant_time",
+          "bounds",
+          "trust",
+          "boundary",
+          "must_propagate",
+          "ordering",
+          "conforms",
+          "extends",
+          "interface",
+          $.identifier,
         ),
-        "{",
-        repeat($.expression),
-        "}",
+        choice(
+          seq("{", repeat($.expression), "}"),
+          $.expression,
+        ),
       ),
 
     // Service
@@ -188,6 +207,7 @@ module.exports = grammar({
         $.let_expression,
         $.quantifier,
         $.old_expr,
+        $.result_expr,
         $.block_expr,
       ),
 
@@ -211,8 +231,10 @@ module.exports = grammar({
           ["==", 3], ["!=", 3],
           ["<", 4], [">", 4], ["<=", 4], [">=", 4],
           ["+", 5], ["-", 5],
-          ["*", 6], ["/", 6], ["%", 6],
+          ["*", 6], ["/", 6], ["%", 6], ["mod", 6],
           ["in", 3],
+          ["..", 0],
+          ["++", 5],
         ].map(([op, prec_val]) =>
           prec.left(Number(prec_val), seq($.expression, op, $.expression)),
         ),
@@ -228,6 +250,7 @@ module.exports = grammar({
     quantifier: ($) =>
       seq(choice("forall", "exists"), $.identifier, "in", $.expression, ":", $.expression),
     old_expr: ($) => seq("old", "(", $.expression, ")"),
+    result_expr: (_) => "result",
     match_expression: ($) =>
       seq("match", $.expression, "{", repeat($.match_arm), "}"),
     match_arm: ($) =>

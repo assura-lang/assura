@@ -215,7 +215,13 @@ fn lower_import(n: &SyntaxNode) -> ImportDecl {
         })
         .unwrap_or_default();
 
-    ImportDecl { path, alias, items }
+    let span = n.text_range();
+    ImportDecl {
+        path,
+        alias,
+        items,
+        span: (span.start().into()..span.end().into()),
+    }
 }
 
 // -----------------------------------------------------------------

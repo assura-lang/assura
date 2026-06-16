@@ -20,6 +20,7 @@ SourceFile {
             ],
             alias: None,
             items: [],
+            span: 19..34,
         },
         ImportDecl {
             path: [
@@ -31,6 +32,7 @@ SourceFile {
                 "List",
                 "Map",
             ],
+            span: 34..66,
         },
         ImportDecl {
             path: [
@@ -41,6 +43,7 @@ SourceFile {
                 "hash",
             ),
             items: [],
+            span: 66..90,
         },
     ],
     decls: [],

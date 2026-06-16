@@ -24,15 +24,15 @@ use crate::{Type, TypeError};
 /// - A22004: arena lifetime violation (use after arena drop)
 #[derive(Debug, Clone)]
 pub(crate) struct AllocatorChecker {
-    allocations: HashMap<std::string::String, AllocInfo>,
-    freed: HashMap<std::string::String, Range<usize>>,
-    arenas: HashMap<std::string::String, ArenaInfo>,
+    allocations: HashMap<String, AllocInfo>,
+    freed: HashMap<String, Range<usize>>,
+    arenas: HashMap<String, ArenaInfo>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct AllocInfo {
     pub span: Range<usize>,
-    pub arena: Option<std::string::String>,
+    pub arena: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ impl AllocatorChecker {
         }
     }
 
-    pub fn declare_arena(&mut self, name: std::string::String) {
+    pub fn declare_arena(&mut self, name: String) {
         self.arenas.insert(
             name,
             ArenaInfo {
@@ -67,12 +67,7 @@ impl AllocatorChecker {
         }
     }
 
-    pub fn record_alloc(
-        &mut self,
-        name: std::string::String,
-        arena: Option<std::string::String>,
-        span: Range<usize>,
-    ) {
+    pub fn record_alloc(&mut self, name: String, arena: Option<String>, span: Range<usize>) {
         self.allocations.insert(name, AllocInfo { span, arena });
     }
 
@@ -140,7 +135,7 @@ impl Default for AllocatorChecker {
 /// - A23003: buffer empty on read
 #[derive(Debug, Clone)]
 pub(crate) struct CircularBufferChecker {
-    pub(crate) buffers: HashMap<std::string::String, CircBufInfo>,
+    pub(crate) buffers: HashMap<String, CircBufInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -167,7 +162,7 @@ impl CircularBufferChecker {
         }
     }
 
-    pub fn declare(&mut self, name: std::string::String, capacity: usize) {
+    pub fn declare(&mut self, name: String, capacity: usize) {
         self.buffers.insert(
             name,
             CircBufInfo {
@@ -275,9 +270,9 @@ impl Default for CircularBufferChecker {
 #[derive(Debug, Clone)]
 pub(crate) struct CallbackReentrancyChecker {
     /// Functions currently on the call stack
-    call_stack: Vec<std::string::String>,
+    call_stack: Vec<String>,
     /// Functions marked as non-reentrant
-    non_reentrant: HashMap<std::string::String, Range<usize>>,
+    non_reentrant: HashMap<String, Range<usize>>,
     /// Maximum allowed callback depth
     max_depth: usize,
 }
@@ -296,7 +291,7 @@ impl CallbackReentrancyChecker {
         self
     }
 
-    pub fn mark_non_reentrant(&mut self, fn_name: std::string::String, span: Range<usize>) {
+    pub fn mark_non_reentrant(&mut self, fn_name: String, span: Range<usize>) {
         self.non_reentrant.insert(fn_name, span);
     }
 
@@ -381,9 +376,9 @@ impl Default for CallbackReentrancyChecker {
 #[derive(Debug, Clone)]
 pub(crate) struct TemporalDeadlineChecker {
     /// Active deadline scopes (name -> deadline_ms)
-    deadlines: Vec<(std::string::String, u64)>,
+    deadlines: Vec<(String, u64)>,
     /// Operations with known worst-case times
-    operation_bounds: HashMap<std::string::String, u64>,
+    operation_bounds: HashMap<String, u64>,
 }
 
 impl TemporalDeadlineChecker {
@@ -394,13 +389,13 @@ impl TemporalDeadlineChecker {
         }
     }
 
-    pub fn register_bound(&mut self, op: std::string::String, worst_case_ms: u64) {
+    pub fn register_bound(&mut self, op: String, worst_case_ms: u64) {
         self.operation_bounds.insert(op, worst_case_ms);
     }
 
     pub fn enter_deadline(
         &mut self,
-        name: std::string::String,
+        name: String,
         deadline_ms: u64,
         span: &Range<usize>,
     ) -> Option<TypeError> {
@@ -481,7 +476,7 @@ pub(crate) struct BinaryFormatChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct BinaryField {
-    pub name: std::string::String,
+    pub name: String,
     pub offset: usize,
     pub size: usize,
     pub endianness: Option<Endianness>,
@@ -596,7 +591,7 @@ pub(crate) struct BitLevelChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct BitField {
-    pub name: std::string::String,
+    pub name: String,
     pub bit_offset: usize,
     pub bit_width: usize,
     pub span: Range<usize>,
@@ -702,7 +697,7 @@ pub(crate) enum StringEncoding {
 
 #[derive(Debug, Clone)]
 pub(crate) struct StringEncodingChecker {
-    variables: HashMap<std::string::String, StringEncoding>,
+    variables: HashMap<String, StringEncoding>,
 }
 
 impl StringEncodingChecker {
@@ -712,7 +707,7 @@ impl StringEncodingChecker {
         }
     }
 
-    pub fn declare(&mut self, name: std::string::String, encoding: StringEncoding) {
+    pub fn declare(&mut self, name: String, encoding: StringEncoding) {
         self.variables.insert(name, encoding);
     }
 
@@ -803,13 +798,13 @@ pub(crate) enum ChecksumAlgorithm {
     Sha256,
     Sha512,
     Md5,
-    Custom(std::string::String),
+    Custom(String),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ChecksumChecker {
     /// Data regions and their checksum status
-    regions: HashMap<std::string::String, ChecksumRegion>,
+    regions: HashMap<String, ChecksumRegion>,
 }
 
 #[derive(Debug, Clone)]
@@ -829,7 +824,7 @@ impl ChecksumChecker {
 
     pub fn declare_region(
         &mut self,
-        name: std::string::String,
+        name: String,
         algorithm: ChecksumAlgorithm,
         start: usize,
         end: usize,
@@ -929,21 +924,21 @@ impl Default for ChecksumChecker {
 /// - A30003: required message field missing
 #[derive(Debug, Clone)]
 pub(crate) struct ProtocolGrammarChecker {
-    states: Vec<std::string::String>,
-    current_state: std::string::String,
+    states: Vec<String>,
+    current_state: String,
     transitions: Vec<ProtocolTransition>,
-    required_fields: HashMap<std::string::String, Vec<std::string::String>>,
+    required_fields: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProtocolTransition {
-    pub from: std::string::String,
-    pub to: std::string::String,
-    pub message: std::string::String,
+    pub from: String,
+    pub to: String,
+    pub message: String,
 }
 
 impl ProtocolGrammarChecker {
-    pub fn new(initial_state: std::string::String) -> Self {
+    pub fn new(initial_state: String) -> Self {
         Self {
             states: vec![initial_state.clone()],
             current_state: initial_state,
@@ -952,27 +947,18 @@ impl ProtocolGrammarChecker {
         }
     }
 
-    pub fn add_state(&mut self, state: std::string::String) {
+    pub fn add_state(&mut self, state: String) {
         if !self.states.contains(&state) {
             self.states.push(state);
         }
     }
 
-    pub fn add_transition(
-        &mut self,
-        from: std::string::String,
-        to: std::string::String,
-        message: std::string::String,
-    ) {
+    pub fn add_transition(&mut self, from: String, to: String, message: String) {
         self.transitions
             .push(ProtocolTransition { from, to, message });
     }
 
-    pub fn add_required_fields(
-        &mut self,
-        message: std::string::String,
-        fields: Vec<std::string::String>,
-    ) {
+    pub fn add_required_fields(&mut self, message: String, fields: Vec<String>) {
         self.required_fields.insert(message, fields);
     }
 
@@ -1048,15 +1034,15 @@ impl ProtocolGrammarChecker {
 /// - A31003: axiom not used in any proof
 #[derive(Debug, Clone)]
 pub(crate) struct AxiomaticDefChecker {
-    axioms: HashMap<std::string::String, AxiomDef>,
-    used_axioms: Vec<std::string::String>,
+    axioms: HashMap<String, AxiomDef>,
+    used_axioms: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct AxiomDef {
-    pub name: std::string::String,
+    pub name: String,
     pub span: Range<usize>,
-    pub references: Vec<std::string::String>,
+    pub references: Vec<String>,
 }
 
 impl AxiomaticDefChecker {
@@ -1129,7 +1115,7 @@ impl AxiomaticDefChecker {
         errors
     }
 
-    fn has_cycle(&self, current: &str, visited: &mut Vec<std::string::String>) -> bool {
+    fn has_cycle(&self, current: &str, visited: &mut Vec<String>) -> bool {
         if let Some(axiom) = self.axioms.get(current) {
             for reference in &axiom.references {
                 if visited.contains(reference) {
@@ -1166,8 +1152,8 @@ impl Default for AxiomaticDefChecker {
 /// - A32003: reveal used outside proof context
 #[derive(Debug, Clone)]
 pub(crate) struct OpaqueFunctionChecker {
-    opaque_fns: HashMap<std::string::String, OpaqueFnInfo>,
-    revealed: Vec<std::string::String>,
+    opaque_fns: HashMap<String, OpaqueFnInfo>,
+    revealed: Vec<String>,
     in_proof_context: bool,
 }
 
@@ -1186,12 +1172,7 @@ impl OpaqueFunctionChecker {
         }
     }
 
-    pub fn declare_opaque(
-        &mut self,
-        name: std::string::String,
-        has_contract: bool,
-        span: Range<usize>,
-    ) {
+    pub fn declare_opaque(&mut self, name: String, has_contract: bool, span: Range<usize>) {
         self.opaque_fns
             .insert(name, OpaqueFnInfo { has_contract, span });
     }
@@ -1273,16 +1254,16 @@ pub struct TestGenerator {
 
 #[derive(Debug, Clone)]
 pub struct TestableContract {
-    pub name: std::string::String,
-    pub params: Vec<(std::string::String, Type)>,
-    pub requires: Vec<std::string::String>,
-    pub ensures: Vec<std::string::String>,
+    pub name: String,
+    pub params: Vec<(String, Type)>,
+    pub requires: Vec<String>,
+    pub ensures: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct GeneratedTest {
-    pub name: std::string::String,
-    pub body: std::string::String,
+    pub name: String,
+    pub body: String,
     pub kind: TestKind,
 }
 
@@ -1305,7 +1286,7 @@ impl TestGenerator {
     }
 
     pub fn generate_property_test(&self, contract: &TestableContract) -> GeneratedTest {
-        let param_list: Vec<std::string::String> = contract
+        let param_list: Vec<String> = contract
             .params
             .iter()
             .map(|(n, t)| format!("{n}: {}", Self::type_to_proptest_strategy(t)))
@@ -1386,7 +1367,7 @@ impl TestGenerator {
         }
     }
 
-    fn boundary_values(ty: &Type) -> Vec<std::string::String> {
+    fn boundary_values(ty: &Type) -> Vec<String> {
         match ty {
             Type::Int | Type::I64 => vec![
                 "0".into(),
@@ -1449,13 +1430,13 @@ impl Default for TestGenerator {
 #[derive(Debug, Clone)]
 pub(crate) struct CrashRecoveryChecker {
     wal_entries: Vec<WalEntry>,
-    committed: Vec<std::string::String>,
-    fsynced: Vec<std::string::String>,
+    committed: Vec<String>,
+    fsynced: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct WalEntry {
-    pub id: std::string::String,
+    pub id: String,
     pub data_written: bool,
     pub wal_written: bool,
     pub fsynced: bool,
@@ -1470,7 +1451,7 @@ impl CrashRecoveryChecker {
         }
     }
 
-    pub fn begin_write(&mut self, id: std::string::String) {
+    pub fn begin_write(&mut self, id: String) {
         self.wal_entries.push(WalEntry {
             id,
             data_written: false,
@@ -1680,7 +1661,7 @@ impl Default for PageCacheChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct MvccChecker {
-    versions: std::collections::HashMap<std::string::String, Vec<MvccVersion>>,
+    versions: std::collections::HashMap<String, Vec<MvccVersion>>,
     active_snapshots: Vec<u64>,
     next_txn_id: u64,
 }
@@ -1707,7 +1688,7 @@ impl MvccChecker {
         id
     }
 
-    pub fn write_version(&mut self, key: std::string::String, txn_id: u64) {
+    pub fn write_version(&mut self, key: String, txn_id: u64) {
         self.versions.entry(key).or_default().push(MvccVersion {
             txn_id,
             committed: false,
@@ -1791,8 +1772,8 @@ impl Default for MvccChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RollbackChecker {
-    savepoints: Vec<std::string::String>,
-    resources_acquired: Vec<std::string::String>,
+    savepoints: Vec<String>,
+    resources_acquired: Vec<String>,
     rolled_back: bool,
 }
 
@@ -1805,11 +1786,11 @@ impl RollbackChecker {
         }
     }
 
-    pub fn create_savepoint(&mut self, name: std::string::String) {
+    pub fn create_savepoint(&mut self, name: String) {
         self.savepoints.push(name);
     }
 
-    pub fn acquire_resource(&mut self, name: std::string::String) {
+    pub fn acquire_resource(&mut self, name: String) {
         self.resources_acquired.push(name);
     }
 
@@ -1877,7 +1858,7 @@ impl Default for RollbackChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct MonotonicStateChecker {
-    monotonic_vars: std::collections::HashMap<std::string::String, MonotonicInfo>,
+    monotonic_vars: std::collections::HashMap<String, MonotonicInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -1903,7 +1884,7 @@ impl MonotonicStateChecker {
 
     pub fn declare(
         &mut self,
-        name: std::string::String,
+        name: String,
         direction: MonotonicDirection,
         initial: i64,
         span: std::ops::Range<usize>,
@@ -1985,7 +1966,7 @@ impl Default for MonotonicStateChecker {
 #[derive(Debug, Clone)]
 pub(crate) struct StorageFailureChecker {
     failure_modes: Vec<FailureMode>,
-    handled_modes: Vec<std::string::String>,
+    handled_modes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2088,7 +2069,7 @@ impl Default for StorageFailureChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct NumericalPrecisionChecker {
-    variables: std::collections::HashMap<std::string::String, PrecisionInfo>,
+    variables: std::collections::HashMap<String, PrecisionInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -2105,13 +2086,7 @@ impl NumericalPrecisionChecker {
         }
     }
 
-    pub fn declare(
-        &mut self,
-        name: std::string::String,
-        bits: u32,
-        min_ulp: f64,
-        span: std::ops::Range<usize>,
-    ) {
+    pub fn declare(&mut self, name: String, bits: u32, min_ulp: f64, span: std::ops::Range<usize>) {
         self.variables.insert(
             name,
             PrecisionInfo {
@@ -2190,10 +2165,10 @@ pub(crate) struct PrecomputedTableChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TableDecl {
-    pub name: std::string::String,
+    pub name: String,
     pub size: usize,
     pub verified_entries: usize,
-    pub generator_fn: std::string::String,
+    pub generator_fn: String,
     pub span: std::ops::Range<usize>,
 }
 
@@ -2204,9 +2179,9 @@ impl PrecomputedTableChecker {
 
     pub fn declare_table(
         &mut self,
-        name: std::string::String,
+        name: String,
         size: usize,
-        generator_fn: std::string::String,
+        generator_fn: String,
         span: std::ops::Range<usize>,
     ) {
         self.tables.push(TableDecl {
@@ -2279,8 +2254,8 @@ impl Default for PrecomputedTableChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PlatformAbstractionChecker {
-    platforms: Vec<std::string::String>,
-    abstractions: std::collections::HashMap<std::string::String, Vec<std::string::String>>,
+    platforms: Vec<String>,
+    abstractions: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl PlatformAbstractionChecker {
@@ -2295,17 +2270,13 @@ impl PlatformAbstractionChecker {
         &self.platforms
     }
 
-    pub fn add_platform(&mut self, name: std::string::String) {
+    pub fn add_platform(&mut self, name: String) {
         if !self.platforms.contains(&name) {
             self.platforms.push(name);
         }
     }
 
-    pub fn declare_abstraction(
-        &mut self,
-        name: std::string::String,
-        supported: Vec<std::string::String>,
-    ) {
+    pub fn declare_abstraction(&mut self, name: String, supported: Vec<String>) {
         self.abstractions.insert(name, supported);
     }
 
@@ -2371,14 +2342,14 @@ impl Default for PlatformAbstractionChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FeatureFlagChecker {
-    flags: std::collections::HashMap<std::string::String, FeatureFlagInfo>,
+    flags: std::collections::HashMap<String, FeatureFlagInfo>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct FeatureFlagInfo {
     pub default_enabled: bool,
     pub used: bool,
-    pub conflicts_with: Vec<std::string::String>,
+    pub conflicts_with: Vec<String>,
 }
 
 impl FeatureFlagChecker {
@@ -2388,12 +2359,7 @@ impl FeatureFlagChecker {
         }
     }
 
-    pub fn declare(
-        &mut self,
-        name: std::string::String,
-        default_enabled: bool,
-        conflicts_with: Vec<std::string::String>,
-    ) {
+    pub fn declare(&mut self, name: String, default_enabled: bool, conflicts_with: Vec<String>) {
         self.flags.insert(
             name,
             FeatureFlagInfo {
@@ -2472,14 +2438,14 @@ impl Default for FeatureFlagChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ResourceLimitChecker {
-    limits: std::collections::HashMap<std::string::String, ResourceLimit>,
-    usage: std::collections::HashMap<std::string::String, u64>,
+    limits: std::collections::HashMap<String, ResourceLimit>,
+    usage: std::collections::HashMap<String, u64>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ResourceLimit {
     pub max_value: u64,
-    pub unit: std::string::String,
+    pub unit: String,
 }
 
 impl ResourceLimitChecker {
@@ -2490,12 +2456,7 @@ impl ResourceLimitChecker {
         }
     }
 
-    pub fn declare_limit(
-        &mut self,
-        name: std::string::String,
-        max_value: u64,
-        unit: std::string::String,
-    ) {
+    pub fn declare_limit(&mut self, name: String, max_value: u64, unit: String) {
         self.limits
             .insert(name.clone(), ResourceLimit { max_value, unit });
         self.usage.insert(name, 0);
@@ -2585,10 +2546,10 @@ pub(crate) struct UnsafeEscapeChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct UnsafeBlock {
-    pub name: std::string::String,
+    pub name: String,
     pub has_safety_proof: bool,
-    pub proof_obligations: Vec<std::string::String>,
-    pub obligations_discharged: Vec<std::string::String>,
+    pub proof_obligations: Vec<String>,
+    pub obligations_discharged: Vec<String>,
     pub span: std::ops::Range<usize>,
 }
 
@@ -2601,8 +2562,8 @@ impl UnsafeEscapeChecker {
 
     pub fn declare_unsafe(
         &mut self,
-        name: std::string::String,
-        obligations: Vec<std::string::String>,
+        name: String,
+        obligations: Vec<String>,
         span: std::ops::Range<usize>,
     ) {
         self.unsafe_blocks.push(UnsafeBlock {
@@ -2620,7 +2581,7 @@ impl UnsafeEscapeChecker {
         }
     }
 
-    pub fn discharge_obligation(&mut self, block_name: &str, obligation: std::string::String) {
+    pub fn discharge_obligation(&mut self, block_name: &str, obligation: String) {
         if let Some(b) = self.unsafe_blocks.iter_mut().find(|b| b.name == block_name) {
             b.obligations_discharged.push(obligation);
         }
@@ -2685,7 +2646,7 @@ impl Default for UnsafeEscapeChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ComplexityBoundChecker {
-    bounds: std::collections::HashMap<std::string::String, ComplexityBound>,
+    bounds: std::collections::HashMap<String, ComplexityBound>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2715,7 +2676,7 @@ impl ComplexityBoundChecker {
 
     pub fn declare_bound(
         &mut self,
-        fn_name: std::string::String,
+        fn_name: String,
         declared: ComplexityClass,
         span: std::ops::Range<usize>,
     ) {
@@ -2811,10 +2772,10 @@ pub(crate) struct BehavioralEquivalenceChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct EquivalenceDecl {
-    pub name: std::string::String,
-    pub impl_a: std::string::String,
-    pub impl_b: std::string::String,
-    pub contract: std::string::String,
+    pub name: String,
+    pub impl_a: String,
+    pub impl_b: String,
+    pub contract: String,
     pub verified: bool,
     pub span: std::ops::Range<usize>,
 }
@@ -2828,10 +2789,10 @@ impl BehavioralEquivalenceChecker {
 
     pub fn declare(
         &mut self,
-        name: std::string::String,
-        impl_a: std::string::String,
-        impl_b: std::string::String,
-        contract: std::string::String,
+        name: String,
+        impl_a: String,
+        impl_b: String,
+        contract: String,
         span: std::ops::Range<usize>,
     ) {
         self.equivalences.push(EquivalenceDecl {
@@ -2913,9 +2874,9 @@ pub(crate) struct MultiPassRefinementChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RefinementPass {
-    pub name: std::string::String,
-    pub from_level: std::string::String,
-    pub to_level: std::string::String,
+    pub name: String,
+    pub from_level: String,
+    pub to_level: String,
     pub obligations_total: usize,
     pub obligations_discharged: usize,
     pub span: std::ops::Range<usize>,
@@ -2928,9 +2889,9 @@ impl MultiPassRefinementChecker {
 
     pub fn add_pass(
         &mut self,
-        name: std::string::String,
-        from_level: std::string::String,
-        to_level: std::string::String,
+        name: String,
+        from_level: String,
+        to_level: String,
         obligations: usize,
         span: std::ops::Range<usize>,
     ) {
@@ -3013,7 +2974,7 @@ impl Default for MultiPassRefinementChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IncrementalContractChecker {
-    contracts: std::collections::HashMap<std::string::String, ContractHistoryEntry>,
+    contracts: std::collections::HashMap<String, ContractHistoryEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -3037,7 +2998,7 @@ impl IncrementalContractChecker {
 
     pub fn add_version(
         &mut self,
-        name: std::string::String,
+        name: String,
         version: u32,
         requires_count: usize,
         ensures_count: usize,
@@ -3129,7 +3090,7 @@ impl Default for IncrementalContractChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ScopedInvariantChecker {
-    invariants: std::collections::HashMap<std::string::String, InvariantState>,
+    invariants: std::collections::HashMap<String, InvariantState>,
     suspension_depth: u32,
 }
 
@@ -3148,7 +3109,7 @@ impl ScopedInvariantChecker {
         }
     }
 
-    pub fn declare_invariant(&mut self, name: std::string::String) {
+    pub fn declare_invariant(&mut self, name: String) {
         self.invariants.insert(name, InvariantState::Active);
     }
 
@@ -3226,12 +3187,12 @@ impl Default for ScopedInvariantChecker {
 /// Core standard library type definitions (Pos, NonNeg, Email, Uuid, etc.)
 #[derive(Debug, Clone)]
 pub(crate) struct StdlibTypes {
-    types: std::collections::HashMap<std::string::String, StdlibTypeDef>,
+    types: std::collections::HashMap<String, StdlibTypeDef>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct StdlibTypeDef {
-    pub name: std::string::String,
+    pub name: String,
     pub base_type: Type,
 }
 
@@ -3306,7 +3267,7 @@ pub(crate) struct CollectionContracts {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CollectionContract {
-    pub name: std::string::String,
+    pub name: String,
     pub preserves_length: bool,
 }
 
@@ -3361,11 +3322,11 @@ pub(crate) struct CrudAuthContracts {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CrudOperation {
-    pub name: std::string::String,
+    pub name: String,
     pub op_type: CrudType,
     pub requires_auth: bool,
-    pub preconditions: Vec<std::string::String>,
-    pub postconditions: Vec<std::string::String>,
+    pub preconditions: Vec<String>,
+    pub postconditions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -3378,8 +3339,8 @@ pub(crate) enum CrudType {
 
 #[derive(Debug, Clone)]
 pub(crate) struct AuthPolicy {
-    pub name: std::string::String,
-    pub required_role: std::string::String,
+    pub name: String,
+    pub required_role: String,
     pub allow_self: bool,
 }
 
@@ -3391,7 +3352,7 @@ impl CrudAuthContracts {
         }
     }
 
-    pub fn add_crud(&mut self, name: std::string::String, op_type: CrudType, requires_auth: bool) {
+    pub fn add_crud(&mut self, name: String, op_type: CrudType, requires_auth: bool) {
         self.crud_ops.push(CrudOperation {
             name,
             op_type,
@@ -3401,12 +3362,7 @@ impl CrudAuthContracts {
         });
     }
 
-    pub fn add_auth_policy(
-        &mut self,
-        name: std::string::String,
-        required_role: std::string::String,
-        allow_self: bool,
-    ) {
+    pub fn add_auth_policy(&mut self, name: String, required_role: String, allow_self: bool) {
         self.auth_policies.push(AuthPolicy {
             name,
             required_role,
@@ -3492,13 +3448,13 @@ impl Default for CrudAuthContracts {
 /// Tracks contract inheritance/composition via extends.
 #[derive(Debug, Clone)]
 pub(crate) struct ContractCompositionChecker {
-    contracts: std::collections::HashMap<std::string::String, ComposableContract>,
+    contracts: std::collections::HashMap<String, ComposableContract>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ComposableContract {
-    pub name: std::string::String,
-    pub extends: Vec<std::string::String>,
+    pub name: String,
+    pub extends: Vec<String>,
     pub own_clauses: usize,
 }
 
@@ -3509,12 +3465,7 @@ impl ContractCompositionChecker {
         }
     }
 
-    pub fn declare(
-        &mut self,
-        name: std::string::String,
-        extends: Vec<std::string::String>,
-        own_clauses: usize,
-    ) {
+    pub fn declare(&mut self, name: String, extends: Vec<String>, own_clauses: usize) {
         self.contracts.insert(
             name.clone(),
             ComposableContract {
@@ -3560,7 +3511,7 @@ impl ContractCompositionChecker {
         errors
     }
 
-    fn has_extends_cycle(&self, current: &str, visited: &mut Vec<std::string::String>) -> bool {
+    fn has_extends_cycle(&self, current: &str, visited: &mut Vec<String>) -> bool {
         if let Some(contract) = self.contracts.get(current) {
             for parent in &contract.extends {
                 if visited.contains(parent) {
@@ -3601,7 +3552,7 @@ impl ContractCompositionChecker {
         errors
     }
 
-    fn collect_ancestors(&self, name: &str) -> Vec<std::string::String> {
+    fn collect_ancestors(&self, name: &str) -> Vec<String> {
         let mut result = vec![name.to_string()];
         if let Some(c) = self.contracts.get(name) {
             for parent in &c.extends {
@@ -3644,16 +3595,16 @@ pub(crate) struct ContractLibraryChecker {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ContractLibrary {
-    pub name: std::string::String,
-    pub version: std::string::String,
-    pub exported_contracts: Vec<std::string::String>,
+    pub name: String,
+    pub version: String,
+    pub exported_contracts: Vec<String>,
     pub dependencies: Vec<LibraryDep>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct LibraryDep {
-    pub name: std::string::String,
-    pub version_req: std::string::String,
+    pub name: String,
+    pub version_req: String,
 }
 
 impl ContractLibraryChecker {
@@ -3663,7 +3614,7 @@ impl ContractLibraryChecker {
         }
     }
 
-    pub fn declare_library(&mut self, name: std::string::String, version: std::string::String) {
+    pub fn declare_library(&mut self, name: String, version: String) {
         self.libraries.push(ContractLibrary {
             name,
             version,
@@ -3672,7 +3623,7 @@ impl ContractLibraryChecker {
         });
     }
 
-    pub fn add_export(&mut self, lib_name: &str, contract: std::string::String) {
+    pub fn add_export(&mut self, lib_name: &str, contract: String) {
         if let Some(lib) = self.libraries.iter_mut().find(|l| l.name == lib_name) {
             lib.exported_contracts.push(contract);
         }
