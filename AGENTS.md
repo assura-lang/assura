@@ -169,7 +169,7 @@ These versions are load-bearing. The APIs change between majors.
 |-------|---------|-------------------|
 | rowan | 0.16 | stable, upgrades OK |
 | ariadne | 0.4 | 0.5+ (different Report/Label API) |
-| logos | 0.15 | stable, upgrades OK |
+| logos | 0.16 | stable, upgrades OK |
 
 **rowan 0.16 patterns**: `GreenNodeBuilder`, `SyntaxNode::new_root()`,
 `Language` trait on `AssuraLanguage`, `SyntaxKind` enum with `From<u16>`.
