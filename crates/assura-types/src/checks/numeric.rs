@@ -1,0 +1,550 @@
+//! Numeric, fixed-width, and collection checks.
+
+use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr};
+
+use crate::checkers::*;
+use crate::domain::*;
+use crate::types::*;
+use crate::{Type, TypeEnv, TypeError};
+
+// ---------------------------------------------------------------------------
+// Fixed-width integer checking wiring (T055)
+// ---------------------------------------------------------------------------
+
+/// T055: Detect potential integer overflow in fixed-width arithmetic.
+pub(crate) fn run_fixed_width_checks(
+    source: &assura_parser::ast::SourceFile,
+    type_env: &TypeEnv,
+) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let (params, clauses): (&[assura_parser::ast::Param], &[_]) = match &decl.node {
+            Decl::Contract(c) => (&[], c.clauses.as_slice()),
+            Decl::FnDef(f) => (f.params.as_slice(), f.clauses.as_slice()),
+            Decl::Extern(e) => (e.params.as_slice(), e.clauses.as_slice()),
+            _ => continue,
+        };
+
+        // Build a per-decl checker with declared fixed-width bindings
+        let mut fw_checker = FixedWidthChecker::new();
+        for param in params {
+            let ty_str = param.ty.join(" ");
+            if let Some(fw_ty) = token_to_fixed_width_type(&ty_str) {
+                fw_checker.declare(param.name.clone(), fw_ty);
+            }
+        }
+
+        for clause in clauses {
+            check_expr_fixed_width_full(
+                &clause.body,
+                type_env,
+                &fw_checker,
+                &decl.span,
+                &mut errors,
+            );
+        }
+    }
+    errors
+}
+
+/// Check an expression using the full FixedWidthChecker (with bindings).
+///
+/// Calls `check_binop` and `check_division_by_zero` in addition to the
+/// individual overflow/signedness/cast checks.
+fn check_expr_fixed_width_full(
+    expr: &Expr,
+    type_env: &TypeEnv,
+    fw_checker: &FixedWidthChecker,
+    span: &std::ops::Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    match expr {
+        Expr::BinOp { lhs, op, rhs } => {
+            check_expr_fixed_width_full(lhs, type_env, fw_checker, span, errors);
+            check_expr_fixed_width_full(rhs, type_env, fw_checker, span, errors);
+
+            if let Some(left_type) = infer_fixed_width_type_ext(lhs, type_env, fw_checker)
+                && let Some(right_type) = infer_fixed_width_type_ext(rhs, type_env, fw_checker)
+            {
+                // Warn when mixing unsigned and signed in arithmetic (not just comparison)
+                if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul)
+                    && FixedWidthChecker::is_unsigned(&left_type)
+                        != FixedWidthChecker::is_unsigned(&right_type)
+                    && FixedWidthChecker::is_fixed_width(&left_type)
+                    && FixedWidthChecker::is_fixed_width(&right_type)
+                {
+                    // already covered by check_binop's signedness check
+                }
+                // Use check_binop for combined overflow + signedness + div-by-zero
+                for fwe in fw_checker.check_binop(op, &left_type, &right_type, rhs, span) {
+                    errors.push(TypeError {
+                        code: fwe.code,
+                        message: fwe.message,
+                        span: fwe.span,
+                        secondary: None,
+                    });
+                }
+            } else if let Some(left_type) = infer_fixed_width_type_ext(lhs, type_env, fw_checker) {
+                // Even without right type, check division by zero
+                if let Some(fwe) =
+                    FixedWidthChecker::check_division_by_zero(op, rhs, &left_type, span)
+                {
+                    errors.push(TypeError {
+                        code: fwe.code,
+                        message: fwe.message,
+                        span: fwe.span,
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        Expr::Cast { expr: inner, ty } => {
+            check_expr_fixed_width_full(inner, type_env, fw_checker, span, errors);
+            if let Some(from_type) = infer_fixed_width_type_ext(inner, type_env, fw_checker)
+                && let Some(to_ty) = token_to_fixed_width_type(ty)
+                && let Some(fwe) = FixedWidthChecker::check_cast_safety(&from_type, &to_ty, span)
+            {
+                errors.push(TypeError {
+                    code: fwe.code,
+                    message: fwe.message,
+                    span: fwe.span,
+                    secondary: None,
+                });
+            }
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Old(inner)
+        | Expr::Paren(inner)
+        | Expr::Ghost(inner) => {
+            check_expr_fixed_width_full(inner, type_env, fw_checker, span, errors);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            check_expr_fixed_width_full(cond, type_env, fw_checker, span, errors);
+            check_expr_fixed_width_full(then_branch, type_env, fw_checker, span, errors);
+            if let Some(e) = else_branch {
+                check_expr_fixed_width_full(e, type_env, fw_checker, span, errors);
+            }
+        }
+        Expr::Call { func, args } => {
+            check_expr_fixed_width_full(func, type_env, fw_checker, span, errors);
+            for a in args {
+                check_expr_fixed_width_full(a, type_env, fw_checker, span, errors);
+            }
+        }
+        Expr::Block(items) => {
+            for item in items {
+                check_expr_fixed_width_full(item, type_env, fw_checker, span, errors);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Infer fixed-width type using both type env and the checker's bindings.
+fn infer_fixed_width_type_ext(
+    expr: &Expr,
+    type_env: &TypeEnv,
+    fw_checker: &FixedWidthChecker,
+) -> Option<Type> {
+    match expr {
+        Expr::Ident(name) => {
+            // Check checker bindings first, then type env
+            if let Some(ty) = fw_checker.get_type(name)
+                && FixedWidthChecker::is_fixed_width(ty)
+            {
+                return Some(ty.clone());
+            }
+            if let Some(ty) = type_env.lookup(name)
+                && FixedWidthChecker::is_fixed_width(ty)
+            {
+                return Some(ty.clone());
+            }
+            None
+        }
+        Expr::Cast { ty, .. } => token_to_fixed_width_type(ty),
+        _ => None,
+    }
+}
+
+/// Convert a type name token to a fixed-width Type.
+fn token_to_fixed_width_type(ty: &str) -> Option<Type> {
+    match ty {
+        "U8" | "u8" => Some(Type::U8),
+        "U16" | "u16" => Some(Type::U16),
+        "U32" | "u32" => Some(Type::U32),
+        "U64" | "u64" => Some(Type::U64),
+        "I8" | "i8" => Some(Type::I8),
+        "I16" | "i16" => Some(Type::I16),
+        "I32" | "i32" => Some(Type::I32),
+        "I64" | "i64" => Some(Type::I64),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Collection contract checks (T108)
+// ---------------------------------------------------------------------------
+
+/// Validate that contracts referencing standard collection operations
+/// (sort, filter, map, reverse, deduplicate) declare postconditions
+/// consistent with the operation's semantics.
+pub(crate) fn run_collection_contract_checks(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    let cc = CollectionContracts::new();
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        let (name, clauses) = match &decl.node {
+            Decl::Contract(c) => (&c.name, &c.clauses),
+            Decl::FnDef(f) => (&f.name, &f.clauses),
+            _ => continue,
+        };
+
+        // Check if the contract/function name matches a known collection op
+        let lower_name = name.to_lowercase();
+        if let Some(cc_def) = cc.lookup(&lower_name) {
+            // Verify length-preserving operations declare it
+            if cc_def.preserves_length {
+                let has_length_postcondition = clauses
+                    .iter()
+                    .any(|c| c.kind == ClauseKind::Ensures && expr_mentions_len(&c.body));
+                if !has_length_postcondition {
+                    errors.push(TypeError {
+                        code: "A03007".into(),
+                        message: format!(
+                            "collection operation `{name}` preserves length; \
+                             consider adding a `len(result) == len(input)` postcondition"
+                        ),
+                        span: decl.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+/// Check if an expression mentions `len` (used by collection contract checks).
+fn expr_mentions_len(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref()
+                && name == "len"
+            {
+                return true;
+            }
+            args.iter().any(expr_mentions_len)
+        }
+        Expr::Ident(name) => name == "len",
+        Expr::BinOp { lhs, rhs, .. } => expr_mentions_len(lhs) || expr_mentions_len(rhs),
+        Expr::UnaryOp { expr, .. } => expr_mentions_len(expr),
+        Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => expr_mentions_len(e),
+        Expr::Field(e, _) => expr_mentions_len(e),
+        Expr::Block(exprs) | Expr::List(exprs) => exprs.iter().any(expr_mentions_len),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_mentions_len(cond)
+                || expr_mentions_len(then_branch)
+                || else_branch.as_ref().is_some_and(|e| expr_mentions_len(e))
+        }
+        Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+            expr_mentions_len(body) || expr_mentions_len(domain)
+        }
+        Expr::Raw(tokens) => tokens.iter().any(|t| t == "len"),
+        _ => false,
+    }
+}
+
+pub(crate) fn run_numerical_precision_checks(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    let mut checker = NumericalPrecisionChecker::new();
+    let mut found = false;
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "precision" || k == "numerical_precision" || k == "ulp_bound")
+            {
+                found = true;
+                // Extract precision params from call syntax: precision(name, bits, ulp)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let bits = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                                as u32;
+                            let ulp = args.get(1).and_then(extract_float_literal).unwrap_or(1.0);
+                            checker.declare(name.clone(), bits, ulp, decl.span.clone());
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare(
+                            name.clone(),
+                            DEFAULT_BIT_CONTAINER_BITS as u32,
+                            1.0,
+                            decl.span.clone(),
+                        );
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "var")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let bits = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "bits")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                            as u32;
+                        let ulp = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "ulp")
+                            .and_then(|(_, v)| extract_float_literal(v))
+                            .unwrap_or(1.0);
+                        checker.declare(name, bits, ulp, decl.span.clone());
+                    }
+                }
+            }
+        }
+    }
+    if !found {
+        return Vec::new();
+    }
+    // Check precision in ensures clauses for referenced variables
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if matches!(
+                clause.kind,
+                ClauseKind::Ensures | ClauseKind::Requires | ClauseKind::Invariant
+            ) {
+                let refs = collect_ident_references(&clause.body);
+                for name in &refs {
+                    // Detect narrowing operations (e.g., 64-bit -> 32-bit)
+                    if clause_contains_cast(&clause.body, name) {
+                        let target_bits = extract_cast_target_bits(&clause.body, name);
+                        if let Some(err) = checker.check_precision_loss(name, target_bits) {
+                            errors.push(err);
+                        }
+                    }
+                    // Check ULP bound violations
+                    if let Some(err) = checker.check_ulp_bound(name, 2.0)
+                        && clause_contains_cast(&clause.body, name)
+                    {
+                        errors.push(err);
+                    }
+                    // Check catastrophic cancellation
+                    if let Some(err) = checker.check_cancellation(name, 0.9999) {
+                        errors.push(err);
+                    }
+                }
+            }
+        }
+    }
+    errors
+}
+
+/// Extract the target bit width from a type name (e.g., "f32" -> 32, "f16" -> 16, "Int" -> 64).
+pub(crate) fn type_name_to_bits(ty: &str) -> u32 {
+    match ty {
+        "f16" | "Float16" => 16,
+        "f32" | "Float32" => 32,
+        "f64" | "Float64" | "Float" => 64,
+        "i8" | "u8" | "Int8" | "Nat8" => 8,
+        "i16" | "u16" | "Int16" | "Nat16" => 16,
+        "i32" | "u32" | "Int32" | "Nat32" => 32,
+        "i64" | "u64" | "Int" | "Nat" | "Int64" | "Nat64" => 64,
+        _ => 32, // conservative default for unknown types
+    }
+}
+
+/// Extract the target bit width from a cast expression involving a variable.
+/// Returns the narrowest cast target found, or 32 as a default.
+fn extract_cast_target_bits(expr: &Expr, var_name: &str) -> u32 {
+    match expr {
+        Expr::Cast { expr: inner, ty } => {
+            if let Expr::Ident(name) = inner.as_ref()
+                && name == var_name
+            {
+                return type_name_to_bits(ty);
+            }
+            extract_cast_target_bits(inner, var_name)
+        }
+        Expr::Call { func, args } => {
+            if let Expr::Ident(fn_name) = func.as_ref()
+                && (fn_name == "as_f32"
+                    || fn_name == "as_f16"
+                    || fn_name == "narrow"
+                    || fn_name == "truncate")
+                && args
+                    .iter()
+                    .any(|a| matches!(a, Expr::Ident(n) if n == var_name))
+            {
+                return match fn_name.as_str() {
+                    "as_f16" => 16,
+                    "as_f32" => 32,
+                    _ => 32,
+                };
+            }
+            args.iter()
+                .map(|a| extract_cast_target_bits(a, var_name))
+                .min()
+                .unwrap_or(DEFAULT_HASH_BITS as u32)
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            extract_cast_target_bits(lhs, var_name).min(extract_cast_target_bits(rhs, var_name))
+        }
+        Expr::Paren(inner) => extract_cast_target_bits(inner, var_name),
+        _ => 32,
+    }
+}
+
+/// Check if a clause body contains a cast-like expression for a variable.
+fn clause_contains_cast(expr: &Expr, var_name: &str) -> bool {
+    match expr {
+        Expr::Cast { expr: inner, .. } => {
+            if let Expr::Ident(name) = inner.as_ref() {
+                name == var_name
+            } else {
+                clause_contains_cast(inner, var_name)
+            }
+        }
+        Expr::Call { func, args } => {
+            if let Expr::Ident(fn_name) = func.as_ref()
+                && (fn_name == "as_f32" || fn_name == "narrow" || fn_name == "truncate")
+                && args
+                    .iter()
+                    .any(|a| matches!(a, Expr::Ident(n) if n == var_name))
+            {
+                return true;
+            }
+            args.iter().any(|a| clause_contains_cast(a, var_name))
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            clause_contains_cast(lhs, var_name) || clause_contains_cast(rhs, var_name)
+        }
+        Expr::Paren(inner) => clause_contains_cast(inner, var_name),
+        _ => false,
+    }
+}
+
+/// Scan for precomputed table annotations.
+pub(crate) fn run_precomputed_table_checks(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    let mut checker = PrecomputedTableChecker::new();
+    let mut found = false;
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Block { body, .. } => body,
+            _ => continue,
+        };
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "precomputed_table" || k == "lookup_table" || k == "const_table")
+            {
+                found = true;
+                // Extract table params: precomputed_table(name, size, generator)
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let size = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_FEATURE_MAX)
+                                as usize;
+                            let gen_fn = args
+                                .get(1)
+                                .and_then(extract_ident)
+                                .unwrap_or("")
+                                .to_string();
+                            checker.declare_table(name.clone(), size, gen_fn, decl.span.clone());
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare_table(
+                            name.clone(),
+                            DEFAULT_FEATURE_MAX as usize,
+                            String::new(),
+                            decl.span.clone(),
+                        );
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "table")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let size = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "size" || *k == "entries")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(DEFAULT_FEATURE_MAX)
+                            as usize;
+                        let gen_fn = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "generator" || *k == "gen")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("")
+                            .to_string();
+                        checker.declare_table(name, size, gen_fn, decl.span.clone());
+                    }
+                }
+            }
+        }
+    }
+    if !found {
+        return Vec::new();
+    }
+    // Mark entries as verified if verification clauses exist
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Block { body, .. } => body,
+            _ => continue,
+        };
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "verified_entries" || k == "table_verified")
+                && let Some((name, args)) = extract_call(&clause.body)
+            {
+                let count = args.first().and_then(extract_int_literal).unwrap_or(0) as usize;
+                checker.mark_entries_verified(name, count);
+            }
+        }
+    }
+    let mut errors = checker.check_coverage();
+    errors.extend(checker.check_generator());
+    errors.extend(checker.check_non_empty());
+    errors
+}

@@ -1,12 +1,19 @@
+use std::collections::HashMap;
+use std::ops::Range;
+
 use super::*;
-use crate::clauses::{check_clause_expr, extract_output_type_from_body};
+use crate::clauses::{
+    check_clause_expr, collect_input_param_types, extract_output_type_from_body,
+    register_input_clause_params,
+};
 use crate::inference::{infer_expr, types_compatible};
 
-// Re-export AST type aliases used across many test submodules
+// Re-export AST types used across many test submodules
 pub(super) use assura_parser::ast::{
-    BinOp as AstBinOp, Clause as AstClause, Expr as AstExpr, FnDef as AstFnDef, Literal as AstLit,
-    Param as AstParam, UnaryOp as AstUnOp,
+    BinOp, BinOp as AstBinOp, Clause as AstClause, ClauseKind, Decl, Expr, Expr as AstExpr,
+    FnDef as AstFnDef, Literal as AstLit, Param as AstParam, UnaryOp as AstUnOp,
 };
+pub(super) use assura_resolve::ResolvedFile;
 
 /// Helper: parse + resolve source text, panicking on errors.
 pub(super) fn resolve_ok(source: &str) -> ResolvedFile {
