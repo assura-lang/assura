@@ -447,10 +447,27 @@ contract Typed {
                             type_errors
                         );
                     }
-                    Ok(_) => {
-                        panic!(
-                            "{}: expected error {code} but type checking succeeded",
-                            path.display()
+                    Ok(typed) => {
+                        // Type check passed; try SMT verification for
+                        // error codes in the A05xxx range (prophecy,
+                        // verification failures).
+                        let vr = assura_smt::verify(&typed);
+                        let found = vr.iter().any(|r| match r {
+                            assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                                clause_desc.contains(&code)
+                            }
+                            assura_smt::VerificationResult::Counterexample {
+                                clause_desc, ..
+                            } => clause_desc.contains(&code),
+                            _ => false,
+                        });
+                        assert!(
+                            found,
+                            "{}: expected error {code} but type checking succeeded \
+                             and SMT verification did not produce it. \
+                             Verification results: {:?}",
+                            path.display(),
+                            vr
                         );
                     }
                 }

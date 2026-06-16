@@ -295,3 +295,131 @@ fn collect_quantifiers(
         _ => {}
     }
 }
+
+/// Structural check: top-level prophecy declarations must have a
+/// matching resolve() call somewhere in the file. Without one, the
+/// prophecy variable is never resolved, which is always an error.
+///
+/// Error code: A05025 (unresolved prophecy variable).
+pub(crate) fn run_prophecy_resolution_checks(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+
+    use assura_parser::ast::BlockKind;
+
+    // Collect top-level prophecy declarations (both forms)
+    let prophecies: Vec<(&str, &std::ops::Range<usize>)> = source
+        .decls
+        .iter()
+        .filter_map(|d| match &d.node {
+            Decl::Prophecy(p) => Some((p.name.as_str(), &d.span)),
+            Decl::Block {
+                kind: BlockKind::Other(k),
+                name,
+                ..
+            } if k == "prophecy" => Some((name.as_str(), &d.span)),
+            _ => None,
+        })
+        .collect();
+
+    if prophecies.is_empty() {
+        return errors;
+    }
+
+    let prophecy_names: std::collections::HashSet<&str> =
+        prophecies.iter().map(|(n, _)| *n).collect();
+
+    // Scan all clause bodies for references and resolve() calls
+    let mut referenced_names = std::collections::HashSet::new();
+    let mut resolved_names = std::collections::HashSet::new();
+    for decl in &source.decls {
+        let clauses = match &decl.node {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            collect_resolve_calls(&clause.body, &mut resolved_names);
+            collect_ident_refs(&clause.body, &prophecy_names, &mut referenced_names);
+        }
+    }
+
+    // Only flag prophecies that are referenced but never resolved
+    for (name, span) in prophecies {
+        if referenced_names.contains(name) && !resolved_names.contains(name) {
+            errors.push(TypeError {
+                code: "A05025".into(),
+                message: format!("prophecy variable `{name}` is never resolved"),
+                span: span.clone(),
+                secondary: None,
+            });
+        }
+    }
+
+    errors
+}
+
+/// Recursively collect identifier references that match known prophecy names.
+fn collect_ident_refs(
+    expr: &Expr,
+    prophecy_names: &std::collections::HashSet<&str>,
+    found: &mut std::collections::HashSet<String>,
+) {
+    match expr {
+        Expr::Ident(name) => {
+            if prophecy_names.contains(name.as_str()) {
+                found.insert(name.clone());
+            }
+        }
+        Expr::Call { func, args } => {
+            collect_ident_refs(func, prophecy_names, found);
+            for arg in args {
+                collect_ident_refs(arg, prophecy_names, found);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_ident_refs(lhs, prophecy_names, found);
+            collect_ident_refs(rhs, prophecy_names, found);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            collect_ident_refs(expr, prophecy_names, found);
+        }
+        Expr::Block(es) | Expr::List(es) => {
+            for e in es {
+                collect_ident_refs(e, prophecy_names, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Recursively collect names passed to resolve() or resolve_prophecy() calls.
+fn collect_resolve_calls(expr: &Expr, names: &mut std::collections::HashSet<String>) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(fname) = func.as_ref()
+                && (fname == "resolve" || fname == "resolve_prophecy")
+                && let Some(Expr::Ident(var)) = args.first()
+            {
+                names.insert(var.clone());
+            }
+            for arg in args {
+                collect_resolve_calls(arg, names);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_resolve_calls(lhs, names);
+            collect_resolve_calls(rhs, names);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            collect_resolve_calls(expr, names);
+        }
+        Expr::Block(es) | Expr::List(es) => {
+            for e in es {
+                collect_resolve_calls(e, names);
+            }
+        }
+        _ => {}
+    }
+}

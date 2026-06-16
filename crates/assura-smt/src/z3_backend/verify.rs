@@ -563,20 +563,29 @@ pub(crate) fn verify_impl_with_timeout(
 
     // T093: prophecy variable checks (unresolved prophecies)
     let mut pm = ProphecyManager::new();
+    // Register top-level prophecy declarations
     for decl in &typed.resolved.source.decls {
-        if let Decl::FnDef(f) = &decl.node {
-            for clause in &f.clauses {
-                if clause.kind == ClauseKind::Ensures {
-                    collect_prophecy_refs(&clause.body, &f.name, &mut pm);
-                }
-                // Resolve prophecy variables from resolve() calls
-                if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
-                    resolve_prophecy_vars(&clause.body, &f.name, &mut pm);
-                }
-                // Constrain prophecy variables from constraint expressions
-                if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
-                    constrain_prophecy_vars(&clause.body, &f.name, &mut pm);
-                }
+        if let Decl::Prophecy(p) = &decl.node {
+            pm.declare(p.name.clone());
+        }
+    }
+    for decl in &typed.resolved.source.decls {
+        let (clauses, ctx_name) = match &decl.node {
+            Decl::FnDef(f) => (&f.clauses, f.name.as_str()),
+            Decl::Contract(c) => (&c.clauses, c.name.as_str()),
+            _ => continue,
+        };
+        for clause in clauses {
+            if clause.kind == ClauseKind::Ensures {
+                collect_prophecy_refs(&clause.body, ctx_name, &mut pm);
+            }
+            // Resolve prophecy variables from resolve() calls
+            if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
+                resolve_prophecy_vars(&clause.body, ctx_name, &mut pm);
+            }
+            // Constrain prophecy variables from constraint expressions
+            if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
+                constrain_prophecy_vars(&clause.body, ctx_name, &mut pm);
             }
         }
     }

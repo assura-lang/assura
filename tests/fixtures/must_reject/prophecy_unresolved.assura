@@ -1,5 +1,4 @@
 // MUST REJECT A05025
-// BLOCKED: prophecy validation is in assura-smt, not assura-types; test_must_reject_fixtures only calls type_check
 module test.prophecy_unresolved;
 
 prophecy future_val: Int
