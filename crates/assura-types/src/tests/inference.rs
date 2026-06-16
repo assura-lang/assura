@@ -386,15 +386,15 @@ fn infer_list_type_mismatch() {
 }
 
 #[test]
-fn infer_unknown_no_error_in_binop() {
+fn infer_binop_propagates_known_type_past_unknown() {
     let env = TypeEnv::new();
-    // unknown_var + 1 should not error (unknown_var is Unknown)
+    // unknown_var + 1: unknown ident on one side, Int literal on the other.
+    // Inference should propagate the known type (Int) from the RHS.
     let expr = AstExpr::BinOp {
         lhs: Box::new(AstExpr::Ident("unknown_var".into())),
         op: AstBinOp::Add,
         rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
     };
-    // Should succeed with Int (known side propagated)
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
