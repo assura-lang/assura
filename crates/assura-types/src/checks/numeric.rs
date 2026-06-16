@@ -554,3 +554,167 @@ pub(crate) fn run_precomputed_table_checks(
     errors.extend(checker.check_non_empty());
     errors
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_source(src: &str) -> assura_parser::ast::SourceFile {
+        let (sf, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        sf.unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // run_numerical_precision_checks
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn numerical_precision_no_annotation_produces_no_errors() {
+        let src = r#"contract Simple { requires { true } }"#;
+        let sf = parse_source(src);
+        let errors = run_numerical_precision_checks(&sf);
+        assert!(
+            errors.is_empty(),
+            "no precision annotation should produce no errors: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn numerical_precision_cancellation_detected() {
+        // `precision x` declares a tracked variable; `ensures { x > 0 }`
+        // references it, triggering the catastrophic cancellation check.
+        let src = r#"contract Compute { precision x ensures { x > 0 } }"#;
+        let sf = parse_source(src);
+        let errors = run_numerical_precision_checks(&sf);
+        assert!(
+            errors.iter().any(|e| e.code == "A42003"),
+            "expected A42003 for catastrophic cancellation, got: {errors:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // run_precomputed_table_checks
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn precomputed_table_no_annotation_produces_no_errors() {
+        let src = r#"contract Simple { requires { true } }"#;
+        let sf = parse_source(src);
+        let errors = run_precomputed_table_checks(&sf);
+        assert!(
+            errors.is_empty(),
+            "no precomputed_table annotation should produce no errors: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn precomputed_table_no_generator_detected() {
+        // `precomputed_table crc_table` declares a table with no generator
+        // function, which should trigger A43002.
+        let src = r#"contract Lookup { precomputed_table crc_table }"#;
+        let sf = parse_source(src);
+        let errors = run_precomputed_table_checks(&sf);
+        assert!(
+            errors.iter().any(|e| e.code == "A43002"),
+            "expected A43002 for table without generator function, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn precomputed_table_also_flags_coverage() {
+        // A bare `precomputed_table name` also gets default size (256) with
+        // 0 verified entries, so A43001 (incomplete coverage) is expected too.
+        let src = r#"contract Lookup { precomputed_table crc_table }"#;
+        let sf = parse_source(src);
+        let errors = run_precomputed_table_checks(&sf);
+        assert!(
+            errors.iter().any(|e| e.code == "A43001"),
+            "expected A43001 for incomplete table coverage, got: {errors:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // run_collection_contract_checks
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn collection_no_known_operation_produces_no_errors() {
+        let src = r#"contract Unrelated { requires { true } ensures { true } }"#;
+        let sf = parse_source(src);
+        let errors = run_collection_contract_checks(&sf);
+        assert!(
+            errors.is_empty(),
+            "non-collection contract should produce no errors: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn collection_sort_without_len_postcondition_detected() {
+        // A contract named `sort` (length-preserving op) without an ensures
+        // clause mentioning `len` should produce A03007.
+        let src = r#"
+            contract Sort {
+                requires { true }
+                ensures { true }
+            }
+        "#;
+        let sf = parse_source(src);
+        let errors = run_collection_contract_checks(&sf);
+        assert!(
+            errors.iter().any(|e| e.code == "A03007"),
+            "sort without len postcondition should produce A03007: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn collection_sort_with_len_postcondition_no_error() {
+        // A contract named `sort` WITH an ensures clause mentioning `len`
+        // should not produce A03007.
+        let src = r#"
+            contract Sort {
+                input(items: List<Int>)
+                ensures { len(items) == len(items) }
+            }
+        "#;
+        let sf = parse_source(src);
+        let errors = run_collection_contract_checks(&sf);
+        assert!(
+            !errors.iter().any(|e| e.code == "A03007"),
+            "sort with len postcondition should not produce A03007: {errors:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // run_fixed_width_checks
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn fixed_width_no_fw_params_produces_no_errors() {
+        let src = r#"contract Simple { requires { true } }"#;
+        let sf = parse_source(src);
+        let env = TypeEnv::new();
+        let errors = run_fixed_width_checks(&sf, &env);
+        assert!(
+            errors.is_empty(),
+            "contract without fixed-width params should produce no errors: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn fixed_width_overflow_on_u8_addition() {
+        // An extern fn with two U8 params and an ensures clause adding them
+        // should detect potential overflow (A10101).
+        let src = r#"
+            extern fn add_bytes(a: U8, b: U8) -> U8
+                ensures { a + b > 0 }
+        "#;
+        let sf = parse_source(src);
+        let env = TypeEnv::new();
+        let errors = run_fixed_width_checks(&sf, &env);
+        assert!(
+            errors.iter().any(|e| e.code == "A10101"),
+            "U8 + U8 should flag potential overflow A10101: {errors:?}"
+        );
+    }
+}
