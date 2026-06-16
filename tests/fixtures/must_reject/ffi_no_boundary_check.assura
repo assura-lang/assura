@@ -1,5 +1,5 @@
 // MUST REJECT A11001
-// BLOCKED: FFI boundary checker requires specific boundary violation pattern
+// BLOCKED: #145 -- FFI boundary checker requires specific boundary violation pattern
 module test.ffi_unsafe;
 
 extern fn c_malloc(size: Nat) -> Nat

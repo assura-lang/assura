@@ -1,5 +1,5 @@
 // MUST REJECT A30001
-// BLOCKED: protocol state machine checker needs clause body expression parsing
+// BLOCKED: #145 -- protocol state machine checker needs clause body expression parsing
 module test.proto_bad;
 
 contract TlsHandshake {

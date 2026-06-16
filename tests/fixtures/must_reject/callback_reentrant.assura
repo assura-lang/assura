@@ -1,5 +1,5 @@
 // MUST REJECT A24001
-// BLOCKED: checker needs FnDef declarations with call tracing, not Contract clauses
+// BLOCKED: #145 -- checker needs FnDef declarations with call tracing, not Contract clauses
 module test.reentrant;
 
 contract Vault {

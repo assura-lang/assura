@@ -1,5 +1,5 @@
 // MUST REJECT A32001
-// BLOCKED: opaque checker requires fn definition cross-reference, not contract clause
+// BLOCKED: #145 -- opaque checker requires fn definition cross-reference, not contract clause
 module test.opaque_no_contract;
 
 contract OpaqueNoSpec {

@@ -1,5 +1,5 @@
 // MUST REJECT A37001
-// BLOCKED: page cache checker needs operation tracking across fn bodies
+// BLOCKED: #145 -- page cache checker needs operation tracking across fn bodies
 module test.dirty_evict;
 
 contract CacheOps {

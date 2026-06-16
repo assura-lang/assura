@@ -1,5 +1,5 @@
 // MUST REJECT A12002
-// BLOCKED: catch clause in fn body not parsed into AST clauses
+// BLOCKED: #145 -- catch clause in fn body not parsed into AST clauses
 module test.error_swallowed;
 
 contract FilePolicy {
