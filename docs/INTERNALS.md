@@ -539,8 +539,8 @@ cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --works
 |---------|---------|----------|
 | logos | 0.16 | Lexer (derive macro) |
 | rowan | 0.16 | Lossless concrete syntax tree |
-| ariadne | 0.4 | Error display (NOT 0.5+) |
-| z3 | 0.12 | SMT solver bindings (optional, behind `z3-verify` feature) |
+| ariadne | 0.6 | Error display |
+| z3 | 0.20 | SMT solver bindings (optional, behind `z3-verify` feature) |
 | prettyplease | 0.2 | Rust source formatting in codegen |
 | syn | 2 | Rust AST validation and source analysis |
 | tower-lsp | 0.20 | LSP server framework |
@@ -550,6 +550,6 @@ cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --works
 | criterion | 0.8 | Benchmarks |
 | notify | 8 | Filesystem watching (--watch) |
 
-**Version constraint:** ariadne must stay at 0.4 (0.5+ changes the
-Report/Label API). This is pinned because an upgrade would require
-rewriting the error display code in assura-cli.
+**Key crate versions:** ariadne 0.6 uses `Report::build(kind, span)` with
+a 2-arg API; z3 0.20 uses pre-generated FFI bindings (no bindgen at build
+time) and removes lifetime parameters from AST types.

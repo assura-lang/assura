@@ -273,7 +273,7 @@ These are final. Do not revisit without explicit discussion.
 | Compiler language | Rust | docs/INVESTIGATION.md |
 | Lexer | logos 0.16 | Fast, derive macro |
 | Parser | rowan 0.16 CST + hand-written recursive descent | Lossless CST, Pratt expressions |
-| Error display | ariadne 0.4 | Colored spans |
+| Error display | ariadne 0.6 | Colored spans |
 | SMT solver | Z3 primary (z3 crate), CVC5 fallback | docs/ROADMAP.md |
 | Codegen target | Rust source via prettyplease | NOT syn/quote |
 | Codegen output | `generated/` dir as Cargo workspace | Section 10.3 of spec |
