@@ -725,9 +725,14 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         verification_results.extend(assura_smt::display::dispatch_decrease_checks(typed));
     }
 
+    // Build a lookup from contract/decl name to source span so SMT
+    // diagnostics point to the originating declaration, not 0..0.
+    let decl_spans = build_decl_span_map(file);
+
     if let Some(typed) = typed {
         let qwarnings = assura_smt::validate_quantifier_bounds(typed);
         for w in &qwarnings {
+            let span = lookup_clause_span(&w.context, &decl_spans);
             diagnostics.push(
                 assura_diagnostics::Diagnostic::warning(
                     "A05200",
@@ -735,7 +740,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         "unbounded quantifier in {}: {} ({})",
                         w.context, w.domain_desc, w.reason
                     ),
-                    0..0,
+                    span,
                 )
                 .with_file(filename),
             );
@@ -743,6 +748,14 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
     }
 
     for vr in &verification_results {
+        let clause_desc = match vr {
+            assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+            | assura_smt::VerificationResult::Timeout { clause_desc }
+            | assura_smt::VerificationResult::Unknown { clause_desc, .. }
+            | assura_smt::VerificationResult::Verified { clause_desc } => clause_desc,
+        };
+        let span = lookup_clause_span(clause_desc, &decl_spans);
+
         match vr {
             assura_smt::VerificationResult::Counterexample {
                 clause_desc,
@@ -755,7 +768,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     assura_diagnostics::Diagnostic::error(
                         "A05100",
                         format!("verification failed for {clause_desc}: {summary}"),
-                        0..0,
+                        span.clone(),
                     )
                     .with_file(filename),
                 );
@@ -766,7 +779,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     assura_diagnostics::Diagnostic::error(
                         "A05100",
                         format!("verification timeout for {clause_desc}"),
-                        0..0,
+                        span.clone(),
                     )
                     .with_file(filename),
                 );
@@ -780,7 +793,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         assura_diagnostics::Diagnostic::warning(
                             "A05100",
                             format!("verification skipped for {clause_desc}: {reason}"),
-                            0..0,
+                            span.clone(),
                         )
                         .with_file(filename),
                     );
@@ -790,7 +803,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         assura_diagnostics::Diagnostic::error(
                             "A05100",
                             format!("verification inconclusive for {clause_desc}: {reason}"),
-                            0..0,
+                            span.clone(),
                         )
                         .with_file(filename),
                     );
@@ -1132,6 +1145,47 @@ pub(crate) fn run_check_project(
 }
 
 // ---------------------------------------------------------------------------
+
+/// Build a map from declaration name to source span.
+/// Used to give SMT diagnostics real source locations instead of 0..0.
+fn build_decl_span_map(
+    file: &Option<assura_parser::ast::SourceFile>,
+) -> std::collections::HashMap<String, std::ops::Range<usize>> {
+    use assura_parser::ast::Decl;
+
+    let mut map = std::collections::HashMap::new();
+    if let Some(f) = file {
+        for spanned in &f.decls {
+            let name = match &spanned.node {
+                Decl::Contract(c) => Some(c.name.clone()),
+                Decl::FnDef(f) => Some(f.name.clone()),
+                Decl::Block { name, .. } => Some(name.clone()),
+                Decl::Service(s) => Some(s.name.clone()),
+                _ => None,
+            };
+            if let Some(n) = name {
+                map.insert(n, spanned.span.clone());
+            }
+        }
+    }
+    map
+}
+
+/// Extract a source span for a verification result's clause_desc.
+/// clause_desc format: "ContractName::ClauseKind" or "ContractName: kind".
+fn lookup_clause_span(
+    clause_desc: &str,
+    decl_spans: &std::collections::HashMap<String, std::ops::Range<usize>>,
+) -> std::ops::Range<usize> {
+    // Extract the name before "::" or ":"
+    let name = clause_desc
+        .split("::")
+        .next()
+        .or_else(|| clause_desc.split(':').next())
+        .unwrap_or(clause_desc)
+        .trim();
+    decl_spans.get(name).cloned().unwrap_or(0..0)
+}
 
 /// Returns `true` if the given `VerificationResult::Unknown` reason represents
 /// a known compiler limitation (warning, exit 0) rather than a genuine solver
