@@ -2006,14 +2006,42 @@ fn run_axiomatic_checks(
     symbols: &assura_resolve::SymbolTable,
 ) -> Vec<TypeError> {
     let mut checker = AxiomaticDefChecker::new();
+    // First pass: collect all axiom names
+    let axiom_names: Vec<String> = source
+        .decls
+        .iter()
+        .filter_map(|d| {
+            if let Decl::Block { kind, name, .. } = &d.node
+                && *kind == BlockKind::Axiomatic
+            {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Second pass: declare axioms with references extracted from their bodies
     for decl in &source.decls {
-        if let Decl::Block { kind, name, .. } = &decl.node
+        if let Decl::Block {
+            kind, name, body, ..
+        } = &decl.node
             && *kind == BlockKind::Axiomatic
         {
+            let mut refs = Vec::new();
+            for clause in body {
+                let idents = collect_ident_references(&clause.body);
+                for ident in &idents {
+                    if axiom_names.contains(ident) && ident != name {
+                        refs.push(ident.clone());
+                    }
+                }
+            }
+            refs.sort();
+            refs.dedup();
             checker.declare_axiom(AxiomDef {
                 name: name.clone(),
                 span: decl.span.clone(),
-                references: Vec::new(),
+                references: refs,
             });
         }
     }
@@ -5540,8 +5568,32 @@ fn run_circular_buffer_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
                 && (k == "circular_buffer" || k == "ring_buffer")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.declare(name.clone(), 256);
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let cap =
+                                args.first().and_then(extract_int_literal).unwrap_or(256) as usize;
+                            checker.declare(name.clone(), cap);
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare(name.clone(), 256);
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "buffer")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let cap = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "capacity" || *k == "size")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(256) as usize;
+                        checker.declare(name, cap);
+                    }
                 }
             }
         }
@@ -7016,10 +7068,38 @@ fn run_platform_abstraction_checks(source: &assura_parser::ast::SourceFile) -> V
                         checker.add_platform(name.clone());
                     }
                 }
-                if (k == "abstraction" || k == "platform_abstraction")
-                    && let Expr::Ident(name) = &clause.body
-                {
-                    checker.declare_abstraction(name.clone(), Vec::new());
+                if k == "abstraction" || k == "platform_abstraction" {
+                    match &clause.body {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = func.as_ref() {
+                                let platforms: Vec<String> = args
+                                    .iter()
+                                    .filter_map(|a| extract_ident(a).map(String::from))
+                                    .collect();
+                                checker.declare_abstraction(name.clone(), platforms);
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            // Collect platforms declared so far as supported
+                            let platforms = checker.known_platforms().to_vec();
+                            checker.declare_abstraction(name.clone(), platforms);
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name" || *k == "abstraction")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed")
+                                .to_string();
+                            let platforms: Vec<String> = kvs
+                                .iter()
+                                .filter(|(k, _)| *k == "platform" || *k == "supports")
+                                .filter_map(|(_, v)| extract_ident(v).map(String::from))
+                                .collect();
+                            checker.declare_abstraction(name, platforms);
+                        }
+                    }
                 }
             }
         }
@@ -7066,8 +7146,44 @@ fn run_feature_flag_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeE
                 && (k == "feature_flag" || k == "feature" || k == "flag")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
-                    checker.declare(name.clone(), false, Vec::new());
+                match &clause.body {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            let enabled = args
+                                .first()
+                                .and_then(extract_ident)
+                                .is_some_and(|v| v == "true" || v == "enabled" || v == "on");
+                            let deps: Vec<String> = args
+                                .iter()
+                                .skip(1)
+                                .filter_map(|a| extract_ident(a).map(String::from))
+                                .collect();
+                            checker.declare(name.clone(), enabled, deps);
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare(name.clone(), false, Vec::new());
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "flag")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let enabled = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "default" || *k == "enabled")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .is_some_and(|v| v == "true" || v == "enabled" || v == "on");
+                        let deps: Vec<String> = kvs
+                            .iter()
+                            .filter(|(k, _)| *k == "depends_on" || *k == "requires")
+                            .filter_map(|(_, v)| extract_ident(v).map(String::from))
+                            .collect();
+                        checker.declare(name, enabled, deps);
+                    }
                 }
             }
         }
@@ -7137,6 +7253,7 @@ fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
                         }
                     }
                     Expr::Ident(name) => {
+                        // Bare identifier without explicit max: flag as unbounded via check_unbounded
                         checker.declare_limit(name.clone(), u64::MAX, "units".into());
                     }
                     _ => {
@@ -7214,11 +7331,31 @@ fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) -> Vec<Type
     for decl in &source.decls {
         match &decl.node {
             Decl::FnDef(f) => {
+                let mut obligations = Vec::new();
+                for clause in &f.clauses {
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && (k == "obligation" || k == "proof_obligation" || k == "must_prove")
+                    {
+                        if let Expr::Ident(obl) = &clause.body {
+                            obligations.push(obl.clone());
+                        } else if let Some((_, args)) = extract_call(&clause.body) {
+                            for arg in args {
+                                if let Some(name) = extract_ident(arg) {
+                                    obligations.push(name.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
                 for clause in &f.clauses {
                     if let ClauseKind::Other(ref k) = clause.kind {
                         if k == "unsafe" || k == "unsafe_escape" || k == "trusted" {
                             found = true;
-                            checker.declare_unsafe(f.name.clone(), Vec::new(), decl.span.clone());
+                            checker.declare_unsafe(
+                                f.name.clone(),
+                                obligations.clone(),
+                                decl.span.clone(),
+                            );
                         }
                         if k == "safety_proof" || k == "proof" {
                             checker.attach_proof(&f.name);
@@ -7230,7 +7367,23 @@ fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) -> Vec<Type
                 kind, name, body, ..
             } if *kind == BlockKind::UnsafeEscape => {
                 found = true;
-                checker.declare_unsafe(name.clone(), Vec::new(), decl.span.clone());
+                let mut obligations = Vec::new();
+                for clause in body {
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && (k == "obligation" || k == "proof_obligation" || k == "must_prove")
+                    {
+                        if let Expr::Ident(obl) = &clause.body {
+                            obligations.push(obl.clone());
+                        } else if let Some((_, args)) = extract_call(&clause.body) {
+                            for arg in args {
+                                if let Some(name) = extract_ident(arg) {
+                                    obligations.push(name.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                checker.declare_unsafe(name.clone(), obligations, decl.span.clone());
                 for clause in body {
                     if let ClauseKind::Other(ref k) = clause.kind
                         && (k == "safety_proof" || k == "proof")

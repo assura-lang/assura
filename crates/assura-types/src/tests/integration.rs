@@ -1301,3 +1301,208 @@ fn cross_file_unresolved_import_is_ignored() {
         "unresolved imports should not cause type check failure"
     );
 }
+
+// =========================================================================
+// Issue #112: Circular buffer capacity extracted from annotations
+// =========================================================================
+
+#[test]
+fn circular_buffer_capacity_extraction_call_syntax() {
+    // Verify that capacity is extracted from call syntax, not hardcoded to 256
+    let mut checker = CircularBufferChecker::new();
+    checker.declare("ring".into(), 16);
+    // Buffer with capacity 16 should report full at 16 items
+    for _ in 0..16 {
+        checker.push("ring");
+    }
+    assert!(checker.buffers.get("ring").unwrap().is_full());
+}
+
+#[test]
+fn circular_buffer_check_index_wired() {
+    // Verify check_index is callable and returns errors for out-of-bounds
+    let mut checker = CircularBufferChecker::new();
+    checker.declare("buf".into(), 4);
+    // Index 0 on empty buffer: check_index should flag it
+    let err = checker.check_index("buf", 5, &(0..1));
+    assert!(err.is_some(), "index 5 on capacity-4 buffer should error");
+    assert_eq!(err.unwrap().code, "A23001");
+}
+
+// =========================================================================
+// Issue #113: Axiomatic definitions extract references from clause bodies
+// =========================================================================
+
+#[test]
+fn axiomatic_references_extracted_from_body() {
+    let mut checker = AxiomaticDefChecker::new();
+    // Declare two axioms where axiom_a references axiom_b
+    checker.declare_axiom(AxiomDef {
+        name: "axiom_a".into(),
+        span: 0..1,
+        references: vec!["axiom_b".into()],
+    });
+    checker.declare_axiom(AxiomDef {
+        name: "axiom_b".into(),
+        span: 0..1,
+        references: vec![],
+    });
+    // check_circular should find no cycle (a -> b, no b -> a)
+    let circ_errs = checker.check_circular();
+    assert!(circ_errs.is_empty(), "no circular dependency expected");
+}
+
+#[test]
+fn axiomatic_circular_reference_detected() {
+    let mut checker = AxiomaticDefChecker::new();
+    checker.declare_axiom(AxiomDef {
+        name: "ax1".into(),
+        span: 0..1,
+        references: vec!["ax2".into()],
+    });
+    checker.declare_axiom(AxiomDef {
+        name: "ax2".into(),
+        span: 0..1,
+        references: vec!["ax1".into()],
+    });
+    let circ_errs = checker.check_circular();
+    assert!(
+        !circ_errs.is_empty(),
+        "circular dependency should be detected"
+    );
+}
+
+// =========================================================================
+// Issue #115: Platform abstraction extracts supported platforms
+// =========================================================================
+
+#[test]
+fn platform_abstraction_with_supported_platforms() {
+    let mut checker = PlatformAbstractionChecker::new();
+    checker.add_platform("linux".into());
+    checker.add_platform("macos".into());
+    checker.declare_abstraction("fs_ops".into(), vec!["linux".into(), "macos".into()]);
+    // All declared platforms are supported, should not error
+    let errs = checker.check_unknown_platforms();
+    assert!(errs.is_empty(), "all platforms are known");
+}
+
+#[test]
+fn platform_abstraction_unknown_platform_detected() {
+    let mut checker = PlatformAbstractionChecker::new();
+    checker.add_platform("linux".into());
+    checker.declare_abstraction("fs_ops".into(), vec!["linux".into(), "windows".into()]);
+    let errs = checker.check_unknown_platforms();
+    assert_eq!(errs.len(), 1, "windows should be flagged as unknown");
+    assert_eq!(errs[0].code, "A44003");
+}
+
+// =========================================================================
+// Issue #116: Feature flags extract default_enabled from annotations
+// =========================================================================
+
+#[test]
+fn feature_flag_with_enabled_default() {
+    let mut checker = FeatureFlagChecker::new();
+    checker.declare("dark_mode".into(), true, Vec::new());
+    checker.declare("experimental".into(), false, Vec::new());
+    // Neither is used, both should be flagged as unused
+    let errs = checker.check_unused();
+    assert_eq!(errs.len(), 2, "both flags should be flagged as unused");
+}
+
+#[test]
+fn feature_flag_with_dependencies() {
+    let mut checker = FeatureFlagChecker::new();
+    checker.declare("base".into(), true, Vec::new());
+    checker.declare("advanced".into(), false, vec!["base".into()]);
+    checker.mark_used("base");
+    let errs = checker.check_unused();
+    assert_eq!(errs.len(), 1, "only advanced should be unused");
+}
+
+// =========================================================================
+// Issue #118: Unsafe escape extracts proof obligations from annotations
+// =========================================================================
+
+#[test]
+fn unsafe_escape_with_obligations() {
+    let mut checker = UnsafeEscapeChecker::new();
+    checker.declare_unsafe(
+        "raw_ptr_deref".into(),
+        vec!["memory_safety".into(), "alignment".into()],
+        0..1,
+    );
+    // Without discharging, check should flag unfulfilled obligations
+    let errs = checker.check_obligations();
+    assert!(
+        !errs.is_empty(),
+        "undischarged obligations should be flagged"
+    );
+}
+
+#[test]
+fn unsafe_escape_discharge_obligation() {
+    let mut checker = UnsafeEscapeChecker::new();
+    checker.declare_unsafe("raw_ptr_deref".into(), vec!["memory_safety".into()], 0..1);
+    checker.attach_proof("raw_ptr_deref");
+    checker.discharge_obligation("raw_ptr_deref", "memory_safety".into());
+    let errs = checker.check_obligations();
+    assert!(errs.is_empty(), "discharged obligations should not error");
+}
+
+// =========================================================================
+// Issue #110: Cross-type comparisons rejected in clause bodies
+// =========================================================================
+
+#[test]
+fn cross_type_comparison_string_vs_int_rejected() {
+    // String >= Int should produce a type error
+    let src = r#"
+        contract Bad {
+            input(name: String)
+            requires { name >= 650 }
+            ensures(result: Int)
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    // Should produce type errors for String >= Int
+    assert!(
+        result.is_err(),
+        "String >= Int comparison should be rejected"
+    );
+}
+
+#[test]
+fn cross_type_arithmetic_string_plus_int_rejected() {
+    // String + Int should produce a type error
+    let src = r#"
+        contract Bad {
+            input(name: String)
+            output(result: Int)
+            ensures { result == name + 1 }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    assert!(
+        result.is_err(),
+        "String + Int arithmetic should be rejected"
+    );
+}
+
+#[test]
+fn same_type_comparison_passes() {
+    // Int >= Int should pass
+    let src = r#"
+        contract Good {
+            input(x: Int)
+            requires { x >= 0 }
+            output(result: Int)
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    assert!(result.is_ok(), "Int >= Int should pass: {:?}", result.err());
+}

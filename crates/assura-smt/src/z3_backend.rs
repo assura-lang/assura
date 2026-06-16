@@ -3277,6 +3277,14 @@ pub(crate) fn verify_impl_with_timeout(
                 if clause.kind == ClauseKind::Ensures {
                     collect_prophecy_refs(&clause.body, &f.name, &mut pm);
                 }
+                // Resolve prophecy variables from resolve() calls
+                if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
+                    resolve_prophecy_vars(&clause.body, &f.name, &mut pm);
+                }
+                // Constrain prophecy variables from constraint expressions
+                if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
+                    constrain_prophecy_vars(&clause.body, &f.name, &mut pm);
+                }
             }
         }
     }
@@ -3546,6 +3554,77 @@ fn extract_numeric_arg(expr: &Expr) -> Option<u64> {
         Expr::Raw(tokens) => tokens.iter().find_map(|t| t.parse::<u64>().ok()),
         Expr::Block(exprs) => exprs.iter().find_map(extract_numeric_arg),
         _ => None,
+    }
+}
+
+/// Scan an expression for prophecy resolution calls: resolve(var, value).
+fn resolve_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref()
+                && (name == "resolve" || name == "resolve_prophecy")
+                && let Some(Expr::Ident(var_name)) = args.first()
+            {
+                let value = args.get(1).map(|a| format!("{a:?}")).unwrap_or_default();
+                let _ = pm.resolve(&format!("{fn_name}:{var_name}"), value);
+            }
+            for arg in args {
+                resolve_prophecy_vars(arg, fn_name, pm);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            resolve_prophecy_vars(lhs, fn_name, pm);
+            resolve_prophecy_vars(rhs, fn_name, pm);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            resolve_prophecy_vars(expr, fn_name, pm)
+        }
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                resolve_prophecy_vars(e, fn_name, pm);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Scan an expression for prophecy constraint patterns (equality with prophecy vars).
+fn constrain_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref()
+                && (name == "constrain" || name == "constrain_prophecy")
+                && let Some(Expr::Ident(var_name)) = args.first()
+            {
+                let constraint = args.get(1).map(|a| format!("{a:?}")).unwrap_or_default();
+                pm.add_constraint(&format!("{fn_name}:{var_name}"), constraint);
+            }
+            for arg in args {
+                constrain_prophecy_vars(arg, fn_name, pm);
+            }
+        }
+        Expr::BinOp { lhs, rhs, op } => {
+            // An equality like `prophecy(x) == expr` constrains x
+            if *op == BinOp::Eq
+                && let Expr::Call { func, args } = lhs.as_ref()
+                && let Expr::Ident(name) = func.as_ref()
+                && (name == "prophecy" || name == "prophesy")
+                && let Some(Expr::Ident(var_name)) = args.first()
+            {
+                pm.add_constraint(&format!("{fn_name}:{var_name}"), format!("{rhs:?}"));
+            }
+            constrain_prophecy_vars(lhs, fn_name, pm);
+            constrain_prophecy_vars(rhs, fn_name, pm);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            constrain_prophecy_vars(expr, fn_name, pm)
+        }
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                constrain_prophecy_vars(e, fn_name, pm);
+            }
+        }
+        _ => {}
     }
 }
 

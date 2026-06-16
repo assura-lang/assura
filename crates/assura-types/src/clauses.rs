@@ -185,12 +185,22 @@ pub(crate) fn check_clause_bodies(
                 // Extract the output type from the contract's output clause
                 // to bind `result` in ensures clauses.
                 let output_ty = extract_contract_output_type(c);
-                let contract_env = env_with_result(env, &output_ty);
+                // Build a contract-scoped env with all declared params
+                let mut contract_env = env.clone();
+                for clause in &c.clauses {
+                    if clause.kind == ClauseKind::Requires
+                        || clause.kind == ClauseKind::Input
+                        || clause.kind == ClauseKind::Ensures
+                    {
+                        register_input_clause_params(&clause.body, &mut contract_env);
+                    }
+                }
+                let ensures_env = env_with_result(&contract_env, &output_ty);
                 for clause in &c.clauses {
                     let clause_env = if clause.kind == ClauseKind::Ensures {
-                        &contract_env
+                        &ensures_env
                     } else {
-                        env
+                        &contract_env
                     };
                     check_clause_expr(&clause.kind, &clause.body, clause_env, &mut errors, span);
                 }

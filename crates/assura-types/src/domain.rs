@@ -2291,6 +2291,10 @@ impl PlatformAbstractionChecker {
         }
     }
 
+    pub fn known_platforms(&self) -> &[String] {
+        &self.platforms
+    }
+
     pub fn add_platform(&mut self, name: std::string::String) {
         if !self.platforms.contains(&name) {
             self.platforms.push(name);
