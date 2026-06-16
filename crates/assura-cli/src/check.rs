@@ -743,22 +743,49 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
     }
 
     for vr in &verification_results {
-        if let assura_smt::VerificationResult::Counterexample {
-            clause_desc,
-            model,
-            counter_model,
-        } = vr
-        {
-            *has_errors = true;
-            let summary = format_counterexample_summary(counter_model, model);
-            diagnostics.push(
-                assura_diagnostics::Diagnostic::error(
-                    "A05100",
-                    format!("verification failed for {clause_desc}: {summary}"),
-                    0..0,
-                )
-                .with_file(filename),
-            );
+        match vr {
+            assura_smt::VerificationResult::Counterexample {
+                clause_desc,
+                model,
+                counter_model,
+            } => {
+                *has_errors = true;
+                let summary = format_counterexample_summary(counter_model, model);
+                diagnostics.push(
+                    assura_diagnostics::Diagnostic::error(
+                        "A05100",
+                        format!("verification failed for {clause_desc}: {summary}"),
+                        0..0,
+                    )
+                    .with_file(filename),
+                );
+            }
+            assura_smt::VerificationResult::Timeout { clause_desc } => {
+                *has_errors = true;
+                diagnostics.push(
+                    assura_diagnostics::Diagnostic::error(
+                        "A05100",
+                        format!("verification timeout for {clause_desc}"),
+                        0..0,
+                    )
+                    .with_file(filename),
+                );
+            }
+            assura_smt::VerificationResult::Unknown {
+                clause_desc,
+                reason,
+            } => {
+                *has_errors = true;
+                diagnostics.push(
+                    assura_diagnostics::Diagnostic::error(
+                        "A05100",
+                        format!("verification inconclusive for {clause_desc}: {reason}"),
+                        0..0,
+                    )
+                    .with_file(filename),
+                );
+            }
+            assura_smt::VerificationResult::Verified { .. } => {}
         }
     }
 
