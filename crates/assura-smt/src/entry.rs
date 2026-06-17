@@ -210,6 +210,31 @@ pub fn verify_parallel_with_solver(
     use assura_parser::ast::Decl;
     use rayon::prelude::*;
 
+    // #180: collect feature_max constants so the encoder binds them
+    // to concrete values instead of creating free Z3 variables.
+    let constants: Vec<(String, i64)> = typed
+        .resolved
+        .source
+        .decls
+        .iter()
+        .filter_map(|d| {
+            // Value tokens include type annotation: [":", "Nat", "=", "65536"]
+            if let Decl::Block {
+                kind,
+                name,
+                value: Some(tokens),
+                ..
+            } = &d.node
+                && *kind == assura_parser::ast::BlockKind::FeatureMax
+                && let Some(eq_pos) = tokens.iter().position(|t| t == "=")
+                && let Some(v) = tokens.get(eq_pos + 1).and_then(|s| s.parse::<i64>().ok())
+            {
+                return Some((name.clone(), v));
+            }
+            None
+        })
+        .collect();
+
     // Collect verification jobs with type info for return-type constraints
     type Job = (
         String,
@@ -300,8 +325,9 @@ pub fn verify_parallel_with_solver(
                 return cached;
             }
             // Cache miss: run solver with type constraints
-            let results =
-                verify_contract_with_types_and_solver(name, clauses, params, return_ty, solver);
+            let results = verify_contract_with_types_and_solver(
+                name, clauses, params, return_ty, &constants, solver,
+            );
             cache.put(name, clauses, &results);
             results
         })
@@ -414,6 +440,7 @@ fn verify_contract_with_types_and_solver(
     clauses: &[assura_parser::ast::Clause],
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    constants: &[(String, i64)],
     solver: SolverChoice,
 ) -> Vec<VerificationResult> {
     match solver {
@@ -425,10 +452,12 @@ fn verify_contract_with_types_and_solver(
                     clauses,
                     params,
                     return_ty,
+                    constants,
                 )
             }
             #[cfg(not(feature = "z3-verify"))]
             {
+                let _ = constants;
                 verify_contract_with_solver(contract_name, clauses, solver)
             }
         }

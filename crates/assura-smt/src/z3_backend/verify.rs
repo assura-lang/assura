@@ -22,29 +22,14 @@ use z3::{SatResult, Solver, ast};
 struct TypeConstraints<'a> {
     params: &'a [assura_parser::ast::Param],
     return_ty: &'a [String],
+    /// Named constants (from `feature_max` declarations) to bind in Z3
+    /// instead of leaving as free variables.
+    constants: &'a [(String, i64)],
 }
 
 /// Returns true if the given type token list represents the `Nat` type.
 fn is_nat_type(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
-}
-
-/// Verify a set of clauses from a contract, fn, or extern declaration.
-fn verify_clauses(
-    parent_name: &str,
-    clauses: &[Clause],
-    lemma_defs: &std::collections::HashMap<String, Vec<&Expr>>,
-    cache: &mut SessionCache,
-    results: &mut Vec<VerificationResult>,
-) {
-    verify_clauses_with_types(
-        parent_name,
-        clauses,
-        lemma_defs,
-        cache,
-        results,
-        &TypeConstraints::default(),
-    );
 }
 
 /// Like `verify_clauses` but also asserts type-level constraints from
@@ -138,6 +123,14 @@ fn verify_clauses_with_types(
         let solver = Solver::new();
 
         let mut encoder = Encoder::new();
+
+        // Bind named constants so Z3 uses concrete values, not free vars.
+        for (name, value) in types.constants {
+            let concrete = ast::Int::from_i64(*value);
+            encoder
+                .vars
+                .insert(name.clone(), super::encoder::Z3Value::Int(concrete));
+        }
 
         // Register known function names for trigger inference
         for other_clause in clauses {
@@ -271,6 +264,33 @@ fn verify_invariant_expr(parent_name: &str, expr: &Expr, results: &mut Vec<Verif
 // -----------------------------------------------------------------------
 // Entry point
 // -----------------------------------------------------------------------
+
+/// Collect `feature_max` constants from the source AST.
+///
+/// Returns a vec of (name, value) pairs. Only declarations with a
+/// parseable integer value are included; non-integer or missing values
+/// are silently skipped (they remain free Z3 variables).
+fn collect_feature_max_constants(typed: &TypedFile) -> Vec<(String, i64)> {
+    let mut constants = Vec::new();
+    for decl in &typed.resolved.source.decls {
+        // Value tokens include type annotation: [":", "Nat", "=", "65536"]
+        // Find the token after "=" for the actual integer value.
+        if let Decl::Block {
+            kind,
+            name,
+            value: Some(tokens),
+            ..
+        } = &decl.node
+            && *kind == BlockKind::FeatureMax
+            && let Some(eq_pos) = tokens.iter().position(|t| t == "=")
+            && let Some(val_str) = tokens.get(eq_pos + 1)
+            && let Ok(v) = val_str.parse::<i64>()
+        {
+            constants.push((name.clone(), v));
+        }
+    }
+    constants
+}
 
 /// Collect all lemma definitions from the source AST.
 ///
@@ -433,7 +453,7 @@ pub(crate) fn verify_contract_impl(
     contract_name: &str,
     clauses: &[Clause],
 ) -> Vec<VerificationResult> {
-    verify_contract_impl_with_types(contract_name, clauses, &[], &[])
+    verify_contract_impl_with_types(contract_name, clauses, &[], &[], &[])
 }
 
 pub(crate) fn verify_contract_impl_with_types(
@@ -441,11 +461,16 @@ pub(crate) fn verify_contract_impl_with_types(
     clauses: &[Clause],
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    constants: &[(String, i64)],
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let lemma_defs = std::collections::HashMap::new();
-    let types = TypeConstraints { params, return_ty };
+    let types = TypeConstraints {
+        params,
+        return_ty,
+        constants,
+    };
     verify_clauses_with_types(
         contract_name,
         clauses,
@@ -468,15 +493,30 @@ pub(crate) fn verify_impl_with_timeout(
     // T044: collect all lemma definitions for apply injection
     let lemma_defs = collect_lemma_defs(typed);
 
+    // #180: collect feature_max constants so the encoder binds them
+    // to concrete values instead of creating free Z3 variables.
+    let constants = collect_feature_max_constants(typed);
+
     for decl in &typed.resolved.source.decls {
         match &decl.node {
             Decl::Contract(c) => {
-                verify_clauses(&c.name, &c.clauses, &lemma_defs, &mut cache, &mut results);
+                verify_clauses_with_types(
+                    &c.name,
+                    &c.clauses,
+                    &lemma_defs,
+                    &mut cache,
+                    &mut results,
+                    &TypeConstraints {
+                        constants: &constants,
+                        ..Default::default()
+                    },
+                );
             }
             Decl::FnDef(f) => {
                 let types = TypeConstraints {
                     params: &f.params,
                     return_ty: &f.return_ty,
+                    constants: &constants,
                 };
                 verify_clauses_with_types(
                     &f.name,
@@ -491,6 +531,7 @@ pub(crate) fn verify_impl_with_timeout(
                 let types = TypeConstraints {
                     params: &e.params,
                     return_ty: &e.return_ty,
+                    constants: &constants,
                 };
                 verify_clauses_with_types(
                     &e.name,
@@ -502,15 +543,33 @@ pub(crate) fn verify_impl_with_timeout(
                 );
             }
             Decl::Service(s) => {
+                let svc_types = TypeConstraints {
+                    constants: &constants,
+                    ..Default::default()
+                };
                 for item in &s.items {
                     match item {
                         ServiceItem::Operation { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
-                            verify_clauses(&qname, clauses, &lemma_defs, &mut cache, &mut results);
+                            verify_clauses_with_types(
+                                &qname,
+                                clauses,
+                                &lemma_defs,
+                                &mut cache,
+                                &mut results,
+                                &svc_types,
+                            );
                         }
                         ServiceItem::Query { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
-                            verify_clauses(&qname, clauses, &lemma_defs, &mut cache, &mut results);
+                            verify_clauses_with_types(
+                                &qname,
+                                clauses,
+                                &lemma_defs,
+                                &mut cache,
+                                &mut results,
+                                &svc_types,
+                            );
                         }
                         ServiceItem::Invariant(expr) => {
                             verify_invariant_expr(&s.name, expr, &mut results);
@@ -520,12 +579,23 @@ pub(crate) fn verify_impl_with_timeout(
                 }
             }
             Decl::Block { name, body, .. } => {
-                verify_clauses(name, body, &lemma_defs, &mut cache, &mut results);
+                verify_clauses_with_types(
+                    name,
+                    body,
+                    &lemma_defs,
+                    &mut cache,
+                    &mut results,
+                    &TypeConstraints {
+                        constants: &constants,
+                        ..Default::default()
+                    },
+                );
             }
             Decl::Bind(b) => {
                 let types = TypeConstraints {
                     params: &b.params,
                     return_ty: &b.return_ty,
+                    constants: &constants,
                 };
                 verify_clauses_with_types(
                     &b.name,

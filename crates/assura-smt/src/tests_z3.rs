@@ -1906,3 +1906,66 @@ fn nat_param(n: Nat) -> Int
         ensures_result.unwrap()
     );
 }
+
+// -----------------------------------------------------------------------
+// #180: feature_max constants bound to concrete values
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_feature_max_constant_is_bound() {
+    // feature_max MAX_SIZE: Nat = 65536
+    // A contract that uses MAX_SIZE in ensures should see the concrete value,
+    // not a free variable. Z3 should verify `MAX_SIZE > 0` trivially.
+    let src = r#"
+feature_max MAX_SIZE: Nat = 65536
+
+contract UsesConstant {
+  requires MAX_SIZE > 0
+  ensures MAX_SIZE == 65536
+}
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    for r in &results {
+        eprintln!("  result: {r:?}");
+    }
+    // Both requires-as-ensures and the equality check should verify
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "feature_max should bind MAX_SIZE to 65536, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
+
+#[test]
+fn test_feature_max_arithmetic() {
+    // feature_max constants should participate in arithmetic correctly
+    let src = r#"
+feature_max HEADER_SIZE: Nat = 3
+
+fn check_size(payload: Nat, record: Nat) -> Int
+  requires payload >= 0
+  requires record >= 0
+  requires HEADER_SIZE + payload <= record
+  ensures record >= 3
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "HEADER_SIZE=3 + payload <= record should imply record >= 3, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
