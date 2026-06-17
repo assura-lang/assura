@@ -609,10 +609,24 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Validate or sanitize the untrusted input before passing it \
                  to the trusted sink, or adjust the taint labels.",
         },
-        // -- A02002: Ambiguous name --
+        // -- A02002: Undefined type (spec Section 7.2) --
         ErrorInfo {
             code: "A02002",
-            name: "Ambiguous name",
+            name: "Undefined type",
+            description: "A type name was used but not declared in scope. The \
+                          compiler could not find a type definition matching \
+                          the name.",
+            example: r#"  contract Foo {
+      input { x: Widget }  // 'Widget' is not defined
+      requires { x > 0 }
+  }"#,
+            fix: "Define the type, import it from the module where it is declared, \
+                 or fix a typo in the type name.",
+        },
+        // -- A02004: Ambiguous import (spec Section 7.2) --
+        ErrorInfo {
+            code: "A02004",
+            name: "Ambiguous import",
             description: "A name could refer to multiple definitions because of \
                           overlapping imports. The compiler cannot determine which \
                           definition was intended.",
@@ -625,9 +639,9 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Use a qualified name (module.Foo) to disambiguate, or use an \
                  alias on one of the imports: import b { Foo as BFoo }.",
         },
-        // -- A02004: Visibility violation --
+        // -- A02008: Visibility violation (moved from A02004 to avoid spec conflict) --
         ErrorInfo {
-            code: "A02004",
+            code: "A02008",
             name: "Visibility violation",
             description: "An attempt was made to access a field or member that \
                           is not public. Non-pub fields are only accessible within \
@@ -637,7 +651,7 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
   }
 
   contract Check {
-      requires: w.balance > 0   // A02004: balance is private
+      requires: w.balance > 0   // A02008: balance is private
   }"#,
             fix: "Mark the field as 'pub' in the type definition if external \
                  access is intended, or access it through a public getter method.",
@@ -755,6 +769,11 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
                  or adjust the security labels.",
         },
         // -- A09001-A09004: Totality / termination --
+        // NOTE: Spec Section 7.2 defines A09001 as "Non-exhaustive pattern match",
+        // but this implementation uses A09001 for "Missing decreases clause"
+        // (totality). Non-exhaustive patterns use A10001 instead. This deviation
+        // is intentional: the totality checker emits A09001 at runtime and
+        // renaming would require updating totality.rs, meta.rs, and all tests.
         ErrorInfo {
             code: "A09001",
             name: "Missing decreases clause",
@@ -2233,6 +2252,33 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Ensure only one thread holds exclusive access at a time, or use \
                  atomic operations.",
         },
+        // -- A19001-A19002: Audit trail (spec Section 7.1) --
+        ErrorInfo {
+            code: "A19001",
+            name: "Missing audit trail",
+            description: "A contract or function marked with an audit annotation does \
+                          not produce a corresponding audit trail entry. Every auditable \
+                          operation must emit a structured log entry for compliance review.",
+            example: r#"  @auditable
+  contract TransferFunds {
+      input { from: Account, to: Account, amount: Nat }
+      requires { from.balance >= amount }
+      // missing audit trail emission
+  }"#,
+            fix: "Add an audit trail emission in the contract body, or use the \
+                 built-in audit effect to generate entries automatically.",
+        },
+        ErrorInfo {
+            code: "A19002",
+            name: "Incomplete audit trail",
+            description: "An audit trail entry is missing required fields. Audit entries \
+                          must include timestamp, actor, action, and result.",
+            example: r#"  audit.emit({
+      action: "transfer",
+      // missing: actor, timestamp, result
+  })"#,
+            fix: "Include all required audit fields: timestamp, actor, action, and result.",
+        },
         // -- A20001-A20002: Determinism --
         ErrorInfo {
             code: "A20001",
@@ -2414,6 +2460,20 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             example: r#"  // Buffer is 16 bytes, field at offset 12, size 8
       field header at offset 12, size 8  // 12 + 8 = 20 > 16"#,
             fix: "Adjust the field offset or size to fit within the buffer.",
+        },
+        // -- A26002: i18n completeness (spec Section 7.1) --
+        ErrorInfo {
+            code: "A26002",
+            name: "Incomplete i18n coverage",
+            description: "A string literal or user-facing message is not covered by \
+                          the internationalization table. Every user-visible string \
+                          must have translations for all declared locales.",
+            example: r#"  @i18n(locales: ["en", "fr", "de"])
+  contract Greet {
+      ensures { result == "Hello" }  // no fr/de translations
+  }"#,
+            fix: "Add translations for all declared locales in the i18n table, \
+                 or mark the string as locale-independent with @no_i18n.",
         },
         ErrorInfo {
             code: "A26003",

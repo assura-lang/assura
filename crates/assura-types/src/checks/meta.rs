@@ -152,6 +152,9 @@ fn check_match_exhaustiveness_expr(
                     .collect();
 
                 if let Some(missing) = check_exhaustiveness(&patterns, variants) {
+                    // NOTE: Spec Section 7.2 assigns A09001 to non-exhaustive
+                    // patterns, but A09001 is used for totality/decreases in
+                    // this implementation. Using A10001 instead.
                     errors.push(TypeError {
                         code: "A10001".into(),
                         message: format!(
