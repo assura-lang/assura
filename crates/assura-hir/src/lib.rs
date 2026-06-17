@@ -1037,4 +1037,635 @@ mod tests {
         let id = DefId::Unresolved("Foo".into());
         assert_eq!(id.name(&table), "Foo");
     }
+
+    #[test]
+    fn def_id_resolved_name() {
+        use assura_resolve::{Symbol, SymbolKind};
+        let table = SymbolTable {
+            symbols: vec![Symbol {
+                name: "MyContract".into(),
+                kind: SymbolKind::ContractDef,
+                scope_id: 0,
+                span: 0..10,
+            }],
+            scopes: vec![],
+        };
+        let id = DefId::Resolved(0);
+        assert_eq!(id.name(&table), "MyContract");
+    }
+
+    #[test]
+    fn def_id_equality() {
+        assert_eq!(DefId::Resolved(0), DefId::Resolved(0));
+        assert_ne!(DefId::Resolved(0), DefId::Resolved(1));
+        assert_eq!(DefId::Unresolved("x".into()), DefId::Unresolved("x".into()));
+        assert_ne!(DefId::Resolved(0), DefId::Unresolved("x".into()));
+    }
+
+    #[test]
+    fn def_id_hash_consistent() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(DefId::Resolved(5));
+        set.insert(DefId::Resolved(5)); // dup
+        set.insert(DefId::Unresolved("foo".into()));
+        assert_eq!(set.len(), 2);
+    }
+
+    // ---- HirType Display for all variants ----
+
+    #[test]
+    fn hir_type_display_tuple() {
+        let ty = HirType::Tuple(vec![
+            HirType::Named("Int".into()),
+            HirType::Named("Bool".into()),
+        ]);
+        assert_eq!(ty.to_string(), "(Int, Bool)");
+    }
+
+    #[test]
+    fn hir_type_display_tuple_single() {
+        let ty = HirType::Tuple(vec![HirType::Named("Int".into())]);
+        assert_eq!(ty.to_string(), "(Int)");
+    }
+
+    #[test]
+    fn hir_type_display_fn() {
+        let ty = HirType::Fn {
+            params: vec![HirType::Named("Int".into()), HirType::Named("Int".into())],
+            ret: Box::new(HirType::Named("Bool".into())),
+        };
+        assert_eq!(ty.to_string(), "(Int, Int) -> Bool");
+    }
+
+    #[test]
+    fn hir_type_display_refined() {
+        let ty = HirType::Refined {
+            base: Box::new(HirType::Named("Int".into())),
+            predicate: "x > 0".into(),
+        };
+        assert_eq!(ty.to_string(), "{ x: Int | x > 0 }");
+    }
+
+    #[test]
+    fn hir_type_display_unresolved() {
+        let ty = HirType::Unresolved(vec!["some".into(), "weird".into(), "type".into()]);
+        assert_eq!(ty.to_string(), "some weird type");
+    }
+
+    #[test]
+    fn hir_type_display_multi_generic() {
+        let ty = HirType::Generic(
+            "Map".into(),
+            vec![
+                HirType::Named("String".into()),
+                HirType::Named("Int".into()),
+            ],
+        );
+        assert_eq!(ty.to_string(), "Map<String, Int>");
+    }
+
+    // ---- parse_type_tokens edge cases ----
+
+    #[test]
+    fn parse_type_tokens_function_type() {
+        let tokens: Vec<String> = vec!["(", "Int", ",", "Int", ")", "->", "Bool"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            HirType::Fn {
+                params: vec![HirType::Named("Int".into()), HirType::Named("Int".into())],
+                ret: Box::new(HirType::Named("Bool".into())),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_single_param_fn() {
+        let tokens: Vec<String> = vec!["Int", "->", "Bool"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            HirType::Fn {
+                params: vec![HirType::Named("Int".into())],
+                ret: Box::new(HirType::Named("Bool".into())),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_unresolvable() {
+        let tokens: Vec<String> = vec!["some", "weird", "tokens"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            HirType::Unresolved(vec!["some".into(), "weird".into(), "tokens".into()])
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_empty_tuple() {
+        let tokens: Vec<String> = vec!["(", ")"].into_iter().map(String::from).collect();
+        assert_eq!(parse_type_tokens(&tokens), HirType::Unit);
+    }
+
+    #[test]
+    fn parse_type_tokens_nested_generic() {
+        let tokens: Vec<String> = vec!["Map", "<", "String", ",", "List", "<", "Int", ">", ">"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let result = parse_type_tokens(&tokens);
+        match &result {
+            HirType::Generic(name, args) => {
+                assert_eq!(name, "Map");
+                assert_eq!(args.len(), 2);
+            }
+            other => panic!("expected Generic, got {other:?}"),
+        }
+    }
+
+    // ---- split_at_commas ----
+
+    #[test]
+    fn split_at_commas_empty() {
+        let tokens: Vec<String> = vec![];
+        let result = split_at_commas(&tokens);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn split_at_commas_no_comma() {
+        let tokens: Vec<String> = vec!["Int".into()];
+        let result = split_at_commas(&tokens);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn split_at_commas_nested_angle() {
+        let tokens: Vec<String> = vec![
+            "List".into(),
+            "<".into(),
+            "Int".into(),
+            ">".into(),
+            ",".into(),
+            "Bool".into(),
+        ];
+        let result = split_at_commas(&tokens);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].len(), 4); // List < Int >
+        assert_eq!(result[1].len(), 1); // Bool
+    }
+
+    #[test]
+    fn split_at_commas_nested_parens() {
+        let tokens: Vec<String> = vec![
+            "(".into(),
+            "Int".into(),
+            ",".into(),
+            "Bool".into(),
+            ")".into(),
+            ",".into(),
+            "String".into(),
+        ];
+        let result = split_at_commas(&tokens);
+        assert_eq!(result.len(), 2);
+    }
+
+    // ---- HirExpr round-trip: all variants ----
+
+    #[test]
+    fn hir_expr_to_ast_field() {
+        let hir = HirExpr::Field(
+            Box::new(HirExpr::Ident {
+                name: "p".into(),
+                def_id: None,
+            }),
+            "x".into(),
+        );
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Field(_, f) if f == "x"));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_method_call() {
+        let hir = HirExpr::MethodCall {
+            receiver: Box::new(HirExpr::Ident {
+                name: "list".into(),
+                def_id: None,
+            }),
+            method: "push".into(),
+            args: vec![HirExpr::Literal(Literal::Int("1".into()))],
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::MethodCall { method, .. } if method == "push"));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_call() {
+        let hir = HirExpr::Call {
+            func: Box::new(HirExpr::Ident {
+                name: "f".into(),
+                def_id: None,
+            }),
+            args: vec![],
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Call { args, .. } if args.is_empty()));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_index() {
+        let hir = HirExpr::Index {
+            expr: Box::new(HirExpr::Ident {
+                name: "arr".into(),
+                def_id: None,
+            }),
+            index: Box::new(HirExpr::Literal(Literal::Int("0".into()))),
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Index { .. }));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_unary() {
+        let hir = HirExpr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(HirExpr::Literal(Literal::Bool(true))),
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(
+            ast_expr,
+            ast::Expr::UnaryOp {
+                op: UnaryOp::Not,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_old() {
+        let hir = HirExpr::Old(Box::new(HirExpr::Ident {
+            name: "counter".into(),
+            def_id: None,
+        }));
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Old(_)));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_forall() {
+        let hir = HirExpr::Forall {
+            var: "i".into(),
+            domain: Box::new(HirExpr::Ident {
+                name: "list".into(),
+                def_id: None,
+            }),
+            body: Box::new(HirExpr::Literal(Literal::Bool(true))),
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(
+            ast_expr,
+            ast::Expr::Forall { var, .. } if var == "i"
+        ));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_exists() {
+        let hir = HirExpr::Exists {
+            var: "x".into(),
+            domain: Box::new(HirExpr::Ident {
+                name: "set".into(),
+                def_id: None,
+            }),
+            body: Box::new(HirExpr::BinOp {
+                lhs: Box::new(HirExpr::Ident {
+                    name: "x".into(),
+                    def_id: None,
+                }),
+                op: BinOp::Gt,
+                rhs: Box::new(HirExpr::Literal(Literal::Int("0".into()))),
+            }),
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(
+            ast_expr,
+            ast::Expr::Exists { var, .. } if var == "x"
+        ));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_if_with_else() {
+        let hir = HirExpr::If {
+            cond: Box::new(HirExpr::Literal(Literal::Bool(true))),
+            then_branch: Box::new(HirExpr::Literal(Literal::Int("1".into()))),
+            else_branch: Some(Box::new(HirExpr::Literal(Literal::Int("0".into())))),
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(
+            ast_expr,
+            ast::Expr::If {
+                else_branch: Some(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_if_no_else() {
+        let hir = HirExpr::If {
+            cond: Box::new(HirExpr::Literal(Literal::Bool(true))),
+            then_branch: Box::new(HirExpr::Literal(Literal::Int("1".into()))),
+            else_branch: None,
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(
+            ast_expr,
+            ast::Expr::If {
+                else_branch: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_paren() {
+        let hir = HirExpr::Paren(Box::new(HirExpr::Literal(Literal::Int("42".into()))));
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Paren(_)));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_list() {
+        let hir = HirExpr::List(vec![
+            HirExpr::Literal(Literal::Int("1".into())),
+            HirExpr::Literal(Literal::Int("2".into())),
+        ]);
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::List(items) if items.len() == 2));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_cast() {
+        let hir = HirExpr::Cast {
+            expr: Box::new(HirExpr::Ident {
+                name: "x".into(),
+                def_id: None,
+            }),
+            ty: "Int".into(),
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Cast { ty, .. } if ty == "Int"));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_block() {
+        let hir = HirExpr::Block(vec![HirExpr::Literal(Literal::Int("1".into()))]);
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Block(items) if items.len() == 1));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_ghost() {
+        let hir = HirExpr::Ghost(Box::new(HirExpr::Literal(Literal::Bool(true))));
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Ghost(_)));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_apply() {
+        let hir = HirExpr::Apply {
+            lemma_name: "div_pos".into(),
+            args: vec![
+                HirExpr::Ident {
+                    name: "a".into(),
+                    def_id: None,
+                },
+                HirExpr::Ident {
+                    name: "b".into(),
+                    def_id: None,
+                },
+            ],
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(
+            matches!(ast_expr, ast::Expr::Apply { lemma_name, args } if lemma_name == "div_pos" && args.len() == 2)
+        );
+    }
+
+    #[test]
+    fn hir_expr_to_ast_let() {
+        let hir = HirExpr::Let {
+            name: "tmp".into(),
+            value: Box::new(HirExpr::Literal(Literal::Int("5".into()))),
+            body: Box::new(HirExpr::Ident {
+                name: "tmp".into(),
+                def_id: None,
+            }),
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Let { name, .. } if name == "tmp"));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_match() {
+        let hir = HirExpr::Match {
+            scrutinee: Box::new(HirExpr::Ident {
+                name: "color".into(),
+                def_id: None,
+            }),
+            arms: vec![HirMatchArm {
+                pattern: ast::Pattern::Wildcard,
+                body: HirExpr::Literal(Literal::Int("0".into())),
+            }],
+        };
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Match { arms, .. } if arms.len() == 1));
+    }
+
+    #[test]
+    fn hir_expr_to_ast_tuple() {
+        let hir = HirExpr::Tuple(vec![
+            HirExpr::Literal(Literal::Int("1".into())),
+            HirExpr::Literal(Literal::Int("2".into())),
+        ]);
+        let ast_expr = hir.to_ast_expr();
+        assert!(matches!(ast_expr, ast::Expr::Tuple(items) if items.len() == 2));
+    }
+
+    // ---- HirClauseKind conversion (all variants) ----
+
+    #[test]
+    fn hir_clause_kind_from_ast_all_variants() {
+        let cases = vec![
+            (ast::ClauseKind::Requires, HirClauseKind::Requires),
+            (ast::ClauseKind::Ensures, HirClauseKind::Ensures),
+            (ast::ClauseKind::Effects, HirClauseKind::Effects),
+            (ast::ClauseKind::Invariant, HirClauseKind::Invariant),
+            (ast::ClauseKind::Modifies, HirClauseKind::Modifies),
+            (ast::ClauseKind::Input, HirClauseKind::Input),
+            (ast::ClauseKind::Output, HirClauseKind::Output),
+            (ast::ClauseKind::Errors, HirClauseKind::Errors),
+            (ast::ClauseKind::Rule, HirClauseKind::Rule),
+            (ast::ClauseKind::DataFlow, HirClauseKind::DataFlow),
+            (ast::ClauseKind::MustNot, HirClauseKind::MustNot),
+            (ast::ClauseKind::Decreases, HirClauseKind::Decreases),
+            (ast::ClauseKind::Ordering, HirClauseKind::Ordering),
+            (
+                ast::ClauseKind::Other("custom".into()),
+                HirClauseKind::Other("custom".into()),
+            ),
+        ];
+        for (ast_kind, expected_hir) in &cases {
+            let hir_kind = HirClauseKind::from(ast_kind);
+            assert_eq!(hir_kind, *expected_hir, "mismatch for {:?}", ast_kind);
+        }
+    }
+
+    #[test]
+    fn hir_clause_kind_roundtrip_all() {
+        let hir_kinds = vec![
+            HirClauseKind::Requires,
+            HirClauseKind::Ensures,
+            HirClauseKind::Effects,
+            HirClauseKind::Invariant,
+            HirClauseKind::Modifies,
+            HirClauseKind::Input,
+            HirClauseKind::Output,
+            HirClauseKind::Errors,
+            HirClauseKind::Rule,
+            HirClauseKind::DataFlow,
+            HirClauseKind::MustNot,
+            HirClauseKind::Decreases,
+            HirClauseKind::Ordering,
+            HirClauseKind::Other("custom".into()),
+        ];
+        for hir_kind in &hir_kinds {
+            let ast_kind = hir_kind.to_ast_kind();
+            let round_trip = HirClauseKind::from(&ast_kind);
+            assert_eq!(round_trip, *hir_kind, "roundtrip failed for {:?}", hir_kind);
+        }
+    }
+
+    // ---- HirClause to_ast_clause ----
+
+    #[test]
+    fn hir_clause_to_ast_ensures() {
+        let clause = HirClause {
+            kind: HirClauseKind::Ensures,
+            body: HirExpr::BinOp {
+                lhs: Box::new(HirExpr::Ident {
+                    name: "result".into(),
+                    def_id: None,
+                }),
+                op: BinOp::Gt,
+                rhs: Box::new(HirExpr::Literal(Literal::Int("0".into()))),
+            },
+        };
+        let ast_clause = clause.to_ast_clause();
+        assert_eq!(ast_clause.kind, ast::ClauseKind::Ensures);
+        assert!(ast_clause.effect_variables.is_empty());
+    }
+
+    // ---- Integration: lower through parse ----
+
+    #[test]
+    fn lower_simple_contract() {
+        let src = "contract SafeDiv {\n  requires { divisor != 0 }\n}";
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.expect("should parse");
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let hir = lower(&resolved);
+        assert_eq!(hir.decls.len(), 1);
+        match &hir.decls[0].kind {
+            HirDeclKind::Contract(c) => {
+                assert_eq!(c.name, "SafeDiv");
+                assert!(!c.clauses.is_empty());
+            }
+            other => panic!("expected Contract, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lower_enum_def() {
+        let src = "enum Color { Red, Green, Blue }";
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.expect("should parse");
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let hir = lower(&resolved);
+        assert_eq!(hir.decls.len(), 1);
+        match &hir.decls[0].kind {
+            HirDeclKind::EnumDef(e) => {
+                assert_eq!(e.name, "Color");
+                assert_eq!(e.variants.len(), 3);
+                assert_eq!(e.variants[0].name, "Red");
+            }
+            other => panic!("expected EnumDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lower_typedef() {
+        let src = "type Point { x: Int, y: Int }";
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.expect("should parse");
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let hir = lower(&resolved);
+        assert_eq!(hir.decls.len(), 1);
+        match &hir.decls[0].kind {
+            HirDeclKind::TypeDef(t) => {
+                assert_eq!(t.name, "Point");
+                match &t.body {
+                    HirTypeBody::Struct(fields) => {
+                        assert_eq!(fields.len(), 2);
+                        assert_eq!(fields[0].name, "x");
+                        assert_eq!(fields[1].name, "y");
+                    }
+                    other => panic!("expected Struct, got {other:?}"),
+                }
+            }
+            other => panic!("expected TypeDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lower_preserves_source_file() {
+        let src = "contract Foo {\n  requires { true }\n}";
+        let (file, _) = assura_parser::parse(src);
+        let file = file.expect("should parse");
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let hir = lower(&resolved);
+        let source_file = hir.to_source_file();
+        assert_eq!(source_file.decls.len(), 1);
+    }
+
+    #[test]
+    fn lower_multiple_decls() {
+        let src = "contract A {\n  requires { true }\n}\ncontract B {\n  ensures { result > 0 }\n}";
+        let (file, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.expect("should parse");
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let hir = lower(&resolved);
+        assert_eq!(hir.decls.len(), 2);
+    }
+
+    #[test]
+    fn lower_empty_file() {
+        let src = "";
+        let (file, _) = assura_parser::parse(src);
+        let file = file.expect("empty file should parse");
+        let resolved = assura_resolve::resolve(&file).unwrap();
+        let hir = lower(&resolved);
+        assert!(hir.decls.is_empty());
+    }
 }

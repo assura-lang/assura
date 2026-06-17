@@ -3645,4 +3645,345 @@ mod tests {
         let json = serde_json::to_string(&Severity::Info).unwrap();
         assert_eq!(json, "\"info\"");
     }
+
+    // ---- ErrorCode edge cases ----
+
+    #[test]
+    fn test_error_code_eq_string_owned() {
+        let code = ErrorCode::from("A03001");
+        assert!(code == String::from("A03001"));
+    }
+
+    #[test]
+    fn test_error_code_ne() {
+        let a = ErrorCode::from("A01001");
+        let b = ErrorCode::from("A03001");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_error_code_clone_eq() {
+        let code = ErrorCode::from("A05001");
+        let cloned = code.clone();
+        assert_eq!(code, cloned);
+    }
+
+    #[test]
+    fn test_error_code_hash_consistent() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(ErrorCode::from("A01001"));
+        set.insert(ErrorCode::from("A01001")); // duplicate
+        set.insert(ErrorCode::from("A03001"));
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_error_code_empty() {
+        let code = ErrorCode::from("");
+        assert_eq!(code.as_str(), "");
+        assert_eq!(format!("{code}"), "");
+    }
+
+    // ---- Catalog validation ----
+
+    #[test]
+    fn test_error_catalog_all_codes_valid_format() {
+        let catalog = error_catalog();
+        for entry in &catalog {
+            assert_eq!(
+                entry.code.len(),
+                6,
+                "error code '{}' should be 6 chars (Axxxxx)",
+                entry.code
+            );
+            assert!(
+                entry.code.starts_with('A'),
+                "error code '{}' should start with 'A'",
+                entry.code
+            );
+            assert!(
+                entry.code[1..].chars().all(|c| c.is_ascii_digit()),
+                "error code '{}' should have 5 digits after 'A'",
+                entry.code
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_catalog_has_major_categories() {
+        let catalog = error_catalog();
+        let codes: Vec<&str> = catalog.iter().map(|e| e.code).collect();
+        // Must have at least one code in each major category
+        assert!(
+            codes.iter().any(|c| c.starts_with("A01")),
+            "missing A01xxx (syntax)"
+        );
+        assert!(
+            codes.iter().any(|c| c.starts_with("A02")),
+            "missing A02xxx (resolve)"
+        );
+        assert!(
+            codes.iter().any(|c| c.starts_with("A03")),
+            "missing A03xxx (type)"
+        );
+        assert!(
+            codes.iter().any(|c| c.starts_with("A05")),
+            "missing A05xxx (linear)"
+        );
+        assert!(
+            codes.iter().any(|c| c.starts_with("A07")),
+            "missing A07xxx (effect)"
+        );
+    }
+
+    #[test]
+    fn test_error_catalog_size_reasonable() {
+        let catalog = error_catalog();
+        assert!(
+            catalog.len() >= 200,
+            "catalog should have 200+ entries, got {}",
+            catalog.len()
+        );
+    }
+
+    #[test]
+    fn test_explain_empty_string() {
+        assert!(explain("").is_none());
+    }
+
+    #[test]
+    fn test_explain_partial_code() {
+        assert!(explain("A01").is_none());
+        assert!(explain("A").is_none());
+    }
+
+    #[test]
+    fn test_explain_nonexistent_category() {
+        assert!(explain("A88888").is_none());
+    }
+
+    // ---- Diagnostic edge cases ----
+
+    #[test]
+    fn test_diagnostic_zero_length_span() {
+        let d = Diagnostic::error("A01001", "at position", 5..5);
+        assert_eq!(d.primary, 5..5);
+        assert!(d.primary.is_empty());
+    }
+
+    #[test]
+    fn test_diagnostic_large_span() {
+        let d = Diagnostic::error("A01001", "whole file", 0..100_000);
+        assert_eq!(d.primary, 0..100_000);
+    }
+
+    #[test]
+    fn test_diagnostic_empty_message() {
+        let d = Diagnostic::error("A01001", "", 0..1);
+        assert_eq!(d.message, "");
+        assert_eq!(format!("{d}"), "[A01001] ");
+    }
+
+    #[test]
+    fn test_diagnostic_default_file_empty() {
+        let d = Diagnostic::error("A01001", "err", 0..1);
+        assert!(d.file.is_empty());
+    }
+
+    #[test]
+    fn test_diagnostic_with_file_overwrites() {
+        let d = Diagnostic::error("A01001", "err", 0..1)
+            .with_file("first.assura")
+            .with_file("second.assura");
+        assert_eq!(d.file, "second.assura");
+    }
+
+    #[test]
+    fn test_render_diagnostic_with_suggestion() {
+        let d = Diagnostic::error("A01002", "missing colon", 8..9).with_suggestion(
+            "add colon",
+            8..9,
+            ":",
+        );
+        // Must not panic
+        render_diagnostic(&d, "test.assura", "requires x > 0");
+    }
+
+    #[test]
+    fn test_report_diagnostics_human_empty() {
+        // Empty list should not panic
+        report_diagnostics_human(&[], "empty.assura", "");
+    }
+
+    #[test]
+    fn test_render_diagnostic_info_severity() {
+        let d = Diagnostic {
+            code: ErrorCode::from("A99999"),
+            severity: Severity::Info,
+            message: "informational".into(),
+            file: String::new(),
+            primary: 0..1,
+            secondary: Vec::new(),
+            suggestion: None,
+        };
+        // Must not panic
+        render_diagnostic(&d, "test.assura", "x");
+    }
+
+    // ---- Severity edge cases ----
+
+    #[test]
+    fn test_severity_equality() {
+        assert_eq!(Severity::Error, Severity::Error);
+        assert_ne!(Severity::Error, Severity::Warning);
+        assert_ne!(Severity::Warning, Severity::Info);
+    }
+
+    #[test]
+    fn test_severity_copy() {
+        let s = Severity::Error;
+        let s2 = s; // Copy
+        assert_eq!(s, s2);
+    }
+
+    // ---- SecondaryLabel ----
+
+    #[test]
+    fn test_secondary_label_inequality() {
+        let a = SecondaryLabel {
+            span: 0..5,
+            message: "here".to_string(),
+        };
+        let b = SecondaryLabel {
+            span: 0..5,
+            message: "there".to_string(),
+        };
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_secondary_label_serialization() {
+        let label = SecondaryLabel {
+            span: 10..20,
+            message: "declared here".to_string(),
+        };
+        let json = serde_json::to_string(&label).unwrap();
+        assert!(json.contains("declared here"));
+        assert!(json.contains("10"));
+    }
+
+    // ---- Suggestion ----
+
+    #[test]
+    fn test_suggestion_equality() {
+        let a = Suggestion {
+            message: "fix".into(),
+            span: 0..1,
+            replacement: ";".into(),
+        };
+        let b = Suggestion {
+            message: "fix".into(),
+            span: 0..1,
+            replacement: ";".into(),
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_suggestion_inequality() {
+        let a = Suggestion {
+            message: "fix".into(),
+            span: 0..1,
+            replacement: ";".into(),
+        };
+        let b = Suggestion {
+            message: "fix".into(),
+            span: 0..1,
+            replacement: ":".into(),
+        };
+        assert_ne!(a, b);
+    }
+
+    // ---- Full diagnostic JSON roundtrip ----
+
+    #[test]
+    fn test_diagnostic_full_json_structure() {
+        let d = Diagnostic::error("A03001", "type mismatch", 10..20)
+            .with_file("test.assura")
+            .with_secondary(30..40, "expected here")
+            .with_secondary(50..60, "found here")
+            .with_suggestion("change type", 10..20, "Int");
+        let json = serde_json::to_string_pretty(&d).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // Check top-level fields
+        assert_eq!(val["code"], "A03001");
+        assert_eq!(val["severity"], "error");
+        assert_eq!(val["file"], "test.assura");
+        // Check secondary array
+        assert!(val["secondary"].is_array());
+        assert_eq!(val["secondary"].as_array().unwrap().len(), 2);
+        // Check suggestion
+        assert!(val["suggestion"].is_object());
+        assert_eq!(val["suggestion"]["replacement"], "Int");
+    }
+
+    #[test]
+    fn test_diagnostic_json_no_suggestion() {
+        let d = Diagnostic::warning("A02007", "unused", 0..5);
+        let json = serde_json::to_string(&d).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(val["suggestion"].is_null());
+    }
+
+    // ---- ErrorInfo ----
+
+    #[test]
+    fn test_error_info_equality() {
+        let a = ErrorInfo {
+            code: "A01001",
+            name: "Unexpected character",
+            description: "desc",
+            example: "ex",
+            fix: "fix",
+        };
+        let b = ErrorInfo {
+            code: "A01001",
+            name: "Unexpected character",
+            description: "desc",
+            example: "ex",
+            fix: "fix",
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_error_info_clone() {
+        let a = ErrorInfo {
+            code: "A01001",
+            name: "test",
+            description: "desc",
+            example: "ex",
+            fix: "fix",
+        };
+        let b = a.clone();
+        assert_eq!(a, b);
+    }
+
+    // ---- Catalog code lookup coverage ----
+
+    #[test]
+    fn test_explain_returns_same_as_catalog_entry() {
+        let catalog = error_catalog();
+        // Spot-check several specific codes
+        for code in &["A01001", "A02001", "A03001", "A05001", "A07003", "A10001"] {
+            let from_explain = explain(code).expect(&format!("{code} should exist"));
+            let from_catalog = catalog
+                .iter()
+                .find(|e| e.code == *code)
+                .expect("in catalog");
+            assert_eq!(from_explain.name, from_catalog.name);
+            assert_eq!(from_explain.description, from_catalog.description);
+        }
+    }
 }

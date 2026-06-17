@@ -449,4 +449,357 @@ mod tests {
     fn truncate_zero_max() {
         assert_eq!(truncate("abc", 0), "...");
     }
+
+    // ---- expr_to_string tests ----
+
+    use super::expr_to_string;
+    use crate::ast::*;
+
+    #[test]
+    fn expr_to_string_int_literal() {
+        assert_eq!(
+            expr_to_string(&Expr::Literal(Literal::Int("42".into()))),
+            "42"
+        );
+    }
+
+    #[test]
+    fn expr_to_string_float_literal() {
+        assert_eq!(
+            expr_to_string(&Expr::Literal(Literal::Float("3.14".into()))),
+            "3.14"
+        );
+    }
+
+    #[test]
+    fn expr_to_string_str_literal() {
+        assert_eq!(
+            expr_to_string(&Expr::Literal(Literal::Str("hello".into()))),
+            "\"hello\""
+        );
+    }
+
+    #[test]
+    fn expr_to_string_bool_literal() {
+        assert_eq!(expr_to_string(&Expr::Literal(Literal::Bool(true))), "true");
+        assert_eq!(
+            expr_to_string(&Expr::Literal(Literal::Bool(false))),
+            "false"
+        );
+    }
+
+    #[test]
+    fn expr_to_string_ident() {
+        assert_eq!(expr_to_string(&Expr::Ident("x".into())), "x");
+    }
+
+    #[test]
+    fn expr_to_string_field() {
+        let e = Expr::Field(Box::new(Expr::Ident("point".into())), "x".into());
+        assert_eq!(expr_to_string(&e), "point.x");
+    }
+
+    #[test]
+    fn expr_to_string_nested_field() {
+        let e = Expr::Field(
+            Box::new(Expr::Field(Box::new(Expr::Ident("a".into())), "b".into())),
+            "c".into(),
+        );
+        assert_eq!(expr_to_string(&e), "a.b.c");
+    }
+
+    #[test]
+    fn expr_to_string_method_call() {
+        let e = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("list".into())),
+            method: "push".into(),
+            args: vec![Expr::Literal(Literal::Int("1".into()))],
+        };
+        assert_eq!(expr_to_string(&e), "list.push(1)");
+    }
+
+    #[test]
+    fn expr_to_string_method_call_no_args() {
+        let e = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("buf".into())),
+            method: "len".into(),
+            args: vec![],
+        };
+        assert_eq!(expr_to_string(&e), "buf.len()");
+    }
+
+    #[test]
+    fn expr_to_string_call() {
+        let e = Expr::Call {
+            func: Box::new(Expr::Ident("max".into())),
+            args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
+        };
+        assert_eq!(expr_to_string(&e), "max(a, b)");
+    }
+
+    #[test]
+    fn expr_to_string_index() {
+        let e = Expr::Index {
+            expr: Box::new(Expr::Ident("arr".into())),
+            index: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        };
+        assert_eq!(expr_to_string(&e), "arr[0]");
+    }
+
+    #[test]
+    fn expr_to_string_binop() {
+        let e = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("x".into())),
+            op: BinOp::Add,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        assert_eq!(expr_to_string(&e), "x + 1");
+    }
+
+    #[test]
+    fn expr_to_string_chained_binop() {
+        let e = Expr::BinOp {
+            lhs: Box::new(Expr::BinOp {
+                lhs: Box::new(Expr::Ident("a".into())),
+                op: BinOp::Add,
+                rhs: Box::new(Expr::Ident("b".into())),
+            }),
+            op: BinOp::Mul,
+            rhs: Box::new(Expr::Ident("c".into())),
+        };
+        assert_eq!(expr_to_string(&e), "a + b * c");
+    }
+
+    #[test]
+    fn expr_to_string_unary_neg() {
+        let e = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::Ident("x".into())),
+        };
+        assert_eq!(expr_to_string(&e), "- x");
+    }
+
+    #[test]
+    fn expr_to_string_unary_not() {
+        let e = Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        assert_eq!(expr_to_string(&e), "not true");
+    }
+
+    #[test]
+    fn expr_to_string_old() {
+        let e = Expr::Old(Box::new(Expr::Ident("counter".into())));
+        assert_eq!(expr_to_string(&e), "old(counter)");
+    }
+
+    #[test]
+    fn expr_to_string_forall() {
+        let e = Expr::Forall {
+            var: "i".into(),
+            domain: Box::new(Expr::Ident("items".into())),
+            body: Box::new(Expr::BinOp {
+                lhs: Box::new(Expr::Ident("i".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            }),
+        };
+        assert_eq!(expr_to_string(&e), "forall i in items: i > 0");
+    }
+
+    #[test]
+    fn expr_to_string_exists() {
+        let e = Expr::Exists {
+            var: "x".into(),
+            domain: Box::new(Expr::Ident("set".into())),
+            body: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        assert_eq!(expr_to_string(&e), "exists x in set: true");
+    }
+
+    #[test]
+    fn expr_to_string_if_with_else() {
+        let e = Expr::If {
+            cond: Box::new(Expr::Ident("flag".into())),
+            then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
+            else_branch: Some(Box::new(Expr::Literal(Literal::Int("0".into())))),
+        };
+        assert_eq!(expr_to_string(&e), "if flag then 1 else 0");
+    }
+
+    #[test]
+    fn expr_to_string_if_no_else() {
+        let e = Expr::If {
+            cond: Box::new(Expr::Ident("cond".into())),
+            then_branch: Box::new(Expr::Literal(Literal::Bool(true))),
+            else_branch: None,
+        };
+        assert_eq!(expr_to_string(&e), "if cond then true");
+    }
+
+    #[test]
+    fn expr_to_string_paren() {
+        let e = Expr::Paren(Box::new(Expr::Ident("x".into())));
+        assert_eq!(expr_to_string(&e), "(x)");
+    }
+
+    #[test]
+    fn expr_to_string_list() {
+        let e = Expr::List(vec![
+            Expr::Literal(Literal::Int("1".into())),
+            Expr::Literal(Literal::Int("2".into())),
+            Expr::Literal(Literal::Int("3".into())),
+        ]);
+        assert_eq!(expr_to_string(&e), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn expr_to_string_empty_list() {
+        assert_eq!(expr_to_string(&Expr::List(vec![])), "[]");
+    }
+
+    #[test]
+    fn expr_to_string_cast() {
+        let e = Expr::Cast {
+            expr: Box::new(Expr::Ident("x".into())),
+            ty: "Int".into(),
+        };
+        assert_eq!(expr_to_string(&e), "x as Int");
+    }
+
+    #[test]
+    fn expr_to_string_block() {
+        let e = Expr::Block(vec![Expr::Ident("a".into()), Expr::Ident("b".into())]);
+        assert_eq!(expr_to_string(&e), "a b");
+    }
+
+    #[test]
+    fn expr_to_string_ghost() {
+        let e = Expr::Ghost(Box::new(Expr::Literal(Literal::Bool(true))));
+        assert_eq!(expr_to_string(&e), "ghost { true }");
+    }
+
+    #[test]
+    fn expr_to_string_apply() {
+        let e = Expr::Apply {
+            lemma_name: "div_pos".into(),
+            args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
+        };
+        assert_eq!(expr_to_string(&e), "apply div_pos(a, b)");
+    }
+
+    #[test]
+    fn expr_to_string_match_wildcard() {
+        let e = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("x".into())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Wildcard,
+                body: Expr::Literal(Literal::Int("0".into())),
+            }],
+        };
+        assert_eq!(expr_to_string(&e), "match x { _ => 0 }");
+    }
+
+    #[test]
+    fn expr_to_string_match_constructor() {
+        let e = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("opt".into())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Constructor {
+                        name: "Some".into(),
+                        fields: vec![Pattern::Ident("v".into())],
+                    },
+                    body: Expr::Ident("v".into()),
+                },
+                MatchArm {
+                    pattern: Pattern::Ident("None".into()),
+                    body: Expr::Literal(Literal::Int("0".into())),
+                },
+            ],
+        };
+        let result = expr_to_string(&e);
+        assert!(result.contains("Some(v) => v"), "got: {result}");
+        assert!(result.contains("None => 0"), "got: {result}");
+    }
+
+    #[test]
+    fn expr_to_string_match_tuple_pattern() {
+        let e = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("pair".into())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Tuple(vec![Pattern::Ident("a".into()), Pattern::Wildcard]),
+                body: Expr::Ident("a".into()),
+            }],
+        };
+        let result = expr_to_string(&e);
+        assert!(result.contains("(a, _) => a"), "got: {result}");
+    }
+
+    #[test]
+    fn expr_to_string_let() {
+        let e = Expr::Let {
+            name: "tmp".into(),
+            value: Box::new(Expr::Literal(Literal::Int("5".into()))),
+            body: Box::new(Expr::Ident("tmp".into())),
+        };
+        assert_eq!(expr_to_string(&e), "let tmp = 5 in tmp");
+    }
+
+    #[test]
+    fn expr_to_string_tuple() {
+        let e = Expr::Tuple(vec![
+            Expr::Ident("a".into()),
+            Expr::Literal(Literal::Int("1".into())),
+        ]);
+        assert_eq!(expr_to_string(&e), "(a, 1)");
+    }
+
+    #[test]
+    fn expr_to_string_raw() {
+        let e = Expr::Raw(vec!["io".into(), ".".into(), "read".into()]);
+        assert_eq!(expr_to_string(&e), "io . read");
+    }
+
+    // ---- binop_str coverage ----
+
+    use super::binop_str;
+
+    #[test]
+    fn binop_str_all_operators() {
+        assert_eq!(binop_str(&BinOp::Add), "+");
+        assert_eq!(binop_str(&BinOp::Sub), "-");
+        assert_eq!(binop_str(&BinOp::Mul), "*");
+        assert_eq!(binop_str(&BinOp::Div), "/");
+        assert_eq!(binop_str(&BinOp::Mod), "mod");
+        assert_eq!(binop_str(&BinOp::Eq), "==");
+        assert_eq!(binop_str(&BinOp::Neq), "!=");
+        assert_eq!(binop_str(&BinOp::Lt), "<");
+        assert_eq!(binop_str(&BinOp::Lte), "<=");
+        assert_eq!(binop_str(&BinOp::Gt), ">");
+        assert_eq!(binop_str(&BinOp::Gte), ">=");
+        assert_eq!(binop_str(&BinOp::And), "and");
+        assert_eq!(binop_str(&BinOp::Or), "or");
+        assert_eq!(binop_str(&BinOp::Implies), "=>");
+        assert_eq!(binop_str(&BinOp::In), "in");
+        assert_eq!(binop_str(&BinOp::NotIn), "not in");
+        assert_eq!(binop_str(&BinOp::Concat), "++");
+        assert_eq!(binop_str(&BinOp::Range), "..");
+    }
+
+    // ---- match pattern display edge cases ----
+
+    #[test]
+    fn expr_to_string_match_literal_pattern() {
+        let e = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("n".into())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Literal(Literal::Int("42".into())),
+                body: Expr::Literal(Literal::Bool(true)),
+            }],
+        };
+        let result = expr_to_string(&e);
+        assert!(result.starts_with("match n {"), "got: {result}");
+    }
 }
