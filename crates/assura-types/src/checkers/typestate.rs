@@ -11,15 +11,7 @@ use super::*;
 /// - **A06002**: Typestate variable is not linear
 /// - **A06003**: State not declared in `states:` block
 /// - **A06004**: Ambiguous state after diverging branches
-#[derive(Debug, Clone)]
-pub(crate) struct TypestateError {
-    /// Error code from the spec (A06xxx series).
-    pub code: assura_diagnostics::ErrorCode,
-    /// Human-readable error message.
-    pub message: String,
-    /// Source location where the error was detected.
-    pub span: Range<usize>,
-}
+pub(crate) type TypestateError = CheckerError;
 
 /// A transition in the typestate DFA.
 ///

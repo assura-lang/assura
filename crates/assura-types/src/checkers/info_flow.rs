@@ -33,12 +33,7 @@ pub(crate) struct DepType {
 }
 
 /// Error from the dependent type checker.
-#[derive(Debug, Clone)]
-pub(crate) struct DepTypeError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type DepTypeError = CheckerError;
 
 /// Checker for restricted dependent types.
 ///
@@ -350,15 +345,7 @@ impl std::fmt::Display for SecurityLabel {
 }
 
 /// A structured information flow error.
-#[derive(Debug, Clone)]
-pub(crate) struct InfoFlowError {
-    /// Error code (A08001-A08005).
-    pub code: assura_diagnostics::ErrorCode,
-    /// Human-readable error message.
-    pub message: String,
-    /// Source location where the error was detected.
-    pub span: Range<usize>,
-}
+pub(crate) type InfoFlowError = CheckerError;
 
 /// Information flow checker that enforces the security lattice.
 ///

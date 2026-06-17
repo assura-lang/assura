@@ -80,16 +80,7 @@ impl std::fmt::Display for EffectSet {
     }
 }
 
-/// An error produced by the effect checker.
-#[derive(Debug, Clone)]
-pub(crate) struct EffectError {
-    /// Error code from the spec (A07xxx series).
-    pub code: assura_diagnostics::ErrorCode,
-    /// Human-readable error message.
-    pub message: String,
-    /// Source location where the error was detected.
-    pub span: Range<usize>,
-}
+pub(crate) type EffectError = CheckerError;
 
 /// Effect checker that validates effect declarations and containment.
 ///

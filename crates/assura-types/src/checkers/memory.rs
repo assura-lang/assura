@@ -27,15 +27,7 @@ pub(crate) struct MemoryRegion {
 /// - **A08102**: Region containment violation (sub-region not proven to be
 ///   within parent region)
 /// - **A08103**: Ghost region references non-existent buffer
-#[derive(Debug, Clone)]
-pub(crate) struct MemoryError {
-    /// Error code from the spec (A08xxx series).
-    pub code: assura_diagnostics::ErrorCode,
-    /// Human-readable error message.
-    pub message: String,
-    /// Source location where the error was detected.
-    pub span: Range<usize>,
-}
+pub(crate) type MemoryError = CheckerError;
 
 /// Memory checker for buffer safety contracts (MEM.1).
 ///

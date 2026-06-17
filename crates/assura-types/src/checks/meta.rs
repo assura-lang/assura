@@ -402,12 +402,7 @@ pub(crate) fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> V
                     checker.register_impl(c.name.clone(), iface_name.clone(), method_names.clone());
 
                     for err in checker.check_impl(&c.name, iface_name, &method_names, &decl.span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
 
                     // Check method signatures against the interface
@@ -419,12 +414,7 @@ pub(crate) fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> V
                             &method.return_type,
                             &decl.span,
                         ) {
-                            errors.push(TypeError {
-                                code: err.code,
-                                message: err.message,
-                                span: err.span,
-                                secondary: None,
-                            });
+                            errors.push(err.into());
                         }
 
                         // Check reentrancy restrictions
@@ -438,12 +428,7 @@ pub(crate) fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> V
                             is_reentrant,
                             &decl.span,
                         ) {
-                            errors.push(TypeError {
-                                code: err.code,
-                                message: err.message,
-                                span: err.span,
-                                secondary: None,
-                            });
+                            errors.push(err.into());
                         }
                     }
                 }
@@ -526,12 +511,7 @@ pub(crate) fn run_structural_invariant_checks(
 
                         for err in checker.check_invariant_applicability(&c.name, &kind, &decl.span)
                         {
-                            errors.push(TypeError {
-                                code: err.code,
-                                message: err.message,
-                                span: err.span,
-                                secondary: None,
-                            });
+                            errors.push(err.into());
                         }
                     }
 
@@ -553,12 +533,7 @@ pub(crate) fn run_structural_invariant_checks(
                             has_preservation,
                             &decl.span,
                         ) {
-                            errors.push(TypeError {
-                                code: err.code,
-                                message: err.message,
-                                span: err.span,
-                                secondary: None,
-                            });
+                            errors.push(err.into());
                         }
                     }
                 }

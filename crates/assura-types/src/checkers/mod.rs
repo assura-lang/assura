@@ -12,6 +12,27 @@ use assura_parser::ast::{
 
 use crate::{Type, TypeEnv, TypeError};
 
+/// Unified error type for all checker structs. All 16 previous per-checker
+/// error types (TypestateError, EffectError, MemoryError, etc.) are now
+/// type aliases for this single struct.
+#[derive(Debug, Clone)]
+pub(crate) struct CheckerError {
+    pub code: assura_diagnostics::ErrorCode,
+    pub message: String,
+    pub span: Range<usize>,
+}
+
+impl From<CheckerError> for TypeError {
+    fn from(e: CheckerError) -> Self {
+        TypeError {
+            code: e.code,
+            message: e.message,
+            span: e.span,
+            secondary: None,
+        }
+    }
+}
+
 mod effects;
 mod error_propagation;
 mod ffi;

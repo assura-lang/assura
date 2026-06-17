@@ -15,15 +15,7 @@ pub(crate) enum DecreasesMeasure {
 }
 
 /// A totality error with error code, span, and message.
-#[derive(Debug, Clone)]
-pub(crate) struct TotalityError {
-    /// Error code from the spec (A09xxx series).
-    pub code: assura_diagnostics::ErrorCode,
-    /// Human-readable error message.
-    pub message: String,
-    /// Source location where the error was detected.
-    pub span: Range<usize>,
-}
+pub(crate) type TotalityError = CheckerError;
 
 /// Result of checking whether a recursive call decreases the measure.
 #[derive(Debug)]

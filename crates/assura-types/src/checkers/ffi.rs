@@ -25,12 +25,7 @@ impl std::fmt::Display for TrustBoundary {
 }
 
 /// Error from the FFI boundary checker.
-#[derive(Debug, Clone)]
-pub(crate) struct FfiError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type FfiError = CheckerError;
 
 /// Checker for FFI boundary contracts.
 ///

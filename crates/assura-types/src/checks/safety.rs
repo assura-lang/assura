@@ -45,12 +45,7 @@ pub(crate) fn run_constant_time_checks(source: &assura_parser::ast::SourceFile) 
         // Check all clause bodies for timing leaks
         for clause in clauses {
             for err in checker.check_expr(&clause.body, &decl.span) {
-                all_errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                all_errors.push(err.into());
             }
         }
     }
@@ -192,22 +187,12 @@ pub(crate) fn run_crypto_conformance_checks(
         if let Some(ref algo) = algorithm {
             if let Some(ks) = key_size {
                 for err in checker.check_key_size(algo, ks, &decl.span) {
-                    all_errors.push(TypeError {
-                        code: err.code,
-                        message: err.message,
-                        span: err.span,
-                        secondary: None,
-                    });
+                    all_errors.push(err.into());
                 }
             }
             if let Some(ns) = nonce_size {
                 for err in checker.check_nonce_size(algo, ns, &decl.span) {
-                    all_errors.push(TypeError {
-                        code: err.code,
-                        message: err.message,
-                        span: err.span,
-                        secondary: None,
-                    });
+                    all_errors.push(err.into());
                 }
             }
             if let Some(ref ns_src) = nonce_source {
@@ -217,12 +202,7 @@ pub(crate) fn run_crypto_conformance_checks(
                     is_random_nonce,
                     &decl.span,
                 ) {
-                    all_errors.push(TypeError {
-                        code: err.code,
-                        message: err.message,
-                        span: err.span,
-                        secondary: None,
-                    });
+                    all_errors.push(err.into());
                 }
             }
             // Only check tag verification for decrypt-type operations
@@ -231,12 +211,7 @@ pub(crate) fn run_crypto_conformance_checks(
             );
             if has_decrypt_clause {
                 for err in checker.check_tag_verification(has_tag_check, &decl.span) {
-                    all_errors.push(TypeError {
-                        code: err.code,
-                        message: err.message,
-                        span: err.span,
-                        secondary: None,
-                    });
+                    all_errors.push(err.into());
                 }
             }
         }
@@ -335,12 +310,7 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
                     {
                         let tgt_is_sensitive = checker.sensitive_names().contains(tgt);
                         for err in checker.check_copy(name, tgt, tgt_is_sensitive, &decl.span) {
-                            errors.push(TypeError {
-                                code: err.code,
-                                message: err.message,
-                                span: err.span,
-                                secondary: None,
-                            });
+                            errors.push(err.into());
                         }
                     }
                 }
@@ -351,24 +321,14 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
                 .iter()
                 .any(|t| t == "sensitive" || t == "#[sensitive]");
             for err in checker.check_return(name, fn_return_is_sensitive, &decl.span) {
-                errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                errors.push(err.into());
             }
         }
 
         let fallback_span = 0..0usize;
         let scope_span = sensitive_decl_span.get(name).unwrap_or(&fallback_span);
         for err in checker.check_scope_exit(name, scope_span) {
-            errors.push(TypeError {
-                code: err.code,
-                message: err.message,
-                span: err.span,
-                secondary: None,
-            });
+            errors.push(err.into());
         }
     }
 
@@ -380,12 +340,7 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
         .cloned()
         .unwrap_or(0..0usize);
     for err in checker.check_all_erased(&first_sensitive_span) {
-        errors.push(TypeError {
-            code: err.code,
-            message: err.message,
-            span: err.span,
-            secondary: None,
-        });
+        errors.push(err.into());
     }
 
     errors

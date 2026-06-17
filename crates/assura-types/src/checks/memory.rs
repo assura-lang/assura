@@ -216,12 +216,7 @@ pub(crate) fn run_shared_mem_checks(source: &assura_parser::ast::SourceFile) -> 
                 let modified = collect_ident_references(&clause.body);
                 for name in &modified {
                     for err in checker.check_write(name, &decl.span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                 }
             }
@@ -230,12 +225,7 @@ pub(crate) fn run_shared_mem_checks(source: &assura_parser::ast::SourceFile) -> 
                 let refs = collect_ident_references(&clause.body);
                 for name in &refs {
                     for err in checker.check_read(name, &decl.span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                 }
             }
@@ -257,12 +247,7 @@ pub(crate) fn run_shared_mem_checks(source: &assura_parser::ast::SourceFile) -> 
                     _ => AccessMode::None,
                 };
                 for err in checker.check_data_race(object, mode_a, mode_b, &decl.span) {
-                    errors.push(TypeError {
-                        code: err.code,
-                        message: err.message,
-                        span: err.span,
-                        secondary: None,
-                    });
+                    errors.push(err.into());
                 }
             }
         }
@@ -326,20 +311,10 @@ pub(crate) fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> 
                 for name in &lock_names {
                     // Check that the lock has a defined ordering
                     for err in checker.check_ordering_defined(name, &decl.span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                     for err in checker.acquire(name, &decl.span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                 }
             }
@@ -350,12 +325,7 @@ pub(crate) fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> 
                 let lock_names = collect_ident_references(&clause.body);
                 for name in &lock_names {
                     for err in checker.release(name, &decl.span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                 }
             }

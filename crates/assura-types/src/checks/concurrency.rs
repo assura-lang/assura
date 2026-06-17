@@ -55,23 +55,13 @@ pub(crate) fn run_determinism_checks(source: &assura_parser::ast::SourceFile) ->
         }
 
         for err in checker.check_fn_body(fn_name, &used_names, &decl.span) {
-            all_errors.push(TypeError {
-                code: err.code,
-                message: err.message,
-                span: err.span,
-                secondary: None,
-            });
+            all_errors.push(err.into());
         }
 
         // Check iteration over non-deterministic collections
         for name in &used_names {
             for err in checker.check_iteration(fn_name, name, &decl.span) {
-                all_errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                all_errors.push(err.into());
             }
         }
     }

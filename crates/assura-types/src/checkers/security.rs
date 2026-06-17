@@ -4,12 +4,7 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 /// Error from the constant-time checker.
-#[derive(Debug, Clone)]
-pub(crate) struct ConstantTimeError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type ConstantTimeError = CheckerError;
 
 /// Checker for constant-time execution properties.
 ///
@@ -184,12 +179,7 @@ impl std::fmt::Display for InvariantKind {
 }
 
 /// Error from the structural invariant checker.
-#[derive(Debug, Clone)]
-pub(crate) struct StructuralInvariantError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type StructuralInvariantError = CheckerError;
 
 /// Checker for recursive structural invariants.
 pub(crate) struct StructuralInvariantChecker {
@@ -355,12 +345,7 @@ impl std::fmt::Display for AccessMode {
 }
 
 /// Error from the shared memory checker.
-#[derive(Debug, Clone)]
-pub(crate) struct SharedMemError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type SharedMemError = CheckerError;
 
 /// Checker for shared memory protocols.
 ///
@@ -461,12 +446,7 @@ impl Default for SharedMemChecker {
 // ---------------------------------------------------------------------------
 
 /// Error from the determinism checker.
-#[derive(Debug, Clone)]
-pub(crate) struct DeterminismError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type DeterminismError = CheckerError;
 
 /// Checker for determinism contracts.
 ///
@@ -576,12 +556,7 @@ impl Default for DeterminismChecker {
 // ---------------------------------------------------------------------------
 
 /// Error from the lock ordering checker.
-#[derive(Debug, Clone)]
-pub(crate) struct LockOrderError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type LockOrderError = CheckerError;
 
 /// Checker for static lock ordering.
 ///
@@ -680,12 +655,7 @@ impl Default for LockOrderChecker {
 // ---------------------------------------------------------------------------
 
 /// Error from the secure erasure checker.
-#[derive(Debug, Clone)]
-pub(crate) struct SecureErasureError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type SecureErasureError = CheckerError;
 
 /// Checker for secure erasure of sensitive data.
 ///
@@ -811,12 +781,7 @@ impl Default for SecureErasureChecker {
 // ---------------------------------------------------------------------------
 
 /// Error from the cryptographic conformance checker.
-#[derive(Debug, Clone)]
-pub(crate) struct CryptoConformanceError {
-    pub code: assura_diagnostics::ErrorCode,
-    pub message: String,
-    pub span: Range<usize>,
-}
+pub(crate) type CryptoConformanceError = CheckerError;
 
 /// A cryptographic algorithm specification.
 #[derive(Debug, Clone)]

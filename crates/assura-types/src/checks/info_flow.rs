@@ -221,12 +221,7 @@ fn check_contract_info_flow(
     for clause in &contract.clauses {
         if clause.kind == ClauseKind::Ensures {
             for err in checker.check_expr(&clause.body, span) {
-                errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                errors.push(err.into());
             }
             // Also run the legacy per-expression check
             check_expr_info_flow(&clause.body, &checker, span, &mut errors);
@@ -239,23 +234,13 @@ fn check_contract_info_flow(
                 if let Some(label) = checker.get_label(name) {
                     // Check covert channel through timing functions in ensures
                     if let Some(err) = checker.check_covert_channel(label, name, span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                     // Check declassification
                     if let Some(err) =
                         checker.check_declassify(label, SecurityLabel::Public, false, span)
                     {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                 }
             }
@@ -271,12 +256,7 @@ fn check_contract_info_flow(
             if checker.get_label(var_name).is_some()
                 && let Some(err) = checker.check_purpose_label(var_name, required_purpose, span)
             {
-                errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                errors.push(err.into());
             }
             // Also validate against registered purpose
             if let Some(purpose) = checker.get_purpose(var_name)
@@ -350,12 +330,7 @@ fn check_fn_info_flow(fn_def: &assura_parser::ast::FnDef, span: &Range<usize>) -
         if clause.kind == ClauseKind::Ensures {
             // Use the checker's built-in expression walker
             for err in checker.check_expr(&clause.body, span) {
-                errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                errors.push(err.into());
             }
             check_expr_info_flow(&clause.body, &checker, span, &mut errors);
         }
@@ -473,12 +448,7 @@ fn check_expr_info_flow(
             // Check if the branch body assigns to result or a public variable
             let branch_label = infer_branch_target_label(then_branch, checker);
             if let Some(err) = checker.check_implicit_flow(cond_label, branch_label, span) {
-                errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                errors.push(err.into());
             }
         }
     }

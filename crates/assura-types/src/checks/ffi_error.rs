@@ -101,12 +101,7 @@ pub(crate) fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
                 has_unsafe_ann,
                 &decl.span,
             ) {
-                errors.push(TypeError {
-                    code: err.code,
-                    message: err.message,
-                    span: err.span,
-                    secondary: None,
-                });
+                errors.push(err.into());
             }
         }
     }
@@ -128,12 +123,7 @@ pub(crate) fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
                         c.kind == ClauseKind::Ensures && expr_references_var(&c.body, callee)
                     });
                     for err in checker.check_ffi_call(callee, result_validated, &decl.span) {
-                        errors.push(TypeError {
-                            code: err.code,
-                            message: err.message,
-                            span: err.span,
-                            secondary: None,
-                        });
+                        errors.push(err.into());
                     }
                 }
             }

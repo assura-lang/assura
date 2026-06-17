@@ -4,15 +4,7 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 /// A structured error from fixed-width integer checking.
-#[derive(Debug, Clone)]
-pub(crate) struct FixedWidthError {
-    /// Error code (A10101-A10104).
-    pub code: assura_diagnostics::ErrorCode,
-    /// Human-readable message.
-    pub message: String,
-    /// Source span where the issue was detected.
-    pub span: Range<usize>,
-}
+pub(crate) type FixedWidthError = CheckerError;
 
 /// Checker for fixed-width integer types with overflow detection.
 ///
