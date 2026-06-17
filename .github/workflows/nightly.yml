@@ -91,7 +91,7 @@ jobs:
 
   no-z3-fallback:
     name: No-Z3 fallback
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6

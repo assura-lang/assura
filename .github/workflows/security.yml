@@ -18,7 +18,7 @@ permissions:
 jobs:
   cargo-audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6

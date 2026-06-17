@@ -33,7 +33,7 @@ concurrency:
 # ---------------------------------------------------------------------------
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -239,14 +239,18 @@ jobs:
   no-z3:
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Setup Rust toolchain
+        if: ${{ !vars.RUNNER }}
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache dependencies
+        if: ${{ !vars.RUNNER }}
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci-no-z3
       - name: Build without Z3 (graceful fallback)
@@ -257,7 +261,7 @@ jobs:
     name: Tree-sitter grammar tests
     needs: changes
     if: ${{ needs.changes.outputs.editors-ts == 'true' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -280,7 +284,7 @@ jobs:
     name: VS Code extension compiles
     needs: changes
     if: ${{ needs.changes.outputs.editors-vscode == 'true' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
