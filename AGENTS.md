@@ -395,6 +395,7 @@ cargo run --bin assura -- demos/libwebp-huffman.assura
 cargo run --bin assura -- demos/zlib-inflate.assura
 cargo run --bin assura -- demos/mbedtls-x509.assura
 cargo run --bin assura -- demos/taint-tracking.assura
+cargo run --bin assura -- demos/heartbleed.assura
 cargo run --bin assura -- tests/fixtures/test_basic.assura
 cargo run --bin assura -- tests/fixtures/test_sec.assura
 ```
@@ -419,7 +420,7 @@ feature in a new layer, the coverage score for that feature must
 increase. If it does not increase, the implementation is not wired
 in correctly.
 
-All four files must parse successfully. If a parser change breaks any
+All files above must parse successfully. If a parser change breaks any
 demo file, the change is wrong. Fix it before pushing.
 
 ## Task Completion Criteria
