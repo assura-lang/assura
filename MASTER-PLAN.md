@@ -1669,21 +1669,24 @@ Within the independent tasks, recommended order by impact:
 - Test count: ~3,100+ (up from ~3,020)
 - **Next session**: Z3 backend test coverage, structural stub removal
 
-### Session 16 (2026-06-17): Codegen test coverage completion
+### Session 16 (2026-06-17): Comprehensive test coverage expansion
 
-- **275 new tests added across 7 codegen modules** (sessions 15b-16):
-  - expr.rs: 76 tests (operators, match, let, ghost, apply, ordering, old exprs)
-  - decl.rs: 11 tests (bind, extern, fn_def generation)
-  - service.rs: 20 tests (state comparison, typestate, interface traits)
-  - types_gen.rs: 42 tests (type mapping, Cargo.toml, struct/alias/refined)
-  - block.rs: 11 tests (codec registry, generic blocks, format_rust)
-  - contract.rs: 39 tests (enum_def, proptest strategy, refinement, error types,
-    contract generation, interface traits, input/output extraction)
-  - features.rs: 76 tests (all 50 verification features, dispatch table,
+- **183 new tests added across 10 source files**:
+  - codegen block.rs: 11 tests (codec registry, generic blocks, format_rust)
+  - codegen contract.rs: 39 tests (enum_def, proptest strategy, refinement,
+    error types, contract generation, interface traits, input/output extraction)
+  - codegen features.rs: 76 tests (all 50 verification features, dispatch table,
     compile-time enforcement, synonym matching)
-- **All codegen source files now have tests** (was 0 tests in 7 of 10 files)
-- Test count: 3,381 (up from ~3,100)
-- **Next session**: Continue multi-perspective improvements, SMT backend test
-  coverage, remaining structural stub removal
+  - smt result.rs: 10 tests (CounterexampleModel JSON, escaping, VerificationResult)
+  - smt measures.rs: 13 tests (MeasureDefinition builder, builtin registry, axioms)
+  - smt smt_dump.rs: 18 tests (infinite domain detection, quantifier bounds,
+    raw token parsing, nested quantifiers)
+  - resolve project.rs: 16 tests (file_to_module_path, find_project_root,
+    resolve_module_path, collect_assura_files)
+- **10 previously zero-test files now have coverage** (7 codegen + 3 SMT + 1 resolve)
+- Zero clippy warnings, all demo files pass, all 3,438 tests pass
+- Test count: 3,438 (up from ~3,100)
+- **Next session**: Continue multi-perspective improvements, further SMT backend
+  test coverage, remaining structural stub removal
 
 ---
