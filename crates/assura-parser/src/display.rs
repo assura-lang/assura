@@ -248,28 +248,26 @@ pub fn expr_to_string(expr: &Expr) -> String {
         Expr::Index { expr: e, index } => {
             format!("{}[{}]", expr_to_string(e), expr_to_string(index))
         }
-        Expr::BinOp { lhs, op, rhs } => {
-            let op_s = match op {
-                BinOp::Add => "+",
-                BinOp::Sub => "-",
-                BinOp::Mul => "*",
-                BinOp::Div => "/",
-                BinOp::Mod => "mod",
-                BinOp::Eq => "==",
-                BinOp::Neq => "!=",
-                BinOp::Lt => "<",
-                BinOp::Lte => "<=",
-                BinOp::Gt => ">",
-                BinOp::Gte => ">=",
-                BinOp::And => "and",
-                BinOp::Or => "or",
-                BinOp::Implies => "=>",
-                BinOp::In => "in",
-                BinOp::NotIn => "not in",
-                BinOp::Concat => "++",
-                BinOp::Range => "..",
-            };
-            format!("{} {op_s} {}", expr_to_string(lhs), expr_to_string(rhs))
+        Expr::BinOp { .. } => {
+            // Iteratively walk left-leaning BinOp chains to avoid stack
+            // overflow on deeply nested operator expressions.
+            let mut parts: Vec<String> = Vec::new();
+            let mut cur = expr;
+            loop {
+                match cur {
+                    Expr::BinOp { lhs, op, rhs } => {
+                        let op_s = binop_str(op);
+                        parts.push(format!(" {op_s} {}", expr_to_string(rhs)));
+                        cur = lhs;
+                    }
+                    _ => {
+                        parts.push(expr_to_string(cur));
+                        break;
+                    }
+                }
+            }
+            parts.reverse();
+            parts.concat()
         }
         Expr::UnaryOp { op, expr: e } => {
             let op_s = match op {
@@ -375,6 +373,30 @@ pub fn expr_to_string(expr: &Expr) -> String {
             format!("({})", items.join(", "))
         }
         Expr::Raw(tokens) => tokens.join(" "),
+    }
+}
+
+/// Map a `BinOp` to its string representation.
+fn binop_str(op: &BinOp) -> &'static str {
+    match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "/",
+        BinOp::Mod => "mod",
+        BinOp::Eq => "==",
+        BinOp::Neq => "!=",
+        BinOp::Lt => "<",
+        BinOp::Lte => "<=",
+        BinOp::Gt => ">",
+        BinOp::Gte => ">=",
+        BinOp::And => "and",
+        BinOp::Or => "or",
+        BinOp::Implies => "=>",
+        BinOp::In => "in",
+        BinOp::NotIn => "not in",
+        BinOp::Concat => "++",
+        BinOp::Range => "..",
     }
 }
 

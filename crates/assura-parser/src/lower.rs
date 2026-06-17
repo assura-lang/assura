@@ -640,35 +640,70 @@ fn lower_index_expr(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_bin_expr(n: &SyntaxNode) -> Expr {
-    let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
-    let lhs = exprs
-        .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
-    let rhs = exprs
-        .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+    // Iteratively descend left-leaning BIN_EXPR chains to avoid stack
+    // overflow on very long operator chains (e.g., 500+ chained &&).
+    // The CST for `a && b && c` is left-recursive:
+    //   BIN_EXPR(BIN_EXPR(a, &&, b), &&, c)
+    // We collect (op, rhs) pairs walking down the left spine, then
+    // build the AST bottom-up.
+    let mut chain: Vec<(BinOp, Expr)> = Vec::new();
+    let mut current = n.clone();
 
-    // Find the operator token. If no recognized operator is found,
-    // fall back to Expr::Raw since the CST is malformed.
-    let Some(op) = n
-        .children_with_tokens()
-        .filter_map(|el| el.into_token())
-        .find_map(|t| bin_op_from_token(t.kind(), t.text()))
-    else {
-        let tokens: Vec<String> = n
+    loop {
+        let mut exprs = current.children().filter(|c| is_expr_kind(c.kind()));
+        let lhs_node = exprs.next();
+        let rhs_node = exprs.next();
+
+        let Some(op) = current
             .children_with_tokens()
             .filter_map(|el| el.into_token())
-            .map(|t| t.text().to_string())
-            .collect();
-        return Expr::Raw(tokens);
-    };
+            .find_map(|t| bin_op_from_token(t.kind(), t.text()))
+        else {
+            let tokens: Vec<String> = current
+                .children_with_tokens()
+                .filter_map(|el| el.into_token())
+                .map(|t| t.text().to_string())
+                .collect();
+            // Can't parse operator; return raw and apply any collected chain.
+            let mut result = Expr::Raw(tokens);
+            for (chain_op, chain_rhs) in chain.into_iter().rev() {
+                result = Expr::BinOp {
+                    lhs: Box::new(result),
+                    op: chain_op,
+                    rhs: Box::new(chain_rhs),
+                };
+            }
+            return result;
+        };
 
-    Expr::BinOp {
-        lhs: Box::new(lhs),
-        op,
-        rhs: Box::new(rhs),
+        let rhs = rhs_node
+            .map(|c| lower_expr(&c))
+            .unwrap_or(Expr::Raw(vec![]));
+
+        chain.push((op, rhs));
+
+        // If the LHS is itself a BIN_EXPR, continue iteratively instead
+        // of recursing into lower_expr -> lower_bin_expr.
+        match lhs_node {
+            Some(lhs) if lhs.kind() == SyntaxKind::BIN_EXPR => {
+                current = lhs;
+            }
+            _ => {
+                // Base case: LHS is not a BIN_EXPR, lower it normally.
+                let base = lhs_node
+                    .map(|c| lower_expr(&c))
+                    .unwrap_or(Expr::Raw(vec![]));
+                let mut result = base;
+                for (chain_op, chain_rhs) in chain.into_iter().rev() {
+                    result = Expr::BinOp {
+                        lhs: Box::new(result),
+                        op: chain_op,
+                        rhs: Box::new(chain_rhs),
+                    };
+                }
+                return result;
+            }
+        }
     }
 }
 

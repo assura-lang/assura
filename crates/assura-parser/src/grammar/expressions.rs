@@ -32,9 +32,20 @@ fn expr_bp(p: &mut Parser, min_bp: u8) {
         };
     }
 
-    // Infix binary operators with precedence climbing
+    // Infix binary operators with precedence climbing.
+    // Limit the chain length to prevent stack overflow in downstream
+    // recursive AST walkers (display, resolve, type-check, codegen)
+    // which recurse on the left-leaning Expr::BinOp tree.
+    const MAX_BINOP_CHAIN: usize = 256;
+    let mut chain_count: usize = 0;
     while let Some((op_bp, _)) = infix_bp(p) {
         if op_bp < min_bp {
+            break;
+        }
+
+        chain_count += 1;
+        if chain_count > MAX_BINOP_CHAIN {
+            p.error_at_current("operator chain too long (limit: 256)".to_string());
             break;
         }
 
