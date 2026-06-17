@@ -3461,4 +3461,82 @@ fn crash_recovery_dc_wal_then_data_then_fsync_ok() {
     assert!(cr.check_write_ahead().is_empty());
 }
 
-// -----------------------------------------------------------------------
+// =======================================================================
+// Missing domain checker error code coverage (#174)
+// =======================================================================
+
+// FfiBoundaryChecker: extern without contract triggers A11001
+#[test]
+fn ffi_dc_no_contract_a11001() {
+    let checker = FfiBoundaryChecker::new();
+    let errors = checker.check_extern_decl("malloc", false, false, &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A11001");
+}
+
+// ErrorPropagationChecker: swallowing must_propagate error triggers A12001
+#[test]
+fn error_propagation_dc_swallow_a12001() {
+    let mut checker = ErrorPropagationChecker::new();
+    checker.register_policy(
+        "TestPolicy".into(),
+        ErrorPolicy {
+            must_propagate: vec!["CRITICAL_ERROR".into()],
+            ..Default::default()
+        },
+    );
+    let err = checker.validate_catch("CRITICAL_ERROR", ErrorAction::Swallow, 0..10);
+    assert!(err.is_some(), "swallowing must_propagate error should fail");
+    assert_eq!(err.unwrap().code, "A12001");
+}
+
+// InterfaceChecker: missing method triggers A13001
+#[test]
+fn interface_dc_missing_method_a13001() {
+    let mut checker = InterfaceChecker::new();
+    checker.register_interface(InterfaceContract {
+        name: "Serializable".into(),
+        methods: vec![
+            InterfaceMethod {
+                name: "serialize".into(),
+                param_types: vec![],
+                return_type: Type::Bytes,
+                has_requires: false,
+                has_ensures: true,
+                no_reentrancy: false,
+            },
+            InterfaceMethod {
+                name: "deserialize".into(),
+                param_types: vec![Type::Bytes],
+                return_type: Type::Bool,
+                has_requires: false,
+                has_ensures: true,
+                no_reentrancy: false,
+            },
+        ],
+        extends: vec![],
+    });
+    // Only implement serialize, missing deserialize
+    let errors = checker.check_impl("MyType", "Serializable", &["serialize".into()], &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A13001");
+}
+
+// SecureErasureChecker: non-zeroized sensitive data triggers A16001
+#[test]
+fn secure_erasure_dc_not_zeroized_a16001() {
+    let mut checker = SecureErasureChecker::new();
+    checker.mark_sensitive("private_key".into());
+    let errors = checker.check_scope_exit("private_key", &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A16001");
+}
+
+// CryptoConformanceChecker: wrong key size triggers A17001
+#[test]
+fn crypto_dc_wrong_key_size_a17001() {
+    let checker = CryptoConformanceChecker::new();
+    let errors = checker.check_key_size("AES-128-GCM", 256, &(0..1));
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "A17001");
+}
