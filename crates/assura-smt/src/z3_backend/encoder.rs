@@ -15,7 +15,7 @@ use z3::ast;
 
 /// A Z3 expression that can be either an integer or boolean sort.
 #[derive(Clone)]
-pub(super) enum Z3Value {
+pub(crate) enum Z3Value {
     Bool(ast::Bool),
     Int(ast::Int),
     Real(ast::Real),
@@ -50,26 +50,31 @@ impl Z3Value {
         }
     }
 
-    /// Extract as Int. If Bool or Real, return a fresh uninterpreted int.
-    pub(super) fn as_int(&self, counter: &mut u32) -> ast::Int {
+    /// Extract as Int. If Bool, use `ite(b, 1, 0)` for sound coercion.
+    /// If Real, truncate via `real2int`.
+    pub(super) fn as_int(&self, _counter: &mut u32) -> ast::Int {
         match self {
             Z3Value::Int(i) => i.clone(),
-            Z3Value::Bool(_) | Z3Value::Real(_) => {
-                *counter += 1;
-                ast::Int::new_const(format!("__coerce_{counter}"))
+            Z3Value::Bool(b) => {
+                // Sound coercion: true -> 1, false -> 0
+                let one = ast::Int::from_i64(1);
+                let zero = ast::Int::from_i64(0);
+                b.ite(&one, &zero)
             }
+            Z3Value::Real(r) => ast::Real::to_int(r),
         }
     }
 
-    /// Extract as Real. If Int, convert via `int2real`. If Bool, return
-    /// a fresh uninterpreted real.
-    pub(super) fn as_real(&self, counter: &mut u32) -> ast::Real {
+    /// Extract as Real. If Int, convert via `int2real`. If Bool, use
+    /// `ite(b, 1.0, 0.0)` for sound coercion.
+    pub(super) fn as_real(&self, _counter: &mut u32) -> ast::Real {
         match self {
             Z3Value::Real(r) => r.clone(),
             Z3Value::Int(i) => ast::Real::from_int(i),
-            Z3Value::Bool(_) => {
-                *counter += 1;
-                ast::Real::new_const(format!("__coerce_real_{counter}"))
+            Z3Value::Bool(b) => {
+                let one = ast::Real::from_rational(1, 1);
+                let zero = ast::Real::from_rational(0, 1);
+                b.ite(&one, &zero)
             }
         }
     }
@@ -80,26 +85,29 @@ impl Z3Value {
 // -----------------------------------------------------------------------
 
 /// Translates Assura AST expressions into Z3 formulas.
-pub(super) struct Encoder {
-    pub(super) vars: HashMap<String, Z3Value>,
+pub(crate) struct Encoder {
+    pub(crate) vars: HashMap<String, Z3Value>,
     /// Tracks known function arities for uninterpreted function encoding
-    pub(super) func_arities: HashMap<String, usize>,
-    pub(super) fresh_counter: u32,
+    pub(crate) func_arities: HashMap<String, usize>,
+    pub(crate) fresh_counter: u32,
     /// Background axioms collected during encoding (e.g., len >= 0).
     /// These are asserted into the solver before each verification check.
-    pub(super) background_axioms: Vec<z3::ast::Bool>,
+    pub(crate) background_axioms: Vec<z3::ast::Bool>,
     /// Trigger manager for quantifier e-matching hints
-    pub(super) trigger_manager: crate::advanced::TriggerManager,
+    pub(crate) trigger_manager: crate::advanced::TriggerManager,
+    /// Track distinct string constant names for pairwise distinctness axioms
+    pub(crate) string_constants: Vec<String>,
 }
 
 impl Encoder {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             vars: HashMap::new(),
             func_arities: HashMap::new(),
             fresh_counter: 0,
             background_axioms: Vec::new(),
             trigger_manager: crate::advanced::TriggerManager::new(),
+            string_constants: Vec::new(),
         }
     }
 
@@ -651,12 +659,21 @@ impl Encoder {
     fn encode_literal(&self, lit: &Literal) -> Z3Value {
         match lit {
             Literal::Int(s) => {
-                let n: i64 = s.parse().unwrap_or(0);
-                Z3Value::Int(ast::Int::from_i64(n))
+                if let Ok(n) = s.parse::<i64>() {
+                    Z3Value::Int(ast::Int::from_i64(n))
+                } else if let Some(rest) = s.strip_prefix('-') {
+                    let abs_val: ast::Int = rest.parse().unwrap_or_else(|_| ast::Int::from_i64(0));
+                    Z3Value::Int(abs_val.unary_minus())
+                } else {
+                    let val: ast::Int = s.parse().unwrap_or_else(|_| ast::Int::from_i64(0));
+                    Z3Value::Int(val)
+                }
             }
             Literal::Float(s) => {
-                let n: i64 = s.parse::<f64>().unwrap_or(0.0) as i64;
-                Z3Value::Int(ast::Int::from_i64(n))
+                let f: f64 = s.parse().unwrap_or(0.0);
+                let denom = 1_000_000i64;
+                let numer = (f * denom as f64) as i64;
+                Z3Value::Real(ast::Real::from_rational(numer, denom))
             }
             Literal::Bool(b) => Z3Value::Bool(ast::Bool::from_bool(*b)),
             Literal::Str(_) => Z3Value::Int(ast::Int::from_i64(self.fresh_counter as i64)),
@@ -693,22 +710,34 @@ impl Encoder {
     }
 
     /// Encode an AST expression into a Z3 value.
-    pub(super) fn encode_expr(&mut self, expr: &Expr) -> Z3Value {
+    pub(crate) fn encode_expr(&mut self, expr: &Expr) -> Z3Value {
         match expr {
             // --- Literals ---
             Expr::Literal(Literal::Int(s)) => {
-                let n: i64 = s.parse().unwrap_or(0);
-                Z3Value::Int(ast::Int::from_i64(n))
+                // Use Z3's string-based bignum constructor for large integers
+                // that overflow i64, falling back to from_i64 for normal values.
+                if let Ok(n) = s.parse::<i64>() {
+                    Z3Value::Int(ast::Int::from_i64(n))
+                } else {
+                    // Large integer: use Z3 string parsing via FromStr.
+                    // Strip leading minus, parse as positive, then negate.
+                    if let Some(rest) = s.strip_prefix('-') {
+                        let abs_val: ast::Int =
+                            rest.parse().unwrap_or_else(|_| ast::Int::from_i64(0));
+                        Z3Value::Int(abs_val.unary_minus())
+                    } else {
+                        let val: ast::Int = s.parse().unwrap_or_else(|_| ast::Int::from_i64(0));
+                        Z3Value::Int(val)
+                    }
+                }
             }
             Expr::Literal(Literal::Float(s)) => {
                 // Encode as Z3 Real. Parse the float string and convert
                 // to a rational (numerator/denominator) for exact encoding.
+                // No clamping: use full f64 range.
                 let f: f64 = s.parse().unwrap_or(0.0);
-                // Clamp to i32 safe range then encode as rational to avoid
-                // overflow for values > 2147 (i32::MAX / 1_000_000).
                 let denom = 1_000_000i64;
-                let clamped = f.clamp(-2_000_000_000.0, 2_000_000_000.0);
-                let numer = (clamped * denom as f64) as i64;
+                let numer = (f * denom as f64) as i64;
                 Z3Value::Real(ast::Real::from_rational(numer, denom))
             }
             Expr::Literal(Literal::Str(s)) => {
@@ -716,7 +745,20 @@ impl Encoder {
                 // literals produce the same constant, so equality works.
                 // Different strings get different constants.
                 let const_name = format!("__str_{s}");
-                let str_val = ast::Int::new_const(const_name);
+                let str_val = ast::Int::new_const(const_name.clone());
+
+                // Track this string constant for pairwise distinctness axioms.
+                // Before adding, assert distinctness from all previously seen
+                // string constants with different original values.
+                if !self.string_constants.contains(&const_name) {
+                    for prev in &self.string_constants {
+                        // Different constant names mean different string values
+                        let prev_val = ast::Int::new_const(prev.clone());
+                        self.background_axioms.push(str_val.eq(&prev_val).not());
+                    }
+                    self.string_constants.push(const_name);
+                }
+
                 // String length axiom: len("hello") == 5
                 let len_decl = self.make_func("__field_len", 1);
                 let len_result = len_decl
@@ -882,13 +924,18 @@ impl Encoder {
             // --- Ghost block: encode inner for verification ---
             Expr::Ghost(inner) => self.encode_expr(inner),
 
-            // --- Apply lemma: encode args for constraint propagation,
-            //     result is true (the lemma's postcondition is assumed) ---
-            Expr::Apply { args, .. } => {
+            // --- Apply lemma: encode args for constraint propagation.
+            //     The lemma's postcondition is injected at the solver level
+            //     by verify_clauses. Return a fresh bool (not hardcoded true)
+            //     so missing lemmas don't trivially pass. ---
+            Expr::Apply { lemma_name, args } => {
                 for arg in args {
                     let _ = self.encode_expr(arg);
                 }
-                Z3Value::Bool(ast::Bool::from_bool(true))
+                // Use a named bool so the solver can constrain it via
+                // lemma injection. If the lemma is missing, this stays
+                // unconstrained (not trivially true).
+                Z3Value::Bool(ast::Bool::new_const(format!("__apply_{lemma_name}")))
             }
 
             // --- Match: encode as ITE chain over arm bodies ---
@@ -988,24 +1035,52 @@ impl Encoder {
             // --- Index: uninterpreted function __index(coll, idx) ---
             Expr::Index { expr, index } => self.encode_index(expr, index),
 
-            // --- Tuple: encode elements for constraint propagation ---
+            // --- Tuple: model as an Int with element-access axioms ---
             Expr::Tuple(elems) => {
-                // Encode each element so constraints inside are captured
-                for elem in elems {
-                    let _ = self.encode_expr(elem);
+                let tuple_val = self.fresh_int();
+                let arity = elems.len();
+                for (i, elem) in elems.iter().enumerate() {
+                    let elem_val = self.encode_expr(elem);
+                    // Assert: __tuple_{arity}_{i}(tuple) == elem_val
+                    let accessor_name = format!("__tuple_{arity}_{i}");
+                    let accessor = self.make_func(&accessor_name, 1);
+                    let accessed = accessor
+                        .apply(&[&tuple_val as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let elem_int = elem_val.as_int(&mut self.fresh_counter);
+                    self.background_axioms.push(accessed.eq(&elem_int));
                 }
-                Z3Value::Int(self.fresh_int())
+                Z3Value::Int(tuple_val)
             }
 
             // --- Cast: encode inner (the value doesn't change, only its type) ---
             Expr::Cast { expr, .. } => self.encode_expr(expr),
 
-            // --- List: encode elements for constraint propagation ---
+            // --- List: model as an Int with element-access and length axioms ---
             Expr::List(elems) => {
-                for elem in elems {
-                    let _ = self.encode_expr(elem);
+                let list_val = self.fresh_int();
+                for (i, elem) in elems.iter().enumerate() {
+                    let elem_val = self.encode_expr(elem);
+                    // Assert: __list_get(list, i) == elem_val
+                    let accessor = self.make_func("__list_get", 2);
+                    let idx = ast::Int::from_i64(i as i64);
+                    let accessed = accessor
+                        .apply(&[&list_val as &dyn z3::ast::Ast, &idx as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let elem_int = elem_val.as_int(&mut self.fresh_counter);
+                    self.background_axioms.push(accessed.eq(&elem_int));
                 }
-                Z3Value::Int(self.fresh_int())
+                // Assert length
+                let len_decl = self.make_func("__field_len", 1);
+                let len_result = len_decl
+                    .apply(&[&list_val as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let expected_len = ast::Int::from_i64(elems.len() as i64);
+                self.background_axioms.push(len_result.eq(&expected_len));
+                Z3Value::Int(list_val)
             }
 
             // --- Block: encode all body expressions, return last ---

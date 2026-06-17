@@ -2,7 +2,7 @@
 //! satisfiability. Handles expression encoding, quantifiers, measures,
 //! raw-token parsing, and counterexample extraction.
 
-mod encoder;
+pub(crate) mod encoder;
 mod features;
 mod solver;
 mod verify;

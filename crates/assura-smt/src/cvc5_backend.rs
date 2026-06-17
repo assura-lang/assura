@@ -69,15 +69,20 @@ fn check_clause_cvc5(
         }
     }
 
-    // Assert negation of ensures (validity check)
+    // Assert clause for verification
     if let Some(smt) = expr_to_smtlib(ensures_body) {
         match kind {
             ClauseKind::Invariant => {
                 // Invariant: check satisfiability (not always false)
                 script.push_str(&format!("(assert {smt})\n"));
             }
+            ClauseKind::MustNot => {
+                // MustNot P: prove P is impossible. Assert P directly;
+                // UNSAT means P cannot happen (verified).
+                script.push_str(&format!("(assert {smt})\n"));
+            }
             _ => {
-                // Ensures/rule/must_not/decreases: check validity via negation
+                // Ensures/rule/decreases: check validity via negation
                 script.push_str(&format!("(assert (not {smt}))\n"));
             }
         }
@@ -388,9 +393,13 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
         | Expr::Exists {
             var, body, domain, ..
         } => {
-            vars.insert(sanitize_smtlib_name(var));
+            // Do NOT insert the quantifier-bound variable as a global constant.
+            // It is locally scoped by the (forall ((var Int)) ...) quantifier.
+            // Declaring it as a global constant creates a name collision in CVC5.
             collect_vars(body, vars);
             collect_vars(domain, vars);
+            // Remove the bound variable if it was collected from the body/domain.
+            vars.remove(&sanitize_smtlib_name(var));
         }
         Expr::Call { args, .. } => {
             for arg in args {
@@ -890,5 +899,84 @@ mod tests {
         let mut vars = HashSet::new();
         collect_vars(&expr, &mut vars);
         assert!(vars.is_empty());
+    }
+
+    // -------------------------------------------------------------------
+    // Regression: CVC5 must_not semantics (#166)
+    // -------------------------------------------------------------------
+
+    /// must_not(true) should NOT be verified: true is always possible.
+    /// The CVC5 backend must assert the body directly (not negate it).
+    #[test]
+    fn test_cvc5_must_not_semantics() {
+        // must_not { true } -- "true" is always satisfiable, so
+        // asserting it directly gives SAT -> Counterexample.
+        let clause = Clause {
+            kind: ClauseKind::MustNot,
+            body: Expr::Literal(Literal::Bool(true)),
+        };
+        let results = verify_contract_cvc5("TestMustNot", &[clause]);
+        // Should be Counterexample (the bad thing CAN happen)
+        assert_eq!(results.len(), 1);
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Counterexample { .. } | VerificationResult::Unknown { .. }
+            ),
+            "must_not(true) should be Counterexample or Unknown, got: {:?}",
+            results[0]
+        );
+    }
+
+    /// must_not(false) should verify: false is impossible.
+    #[test]
+    fn test_cvc5_must_not_impossible() {
+        let clause = Clause {
+            kind: ClauseKind::MustNot,
+            body: Expr::Literal(Literal::Bool(false)),
+        };
+        let results = verify_contract_cvc5("TestMustNotFalse", &[clause]);
+        assert_eq!(results.len(), 1);
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
+            ),
+            "must_not(false) should be Verified or Unknown (if cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Regression: quantifier-bound vars not global (#167)
+    // -------------------------------------------------------------------
+
+    /// Quantifier-bound variables must NOT appear in the global
+    /// `(declare-const ...)` section of the generated SMT-LIB2 script.
+    #[test]
+    fn test_cvc5_quantifier_var_not_global() {
+        // forall i in xs: i >= 0
+        let body = Expr::BinOp {
+            op: BinOp::Gte,
+            lhs: Box::new(Expr::Ident("i".into())),
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        };
+        let forall_expr = Expr::Forall {
+            var: "i".into(),
+            domain: Box::new(Expr::Ident("xs".into())),
+            body: Box::new(body),
+        };
+        let mut vars = HashSet::new();
+        collect_vars(&forall_expr, &mut vars);
+        // "i" must NOT be in the global vars set
+        assert!(
+            !vars.contains("i"),
+            "quantifier-bound variable 'i' must not be a global constant"
+        );
+        // "xs" (the domain) should still be collected
+        assert!(
+            vars.contains("xs"),
+            "domain variable 'xs' should be collected"
+        );
     }
 }

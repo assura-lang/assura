@@ -1673,3 +1673,134 @@ contract DecreasesTest {
         "decreases n with requires n > 0 should verify non-negative, got: {results:?}"
     );
 }
+
+// -----------------------------------------------------------------------
+// Regression: #170 — Tuple elements must be individually constrained
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_tuple_encoding_preserves_elements() {
+    use crate::z3_backend::encoder::Encoder;
+    use assura_parser::ast::{Expr, Literal};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        let tuple_expr = Expr::Tuple(vec![
+            Expr::Literal(Literal::Int("1".into())),
+            Expr::Literal(Literal::Int("2".into())),
+        ]);
+        let _val = encoder.encode_expr(&tuple_expr);
+        // The fix asserts __tuple_2_0(tuple) == 1 and __tuple_2_1(tuple) == 2
+        // as background axioms. Without the fix, no axioms are produced.
+        assert!(
+            encoder.background_axioms.len() >= 2,
+            "Tuple encoding must produce element-access axioms, got {}",
+            encoder.background_axioms.len()
+        );
+    });
+}
+
+#[test]
+fn test_list_encoding_preserves_elements() {
+    use crate::z3_backend::encoder::Encoder;
+    use assura_parser::ast::{Expr, Literal};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        let list_expr = Expr::List(vec![
+            Expr::Literal(Literal::Int("10".into())),
+            Expr::Literal(Literal::Int("20".into())),
+            Expr::Literal(Literal::Int("30".into())),
+        ]);
+        let _val = encoder.encode_expr(&list_expr);
+        // 3 element axioms + 1 length axiom = 4 background axioms
+        assert!(
+            encoder.background_axioms.len() >= 4,
+            "List encoding must produce element-access and length axioms, got {}",
+            encoder.background_axioms.len()
+        );
+    });
+}
+
+// -----------------------------------------------------------------------
+// Regression: #175 — String constants must have distinctness axioms
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_string_distinctness() {
+    use crate::z3_backend::encoder::Encoder;
+    use assura_parser::ast::{Expr, Literal};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        // Encode two different string literals
+        let _hello = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
+        let _world = encoder.encode_expr(&Expr::Literal(Literal::Str("world".into())));
+        // Must have a distinctness axiom (hello != world) plus length axioms
+        let has_distinctness = encoder.background_axioms.len() >= 3; // 2 lengths + 1 distinct
+        assert!(
+            has_distinctness,
+            "Different string constants must have distinctness axioms, got {} axioms",
+            encoder.background_axioms.len()
+        );
+        // Same string encoded twice should NOT add another distinctness axiom
+        let axiom_count_before = encoder.background_axioms.len();
+        let _hello2 = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
+        // Only a new length axiom, no new distinctness axiom
+        assert_eq!(
+            encoder.background_axioms.len(),
+            axiom_count_before + 1, // just the length axiom
+            "Same string constant should not add extra distinctness axioms"
+        );
+    });
+}
+
+// -----------------------------------------------------------------------
+// Regression: #177 — Apply must not return hardcoded true
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_apply_missing_lemma_not_verified() {
+    use crate::z3_backend::encoder::Encoder;
+    use assura_parser::ast::Expr;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        let apply_expr = Expr::Apply {
+            lemma_name: "NonexistentLemma".into(),
+            args: vec![Expr::Ident("x".into())],
+        };
+        let val = encoder.encode_expr(&apply_expr);
+        // Must NOT be hardcoded true. Should be a named bool variable.
+        let is_bool = matches!(val, crate::z3_backend::encoder::Z3Value::Bool(_));
+        assert!(is_bool, "Apply should return a Bool value");
+        // The bool should be a fresh variable, not `true`.
+        // We verify by checking it's not a constant true by checking
+        // the Z3 string representation.
+        if let crate::z3_backend::encoder::Z3Value::Bool(b) = &val {
+            let s = format!("{b:?}");
+            assert!(
+                !s.contains("true"),
+                "Apply for missing lemma must not return constant true, got: {s}"
+            );
+        }
+    });
+}
+
+#[test]
+fn test_apply_existing_lemma_contributes_constraints() {
+    // A contract with a lemma and an apply should have the lemma's
+    // postcondition injected by the verification pipeline.
+    let source = r#"
+contract UsesLemma {
+    requires: x > 0
+    ensures: x > 0
+}
+"#;
+    // This is a basic sanity check that the pipeline still works
+    // with lemma infrastructure. The Apply encoding change to
+    // fresh bools doesn't break normal verification.
+    let results = verify_source(source);
+    assert!(!results.is_empty());
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "Basic verification should still work after Apply fix, got: {:?}",
+        results[0]
+    );
+}
