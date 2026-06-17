@@ -209,4 +209,200 @@ mod tests {
             result.file.unwrap().decls.len()
         );
     }
+
+    // ---- Grammar: items ----
+
+    #[test]
+    fn parse_contract_with_clauses() {
+        let src = "contract SafeDiv {\n  input(a: Int, b: Int)\n  requires { b != 0 }\n  ensures { result: Int }\n}";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        match &file.decls[0].node {
+            ast::Decl::Contract(c) => {
+                assert_eq!(c.name, "SafeDiv");
+                assert!(c.clauses.len() >= 3);
+            }
+            other => panic!("expected Contract, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_type_definition() {
+        let src = "type Point { x: Int, y: Int }";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        match &file.decls[0].node {
+            ast::Decl::TypeDef(td) => assert_eq!(td.name, "Point"),
+            other => panic!("expected TypeDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_enum_definition() {
+        let src = "enum Color { Red, Green, Blue }";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        match &file.decls[0].node {
+            ast::Decl::EnumDef(e) => {
+                assert_eq!(e.name, "Color");
+                assert_eq!(e.variants.len(), 3);
+            }
+            other => panic!("expected EnumDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_fn_definition() {
+        let src = "fn add(a: Int, b: Int) -> Int\n  effects: pure";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        match &file.decls[0].node {
+            ast::Decl::FnDef(f) => assert_eq!(f.name, "add"),
+            other => panic!("expected FnDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_service_declaration() {
+        let src = "service OrderService {\n  type Order { id: Int }\n  states: Created -> Paid -> Shipped\n}";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        match &file.decls[0].node {
+            ast::Decl::Service(s) => assert_eq!(s.name, "OrderService"),
+            other => panic!("expected Service, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_extern_declaration() {
+        let src = "extern fn malloc(size: Nat) -> Bytes";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        match &file.decls[0].node {
+            ast::Decl::Extern(e) => assert_eq!(e.name, "malloc"),
+            other => panic!("expected ExternFn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_bind_declaration() {
+        let src =
+            "bind \"std::collections::HashMap\" as HashMap {\n  input(key: String, value: Int)\n}";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 1);
+        match &file.decls[0].node {
+            ast::Decl::Bind(b) => assert_eq!(b.name, "HashMap"),
+            other => panic!("expected Bind, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_prophecy_declaration() {
+        let src = "prophecy future_val: Int\ncontract X { requires { true } }";
+        let file = parse_unwrap(src);
+        assert!(
+            file.decls
+                .iter()
+                .any(|d| matches!(&d.node, ast::Decl::Prophecy(_)))
+        );
+    }
+
+    // ---- Grammar: imports ----
+
+    #[test]
+    fn parse_simple_import() {
+        let src = "import std.math\ncontract X { requires { true } }";
+        let file = parse_unwrap(src);
+        assert_eq!(file.imports.len(), 1);
+        assert_eq!(file.imports[0].path.join("."), "std.math");
+    }
+
+    #[test]
+    fn parse_selective_import() {
+        let src = "import std.collections { HashMap, HashSet }\ncontract X { requires { true } }";
+        let file = parse_unwrap(src);
+        assert_eq!(file.imports.len(), 1);
+        assert!(!file.imports[0].items.is_empty());
+    }
+
+    // ---- Grammar: params ----
+
+    #[test]
+    fn parse_generic_type_params() {
+        let src = "type Pair<A, B> { first: A, second: B }";
+        let file = parse_unwrap(src);
+        match &file.decls[0].node {
+            ast::Decl::TypeDef(td) => {
+                assert_eq!(td.name, "Pair");
+                assert!(td.type_params.len() >= 2);
+            }
+            other => panic!("expected TypeDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_multiple_declarations() {
+        let src = "type Point { x: Int, y: Int }\n\ncontract MovePoint {\n  input(p: Point, dx: Int)\n  ensures { result: Point }\n}\n\nenum Direction { North, South, East, West }";
+        let file = parse_unwrap(src);
+        assert_eq!(file.decls.len(), 3);
+    }
+
+    // ---- Grammar: clauses ----
+
+    #[test]
+    fn parse_requires_ensures_invariant() {
+        let src = "contract Buffer {\n  input(data: Bytes, idx: Nat)\n  requires { idx < 256 }\n  ensures { result >= 0 }\n  invariant { idx < 256 }\n}";
+        let file = parse_unwrap(src);
+        match &file.decls[0].node {
+            ast::Decl::Contract(c) => {
+                let kinds: Vec<_> = c.clauses.iter().map(|cl| &cl.kind).collect();
+                assert!(kinds.iter().any(|k| matches!(k, ast::ClauseKind::Input)));
+                assert!(kinds.iter().any(|k| matches!(k, ast::ClauseKind::Requires)));
+                assert!(kinds.iter().any(|k| matches!(k, ast::ClauseKind::Ensures)));
+                assert!(
+                    kinds
+                        .iter()
+                        .any(|k| matches!(k, ast::ClauseKind::Invariant))
+                );
+            }
+            other => panic!("expected Contract, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_effects_clause() {
+        let src = "fn read_file(path: String) -> Bytes\n  effects: io";
+        let file = parse_unwrap(src);
+        match &file.decls[0].node {
+            ast::Decl::FnDef(f) => {
+                assert!(
+                    f.clauses
+                        .iter()
+                        .any(|c| matches!(c.kind, ast::ClauseKind::Effects))
+                );
+            }
+            other => panic!("expected FnDef, got {other:?}"),
+        }
+    }
+
+    // ---- Error recovery ----
+
+    #[test]
+    fn parse_recovers_from_errors() {
+        let src = "contract Good { requires { true } }\n@@@ invalid\ncontract AlsoGood { ensures { true } }";
+        let (file, errors) = parse(src);
+        assert!(!errors.is_empty());
+        // Parser should recover and find at least one valid declaration
+        if let Some(f) = file {
+            assert!(!f.decls.is_empty());
+        }
+    }
+
+    #[test]
+    fn parse_garbage_returns_none() {
+        let (file, errors) = parse("!!! @@@ ### $$$");
+        assert!(!errors.is_empty());
+        // Pure garbage should return None
+        assert!(file.is_none());
+    }
 }

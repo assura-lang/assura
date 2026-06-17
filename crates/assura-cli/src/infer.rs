@@ -674,3 +674,264 @@ pub(crate) fn generate_bind_skeleton(module_path: &str, sig: &RustFnSig, out: &m
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- strip_fn_prefix ----
+
+    #[test]
+    fn strip_pub_fn() {
+        let (is_pub, rest) = strip_fn_prefix("pub fn foo()").unwrap();
+        assert!(is_pub);
+        assert_eq!(rest, "foo()");
+    }
+
+    #[test]
+    fn strip_plain_fn() {
+        let (is_pub, rest) = strip_fn_prefix("fn bar()").unwrap();
+        assert!(!is_pub);
+        assert_eq!(rest, "bar()");
+    }
+
+    #[test]
+    fn strip_pub_crate_fn() {
+        let (is_pub, rest) = strip_fn_prefix("pub(crate) fn baz()").unwrap();
+        assert!(is_pub);
+        assert_eq!(rest, "baz()");
+    }
+
+    #[test]
+    fn strip_pub_async_fn() {
+        let (is_pub, rest) = strip_fn_prefix("pub async fn fetch()").unwrap();
+        assert!(is_pub);
+        assert_eq!(rest, "fetch()");
+    }
+
+    #[test]
+    fn strip_pub_unsafe_fn() {
+        let (is_pub, rest) = strip_fn_prefix("pub unsafe fn danger()").unwrap();
+        assert!(is_pub);
+        assert_eq!(rest, "danger()");
+    }
+
+    #[test]
+    fn strip_pub_const_fn() {
+        let (is_pub, rest) = strip_fn_prefix("pub const fn SIZE()").unwrap();
+        assert!(is_pub);
+        assert_eq!(rest, "SIZE()");
+    }
+
+    #[test]
+    fn strip_non_fn_line() {
+        assert!(strip_fn_prefix("let x = 5;").is_none());
+        assert!(strip_fn_prefix("struct Foo {}").is_none());
+        assert!(strip_fn_prefix("// fn comment").is_none());
+    }
+
+    // ---- parse_param_list ----
+
+    #[test]
+    fn parse_empty_params() {
+        let params = parse_param_list("");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn parse_single_param() {
+        let params = parse_param_list("x: i64");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].0, "x");
+        assert_eq!(params[0].1, "i64");
+    }
+
+    #[test]
+    fn parse_multiple_params() {
+        let params = parse_param_list("a: i32, b: &str, c: bool");
+        assert_eq!(params.len(), 3);
+        assert_eq!(params[0].0, "a");
+        assert_eq!(params[1].0, "b");
+        assert_eq!(params[2].0, "c");
+    }
+
+    #[test]
+    fn parse_skips_self() {
+        let params = parse_param_list("&self, x: i64");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].0, "x");
+    }
+
+    #[test]
+    fn parse_generic_params() {
+        let params = parse_param_list("items: Vec<String>, idx: usize");
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].1, "Vec<String>");
+        assert_eq!(params[1].0, "idx");
+    }
+
+    #[test]
+    fn parse_nested_generic_params() {
+        let params = parse_param_list("m: HashMap<String, Vec<i32>>");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].1, "HashMap<String, Vec<i32>>");
+    }
+
+    // ---- parse_fn_signature ----
+
+    #[test]
+    fn parse_simple_signature() {
+        let sig = parse_fn_signature("add(a: i32, b: i32) -> i32 {", true).unwrap();
+        assert_eq!(sig.name, "add");
+        assert_eq!(sig.params.len(), 2);
+        assert_eq!(sig.return_type, "i32");
+        assert!(sig.is_pub);
+    }
+
+    #[test]
+    fn parse_no_return_type() {
+        let sig = parse_fn_signature("init() {", false).unwrap();
+        assert_eq!(sig.name, "init");
+        assert_eq!(sig.return_type, "()");
+    }
+
+    #[test]
+    fn parse_generic_fn() {
+        let sig = parse_fn_signature("encode<T: Serialize>(value: T) -> String {", true).unwrap();
+        assert_eq!(sig.name, "encode");
+        assert_eq!(sig.params.len(), 1);
+    }
+
+    #[test]
+    fn parse_where_clause_stripped() {
+        let sig = parse_fn_signature(
+            "process(data: Vec<u8>) -> Result<(), Error> where T: Clone {",
+            true,
+        )
+        .unwrap();
+        assert_eq!(sig.return_type, "Result<(), Error>");
+    }
+
+    // ---- extract_rust_fn_signatures ----
+
+    #[test]
+    fn extract_pub_fns_from_source() {
+        let source = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\nfn private_helper() {\n}\n\npub fn greet(name: &str) -> String {\n    format!(\"Hello, {name}\")\n}\n";
+        let sigs = extract_rust_fn_signatures(source);
+        assert_eq!(sigs.len(), 3);
+
+        let pub_sigs: Vec<_> = sigs.iter().filter(|s| s.is_pub).collect();
+        assert_eq!(pub_sigs.len(), 2);
+        assert_eq!(pub_sigs[0].name, "add");
+        assert_eq!(pub_sigs[1].name, "greet");
+    }
+
+    // ---- derive_rust_module_path ----
+
+    #[test]
+    fn module_path_no_src() {
+        let path = derive_rust_module_path("foo/bar.rs");
+        assert_eq!(path, "foo::bar");
+    }
+
+    // ---- analyze_body_text ----
+
+    #[test]
+    fn detects_division_pattern() {
+        let suggs = analyze_body_text(
+            "divide",
+            "result = a / b",
+            10,
+            &["a".into(), "b".into()],
+            &[],
+        );
+        assert!(suggs.iter().any(|s| s.pattern == "division"));
+    }
+
+    #[test]
+    fn detects_unwrap_pattern() {
+        let suggs = analyze_body_text("process", "x.unwrap()", 5, &[], &[]);
+        assert!(suggs.iter().any(|s| s.pattern == "unwrap"));
+    }
+
+    #[test]
+    fn detects_index_pattern() {
+        let suggs = analyze_body_text(
+            "lookup",
+            "items[idx]",
+            1,
+            &["items".into(), "idx".into()],
+            &[],
+        );
+        assert!(suggs.iter().any(|s| s.pattern == "index"));
+    }
+
+    #[test]
+    fn detects_unsafe_pattern() {
+        let suggs = analyze_body_text("raw_op", "unsafe { *ptr }", 1, &[], &[]);
+        assert!(suggs.iter().any(|s| s.pattern == "unsafe"));
+    }
+
+    #[test]
+    fn detects_panic_pattern() {
+        let suggs = analyze_body_text("bail", "panic!(\"oh no\")", 1, &[], &[]);
+        assert!(suggs.iter().any(|s| s.pattern == "panic"));
+    }
+
+    #[test]
+    fn focus_filters_patterns() {
+        let suggs = analyze_body_text(
+            "mixed",
+            "x.unwrap(); items[idx]; a / b",
+            1,
+            &["a".into(), "b".into(), "idx".into()],
+            &["division"],
+        );
+        assert!(suggs.iter().all(|s| s.pattern == "division"));
+    }
+
+    #[test]
+    fn no_false_positives_on_clean_body() {
+        let suggs = analyze_body_text(
+            "clean",
+            "a + b * c",
+            1,
+            &["a".into(), "b".into(), "c".into()],
+            &[],
+        );
+        assert!(suggs.is_empty());
+    }
+
+    // ---- generate_bind_skeleton ----
+
+    #[test]
+    fn bind_skeleton_has_input_and_output() {
+        let sig = RustFnSig {
+            name: "add".to_string(),
+            params: vec![
+                ("a".to_string(), "i64".to_string()),
+                ("b".to_string(), "i64".to_string()),
+            ],
+            return_type: "i64".to_string(),
+            is_pub: true,
+        };
+        let mut out = String::new();
+        generate_bind_skeleton("my_crate", &sig, &mut out);
+        assert!(out.contains("bind \"my_crate::add\" as add"));
+        assert!(out.contains("input(a: Int, b: Int)"));
+        assert!(out.contains("output(result: Int)"));
+    }
+
+    #[test]
+    fn bind_skeleton_unit_return_omits_output() {
+        let sig = RustFnSig {
+            name: "init".to_string(),
+            params: vec![],
+            return_type: "()".to_string(),
+            is_pub: true,
+        };
+        let mut out = String::new();
+        generate_bind_skeleton("my_crate", &sig, &mut out);
+        assert!(!out.contains("output"));
+    }
+}

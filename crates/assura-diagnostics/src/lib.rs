@@ -3541,4 +3541,108 @@ mod tests {
         // A26002 must exist (i18n completeness, was missing)
         assert!(explain("A26002").is_some(), "A26002 should exist");
     }
+
+    #[test]
+    fn test_render_diagnostic_does_not_panic() {
+        // Ensure render_diagnostic does not panic on valid and edge-case inputs
+        let d = Diagnostic::error("A01001", "unexpected char", 0..1);
+        render_diagnostic(&d, "test.assura", "x");
+
+        let d = Diagnostic::warning("A02007", "unused import", 0..5)
+            .with_secondary(6..10, "imported here");
+        render_diagnostic(&d, "test.assura", "import std.math;");
+    }
+
+    #[test]
+    fn test_report_diagnostics_human_multiple() {
+        let diags = vec![
+            Diagnostic::error("A01001", "bad char", 0..1),
+            Diagnostic::warning("A02007", "unused", 2..5),
+        ];
+        // Must not panic
+        report_diagnostics_human(&diags, "multi.assura", "x = 42;");
+    }
+
+    #[test]
+    fn test_error_code_as_str() {
+        let code = ErrorCode::from("A03001");
+        assert_eq!(code.as_str(), "A03001");
+    }
+
+    #[test]
+    fn test_error_code_from_string() {
+        let code = ErrorCode::from(String::from("A05001"));
+        assert_eq!(code, "A05001");
+    }
+
+    #[test]
+    fn test_error_code_partial_eq_str() {
+        let code = ErrorCode::from("A07003");
+        assert!(code == "A07003");
+        assert!(code == *"A07003");
+    }
+
+    #[test]
+    fn test_error_code_as_ref() {
+        let code = ErrorCode::from("A01002");
+        let s: &str = code.as_ref();
+        assert_eq!(s, "A01002");
+    }
+
+    #[test]
+    fn test_error_code_display() {
+        let code = ErrorCode::from("A03005");
+        assert_eq!(format!("{code}"), "A03005");
+    }
+
+    #[test]
+    fn test_error_code_ordering() {
+        let a = ErrorCode::from("A01001");
+        let b = ErrorCode::from("A03001");
+        assert!(a < b);
+    }
+
+    #[test]
+    fn test_error_catalog_entries_have_fields() {
+        let catalog = error_catalog();
+        for entry in &catalog {
+            assert!(!entry.code.is_empty(), "code must not be empty");
+            assert!(
+                !entry.name.is_empty(),
+                "name must not be empty for {}",
+                entry.code
+            );
+            assert!(
+                !entry.description.is_empty(),
+                "description must not be empty for {}",
+                entry.code
+            );
+            assert!(
+                !entry.fix.is_empty(),
+                "fix must not be empty for {}",
+                entry.code
+            );
+        }
+    }
+
+    #[test]
+    fn test_diagnostic_chaining() {
+        let d = Diagnostic::error("A03001", "mismatch", 10..20)
+            .with_file("test.assura")
+            .with_secondary(30..40, "defined here")
+            .with_suggestion("use Int", 10..20, "Int");
+        assert_eq!(d.file, "test.assura");
+        assert_eq!(d.secondary.len(), 1);
+        assert!(d.suggestion.is_some());
+    }
+
+    #[test]
+    fn test_severity_serde() {
+        let json = serde_json::to_string(&Severity::Error).unwrap();
+        assert_eq!(json, "\"error\"");
+        let json = serde_json::to_string(&Severity::Warning).unwrap();
+        assert_eq!(json, "\"warning\"");
+        let json = serde_json::to_string(&Severity::Info).unwrap();
+        assert_eq!(json, "\"info\"");
+    }
 }
