@@ -3636,3 +3636,453 @@ fn compute(x: Int) -> Int
     assert!(lib.contains("fn compute"), "should generate fn: {lib}");
     assert!(lib.contains("todo!"), "fn body should have todo!: {lib}");
 }
+
+// -----------------------------------------------------------------------
+// service.rs unit tests: extract_state_comparison
+// -----------------------------------------------------------------------
+
+#[test]
+fn extract_state_self_state_eq() {
+    let body = Expr::BinOp {
+        lhs: Box::new(Expr::Field(
+            Box::new(Expr::Ident("self".into())),
+            "state".into(),
+        )),
+        op: BinOp::Eq,
+        rhs: Box::new(Expr::Ident("Connected".into())),
+    };
+    assert_eq!(
+        extract_state_comparison(&body),
+        Some("Connected".to_string())
+    );
+}
+
+#[test]
+fn extract_state_non_state_field() {
+    // self.name == X is NOT a state comparison
+    let body = Expr::BinOp {
+        lhs: Box::new(Expr::Field(
+            Box::new(Expr::Ident("self".into())),
+            "name".into(),
+        )),
+        op: BinOp::Eq,
+        rhs: Box::new(Expr::Ident("X".into())),
+    };
+    assert_eq!(extract_state_comparison(&body), None);
+}
+
+#[test]
+fn extract_state_non_eq_op() {
+    let body = Expr::BinOp {
+        lhs: Box::new(Expr::Field(
+            Box::new(Expr::Ident("self".into())),
+            "state".into(),
+        )),
+        op: BinOp::Neq,
+        rhs: Box::new(Expr::Ident("Closed".into())),
+    };
+    assert_eq!(extract_state_comparison(&body), None);
+}
+
+#[test]
+fn extract_state_not_a_binop() {
+    let body = Expr::Ident("something".into());
+    assert_eq!(extract_state_comparison(&body), None);
+}
+
+// -----------------------------------------------------------------------
+// service.rs unit tests: method_pre_state
+// -----------------------------------------------------------------------
+
+#[test]
+fn method_pre_state_with_state_guard() {
+    let clauses = vec![Clause {
+        kind: ClauseKind::Requires,
+        body: Expr::BinOp {
+            lhs: Box::new(Expr::Field(
+                Box::new(Expr::Ident("self".into())),
+                "state".into(),
+            )),
+            op: BinOp::Eq,
+            rhs: Box::new(Expr::Ident("Running".into())),
+        },
+        effect_variables: vec![],
+    }];
+    assert_eq!(method_pre_state(&clauses), Some("Running".to_string()));
+}
+
+#[test]
+fn method_pre_state_without_state_guard() {
+    let clauses = vec![Clause {
+        kind: ClauseKind::Requires,
+        body: Expr::BinOp {
+            lhs: Box::new(Expr::Ident("x".into())),
+            op: BinOp::Gt,
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        },
+        effect_variables: vec![],
+    }];
+    assert_eq!(method_pre_state(&clauses), None);
+}
+
+#[test]
+fn method_pre_state_empty_clauses() {
+    assert_eq!(method_pre_state(&[]), None);
+}
+
+// -----------------------------------------------------------------------
+// types_gen.rs unit tests: map_type_tokens
+// -----------------------------------------------------------------------
+
+#[test]
+fn map_type_tokens_empty() {
+    let tokens: Vec<String> = vec![];
+    assert_eq!(map_type_tokens(&tokens), "()");
+}
+
+#[test]
+fn map_type_tokens_single() {
+    let tokens: Vec<String> = vec!["Int".into()];
+    assert_eq!(map_type_tokens(&tokens), "i64");
+}
+
+#[test]
+fn map_type_tokens_generic() {
+    let tokens: Vec<String> = vec!["List".into(), "<".into(), "Int".into(), ">".into()];
+    let result = map_type_tokens(&tokens);
+    assert!(result.contains("Vec"), "got: {result}");
+    assert!(result.contains("i64"), "got: {result}");
+}
+
+#[test]
+fn map_type_tokens_nested_generic() {
+    let tokens: Vec<String> = vec![
+        "Map".into(),
+        "<".into(),
+        "String".into(),
+        ",".into(),
+        "List".into(),
+        "<".into(),
+        "Int".into(),
+        ">".into(),
+        ">".into(),
+    ];
+    let result = map_type_tokens(&tokens);
+    assert!(result.contains("BTreeMap"), "got: {result}");
+    assert!(result.contains("Vec"), "got: {result}");
+    assert!(result.contains("i64"), "got: {result}");
+}
+
+#[test]
+fn map_type_tokens_strips_taint() {
+    // "Int @ taint : high" should stop at @ and produce just i64
+    let tokens: Vec<String> = vec![
+        "Int".into(),
+        "@".into(),
+        "taint".into(),
+        ":".into(),
+        "high".into(),
+    ];
+    assert_eq!(map_type_tokens(&tokens), "i64");
+}
+
+#[test]
+fn map_type_tokens_union_error() {
+    // "Int | Error" -> "Result<i64, Error>"
+    let tokens: Vec<String> = vec!["Int".into(), "|".into(), "Error".into()];
+    let result = map_type_tokens(&tokens);
+    assert!(result.contains("Result"), "got: {result}");
+    assert!(result.contains("i64"), "got: {result}");
+}
+
+// -----------------------------------------------------------------------
+// types_gen.rs unit tests: smart_join_type_tokens
+// -----------------------------------------------------------------------
+
+#[test]
+fn smart_join_simple() {
+    let tokens = vec!["i64"];
+    assert_eq!(smart_join_type_tokens(&tokens), "i64");
+}
+
+#[test]
+fn smart_join_generic_no_extra_spaces() {
+    // smart_join removes space AFTER < but not BEFORE <
+    let tokens = vec!["Vec", "<", "i64", ">"];
+    let result = smart_join_type_tokens(&tokens);
+    // No space after < or before >
+    assert!(result.contains("<i64>"), "got: {result}");
+}
+
+#[test]
+fn smart_join_reference() {
+    let tokens = vec!["&", "str"];
+    assert_eq!(smart_join_type_tokens(&tokens), "&str");
+}
+
+#[test]
+fn smart_join_mut_ref() {
+    let tokens = vec!["&", "mut", "i64"];
+    assert_eq!(smart_join_type_tokens(&tokens), "&mut i64");
+}
+
+#[test]
+fn smart_join_tuple() {
+    let tokens = vec!["(", "i64", ",", "bool", ")"];
+    assert_eq!(smart_join_type_tokens(&tokens), "(i64, bool)");
+}
+
+// -----------------------------------------------------------------------
+// types_gen.rs unit tests: is_const_name, is_user_type_name
+// -----------------------------------------------------------------------
+
+#[test]
+fn is_const_name_screaming_snake() {
+    assert!(is_const_name("MAX_SIZE"));
+    assert!(is_const_name("TOTAL_TABLE_SIZE"));
+}
+
+#[test]
+fn is_const_name_not_const() {
+    assert!(!is_const_name("Int"));
+    assert!(!is_const_name("maxSize"));
+    assert!(!is_const_name(""));
+    assert!(!is_const_name("NOUNDERSCORES"));
+}
+
+#[test]
+fn is_user_type_name_custom() {
+    assert!(is_user_type_name("Point"));
+    assert!(is_user_type_name("HuffmanTable"));
+}
+
+#[test]
+fn is_user_type_name_builtins_excluded() {
+    assert!(!is_user_type_name("Int"));
+    assert!(!is_user_type_name("Bool"));
+    assert!(!is_user_type_name("List"));
+    assert!(!is_user_type_name("Option"));
+    assert!(!is_user_type_name("Result"));
+}
+
+#[test]
+fn is_user_type_name_lowercase_excluded() {
+    assert!(!is_user_type_name("lowercase"));
+    assert!(!is_user_type_name(""));
+}
+
+// -----------------------------------------------------------------------
+// types_gen.rs unit tests: extract_base_type_from_refined
+// -----------------------------------------------------------------------
+
+#[test]
+fn extract_base_type_standard() {
+    let tokens: Vec<String> = vec![
+        "n".into(),
+        ":".into(),
+        "Int".into(),
+        "|".into(),
+        "n".into(),
+        ">".into(),
+        "0".into(),
+    ];
+    assert_eq!(extract_base_type_from_refined(&tokens), "i64");
+}
+
+#[test]
+fn extract_base_type_nat() {
+    let tokens: Vec<String> = vec![
+        "x".into(),
+        ":".into(),
+        "Nat".into(),
+        "|".into(),
+        "x".into(),
+        "<".into(),
+        "256".into(),
+    ];
+    assert_eq!(extract_base_type_from_refined(&tokens), "u64");
+}
+
+#[test]
+fn extract_base_type_fallback() {
+    let tokens: Vec<String> = vec!["something".into()];
+    assert_eq!(extract_base_type_from_refined(&tokens), "i64");
+}
+
+// -----------------------------------------------------------------------
+// types_gen.rs unit tests: expr_to_rust_static
+// -----------------------------------------------------------------------
+
+#[test]
+fn expr_to_rust_static_literal() {
+    let e = Expr::Literal(Literal::Int("100".into()));
+    assert_eq!(expr_to_rust_static(&e), "100");
+}
+
+#[test]
+fn expr_to_rust_static_binop() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Add,
+        rhs: Box::new(Expr::Ident("b".into())),
+    };
+    assert_eq!(expr_to_rust_static(&e), "(a + b)");
+}
+
+// -----------------------------------------------------------------------
+// types_gen.rs unit tests: generate_cargo_toml_impl
+// -----------------------------------------------------------------------
+
+#[test]
+fn cargo_toml_default_config() {
+    let config = BackendConfig::default();
+    let toml = generate_cargo_toml_impl("my_crate", &config, false, false);
+    assert!(toml.contains("name = \"my_crate\""), "got: {toml}");
+    assert!(toml.contains("edition = \"2024\""), "got: {toml}");
+    // Default config: opt_level=2, debug_info=false => no [profile.release]
+    assert!(!toml.contains("[profile.release]"), "got: {toml}");
+}
+
+#[test]
+fn cargo_toml_with_proptest() {
+    let config = BackendConfig::default();
+    let toml = generate_cargo_toml_impl("test_crate", &config, true, false);
+    assert!(toml.contains("proptest"), "got: {toml}");
+    assert!(toml.contains("[dev-dependencies]"), "got: {toml}");
+}
+
+#[test]
+fn cargo_toml_with_thiserror() {
+    let config = BackendConfig::default();
+    let toml = generate_cargo_toml_impl("err_crate", &config, false, true);
+    assert!(toml.contains("thiserror"), "got: {toml}");
+}
+
+#[test]
+fn cargo_toml_cranelift_backend() {
+    let config = BackendConfig {
+        backend: CodegenBackend::Cranelift,
+        ..Default::default()
+    };
+    let toml = generate_cargo_toml_impl("fast_crate", &config, false, false);
+    assert!(toml.contains("Cranelift"), "got: {toml}");
+}
+
+#[test]
+fn cargo_toml_wasm_target() {
+    let config = BackendConfig {
+        target: CompileTarget::Wasm,
+        ..Default::default()
+    };
+    let toml = generate_cargo_toml_impl("wasm_crate", &config, false, false);
+    assert!(toml.contains("cdylib"), "got: {toml}");
+    assert!(toml.contains("wasm32-wasip1"), "got: {toml}");
+}
+
+#[test]
+fn cargo_toml_custom_opt_level() {
+    let config = BackendConfig {
+        opt_level: 3,
+        debug_info: true,
+        ..Default::default()
+    };
+    let toml = generate_cargo_toml_impl("opt_crate", &config, false, false);
+    assert!(toml.contains("opt-level = 3"), "got: {toml}");
+    assert!(toml.contains("debug = true"), "got: {toml}");
+}
+
+// -----------------------------------------------------------------------
+// features.rs unit tests: selected feature generators
+// -----------------------------------------------------------------------
+
+#[test]
+fn feature_ghost_erasure_compile_time() {
+    let mut code = String::new();
+    crate::features::compile_time_ghost_erasure("test_fn", &mut code);
+    assert!(
+        code.contains("ghost"),
+        "ghost erasure should mention ghost: {code}"
+    );
+}
+
+#[test]
+fn feature_constant_time_annotation() {
+    let mut code = String::new();
+    crate::features::generate_constant_time_annotation("crypto_op", &mut code);
+    assert!(
+        code.contains("constant_time"),
+        "should mention constant_time: {code}"
+    );
+}
+
+#[test]
+fn feature_callback_reentrancy_guard() {
+    let mut code = String::new();
+    crate::features::generate_callback_reentrancy_guard("on_event", &mut code);
+    assert!(
+        code.contains("__REENTRANT_ON_EVENT"),
+        "should generate reentrancy guard: {code}"
+    );
+    assert!(
+        code.contains("reentrant call"),
+        "should contain reentrant check: {code}"
+    );
+}
+
+#[test]
+fn feature_opaque_function() {
+    let mut code = String::new();
+    crate::features::generate_opaque_function("internal", &mut code);
+    assert!(code.contains("opaque"), "should mark as opaque: {code}");
+}
+
+#[test]
+fn feature_deterministic_annotation() {
+    let mut code = String::new();
+    crate::features::generate_deterministic_annotation("pure_fn", &mut code);
+    assert!(
+        code.contains("deterministic"),
+        "should mention deterministic: {code}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// service.rs: full pipeline tests for service codegen
+// -----------------------------------------------------------------------
+
+#[test]
+fn service_stateless_generates_impl() {
+    let project = codegen_ok(
+        r#"
+service Calculator {
+    operation add {
+        requires { true }
+    }
+}
+"#,
+    );
+    let lib = &project.files[0].1;
+    assert!(
+        lib.contains("mod calculator"),
+        "should generate service module: {lib}"
+    );
+    assert!(lib.contains("pub fn new()"), "should generate new(): {lib}");
+}
+
+#[test]
+fn service_with_query_generates_immutable_method() {
+    let project = codegen_ok(
+        r#"
+service DataStore {
+    query count {
+        requires { true }
+    }
+}
+"#,
+    );
+    let lib = &project.files[0].1;
+    assert!(
+        lib.contains("fn count"),
+        "should generate query method: {lib}"
+    );
+}
