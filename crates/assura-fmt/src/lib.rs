@@ -503,12 +503,31 @@ pub(crate) fn format_expr(expr: &Expr, out: &mut String) {
             format_expr(index, out);
             out.push(']');
         }
-        Expr::BinOp { lhs, op, rhs } => {
-            format_expr(lhs, out);
-            out.push(' ');
-            out.push_str(binop_str(op));
-            out.push(' ');
-            format_expr(rhs, out);
+        Expr::BinOp { .. } => {
+            // Iteratively walk left-leaning BinOp chains to match
+            // the defense-in-depth pattern used in display.rs.
+            let mut parts: Vec<(&BinOp, String)> = Vec::new();
+            let mut cur = expr;
+            loop {
+                match cur {
+                    Expr::BinOp { lhs, op, rhs } => {
+                        let mut rhs_s = String::new();
+                        format_expr(rhs, &mut rhs_s);
+                        parts.push((op, rhs_s));
+                        cur = lhs;
+                    }
+                    _ => {
+                        format_expr(cur, out);
+                        break;
+                    }
+                }
+            }
+            for (op, rhs_s) in parts.into_iter().rev() {
+                out.push(' ');
+                out.push_str(binop_str(op));
+                out.push(' ');
+                out.push_str(&rhs_s);
+            }
         }
         Expr::UnaryOp { op, expr: e } => {
             out.push_str(match op {
