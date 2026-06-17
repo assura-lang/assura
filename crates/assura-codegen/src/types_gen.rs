@@ -186,7 +186,7 @@ pub(crate) fn smart_join_type_tokens(tokens: &[&str]) -> String {
     for (i, tok) in tokens.iter().enumerate() {
         if i > 0 {
             let prev = tokens[i - 1];
-            let no_space = matches!(*tok, ">" | "," | ")" | ".")
+            let no_space = matches!(*tok, ">" | "<" | "," | ")" | ".")
                 || matches!(prev, "<" | "(" | "&" | ".")
                 || (*tok == "mut" && prev == "&");
             if !no_space {
@@ -821,7 +821,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        assert_eq!(map_type_tokens(&tokens), "Vec <i64>");
+        assert_eq!(map_type_tokens(&tokens), "Vec<i64>");
     }
 
     #[test]
@@ -856,8 +856,8 @@ mod tests {
     #[test]
     fn smart_join_no_space_after_open_angle() {
         let tokens = vec!["Vec", "<", "i64", ">"];
-        // Space before `<` (no rule removes it), no space after `<` or before `>`
-        assert_eq!(smart_join_type_tokens(&tokens), "Vec <i64>");
+        // No space before `<`, after `<`, or before `>`
+        assert_eq!(smart_join_type_tokens(&tokens), "Vec<i64>");
     }
 
     #[test]
