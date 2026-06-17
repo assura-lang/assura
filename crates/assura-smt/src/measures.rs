@@ -134,3 +134,107 @@ pub fn register_builtin_measures() -> Vec<MeasureDefinition> {
             ),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn measure_new_basic() {
+        let m = MeasureDefinition::new("len", vec![MeasureSort::Collection], MeasureSort::Nat);
+        assert_eq!(m.name, "len");
+        assert_eq!(m.param_sorts, vec![MeasureSort::Collection]);
+        assert_eq!(m.return_sort, MeasureSort::Nat);
+        assert!(m.axioms.is_empty());
+    }
+
+    #[test]
+    fn measure_with_axiom_chains() {
+        let m = MeasureDefinition::new("len", vec![MeasureSort::Collection], MeasureSort::Nat)
+            .with_axiom("len >= 0", MeasureAxiomTag::NonNegative)
+            .with_axiom("len(empty) == 0", MeasureAxiomTag::EmptyIsZero);
+        assert_eq!(m.axioms.len(), 2);
+        assert_eq!(m.axioms[0].tag, MeasureAxiomTag::NonNegative);
+        assert_eq!(m.axioms[1].tag, MeasureAxiomTag::EmptyIsZero);
+    }
+
+    #[test]
+    fn measure_returns_nat_true() {
+        let m = MeasureDefinition::new("len", vec![MeasureSort::Collection], MeasureSort::Nat);
+        assert!(m.returns_nat());
+    }
+
+    #[test]
+    fn measure_returns_nat_false() {
+        let m = MeasureDefinition::new("elems", vec![MeasureSort::Collection], MeasureSort::Set);
+        assert!(!m.returns_nat());
+    }
+
+    #[test]
+    fn builtin_measures_count() {
+        let measures = register_builtin_measures();
+        assert_eq!(measures.len(), 5);
+    }
+
+    #[test]
+    fn builtin_len_has_three_axioms() {
+        let measures = register_builtin_measures();
+        let len = measures.iter().find(|m| m.name == "len").unwrap();
+        assert_eq!(len.axioms.len(), 3);
+        assert!(len.returns_nat());
+    }
+
+    #[test]
+    fn builtin_elems_returns_set() {
+        let measures = register_builtin_measures();
+        let elems = measures.iter().find(|m| m.name == "elems").unwrap();
+        assert_eq!(elems.return_sort, MeasureSort::Set);
+        assert!(!elems.returns_nat());
+    }
+
+    #[test]
+    fn builtin_keys_takes_map() {
+        let measures = register_builtin_measures();
+        let keys = measures.iter().find(|m| m.name == "keys").unwrap();
+        assert_eq!(keys.param_sorts, vec![MeasureSort::Map]);
+    }
+
+    #[test]
+    fn builtin_values_takes_map() {
+        let measures = register_builtin_measures();
+        let values = measures.iter().find(|m| m.name == "values").unwrap();
+        assert_eq!(values.param_sorts, vec![MeasureSort::Map]);
+    }
+
+    #[test]
+    fn builtin_size_equivalent_to_len() {
+        let measures = register_builtin_measures();
+        let size = measures.iter().find(|m| m.name == "size").unwrap();
+        let has_equiv = size
+            .axioms
+            .iter()
+            .any(|a| matches!(&a.tag, MeasureAxiomTag::EquivalentTo(s) if s == "len"));
+        assert!(has_equiv);
+    }
+
+    #[test]
+    fn builtin_names() {
+        let measures = register_builtin_measures();
+        let names: Vec<&str> = measures.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, vec!["len", "elems", "keys", "values", "size"]);
+    }
+
+    #[test]
+    fn measure_sort_equality() {
+        assert_eq!(MeasureSort::Nat, MeasureSort::Nat);
+        assert_ne!(MeasureSort::Nat, MeasureSort::Set);
+        assert_ne!(MeasureSort::Collection, MeasureSort::Map);
+    }
+
+    #[test]
+    fn axiom_tag_custom() {
+        let m = MeasureDefinition::new("custom", vec![], MeasureSort::Nat)
+            .with_axiom("custom axiom", MeasureAxiomTag::Custom("special".into()));
+        assert_eq!(m.axioms[0].tag, MeasureAxiomTag::Custom("special".into()));
+    }
+}

@@ -60,3 +60,104 @@ pub enum VerificationResult {
         reason: String,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counterexample_model_to_json_empty() {
+        let m = CounterexampleModel { variables: vec![] };
+        assert_eq!(m.to_json(), "{\"variables\": {}}");
+    }
+
+    #[test]
+    fn counterexample_model_to_json_single() {
+        let m = CounterexampleModel {
+            variables: vec![("x".into(), "0".into())],
+        };
+        assert_eq!(m.to_json(), "{\"variables\": {\"x\": \"0\"}}");
+    }
+
+    #[test]
+    fn counterexample_model_to_json_multiple() {
+        let m = CounterexampleModel {
+            variables: vec![("x".into(), "42".into()), ("y".into(), "-1".into())],
+        };
+        let json = m.to_json();
+        assert!(json.contains("\"x\": \"42\""));
+        assert!(json.contains("\"y\": \"-1\""));
+        assert!(json.starts_with("{\"variables\": {"));
+        assert!(json.ends_with("}}"));
+    }
+
+    #[test]
+    fn counterexample_model_escapes_quotes() {
+        let m = CounterexampleModel {
+            variables: vec![("name".into(), "he said \"hello\"".into())],
+        };
+        let json = m.to_json();
+        assert!(json.contains("\\\"hello\\\""));
+    }
+
+    #[test]
+    fn counterexample_model_escapes_backslash() {
+        let m = CounterexampleModel {
+            variables: vec![("path".into(), "a\\b".into())],
+        };
+        let json = m.to_json();
+        assert!(json.contains("a\\\\b"));
+    }
+
+    #[test]
+    fn verification_result_debug_verified() {
+        let r = VerificationResult::Verified {
+            clause_desc: "SafeDiv: ensures".into(),
+        };
+        let debug = format!("{r:?}");
+        assert!(debug.contains("Verified"));
+        assert!(debug.contains("SafeDiv"));
+    }
+
+    #[test]
+    fn verification_result_debug_counterexample() {
+        let r = VerificationResult::Counterexample {
+            clause_desc: "SafeDiv: ensures".into(),
+            model: "x = 0, b = 0".into(),
+            counter_model: Some(CounterexampleModel {
+                variables: vec![("b".into(), "0".into())],
+            }),
+        };
+        let debug = format!("{r:?}");
+        assert!(debug.contains("Counterexample"));
+    }
+
+    #[test]
+    fn verification_result_debug_timeout() {
+        let r = VerificationResult::Timeout {
+            clause_desc: "complex: ensures".into(),
+        };
+        let debug = format!("{r:?}");
+        assert!(debug.contains("Timeout"));
+    }
+
+    #[test]
+    fn verification_result_debug_unknown() {
+        let r = VerificationResult::Unknown {
+            clause_desc: "nonlinear: ensures".into(),
+            reason: "non-linear arithmetic".into(),
+        };
+        let debug = format!("{r:?}");
+        assert!(debug.contains("Unknown"));
+        assert!(debug.contains("non-linear"));
+    }
+
+    #[test]
+    fn verification_result_clone() {
+        let r = VerificationResult::Verified {
+            clause_desc: "test".into(),
+        };
+        let r2 = r.clone();
+        assert!(format!("{r:?}") == format!("{r2:?}"));
+    }
+}

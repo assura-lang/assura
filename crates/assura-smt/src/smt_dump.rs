@@ -330,3 +330,196 @@ fn check_raw_quantifier_bounds(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::{BinOp, Expr, Literal};
+
+    // ---- check_infinite_domain ----
+
+    #[test]
+    fn infinite_domain_int() {
+        let e = Expr::Ident("Int".into());
+        assert_eq!(check_infinite_domain(&e), Some("Int".into()));
+    }
+
+    #[test]
+    fn infinite_domain_float() {
+        let e = Expr::Ident("Float".into());
+        assert_eq!(check_infinite_domain(&e), Some("Float".into()));
+    }
+
+    #[test]
+    fn infinite_domain_string() {
+        let e = Expr::Ident("String".into());
+        assert_eq!(check_infinite_domain(&e), Some("String".into()));
+    }
+
+    #[test]
+    fn finite_domain_custom_type() {
+        let e = Expr::Ident("MyList".into());
+        assert_eq!(check_infinite_domain(&e), None);
+    }
+
+    #[test]
+    fn infinite_domain_raw_single_token() {
+        let e = Expr::Raw(vec!["Nat".into()]);
+        assert_eq!(check_infinite_domain(&e), Some("Nat".into()));
+    }
+
+    #[test]
+    fn finite_domain_raw_multi_token() {
+        let e = Expr::Raw(vec!["0".into(), "..".into(), "100".into()]);
+        assert_eq!(check_infinite_domain(&e), None);
+    }
+
+    #[test]
+    fn finite_domain_binop() {
+        let e = Expr::BinOp {
+            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            op: BinOp::Lt,
+            rhs: Box::new(Expr::Literal(Literal::Int("100".into()))),
+        };
+        assert_eq!(check_infinite_domain(&e), None);
+    }
+
+    // ---- collect_unbounded_quantifiers ----
+
+    #[test]
+    fn forall_over_int_produces_warning() {
+        let expr = Expr::Forall {
+            var: "x".into(),
+            domain: Box::new(Expr::Ident("Int".into())),
+            body: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        let mut warnings = Vec::new();
+        collect_unbounded_quantifiers(&expr, "TestContract", &mut warnings);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].var, "x");
+        assert!(warnings[0].domain_desc.contains("forall"));
+    }
+
+    #[test]
+    fn exists_over_nat_produces_warning() {
+        let expr = Expr::Exists {
+            var: "n".into(),
+            domain: Box::new(Expr::Ident("Nat".into())),
+            body: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        let mut warnings = Vec::new();
+        collect_unbounded_quantifiers(&expr, "TestFn", &mut warnings);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].domain_desc.contains("exists"));
+    }
+
+    #[test]
+    fn forall_over_custom_type_no_warning() {
+        let expr = Expr::Forall {
+            var: "item".into(),
+            domain: Box::new(Expr::Ident("items".into())),
+            body: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        let mut warnings = Vec::new();
+        collect_unbounded_quantifiers(&expr, "TestContract", &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn nested_quantifier_both_warned() {
+        let inner = Expr::Forall {
+            var: "y".into(),
+            domain: Box::new(Expr::Ident("Float".into())),
+            body: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        let outer = Expr::Forall {
+            var: "x".into(),
+            domain: Box::new(Expr::Ident("Int".into())),
+            body: Box::new(inner),
+        };
+        let mut warnings = Vec::new();
+        collect_unbounded_quantifiers(&outer, "Nested", &mut warnings);
+        assert_eq!(warnings.len(), 2);
+    }
+
+    #[test]
+    fn literal_no_warning() {
+        let expr = Expr::Literal(Literal::Bool(true));
+        let mut warnings = Vec::new();
+        collect_unbounded_quantifiers(&expr, "ctx", &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn binop_recurses() {
+        let expr = Expr::BinOp {
+            lhs: Box::new(Expr::Forall {
+                var: "x".into(),
+                domain: Box::new(Expr::Ident("Int".into())),
+                body: Box::new(Expr::Literal(Literal::Bool(true))),
+            }),
+            op: BinOp::And,
+            rhs: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        let mut warnings = Vec::new();
+        collect_unbounded_quantifiers(&expr, "ctx", &mut warnings);
+        assert_eq!(warnings.len(), 1);
+    }
+
+    // ---- check_raw_quantifier_bounds ----
+
+    #[test]
+    fn raw_forall_over_int_warns() {
+        let tokens: Vec<String> = vec!["forall", "x", "in", "Int", ":", "x", ">", "0"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut warnings = Vec::new();
+        check_raw_quantifier_bounds(&tokens, "Raw", &mut warnings);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].var, "x");
+    }
+
+    #[test]
+    fn raw_exists_over_string_warns() {
+        let tokens: Vec<String> = vec!["exists", "s", "in", "String", ":", "true"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut warnings = Vec::new();
+        check_raw_quantifier_bounds(&tokens, "Raw", &mut warnings);
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn raw_forall_over_list_no_warning() {
+        let tokens: Vec<String> = vec!["forall", "x", "in", "items", ":", "x", ">", "0"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut warnings = Vec::new();
+        check_raw_quantifier_bounds(&tokens, "Raw", &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn raw_empty_tokens_no_warning() {
+        let mut warnings = Vec::new();
+        check_raw_quantifier_bounds(&[], "Raw", &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    // ---- UnboundedQuantifierWarning ----
+
+    #[test]
+    fn warning_fields() {
+        let w = UnboundedQuantifierWarning {
+            context: "MyContract".into(),
+            var: "x".into(),
+            domain_desc: "forall x in Int".into(),
+            reason: "infinite domain".into(),
+        };
+        assert_eq!(w.context, "MyContract");
+        assert_eq!(w.var, "x");
+    }
+}
