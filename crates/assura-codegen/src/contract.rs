@@ -158,6 +158,10 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
         }
     }
 
+    // Collect feature-specific annotation code (CORE/SEC/MEM/CONC/FMT/etc.)
+    let mut feature_code = String::new();
+    crate::features::generate_all_feature_clauses(&c.clauses, &c.name, &mut feature_code);
+
     // Generate error enum if errors clause is present
     let error_variants = collect_error_variants(&c.clauses);
     let error_enum_name = if !error_variants.is_empty() {
@@ -205,6 +209,11 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
 
     for req in &requires_exprs {
         generate_debug_assert(code, req, "requires");
+    }
+
+    // Feature-specific annotations (CORE/SEC/MEM/CONC/FMT/NUM/PLAT/PERF/TEST/MISC)
+    if !feature_code.is_empty() {
+        code.push_str(&feature_code);
     }
 
     if ensures_exprs.is_empty() && invariants.is_empty() {

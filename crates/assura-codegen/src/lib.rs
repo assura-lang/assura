@@ -15,6 +15,8 @@ mod block;
 mod contract;
 mod decl;
 mod expr;
+/// Feature-specific code generation for all 50 verification features.
+pub mod features;
 mod service;
 mod types_gen;
 

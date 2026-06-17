@@ -224,6 +224,15 @@ pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
         }
     }
 
+    // Feature-specific annotations (CORE/SEC/MEM/CONC/FMT/NUM/PLAT/PERF/TEST/MISC)
+    {
+        let mut feature_code = String::new();
+        crate::features::generate_all_feature_clauses(&f.clauses, &f.name, &mut feature_code);
+        if !feature_code.is_empty() {
+            code.push_str(&feature_code);
+        }
+    }
+
     if ensures_exprs.is_empty() {
         code.push_str("    todo!(\"implementation provided by AI agent\")\n");
     } else {
