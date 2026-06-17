@@ -710,7 +710,8 @@ accepts buggy code. This is the worst kind of bug.
 ## What NOT To Do
 
 - Do not add features not in SPECIFICATION.md
-- Do not upgrade ariadne past 0.4
+- Do not change the ariadne major version without updating all
+  `Report::build` call sites (the API changed between 0.4 and 0.6)
 - Do not use `syn`/`quote` for codegen (they're for proc macros)
 - Do not use tree-sitter as the compiler parser (it's error-tolerant,
   the compiler needs exact parses; tree-sitter is for editor support)
