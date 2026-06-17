@@ -664,3 +664,154 @@ pub(crate) fn check_clause_hir_expr(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::{Expr, Literal, Pattern};
+
+    #[test]
+    fn register_input_params_typed() {
+        let body = Expr::Call {
+            func: Box::new(Expr::Ident("input".into())),
+            args: vec![
+                Expr::Cast {
+                    expr: Box::new(Expr::Ident("n".into())),
+                    ty: "Int".into(),
+                },
+                Expr::Cast {
+                    expr: Box::new(Expr::Ident("s".into())),
+                    ty: "String".into(),
+                },
+            ],
+        };
+        let mut env = TypeEnv::new();
+        register_input_clause_params(&body, &mut env);
+        assert_eq!(env.lookup("n"), Some(&Type::Int));
+        assert_eq!(env.lookup("s"), Some(&Type::String));
+    }
+
+    #[test]
+    fn register_input_params_untyped() {
+        let body = Expr::Call {
+            func: Box::new(Expr::Ident("input".into())),
+            args: vec![Expr::Ident("x".into())],
+        };
+        let mut env = TypeEnv::new();
+        register_input_clause_params(&body, &mut env);
+        assert_eq!(env.lookup("x"), Some(&Type::Unknown));
+    }
+
+    #[test]
+    fn collect_input_types_typed() {
+        let body = Expr::Call {
+            func: Box::new(Expr::Ident("input".into())),
+            args: vec![Expr::Cast {
+                expr: Box::new(Expr::Ident("n".into())),
+                ty: "Int".into(),
+            }],
+        };
+        let mut types = Vec::new();
+        collect_input_param_types(&body, &mut types);
+        assert_eq!(types, vec![Type::Int]);
+    }
+
+    #[test]
+    fn bind_pattern_ident() {
+        let mut env = TypeEnv::new();
+        bind_pattern_vars(&Pattern::Ident("x".into()), &Type::Int, &mut env);
+        assert_eq!(env.lookup("x"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn bind_pattern_wildcard_no_bind() {
+        let mut env = TypeEnv::new();
+        bind_pattern_vars(&Pattern::Wildcard, &Type::Int, &mut env);
+        assert!(env.lookup("_").is_none());
+    }
+
+    #[test]
+    fn bind_pattern_tuple() {
+        let mut env = TypeEnv::new();
+        let pat = Pattern::Tuple(vec![Pattern::Ident("a".into()), Pattern::Ident("b".into())]);
+        let ty = Type::Tuple(vec![Type::Int, Type::Bool]);
+        bind_pattern_vars(&pat, &ty, &mut env);
+        assert_eq!(env.lookup("a"), Some(&Type::Int));
+        assert_eq!(env.lookup("b"), Some(&Type::Bool));
+    }
+
+    #[test]
+    fn bind_pattern_constructor_with_fn_env() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "Some".into(),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Named("Option".into())),
+            },
+        );
+        let pat = Pattern::Constructor {
+            name: "Some".into(),
+            fields: vec![Pattern::Ident("val".into())],
+        };
+        bind_pattern_vars(&pat, &Type::Named("Option".into()), &mut env);
+        assert_eq!(env.lookup("val"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn env_with_result_adds_binding() {
+        let env = TypeEnv::new();
+        let new_env = env_with_result(&env, &Type::Int);
+        assert_eq!(new_env.lookup("result"), Some(&Type::Int));
+        assert!(env.lookup("result").is_none());
+    }
+
+    #[test]
+    fn requires_clause_is_bool() {
+        assert!(clause_requires_bool(&ClauseKind::Requires));
+        assert!(clause_requires_bool(&ClauseKind::Ensures));
+        assert!(clause_requires_bool(&ClauseKind::Invariant));
+    }
+
+    #[test]
+    fn non_predicate_clause_not_bool() {
+        assert!(!clause_requires_bool(&ClauseKind::Input));
+        assert!(!clause_requires_bool(&ClauseKind::Output));
+        assert!(!clause_requires_bool(&ClauseKind::Effects));
+    }
+
+    #[test]
+    fn clause_kind_labels() {
+        assert_eq!(clause_kind_label(&ClauseKind::Requires), "requires");
+        assert_eq!(clause_kind_label(&ClauseKind::Ensures), "ensures");
+        assert_eq!(clause_kind_label(&ClauseKind::Invariant), "invariant");
+    }
+
+    #[test]
+    fn check_clause_body_bool_ok() {
+        let env = TypeEnv::new();
+        let body = Expr::Literal(Literal::Bool(true));
+        let mut errors = Vec::new();
+        check_clause_expr(&ClauseKind::Requires, &body, &env, &mut errors, &(0..1));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn check_clause_body_non_bool_error() {
+        let env = TypeEnv::new();
+        let body = Expr::Literal(Literal::Int("42".into()));
+        let mut errors = Vec::new();
+        check_clause_expr(&ClauseKind::Requires, &body, &env, &mut errors, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03006");
+    }
+
+    #[test]
+    fn check_clause_body_input_not_checked_for_bool() {
+        let env = TypeEnv::new();
+        let body = Expr::Literal(Literal::Int("42".into()));
+        let mut errors = Vec::new();
+        check_clause_expr(&ClauseKind::Input, &body, &env, &mut errors, &(0..1));
+        assert!(errors.is_empty(), "input clauses should not require Bool");
+    }
+}
