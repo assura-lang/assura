@@ -1,0 +1,142 @@
+// ============================================================================
+// SEC.1: Taint Tracking — Preventing SQLite-class Vulnerabilities
+//
+// In 2017, "Many Birds, One Stone" demonstrated that SQLite's FTS, R-Tree,
+// JSON, and Session modules all trust on-disk binary data without validation.
+// 4 CVEs shared the same root cause: unchecked metadata used as array indices.
+//
+// This contract shows how Assura prevents it using taint tracking (SEC.1),
+// FFI boundary contracts (SEC.2), and memory region safety (MEM.1).
+//
+// The taint lattice: Untrusted < Validated < Trusted
+// Data from outside the trust boundary starts as Untrusted and must pass
+// through explicit validation before use in sensitive positions.
+// ============================================================================
+
+project taint_demo {
+  profile: [core, mem, sec]
+}
+
+module sec.taint_tracking;
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+feature_max MAX_SEGMENT: Nat = 65536
+feature_max HEADER_SIZE: Nat = 16
+feature_max MAGIC_NUMBER: Nat = 1234567890
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type SegmentHeader = {
+  magic: Nat;
+  size: Nat;
+  checksum: Nat;
+  flags: Nat;
+};
+
+type FtsSegment = {
+  header_size: Nat;
+  content_len: Nat;
+};
+
+// ---------------------------------------------------------------------------
+// SEC.1 — Taint annotations on function parameters
+//
+// @taint:untrusted marks data from outside the trust boundary.
+// @taint:validated marks data that passed validation.
+// @taint:trusted marks internal data known to be safe.
+// ---------------------------------------------------------------------------
+
+// External function that reads raw bytes from a database.
+// The result is untrusted because the data is user-controlled.
+extern fn read_blob(table: String, id: Nat) -> Bytes
+  requires { id >= 0 }
+  ensures  { result.length() >= 0 }
+  effects  { database.read }
+  boundary { untrusted }
+
+// ---------------------------------------------------------------------------
+// Contract: read_fts_segment
+//
+// Reads an FTS full-text search segment from a database shadow table.
+// The raw bytes are untrusted (attacker can craft database contents).
+// Every field must be validated before use.
+// ---------------------------------------------------------------------------
+
+contract ReadFtsSegment {
+  input(db_name: String, segment_id: Nat)
+  output(segment: FtsSegment)
+
+  // The caller provides a valid segment ID
+  requires { segment_id >= 0 }
+
+  // The output is validated: header_size is bounded
+  ensures { segment.header_size <= MAX_SEGMENT }
+  ensures { segment.content_len <= MAX_SEGMENT }
+  ensures { segment.content_len >= 0 }
+
+  effects { database.read }
+}
+
+// ---------------------------------------------------------------------------
+// Contract: validate_header
+//
+// Validates a raw byte buffer as a segment header.
+// Input is untrusted; output is validated only if all checks pass.
+// ---------------------------------------------------------------------------
+
+contract ValidateHeader {
+  input(raw: Bytes)
+  output(header: SegmentHeader)
+
+  // Raw data must be at least HEADER_SIZE bytes
+  requires { raw.length() >= HEADER_SIZE }
+
+  // Validated header fields are bounded
+  ensures { header.size <= MAX_SEGMENT }
+  ensures { header.magic == MAGIC_NUMBER }
+
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// SEC.1 + SEC.2 — Functions with taint-annotated parameters
+//
+// validate_index is a validation function: it takes untrusted input
+// and returns validated output, or fails.
+// ---------------------------------------------------------------------------
+
+fn validate_index(raw_index: Int @taint:untrusted, max: Nat @taint:trusted) -> Nat @taint:validated
+  requires { max > 0 }
+  ensures  { result >= 0 and result < max }
+  effects  { pure }
+
+// process_segment requires validated input: calling it with untrusted
+// data is a type error caught by the taint checker (A09103).
+fn process_segment(data: Bytes @taint:validated, offset: Nat @taint:validated) -> Nat
+  requires { offset < data.length() }
+  ensures  { result >= 0 }
+  effects  { pure }
+
+// ---------------------------------------------------------------------------
+// Contract: safe_array_access
+//
+// Demonstrates that tainted data cannot be used as an array index
+// without validation. Using raw_index directly would trigger A09101.
+// ---------------------------------------------------------------------------
+
+contract SafeArrayAccess {
+  input(buffer: Bytes, index: Nat)
+  output(value: Nat)
+
+  requires { buffer.length() > 0 }
+  requires { index < buffer.length() }
+
+  ensures { value >= 0 }
+
+  effects { pure }
+}

@@ -1,0 +1,33 @@
+// Security feature test fixture.
+// Tests: SEC.1 taint tracking, SEC.2 FFI boundary, taint annotations.
+
+module test.security;
+
+// SEC.2: extern with trust boundary annotation
+extern fn read_input(fd: Nat) -> Bytes
+  requires { fd >= 0 }
+  ensures  { result.length() >= 0 }
+  effects  { io }
+  boundary { untrusted }
+
+// SEC.1: taint-annotated parameters
+fn sanitize(raw: Bytes @taint:untrusted) -> Bytes @taint:validated
+  requires { raw.length() > 0 }
+  ensures  { result.length() <= raw.length() }
+  effects  { pure }
+
+fn consume(data: Bytes @taint:trusted) -> Nat
+  requires { data.length() > 0 }
+  ensures  { result >= 0 }
+  effects  { pure }
+
+// Contract: validate before use
+contract SecureProcessing {
+  input(raw_data: Bytes)
+  output(result: Nat)
+
+  requires { raw_data.length() > 0 }
+  ensures  { result >= 0 }
+
+  effects { pure }
+}

@@ -394,8 +394,30 @@ After committing, verify the commit is clean:
 cargo run --bin assura -- demos/libwebp-huffman.assura
 cargo run --bin assura -- demos/zlib-inflate.assura
 cargo run --bin assura -- demos/mbedtls-x509.assura
+cargo run --bin assura -- demos/taint-tracking.assura
 cargo run --bin assura -- tests/fixtures/test_basic.assura
+cargo run --bin assura -- tests/fixtures/test_sec.assura
 ```
+
+## Feature Verification Gate
+
+After completing work on any of the 50 verification features, run
+the verify-task script. It is a machine-enforced gate that checks
+build, clippy, tests, demo files, and coverage score.
+
+```bash
+bash scripts/verify-task.sh SEC.1
+```
+
+If the script exits non-zero, the feature is not done. Fix the issue
+before marking the feature complete. "I wrote the code" is not done;
+"the script exits 0" is done.
+
+The coverage audit script (`~/.grok/skills/assura-coverage-audit/`)
+tracks each feature across 13 compiler layers. After implementing a
+feature in a new layer, the coverage score for that feature must
+increase. If it does not increase, the implementation is not wired
+in correctly.
 
 All four files must parse successfully. If a parser change breaks any
 demo file, the change is wrong. Fix it before pushing.
