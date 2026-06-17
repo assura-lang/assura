@@ -196,9 +196,32 @@ pub(crate) fn build_type_env(
                     env.insert(p.name.clone(), parse_type_tokens(&p.ty_tokens));
                 }
             }
-            // Bind params are registered above with Extern; Block and
-            // other structural decls don't contribute to the type env.
-            Decl::Bind(_) | Decl::CodecRegistry(_) | Decl::Block { .. } => {}
+            Decl::Bind(b) => {
+                // Register parameter types (same pattern as FnDef/Extern)
+                for p in &b.params {
+                    let ty = resolve_type(p.parsed_type.as_ref(), &p.ty);
+                    env.insert(p.name.clone(), ty);
+                }
+                let param_types: Vec<Type> = b
+                    .params
+                    .iter()
+                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .collect();
+                let ret = if b.return_ty.is_empty() {
+                    Type::Unit
+                } else {
+                    parse_type_tokens(&b.return_ty)
+                };
+                env.insert(
+                    b.name.clone(),
+                    Type::Fn {
+                        params: param_types,
+                        ret: Box::new(ret),
+                    },
+                );
+            }
+            // Block and other structural decls don't contribute to the type env.
+            Decl::CodecRegistry(_) | Decl::Block { .. } => {}
         }
     }
 

@@ -107,6 +107,17 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
                             results
                                 .extend(crate::cvc5_backend::verify_contract_cvc5(&qname, clauses));
                         }
+                        ServiceItem::Invariant(expr) => {
+                            let inv_clause = assura_parser::ast::Clause {
+                                kind: assura_parser::ast::ClauseKind::Invariant,
+                                body: expr.clone(),
+                                effect_variables: vec![],
+                            };
+                            results.extend(crate::cvc5_backend::verify_contract_cvc5(
+                                &format!("{}::invariant", s.name),
+                                &[inv_clause],
+                            ));
+                        }
                         _ => {}
                     }
                 }
@@ -181,6 +192,7 @@ pub fn has_verifiable_clauses(source: &assura_parser::ast::SourceFile) -> bool {
         Decl::Service(s) => s.items.iter().any(|item| match item {
             assura_parser::ast::ServiceItem::Operation { clauses, .. }
             | assura_parser::ast::ServiceItem::Query { clauses, .. } => verifiable(clauses),
+            assura_parser::ast::ServiceItem::Invariant(_) => true,
             _ => false,
         }),
         Decl::Block { body, .. } => verifiable(body),
@@ -220,6 +232,14 @@ pub fn verify_parallel_with_solver(
                         }
                         assura_parser::ast::ServiceItem::Query { name, clauses } => {
                             jobs.push((format!("{}.{}", s.name, name), clauses.clone()));
+                        }
+                        assura_parser::ast::ServiceItem::Invariant(expr) => {
+                            let inv_clause = assura_parser::ast::Clause {
+                                kind: assura_parser::ast::ClauseKind::Invariant,
+                                body: expr.clone(),
+                                effect_variables: vec![],
+                            };
+                            jobs.push((format!("{}::invariant", s.name), vec![inv_clause]));
                         }
                         _ => {}
                     }
