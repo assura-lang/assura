@@ -1689,4 +1689,27 @@ Within the independent tasks, recommended order by impact:
 - **Next session**: Continue multi-perspective improvements, further SMT backend
   test coverage, remaining structural stub removal
 
+### Session 17 (2026-06-17): 100% coverage gap closure + codegen bugfix
+
+**Coverage**: 570/650 (87%) -> 650/650 (100%)
+
+Closed all 18 remaining coverage gaps across compile-time and runtime layers:
+- Added 17 compile_time_* functions (CORE.5-8, CONC.4-5, STOR.1, FMT.4-6,
+  NUM.2, PERF.2, TEST.1-3, MISC.1-2) to features.rs
+- Wired all into generate_feature_clause dispatch table
+- Fixed FMT.6 runtime detection (protocol_grammar in debug_assert message)
+- Updated 17 COMPILETIME_GREP patterns in coverage-matrix.sh
+
+Found and fixed codegen bug: contracts with named output variables
+(e.g., output(value: Nat)) generated code that referenced the output
+name in ensures clauses without binding it. Added extract_output_name()
+function and let-binding in contract codegen, service codegen, and
+proptest generation. 6 tests added. This bug caused CI "Generated code
+compiles" failure on taint-tracking.assura.
+
+- All 13 layers at 50/50 (100%): Parser, Inline, Resolve, HIR, Types,
+  Pipeline, Codegen, Compile-time, SMT, Runtime, LSP, Formatter, Tests
+- 3,495 tests passing, zero clippy warnings
+- **Next session**: Verify CI passes, session-improve, further development
+
 ---
