@@ -346,6 +346,144 @@ pub enum Literal {
 }
 
 // ---------------------------------------------------------------------------
+// Expression visitor trait
+// ---------------------------------------------------------------------------
+
+/// Visitor trait for walking `Expr` trees. Each `visit_*` method has a default
+/// that recurses into sub-expressions via `walk_expr`. Override only the
+/// methods you care about; the default traversal handles the rest.
+pub trait ExprVisitor {
+    /// Called for every expression node before dispatching to variant-specific
+    /// methods. Override for pre/post-order hooks on all expressions.
+    fn visit_expr(&mut self, expr: &Expr) {
+        walk_expr(self, expr);
+    }
+    fn visit_literal(&mut self, _lit: &Literal) {}
+    fn visit_ident(&mut self, _name: &str) {}
+    fn visit_field(&mut self, base: &Expr, _field: &str) {
+        self.visit_expr(base);
+    }
+    fn visit_method_call(&mut self, receiver: &Expr, _method: &str, args: &[Expr]) {
+        self.visit_expr(receiver);
+        for arg in args {
+            self.visit_expr(arg);
+        }
+    }
+    fn visit_call(&mut self, func: &Expr, args: &[Expr]) {
+        self.visit_expr(func);
+        for arg in args {
+            self.visit_expr(arg);
+        }
+    }
+    fn visit_index(&mut self, base: &Expr, index: &Expr) {
+        self.visit_expr(base);
+        self.visit_expr(index);
+    }
+    fn visit_binop(&mut self, lhs: &Expr, _op: &BinOp, rhs: &Expr) {
+        self.visit_expr(lhs);
+        self.visit_expr(rhs);
+    }
+    fn visit_unary_op(&mut self, _op: &UnaryOp, inner: &Expr) {
+        self.visit_expr(inner);
+    }
+    fn visit_old(&mut self, inner: &Expr) {
+        self.visit_expr(inner);
+    }
+    fn visit_forall(&mut self, _var: &str, domain: &Expr, body: &Expr) {
+        self.visit_expr(domain);
+        self.visit_expr(body);
+    }
+    fn visit_exists(&mut self, _var: &str, domain: &Expr, body: &Expr) {
+        self.visit_expr(domain);
+        self.visit_expr(body);
+    }
+    fn visit_if(&mut self, cond: &Expr, then_br: &Expr, else_br: Option<&Expr>) {
+        self.visit_expr(cond);
+        self.visit_expr(then_br);
+        if let Some(e) = else_br {
+            self.visit_expr(e);
+        }
+    }
+    fn visit_paren(&mut self, inner: &Expr) {
+        self.visit_expr(inner);
+    }
+    fn visit_list(&mut self, items: &[Expr]) {
+        for item in items {
+            self.visit_expr(item);
+        }
+    }
+    fn visit_cast(&mut self, inner: &Expr, _ty: &str) {
+        self.visit_expr(inner);
+    }
+    fn visit_block(&mut self, exprs: &[Expr]) {
+        for e in exprs {
+            self.visit_expr(e);
+        }
+    }
+    fn visit_ghost(&mut self, inner: &Expr) {
+        self.visit_expr(inner);
+    }
+    fn visit_apply(&mut self, _name: &str, args: &[Expr]) {
+        for arg in args {
+            self.visit_expr(arg);
+        }
+    }
+    fn visit_let(&mut self, _name: &str, value: &Expr, body: &Expr) {
+        self.visit_expr(value);
+        self.visit_expr(body);
+    }
+    fn visit_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) {
+        self.visit_expr(scrutinee);
+        for arm in arms {
+            self.visit_expr(&arm.body);
+        }
+    }
+    fn visit_tuple(&mut self, items: &[Expr]) {
+        for item in items {
+            self.visit_expr(item);
+        }
+    }
+    fn visit_raw(&mut self, _tokens: &[String]) {}
+}
+
+/// Walk an `Expr`, dispatching to the appropriate `visit_*` method on the
+/// visitor. Called by the default `visit_expr` implementation.
+pub fn walk_expr(visitor: &mut (impl ExprVisitor + ?Sized), expr: &Expr) {
+    match expr {
+        Expr::Literal(lit) => visitor.visit_literal(lit),
+        Expr::Ident(name) => visitor.visit_ident(name),
+        Expr::Field(base, field) => visitor.visit_field(base, field),
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => visitor.visit_method_call(receiver, method, args),
+        Expr::Call { func, args } => visitor.visit_call(func, args),
+        Expr::Index { expr, index } => visitor.visit_index(expr, index),
+        Expr::BinOp { lhs, op, rhs } => visitor.visit_binop(lhs, op, rhs),
+        Expr::UnaryOp { op, expr } => visitor.visit_unary_op(op, expr),
+        Expr::Old(inner) => visitor.visit_old(inner),
+        Expr::Forall { var, domain, body } => visitor.visit_forall(var, domain, body),
+        Expr::Exists { var, domain, body } => visitor.visit_exists(var, domain, body),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => visitor.visit_if(cond, then_branch, else_branch.as_deref()),
+        Expr::Paren(inner) => visitor.visit_paren(inner),
+        Expr::List(items) => visitor.visit_list(items),
+        Expr::Cast { expr, ty } => visitor.visit_cast(expr, ty),
+        Expr::Block(exprs) => visitor.visit_block(exprs),
+        Expr::Ghost(inner) => visitor.visit_ghost(inner),
+        Expr::Apply { lemma_name, args } => visitor.visit_apply(lemma_name, args),
+        Expr::Let { name, value, body } => visitor.visit_let(name, value, body),
+        Expr::Match { scrutinee, arms } => visitor.visit_match(scrutinee, arms),
+        Expr::Tuple(items) => visitor.visit_tuple(items),
+        Expr::Raw(tokens) => visitor.visit_raw(tokens),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Structured type expressions
 // ---------------------------------------------------------------------------
 

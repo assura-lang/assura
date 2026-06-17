@@ -286,42 +286,15 @@ impl DependentTypeChecker {
     }
 
     fn collect_idents(&self, expr: &Expr) -> Vec<String> {
-        let mut names = Vec::new();
-        match expr {
-            Expr::Ident(n) => names.push(n.clone()),
-            Expr::BinOp { lhs, rhs, .. } => {
-                names.extend(self.collect_idents(lhs));
-                names.extend(self.collect_idents(rhs));
+        struct IdentCollector(Vec<String>);
+        impl ExprVisitor for IdentCollector {
+            fn visit_ident(&mut self, name: &str) {
+                self.0.push(name.to_string());
             }
-            Expr::UnaryOp { expr, .. } => names.extend(self.collect_idents(expr)),
-            Expr::Call { func, args } => {
-                names.extend(self.collect_idents(func));
-                for a in args {
-                    names.extend(self.collect_idents(a));
-                }
-            }
-            Expr::Field(e, _) => names.extend(self.collect_idents(e)),
-            Expr::Index { expr, index } => {
-                names.extend(self.collect_idents(expr));
-                names.extend(self.collect_idents(index));
-            }
-            Expr::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                names.extend(self.collect_idents(cond));
-                names.extend(self.collect_idents(then_branch));
-                if let Some(e) = else_branch {
-                    names.extend(self.collect_idents(e));
-                }
-            }
-            Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
-                names.extend(self.collect_idents(e));
-            }
-            _ => {}
         }
-        names
+        let mut c = IdentCollector(Vec::new());
+        c.visit_expr(expr);
+        c.0
     }
 }
 

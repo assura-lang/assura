@@ -239,105 +239,18 @@ impl TypestateChecker {
 /// Recursively walks all sub-expressions (binary ops, unary ops, function
 /// calls, quantifiers, etc.).
 pub(crate) fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
-    match expr {
-        Expr::Ident(name) => {
-            tracker.use_var(name);
+    struct UsageVisitor<'a>(&'a mut UsageTracker);
+    impl ExprVisitor for UsageVisitor<'_> {
+        fn visit_ident(&mut self, name: &str) {
+            self.0.use_var(name);
         }
-        Expr::Literal(_) => {}
-        Expr::Field(receiver, _field) => {
-            expr_usages(receiver, tracker);
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            expr_usages(receiver, tracker);
-            for arg in args {
-                expr_usages(arg, tracker);
-            }
-        }
-        Expr::Call { func, args } => {
-            expr_usages(func, tracker);
-            for arg in args {
-                expr_usages(arg, tracker);
-            }
-        }
-        Expr::Index { expr: base, index } => {
-            expr_usages(base, tracker);
-            expr_usages(index, tracker);
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            expr_usages(lhs, tracker);
-            expr_usages(rhs, tracker);
-        }
-        Expr::UnaryOp { expr: inner, .. } => {
-            expr_usages(inner, tracker);
-        }
-        Expr::Old(inner) => {
-            expr_usages(inner, tracker);
-        }
-        Expr::Forall {
-            var: _,
-            domain,
-            body,
-        }
-        | Expr::Exists {
-            var: _,
-            domain,
-            body,
-        } => {
-            expr_usages(domain, tracker);
-            expr_usages(body, tracker);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_usages(cond, tracker);
-            expr_usages(then_branch, tracker);
-            if let Some(else_br) = else_branch {
-                expr_usages(else_br, tracker);
-            }
-        }
-        Expr::Paren(inner) => {
-            expr_usages(inner, tracker);
-        }
-        Expr::List(items) => {
-            for item in items {
-                expr_usages(item, tracker);
-            }
-        }
-        Expr::Cast { expr: inner, .. } => {
-            expr_usages(inner, tracker);
-        }
-        Expr::Block(exprs) => {
-            for e in exprs {
-                expr_usages(e, tracker);
-            }
-        }
-        Expr::Ghost(_) => {
-            // Ghost blocks are erased at runtime; do not count usages.
-        }
-        Expr::Apply { .. } => {
-            // Apply expressions are erased at runtime; do not count usages.
-        }
-        Expr::Match { scrutinee, arms } => {
-            expr_usages(scrutinee, tracker);
-            for arm in arms {
-                expr_usages(&arm.body, tracker);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            expr_usages(value, tracker);
-            expr_usages(body, tracker);
-        }
-        Expr::Tuple(elems) => {
-            for e in elems {
-                expr_usages(e, tracker);
-            }
-        }
-        Expr::Raw(_) => {
-            // Cannot extract variable references from raw token sequences.
-        }
+        // Ghost blocks and apply expressions are erased at runtime;
+        // do not count usages inside them.
+        fn visit_ghost(&mut self, _inner: &Expr) {}
+        fn visit_apply(&mut self, _name: &str, _args: &[Expr]) {}
     }
+    let mut v = UsageVisitor(tracker);
+    v.visit_expr(expr);
 }
 
 // ---------------------------------------------------------------------------

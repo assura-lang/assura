@@ -34,23 +34,23 @@ impl ConstantTimeChecker {
 
     /// Check if an expression references any secret variable.
     pub fn references_secret(&self, expr: &Expr) -> bool {
-        match expr {
-            Expr::Ident(name) => self.secrets.contains_key(name),
-            Expr::BinOp { lhs, rhs, .. } => {
-                self.references_secret(lhs) || self.references_secret(rhs)
-            }
-            Expr::UnaryOp { expr, .. } => self.references_secret(expr),
-            Expr::Field(e, _) => self.references_secret(e),
-            Expr::Call { func, args } => {
-                self.references_secret(func) || args.iter().any(|a| self.references_secret(a))
-            }
-            Expr::Index { expr, index } => {
-                self.references_secret(expr) || self.references_secret(index)
-            }
-            Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => self.references_secret(e),
-            Expr::If { cond, .. } => self.references_secret(cond),
-            _ => false,
+        struct SecretChecker<'a> {
+            secrets: &'a HashMap<String, bool>,
+            found: bool,
         }
+        impl ExprVisitor for SecretChecker<'_> {
+            fn visit_ident(&mut self, name: &str) {
+                if self.secrets.contains_key(name) {
+                    self.found = true;
+                }
+            }
+        }
+        let mut c = SecretChecker {
+            secrets: &self.secrets,
+            found: false,
+        };
+        c.visit_expr(expr);
+        c.found
     }
 
     /// Check that branches do not depend on secret data.

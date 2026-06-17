@@ -317,57 +317,28 @@ impl std::fmt::Debug for MemoryChecker {
 
 /// Check whether an expression references a variable by name.
 pub fn expr_references_var(expr: &Expr, var_name: &str) -> bool {
-    match expr {
-        Expr::Ident(name) => name == var_name,
-        Expr::Field(receiver, _) => expr_references_var(receiver, var_name),
-        Expr::BinOp { lhs, rhs, .. } => {
-            expr_references_var(lhs, var_name) || expr_references_var(rhs, var_name)
-        }
-        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Paren(inner) => {
-            expr_references_var(inner, var_name)
-        }
-        Expr::Call { func, args } => {
-            expr_references_var(func, var_name)
-                || args.iter().any(|a| expr_references_var(a, var_name))
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            expr_references_var(receiver, var_name)
-                || args.iter().any(|a| expr_references_var(a, var_name))
-        }
-        Expr::Index { expr: base, index } => {
-            expr_references_var(base, var_name) || expr_references_var(index, var_name)
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_references_var(cond, var_name)
-                || expr_references_var(then_branch, var_name)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_references_var(e, var_name))
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            expr_references_var(domain, var_name) || expr_references_var(body, var_name)
-        }
-        Expr::List(items) => items.iter().any(|i| expr_references_var(i, var_name)),
-        Expr::Block(exprs) => exprs.iter().any(|e| expr_references_var(e, var_name)),
-        Expr::Ghost(inner) | Expr::Cast { expr: inner, .. } => expr_references_var(inner, var_name),
-        Expr::Apply { args, .. } => args.iter().any(|a| expr_references_var(a, var_name)),
-        Expr::Match { scrutinee, arms } => {
-            expr_references_var(scrutinee, var_name)
-                || arms
-                    .iter()
-                    .any(|arm| expr_references_var(&arm.body, var_name))
-        }
-        Expr::Let { value, body, .. } => {
-            expr_references_var(value, var_name) || expr_references_var(body, var_name)
-        }
-        Expr::Tuple(elems) => elems.iter().any(|e| expr_references_var(e, var_name)),
-        Expr::Raw(tokens) => tokens.iter().any(|t| t.trim() == var_name),
-        Expr::Literal(_) => false,
+    struct VarRefChecker<'a> {
+        target: &'a str,
+        found: bool,
     }
+    impl ExprVisitor for VarRefChecker<'_> {
+        fn visit_ident(&mut self, name: &str) {
+            if name == self.target {
+                self.found = true;
+            }
+        }
+        fn visit_raw(&mut self, tokens: &[String]) {
+            if tokens.iter().any(|t| t.trim() == self.target) {
+                self.found = true;
+            }
+        }
+    }
+    let mut c = VarRefChecker {
+        target: var_name,
+        found: false,
+    };
+    c.visit_expr(expr);
+    c.found
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, Literal, ServiceItem, UnaryOp};
+use assura_parser::ast::{
+    BinOp, ClauseKind, Decl, Expr, ExprVisitor, Literal, ServiceItem, UnaryOp,
+};
 
 use crate::{Type, TypeEnv, TypeError};
 
