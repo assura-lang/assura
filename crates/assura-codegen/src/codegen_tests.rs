@@ -1453,6 +1453,75 @@ fn extract_output_type_raw_as() {
 }
 
 #[test]
+fn extract_output_name_cast() {
+    // output(value: Nat) -> Cast { expr: Ident("value"), ty: "Nat" }
+    let body = Expr::Cast {
+        expr: Box::new(Expr::Ident("value".into())),
+        ty: "Nat".into(),
+    };
+    assert_eq!(extract_output_name(&body), Some("value".into()));
+}
+
+#[test]
+fn extract_output_name_result_is_none() {
+    // output(result: Int) -> result is already aliased, no extra binding needed
+    let body = Expr::Cast {
+        expr: Box::new(Expr::Ident("result".into())),
+        ty: "Int".into(),
+    };
+    assert_eq!(extract_output_name(&body), None);
+}
+
+#[test]
+fn extract_output_name_call_with_cast() {
+    // output(value: Nat) parsed as Call { func: "output", args: [Cast] }
+    let body = Expr::Call {
+        func: Box::new(Expr::Ident("output".into())),
+        args: vec![Expr::Cast {
+            expr: Box::new(Expr::Ident("segment".into())),
+            ty: "FtsSegment".into(),
+        }],
+    };
+    assert_eq!(extract_output_name(&body), Some("segment".into()));
+}
+
+#[test]
+fn contract_named_output_binds_variable() {
+    let project = codegen_ok(
+        r#"
+contract SafeAccess {
+    input(buffer: Bytes, index: Nat)
+    output(value: Nat)
+    requires { index >= 0 }
+    ensures  { value >= 0 }
+    effects  { pure }
+}
+"#,
+    );
+    let lib = &project.files[0].1;
+    // The generated code must bind `value` from `__result` so ensures can reference it
+    assert!(
+        lib.contains("let value = __result.clone()"),
+        "generated code must bind output variable name: {lib}"
+    );
+}
+
+#[test]
+fn extract_output_name_raw_colon() {
+    // output(value : Nat) parsed as Raw tokens ["value", ":", "Nat"]
+    let tokens = vec!["value".into(), ":".into(), "Nat".into()];
+    let body = Expr::Raw(tokens);
+    assert_eq!(extract_output_name(&body), Some("value".into()));
+}
+
+#[test]
+fn extract_output_name_ident_only_is_none() {
+    // output(Nat) - type only, no named binding
+    let body = Expr::Ident("Nat".into());
+    assert_eq!(extract_output_name(&body), None);
+}
+
+#[test]
 fn contract_effects_generates_doc_comment() {
     let project = codegen_ok(
         r#"

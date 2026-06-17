@@ -36,6 +36,7 @@ pub(crate) fn generate_service_method(
     // Extract input/output from clauses
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
+    let mut output_name: Option<String> = None;
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
     let mut modifies: Vec<String> = Vec::new();
@@ -50,6 +51,7 @@ pub(crate) fn generate_service_method(
             }
             ClauseKind::Output => {
                 output_type = extract_output_type(&clause.body);
+                output_name = extract_output_name(&clause.body);
             }
             ClauseKind::Requires => {
                 // Check for state guard pattern: requires { self.state == X }
@@ -189,6 +191,10 @@ pub(crate) fn generate_service_method(
             "            let __result: {output_type} = todo!(\"{} implementation\");\n",
             kind_label.to_lowercase()
         ));
+        // Bind the output variable name so ensures clauses can reference it
+        if let Some(ref name) = output_name {
+            code.push_str(&format!("            let {name} = __result.clone();\n"));
+        }
         // Ensures assertions
         for ens in &ensures_exprs {
             generate_debug_assert_indented(code, ens, "ensures", 3);
@@ -226,6 +232,7 @@ pub(crate) fn generate_typestate_method(
 ) {
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
+    let mut output_name: Option<String> = None;
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
     let mut invariants: Vec<String> = Vec::new();
@@ -238,6 +245,7 @@ pub(crate) fn generate_typestate_method(
             }
             ClauseKind::Output => {
                 output_type = extract_output_type(&clause.body);
+                output_name = extract_output_name(&clause.body);
             }
             ClauseKind::Requires => {
                 // State guards are encoded in the type, skip them
@@ -364,6 +372,10 @@ pub(crate) fn generate_typestate_method(
             "    let __result: {output_type} = todo!(\"{} implementation\");\n",
             kind_label.to_lowercase()
         ));
+        // Bind the output variable name so ensures clauses can reference it
+        if let Some(ref name) = output_name {
+            code.push_str(&format!("    let {name} = __result.clone();\n"));
+        }
         for ens in &ensures_exprs {
             generate_debug_assert_indented(code, ens, "ensures", 1);
         }

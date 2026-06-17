@@ -133,6 +133,7 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
 
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
+    let mut output_name: Option<String> = None;
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
     let mut effects: Vec<String> = Vec::new();
@@ -142,7 +143,10 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
     for clause in &c.clauses {
         match &clause.kind {
             ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
-            ClauseKind::Output => output_type = extract_output_type(&clause.body),
+            ClauseKind::Output => {
+                output_type = extract_output_type(&clause.body);
+                output_name = extract_output_name(&clause.body);
+            }
             ClauseKind::Requires => requires_exprs.push(expr_to_rust(&clause.body)),
             ClauseKind::Ensures => ensures_exprs.push(expr_to_rust(&clause.body)),
             ClauseKind::Effects => effects.push(expr_to_rust(&clause.body)),
@@ -222,6 +226,10 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
         code.push_str(&format!(
             "    let __result: {output_type} = todo!(\"implementation provided by AI agent\");\n"
         ));
+        // Bind the output variable name so ensures clauses can reference it
+        if let Some(ref name) = output_name {
+            code.push_str(&format!("    let {name} = __result.clone();\n"));
+        }
         for ens in &ensures_exprs {
             generate_debug_assert(code, ens, "ensures");
         }
@@ -397,6 +405,7 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut requires_ast: Vec<&Expr> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
+    let mut output_name: Option<String> = None;
 
     for clause in &c.clauses {
         match &clause.kind {
@@ -408,8 +417,10 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
             ClauseKind::Ensures => {
                 ensures_exprs.push(expr_to_rust(&clause.body));
             }
-            ClauseKind::Output
-            | ClauseKind::Effects
+            ClauseKind::Output => {
+                output_name = extract_output_name(&clause.body);
+            }
+            ClauseKind::Effects
             | ClauseKind::Modifies
             | ClauseKind::Invariant
             | ClauseKind::Errors
@@ -469,6 +480,10 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
         "            let result = {check_call_path}({});\n",
         call_args.join(", ")
     ));
+    // Bind the output variable name so ensures clauses can reference it
+    if let Some(ref name) = output_name {
+        code.push_str(&format!("            let {name} = result.clone();\n"));
+    }
 
     for ens in &ensures_exprs {
         code.push_str(&format!("            prop_assert!({ens});\n"));
@@ -654,6 +669,56 @@ pub(crate) fn extract_output_type(body: &Expr) -> String {
         | Expr::Exists { .. }
         | Expr::List(_)
         | Expr::Apply { .. } => "()".to_string(),
+    }
+}
+
+/// Extract the variable name from an output clause body.
+///
+/// Given `output(value: Nat)`, the AST has a `Call { args: [Cast { expr: Ident("value"), .. }] }`.
+/// Returns `Some("value")` if a name is found and it differs from `result`, which is already
+/// aliased to `__result` by the codegen. Returns `None` if the output clause has no named
+/// binding or uses `result`.
+pub(crate) fn extract_output_name(body: &Expr) -> Option<String> {
+    match body {
+        Expr::Call { args, .. } => {
+            for arg in args {
+                if let Some(name) = extract_output_name(arg) {
+                    return Some(name);
+                }
+            }
+            None
+        }
+        Expr::Cast { expr, .. } => {
+            // output(value: Nat) parses as Cast { expr: Ident("value"), ty: "Nat" }
+            if let Expr::Ident(name) = expr.as_ref()
+                && name != "result"
+            {
+                return Some(name.clone());
+            }
+            None
+        }
+        Expr::Paren(inner) => extract_output_name(inner),
+        Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                if let Some(name) = extract_output_name(item) {
+                    return Some(name);
+                }
+            }
+            None
+        }
+        Expr::Raw(tokens) => {
+            // Look for "name : Type" pattern
+            for (i, tok) in tokens.iter().enumerate() {
+                if (tok == ":" || tok == "as") && i > 0 {
+                    let name = &tokens[i - 1];
+                    if name != "result" {
+                        return Some(name.clone());
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
