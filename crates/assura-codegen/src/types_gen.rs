@@ -754,3 +754,436 @@ pub(crate) fn extract_base_type_from_refined(tokens: &[String]) -> String {
     }
     "i64".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- map_type_token ----
+
+    #[test]
+    fn map_basic_types() {
+        assert_eq!(map_type_token("Int"), "i64");
+        assert_eq!(map_type_token("Nat"), "u64");
+        assert_eq!(map_type_token("Float"), "f64");
+        assert_eq!(map_type_token("Bool"), "bool");
+        assert_eq!(map_type_token("String"), "String");
+        assert_eq!(map_type_token("Bytes"), "Vec<u8>");
+        assert_eq!(map_type_token("Unit"), "()");
+        assert_eq!(map_type_token("Never"), "!");
+    }
+
+    #[test]
+    fn map_fixed_width_types() {
+        assert_eq!(map_type_token("U8"), "u8");
+        assert_eq!(map_type_token("U16"), "u16");
+        assert_eq!(map_type_token("U32"), "u32");
+        assert_eq!(map_type_token("U64"), "u64");
+        assert_eq!(map_type_token("I8"), "i8");
+        assert_eq!(map_type_token("I16"), "i16");
+        assert_eq!(map_type_token("I32"), "i32");
+        assert_eq!(map_type_token("I64"), "i64");
+        assert_eq!(map_type_token("F32"), "f32");
+        assert_eq!(map_type_token("F64"), "f64");
+    }
+
+    #[test]
+    fn map_collection_types() {
+        assert_eq!(map_type_token("List"), "Vec");
+        assert_eq!(map_type_token("Map"), "std::collections::BTreeMap");
+        assert_eq!(map_type_token("Set"), "std::collections::BTreeSet");
+        assert_eq!(map_type_token("Sequence"), "Vec");
+    }
+
+    #[test]
+    fn map_passthrough() {
+        assert_eq!(map_type_token("Option"), "Option");
+        assert_eq!(map_type_token("Result"), "Result");
+        assert_eq!(map_type_token("MyCustomType"), "MyCustomType");
+    }
+
+    // ---- map_type_tokens ----
+
+    #[test]
+    fn map_tokens_empty() {
+        assert_eq!(map_type_tokens(&[]), "()");
+    }
+
+    #[test]
+    fn map_tokens_single() {
+        let tokens = vec!["Int".to_string()];
+        assert_eq!(map_type_tokens(&tokens), "i64");
+    }
+
+    #[test]
+    fn map_tokens_generic() {
+        let tokens: Vec<String> = vec!["List", "<", "Int", ">"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(map_type_tokens(&tokens), "Vec <i64>");
+    }
+
+    #[test]
+    fn map_tokens_strips_taint() {
+        let tokens: Vec<String> = vec!["Int", "@", "taint", ":", "untrusted"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(map_type_tokens(&tokens), "i64");
+    }
+
+    #[test]
+    fn map_tokens_union_error() {
+        let tokens: Vec<String> = vec!["Int", "|", "MyError"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(map_type_tokens(&tokens), "Result<i64, MyError>");
+    }
+
+    #[test]
+    fn map_tokens_refinement() {
+        let tokens: Vec<String> = vec!["{", "x", ":", "Int", "|", "x", ">", "0", "}"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(map_type_tokens(&tokens), "i64");
+    }
+
+    // ---- smart_join_type_tokens ----
+
+    #[test]
+    fn smart_join_no_space_after_open_angle() {
+        let tokens = vec!["Vec", "<", "i64", ">"];
+        // Space before `<` (no rule removes it), no space after `<` or before `>`
+        assert_eq!(smart_join_type_tokens(&tokens), "Vec <i64>");
+    }
+
+    #[test]
+    fn smart_join_no_space_after_ampersand() {
+        let tokens = vec!["&", "str"];
+        assert_eq!(smart_join_type_tokens(&tokens), "&str");
+    }
+
+    #[test]
+    fn smart_join_mut_ref() {
+        let tokens = vec!["&", "mut", "i64"];
+        assert_eq!(smart_join_type_tokens(&tokens), "&mut i64");
+    }
+
+    // ---- is_const_name ----
+
+    #[test]
+    fn const_name_true() {
+        assert!(is_const_name("MAX_SIZE"));
+        assert!(is_const_name("TOTAL_TABLE_SIZE"));
+    }
+
+    #[test]
+    fn const_name_false() {
+        assert!(!is_const_name("MyType"));
+        assert!(!is_const_name("x"));
+        assert!(!is_const_name(""));
+        assert!(!is_const_name("ALLCAPS")); // no underscore
+    }
+
+    // ---- is_user_type_name ----
+
+    #[test]
+    fn user_type_name_true() {
+        assert!(is_user_type_name("MyStruct"));
+        assert!(is_user_type_name("Point"));
+        assert!(is_user_type_name("HuffmanTree"));
+    }
+
+    #[test]
+    fn user_type_name_false_builtins() {
+        assert!(!is_user_type_name("Int"));
+        assert!(!is_user_type_name("Bool"));
+        assert!(!is_user_type_name("String"));
+        assert!(!is_user_type_name("List"));
+        assert!(!is_user_type_name("Option"));
+        assert!(!is_user_type_name("Result"));
+    }
+
+    #[test]
+    fn user_type_name_false_lowercase() {
+        assert!(!is_user_type_name("myvar"));
+        assert!(!is_user_type_name(""));
+    }
+
+    // ---- collect_type_refs_from_tokens ----
+
+    #[test]
+    fn collect_type_refs_basic() {
+        let tokens: Vec<String> = vec!["List", "<", "Point", ">"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut out = std::collections::HashSet::new();
+        collect_type_refs_from_tokens(&tokens, &mut out);
+        assert!(out.contains("Point"));
+        assert!(!out.contains("List")); // built-in, excluded
+    }
+
+    #[test]
+    fn collect_type_refs_skips_annotations() {
+        let tokens: Vec<String> = vec!["MyType", "@", "taint"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut out = std::collections::HashSet::new();
+        collect_type_refs_from_tokens(&tokens, &mut out);
+        assert!(out.contains("MyType"));
+        assert!(!out.contains("@"));
+        assert!(!out.contains("taint"));
+    }
+
+    // ---- collect_type_refs_from_expr ----
+
+    #[test]
+    fn collect_refs_from_ident() {
+        let mut out = std::collections::HashSet::new();
+        collect_type_refs_from_expr(&Expr::Ident("MyType".into()), &mut out);
+        assert!(out.contains("MyType"));
+    }
+
+    #[test]
+    fn collect_refs_from_ident_lowercase() {
+        let mut out = std::collections::HashSet::new();
+        collect_type_refs_from_expr(&Expr::Ident("x".into()), &mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn collect_refs_nested() {
+        let mut out = std::collections::HashSet::new();
+        let e = Expr::Call {
+            func: Box::new(Expr::Ident("Create".into())),
+            args: vec![Expr::Ident("Config".into())],
+        };
+        collect_type_refs_from_expr(&e, &mut out);
+        assert!(out.contains("Create"));
+        assert!(out.contains("Config"));
+    }
+
+    // ---- detect_generic_arity ----
+
+    #[test]
+    fn detect_generic_one_type_param() {
+        let tokens: Vec<String> = vec!["Wrapper", "<", "Int", ">"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut map = std::collections::HashMap::new();
+        let mut consts = std::collections::HashSet::new();
+        detect_generic_arity(&tokens, &mut map, &mut consts);
+        assert_eq!(map.get("Wrapper").map(|v| v.len()), Some(1));
+    }
+
+    #[test]
+    fn detect_generic_const_param() {
+        let tokens: Vec<String> = vec!["Buffer", "<", "MAX_SIZE", ">"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut map = std::collections::HashMap::new();
+        let mut consts = std::collections::HashSet::new();
+        detect_generic_arity(&tokens, &mut map, &mut consts);
+        assert!(consts.contains("MAX_SIZE"));
+        assert!(matches!(
+            map.get("Buffer").and_then(|v| v.first()),
+            Some(GenericParamKind::Const)
+        ));
+    }
+
+    // ---- generate_cargo_toml_impl ----
+
+    #[test]
+    fn cargo_toml_default_config() {
+        let cfg = BackendConfig::default();
+        let toml = generate_cargo_toml_impl("my_crate", &cfg, false, false);
+        assert!(toml.contains("name = \"my_crate\""));
+        assert!(toml.contains("edition = \"2024\""));
+        assert!(!toml.contains("[profile.release]"));
+    }
+
+    #[test]
+    fn cargo_toml_with_proptest() {
+        let cfg = BackendConfig::default();
+        let toml = generate_cargo_toml_impl("test_crate", &cfg, true, false);
+        assert!(toml.contains("[dev-dependencies]"));
+        assert!(toml.contains("proptest"));
+    }
+
+    #[test]
+    fn cargo_toml_with_thiserror() {
+        let cfg = BackendConfig::default();
+        let toml = generate_cargo_toml_impl("err_crate", &cfg, false, true);
+        assert!(toml.contains("thiserror"));
+    }
+
+    #[test]
+    fn cargo_toml_cranelift() {
+        let cfg = BackendConfig {
+            backend: CodegenBackend::Cranelift,
+            ..Default::default()
+        };
+        let toml = generate_cargo_toml_impl("fast", &cfg, false, false);
+        assert!(toml.contains("Cranelift"));
+    }
+
+    #[test]
+    fn cargo_toml_wasm() {
+        let cfg = BackendConfig {
+            target: CompileTarget::Wasm,
+            ..Default::default()
+        };
+        let toml = generate_cargo_toml_impl("wasm_mod", &cfg, false, false);
+        assert!(toml.contains("cdylib"));
+        assert!(toml.contains("wasm32-wasip1"));
+    }
+
+    // ---- generate_type_def ----
+
+    #[test]
+    fn type_def_struct() {
+        let t = TypeDef {
+            name: "Point".into(),
+            type_params: vec![],
+            body: TypeBody::Struct(vec![
+                assura_parser::ast::FieldDef {
+                    name: "x".into(),
+                    ty: vec!["Int".into()],
+                    parsed_type: None,
+                    is_pub: true,
+                },
+                assura_parser::ast::FieldDef {
+                    name: "y".into(),
+                    ty: vec!["Int".into()],
+                    parsed_type: None,
+                    is_pub: true,
+                },
+            ]),
+        };
+        let mut code = String::new();
+        generate_type_def(&t, &mut code);
+        assert!(code.contains("pub struct Point"));
+        assert!(code.contains("pub x: i64"));
+        assert!(code.contains("pub y: i64"));
+    }
+
+    #[test]
+    fn type_def_alias() {
+        let t = TypeDef {
+            name: "Identifier".into(),
+            type_params: vec![],
+            body: TypeBody::Alias(vec!["String".into()]),
+        };
+        let mut code = String::new();
+        generate_type_def(&t, &mut code);
+        assert!(code.contains("pub type Identifier = String"));
+    }
+
+    #[test]
+    fn type_def_generic() {
+        let t = TypeDef {
+            name: "Wrapper".into(),
+            type_params: vec!["T".into()],
+            body: TypeBody::Empty,
+        };
+        let mut code = String::new();
+        generate_type_def(&t, &mut code);
+        assert!(code.contains("pub struct Wrapper<T>"));
+    }
+
+    #[test]
+    fn type_def_refined() {
+        let t = TypeDef {
+            name: "PositiveInt".into(),
+            type_params: vec![],
+            body: TypeBody::Refined(vec![
+                "n".into(),
+                ":".into(),
+                "Int".into(),
+                "|".into(),
+                "n".into(),
+                ">".into(),
+                "0".into(),
+            ]),
+        };
+        let mut code = String::new();
+        generate_type_def(&t, &mut code);
+        assert!(code.contains("pub struct PositiveInt(pub i64)"));
+    }
+
+    // ---- extract_base_type_from_refined ----
+
+    #[test]
+    fn extract_base_type_after_colon() {
+        let tokens: Vec<String> = vec!["n", ":", "Int", "|", "n", ">", "0"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(extract_base_type_from_refined(&tokens), "i64");
+    }
+
+    #[test]
+    fn extract_base_type_fallback() {
+        let tokens: Vec<String> = vec!["Nat"].into_iter().map(String::from).collect();
+        assert_eq!(extract_base_type_from_refined(&tokens), "u64");
+    }
+
+    // ---- expr_to_rust_static ----
+
+    #[test]
+    fn static_int_literal() {
+        assert_eq!(
+            expr_to_rust_static(&Expr::Literal(Literal::Int("42".into()))),
+            "42"
+        );
+    }
+
+    #[test]
+    fn static_binop() {
+        let e = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("a".into())),
+            op: BinOp::Add,
+            rhs: Box::new(Expr::Ident("b".into())),
+        };
+        assert_eq!(expr_to_rust_static(&e), "(a + b)");
+    }
+
+    #[test]
+    fn static_ghost_erased() {
+        let e = Expr::Ghost(Box::new(Expr::Ident("x".into())));
+        let result = expr_to_rust_static(&e);
+        assert!(result.contains("ghost:"));
+        assert!(result.ends_with("()"));
+    }
+
+    #[test]
+    fn static_forall_comment() {
+        let e = Expr::Forall {
+            var: "i".into(),
+            domain: Box::new(Expr::Ident("items".into())),
+            body: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        let result = expr_to_rust_static(&e);
+        assert!(result.contains("forall"));
+        assert!(result.ends_with("true"));
+    }
+
+    #[test]
+    fn static_raw_single_token() {
+        let e = Expr::Raw(vec!["42".into()]);
+        assert_eq!(expr_to_rust_static(&e), "42");
+    }
+
+    #[test]
+    fn static_raw_eq_value() {
+        let e = Expr::Raw(vec!["=".into(), "100".into()]);
+        assert_eq!(expr_to_rust_static(&e), "100");
+    }
+}

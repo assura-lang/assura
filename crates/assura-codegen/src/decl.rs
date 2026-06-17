@@ -252,3 +252,271 @@ pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_param(name: &str, ty: &str) -> assura_parser::ast::Param {
+        assura_parser::ast::Param {
+            name: name.into(),
+            ty: vec![ty.into()],
+            parsed_type: None,
+        }
+    }
+
+    fn mk_clause(kind: ClauseKind, body: Expr) -> Clause {
+        Clause {
+            kind,
+            body,
+            effect_variables: vec![],
+        }
+    }
+
+    // ---- generate_bind ----
+
+    #[test]
+    fn bind_no_clauses() {
+        let b = BindDecl {
+            name: "my_fn".into(),
+            target_path: "std::fs::read".into(),
+            params: vec![mk_param("path", "String")],
+            return_ty: vec!["Bytes".into()],
+            return_type_expr: None,
+            clauses: vec![],
+        };
+        let mut code = String::new();
+        generate_bind(&b, &mut code);
+        assert!(code.contains("pub fn my_fn(path: String) -> Vec<u8>"));
+        assert!(code.contains("std::fs::read(path)"));
+        assert!(code.contains("__result"));
+    }
+
+    #[test]
+    fn bind_with_requires() {
+        let b = BindDecl {
+            name: "safe_div".into(),
+            target_path: "math::divide".into(),
+            params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
+            return_ty: vec!["Int".into()],
+            return_type_expr: None,
+            clauses: vec![mk_clause(
+                ClauseKind::Requires,
+                Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("b".into())),
+                    op: BinOp::Neq,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )],
+        };
+        let mut code = String::new();
+        generate_bind(&b, &mut code);
+        assert!(code.contains("debug_assert!((b != 0)"));
+    }
+
+    #[test]
+    fn bind_with_ensures() {
+        let b = BindDecl {
+            name: "abs".into(),
+            target_path: "math::abs".into(),
+            params: vec![mk_param("x", "Int")],
+            return_ty: vec!["Int".into()],
+            return_type_expr: None,
+            clauses: vec![mk_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("result".into())),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )],
+        };
+        let mut code = String::new();
+        generate_bind(&b, &mut code);
+        assert!(code.contains("ensures"), "should have ensures assertion");
+        assert!(code.contains("__result"), "should use __result");
+    }
+
+    #[test]
+    fn bind_no_return_type_defaults_unit() {
+        let b = BindDecl {
+            name: "log".into(),
+            target_path: "logger::log".into(),
+            params: vec![],
+            return_ty: vec![],
+            return_type_expr: None,
+            clauses: vec![],
+        };
+        let mut code = String::new();
+        generate_bind(&b, &mut code);
+        assert!(code.contains("-> ()"), "should default to ()");
+    }
+
+    // ---- generate_extern ----
+
+    #[test]
+    fn extern_basic() {
+        let ex = ExternDecl {
+            name: "crypto_hash".into(),
+            params: vec![mk_param("data", "Bytes")],
+            return_ty: vec!["Bytes".into()],
+            return_type_expr: None,
+            clauses: vec![],
+        };
+        let mut code = String::new();
+        generate_extern(&ex, &mut code);
+        assert!(code.contains("pub fn crypto_hash(data: Vec<u8>) -> Vec<u8>"));
+        assert!(code.contains("todo!"));
+    }
+
+    #[test]
+    fn extern_with_trust_boundary_untrusted() {
+        let ex = ExternDecl {
+            name: "ffi_call".into(),
+            params: vec![],
+            return_ty: vec!["Int".into()],
+            return_type_expr: None,
+            clauses: vec![mk_clause(
+                ClauseKind::Other("trust".into()),
+                Expr::Ident("untrusted".into()),
+            )],
+        };
+        let mut code = String::new();
+        generate_extern(&ex, &mut code);
+        assert!(code.contains("unsafe fn ffi_call"), "should be unsafe");
+        assert!(code.contains("compile_error!"), "no contract on untrusted");
+    }
+
+    #[test]
+    fn extern_untrusted_with_contract_no_compile_error() {
+        let ex = ExternDecl {
+            name: "ffi_call".into(),
+            params: vec![mk_param("x", "Int")],
+            return_ty: vec!["Int".into()],
+            return_type_expr: None,
+            clauses: vec![
+                mk_clause(
+                    ClauseKind::Other("trust".into()),
+                    Expr::Ident("untrusted".into()),
+                ),
+                mk_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        op: BinOp::Gt,
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+            ],
+        };
+        let mut code = String::new();
+        generate_extern(&ex, &mut code);
+        assert!(code.contains("unsafe fn"), "should be unsafe");
+        assert!(!code.contains("compile_error!"), "has contract, no error");
+    }
+
+    // ---- generate_fn_def ----
+
+    #[test]
+    fn fn_def_no_return() {
+        let f = FnDef {
+            name: "do_work".into(),
+            is_ghost: false,
+            is_lemma: false,
+            params: vec![],
+            return_ty: vec![],
+            return_type_expr: None,
+            clauses: vec![],
+        };
+        let mut code = String::new();
+        generate_fn_def(&f, &mut code);
+        assert!(code.contains("pub fn do_work()"));
+        assert!(!code.contains(" -> "), "no return type");
+        assert!(code.contains("todo!"));
+    }
+
+    #[test]
+    fn fn_def_with_return_type() {
+        let f = FnDef {
+            name: "add".into(),
+            is_ghost: false,
+            is_lemma: false,
+            params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
+            return_ty: vec!["Int".into()],
+            return_type_expr: None,
+            clauses: vec![],
+        };
+        let mut code = String::new();
+        generate_fn_def(&f, &mut code);
+        assert!(code.contains("pub fn add(a: i64, b: i64) -> i64"));
+    }
+
+    #[test]
+    fn fn_def_with_requires_and_ensures() {
+        let f = FnDef {
+            name: "safe_div".into(),
+            is_ghost: false,
+            is_lemma: false,
+            params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
+            return_ty: vec!["Int".into()],
+            return_type_expr: None,
+            clauses: vec![
+                mk_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        lhs: Box::new(Expr::Ident("b".into())),
+                        op: BinOp::Neq,
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+                mk_clause(
+                    ClauseKind::Ensures,
+                    Expr::BinOp {
+                        lhs: Box::new(Expr::Ident("result".into())),
+                        op: BinOp::Eq,
+                        rhs: Box::new(Expr::BinOp {
+                            lhs: Box::new(Expr::Ident("a".into())),
+                            op: BinOp::Div,
+                            rhs: Box::new(Expr::Ident("b".into())),
+                        }),
+                    },
+                ),
+            ],
+        };
+        let mut code = String::new();
+        generate_fn_def(&f, &mut code);
+        assert!(code.contains("debug_assert!((b != 0)"), "requires b != 0");
+        assert!(code.contains("__result"), "result variable");
+        assert!(code.contains("ensures"), "ensures assertion");
+    }
+
+    #[test]
+    fn fn_def_old_expr_saved() {
+        let f = FnDef {
+            name: "incr".into(),
+            is_ghost: false,
+            is_lemma: false,
+            params: vec![mk_param("x", "Int")],
+            return_ty: vec!["Int".into()],
+            return_type_expr: None,
+            clauses: vec![mk_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("result".into())),
+                    op: BinOp::Eq,
+                    rhs: Box::new(Expr::BinOp {
+                        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
+                        op: BinOp::Add,
+                        rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+                    }),
+                },
+            )],
+        };
+        let mut code = String::new();
+        generate_fn_def(&f, &mut code);
+        assert!(
+            code.contains("let __old_x = x.clone()"),
+            "should save old(x)"
+        );
+    }
+}
