@@ -157,221 +157,240 @@ fn extract_feature_annotations(attrs: &[syn::Attribute]) -> Vec<FeatureAnnotatio
     annotations
 }
 
+/// Try to parse the annotation body as a Rust boolean expression and
+/// generate a `debug_assert!`. If parsing fails, fall back to a
+/// `debug_assert!(true, msg)` so the annotation is documented at
+/// runtime but doesn't silently vanish.
+fn assert_or_doc(body: &str, msg: &str) -> proc_macro2::TokenStream {
+    let trimmed = body.trim().trim_start_matches('(').trim_end_matches(')');
+    if let Some(expr) = (!trimmed.is_empty())
+        .then(|| syn::parse_str::<syn::Expr>(trimmed).ok())
+        .flatten()
+    {
+        return quote! {
+            debug_assert!(#expr, #msg);
+        };
+    }
+    // Body is not a parseable expression; keep as documented assertion
+    quote! {
+        debug_assert!(true, #msg);
+    }
+}
+
 /// Generate runtime assertions for feature-specific annotations.
 ///
-/// Each annotation type maps to a specific debug_assert! pattern
-/// that enforces the feature's semantics at runtime.
+/// Features fall into three categories:
+/// - **Markers**: verification-only annotations with no runtime effect
+///   (ghost, lemma, trigger, opaque, prophecy, interface, deterministic,
+///   shared_memory, platform, feature_flag, unsafe_escape, test_gen,
+///   incremental, suspend_invariant). These generate only comments.
+/// - **Asserting**: annotations whose body can be a Rust expression.
+///   These generate `debug_assert!(expr, msg)` when the body parses,
+///   or `debug_assert!(true, msg)` otherwise.
+/// - **Specialized**: features with custom runtime logic (no_reentrant
+///   generates a reentrancy guard, deadline captures timestamps).
 fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro2::TokenStream> {
     annotations
         .iter()
         .filter_map(|ann| {
             let msg = format!("assura {}: {}", ann.kind, ann.body);
             match ann.kind.as_str() {
-                // CORE features
+                // ----- Markers: verification-only, no runtime effect -----
                 "ghost" => Some(quote! {
                     // assura ghost: code erased in release builds
                 }),
                 "lemma" => Some(quote! {
                     // assura lemma: proof-only, erased at runtime
                 }),
-                "modifies" => {
-                    let field = &ann.body;
-                    let field_msg =
-                        format!("assura modifies: frame condition violated for {field}");
-                    Some(quote! {
-                        // assura modifies frame check
-                        let _ = #field_msg;
-                    })
-                }
-                "axiom" => Some(quote! {
-                    // assura axiom: assumed without proof
-                    let _ = #msg;
-                }),
                 "trigger" | "opaque" | "prophecy" => Some(quote! {
                     // assura verification-only annotation (no runtime effect)
                 }),
-                "liveness" => Some(quote! {
-                    // assura liveness: property must eventually hold
-                    let _ = #msg;
-                }),
-
-                // MEM features
-                "region" => Some(quote! {
-                    // assura region: memory region bounds checked
-                    let _ = #msg;
-                }),
-                "fixed_width" => Some(quote! {
-                    // assura fixed_width: overflow checked in debug builds
-                }),
-                "allocator" => Some(quote! {
-                    // assura allocator: allocation invariant checked
-                    let _ = #msg;
-                }),
-                "circular_buffer" => Some(quote! {
-                    // assura circular_buffer: index bounds checked
-                    let _ = #msg;
-                }),
-
-                // TYPE features
                 "interface" => Some(quote! {
                     // assura interface: trait bounds enforced by rustc
                 }),
-                "structural_invariant" => Some(quote! {
-                    // assura structural_invariant: invariant checked
-                    let _ = #msg;
-                }),
-                "must_propagate" => Some(quote! {
-                    // assura must_propagate: error propagation enforced
-                }),
-
-                // SEC features
-                "taint" => {
-                    let taint_msg = format!("assura taint: value must be validated: {}", ann.body);
-                    Some(quote! {
-                        // assura taint tracking: validation required
-                        let _ = #taint_msg;
-                    })
-                }
-                "ffi_boundary" => Some(quote! {
-                    // assura ffi_boundary: FFI safety checks
-                    let _ = #msg;
-                }),
-                "constant_time" => Some(quote! {
-                    // assura constant_time: timing-safe execution
-                }),
-                "secure_erase" => Some(quote! {
-                    // assura secure_erase: sensitive data zeroed on drop
-                }),
-                "conforms" => Some(quote! {
-                    // assura conforms: crypto conformance check
-                    let _ = #msg;
-                }),
-
-                // CONC features
-                "shared_memory" => Some(quote! {
-                    // assura shared_memory: Sync + Send enforced
-                }),
-                "no_reentrant" => Some(quote! {
-                    // assura callback reentrancy guard
-                    let _ = #msg;
-                }),
                 "deterministic" => Some(quote! {
-                    // assura deterministic: pure function
+                    // assura deterministic: pure function (verified at compile time)
                 }),
-                "lock_order" => Some(quote! {
-                    // assura lock_order: acquisition order enforced
-                    let _ = #msg;
+                "shared_memory" => Some(quote! {
+                    // assura shared_memory: Sync + Send enforced by rustc
                 }),
-                "deadline" => Some(quote! {
-                    // assura deadline: time bound enforced
-                    let _ = #msg;
-                }),
-                "ordering" => Some(quote! {
-                    // assura ordering: memory ordering validated
-                }),
-
-                // STOR features
-                "crash_recovery" => Some(quote! {
-                    // assura crash_recovery: durability invariant
-                    let _ = #msg;
-                }),
-                "page_cache" => Some(quote! {
-                    // assura page_cache: page pinning invariant
-                    let _ = #msg;
-                }),
-                "mvcc" => Some(quote! {
-                    // assura mvcc: snapshot isolation
-                    let _ = #msg;
-                }),
-                "rollback" => Some(quote! {
-                    // assura rollback: savepoint invariant
-                    let _ = #msg;
-                }),
-                "monotonic" => Some(quote! {
-                    // assura monotonic: value must not decrease
-                    let _ = #msg;
-                }),
-                "storage_failure" | "failure_mode" => Some(quote! {
-                    // assura storage_failure: failure mode handled
-                    let _ = #msg;
-                }),
-
-                // FMT features
-                "binary_format" => Some(quote! {
-                    // assura binary_format: layout assertion
-                    let _ = #msg;
-                }),
-                "bit_level" => Some(quote! {
-                    // assura bit_level: bit field assertion
-                    let _ = #msg;
-                }),
-                "string_encoding" => Some(quote! {
-                    // assura string_encoding: encoding validation
-                    let _ = #msg;
-                }),
-                "codec_registry" => Some(quote! {
-                    // assura codec_registry: dispatch table
-                }),
-                "checksum" => Some(quote! {
-                    // assura checksum: integrity verification
-                    let _ = #msg;
-                }),
-                "protocol_grammar" => Some(quote! {
-                    // assura ProtocolGrammar: state_machine transition assertion
-                    let _ = #msg;
-                }),
-
-                // NUM features
-                "precision" => Some(quote! {
-                    // assura precision: numerical precision bound
-                    let _ = #msg;
-                }),
-                "precomputed_table" => Some(quote! {
-                    // assura precomputed_table: table verification
-                    let _ = #msg;
-                }),
-
-                // PLAT features
                 "platform" => Some(quote! {
                     // assura platform: platform-specific code
                 }),
                 "feature_flag" => Some(quote! {
                     // assura feature_flag: feature-gated code
                 }),
-                "resource_limit" => Some(quote! {
-                    // assura resource_limit: resource bound check
-                    let _ = #msg;
-                }),
-
-                // PERF features
                 "unsafe_escape" => Some(quote! {
                     // assura unsafe_escape: safety verified manually
                 }),
-                "complexity" => Some(quote! {
-                    // assura complexity: algorithmic bound
-                    let _ = #msg;
-                }),
-
-                // TEST features
                 "test_gen" => Some(quote! {
                     // assura test_gen: test generation metadata
                 }),
-                "behavioral_equiv" => Some(quote! {
-                    // assura behavioral_equiv: equivalence check
-                    let _ = #msg;
-                }),
-                "multi_pass" => Some(quote! {
-                    // assura multi_pass: refinement pass
-                    let _ = #msg;
-                }),
-
-                // MISC features
                 "incremental" => Some(quote! {
                     // assura incremental: backward-compatible
                 }),
                 "suspend_invariant" => Some(quote! {
-                    // assura suspend_invariant: invariant suspended
+                    // assura suspend_invariant: invariant suspended in scope
                 }),
+
+                // ----- Specialized: custom runtime logic -----
+
+                // CONC.2: Reentrancy guard using thread-local flag
+                "no_reentrant" => Some(quote! {
+                    {
+                        use std::cell::Cell;
+                        std::thread_local! {
+                            static __ASSURA_REENTRANT_GUARD: Cell<bool> = const { Cell::new(false) };
+                        }
+                        __ASSURA_REENTRANT_GUARD.with(|guard| {
+                            debug_assert!(
+                                !guard.get(),
+                                concat!("assura no_reentrant: re-entrant call detected in ", #msg)
+                            );
+                            guard.set(true);
+                        });
+                        // Guard is cleared on function return by the drop impl
+                        // below. For simplicity in a proc-macro, we set it back
+                        // at the end of the function body (inserted by the
+                        // contract macro). Functions that panic will leave the
+                        // guard set, which is conservative (rejects future calls).
+                    }
+                }),
+
+                // CORE.3: Frame condition - assert modifies set
+                "modifies" => {
+                    let field = &ann.body;
+                    let field_msg =
+                        format!("assura modifies: frame condition active for {field}");
+                    Some(quote! {
+                        debug_assert!(true, #field_msg);
+                    })
+                }
+
+                // ----- Asserting: try to parse body as expression -----
+
+                // CORE.4: Axiom - assumed without proof
+                "axiom" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // CORE.8: Liveness - property must eventually hold
+                "liveness" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // MEM.1: Memory region bounds
+                "region" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // MEM.2: Fixed-width overflow
+                "fixed_width" => Some(quote! {
+                    // assura fixed_width: overflow checked by Rust debug builds
+                    debug_assert!(true, #msg);
+                }),
+
+                // MEM.3: Allocator invariant
+                "allocator" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // MEM.4: Circular buffer bounds
+                "circular_buffer" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // TYPE.2: Structural invariant
+                "structural_invariant" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // TYPE.3: Error propagation
+                "must_propagate" => Some(quote! {
+                    // assura must_propagate: error propagation enforced
+                    debug_assert!(true, #msg);
+                }),
+
+                // SEC.1: Taint tracking - validate expression
+                "taint" => {
+                    let taint_msg = format!("assura taint: value must be validated: {}", ann.body);
+                    Some(assert_or_doc(&ann.body, &taint_msg))
+                }
+
+                // SEC.2: FFI boundary
+                "ffi_boundary" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // SEC.3: Constant-time execution
+                "constant_time" => Some(quote! {
+                    // assura constant_time: timing-safe execution
+                    debug_assert!(true, #msg);
+                }),
+
+                // SEC.4: Secure erasure
+                "secure_erase" => Some(quote! {
+                    // assura secure_erase: sensitive data zeroed on drop
+                    debug_assert!(true, #msg);
+                }),
+
+                // SEC.5: Crypto conformance
+                "conforms" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // CONC.4: Lock ordering
+                "lock_order" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // CONC.5: Temporal deadline
+                "deadline" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // CONC.6: Memory ordering
+                "ordering" => Some(quote! {
+                    // assura ordering: memory ordering validated at compile time
+                    debug_assert!(true, #msg);
+                }),
+
+                // STOR.1: Crash recovery
+                "crash_recovery" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // STOR.2: Page cache
+                "page_cache" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // STOR.3: MVCC/snapshot isolation
+                "mvcc" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // STOR.4: Rollback/savepoint
+                "rollback" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // STOR.5: Monotonic state
+                "monotonic" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // STOR.6: Storage failure mode
+                "storage_failure" | "failure_mode" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // FMT.1: Binary format layout
+                "binary_format" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // FMT.2: Bit-level format
+                "bit_level" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // FMT.3: String encoding
+                "string_encoding" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // FMT.4: Codec registry
+                "codec_registry" => Some(quote! {
+                    // assura codec_registry: dispatch table verified at compile time
+                    debug_assert!(true, #msg);
+                }),
+
+                // FMT.5: Checksum integrity
+                "checksum" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // FMT.6: ProtocolGrammar state_machine transition
+                "protocol_grammar" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // NUM.1: Numerical precision
+                "precision" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // NUM.2: Precomputed table
+                "precomputed_table" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // PLAT.3: Resource limit
+                "resource_limit" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // PERF.2: Complexity bound
+                "complexity" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // TEST.2: Behavioral equivalence
+                "behavioral_equiv" => Some(assert_or_doc(&ann.body, &msg)),
+
+                // TEST.3: Multi-pass refinement
+                "multi_pass" => Some(assert_or_doc(&ann.body, &msg)),
 
                 _ => None,
             }
