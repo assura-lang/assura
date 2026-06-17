@@ -6,7 +6,11 @@
 //! primarily type-level or operational report Unknown with "not yet encoded
 //! in SMT" (treated as warnings, not errors, by the CLI).
 
-use crate::VerificationResult;
+use crate::z3_backend::encoder::{Encoder, expr_has_unmodelable_features};
+use crate::z3_backend::solver::check_validity;
+use crate::{ClauseKind, Expr, VerificationResult};
+use assura_parser::ast::Clause;
+use z3::Solver;
 
 // -----------------------------------------------------------------------
 // Macro for features not yet encoded in SMT.
@@ -25,6 +29,78 @@ macro_rules! smt_stub {
             }
         }
     };
+}
+
+// -----------------------------------------------------------------------
+// Generic Z3 body verifier for feature clauses
+//
+// Most feature clauses have boolean predicate bodies that can be verified
+// the same way as `ensures` clauses: assert all requires, negate the body,
+// check-sat. UNSAT = the feature property holds under the preconditions.
+// -----------------------------------------------------------------------
+
+/// Verify a feature clause body via Z3 validity check.
+///
+/// Collects sibling `requires` clauses as assumptions, then checks that
+/// the feature clause body holds (same encoding as ensures). Falls back
+/// to `Unknown` if the body uses unmodelable features.
+fn verify_feature_body(
+    parent_name: &str,
+    feature_label: &str,
+    body: &Expr,
+    sibling_clauses: &[Clause],
+) -> VerificationResult {
+    let desc = format!("{parent_name}: {feature_label}");
+
+    // Skip clauses with unmodelable features (typestate, etc.)
+    if expr_has_unmodelable_features(body) {
+        return VerificationResult::Unknown {
+            clause_desc: desc,
+            reason: format!("{feature_label} clause uses features not yet encoded in SMT"),
+        };
+    }
+
+    let solver = Solver::new();
+    let mut params = z3::Params::new();
+    params.set_u32("timeout", 2000);
+    solver.set_params(&params);
+    let mut encoder = Encoder::new();
+
+    // Assert all sibling requires as assumptions
+    for clause in sibling_clauses {
+        if clause.kind == ClauseKind::Requires {
+            let val = encoder.encode_expr(&clause.body);
+            let bool_val = val.as_bool();
+            solver.assert(&bool_val);
+        }
+    }
+
+    // Assert background axioms from requires encoding
+    for axiom in &encoder.background_axioms {
+        solver.assert(axiom);
+    }
+    encoder.background_axioms.clear();
+
+    // Encode the feature clause body
+    let body_val = encoder.encode_expr(body);
+    let body_bool = body_val.as_bool();
+
+    // Assert background axioms from body encoding
+    for axiom in &encoder.background_axioms {
+        solver.assert(axiom);
+    }
+
+    // Validity check: negate body, check-sat. UNSAT = holds.
+    solver.assert(body_bool.not());
+    let mut results = Vec::new();
+    check_validity(&solver, desc, &mut results);
+    results
+        .into_iter()
+        .next()
+        .unwrap_or(VerificationResult::Unknown {
+            clause_desc: format!("{parent_name}: {feature_label}"),
+            reason: "no result from solver".into(),
+        })
 }
 
 // -----------------------------------------------------------------------
@@ -253,58 +329,209 @@ smt_stub!(
 // -----------------------------------------------------------------------
 
 /// Check if a clause kind maps to a feature-specific SMT verifier.
+///
+/// Features with boolean predicate bodies are verified via Z3 validity
+/// check (same as ensures): assert requires, negate body, check-sat.
+/// Features without body expressions or with domain-specific needs keep
+/// their stub functions (which return Unknown with "not yet encoded").
+///
 /// Returns Some(result) if the feature was handled, None otherwise.
-pub fn verify_feature_clause(clause_kind: &str, parent_name: &str) -> Option<VerificationResult> {
+pub fn verify_feature_clause(
+    clause_kind: &str,
+    parent_name: &str,
+    body: &Expr,
+    sibling_clauses: &[Clause],
+) -> Option<VerificationResult> {
     use assura_parser::features::Feature;
     let feature = Feature::from_clause_kind(clause_kind)?;
     match feature {
-        // CORE
+        // CORE.6: Opaque has special semantics (no body to verify)
         Feature::OpaqueFunctions => Some(verify_opaque_contract(parent_name, false)),
+
+        // Features with boolean predicate bodies: use Z3 validity check.
+        // The clause body is a boolean expression that must hold under
+        // the sibling requires assumptions.
+
         // MEM
-        Feature::AllocatorContracts => Some(verify_allocator_invariant(parent_name)),
-        Feature::CircularBuffer => Some(verify_circular_buffer(parent_name)),
+        Feature::AllocatorContracts => Some(verify_feature_body(
+            parent_name,
+            "allocator_invariant",
+            body,
+            sibling_clauses,
+        )),
+        Feature::CircularBuffer => Some(verify_feature_body(
+            parent_name,
+            "circular_buffer",
+            body,
+            sibling_clauses,
+        )),
         // TYPE
-        Feature::InterfaceConformance => Some(verify_interface_conformance(parent_name)),
-        Feature::StructuralInvariants => Some(verify_structural_invariant(parent_name, "")),
-        Feature::ErrorPropagation => Some(verify_error_propagation(parent_name)),
+        Feature::InterfaceConformance => Some(verify_feature_body(
+            parent_name,
+            "interface_conformance",
+            body,
+            sibling_clauses,
+        )),
+        Feature::StructuralInvariants => Some(verify_feature_body(
+            parent_name,
+            "structural_invariant",
+            body,
+            sibling_clauses,
+        )),
+        Feature::ErrorPropagation => Some(verify_feature_body(
+            parent_name,
+            "error_propagation",
+            body,
+            sibling_clauses,
+        )),
         // SEC
         Feature::ConstantTime => Some(verify_constant_time(parent_name)),
         Feature::SecureErasure => Some(verify_secure_erase(parent_name)),
-        Feature::CryptoConformance => Some(verify_crypto_conformance(parent_name)),
+        Feature::CryptoConformance => Some(verify_feature_body(
+            parent_name,
+            "crypto_conformance",
+            body,
+            sibling_clauses,
+        )),
         // CONC
-        Feature::SharedMemory => Some(verify_shared_mem_safety(parent_name)),
-        Feature::CallbackReentrancy => Some(verify_callback_reentrancy(parent_name)),
-        Feature::LockOrdering => Some(verify_lock_order(parent_name)),
+        Feature::SharedMemory => Some(verify_feature_body(
+            parent_name,
+            "shared_mem_safety",
+            body,
+            sibling_clauses,
+        )),
+        Feature::CallbackReentrancy => Some(verify_feature_body(
+            parent_name,
+            "callback_reentrancy",
+            body,
+            sibling_clauses,
+        )),
+        Feature::LockOrdering => Some(verify_feature_body(
+            parent_name,
+            "lock_order",
+            body,
+            sibling_clauses,
+        )),
         // STOR
-        Feature::CrashRecovery => Some(verify_crash_recovery(parent_name)),
-        Feature::PageCache => Some(verify_page_cache(parent_name)),
-        Feature::MvccIsolation => Some(verify_mvcc_isolation(parent_name)),
-        Feature::RollbackSavepoint => Some(verify_rollback_savepoint(parent_name)),
-        Feature::MonotonicState => Some(verify_monotonic_state(parent_name)),
-        Feature::StorageFailure => Some(verify_storage_failure(parent_name)),
+        Feature::CrashRecovery => Some(verify_feature_body(
+            parent_name,
+            "crash_recovery",
+            body,
+            sibling_clauses,
+        )),
+        Feature::PageCache => Some(verify_feature_body(
+            parent_name,
+            "page_cache",
+            body,
+            sibling_clauses,
+        )),
+        Feature::MvccIsolation => Some(verify_feature_body(
+            parent_name,
+            "mvcc_isolation",
+            body,
+            sibling_clauses,
+        )),
+        Feature::RollbackSavepoint => Some(verify_feature_body(
+            parent_name,
+            "rollback_savepoint",
+            body,
+            sibling_clauses,
+        )),
+        Feature::MonotonicState => Some(verify_feature_body(
+            parent_name,
+            "monotonic_state",
+            body,
+            sibling_clauses,
+        )),
+        Feature::StorageFailure => Some(verify_feature_body(
+            parent_name,
+            "storage_failure",
+            body,
+            sibling_clauses,
+        )),
         // FMT
-        Feature::BinaryFormat => Some(verify_binary_format(parent_name)),
-        Feature::BitLevel => Some(verify_bit_level(parent_name)),
-        Feature::StringEncoding => Some(verify_string_encoding(parent_name)),
-        Feature::Checksum => Some(verify_checksum_integrity(parent_name)),
-        Feature::ProtocolGrammar => Some(verify_protocol_grammar(parent_name)),
+        Feature::BinaryFormat => Some(verify_feature_body(
+            parent_name,
+            "binary_format",
+            body,
+            sibling_clauses,
+        )),
+        Feature::BitLevel => Some(verify_feature_body(
+            parent_name,
+            "bit_level",
+            body,
+            sibling_clauses,
+        )),
+        Feature::StringEncoding => Some(verify_feature_body(
+            parent_name,
+            "string_encoding",
+            body,
+            sibling_clauses,
+        )),
+        Feature::Checksum => Some(verify_feature_body(
+            parent_name,
+            "checksum_integrity",
+            body,
+            sibling_clauses,
+        )),
+        Feature::ProtocolGrammar => Some(verify_feature_body(
+            parent_name,
+            "protocol_grammar",
+            body,
+            sibling_clauses,
+        )),
         // NUM
-        Feature::NumericalPrecision => Some(verify_numerical_precision(parent_name)),
-        Feature::PrecomputedTable => Some(verify_precomputed_table(parent_name)),
+        Feature::NumericalPrecision => Some(verify_feature_body(
+            parent_name,
+            "numerical_precision",
+            body,
+            sibling_clauses,
+        )),
+        Feature::PrecomputedTable => Some(verify_feature_body(
+            parent_name,
+            "precomputed_table",
+            body,
+            sibling_clauses,
+        )),
         // PLAT
         Feature::PlatformAbstraction => Some(verify_platform_abstraction(parent_name)),
         Feature::FeatureFlag => Some(verify_feature_flag(parent_name)),
-        Feature::ResourceLimit => Some(verify_resource_limit(parent_name)),
+        Feature::ResourceLimit => Some(verify_feature_body(
+            parent_name,
+            "resource_limit",
+            body,
+            sibling_clauses,
+        )),
         // PERF
         Feature::UnsafeEscape => Some(verify_unsafe_escape(parent_name)),
-        Feature::ComplexityBound => Some(verify_complexity_bound(parent_name)),
+        Feature::ComplexityBound => Some(verify_feature_body(
+            parent_name,
+            "complexity_bound",
+            body,
+            sibling_clauses,
+        )),
         // TEST
         Feature::TestGenCoverage => Some(verify_test_gen_coverage(parent_name)),
-        Feature::BehavioralEquiv => Some(verify_behavioral_equiv(parent_name)),
-        Feature::MultiPassRefinement => Some(verify_multi_pass_refinement(parent_name)),
+        Feature::BehavioralEquiv => Some(verify_feature_body(
+            parent_name,
+            "behavioral_equiv",
+            body,
+            sibling_clauses,
+        )),
+        Feature::MultiPassRefinement => Some(verify_feature_body(
+            parent_name,
+            "multi_pass_refinement",
+            body,
+            sibling_clauses,
+        )),
         // MISC
         Feature::IncrementalContract => Some(verify_incremental_contract(parent_name)),
-        Feature::ScopedInvariant => Some(verify_scoped_invariant(parent_name)),
+        Feature::ScopedInvariant => Some(verify_feature_body(
+            parent_name,
+            "scoped_invariant",
+            body,
+            sibling_clauses,
+        )),
         // Features without SMT verification (type-level or compile-time only)
         Feature::GhostErasure
         | Feature::LemmaErasure
@@ -345,40 +572,98 @@ mod tests {
         // Every clause kind in the Feature registry should be accepted
         // by verify_feature_clause (either returning Some or None based
         // on whether SMT verification applies).
+        use assura_parser::ast::Literal;
         use assura_parser::features::Feature;
+        let dummy_body = Expr::Literal(Literal::Bool(true));
+        let dummy_clauses: &[Clause] = &[];
         for info in Feature::all() {
             for kind in info.clause_kinds {
                 // from_clause_kind must resolve; verify_feature_clause
                 // handles the feature (Some) or explicitly returns None
                 // for non-SMT features.
-                let _ = verify_feature_clause(kind, "test");
+                let _ = verify_feature_clause(kind, "test", &dummy_body, dummy_clauses);
             }
         }
     }
 
     #[test]
     fn unknown_feature_returns_none() {
-        assert!(verify_feature_clause("nonexistent_feature", "test").is_none());
+        use assura_parser::ast::Literal;
+        let dummy_body = Expr::Literal(Literal::Bool(true));
+        let dummy_clauses: &[Clause] = &[];
+        assert!(
+            verify_feature_clause("nonexistent_feature", "test", &dummy_body, dummy_clauses)
+                .is_none()
+        );
     }
 
     #[test]
-    fn all_results_contain_feature_identifier() {
-        // Verify that each result's clause_desc contains a recognizable identifier
-        let VerificationResult::Unknown { clause_desc, .. } = verify_allocator_invariant("test")
-        else {
-            panic!("expected Unknown for allocator invariant");
-        };
-        assert!(clause_desc.contains("allocator"));
+    fn feature_body_verified_with_tautology() {
+        // A feature clause with body `true` should be verified (not Unknown).
+        use assura_parser::ast::Literal;
+        let body = Expr::Literal(Literal::Bool(true));
+        let clauses: &[Clause] = &[];
+        let result =
+            verify_feature_clause("allocator", "test_fn", &body, clauses).expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "tautology body should verify, got: {result:?}"
+        );
+    }
 
-        let VerificationResult::Unknown { clause_desc, .. } = verify_crash_recovery("test") else {
-            panic!("expected Unknown for crash recovery");
-        };
-        assert!(clause_desc.contains("crash_recovery"));
+    #[test]
+    fn feature_body_counterexample_with_contradiction() {
+        // A feature clause with body `false` should produce a counterexample.
+        use assura_parser::ast::Literal;
+        let body = Expr::Literal(Literal::Bool(false));
+        let clauses: &[Clause] = &[];
+        let result =
+            verify_feature_clause("monotonic", "test_fn", &body, clauses).expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Counterexample { .. }),
+            "contradiction body should produce counterexample, got: {result:?}"
+        );
+    }
 
-        let VerificationResult::Unknown { clause_desc, .. } = verify_shared_mem_safety("test")
-        else {
-            panic!("expected Unknown for shared mem safety");
+    #[test]
+    fn feature_body_with_requires_assumption() {
+        // Body: x > 0, Requires: x >= 1
+        // Under the requires, x > 0 should be verified.
+        use assura_parser::ast::{BinOp, Literal};
+        let body = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("x".into())),
+            op: BinOp::Gt,
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
         };
-        assert!(clause_desc.contains("shared_mem"));
+        let requires_body = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("x".into())),
+            op: BinOp::Gte,
+            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        };
+        let clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: requires_body,
+            effect_variables: vec![],
+        }];
+        let result = verify_feature_clause("resource_limit", "test_fn", &body, &clauses)
+            .expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "x > 0 under requires x >= 1 should verify, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn stub_functions_still_return_unknown() {
+        // Stubs that remain (constant_time, secure_erase, etc.) still return Unknown
+        let VerificationResult::Unknown { clause_desc, .. } = verify_constant_time("test") else {
+            panic!("expected Unknown for constant_time");
+        };
+        assert!(clause_desc.contains("constant_time"));
+
+        let VerificationResult::Unknown { clause_desc, .. } = verify_secure_erase("test") else {
+            panic!("expected Unknown for secure_erase");
+        };
+        assert!(clause_desc.contains("secure_erase"));
     }
 }

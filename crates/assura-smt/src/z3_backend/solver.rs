@@ -74,7 +74,7 @@ pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
 
 /// Interpret solver result for a validity check (ensures/rule).
 /// We negate the goal and check-sat: UNSAT = valid.
-pub(super) fn check_validity(solver: &Solver, desc: String, results: &mut Vec<VerificationResult>) {
+pub(crate) fn check_validity(solver: &Solver, desc: String, results: &mut Vec<VerificationResult>) {
     match solver.check() {
         SatResult::Unsat => {
             results.push(VerificationResult::Verified { clause_desc: desc });

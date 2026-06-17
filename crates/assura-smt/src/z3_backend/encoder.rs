@@ -42,7 +42,7 @@ pub(super) enum RawOp {
 
 impl Z3Value {
     /// Extract as Bool. If Int, create `!= 0` comparison.
-    pub(super) fn as_bool(&self) -> ast::Bool {
+    pub(crate) fn as_bool(&self) -> ast::Bool {
         match self {
             Z3Value::Bool(b) => b.clone(),
             Z3Value::Int(i) => i.eq(ast::Int::from_i64(0)).not(),
@@ -1805,7 +1805,7 @@ impl Encoder {
 /// encoder cannot faithfully represent (field-access chains on `self`,
 /// typestate annotations, taint annotations, validate blocks, region
 /// types, etc.).
-pub(super) fn expr_has_unmodelable_features(expr: &Expr) -> bool {
+pub(crate) fn expr_has_unmodelable_features(expr: &Expr) -> bool {
     match expr {
         // Field access: `obj.field` is encoded as `__field_X(obj)`, an
         // uninterpreted function. This is sound only for known fields

@@ -4,7 +4,7 @@
 
 pub(crate) mod encoder;
 mod features;
-mod solver;
+pub(crate) mod solver;
 #[cfg(not(test))]
 mod verify;
 #[cfg(test)]
