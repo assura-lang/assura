@@ -1349,4 +1349,264 @@ contract SafeDivide {
         format_expr(&expr, &mut out);
         assert_eq!(out, "arr[0]");
     }
+
+    // ----- Expression coverage: cast, ghost, apply, let, match, tuple -----
+
+    #[test]
+    fn test_format_cast_expr() {
+        let mut out = String::new();
+        let expr = Expr::Cast {
+            expr: Box::new(Expr::Ident("x".to_string())),
+            ty: "Int".to_string(),
+        };
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "x as Int");
+    }
+
+    #[test]
+    fn test_format_ghost_expr() {
+        let mut out = String::new();
+        let expr = Expr::Ghost(Box::new(Expr::Literal(Literal::Bool(true))));
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "ghost { true }");
+    }
+
+    #[test]
+    fn test_format_apply_expr() {
+        let mut out = String::new();
+        let expr = Expr::Apply {
+            lemma_name: "div_pos".to_string(),
+            args: vec![Expr::Ident("a".to_string()), Expr::Ident("b".to_string())],
+        };
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "apply div_pos(a, b)");
+    }
+
+    #[test]
+    fn test_format_let_expr() {
+        let mut out = String::new();
+        let expr = Expr::Let {
+            name: "tmp".to_string(),
+            value: Box::new(Expr::Literal(Literal::Int("5".into()))),
+            body: Box::new(Expr::Ident("tmp".to_string())),
+        };
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "let tmp = 5 in tmp");
+    }
+
+    #[test]
+    fn test_format_match_expr() {
+        use assura_parser::ast::MatchArm;
+        let mut out = String::new();
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("x".to_string())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Constructor {
+                        name: "Some".to_string(),
+                        fields: vec![Pattern::Ident("v".to_string())],
+                    },
+                    body: Expr::Ident("v".to_string()),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: Expr::Literal(Literal::Int("0".into())),
+                },
+            ],
+        };
+        format_expr(&expr, &mut out);
+        assert!(out.contains("match x"), "got: {out}");
+        assert!(out.contains("Some(v) => v"), "got: {out}");
+        assert!(out.contains("_ => 0"), "got: {out}");
+    }
+
+    #[test]
+    fn test_format_tuple_expr() {
+        let mut out = String::new();
+        let expr = Expr::Tuple(vec![
+            Expr::Ident("a".to_string()),
+            Expr::Literal(Literal::Int("1".into())),
+        ]);
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "(a, 1)");
+    }
+
+    #[test]
+    fn test_format_block_expr() {
+        let mut out = String::new();
+        let expr = Expr::Block(vec![
+            Expr::Ident("a".to_string()),
+            Expr::Ident("b".to_string()),
+        ]);
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "a b");
+    }
+
+    #[test]
+    fn test_format_method_call_expr() {
+        let mut out = String::new();
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("vec".to_string())),
+            method: "push".to_string(),
+            args: vec![Expr::Literal(Literal::Int("42".into()))],
+        };
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "vec.push(42)");
+    }
+
+    #[test]
+    fn test_format_call_expr() {
+        let mut out = String::new();
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("max".to_string())),
+            args: vec![Expr::Ident("a".to_string()), Expr::Ident("b".to_string())],
+        };
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "max(a, b)");
+    }
+
+    #[test]
+    fn test_format_old_expr_direct() {
+        let mut out = String::new();
+        let expr = Expr::Old(Box::new(Expr::Ident("counter".to_string())));
+        format_expr(&expr, &mut out);
+        assert_eq!(out, "old(counter)");
+    }
+
+    // ----- Pattern coverage: tuple and literal -----
+
+    #[test]
+    fn test_format_pattern_tuple() {
+        let mut out = String::new();
+        format_pattern(
+            &Pattern::Tuple(vec![Pattern::Ident("a".to_string()), Pattern::Wildcard]),
+            &mut out,
+        );
+        assert_eq!(out, "(a, _)");
+    }
+
+    #[test]
+    fn test_format_pattern_literal() {
+        let mut out = String::new();
+        format_pattern(&Pattern::Literal(Literal::Int("42".into())), &mut out);
+        assert_eq!(out, "42");
+    }
+
+    // ----- is_braced_kind coverage -----
+
+    #[test]
+    fn test_is_braced_kind() {
+        assert!(is_braced_kind(&ClauseKind::Requires));
+        assert!(is_braced_kind(&ClauseKind::Ensures));
+        assert!(is_braced_kind(&ClauseKind::Invariant));
+        assert!(is_braced_kind(&ClauseKind::Decreases));
+        assert!(is_braced_kind(&ClauseKind::Rule));
+        assert!(is_braced_kind(&ClauseKind::MustNot));
+        assert!(is_braced_kind(&ClauseKind::Effects));
+        assert!(is_braced_kind(&ClauseKind::Modifies));
+        // Non-braced kinds
+        assert!(!is_braced_kind(&ClauseKind::Input));
+        assert!(!is_braced_kind(&ClauseKind::Output));
+        assert!(!is_braced_kind(&ClauseKind::Errors));
+        assert!(!is_braced_kind(&ClauseKind::Ordering));
+        assert!(!is_braced_kind(&ClauseKind::Other("custom".into())));
+    }
+
+    // ----- Prophecy and FnDef coverage -----
+
+    #[test]
+    fn test_format_prophecy() {
+        let src = "prophecy future_val: Int\ncontract X { requires { true } }";
+        let out = parse_and_format(src);
+        assert!(out.contains("prophecy"), "got: {out}");
+        assert!(out.contains("future_val"), "got: {out}");
+    }
+
+    #[test]
+    fn test_format_ghost_fn() {
+        let src = "ghost fn helper(x: Int) -> Bool\n    requires { x >= 0 }\n";
+        let out = parse_and_format(src);
+        assert!(out.contains("ghost fn helper"), "got: {out}");
+    }
+
+    #[test]
+    fn test_format_lemma_fn_direct() {
+        // Test the formatter's handling of is_lemma flag directly
+        use assura_parser::ast::FnDef;
+        let f = FnDef {
+            name: "div_pos".to_string(),
+            is_ghost: false,
+            is_lemma: true,
+            params: vec![],
+            return_ty: vec!["Bool".to_string()],
+            return_type_expr: None,
+            clauses: vec![],
+        };
+        let mut out = String::new();
+        format_fndef(&f, &mut out);
+        assert!(out.contains("lemma fn div_pos"), "got: {out}");
+        assert!(out.contains("-> Bool"), "got: {out}");
+    }
+
+    // ----- Idempotency: more complex features -----
+
+    #[test]
+    fn test_idempotent_contract_with_all_clauses() {
+        assert_idempotent(
+            r#"
+contract Full {
+    input(x: Int, y: Int)
+    output(result: Int)
+    requires { x > 0 }
+    ensures { result > 0 }
+    invariant { x >= 0 }
+    effects { io }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn test_idempotent_fn_with_effects() {
+        assert_idempotent("fn read_data(path: String) -> Bytes\n    effects { io }\n");
+    }
+
+    // ----- join_raw_tokens edge cases -----
+
+    #[test]
+    fn test_join_raw_tokens_multiple_dots() {
+        let tokens: Vec<String> = vec![
+            "std".into(),
+            ".".into(),
+            "collections".into(),
+            ".".into(),
+            "HashMap".into(),
+        ];
+        assert_eq!(join_raw_tokens(&tokens), "std.collections.HashMap");
+    }
+
+    #[test]
+    fn test_join_raw_tokens_single_token() {
+        let tokens: Vec<String> = vec!["hello".into()];
+        assert_eq!(join_raw_tokens(&tokens), "hello");
+    }
+
+    // ----- Service with invariant and other items -----
+
+    #[test]
+    fn test_format_service_with_invariant() {
+        let src = r#"
+service Counter {
+    states: Zero -> Positive
+
+    invariant { count >= 0 }
+
+    operation increment {
+        ensures { count > 0 }
+    }
+}
+"#;
+        let out = parse_and_format(src);
+        assert!(out.contains("invariant"), "got: {out}");
+    }
 }

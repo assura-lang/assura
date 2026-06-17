@@ -2698,3 +2698,941 @@ fn test_demo_codegen_warning_free() {
         );
     }
 }
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: is_numeric_expr
+// -----------------------------------------------------------------------
+
+#[test]
+fn is_numeric_ident() {
+    assert!(is_numeric_expr(&Expr::Ident("x".into())));
+}
+
+#[test]
+fn is_numeric_int_literal() {
+    assert!(is_numeric_expr(&Expr::Literal(Literal::Int("42".into()))));
+}
+
+#[test]
+fn is_numeric_float_literal() {
+    assert!(is_numeric_expr(&Expr::Literal(Literal::Float(
+        "3.14".into()
+    ))));
+}
+
+#[test]
+fn is_numeric_str_literal_false() {
+    assert!(!is_numeric_expr(&Expr::Literal(Literal::Str(
+        "hello".into()
+    ))));
+}
+
+#[test]
+fn is_numeric_bool_literal_false() {
+    assert!(!is_numeric_expr(&Expr::Literal(Literal::Bool(true))));
+}
+
+#[test]
+fn is_numeric_field_access() {
+    assert!(is_numeric_expr(&Expr::Field(
+        Box::new(Expr::Ident("obj".into())),
+        "count".into()
+    )));
+}
+
+#[test]
+fn is_numeric_arithmetic_binop() {
+    assert!(is_numeric_expr(&Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Add,
+        rhs: Box::new(Expr::Ident("b".into())),
+    }));
+    assert!(is_numeric_expr(&Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Mod,
+        rhs: Box::new(Expr::Ident("b".into())),
+    }));
+}
+
+#[test]
+fn is_numeric_logical_binop_false() {
+    assert!(!is_numeric_expr(&Expr::BinOp {
+        lhs: Box::new(Expr::Literal(Literal::Bool(true))),
+        op: BinOp::And,
+        rhs: Box::new(Expr::Literal(Literal::Bool(false))),
+    }));
+}
+
+#[test]
+fn is_numeric_negation() {
+    assert!(is_numeric_expr(&Expr::UnaryOp {
+        op: UnaryOp::Neg,
+        expr: Box::new(Expr::Ident("x".into())),
+    }));
+}
+
+#[test]
+fn is_numeric_not_false() {
+    assert!(!is_numeric_expr(&Expr::UnaryOp {
+        op: UnaryOp::Not,
+        expr: Box::new(Expr::Literal(Literal::Bool(true))),
+    }));
+}
+
+#[test]
+fn is_numeric_paren_delegates() {
+    assert!(is_numeric_expr(&Expr::Paren(Box::new(Expr::Ident(
+        "x".into()
+    )))));
+}
+
+#[test]
+fn is_numeric_old_delegates() {
+    assert!(is_numeric_expr(&Expr::Old(Box::new(Expr::Ident(
+        "x".into()
+    )))));
+}
+
+#[test]
+fn is_numeric_call() {
+    assert!(is_numeric_expr(&Expr::Call {
+        func: Box::new(Expr::Ident("foo".into())),
+        args: vec![],
+    }));
+}
+
+#[test]
+fn is_numeric_index() {
+    assert!(is_numeric_expr(&Expr::Index {
+        expr: Box::new(Expr::Ident("arr".into())),
+        index: Box::new(Expr::Literal(Literal::Int("0".into()))),
+    }));
+}
+
+#[test]
+fn is_numeric_forall_false() {
+    assert!(!is_numeric_expr(&Expr::Forall {
+        var: "x".into(),
+        domain: Box::new(Expr::Ident("items".into())),
+        body: Box::new(Expr::Literal(Literal::Bool(true))),
+    }));
+}
+
+#[test]
+fn is_numeric_list_false() {
+    assert!(!is_numeric_expr(&Expr::List(vec![])));
+}
+
+#[test]
+fn is_numeric_let_delegates() {
+    assert!(is_numeric_expr(&Expr::Let {
+        name: "x".into(),
+        value: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        body: Box::new(Expr::Ident("x".into())),
+    }));
+}
+
+#[test]
+fn is_numeric_if_delegates_to_then() {
+    assert!(is_numeric_expr(&Expr::If {
+        cond: Box::new(Expr::Literal(Literal::Bool(true))),
+        then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        else_branch: None,
+    }));
+}
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: expr_to_rust
+// -----------------------------------------------------------------------
+
+#[test]
+fn expr_to_rust_int_literal() {
+    let e = Expr::Literal(Literal::Int("42".into()));
+    assert_eq!(expr_to_rust(&e), "42");
+}
+
+#[test]
+fn expr_to_rust_str_literal() {
+    let e = Expr::Literal(Literal::Str("hello".into()));
+    assert_eq!(expr_to_rust(&e), "\"hello\"");
+}
+
+#[test]
+fn expr_to_rust_bool_literal() {
+    assert_eq!(expr_to_rust(&Expr::Literal(Literal::Bool(true))), "true");
+    assert_eq!(expr_to_rust(&Expr::Literal(Literal::Bool(false))), "false");
+}
+
+#[test]
+fn expr_to_rust_result_keyword() {
+    let e = Expr::Ident("result".into());
+    assert_eq!(expr_to_rust(&e), "__result");
+}
+
+#[test]
+fn expr_to_rust_normal_ident() {
+    let e = Expr::Ident("foo".into());
+    assert_eq!(expr_to_rust(&e), "foo");
+}
+
+#[test]
+fn expr_to_rust_field_access() {
+    let e = Expr::Field(Box::new(Expr::Ident("obj".into())), "len".into());
+    assert_eq!(expr_to_rust(&e), "obj.len");
+}
+
+#[test]
+fn expr_to_rust_method_call() {
+    let e = Expr::MethodCall {
+        receiver: Box::new(Expr::Ident("v".into())),
+        method: "push".into(),
+        args: vec![Expr::Literal(Literal::Int("1".into()))],
+    };
+    assert_eq!(expr_to_rust(&e), "v.push(1)");
+}
+
+#[test]
+fn expr_to_rust_function_call() {
+    let e = Expr::Call {
+        func: Box::new(Expr::Ident("f".into())),
+        args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
+    };
+    assert_eq!(expr_to_rust(&e), "f(a, b)");
+}
+
+#[test]
+fn expr_to_rust_index() {
+    let e = Expr::Index {
+        expr: Box::new(Expr::Ident("arr".into())),
+        index: Box::new(Expr::Literal(Literal::Int("0".into()))),
+    };
+    assert_eq!(expr_to_rust(&e), "arr[0]");
+}
+
+#[test]
+fn expr_to_rust_arithmetic() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Add,
+        rhs: Box::new(Expr::Ident("b".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "(a + b)");
+}
+
+#[test]
+fn expr_to_rust_implies() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("p".into())),
+        op: BinOp::Implies,
+        rhs: Box::new(Expr::Ident("q".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "(!p || q)");
+}
+
+#[test]
+fn expr_to_rust_in_operator() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("x".into())),
+        op: BinOp::In,
+        rhs: Box::new(Expr::Ident("set".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "set.contains(&x)");
+}
+
+#[test]
+fn expr_to_rust_not_in_operator() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("x".into())),
+        op: BinOp::NotIn,
+        rhs: Box::new(Expr::Ident("set".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "!set.contains(&x)");
+}
+
+#[test]
+fn expr_to_rust_concat() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Concat,
+        rhs: Box::new(Expr::Ident("b".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "[a, b].concat()");
+}
+
+#[test]
+fn expr_to_rust_numeric_comparison_casts() {
+    // Ordering comparisons on numeric exprs get i128::from() casts
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Lt,
+        rhs: Box::new(Expr::Ident("b".into())),
+    };
+    let result = expr_to_rust(&e);
+    assert!(result.contains("i128::from(a)"), "got: {result}");
+    assert!(result.contains("i128::from(b)"), "got: {result}");
+}
+
+#[test]
+fn expr_to_rust_equality_no_cast() {
+    // Equality doesn't get i128 casts
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Eq,
+        rhs: Box::new(Expr::Ident("b".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "(a == b)");
+}
+
+#[test]
+fn expr_to_rust_unary_neg() {
+    let e = Expr::UnaryOp {
+        op: UnaryOp::Neg,
+        expr: Box::new(Expr::Ident("x".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "(-x)");
+}
+
+#[test]
+fn expr_to_rust_unary_not() {
+    let e = Expr::UnaryOp {
+        op: UnaryOp::Not,
+        expr: Box::new(Expr::Literal(Literal::Bool(true))),
+    };
+    assert_eq!(expr_to_rust(&e), "(!true)");
+}
+
+#[test]
+fn expr_to_rust_old() {
+    let e = Expr::Old(Box::new(Expr::Ident("x".into())));
+    assert_eq!(expr_to_rust(&e), "__old_x");
+}
+
+#[test]
+fn expr_to_rust_forall() {
+    let e = Expr::Forall {
+        var: "x".into(),
+        domain: Box::new(Expr::Ident("items".into())),
+        body: Box::new(Expr::BinOp {
+            lhs: Box::new(Expr::Ident("x".into())),
+            op: BinOp::Gt,
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        }),
+    };
+    let result = expr_to_rust(&e);
+    assert!(result.contains(".iter().all(|x|"), "got: {result}");
+}
+
+#[test]
+fn expr_to_rust_exists() {
+    let e = Expr::Exists {
+        var: "x".into(),
+        domain: Box::new(Expr::Ident("items".into())),
+        body: Box::new(Expr::BinOp {
+            lhs: Box::new(Expr::Ident("x".into())),
+            op: BinOp::Eq,
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        }),
+    };
+    let result = expr_to_rust(&e);
+    assert!(result.contains(".iter().any(|x|"), "got: {result}");
+}
+
+#[test]
+fn expr_to_rust_if_else() {
+    let e = Expr::If {
+        cond: Box::new(Expr::Ident("cond".into())),
+        then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        else_branch: Some(Box::new(Expr::Literal(Literal::Int("2".into())))),
+    };
+    let result = expr_to_rust(&e);
+    assert!(result.contains("if cond"), "got: {result}");
+    assert!(result.contains("else"), "got: {result}");
+}
+
+#[test]
+fn expr_to_rust_if_no_else() {
+    let e = Expr::If {
+        cond: Box::new(Expr::Ident("cond".into())),
+        then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        else_branch: None,
+    };
+    let result = expr_to_rust(&e);
+    assert!(result.contains("if cond"), "got: {result}");
+    assert!(!result.contains("else"), "got: {result}");
+}
+
+#[test]
+fn expr_to_rust_paren() {
+    let e = Expr::Paren(Box::new(Expr::Ident("x".into())));
+    assert_eq!(expr_to_rust(&e), "(x)");
+}
+
+#[test]
+fn expr_to_rust_list() {
+    let e = Expr::List(vec![
+        Expr::Literal(Literal::Int("1".into())),
+        Expr::Literal(Literal::Int("2".into())),
+    ]);
+    assert_eq!(expr_to_rust(&e), "vec![1, 2]");
+}
+
+#[test]
+fn expr_to_rust_cast() {
+    let e = Expr::Cast {
+        expr: Box::new(Expr::Ident("x".into())),
+        ty: "Int".into(),
+    };
+    let result = expr_to_rust(&e);
+    assert!(result.contains("as i64"), "got: {result}");
+}
+
+#[test]
+fn expr_to_rust_let_binding() {
+    let e = Expr::Let {
+        name: "x".into(),
+        value: Box::new(Expr::Literal(Literal::Int("5".into()))),
+        body: Box::new(Expr::Ident("x".into())),
+    };
+    assert_eq!(expr_to_rust(&e), "{ let x = 5; x }");
+}
+
+#[test]
+fn expr_to_rust_tuple() {
+    let e = Expr::Tuple(vec![Expr::Ident("a".into()), Expr::Ident("b".into())]);
+    assert_eq!(expr_to_rust(&e), "(a, b)");
+}
+
+#[test]
+fn expr_to_rust_range() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        op: BinOp::Range,
+        rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+    };
+    assert_eq!(expr_to_rust(&e), "(0 .. 10)");
+}
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: old_var_name
+// -----------------------------------------------------------------------
+
+#[test]
+fn old_var_name_ident() {
+    assert_eq!(old_var_name(&Expr::Ident("x".into())), "x");
+}
+
+#[test]
+fn old_var_name_field() {
+    let e = Expr::Field(Box::new(Expr::Ident("buf".into())), "len".into());
+    assert_eq!(old_var_name(&e), "buf_len");
+}
+
+#[test]
+fn old_var_name_call() {
+    let e = Expr::Call {
+        func: Box::new(Expr::Ident("size".into())),
+        args: vec![],
+    };
+    assert_eq!(old_var_name(&e), "size");
+}
+
+#[test]
+fn old_var_name_method_call() {
+    let e = Expr::MethodCall {
+        receiver: Box::new(Expr::Ident("v".into())),
+        method: "len".into(),
+        args: vec![],
+    };
+    assert_eq!(old_var_name(&e), "v_len");
+}
+
+#[test]
+fn old_var_name_index() {
+    let e = Expr::Index {
+        expr: Box::new(Expr::Ident("arr".into())),
+        index: Box::new(Expr::Literal(Literal::Int("0".into()))),
+    };
+    assert_eq!(old_var_name(&e), "arr_idx");
+}
+
+#[test]
+fn old_var_name_binop() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Ident("a".into())),
+        op: BinOp::Add,
+        rhs: Box::new(Expr::Ident("b".into())),
+    };
+    assert_eq!(old_var_name(&e), "a_add_b");
+}
+
+#[test]
+fn old_var_name_unary() {
+    let e = Expr::UnaryOp {
+        op: UnaryOp::Neg,
+        expr: Box::new(Expr::Ident("x".into())),
+    };
+    assert_eq!(old_var_name(&e), "neg_x");
+}
+
+#[test]
+fn old_var_name_literal() {
+    assert_eq!(
+        old_var_name(&Expr::Literal(Literal::Int("42".into()))),
+        "lit_42"
+    );
+    assert_eq!(
+        old_var_name(&Expr::Literal(Literal::Bool(true))),
+        "lit_true"
+    );
+}
+
+#[test]
+fn old_var_name_paren_delegates() {
+    let e = Expr::Paren(Box::new(Expr::Ident("y".into())));
+    assert_eq!(old_var_name(&e), "y");
+}
+
+#[test]
+fn old_var_name_old_delegates() {
+    let e = Expr::Old(Box::new(Expr::Ident("z".into())));
+    assert_eq!(old_var_name(&e), "z");
+}
+
+#[test]
+fn old_var_name_ghost() {
+    let e = Expr::Ghost(Box::new(Expr::Ident("g".into())));
+    assert_eq!(old_var_name(&e), "ghost_g");
+}
+
+#[test]
+fn old_var_name_list_tuple() {
+    assert_eq!(old_var_name(&Expr::List(vec![])), "list");
+    assert_eq!(old_var_name(&Expr::Tuple(vec![])), "tuple");
+}
+
+#[test]
+fn old_var_name_raw_tokens() {
+    let e = Expr::Raw(vec!["tok".into()]);
+    assert_eq!(old_var_name(&e), "tok");
+    let e2 = Expr::Raw(vec![]);
+    assert_eq!(old_var_name(&e2), "raw");
+}
+
+#[test]
+fn old_var_name_block() {
+    let e = Expr::Block(vec![Expr::Ident("first".into())]);
+    assert_eq!(old_var_name(&e), "first");
+    let e2 = Expr::Block(vec![]);
+    assert_eq!(old_var_name(&e2), "block");
+}
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: has_deep_field_access
+// -----------------------------------------------------------------------
+
+#[test]
+fn deep_field_access_simple_var() {
+    assert!(!has_deep_field_access("x"));
+}
+
+#[test]
+fn deep_field_access_method_chain() {
+    assert!(!has_deep_field_access("items.iter().all()"));
+}
+
+#[test]
+fn deep_field_access_struct_field() {
+    assert!(has_deep_field_access("state.head"));
+}
+
+#[test]
+fn deep_field_access_nested_field() {
+    assert!(has_deep_field_access("state.head.extra.max"));
+}
+
+#[test]
+fn deep_field_access_result_field() {
+    assert!(has_deep_field_access("__result.value"));
+}
+
+#[test]
+fn deep_field_access_result_method_ok() {
+    assert!(!has_deep_field_access("__result.len()"));
+}
+
+#[test]
+fn deep_field_access_mixed_method_and_field() {
+    assert!(has_deep_field_access("data.header"));
+}
+
+#[test]
+fn deep_field_access_no_dots() {
+    assert!(!has_deep_field_access("simple_var + 1"));
+}
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: generate_debug_assert
+// -----------------------------------------------------------------------
+
+#[test]
+fn debug_assert_simple() {
+    let mut code = String::new();
+    generate_debug_assert(&mut code, "x > 0", "requires");
+    assert!(code.contains("debug_assert!(x > 0"), "got: {code}");
+    assert!(code.contains("requires:"), "got: {code}");
+}
+
+#[test]
+fn debug_assert_multiline() {
+    let mut code = String::new();
+    generate_debug_assert(&mut code, "match x {\n  1 => true\n}", "ensures");
+    // Multi-line should use block wrapper
+    assert!(code.contains("debug_assert!({"), "got: {code}");
+}
+
+#[test]
+fn debug_assert_deep_field_becomes_comment() {
+    let mut code = String::new();
+    generate_debug_assert(&mut code, "state.head.extra > 0", "invariant");
+    assert!(
+        code.starts_with("    //"),
+        "deep field should be comment: {code}"
+    );
+    assert!(!code.contains("debug_assert!"), "got: {code}");
+}
+
+#[test]
+fn debug_assert_indented() {
+    let mut code = String::new();
+    generate_debug_assert_indented(&mut code, "x > 0", "requires", 2);
+    assert!(code.starts_with("        debug_assert!"), "got: {code}");
+}
+
+#[test]
+fn debug_assert_indented_deep_field_comment() {
+    let mut code = String::new();
+    generate_debug_assert_indented(&mut code, "a.b.c > 0", "inv", 3);
+    assert!(code.starts_with("            //"), "got: {code}");
+}
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: collect_old_exprs
+// -----------------------------------------------------------------------
+
+#[test]
+fn collect_old_exprs_none() {
+    let e = Expr::Ident("x".into());
+    assert!(collect_old_exprs(&e).is_empty());
+}
+
+#[test]
+fn collect_old_exprs_single() {
+    let e = Expr::Old(Box::new(Expr::Ident("x".into())));
+    let result = collect_old_exprs(&e);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].0, "x");
+    assert_eq!(result[0].1, "x");
+}
+
+#[test]
+fn collect_old_exprs_in_binop() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("a".into())))),
+        op: BinOp::Lt,
+        rhs: Box::new(Expr::Ident("b".into())),
+    };
+    let result = collect_old_exprs(&e);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].0, "a");
+}
+
+#[test]
+fn collect_old_exprs_deduplicates() {
+    // old(x) + old(x) should produce only one entry
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
+        op: BinOp::Add,
+        rhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
+    };
+    let result = collect_old_exprs(&e);
+    assert_eq!(result.len(), 1);
+}
+
+#[test]
+fn collect_old_exprs_multiple_different() {
+    let e = Expr::BinOp {
+        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
+        op: BinOp::Add,
+        rhs: Box::new(Expr::Old(Box::new(Expr::Ident("y".into())))),
+    };
+    let result = collect_old_exprs(&e);
+    assert_eq!(result.len(), 2);
+}
+
+#[test]
+fn collect_old_exprs_in_if() {
+    let e = Expr::If {
+        cond: Box::new(Expr::Literal(Literal::Bool(true))),
+        then_branch: Box::new(Expr::Old(Box::new(Expr::Ident("a".into())))),
+        else_branch: Some(Box::new(Expr::Old(Box::new(Expr::Ident("b".into()))))),
+    };
+    let result = collect_old_exprs(&e);
+    assert_eq!(result.len(), 2);
+}
+
+#[test]
+fn collect_old_exprs_in_list() {
+    let e = Expr::List(vec![
+        Expr::Old(Box::new(Expr::Ident("x".into()))),
+        Expr::Ident("y".into()),
+    ]);
+    let result = collect_old_exprs(&e);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].0, "x");
+}
+
+#[test]
+fn collect_old_exprs_in_let() {
+    let e = Expr::Let {
+        name: "tmp".into(),
+        value: Box::new(Expr::Old(Box::new(Expr::Ident("v".into())))),
+        body: Box::new(Expr::Ident("tmp".into())),
+    };
+    let result = collect_old_exprs(&e);
+    assert_eq!(result.len(), 1);
+}
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: raw_tokens_to_rust
+// -----------------------------------------------------------------------
+
+#[test]
+fn raw_tokens_empty() {
+    assert_eq!(raw_tokens_to_rust(&[]), "");
+}
+
+#[test]
+fn raw_tokens_result_replacement() {
+    let tokens: Vec<String> = vec!["result".into(), ">".into(), "0".into()];
+    let result = raw_tokens_to_rust(&tokens);
+    assert!(result.contains("__result"), "got: {result}");
+}
+
+#[test]
+fn raw_tokens_typestate_annotation() {
+    let tokens: Vec<String> = vec!["conn".into(), "@".into(), "Connected".into()];
+    let result = raw_tokens_to_rust(&tokens);
+    assert!(result.contains("typestate"), "got: {result}");
+    assert!(result.contains("true"), "got: {result}");
+}
+
+// -----------------------------------------------------------------------
+// expr.rs unit tests: match expression codegen
+// -----------------------------------------------------------------------
+
+#[test]
+fn expr_to_rust_match_with_constructor_patterns() {
+    use assura_parser::ast::{MatchArm, Pattern};
+    let e = Expr::Match {
+        scrutinee: Box::new(Expr::Ident("x".into())),
+        arms: vec![
+            MatchArm {
+                pattern: Pattern::Constructor {
+                    name: "Some".into(),
+                    fields: vec![Pattern::Ident("v".into())],
+                },
+                body: Expr::Ident("v".into()),
+            },
+            MatchArm {
+                pattern: Pattern::Wildcard,
+                body: Expr::Literal(Literal::Int("0".into())),
+            },
+        ],
+    };
+    let result = expr_to_rust(&e);
+    assert!(result.contains("match x"), "got: {result}");
+    assert!(result.contains("Some(v) => v"), "got: {result}");
+    assert!(result.contains("_ => 0"), "got: {result}");
+}
+
+#[test]
+fn expr_to_rust_match_adds_wildcard_fallback() {
+    use assura_parser::ast::{MatchArm, Pattern};
+    // Match with only constructor patterns (no wildcard/ident) gets a fallback
+    let e = Expr::Match {
+        scrutinee: Box::new(Expr::Ident("x".into())),
+        arms: vec![MatchArm {
+            pattern: Pattern::Constructor {
+                name: "None".into(),
+                fields: vec![],
+            },
+            body: Expr::Literal(Literal::Int("0".into())),
+        }],
+    };
+    let result = expr_to_rust(&e);
+    assert!(
+        result.contains("_ => unreachable!"),
+        "should add wildcard fallback: {result}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// block.rs unit tests: format_rust
+// -----------------------------------------------------------------------
+
+#[test]
+fn format_rust_valid_code() {
+    let code = "fn main(){let x=1;}";
+    let formatted = format_rust(code);
+    // prettyplease should format it properly
+    assert!(formatted.contains("fn main()"), "got: {formatted}");
+    assert!(!formatted.contains("WARNING"), "got: {formatted}");
+}
+
+#[test]
+fn format_rust_invalid_code_returns_original() {
+    let code = "this is not valid rust @@@ ###";
+    let formatted = format_rust(code);
+    assert!(
+        formatted.contains("WARNING"),
+        "should contain WARNING comment: {formatted}"
+    );
+    assert!(
+        formatted.contains(code),
+        "should preserve original code: {formatted}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// block.rs unit tests: generate_block
+// -----------------------------------------------------------------------
+
+#[test]
+fn generate_block_feature_compile_time_only() {
+    let mut code = String::new();
+    let clauses = vec![Clause {
+        kind: ClauseKind::Other("priority".into()),
+        body: Expr::Literal(Literal::Str("high".into())),
+        effect_variables: vec![],
+    }];
+    generate_block(&BlockKind::Feature, "safety", &clauses, &mut code);
+    assert!(
+        code.contains("compile-time feature flag"),
+        "feature with only Other clauses should be compile-time: {code}"
+    );
+}
+
+#[test]
+fn generate_block_table_smt_verified() {
+    let mut code = String::new();
+    generate_block(&BlockKind::Table, "mappings", &[], &mut code);
+    assert!(
+        code.contains("compile-time verified by SMT"),
+        "table should note SMT verification: {code}"
+    );
+}
+
+#[test]
+fn generate_block_generic_with_ensures() {
+    let mut code = String::new();
+    let clauses = vec![Clause {
+        kind: ClauseKind::Ensures,
+        body: Expr::Literal(Literal::Bool(true)),
+        effect_variables: vec![],
+    }];
+    generate_block(&BlockKind::Feature, "test_feat", &clauses, &mut code);
+    assert!(
+        code.contains("pub mod block_test_feat"),
+        "should generate module: {code}"
+    );
+    assert!(
+        code.contains("debug_assert!(true)"),
+        "should generate assertion: {code}"
+    );
+}
+
+#[test]
+fn generate_block_ordering_clause() {
+    let mut code = String::new();
+    let clauses = vec![Clause {
+        kind: ClauseKind::Ordering,
+        body: Expr::Ident("seq_cst".into()),
+        effect_variables: vec![],
+    }];
+    generate_block(&BlockKind::Feature, "atomic_ops", &clauses, &mut code);
+    assert!(
+        code.contains("Ordering::SeqCst"),
+        "should resolve ordering variant: {code}"
+    );
+}
+
+#[test]
+fn generate_block_must_not_clause() {
+    let mut code = String::new();
+    let clauses = vec![Clause {
+        kind: ClauseKind::MustNot,
+        body: Expr::Literal(Literal::Bool(false)),
+        effect_variables: vec![],
+    }];
+    generate_block(&BlockKind::Feature, "constraint", &clauses, &mut code);
+    assert!(
+        code.contains("debug_assert!(!(false))"),
+        "must_not should negate: {code}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// decl.rs unit tests: generate_bind (via full pipeline)
+// -----------------------------------------------------------------------
+
+#[test]
+fn bind_generates_wrapper_function() {
+    let project = codegen_ok(
+        r#"
+bind "std::cmp::max" as max_val {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { true }
+    ensures { result >= a }
+}
+"#,
+    );
+    let lib = &project.files[0].1;
+    assert!(
+        lib.contains("fn max_val"),
+        "should generate bind wrapper: {lib}"
+    );
+    assert!(
+        lib.contains("debug_assert!"),
+        "should generate contract assertions: {lib}"
+    );
+}
+
+#[test]
+fn extern_generates_unsafe_when_trusted() {
+    let project = codegen_ok(
+        r#"
+extern fn raw_alloc(size: Nat) -> Bytes
+    trust: untrusted
+    requires { size > 0 }
+"#,
+    );
+    let lib = &project.files[0].1;
+    assert!(
+        lib.contains("unsafe fn raw_alloc"),
+        "untrusted extern should be unsafe: {lib}"
+    );
+}
+
+#[test]
+fn fn_def_generates_todo_body() {
+    let project = codegen_ok(
+        r#"
+fn compute(x: Int) -> Int
+    effects: pure
+"#,
+    );
+    let lib = &project.files[0].1;
+    assert!(lib.contains("fn compute"), "should generate fn: {lib}");
+    assert!(lib.contains("todo!"), "fn body should have todo!: {lib}");
+}
