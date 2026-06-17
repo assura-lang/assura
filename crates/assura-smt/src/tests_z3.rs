@@ -2029,3 +2029,153 @@ fn check_total(payload: Nat) -> Int
         ensures_result.unwrap()
     );
 }
+
+// -----------------------------------------------------------------------
+// #188: feature_max refinement narrowing
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_feature_max_narrowing_basic() {
+    // feature_max max_page_size = 4096 should narrow `page_size <= 4096`
+    // A function with a `page_size` param should see the upper bound.
+    let src = r#"
+feature_max max_page_size: Nat = 4096
+
+fn validate_page(page_size: Nat) -> Int
+  requires page_size >= 0
+  ensures page_size <= 4096
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "max_page_size=4096 should narrow page_size <= 4096, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
+
+#[test]
+fn test_feature_max_narrowing_uppercase() {
+    // feature_max MAX_CONTENT_LEN = 16384 should narrow `CONTENT_LEN <= 16384`
+    let src = r#"
+feature_max MAX_CONTENT_LEN: Nat = 16384
+
+fn check_content(CONTENT_LEN: Nat) -> Int
+  requires CONTENT_LEN >= 0
+  ensures CONTENT_LEN <= 16384
+    "#;
+    let results = verify_source(src);
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "MAX_CONTENT_LEN=16384 should narrow CONTENT_LEN <= 16384, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
+
+#[test]
+fn test_feature_max_narrowing_without_narrowing_fails() {
+    // Without narrowing, we can't prove page_size <= 4096 from just
+    // page_size >= 0 (there's no upper bound).
+    // This test verifies the narrowing is actually doing something.
+    //
+    // We use a constant name that does NOT trigger narrowing (no max_ prefix).
+    let src = r#"
+feature_max PAGE_LIMIT: Nat = 4096
+
+fn validate_page(page_size: Nat) -> Int
+  requires page_size >= 0
+  ensures page_size <= 4096
+    "#;
+    let results = verify_source(src);
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    // PAGE_LIMIT has no max_ prefix so no narrowing happens for page_size
+    assert!(
+        matches!(
+            ensures_result.unwrap(),
+            VerificationResult::Counterexample { .. }
+        ),
+        "without narrowing, page_size <= 4096 should produce counterexample, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
+
+#[test]
+fn test_feature_max_narrowing_combined_with_constant() {
+    // feature_max max_buffer: Nat = 1024 binds max_buffer=1024 AND narrows buffer <= 1024
+    let src = r#"
+feature_max max_buffer: Nat = 1024
+
+fn check_buffer(buffer: Nat) -> Int
+  requires buffer >= 0
+  requires buffer + max_buffer <= 2048
+  ensures buffer <= 1024
+    "#;
+    let results = verify_source(src);
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "max_buffer=1024 should narrow buffer <= 1024, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
+
+#[test]
+fn test_feature_max_narrowing_derives_pairs() {
+    // Unit test for the derive_narrowings function itself
+    use crate::z3_backend::verify::derive_narrowings;
+
+    let constants = vec![
+        ("max_page_size".to_string(), 4096),
+        ("MAX_CONTENT_LEN".to_string(), 16384),
+        ("LIMIT".to_string(), 100), // no max_ prefix, no narrowing
+    ];
+    let narrowings = derive_narrowings(&constants);
+
+    // max_page_size -> page_size (already lowercase)
+    assert!(
+        narrowings
+            .iter()
+            .any(|(n, v)| n == "page_size" && *v == 4096),
+        "should derive page_size narrowing"
+    );
+    // MAX_CONTENT_LEN -> CONTENT_LEN (as-is) + content_len (lowercase)
+    assert!(
+        narrowings
+            .iter()
+            .any(|(n, v)| n == "CONTENT_LEN" && *v == 16384),
+        "should derive CONTENT_LEN narrowing"
+    );
+    assert!(
+        narrowings
+            .iter()
+            .any(|(n, v)| n == "content_len" && *v == 16384),
+        "should derive content_len lowercase narrowing"
+    );
+    // LIMIT has no max_ prefix, should not produce narrowing
+    assert!(
+        !narrowings.iter().any(|(n, _)| n == "IMIT" || n == "imit"),
+        "LIMIT should not produce narrowing"
+    );
+}

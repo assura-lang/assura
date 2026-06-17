@@ -25,6 +25,10 @@ struct TypeConstraints<'a> {
     /// Named constants (from `feature_max` declarations) to bind in Z3
     /// instead of leaving as free variables.
     constants: &'a [(String, i64)],
+    /// Refinement narrowing pairs from `feature_max` declarations.
+    /// `feature_max max_X: Nat = V` produces `("X", V)`, meaning any
+    /// variable named `X` gets `X <= V` asserted as a background axiom.
+    narrowings: &'a [(String, i64)],
 }
 
 /// Returns true if the given type token list represents the `Nat` type.
@@ -170,6 +174,14 @@ fn verify_clauses_with_types(
             solver.assert(raw_result.ge(&zero));
         }
 
+        // #188: Refinement narrowing from feature_max declarations.
+        // `feature_max max_X = V` narrows any variable named `X` with `X <= V`.
+        for (narrowed_name, bound) in types.narrowings {
+            let var = encoder.get_or_create_int(narrowed_name);
+            let upper = ast::Int::from_i64(*bound);
+            solver.assert(var.le(&upper));
+        }
+
         // T044: Inject lemma ensures as assumptions for any `apply` refs
         let apply_refs = collect_apply_refs(clauses);
         for lemma_name in &apply_refs {
@@ -290,6 +302,36 @@ pub(crate) fn collect_feature_max_constants(typed: &TypedFile) -> Vec<(String, i
         }
     }
     constants
+}
+
+/// Derive refinement narrowing pairs from `feature_max` constant names.
+///
+/// Per spec Section 14 (PLAT.2): `feature_max max_page_size = 4096` narrows
+/// all variables named `page_size` with `page_size <= 4096`. The rule strips
+/// the `max_` prefix (case-insensitive) from the constant name to produce the
+/// narrowed variable name.
+///
+/// Also handles `MAX_` all-caps prefix (e.g., `MAX_CONTENT_LEN` -> `content_len`
+/// lowercased won't match, but `CONTENT_LEN` -> narrowing for `CONTENT_LEN`).
+/// The narrowing matches both the stripped suffix as-is and its lowercase form.
+pub(crate) fn derive_narrowings(constants: &[(String, i64)]) -> Vec<(String, i64)> {
+    let mut narrowings = Vec::new();
+    for (name, value) in constants {
+        // Strip `max_` or `MAX_` prefix to get the narrowed variable name
+        let narrowed = name
+            .strip_prefix("max_")
+            .or_else(|| name.strip_prefix("MAX_"));
+        if let Some(narrowed) = narrowed.filter(|s| !s.is_empty()) {
+            // Add the suffix as-is (preserving case)
+            narrowings.push((narrowed.to_string(), *value));
+            // Also add lowercase variant if different
+            let lower = narrowed.to_lowercase();
+            if lower != narrowed {
+                narrowings.push((lower, *value));
+            }
+        }
+    }
+    narrowings
 }
 
 /// Collect all lemma definitions from the source AST.
@@ -466,10 +508,12 @@ pub(crate) fn verify_contract_impl_with_types(
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let lemma_defs = std::collections::HashMap::new();
+    let narrowings = derive_narrowings(constants);
     let types = TypeConstraints {
         params,
         return_ty,
         constants,
+        narrowings: &narrowings,
     };
     verify_clauses_with_types(
         contract_name,
@@ -496,6 +540,8 @@ pub(crate) fn verify_impl_with_timeout(
     // #180: collect feature_max constants so the encoder binds them
     // to concrete values instead of creating free Z3 variables.
     let constants = collect_feature_max_constants(typed);
+    // #188: derive refinement narrowing pairs from feature_max names.
+    let narrowings = derive_narrowings(&constants);
 
     for decl in &typed.resolved.source.decls {
         match &decl.node {
@@ -508,6 +554,7 @@ pub(crate) fn verify_impl_with_timeout(
                     &mut results,
                     &TypeConstraints {
                         constants: &constants,
+                        narrowings: &narrowings,
                         ..Default::default()
                     },
                 );
@@ -517,6 +564,7 @@ pub(crate) fn verify_impl_with_timeout(
                     params: &f.params,
                     return_ty: &f.return_ty,
                     constants: &constants,
+                    narrowings: &narrowings,
                 };
                 verify_clauses_with_types(
                     &f.name,
@@ -532,6 +580,7 @@ pub(crate) fn verify_impl_with_timeout(
                     params: &e.params,
                     return_ty: &e.return_ty,
                     constants: &constants,
+                    narrowings: &narrowings,
                 };
                 verify_clauses_with_types(
                     &e.name,
@@ -545,6 +594,7 @@ pub(crate) fn verify_impl_with_timeout(
             Decl::Service(s) => {
                 let svc_types = TypeConstraints {
                     constants: &constants,
+                    narrowings: &narrowings,
                     ..Default::default()
                 };
                 for item in &s.items {
@@ -587,6 +637,7 @@ pub(crate) fn verify_impl_with_timeout(
                     &mut results,
                     &TypeConstraints {
                         constants: &constants,
+                        narrowings: &narrowings,
                         ..Default::default()
                     },
                 );
@@ -596,6 +647,7 @@ pub(crate) fn verify_impl_with_timeout(
                     params: &b.params,
                     return_ty: &b.return_ty,
                     constants: &constants,
+                    narrowings: &narrowings,
                 };
                 verify_clauses_with_types(
                     &b.name,

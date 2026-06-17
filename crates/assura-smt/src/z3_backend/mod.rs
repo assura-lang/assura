@@ -5,7 +5,10 @@
 pub(crate) mod encoder;
 mod features;
 mod solver;
+#[cfg(not(test))]
 mod verify;
+#[cfg(test)]
+pub(crate) mod verify;
 
 pub(crate) use features::{
     check_refinement_subtype_impl, check_refinement_subtype_with_context_impl,
