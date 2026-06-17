@@ -1582,4 +1582,35 @@ Within the independent tasks, recommended order by impact:
 - **Next session**: Fix #150-#156, continue multi-perspective rotation,
   evaluate OSS launch readiness for #45
 
+### Session 12 (2026-06-16): Issues #150-#165 + #166-#179, multi-perspective rotation
+
+- **14 issues fixed and closed** (#166-#179):
+  - #166: CVC5 must_not semantics inversion
+  - #167: CVC5 quantifier-bound vars as global constants
+  - #168: Bool-to-Int coercion unconstrained
+  - #169: Integer literal overflow
+  - #170: Tuple/List elements discarded
+  - #171: Resolver doesn't add fn params to clause scope
+  - #172: Type checker accepts cross-type comparisons
+  - #173: Five tautological/wrong tests
+  - #174: Thirteen domain checker tests use identical trivial input
+  - #175: String constants no Z3 distinctness
+  - #176: Effect polymorphism (effect_variables field on Clause)
+  - #177: Apply always returns true
+  - #178: Generated Rust produces compiler warnings
+  - #179: Error code semantics mismatch
+- **Stack overflow fix**: 500+ chained binary operators caused stack
+  overflow. Fixed with 3-layer defense: (1) MAX_BINOP_CHAIN=256 counter
+  in Pratt parser, (2) iterative lower_bin_expr in CST lowering,
+  (3) iterative expr_to_string in display. Regression test added.
+- **Multi-perspective rotation (cycle 1)**: 11 iterations completed
+  (QA, Developer, End User, Maintainer, Spec Compliance, Security,
+  Performance, Adversarial Tester, Architecture, New Contributor,
+  Observability). Post-cycle gate passed.
+- **Diagnostic improvements**: duplicate A02008 caught and fixed,
+  error codes aligned with spec Section 7.2, uniqueness test added
+- Open issues: #45 (CodeQL, blocked on public repo)
+- **Next session**: Continue multi-perspective rotation or start new
+  feature work from spec.
+
 ---
