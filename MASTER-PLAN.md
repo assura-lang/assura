@@ -1632,4 +1632,22 @@ Within the independent tasks, recommended order by impact:
 - **3 tasks remain `[ ]`**: 3.12 (Cranelift), 6.01 (CodeQL), 6.03 (crates.io)
 - **Next session**: 3.12 Cranelift backend, multi-perspective audit continuation
 
+### Session 14 (2026-06-16 to 2026-06-17): Test coverage + correctness fixes
+
+- **111 tests committed** (c1af6d1): diagnostics (30), HIR (46), parser display (35)
+- **5 correctness fixes**:
+  - CVC5 and parallel verification now handle Service, Block, Bind declarations
+  - CVC5 and parallel verification now handle ServiceItem::Invariant
+  - build_type_env now enriches Bind params with proper types (was empty/Unknown)
+  - Unchecked depth decrements guarded in type_map.rs and types_gen.rs
+  - TestGenerator edge cases added for String/Bytes/List/Map/Set/Option/Result
+- **Error handling improved**: Silent `let _ =` discards in SMT cache, prophecy
+  resolution, and encoder replaced with eprintln warnings
+- **51 more tests added**: SMT entry.rs (21), resolve symbols.rs (12), imports.rs (18)
+- E2E test updated: service_typestate.assura now expects counterexample (correct
+  behavior now that CVC5 verifies service operations)
+- Test count: ~3,020+ (up from ~2,960)
+- Open issues: #45 (CodeQL, blocked on public repo)
+- **Next session**: Continue multi-perspective audit, add tests to untested modules
+
 ---
