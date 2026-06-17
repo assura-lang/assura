@@ -284,17 +284,12 @@ pub(crate) fn run_temporal_deadline_checks(
                 let refs = collect_ident_references(&clause.body);
                 for name in &refs {
                     if let Some(err) = checker.check_operation(name, &decl.span) {
-                        // Include current deadline context in error
                         if let Some((dl_name, dl_ms)) = checker.current_deadline() {
-                            errors.push(TypeError {
-                                code: err.code.clone(),
-                                message: format!(
-                                    "{} (active deadline: `{dl_name}` {dl_ms}ms)",
-                                    err.message
-                                ),
-                                span: err.span.clone(),
-                                secondary: err.secondary.clone(),
-                            });
+                            errors.push(
+                                err.with_context(&format!(
+                                    "active deadline: `{dl_name}` {dl_ms}ms"
+                                )),
+                            );
                         } else {
                             errors.push(err);
                         }

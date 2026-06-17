@@ -190,6 +190,16 @@ pub struct TypeError {
     pub secondary: Option<(Range<usize>, String)>,
 }
 
+impl TypeError {
+    /// Enrich the error message with additional context while preserving all other fields.
+    pub fn with_context(self, context: &str) -> Self {
+        Self {
+            message: format!("{} ({context})", self.message),
+            ..self
+        }
+    }
+}
+
 impl From<TypeError> for assura_diagnostics::Diagnostic {
     fn from(e: TypeError) -> Self {
         let mut d = assura_diagnostics::Diagnostic::error(e.code, e.message, e.span);

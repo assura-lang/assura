@@ -429,12 +429,10 @@ fn check_expr_info_flow(
         if source_label > SecurityLabel::Public
             && let Some(err) = checker.check_assignment(SecurityLabel::Public, source_label, span)
         {
-            errors.push(TypeError {
-                code: err.code,
-                message: format!("information flow violation in `{target}`: {}", err.message),
-                span: err.span,
-                secondary: None,
-            });
+            errors.push(
+                err.with_context(&format!("information flow violation in `{target}`"))
+                    .into(),
+            );
         }
     }
 

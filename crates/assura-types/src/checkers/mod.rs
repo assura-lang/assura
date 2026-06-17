@@ -22,6 +22,16 @@ pub(crate) struct CheckerError {
     pub span: Range<usize>,
 }
 
+impl CheckerError {
+    /// Enrich the error message with a prefix while preserving all other fields.
+    pub fn with_context(self, context: &str) -> Self {
+        Self {
+            message: format!("{context}: {}", self.message),
+            ..self
+        }
+    }
+}
+
 impl From<CheckerError> for TypeError {
     fn from(e: CheckerError) -> Self {
         TypeError {
