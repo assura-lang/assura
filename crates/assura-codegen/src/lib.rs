@@ -736,6 +736,73 @@ fn cranelift_transform(code: &str) -> String {
     out
 }
 
+#[cfg(test)]
+mod cranelift_tests {
+    use super::cranelift_transform;
+
+    #[test]
+    fn transforms_pub_struct() {
+        let input = "pub struct Foo {\n    x: i64,\n}\n";
+        let out = cranelift_transform(input);
+        assert!(out.contains("#[repr(C)]\npub struct Foo"));
+    }
+
+    #[test]
+    fn transforms_pub_enum() {
+        let input = "pub enum Color {\n    Red,\n    Blue,\n}\n";
+        let out = cranelift_transform(input);
+        assert!(out.contains("#[repr(C)]\npub enum Color"));
+    }
+
+    #[test]
+    fn transforms_pub_fn() {
+        let input = "pub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n";
+        let out = cranelift_transform(input);
+        assert!(out.contains("#[no_mangle]"));
+        assert!(out.contains("pub extern \"C\" fn add"));
+    }
+
+    #[test]
+    fn skips_private_fn() {
+        let input = "fn helper(x: i64) -> i64 { x }\n";
+        let out = cranelift_transform(input);
+        assert!(!out.contains("#[no_mangle]"));
+        assert!(!out.contains("extern \"C\""));
+    }
+
+    #[test]
+    fn skips_fmt_method() {
+        let input =
+            "    pub fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
+        let out = cranelift_transform(input);
+        assert!(!out.contains("#[no_mangle]"));
+        assert!(!out.contains("extern \"C\""));
+    }
+
+    #[test]
+    fn empty_input() {
+        let out = cranelift_transform("");
+        // Empty string produces a single trailing newline from the lines iterator
+        assert!(!out.contains("#[repr(C)]"));
+        assert!(!out.contains("#[no_mangle]"));
+    }
+
+    #[test]
+    fn no_pub_items() {
+        let input = "fn private() {}\nstruct Hidden;\n";
+        let out = cranelift_transform(input);
+        assert!(!out.contains("#[repr(C)]"));
+        assert!(!out.contains("#[no_mangle]"));
+    }
+
+    #[test]
+    fn preserves_indentation() {
+        let input = "    pub struct Inner {\n        val: i32,\n    }\n";
+        let out = cranelift_transform(input);
+        assert!(out.contains("    #[repr(C)]\n    pub struct Inner"));
+    }
+}
+
 /// Generate a Rust project from a type-checked Assura file.
 ///
 /// Uses default backend configuration (`Rustc`, opt-level 2, no debug info).
