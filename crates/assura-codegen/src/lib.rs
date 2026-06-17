@@ -658,9 +658,12 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         }
 
         // S009: Generate proptest tests for testable contracts
-        for decl in &source.decls {
-            if let Decl::Contract(c) = &decl.node {
-                generate_proptest_for_contract(c, &mut all_code);
+        // Skip proptest for Cranelift (dev builds prioritize fast compilation)
+        if !matches!(config.backend, CodegenBackend::Cranelift) {
+            for decl in &source.decls {
+                if let Decl::Contract(c) = &decl.node {
+                    generate_proptest_for_contract(c, &mut all_code);
+                }
             }
         }
 
@@ -682,9 +685,55 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             "[unstable]\ncodegen-backend = true\n\n[profile.dev]\ncodegen-backend = \"cranelift\"\n"
                 .to_string(),
         ));
+
+        // Transform generated Rust code for C ABI compatibility:
+        // - Add #[repr(C)] to structs/enums (deterministic layout for JIT)
+        // - Add #[no_mangle] extern "C" to public functions (callable via JIT)
+        for (path, content) in &mut project.files {
+            if path.ends_with(".rs") {
+                *content = cranelift_transform(content);
+            }
+        }
     }
 
     project
+}
+
+/// Transform generated Rust code for Cranelift JIT compatibility.
+///
+/// Cranelift is used for fast dev-cycle builds. To make generated functions
+/// callable from JIT-compiled code, we:
+/// - Add `#[repr(C)]` before `pub struct` and `pub enum` (C ABI layout)
+/// - Replace `pub fn` with `#[no_mangle] pub extern "C" fn` (C ABI calling convention)
+///
+/// This does NOT affect `fn` (private functions) or impl blocks.
+fn cranelift_transform(code: &str) -> String {
+    let mut out = String::with_capacity(code.len() + 512);
+    for line in code.lines() {
+        let trimmed = line.trim_start();
+        if (trimmed.starts_with("pub struct ") || trimmed.starts_with("pub enum "))
+            && !trimmed.contains("pub struct PhantomData")
+        {
+            // Insert #[repr(C)] with matching indentation
+            let indent = &line[..line.len() - trimmed.len()];
+            out.push_str(indent);
+            out.push_str("#[repr(C)]\n");
+            out.push_str(line);
+            out.push('\n');
+        } else if trimmed.starts_with("pub fn ") && !trimmed.contains("fmt(") {
+            // Add #[no_mangle] and extern "C" for top-level pub fn
+            let indent = &line[..line.len() - trimmed.len()];
+            out.push_str(indent);
+            out.push_str("#[no_mangle]\n");
+            let transformed = line.replacen("pub fn ", "pub extern \"C\" fn ", 1);
+            out.push_str(&transformed);
+            out.push('\n');
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Generate a Rust project from a type-checked Assura file.

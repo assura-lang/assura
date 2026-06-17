@@ -859,6 +859,98 @@ fn rustc_has_no_cargo_config() {
     );
 }
 
+#[test]
+fn cranelift_adds_repr_c_to_structs() {
+    let source = "type Point { x: Int, y: Int }
+contract UsePoint { requires(p: Point) ensures(result: Int) }";
+    let project = codegen_with_config_ok(
+        source,
+        super::BackendConfig {
+            backend: super::CodegenBackend::Cranelift,
+            opt_level: 0,
+            debug_info: true,
+            target: super::CompileTarget::Native,
+        },
+    );
+    let lib = project
+        .files
+        .iter()
+        .find(|(p, _)| p.ends_with(".rs"))
+        .unwrap();
+    assert!(
+        lib.1.contains("#[repr(C)]"),
+        "Cranelift codegen should add #[repr(C)] to structs:\n{}",
+        lib.1
+    );
+
+    // Rustc backend should NOT have #[repr(C)]
+    let rustc_project = codegen_ok(source);
+    let rustc_lib = &rustc_project.files[0].1;
+    assert!(
+        !rustc_lib.contains("#[repr(C)]"),
+        "Rustc codegen should not have #[repr(C)]"
+    );
+}
+
+#[test]
+fn cranelift_adds_no_mangle_extern_c() {
+    let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+    let project = codegen_with_config_ok(
+        source,
+        super::BackendConfig {
+            backend: super::CodegenBackend::Cranelift,
+            opt_level: 0,
+            debug_info: true,
+            target: super::CompileTarget::Native,
+        },
+    );
+    let lib = project
+        .files
+        .iter()
+        .find(|(p, _)| p.ends_with(".rs"))
+        .unwrap();
+    assert!(
+        lib.1.contains("#[no_mangle]"),
+        "Cranelift codegen should add #[no_mangle]:\n{}",
+        lib.1
+    );
+    assert!(
+        lib.1.contains("extern \"C\" fn"),
+        "Cranelift codegen should use extern \"C\" fn:\n{}",
+        lib.1
+    );
+}
+
+#[test]
+fn cranelift_skips_proptest() {
+    // Must use input() clause to trigger proptest generation
+    let source = "contract Add { input(a: Int, b: Int) requires(a > 0) ensures(result == a + b) ensures(result: Int) }";
+    let rustc_project = codegen_ok(source);
+    let rustc_lib = &rustc_project.files[0].1;
+    let cranelift_project = codegen_with_config_ok(
+        source,
+        super::BackendConfig {
+            backend: super::CodegenBackend::Cranelift,
+            opt_level: 0,
+            debug_info: true,
+            target: super::CompileTarget::Native,
+        },
+    );
+    let cl_lib = cranelift_project
+        .files
+        .iter()
+        .find(|(p, _)| p.ends_with(".rs"))
+        .unwrap();
+    assert!(
+        rustc_lib.contains("proptest"),
+        "Rustc codegen should include proptest"
+    );
+    assert!(
+        !cl_lib.1.contains("proptest"),
+        "Cranelift codegen should skip proptest for fast dev builds"
+    );
+}
+
 // =======================================================================
 // Generated Rust compilation tests
 // =======================================================================

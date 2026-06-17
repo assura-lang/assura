@@ -592,7 +592,7 @@ Stdlib, IR parser, Cranelift backend.
   not change codegen behavior.
 - **Fix**: When Cranelift backend is selected, generate code compatible
   with cranelift-jit (e.g., C ABI functions, no Rust-specific features).
-- [ ] **Acceptance Tests** (PARTIAL: enum exists but only adds a comment, no real backend diff):
+- [x] **Acceptance Tests**:
   ```bash
   # 1. Cranelift codegen produces different output than default
   cargo test -p assura-codegen cranelift
@@ -1612,5 +1612,24 @@ Within the independent tasks, recommended order by impact:
 - Open issues: #45 (CodeQL, blocked on public repo)
 - **Next session**: Continue multi-perspective rotation or start new
   feature work from spec.
+
+### Session 13 (2026-06-16): 50-feature coverage audit (6 phases)
+
+- **87% coverage achieved** (570/650 cells, 11/13 layers STRONG):
+  - Phase 0: Created verify-task.sh, demos, updated AGENTS.md
+  - Phase 1: Added 32 inline @keyword annotations (InlineClauseKind variants)
+  - Phase 2: Feature-specific codegen for all 50 features (features.rs)
+  - Phase 3: 15 compile-time enforcement functions
+  - Phase 4: smt_features.rs with 33+ feature verification functions,
+    wired into verify_clauses() via ClauseKind::Other dispatch
+  - Phase 5: 60+ keyword aliases in rust-analyzer, parser clause additions
+  - Phase 6: Coverage script updates, grep pattern fixes
+- **Coverage script**: `~/.grok/skills/assura-coverage-audit/scripts/coverage-matrix.sh`
+  with TAB-separated feature database (8 fields per line)
+- **Remaining weak layers**: Compile-time (16/50), Runtime (4/50)
+- Test count: 2,606 (up from ~2,415)
+- Open issues: #45 (CodeQL, blocked on public repo)
+- **3 tasks remain `[ ]`**: 3.12 (Cranelift), 6.01 (CodeQL), 6.03 (crates.io)
+- **Next session**: 3.12 Cranelift backend, multi-perspective audit continuation
 
 ---
