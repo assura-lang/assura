@@ -210,28 +210,54 @@ pub fn verify_parallel_with_solver(
     use assura_parser::ast::Decl;
     use rayon::prelude::*;
 
-    // Collect all verification jobs: (name, clauses) pairs
-    let mut jobs: Vec<(String, Vec<assura_parser::ast::Clause>)> = Vec::new();
+    // Collect verification jobs with type info for return-type constraints
+    type Job = (
+        String,
+        Vec<assura_parser::ast::Clause>,
+        Vec<assura_parser::ast::Param>,
+        Vec<String>,
+    );
+    let mut jobs: Vec<Job> = Vec::new();
 
     for decl in &typed.resolved.source.decls {
         match &decl.node {
             Decl::Contract(c) => {
-                jobs.push((c.name.clone(), c.clauses.clone()));
+                jobs.push((c.name.clone(), c.clauses.clone(), vec![], vec![]));
             }
             Decl::FnDef(f) => {
-                jobs.push((f.name.clone(), f.clauses.clone()));
+                jobs.push((
+                    f.name.clone(),
+                    f.clauses.clone(),
+                    f.params.clone(),
+                    f.return_ty.clone(),
+                ));
             }
             Decl::Extern(e) => {
-                jobs.push((e.name.clone(), e.clauses.clone()));
+                jobs.push((
+                    e.name.clone(),
+                    e.clauses.clone(),
+                    e.params.clone(),
+                    e.return_ty.clone(),
+                ));
             }
             Decl::Service(s) => {
                 for item in &s.items {
                     match item {
                         assura_parser::ast::ServiceItem::Operation { name, clauses } => {
-                            jobs.push((format!("{}.{}", s.name, name), clauses.clone()));
+                            jobs.push((
+                                format!("{}.{}", s.name, name),
+                                clauses.clone(),
+                                vec![],
+                                vec![],
+                            ));
                         }
                         assura_parser::ast::ServiceItem::Query { name, clauses } => {
-                            jobs.push((format!("{}.{}", s.name, name), clauses.clone()));
+                            jobs.push((
+                                format!("{}.{}", s.name, name),
+                                clauses.clone(),
+                                vec![],
+                                vec![],
+                            ));
                         }
                         assura_parser::ast::ServiceItem::Invariant(expr) => {
                             let inv_clause = assura_parser::ast::Clause {
@@ -239,17 +265,27 @@ pub fn verify_parallel_with_solver(
                                 body: expr.clone(),
                                 effect_variables: vec![],
                             };
-                            jobs.push((format!("{}::invariant", s.name), vec![inv_clause]));
+                            jobs.push((
+                                format!("{}::invariant", s.name),
+                                vec![inv_clause],
+                                vec![],
+                                vec![],
+                            ));
                         }
                         _ => {}
                     }
                 }
             }
             Decl::Block { name, body, .. } => {
-                jobs.push((name.clone(), body.clone()));
+                jobs.push((name.clone(), body.clone(), vec![], vec![]));
             }
             Decl::Bind(b) => {
-                jobs.push((b.name.clone(), b.clauses.clone()));
+                jobs.push((
+                    b.name.clone(),
+                    b.clauses.clone(),
+                    b.params.clone(),
+                    b.return_ty.clone(),
+                ));
             }
             Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
@@ -258,13 +294,14 @@ pub fn verify_parallel_with_solver(
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
         .par_iter()
-        .map(|(name, clauses)| {
+        .map(|(name, clauses, params, return_ty)| {
             // Check cache first
             if let Some(cached) = cache.get(name, clauses) {
                 return cached;
             }
-            // Cache miss: run solver
-            let results = verify_contract_with_solver(name, clauses, solver);
+            // Cache miss: run solver with type constraints
+            let results =
+                verify_contract_with_types_and_solver(name, clauses, params, return_ty, solver);
             cache.put(name, clauses, &results);
             results
         })
@@ -368,6 +405,34 @@ pub fn verify_contract_with_solver(
                 })
                 .collect()
         }
+    }
+}
+
+/// Verify a contract with type-level constraints from params and return type.
+fn verify_contract_with_types_and_solver(
+    contract_name: &str,
+    clauses: &[assura_parser::ast::Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+    solver: SolverChoice,
+) -> Vec<VerificationResult> {
+    match solver {
+        SolverChoice::Z3 => {
+            #[cfg(feature = "z3-verify")]
+            {
+                crate::z3_backend::verify_contract_impl_with_types(
+                    contract_name,
+                    clauses,
+                    params,
+                    return_ty,
+                )
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                verify_contract_with_solver(contract_name, clauses, solver)
+            }
+        }
+        _ => verify_contract_with_solver(contract_name, clauses, solver),
     }
 }
 

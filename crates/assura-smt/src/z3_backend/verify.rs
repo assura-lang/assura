@@ -16,6 +16,19 @@ use z3::{SatResult, Solver, ast};
 // Contract clause verification
 // -----------------------------------------------------------------------
 
+/// Type information for parameters and return type, used to add
+/// type-level Z3 constraints (e.g., `Nat` implies `>= 0`).
+#[derive(Default)]
+struct TypeConstraints<'a> {
+    params: &'a [assura_parser::ast::Param],
+    return_ty: &'a [String],
+}
+
+/// Returns true if the given type token list represents the `Nat` type.
+fn is_nat_type(ty: &[String]) -> bool {
+    ty.len() == 1 && ty[0] == "Nat"
+}
+
 /// Verify a set of clauses from a contract, fn, or extern declaration.
 fn verify_clauses(
     parent_name: &str,
@@ -23,6 +36,26 @@ fn verify_clauses(
     lemma_defs: &std::collections::HashMap<String, Vec<&Expr>>,
     cache: &mut SessionCache,
     results: &mut Vec<VerificationResult>,
+) {
+    verify_clauses_with_types(
+        parent_name,
+        clauses,
+        lemma_defs,
+        cache,
+        results,
+        &TypeConstraints::default(),
+    );
+}
+
+/// Like `verify_clauses` but also asserts type-level constraints from
+/// parameter and return type declarations (e.g., `Nat` → `>= 0`).
+fn verify_clauses_with_types(
+    parent_name: &str,
+    clauses: &[Clause],
+    lemma_defs: &std::collections::HashMap<String, Vec<&Expr>>,
+    cache: &mut SessionCache,
+    results: &mut Vec<VerificationResult>,
+    types: &TypeConstraints,
 ) {
     let requires: Vec<&Clause> = clauses
         .iter()
@@ -123,6 +156,26 @@ fn verify_clauses(
             solver.assert(axiom);
         }
         encoder.background_axioms.clear();
+
+        // Assert type-level constraints for parameters and return type.
+        // Nat params get `param >= 0`; Nat return type gets `result >= 0`.
+        for param in types.params {
+            if is_nat_type(&param.ty) {
+                let p = encoder.get_or_create_int(&param.name);
+                let zero = ast::Int::from_i64(0);
+                solver.assert(p.ge(&zero));
+            }
+        }
+        if is_nat_type(types.return_ty) {
+            // Constrain both "result" (AST Ident path) and "__result"
+            // (raw token path) so the type constraint applies regardless
+            // of which encoding path the clause body uses.
+            let result_var = encoder.get_or_create_int("result");
+            let zero = ast::Int::from_i64(0);
+            solver.assert(result_var.ge(&zero));
+            let raw_result = encoder.get_or_create_int("__result");
+            solver.assert(raw_result.ge(&zero));
+        }
 
         // T044: Inject lemma ensures as assumptions for any `apply` refs
         let apply_refs = collect_apply_refs(clauses);
@@ -380,15 +433,26 @@ pub(crate) fn verify_contract_impl(
     contract_name: &str,
     clauses: &[Clause],
 ) -> Vec<VerificationResult> {
+    verify_contract_impl_with_types(contract_name, clauses, &[], &[])
+}
+
+pub(crate) fn verify_contract_impl_with_types(
+    contract_name: &str,
+    clauses: &[Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let lemma_defs = std::collections::HashMap::new();
-    verify_clauses(
+    let types = TypeConstraints { params, return_ty };
+    verify_clauses_with_types(
         contract_name,
         clauses,
         &lemma_defs,
         &mut cache,
         &mut results,
+        &types,
     );
     results
 }
@@ -410,10 +474,32 @@ pub(crate) fn verify_impl_with_timeout(
                 verify_clauses(&c.name, &c.clauses, &lemma_defs, &mut cache, &mut results);
             }
             Decl::FnDef(f) => {
-                verify_clauses(&f.name, &f.clauses, &lemma_defs, &mut cache, &mut results);
+                let types = TypeConstraints {
+                    params: &f.params,
+                    return_ty: &f.return_ty,
+                };
+                verify_clauses_with_types(
+                    &f.name,
+                    &f.clauses,
+                    &lemma_defs,
+                    &mut cache,
+                    &mut results,
+                    &types,
+                );
             }
             Decl::Extern(e) => {
-                verify_clauses(&e.name, &e.clauses, &lemma_defs, &mut cache, &mut results);
+                let types = TypeConstraints {
+                    params: &e.params,
+                    return_ty: &e.return_ty,
+                };
+                verify_clauses_with_types(
+                    &e.name,
+                    &e.clauses,
+                    &lemma_defs,
+                    &mut cache,
+                    &mut results,
+                    &types,
+                );
             }
             Decl::Service(s) => {
                 for item in &s.items {
@@ -437,7 +523,18 @@ pub(crate) fn verify_impl_with_timeout(
                 verify_clauses(name, body, &lemma_defs, &mut cache, &mut results);
             }
             Decl::Bind(b) => {
-                verify_clauses(&b.name, &b.clauses, &lemma_defs, &mut cache, &mut results);
+                let types = TypeConstraints {
+                    params: &b.params,
+                    return_ty: &b.return_ty,
+                };
+                verify_clauses_with_types(
+                    &b.name,
+                    &b.clauses,
+                    &lemma_defs,
+                    &mut cache,
+                    &mut results,
+                    &types,
+                );
             }
             // Prophecy variables don't have verifiable clauses directly;
             // they are used as existential witnesses in contract proofs.

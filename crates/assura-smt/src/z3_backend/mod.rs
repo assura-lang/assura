@@ -12,4 +12,7 @@ pub(crate) use features::{
     verify_buffer_bounds_impl, verify_decrease_impl, verify_region_containment_impl,
     verify_taint_safety_impl, verify_with_measures_impl,
 };
-pub(crate) use verify::{verify_contract_impl, verify_impl_with_timeout, verify_quantified_impl};
+pub(crate) use verify::{
+    verify_contract_impl, verify_contract_impl_with_types, verify_impl_with_timeout,
+    verify_quantified_impl,
+};

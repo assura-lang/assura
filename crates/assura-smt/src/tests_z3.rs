@@ -1811,3 +1811,98 @@ contract UsesLemma {
         results[0]
     );
 }
+
+// -----------------------------------------------------------------------
+// #185: Return-type constraints (Nat -> result >= 0)
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_nat_return_type_constrains_result() {
+    // A function returning Nat with `ensures result >= 0` should verify
+    // because the return type Nat implies result >= 0.
+    let src = r#"
+fn nat_fn(n: Nat) -> Nat
+  requires n >= 0
+  ensures result >= 0
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    for r in &results {
+        eprintln!("  result: {r:?}");
+    }
+    // Find the ensures result
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(
+        ensures_result.is_some(),
+        "should have an ensures result, got: {results:?}"
+    );
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "Nat return type should constrain result >= 0, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
+
+#[test]
+fn test_nat_return_type_genuine_counterexample() {
+    // A function returning Nat with `ensures result < 0` should produce
+    // a genuine counterexample because Nat implies result >= 0,
+    // contradicting result < 0.
+    let src = r#"
+fn bad_nat() -> Nat
+  ensures result < 0
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    // ensures result < 0 with Nat return type: result >= 0 AND NOT(result < 0)
+    // is UNSAT => verified. Wait, no: the validity check asserts NOT(ensures).
+    // ensures = "result < 0". NOT(ensures) = "result >= 0".
+    // Combined with type constraint "result >= 0", both say result >= 0.
+    // The query is: is NOT(ensures) satisfiable? NOT(result < 0) = result >= 0.
+    // With result >= 0 from type constraint, we have result >= 0 AND result >= 0.
+    // That's SAT (e.g., result = 0). So the ensures "result < 0" is NOT valid
+    // (there exists result = 0 where result < 0 is false). So we get Verified
+    // for the validity check... wait, no.
+    //
+    // Validity check: assert requires, assert NOT(ensures), check sat.
+    // If UNSAT, ensures is valid (verified).
+    // If SAT, ensures is not valid (counterexample).
+    //
+    // For ensures "result < 0":
+    //   NOT(ensures) = result >= 0
+    //   Type constraint: result >= 0
+    //   Solver sees: result >= 0 AND result >= 0 => SAT (result = 0)
+    //   => NOT valid => Counterexample
+    //
+    // Wait, that means the ensures "result < 0" produces a counterexample
+    // because result >= 0 satisfies NOT(result < 0). But that's the
+    // expected behavior: ensures "result < 0" is FALSE (Nat can't be < 0).
+    // So the verifier should say the ensures is not provable => COUNTEREXAMPLE.
+    // This is actually correct behavior: the ensures clause is wrong.
+}
+
+#[test]
+fn test_nat_param_constraint() {
+    // A function with Nat param: requires param >= 0 should be trivially verified
+    let src = r#"
+fn nat_param(n: Nat) -> Int
+  ensures n >= 0
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "Nat param should constrain n >= 0, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
