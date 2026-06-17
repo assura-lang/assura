@@ -567,3 +567,262 @@ pub fn verify_decrease(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::*;
+
+    fn make_clause(kind: ClauseKind) -> Clause {
+        Clause {
+            kind,
+            body: Expr::Literal(Literal::Bool(true)),
+            effect_variables: vec![],
+        }
+    }
+
+    fn make_source(decls: Vec<Decl>) -> SourceFile {
+        SourceFile {
+            project: None,
+            module: None,
+            imports: vec![],
+            decls: decls
+                .into_iter()
+                .map(|d| Spanned {
+                    node: d,
+                    span: 0..1,
+                })
+                .collect(),
+        }
+    }
+
+    // ---- has_verifiable_clauses tests ----
+
+    #[test]
+    fn has_verifiable_empty_source() {
+        let source = make_source(vec![]);
+        assert!(!has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_contract_with_ensures() {
+        let source = make_source(vec![Decl::Contract(ContractDecl {
+            name: "C".into(),
+            type_params: vec![],
+            clauses: vec![make_clause(ClauseKind::Ensures)],
+            fn_params: vec![],
+        })]);
+        assert!(has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_contract_with_only_input() {
+        let source = make_source(vec![Decl::Contract(ContractDecl {
+            name: "C".into(),
+            type_params: vec![],
+            clauses: vec![make_clause(ClauseKind::Input)],
+            fn_params: vec![],
+        })]);
+        assert!(!has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_fndef_with_requires() {
+        let source = make_source(vec![Decl::FnDef(FnDef {
+            name: "f".into(),
+            is_ghost: false,
+            is_lemma: false,
+            params: vec![],
+            return_ty: vec![],
+            return_type_expr: None,
+            clauses: vec![make_clause(ClauseKind::Requires)],
+        })]);
+        assert!(has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_extern_with_invariant() {
+        let source = make_source(vec![Decl::Extern(ExternDecl {
+            name: "e".into(),
+            params: vec![],
+            return_ty: vec![],
+            return_type_expr: None,
+            clauses: vec![make_clause(ClauseKind::Invariant)],
+        })]);
+        assert!(has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_service_operation() {
+        let source = make_source(vec![Decl::Service(ServiceDecl {
+            name: "S".into(),
+            items: vec![ServiceItem::Operation {
+                name: "op".into(),
+                clauses: vec![make_clause(ClauseKind::Ensures)],
+            }],
+        })]);
+        assert!(has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_service_invariant() {
+        let source = make_source(vec![Decl::Service(ServiceDecl {
+            name: "S".into(),
+            items: vec![ServiceItem::Invariant(Expr::Literal(Literal::Bool(true)))],
+        })]);
+        assert!(has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_service_query_no_clauses() {
+        let source = make_source(vec![Decl::Service(ServiceDecl {
+            name: "S".into(),
+            items: vec![ServiceItem::Query {
+                name: "q".into(),
+                clauses: vec![],
+            }],
+        })]);
+        assert!(!has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_block_with_ensures() {
+        let source = make_source(vec![Decl::Block {
+            kind: BlockKind::Axiomatic,
+            name: "b".into(),
+            value: None,
+            body: vec![make_clause(ClauseKind::Ensures)],
+        }]);
+        assert!(has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_bind_with_requires() {
+        let source = make_source(vec![Decl::Bind(BindDecl {
+            name: "bd".into(),
+            target_path: "path".into(),
+            params: vec![],
+            return_ty: vec![],
+            return_type_expr: None,
+            clauses: vec![make_clause(ClauseKind::Requires)],
+        })]);
+        assert!(has_verifiable_clauses(&source));
+    }
+
+    #[test]
+    fn has_verifiable_typedef_enum_prophecy() {
+        let source = make_source(vec![
+            Decl::TypeDef(TypeDef {
+                name: "T".into(),
+                type_params: vec![],
+                body: TypeBody::Alias(vec!["Int".into()]),
+            }),
+            Decl::EnumDef(EnumDef {
+                name: "E".into(),
+                type_params: vec![],
+                variants: vec![],
+            }),
+            Decl::Prophecy(ProphecyDecl {
+                name: "p".into(),
+                ty_tokens: vec![],
+            }),
+        ]);
+        assert!(!has_verifiable_clauses(&source));
+    }
+
+    // ---- verify_contract tests ----
+
+    #[test]
+    fn verify_contract_no_clauses() {
+        let results = verify_contract("Test", &[]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn verify_contract_input_only() {
+        let results = verify_contract("Test", &[make_clause(ClauseKind::Input)]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn verify_contract_ensures_returns_result() {
+        let results = verify_contract("Test", &[make_clause(ClauseKind::Ensures)]);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn verify_contract_with_requires_and_ensures() {
+        let results = verify_contract(
+            "Test",
+            &[
+                make_clause(ClauseKind::Requires),
+                make_clause(ClauseKind::Ensures),
+            ],
+        );
+        // Only the ensures clause produces a verification result
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn verify_contract_multiple_ensures() {
+        let results = verify_contract(
+            "Test",
+            &[
+                make_clause(ClauseKind::Ensures),
+                make_clause(ClauseKind::Invariant),
+                make_clause(ClauseKind::Rule),
+            ],
+        );
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn verify_contract_cvc5_solver() {
+        let results = verify_contract_with_solver(
+            "Test",
+            &[make_clause(ClauseKind::Ensures)],
+            SolverChoice::Cvc5,
+        );
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn verify_contract_portfolio_solver() {
+        let results = verify_contract_with_solver(
+            "Test",
+            &[make_clause(ClauseKind::Ensures)],
+            SolverChoice::Portfolio,
+        );
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn verify_contract_decreases() {
+        let results = verify_contract("Test", &[make_clause(ClauseKind::Decreases)]);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn verify_contract_must_not() {
+        let results = verify_contract("Test", &[make_clause(ClauseKind::MustNot)]);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn verify_contract_clause_desc_format() {
+        let results = verify_contract("MyContract", &[make_clause(ClauseKind::Ensures)]);
+        assert_eq!(results.len(), 1);
+        // The description should contain the contract name
+        match &results[0] {
+            VerificationResult::Verified { clause_desc }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc }
+            | VerificationResult::Unknown { clause_desc, .. } => {
+                assert!(
+                    clause_desc.contains("MyContract"),
+                    "clause_desc should contain contract name: {clause_desc}"
+                );
+            }
+        }
+    }
+}

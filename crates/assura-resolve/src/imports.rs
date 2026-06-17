@@ -159,6 +159,227 @@ pub(crate) fn resolve_imports(
         .collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_import(path: &[&str]) -> ImportDecl {
+        ImportDecl {
+            path: path.iter().map(|s| s.to_string()).collect(),
+            alias: None,
+            items: vec![],
+            span: 0..1,
+        }
+    }
+
+    fn make_import_with_span(path: &[&str], span: std::ops::Range<usize>) -> ImportDecl {
+        ImportDecl {
+            path: path.iter().map(|s| s.to_string()).collect(),
+            alias: None,
+            items: vec![],
+            span,
+        }
+    }
+
+    // ---- is_valid_path_segment tests ----
+
+    #[test]
+    fn valid_segment_lowercase() {
+        assert!(is_valid_path_segment("math"));
+        assert!(is_valid_path_segment("std"));
+        assert!(is_valid_path_segment("my_module"));
+    }
+
+    #[test]
+    fn valid_segment_underscore_start() {
+        assert!(is_valid_path_segment("_private"));
+        assert!(is_valid_path_segment("_"));
+    }
+
+    #[test]
+    fn valid_segment_with_digits() {
+        assert!(is_valid_path_segment("v2"));
+        assert!(is_valid_path_segment("sha256"));
+    }
+
+    #[test]
+    fn invalid_segment_uppercase_start() {
+        assert!(!is_valid_path_segment("Math"));
+        assert!(!is_valid_path_segment("A"));
+    }
+
+    #[test]
+    fn invalid_segment_digit_start() {
+        assert!(!is_valid_path_segment("2fast"));
+    }
+
+    #[test]
+    fn invalid_segment_empty() {
+        assert!(!is_valid_path_segment(""));
+    }
+
+    #[test]
+    fn invalid_segment_special_chars() {
+        assert!(!is_valid_path_segment("my-module"));
+        assert!(!is_valid_path_segment("my.module"));
+    }
+
+    // ---- resolve_imports tests ----
+
+    #[test]
+    fn resolve_empty_imports() {
+        let mut errors = vec![];
+        let result = resolve_imports(&[], &ModuleMap::new(), &HashSet::new(), &mut errors);
+        assert!(result.is_empty());
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn resolve_unresolved_import() {
+        let imports = [make_import(&["std", "math"])];
+        let mut errors = vec![];
+        let result = resolve_imports(&imports, &ModuleMap::new(), &HashSet::new(), &mut errors);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].status, ImportStatus::Unresolved);
+        assert!(errors.is_empty()); // Unresolved is not an error
+    }
+
+    #[test]
+    fn resolve_resolved_import() {
+        let imports = [make_import(&["std", "math"])];
+        let mut module_map = ModuleMap::new();
+        module_map.insert(
+            "std.math".into(),
+            SourceFile {
+                project: None,
+                module: None,
+                imports: vec![],
+                decls: vec![],
+            },
+        );
+        let mut errors = vec![];
+        let result = resolve_imports(&imports, &module_map, &HashSet::new(), &mut errors);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].status, ImportStatus::Resolved);
+    }
+
+    #[test]
+    fn resolve_circular_import() {
+        let imports = [make_import(&["self_module"])];
+        let mut visited = HashSet::new();
+        visited.insert("self_module".into());
+        let mut errors = vec![];
+        let result = resolve_imports(&imports, &ModuleMap::new(), &visited, &mut errors);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].status, ImportStatus::Circular);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A02005");
+    }
+
+    #[test]
+    fn resolve_duplicate_import() {
+        let imports = [
+            make_import_with_span(&["std", "math"], 0..10),
+            make_import_with_span(&["std", "math"], 20..30),
+        ];
+        let mut errors = vec![];
+        resolve_imports(&imports, &ModuleMap::new(), &HashSet::new(), &mut errors);
+        assert!(errors.iter().any(|e| e.code == "A02006"));
+    }
+
+    #[test]
+    fn resolve_empty_path_error() {
+        let imports = [ImportDecl {
+            path: vec![],
+            alias: None,
+            items: vec![],
+            span: 0..1,
+        }];
+        let mut errors = vec![];
+        resolve_imports(&imports, &ModuleMap::new(), &HashSet::new(), &mut errors);
+        assert!(errors.iter().any(|e| e.code == "A02008"));
+    }
+
+    #[test]
+    fn resolve_invalid_segment_error() {
+        let imports = [make_import(&["123invalid", "sub"])];
+        let mut errors = vec![];
+        resolve_imports(&imports, &ModuleMap::new(), &HashSet::new(), &mut errors);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "A02008" && e.message.contains("123invalid"))
+        );
+    }
+
+    #[test]
+    fn resolve_preserves_alias() {
+        let imports = [ImportDecl {
+            path: vec!["std".into(), "math".into()],
+            alias: Some("m".into()),
+            items: vec![],
+            span: 0..1,
+        }];
+        let mut errors = vec![];
+        let result = resolve_imports(&imports, &ModuleMap::new(), &HashSet::new(), &mut errors);
+        assert_eq!(result[0].alias, Some("m".into()));
+    }
+
+    #[test]
+    fn resolve_preserves_items() {
+        let imports = [ImportDecl {
+            path: vec!["std".into(), "math".into()],
+            alias: None,
+            items: vec!["sin".into(), "cos".into()],
+            span: 0..1,
+        }];
+        let mut errors = vec![];
+        let result = resolve_imports(&imports, &ModuleMap::new(), &HashSet::new(), &mut errors);
+        assert_eq!(result[0].items, vec!["sin", "cos"]);
+    }
+
+    // ---- find_module_prefix tests ----
+
+    #[test]
+    fn find_prefix_exact_match() {
+        let mut map = ModuleMap::new();
+        map.insert(
+            "std.math".into(),
+            SourceFile {
+                project: None,
+                module: None,
+                imports: vec![],
+                decls: vec![],
+            },
+        );
+        let path: Vec<String> = vec!["std".into(), "math".into()];
+        assert_eq!(find_module_prefix(&path, &map), Some("std.math".into()));
+    }
+
+    #[test]
+    fn find_prefix_partial_match() {
+        let mut map = ModuleMap::new();
+        map.insert(
+            "std".into(),
+            SourceFile {
+                project: None,
+                module: None,
+                imports: vec![],
+                decls: vec![],
+            },
+        );
+        let path: Vec<String> = vec!["std".into(), "List".into()];
+        assert_eq!(find_module_prefix(&path, &map), Some("std".into()));
+    }
+
+    #[test]
+    fn find_prefix_no_match() {
+        let map = ModuleMap::new();
+        let path: Vec<String> = vec!["unknown".into()];
+        assert_eq!(find_module_prefix(&path, &map), None);
+    }
+}
+
 /// Try progressively shorter prefixes of `path` to find a module key.
 ///
 /// For `import math.Add`, the path is `["math", "Add"]`. The module map
