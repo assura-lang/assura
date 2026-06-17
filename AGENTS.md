@@ -808,6 +808,65 @@ match on `Decl` becomes non-exhaustive. Use this checklist:
 After adding the variant, run `cargo build` first. The compiler will
 report every non-exhaustive match. Fix them all before running tests.
 
+## Writing Demo Contracts That Z3 Can Verify
+
+All Assura declarations are specification-only (no implementation
+bodies). This means `result` and output variables (from `output()`
+clauses) are free Z3 variables. Z3 can assign them to any value,
+so ensures clauses that reference unconstrained outputs will always
+produce counterexamples.
+
+**Rules for verifiable demo contracts:**
+
+1. **Ensures must reference only input variables.** Write ensures
+   clauses that are tautologies derivable from the requires clauses.
+   Z3 proves these by showing the negation is unsatisfiable.
+
+   ```assura
+   # GOOD: ensures references only inputs (x, max)
+   requires { x >= 0 }
+   requires { x < max }
+   ensures  { max > x }
+
+   # BAD: ensures references unconstrained output (result)
+   requires { x >= 0 }
+   ensures  { result >= 0 }
+   ```
+
+2. **Use inline integer literals, not `feature_max` constants.**
+   The SMT encoder treats `feature_max` named constants as
+   unconstrained Z3 integer variables, not their defined values
+   (see #180). Until constant folding is implemented, inline the
+   values directly.
+
+   ```assura
+   # GOOD: Z3 sees the actual value 3
+   requires { 3 + payload_length + padding_length <= record_length }
+
+   # BAD: Z3 treats HEADER_SIZE as unconstrained (could be 0)
+   feature_max HEADER_SIZE: Nat = 3
+   requires { HEADER_SIZE + payload_length + padding_length <= record_length }
+   ```
+
+3. **`.length()` method calls work.** The encoder adds a background
+   axiom `length >= 0` for Bytes/String `.length()` calls. So
+   `ensures { result.length() >= 0 }` verifies on extern functions
+   returning Bytes.
+
+4. **Base new demos on real CVEs.** Each demo should model a real
+   vulnerability with the CVE number, CVSS score, root cause, and
+   how Assura prevents it. See `demos/heartbleed.assura` (CVE-2014-0160)
+   as the template.
+
+**Verification semantics:**
+- `ensures`: Z3 does validity checking (assert NOT clause; UNSAT = valid)
+- `invariant`: Z3 does satisfiability checking (assert clause; SAT = ok)
+
+This was learned when `demos/taint-tracking.assura` broke CI with
+counterexamples from unconstrained output variables, and
+`demos/heartbleed.assura` initially failed because `feature_max`
+constants were treated as unconstrained by the encoder.
+
 ## SMT API Shape
 
 The `assura_smt::VerificationResult` is an **enum**, not a struct with
