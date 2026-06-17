@@ -498,6 +498,17 @@ compiletime_name_fn!(
     "invariant suspension scope tracked\n    // Invariant must be re-established before scope exit"
 );
 
+compiletime_name_fn!(
+    compile_time_trigger_pattern,
+    "compile_time_trigger_pattern",
+    "trigger pattern validated at compile time\n    // Ensures quantifier instantiation patterns are syntactically valid"
+);
+compiletime_name_fn!(
+    compile_time_dependent_types,
+    "compile_time_dependent_types",
+    "information flow labels enforced\n    // Dependent type labels are checked at compile time via newtype wrappers"
+);
+
 // -- Functions with unique logic (compile_error!, cfg gates, multi-line) --
 
 /// CORE.1: Ghost code erasure.
@@ -705,252 +716,217 @@ pub fn generate_scoped_invariant(clause: &Clause, code: &mut String) {
 /// Returns true if the clause was handled as a feature annotation,
 /// false if it should be handled by the default codegen path.
 pub fn generate_feature_clause(clause: &Clause, fn_name: &str, code: &mut String) -> bool {
-    match &clause.kind {
-        ClauseKind::Other(kind) => {
-            match kind.as_str() {
-                // CORE
-                "ghost" => {
-                    generate_ghost_compile_check(fn_name, code);
-                    compile_time_ghost_erasure(fn_name, code);
-                    true
-                }
-                "axiom" | "axiomatic" => {
-                    generate_axiomatic_definition(clause, code);
-                    compile_time_axiom(fn_name, code);
-                    true
-                }
-                "trigger" | "auto_trigger" => {
-                    compile_time_trigger(fn_name, code);
-                    true
-                }
-                "opaque" => {
-                    generate_opaque_function(fn_name, code);
-                    compile_time_opaque(fn_name, code);
-                    true
-                }
-                "prophecy" => {
-                    compile_time_prophecy(fn_name, code);
-                    true
-                }
-                "liveness" | "eventually" | "leads_to" => {
-                    generate_liveness_check(clause, code);
-                    compile_time_liveness(fn_name, code);
-                    true
-                }
-                // MEM
-                "region" => {
-                    generate_region_annotation(clause, code);
-                    compile_time_region(fn_name, code);
-                    true
-                }
-                "fixed_width" | "width" => {
-                    compile_time_fixed_width(code);
-                    // MEM.2: Rust debug builds already check overflow
-                    true
-                }
-                "allocator" => {
-                    generate_allocator_check(clause, code);
-                    compile_time_allocator(fn_name, code);
-                    true
-                }
-                "circular" | "circular_buffer" => {
-                    generate_circular_buffer_check(clause, code);
-                    compile_time_circular(code);
-                    true
-                }
-                // TYPE
-                "interface" => {
-                    compile_time_interface(fn_name, code);
-                    true
-                }
-                "structural_invariant" => {
-                    generate_structural_invariant(clause, code);
-                    compile_time_structural(fn_name, code);
-                    true
-                }
-                "must_propagate" | "must_not_mask" | "error_policy" => {
-                    generate_error_propagation_check(clause, code);
-                    compile_time_error_propagation(code);
-                    true
-                }
-                // SEC
-                "taint" | "secret" => {
-                    compile_time_taint(fn_name, code);
-                    true
-                }
-                "constant_time" => {
-                    generate_constant_time_annotation(fn_name, code);
-                    compile_time_constant_time(fn_name, code);
-                    true
-                }
-                "zeroize" | "secure_erase" => {
-                    compile_time_zeroize(fn_name, code);
-                    true
-                }
-                "conforms" | "crypto" => {
-                    generate_crypto_conformance_check(clause, code);
-                    compile_time_crypto(fn_name, code);
-                    true
-                }
-                // CONC
-                "shared" | "shared_memory" => {
-                    compile_time_shared_memory(fn_name, code);
-                    true
-                }
-                "must_not_reenter" | "no_reentrant" | "callback" => {
-                    generate_callback_reentrancy_guard(fn_name, code);
-                    compile_time_reentrancy(fn_name, code);
-                    true
-                }
-                "deterministic" => {
-                    generate_deterministic_annotation(fn_name, code);
-                    compile_time_determinism(fn_name, code);
-                    true
-                }
-                "lock_order" | "lock_rank" => {
-                    generate_lock_order_annotation(clause, code);
-                    compile_time_lock_order(fn_name, code);
-                    true
-                }
-                "deadline" | "timeout" => {
-                    generate_deadline_check(clause, code);
-                    compile_time_deadline(fn_name, code);
-                    true
-                }
-                "ordering" | "acquire" | "release" | "seq_cst" | "acq_rel" => {
-                    compile_time_weak_memory(code);
-                    true
-                }
-                // STOR
-                "crash_recovery" | "wal" | "write_ahead" => {
-                    generate_crash_recovery_check(clause, code);
-                    compile_time_crash_recovery(fn_name, code);
-                    true
-                }
-                "page_cache" | "buffer_pool" => {
-                    generate_page_cache_check(clause, code);
-                    compile_time_page_cache(code);
-                    true
-                }
-                "mvcc" | "snapshot_isolation" => {
-                    generate_mvcc_check(clause, code);
-                    compile_time_mvcc(code);
-                    true
-                }
-                "rollback" | "savepoint" => {
-                    generate_rollback_check(clause, code);
-                    compile_time_rollback(code);
-                    true
-                }
-                "monotonic" => {
-                    generate_monotonic_check(clause, code);
-                    compile_time_monotonic(code);
-                    true
-                }
-                "failure_mode" | "storage_failure" => {
-                    generate_storage_failure_check(clause, code);
-                    compile_time_storage_failure(code);
-                    true
-                }
-                // FMT
-                "binary_format" | "byte_layout" => {
-                    generate_binary_format_check(clause, code);
-                    compile_time_binary_format(code);
-                    true
-                }
-                "bit_layout" | "bit_level" | "bit_field" => {
-                    generate_bit_level_check(clause, code);
-                    compile_time_bit_level(code);
-                    true
-                }
-                "string_encoding" | "charset" => {
-                    generate_string_encoding_check(clause, code);
-                    compile_time_string_encoding(fn_name, code);
-                    true
-                }
-                "codec_registry" | "codec" => {
-                    compile_time_codec_registry(fn_name, code);
-                    true
-                }
-                "checksum" => {
-                    generate_checksum_check(clause, code);
-                    compile_time_checksum(fn_name, code);
-                    true
-                }
-                "protocol_grammar" | "state_machine" => {
-                    generate_protocol_grammar_check(clause, code);
-                    compile_time_protocol_grammar(fn_name, code);
-                    true
-                }
-                // NUM
-                "precision" | "ulp_bound" => {
-                    generate_numerical_precision_check(clause, code);
-                    compile_time_numerical_precision(code);
-                    true
-                }
-                "precomputed_table" | "lookup_table" => {
-                    generate_precomputed_table_check(clause, code);
-                    compile_time_precomputed_table(fn_name, code);
-                    true
-                }
-                // PLAT
-                "platform" | "platform_abstraction" => {
-                    generate_platform_abstraction(clause, code);
-                    compile_time_platform(fn_name, code);
-                    true
-                }
-                "feature_flag" => {
-                    generate_feature_flag(clause, code);
-                    compile_time_feature_flag(fn_name, code);
-                    true
-                }
-                "resource_limit" => {
-                    generate_resource_limit_check(clause, code);
-                    compile_time_resource_limit(code);
-                    true
-                }
-                // PERF
-                "unsafe_escape" => {
-                    generate_unsafe_escape(clause, code);
-                    compile_time_unsafe_escape(fn_name, code);
-                    true
-                }
-                "complexity" | "complexity_bound" => {
-                    generate_complexity_bound(clause, code);
-                    compile_time_complexity_bound(fn_name, code);
-                    true
-                }
-                // TEST
-                "test_gen" | "generate_tests" => {
-                    compile_time_test_gen(fn_name, code);
-                    true
-                }
-                "behavioral_equiv" | "behavioral_equivalence" => {
-                    generate_behavioral_equiv_test(fn_name, clause, code);
-                    compile_time_behavioral_equiv(fn_name, code);
-                    true
-                }
-                "multi_pass" | "multi_pass_refinement" => {
-                    generate_multi_pass_refinement(clause, code);
-                    compile_time_multi_pass(fn_name, code);
-                    true
-                }
-                // MISC
-                "incremental" | "incremental_contract" => {
-                    generate_incremental_contract(clause, code);
-                    compile_time_incremental(fn_name, code);
-                    true
-                }
-                "suspend_invariant" | "scoped_invariant" => {
-                    generate_scoped_invariant(clause, code);
-                    compile_time_scoped_invariant(fn_name, code);
-                    true
-                }
-                _ => false,
-            }
+    use assura_parser::features::Feature;
+    let kind_str = match &clause.kind {
+        ClauseKind::Other(kind) => kind.as_str(),
+        _ => return false,
+    };
+    let feature = match Feature::from_clause_kind(kind_str) {
+        Some(f) => f,
+        None => return false,
+    };
+    match feature {
+        // CORE
+        Feature::GhostErasure => {
+            generate_ghost_compile_check(fn_name, code);
+            compile_time_ghost_erasure(fn_name, code);
         }
-        _ => false,
+        Feature::LemmaErasure => {
+            generate_axiomatic_definition(clause, code);
+            compile_time_axiom(fn_name, code);
+        }
+        Feature::FrameConditions => {
+            compile_time_frame(fn_name, code);
+        }
+        Feature::AxiomaticDefinitions => {
+            compile_time_trigger(fn_name, code);
+        }
+        Feature::TriggerPatterns => {
+            compile_time_trigger_pattern(fn_name, code);
+        }
+        Feature::OpaqueFunctions => {
+            generate_opaque_function(fn_name, code);
+            compile_time_opaque(fn_name, code);
+        }
+        Feature::ProphecyVariables => {
+            compile_time_prophecy(fn_name, code);
+        }
+        Feature::Liveness => {
+            generate_liveness_check(clause, code);
+            compile_time_liveness(fn_name, code);
+        }
+        // MEM
+        Feature::RegionAnnotations => {
+            generate_region_annotation(clause, code);
+            compile_time_region(fn_name, code);
+        }
+        Feature::FixedWidth => {
+            compile_time_fixed_width(code);
+        }
+        Feature::AllocatorContracts => {
+            generate_allocator_check(clause, code);
+            compile_time_allocator(fn_name, code);
+        }
+        Feature::CircularBuffer => {
+            generate_circular_buffer_check(clause, code);
+            compile_time_circular(code);
+        }
+        // TYPE
+        Feature::InterfaceConformance => {
+            compile_time_interface(fn_name, code);
+        }
+        Feature::StructuralInvariants => {
+            generate_structural_invariant(clause, code);
+            compile_time_structural(fn_name, code);
+        }
+        Feature::ErrorPropagation => {
+            generate_error_propagation_check(clause, code);
+            compile_time_error_propagation(code);
+        }
+        // SEC
+        Feature::TaintTracking => {
+            compile_time_taint(fn_name, code);
+        }
+        Feature::ConstantTime => {
+            generate_constant_time_annotation(fn_name, code);
+            compile_time_constant_time(fn_name, code);
+        }
+        Feature::SecureErasure => {
+            compile_time_zeroize(fn_name, code);
+        }
+        Feature::CryptoConformance => {
+            generate_crypto_conformance_check(clause, code);
+            compile_time_crypto(fn_name, code);
+        }
+        Feature::DependentTypes => {
+            compile_time_dependent_types(fn_name, code);
+        }
+        // CONC
+        Feature::SharedMemory => {
+            compile_time_shared_memory(fn_name, code);
+        }
+        Feature::CallbackReentrancy => {
+            generate_callback_reentrancy_guard(fn_name, code);
+            compile_time_reentrancy(fn_name, code);
+        }
+        Feature::Determinism => {
+            generate_deterministic_annotation(fn_name, code);
+            compile_time_determinism(fn_name, code);
+        }
+        Feature::LockOrdering => {
+            generate_lock_order_annotation(clause, code);
+            compile_time_lock_order(fn_name, code);
+        }
+        Feature::Deadline => {
+            generate_deadline_check(clause, code);
+            compile_time_deadline(fn_name, code);
+        }
+        Feature::WeakMemoryOrdering => {
+            compile_time_weak_memory(code);
+        }
+        // STOR
+        Feature::CrashRecovery => {
+            generate_crash_recovery_check(clause, code);
+            compile_time_crash_recovery(fn_name, code);
+        }
+        Feature::PageCache => {
+            generate_page_cache_check(clause, code);
+            compile_time_page_cache(code);
+        }
+        Feature::MvccIsolation => {
+            generate_mvcc_check(clause, code);
+            compile_time_mvcc(code);
+        }
+        Feature::RollbackSavepoint => {
+            generate_rollback_check(clause, code);
+            compile_time_rollback(code);
+        }
+        Feature::MonotonicState => {
+            generate_monotonic_check(clause, code);
+            compile_time_monotonic(code);
+        }
+        Feature::StorageFailure => {
+            generate_storage_failure_check(clause, code);
+            compile_time_storage_failure(code);
+        }
+        // FMT
+        Feature::BinaryFormat => {
+            generate_binary_format_check(clause, code);
+            compile_time_binary_format(code);
+        }
+        Feature::BitLevel => {
+            generate_bit_level_check(clause, code);
+            compile_time_bit_level(code);
+        }
+        Feature::StringEncoding => {
+            generate_string_encoding_check(clause, code);
+            compile_time_string_encoding(fn_name, code);
+        }
+        Feature::CodecRegistry => {
+            compile_time_codec_registry(fn_name, code);
+        }
+        Feature::Checksum => {
+            generate_checksum_check(clause, code);
+            compile_time_checksum(fn_name, code);
+        }
+        Feature::ProtocolGrammar => {
+            generate_protocol_grammar_check(clause, code);
+            compile_time_protocol_grammar(fn_name, code);
+        }
+        // NUM
+        Feature::NumericalPrecision => {
+            generate_numerical_precision_check(clause, code);
+            compile_time_numerical_precision(code);
+        }
+        Feature::PrecomputedTable => {
+            generate_precomputed_table_check(clause, code);
+            compile_time_precomputed_table(fn_name, code);
+        }
+        // PLAT
+        Feature::PlatformAbstraction => {
+            generate_platform_abstraction(clause, code);
+            compile_time_platform(fn_name, code);
+        }
+        Feature::FeatureFlag => {
+            generate_feature_flag(clause, code);
+            compile_time_feature_flag(fn_name, code);
+        }
+        Feature::ResourceLimit => {
+            generate_resource_limit_check(clause, code);
+            compile_time_resource_limit(code);
+        }
+        // PERF
+        Feature::UnsafeEscape => {
+            generate_unsafe_escape(clause, code);
+            compile_time_unsafe_escape(fn_name, code);
+        }
+        Feature::ComplexityBound => {
+            generate_complexity_bound(clause, code);
+            compile_time_complexity_bound(fn_name, code);
+        }
+        // TEST
+        Feature::TestGenCoverage => {
+            compile_time_test_gen(fn_name, code);
+        }
+        Feature::BehavioralEquiv => {
+            generate_behavioral_equiv_test(fn_name, clause, code);
+            compile_time_behavioral_equiv(fn_name, code);
+        }
+        Feature::MultiPassRefinement => {
+            generate_multi_pass_refinement(clause, code);
+            compile_time_multi_pass(fn_name, code);
+        }
+        // MISC
+        Feature::IncrementalContract => {
+            generate_incremental_contract(clause, code);
+            compile_time_incremental(fn_name, code);
+        }
+        Feature::ScopedInvariant => {
+            generate_scoped_invariant(clause, code);
+            compile_time_scoped_invariant(fn_name, code);
+        }
     }
+    true
 }
 
 /// Generate all feature-specific annotations for a set of clauses.

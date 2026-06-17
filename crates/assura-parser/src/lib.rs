@@ -3,6 +3,8 @@ pub mod ast;
 pub(crate) mod cst;
 /// Pretty-printing for AST nodes (Debug-like, human-readable).
 pub mod display;
+/// Central registry of Assura's 50 verification features.
+pub mod features;
 pub(crate) mod grammar;
 /// Token definitions (logos-derived lexer).
 pub mod lexer;

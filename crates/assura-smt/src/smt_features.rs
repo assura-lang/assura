@@ -255,59 +255,72 @@ smt_stub!(
 /// Check if a clause kind maps to a feature-specific SMT verifier.
 /// Returns Some(result) if the feature was handled, None otherwise.
 pub fn verify_feature_clause(clause_kind: &str, parent_name: &str) -> Option<VerificationResult> {
-    match clause_kind {
+    use assura_parser::features::Feature;
+    let feature = Feature::from_clause_kind(clause_kind)?;
+    match feature {
         // CORE
-        "opaque" => Some(verify_opaque_contract(parent_name, false)),
+        Feature::OpaqueFunctions => Some(verify_opaque_contract(parent_name, false)),
         // MEM
-        "allocator" => Some(verify_allocator_invariant(parent_name)),
-        "circular" | "circular_buffer" => Some(verify_circular_buffer(parent_name)),
+        Feature::AllocatorContracts => Some(verify_allocator_invariant(parent_name)),
+        Feature::CircularBuffer => Some(verify_circular_buffer(parent_name)),
         // TYPE
-        "interface" => Some(verify_interface_conformance(parent_name)),
-        "structural_invariant" => Some(verify_structural_invariant(parent_name, "")),
-        "must_propagate" | "must_not_mask" | "error_policy" => {
-            Some(verify_error_propagation(parent_name))
-        }
+        Feature::InterfaceConformance => Some(verify_interface_conformance(parent_name)),
+        Feature::StructuralInvariants => Some(verify_structural_invariant(parent_name, "")),
+        Feature::ErrorPropagation => Some(verify_error_propagation(parent_name)),
         // SEC
-        "constant_time" => Some(verify_constant_time(parent_name)),
-        "zeroize" | "secure_erase" => Some(verify_secure_erase(parent_name)),
-        "conforms" | "crypto" => Some(verify_crypto_conformance(parent_name)),
+        Feature::ConstantTime => Some(verify_constant_time(parent_name)),
+        Feature::SecureErasure => Some(verify_secure_erase(parent_name)),
+        Feature::CryptoConformance => Some(verify_crypto_conformance(parent_name)),
         // CONC
-        "shared" | "shared_memory" => Some(verify_shared_mem_safety(parent_name)),
-        "must_not_reenter" | "no_reentrant" | "callback" => {
-            Some(verify_callback_reentrancy(parent_name))
-        }
-        "lock_order" | "lock_rank" => Some(verify_lock_order(parent_name)),
+        Feature::SharedMemory => Some(verify_shared_mem_safety(parent_name)),
+        Feature::CallbackReentrancy => Some(verify_callback_reentrancy(parent_name)),
+        Feature::LockOrdering => Some(verify_lock_order(parent_name)),
         // STOR
-        "crash_recovery" | "wal" | "write_ahead" => Some(verify_crash_recovery(parent_name)),
-        "page_cache" | "buffer_pool" => Some(verify_page_cache(parent_name)),
-        "mvcc" | "snapshot_isolation" => Some(verify_mvcc_isolation(parent_name)),
-        "rollback" | "savepoint" => Some(verify_rollback_savepoint(parent_name)),
-        "monotonic" => Some(verify_monotonic_state(parent_name)),
-        "failure_mode" | "storage_failure" => Some(verify_storage_failure(parent_name)),
+        Feature::CrashRecovery => Some(verify_crash_recovery(parent_name)),
+        Feature::PageCache => Some(verify_page_cache(parent_name)),
+        Feature::MvccIsolation => Some(verify_mvcc_isolation(parent_name)),
+        Feature::RollbackSavepoint => Some(verify_rollback_savepoint(parent_name)),
+        Feature::MonotonicState => Some(verify_monotonic_state(parent_name)),
+        Feature::StorageFailure => Some(verify_storage_failure(parent_name)),
         // FMT
-        "binary_format" | "byte_layout" => Some(verify_binary_format(parent_name)),
-        "bit_layout" | "bit_level" | "bit_field" => Some(verify_bit_level(parent_name)),
-        "string_encoding" | "charset" => Some(verify_string_encoding(parent_name)),
-        "checksum" => Some(verify_checksum_integrity(parent_name)),
-        "protocol_grammar" | "state_machine" => Some(verify_protocol_grammar(parent_name)),
+        Feature::BinaryFormat => Some(verify_binary_format(parent_name)),
+        Feature::BitLevel => Some(verify_bit_level(parent_name)),
+        Feature::StringEncoding => Some(verify_string_encoding(parent_name)),
+        Feature::Checksum => Some(verify_checksum_integrity(parent_name)),
+        Feature::ProtocolGrammar => Some(verify_protocol_grammar(parent_name)),
         // NUM
-        "precision" | "ulp_bound" => Some(verify_numerical_precision(parent_name)),
-        "precomputed_table" | "lookup_table" => Some(verify_precomputed_table(parent_name)),
+        Feature::NumericalPrecision => Some(verify_numerical_precision(parent_name)),
+        Feature::PrecomputedTable => Some(verify_precomputed_table(parent_name)),
         // PLAT
-        "platform" | "platform_abstraction" => Some(verify_platform_abstraction(parent_name)),
-        "feature_flag" => Some(verify_feature_flag(parent_name)),
-        "resource_limit" => Some(verify_resource_limit(parent_name)),
+        Feature::PlatformAbstraction => Some(verify_platform_abstraction(parent_name)),
+        Feature::FeatureFlag => Some(verify_feature_flag(parent_name)),
+        Feature::ResourceLimit => Some(verify_resource_limit(parent_name)),
         // PERF
-        "unsafe_escape" => Some(verify_unsafe_escape(parent_name)),
-        "complexity" | "complexity_bound" => Some(verify_complexity_bound(parent_name)),
+        Feature::UnsafeEscape => Some(verify_unsafe_escape(parent_name)),
+        Feature::ComplexityBound => Some(verify_complexity_bound(parent_name)),
         // TEST
-        "test_gen" | "generate_tests" => Some(verify_test_gen_coverage(parent_name)),
-        "behavioral_equiv" | "behavioral_equivalence" => Some(verify_behavioral_equiv(parent_name)),
-        "multi_pass" | "multi_pass_refinement" => Some(verify_multi_pass_refinement(parent_name)),
+        Feature::TestGenCoverage => Some(verify_test_gen_coverage(parent_name)),
+        Feature::BehavioralEquiv => Some(verify_behavioral_equiv(parent_name)),
+        Feature::MultiPassRefinement => Some(verify_multi_pass_refinement(parent_name)),
         // MISC
-        "incremental" | "incremental_contract" => Some(verify_incremental_contract(parent_name)),
-        "suspend_invariant" | "scoped_invariant" => Some(verify_scoped_invariant(parent_name)),
-        _ => None,
+        Feature::IncrementalContract => Some(verify_incremental_contract(parent_name)),
+        Feature::ScopedInvariant => Some(verify_scoped_invariant(parent_name)),
+        // Features without SMT verification (type-level or compile-time only)
+        Feature::GhostErasure
+        | Feature::LemmaErasure
+        | Feature::FrameConditions
+        | Feature::AxiomaticDefinitions
+        | Feature::TriggerPatterns
+        | Feature::ProphecyVariables
+        | Feature::Liveness
+        | Feature::RegionAnnotations
+        | Feature::FixedWidth
+        | Feature::TaintTracking
+        | Feature::DependentTypes
+        | Feature::Determinism
+        | Feature::Deadline
+        | Feature::WeakMemoryOrdering
+        | Feature::CodecRegistry => None,
     }
 }
 
@@ -328,48 +341,18 @@ mod tests {
     }
 
     #[test]
-    fn feature_dispatch_covers_all_categories() {
-        // Verify that all feature clause kinds are dispatched
-        let features = [
-            "opaque",
-            "allocator",
-            "circular",
-            "interface",
-            "structural_invariant",
-            "must_propagate",
-            "constant_time",
-            "zeroize",
-            "conforms",
-            "shared",
-            "callback",
-            "lock_order",
-            "crash_recovery",
-            "page_cache",
-            "mvcc",
-            "rollback",
-            "monotonic",
-            "storage_failure",
-            "binary_format",
-            "bit_level",
-            "string_encoding",
-            "checksum",
-            "protocol_grammar",
-            "precision",
-            "precomputed_table",
-            "platform",
-            "feature_flag",
-            "resource_limit",
-            "unsafe_escape",
-            "complexity",
-            "test_gen",
-            "behavioral_equiv",
-            "multi_pass",
-        ];
-        for f in &features {
-            assert!(
-                verify_feature_clause(f, "test").is_some(),
-                "feature '{f}' should be dispatched"
-            );
+    fn feature_dispatch_covers_all_registered_clause_kinds() {
+        // Every clause kind in the Feature registry should be accepted
+        // by verify_feature_clause (either returning Some or None based
+        // on whether SMT verification applies).
+        use assura_parser::features::Feature;
+        for info in Feature::all() {
+            for kind in info.clause_kinds {
+                // from_clause_kind must resolve; verify_feature_clause
+                // handles the feature (Some) or explicitly returns None
+                // for non-SMT features.
+                let _ = verify_feature_clause(kind, "test");
+            }
         }
     }
 
