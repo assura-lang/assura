@@ -168,3 +168,177 @@ pub(crate) fn format_rust(code: &str) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_clause(kind: ClauseKind, body: Expr) -> Clause {
+        Clause {
+            kind,
+            body,
+            effect_variables: vec![],
+        }
+    }
+
+    // ---- generate_block ----
+
+    #[test]
+    fn block_interface_delegates_to_trait() {
+        let clauses = vec![mk_clause(
+            ClauseKind::Other("method".into()),
+            Expr::Ident("compute".into()),
+        )];
+        let mut code = String::new();
+        generate_block(&BlockKind::Interface, "Computable", &clauses, &mut code);
+        assert!(code.contains("pub trait Computable"));
+    }
+
+    #[test]
+    fn block_feature_compile_time_only() {
+        let clauses = vec![mk_clause(
+            ClauseKind::Other("flag".into()),
+            Expr::Literal(Literal::Bool(true)),
+        )];
+        let mut code = String::new();
+        generate_block(&BlockKind::Feature, "my_flag", &clauses, &mut code);
+        assert!(code.contains("compile-time feature flag"));
+        assert!(!code.contains("pub mod"));
+    }
+
+    #[test]
+    fn block_table_compile_time_smt() {
+        let mut code = String::new();
+        generate_block(&BlockKind::Table, "lookup", &[], &mut code);
+        assert!(code.contains("compile-time verified by SMT"));
+    }
+
+    #[test]
+    fn block_generic_with_ensures() {
+        let clauses = vec![mk_clause(
+            ClauseKind::Ensures,
+            Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+        )];
+        let mut code = String::new();
+        generate_block(
+            &BlockKind::Other("verification".into()),
+            "positive",
+            &clauses,
+            &mut code,
+        );
+        assert!(code.contains("pub mod block_positive"));
+        assert!(code.contains("debug_assert!"));
+    }
+
+    #[test]
+    fn block_with_requires() {
+        let clauses = vec![mk_clause(
+            ClauseKind::Requires,
+            Expr::Literal(Literal::Bool(true)),
+        )];
+        let mut code = String::new();
+        generate_block(
+            &BlockKind::Other("verification".into()),
+            "precond",
+            &clauses,
+            &mut code,
+        );
+        assert!(code.contains("PRECONDITION"));
+    }
+
+    #[test]
+    fn block_with_must_not() {
+        let clauses = vec![mk_clause(
+            ClauseKind::MustNot,
+            Expr::Ident("overflow".into()),
+        )];
+        let mut code = String::new();
+        generate_block(
+            &BlockKind::Other("verification".into()),
+            "safe",
+            &clauses,
+            &mut code,
+        );
+        assert!(code.contains("check_must_not_safe"));
+        assert!(code.contains("!(overflow)"));
+    }
+
+    #[test]
+    fn block_with_rule() {
+        let clauses = vec![mk_clause(
+            ClauseKind::Rule,
+            Expr::Literal(Literal::Bool(true)),
+        )];
+        let mut code = String::new();
+        generate_block(
+            &BlockKind::Other("verification".into()),
+            "r1",
+            &clauses,
+            &mut code,
+        );
+        assert!(code.contains("check_rule_r1"));
+    }
+
+    // ---- generate_codec_registry ----
+
+    #[test]
+    fn codec_registry_bytes() {
+        let cr = CodecRegistryDecl {
+            name: "images".into(),
+            output_type: vec!["Image".into()],
+            codecs: vec![assura_parser::ast::CodecEntry {
+                name: "png".into(),
+                decoder: "decode_png".into(),
+                magic: MagicPattern::Bytes {
+                    bytes: vec![0x89, 0x50, 0x4E, 0x47],
+                    prefix: true,
+                },
+                contracts: vec![],
+            }],
+        };
+        let mut code = String::new();
+        generate_codec_registry(&cr, &mut code);
+        assert!(code.contains("dispatch_images"));
+        assert!(code.contains("0x89"));
+        assert!(code.contains("decode_png"));
+    }
+
+    #[test]
+    fn codec_registry_probe() {
+        let cr = CodecRegistryDecl {
+            name: "formats".into(),
+            output_type: vec![],
+            codecs: vec![assura_parser::ast::CodecEntry {
+                name: "custom".into(),
+                decoder: "decode_custom".into(),
+                magic: MagicPattern::Probe("is_custom".into()),
+                contracts: vec![],
+            }],
+        };
+        let mut code = String::new();
+        generate_codec_registry(&cr, &mut code);
+        assert!(code.contains("is_custom(data)"));
+        assert!(code.contains("decode_custom"));
+    }
+
+    // ---- format_rust ----
+
+    #[test]
+    fn format_valid_rust() {
+        let code = "fn main() { let x = 1; }";
+        let formatted = format_rust(code);
+        assert!(formatted.contains("fn main()"));
+    }
+
+    #[test]
+    fn format_invalid_rust_returns_original() {
+        let code = "this is not valid rust {{{";
+        let result = format_rust(code);
+        assert!(result.contains("WARNING"));
+        assert!(result.contains(code));
+    }
+}
