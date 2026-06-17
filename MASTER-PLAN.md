@@ -1669,4 +1669,21 @@ Within the independent tasks, recommended order by impact:
 - Test count: ~3,100+ (up from ~3,020)
 - **Next session**: Z3 backend test coverage, structural stub removal
 
+### Session 16 (2026-06-17): Codegen test coverage completion
+
+- **275 new tests added across 7 codegen modules** (sessions 15b-16):
+  - expr.rs: 76 tests (operators, match, let, ghost, apply, ordering, old exprs)
+  - decl.rs: 11 tests (bind, extern, fn_def generation)
+  - service.rs: 20 tests (state comparison, typestate, interface traits)
+  - types_gen.rs: 42 tests (type mapping, Cargo.toml, struct/alias/refined)
+  - block.rs: 11 tests (codec registry, generic blocks, format_rust)
+  - contract.rs: 39 tests (enum_def, proptest strategy, refinement, error types,
+    contract generation, interface traits, input/output extraction)
+  - features.rs: 76 tests (all 50 verification features, dispatch table,
+    compile-time enforcement, synonym matching)
+- **All codegen source files now have tests** (was 0 tests in 7 of 10 files)
+- Test count: 3,381 (up from ~3,100)
+- **Next session**: Continue multi-perspective improvements, SMT backend test
+  coverage, remaining structural stub removal
+
 ---
