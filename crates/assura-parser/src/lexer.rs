@@ -580,3 +580,152 @@ impl std::fmt::Display for Token {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Token;
+    use logos::Logos;
+
+    fn lex(input: &str) -> Vec<Token> {
+        Token::lexer(input).filter_map(|r| r.ok()).collect()
+    }
+
+    #[test]
+    fn lex_keywords() {
+        let tokens = lex("contract requires ensures effects invariant");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Contract,
+                Token::Requires,
+                Token::Ensures,
+                Token::Effects,
+                Token::Invariant,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_operators() {
+        let tokens = lex("== != <= >= && || + - * /");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Eq,
+                Token::Neq,
+                Token::Lte,
+                Token::Gte,
+                Token::AndAnd,
+                Token::OrOr,
+                Token::Plus,
+                Token::Minus,
+                Token::Star,
+                Token::Slash,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_literals() {
+        let tokens = lex("42 3.14 \"hello\" true false");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Int("42".into()),
+                Token::Float("3.14".into()),
+                Token::String("hello".into()),
+                Token::True,
+                Token::False,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_identifiers() {
+        let tokens = lex("foo bar_baz x123");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("foo".into()),
+                Token::Ident("bar_baz".into()),
+                Token::Ident("x123".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_delimiters() {
+        let tokens = lex("( ) { } [ ] , : ; .");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LParen,
+                Token::RParen,
+                Token::LBrace,
+                Token::RBrace,
+                Token::LBracket,
+                Token::RBracket,
+                Token::Comma,
+                Token::Colon,
+                Token::Semicolon,
+                Token::Dot,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_skips_line_comments() {
+        let tokens = lex("contract // this is a comment\nrequires");
+        assert_eq!(tokens, vec![Token::Contract, Token::Requires]);
+    }
+
+    #[test]
+    fn lex_skips_block_comments() {
+        let tokens = lex("contract /* block comment */ requires");
+        assert_eq!(tokens, vec![Token::Contract, Token::Requires]);
+    }
+
+    #[test]
+    fn lex_arrows() {
+        let tokens = lex("-> =>");
+        assert_eq!(tokens, vec![Token::Arrow, Token::FatArrow]);
+    }
+
+    #[test]
+    fn lex_modifier_keywords() {
+        let tokens = lex("ghost pure opaque lemma fn axiom");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ghost,
+                Token::Pure,
+                Token::Opaque,
+                Token::Lemma,
+                Token::Fn,
+                Token::Axiom,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_type_keywords() {
+        let tokens = lex("type enum extern bind service prophecy");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Type,
+                Token::Enum,
+                Token::Extern,
+                Token::Bind,
+                Token::Service,
+                Token::Prophecy,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_empty_input() {
+        let tokens = lex("");
+        assert!(tokens.is_empty());
+    }
+}

@@ -413,4 +413,55 @@ mod tests {
         let json = serde_json::to_string(&result);
         assert!(json.is_ok());
     }
+
+    // Tests for compile() function
+    #[test]
+    fn compile_valid_contract() {
+        let config = CompilerConfig::default();
+        let output = compile(
+            "contract Add {\n  requires { true }\n}",
+            "test.assura",
+            &config,
+        );
+        assert!(output.file.is_some());
+        assert!(output.resolved.is_some());
+        assert!(
+            output.typed.is_some(),
+            "typed was None; diagnostics: {:?}",
+            output.diagnostics
+        );
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+    }
+
+    #[test]
+    fn compile_parse_error_populates_diagnostics() {
+        let config = CompilerConfig::default();
+        let output = compile("contract { @@@ }", "bad.assura", &config);
+        assert!(output.has_errors);
+        assert!(!output.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn compile_empty_source() {
+        let config = CompilerConfig::default();
+        let output = compile("", "empty.assura", &config);
+        assert!(output.file.is_some());
+        assert!(!output.has_errors);
+    }
+
+    #[test]
+    fn compile_records_timing() {
+        let config = CompilerConfig::default();
+        let output = compile(
+            "contract T { requires(x: Int) ensures(result: Int) }",
+            "test.assura",
+            &config,
+        );
+        assert!(output.timing.parse_ms >= 0.0);
+        assert!(output.timing.token_count > 0);
+    }
 }
