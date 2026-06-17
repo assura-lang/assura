@@ -1173,6 +1173,9 @@ fn collect_paren_tokens(n: &SyntaxNode) -> Vec<String> {
                     }
                 }
                 SyntaxKind::WHITESPACE | SyntaxKind::COMMENT => {}
+                SyntaxKind::COMMA if inside && depth == 0 => {
+                    // Skip top-level commas (field separators)
+                }
                 _ if inside => {
                     tokens.push(tok.text().to_string());
                 }
@@ -1974,6 +1977,23 @@ mod tests {
             assert_eq!(ed.name, "Color");
             assert_eq!(ed.variants.len(), 3);
             assert_eq!(ed.variants[0].name, "Red");
+        } else {
+            panic!("expected EnumDef");
+        }
+    }
+
+    #[test]
+    fn lower_enum_variant_fields_exclude_commas() {
+        let src = "enum Shape { Rect(Int, Int), Circle(Float) }";
+        let (sf, errors) = parse_and_lower(src);
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        if let Decl::EnumDef(ed) = &sf.decls[0].node {
+            // Rect(Int, Int) should have exactly 2 fields, no commas
+            assert_eq!(ed.variants[0].name, "Rect");
+            assert_eq!(ed.variants[0].fields, vec!["Int", "Int"]);
+            // Circle(Float) should have exactly 1 field
+            assert_eq!(ed.variants[1].name, "Circle");
+            assert_eq!(ed.variants[1].fields, vec!["Float"]);
         } else {
             panic!("expected EnumDef");
         }

@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 46
 expression: ast
 ---
 SourceFile {
@@ -177,7 +176,6 @@ SourceFile {
                                 "<",
                                 "T",
                                 ">",
-                                ",",
                                 "Tree",
                                 "<",
                                 "T",

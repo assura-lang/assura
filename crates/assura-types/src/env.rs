@@ -477,7 +477,18 @@ mod tests {
 
     #[test]
     fn enumdef_variant_constructors() {
-        let env = env_from_source("enum Shape { Circle(Float) }");
+        let env = env_from_source("enum Shape { Rect(Int, Int), Circle(Float) }");
+        // Rect should have 2 Int params
+        match env.lookup("Rect") {
+            Some(Type::Fn { params, ret }) => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], Type::Int);
+                assert_eq!(params[1], Type::Int);
+                assert_eq!(**ret, Type::Named("Shape".into()));
+            }
+            other => panic!("expected Fn constructor for Rect, got {other:?}"),
+        }
+        // Circle should have 1 Float param
         match env.lookup("Circle") {
             Some(Type::Fn { params, ret }) => {
                 assert_eq!(params.len(), 1);
