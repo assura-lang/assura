@@ -2566,3 +2566,43 @@ codec_registry ImageFormats {
         &lib_rs.1[..lib_rs.1.len().min(500)]
     );
 }
+
+// =========================================================================
+// #178 Regression: generated Rust must suppress all warning categories
+// =========================================================================
+
+/// Verify that generated code includes `#![allow(...)]` covering all warning
+/// categories that Assura codegen is known to trigger: dead_code,
+/// unused_variables, unused_parens, non_camel_case_types, unreachable_code.
+#[test]
+fn test_demo_codegen_warning_free() {
+    // Use a contract with a SCREAMING_CASE constant (triggers non_camel_case_types
+    // if not suppressed) and arithmetic in requires (triggers unused_parens).
+    let src = r#"
+        contract BoundsCheck {
+            input { x: Int, MAX_SIZE: Nat }
+            requires { (x + 1) >= 0 }
+            ensures { result <= MAX_SIZE }
+        }
+    "#;
+    let proj = codegen_ok(src);
+    let (_, lib_rs) = proj
+        .files
+        .iter()
+        .find(|(p, _)| p.ends_with(".rs"))
+        .expect("no .rs file in generated project");
+
+    // The allow attribute must cover all five warning categories
+    for cat in &[
+        "dead_code",
+        "unused_variables",
+        "unused_parens",
+        "non_camel_case_types",
+        "unreachable_code",
+    ] {
+        assert!(
+            lib_rs.contains(cat),
+            "generated code must #![allow({cat})] but it was missing"
+        );
+    }
+}

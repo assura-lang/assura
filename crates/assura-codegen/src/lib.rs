@@ -520,7 +520,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
 
         // Build shared code: types, enums, externs, functions, blocks
         let mut shared = String::new();
-        shared.push_str("#![allow(dead_code, unused_variables)]\n\n");
+        shared.push_str("#![allow(dead_code, unused_variables, unused_parens, non_camel_case_types, unreachable_code)]\n\n");
         // Emit the pre-built preamble (feature_max, const-as-type stubs,
         // placeholder structs)
         shared.push_str(&code);
@@ -585,7 +585,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             if let Decl::Contract(c) = &decl.node {
                 let mod_name = c.name.to_lowercase();
                 let mut mod_code = String::new();
-                mod_code.push_str("#![allow(dead_code, unused_variables)]\n\n");
+                mod_code.push_str("#![allow(dead_code, unused_variables, unused_parens, non_camel_case_types, unreachable_code)]\n\n");
                 mod_code.push_str("use super::*;\n\n");
                 // Generate the contract body without wrapping it in
                 // `pub mod contract_xxx { ... }` since it IS the module file.
@@ -605,7 +605,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             if let Decl::Service(s) = &decl.node {
                 let mod_name = s.name.to_lowercase();
                 let mut mod_code = String::new();
-                mod_code.push_str("#![allow(dead_code, unused_variables)]\n\n");
+                mod_code.push_str("#![allow(dead_code, unused_variables, unused_parens, non_camel_case_types, unreachable_code)]\n\n");
                 mod_code.push_str("use super::*;\n\n");
                 generate_service_contents(s, &mut mod_code);
                 let formatted = format_rust(&mod_code);
@@ -625,7 +625,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         // Single-file mode: everything in lib.rs (current behavior).
         // ------------------------------------------------------------------
         let mut all_code = String::new();
-        all_code.push_str("#![allow(dead_code, unused_variables)]\n\n");
+        all_code.push_str("#![allow(dead_code, unused_variables, unused_parens, non_camel_case_types, unreachable_code)]\n\n");
         all_code.push_str(&code);
 
         for decl in &source.decls {
