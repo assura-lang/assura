@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 119
 expression: "&ast"
 ---
 Some(
@@ -62,6 +61,7 @@ Some(
                                 },
                             },
                         ],
+                        fn_params: [],
                     },
                 ),
                 span: 0..78,

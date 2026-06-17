@@ -237,10 +237,19 @@ fn lower_contract(n: &SyntaxNode) -> ContractDecl {
         .map(|c| lower_clause(&c))
         .collect();
 
+    // Collect parameters from inline `fn` definitions inside the contract.
+    // These params should be in scope for clause bodies (requires, ensures).
+    let fn_params: Vec<Param> = n
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::FN_DEF)
+        .flat_map(|c| lower_param_list(&c))
+        .collect();
+
     ContractDecl {
         name,
         type_params,
         clauses,
+        fn_params,
     }
 }
 

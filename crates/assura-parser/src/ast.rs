@@ -142,6 +142,9 @@ pub struct ContractDecl {
     pub name: String,
     pub type_params: Vec<String>,
     pub clauses: Vec<Clause>,
+    /// Parameter names from inline `fn` declarations inside the contract.
+    /// These are in scope for clause bodies (requires, ensures, etc.).
+    pub fn_params: Vec<Param>,
 }
 
 #[derive(Debug, Clone)]

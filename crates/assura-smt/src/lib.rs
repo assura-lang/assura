@@ -818,6 +818,7 @@ module safe_division {
             name: "Test".into(),
             type_params: vec![],
             clauses: vec![],
+            fn_params: vec![],
         };
         let validation = validate_ir_against_contract(&module, &contract);
         assert!(!validation.valid);

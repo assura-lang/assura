@@ -171,6 +171,7 @@ fn generic_user_defined_contract_correct_arity() {
             name: "Container".into(),
             type_params: vec!["T".into()],
             clauses: vec![],
+            fn_params: vec![],
         },
     ))];
     let src = source_with_decls(decls);

@@ -298,6 +298,17 @@ pub fn resolve_with_modules(
                             }
                         }
                     }
+                    // Register parameters from inline fn definitions
+                    for p in &c.fn_params {
+                        try_insert(
+                            &mut table,
+                            &mut errors,
+                            contract_scope,
+                            &p.name,
+                            SymbolKind::Parameter,
+                            decl.span.clone(),
+                        );
+                    }
                 }
             }
             Decl::TypeDef(t) => {
@@ -2424,5 +2435,30 @@ service Svc {
         // "nonexistent" should return None
         let path3 = vec!["nonexistent".to_string()];
         assert_eq!(find_module_prefix(&path3, &map), None);
+    }
+
+    /// Regression test for #171: fn params must be visible in clause bodies.
+    #[test]
+    fn test_contract_params_visible_in_clauses() {
+        let src = r#"
+contract Safe {
+    requires n > 0
+    ensures result > 0
+    fn identity(n: Int) -> Int
+}
+"#;
+        let file = assura_parser::parse_unwrap(src);
+        let resolved = resolve(&file).expect("resolve failed");
+        // No A02001 errors about `n` being undefined
+        let a02001_errors: Vec<_> = resolved
+            .warnings
+            .iter()
+            .filter(|e| e.code == "A02001")
+            .collect();
+        assert!(
+            a02001_errors.is_empty(),
+            "fn params should not produce A02001, got: {:?}",
+            a02001_errors
+        );
     }
 }

@@ -494,6 +494,53 @@ SourceFile {
                     name: "BuildHuffmanTableContract",
                     type_params: [],
                     clauses: [],
+                    fn_params: [
+                        Param {
+                            name: "table",
+                            ty: [
+                                "HuffmanTableBuffer",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "HuffmanTableBuffer",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "root_bits",
+                            ty: [
+                                "{",
+                                "r",
+                                ":",
+                                "Nat",
+                                "|",
+                                "r",
+                                "<=",
+                                "MAX_CODE_LENGTH",
+                                "}",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "{ r : Nat | r <= MAX_CODE_LENGTH }",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "code_lengths",
+                            ty: [
+                                "ValidCodeLengths",
+                                "@",
+                                "taint",
+                                ":",
+                                "validated",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "ValidCodeLengths @ taint : validated",
+                                ),
+                            ),
+                        },
+                    ],
                 },
             ),
             span: 1950..2568,

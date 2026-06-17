@@ -692,6 +692,35 @@ SourceFile {
                     name: "EcdhParseContract",
                     type_params: [],
                     clauses: [],
+                    fn_params: [
+                        Param {
+                            name: "ctx",
+                            ty: [
+                                "&mut",
+                                "EcdhContext",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "&mut EcdhContext",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "peer",
+                            ty: [
+                                "ValidPeerKey",
+                                "@",
+                                "taint",
+                                ":",
+                                "validated",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "ValidPeerKey @ taint : validated",
+                                ),
+                            ),
+                        },
+                    ],
                 },
             ),
             span: 1850..2193,

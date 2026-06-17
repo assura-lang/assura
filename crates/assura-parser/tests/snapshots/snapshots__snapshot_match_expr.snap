@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 84
 expression: ast
 ---
 SourceFile {
@@ -23,6 +22,7 @@ SourceFile {
                             ),
                         },
                     ],
+                    fn_params: [],
                 },
             ),
             span: 0..33,

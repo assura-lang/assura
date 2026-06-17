@@ -124,6 +124,7 @@ SourceFile {
                             ),
                         },
                     ],
+                    fn_params: [],
                 },
             ),
             span: 0..197,
