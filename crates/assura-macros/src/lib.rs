@@ -317,7 +317,7 @@ fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro
                     let _ = #msg;
                 }),
                 "protocol_grammar" => Some(quote! {
-                    // assura protocol_grammar: state transition
+                    // assura ProtocolGrammar: state_machine transition assertion
                     let _ = #msg;
                 }),
 
