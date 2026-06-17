@@ -2367,7 +2367,6 @@ contract EffPoly {
         let sf = crate::parse_unwrap(src);
         assert_eq!(sf.decls.len(), 1);
         if let Decl::Contract(c) = &sf.decls[0].node {
-            // Should have an effects clause with effect variable E
             let eff_clause = c
                 .clauses
                 .iter()
@@ -2377,6 +2376,56 @@ contract EffPoly {
                 eff_clause.effect_variables,
                 vec!["E".to_string()],
                 "should extract effect variable E from row"
+            );
+        } else {
+            panic!("expected Decl::Contract");
+        }
+    }
+
+    #[test]
+    fn test_effect_row_multiple_variables() {
+        let src = r#"
+contract MultiEff {
+    effects <io, net | E, F>
+    fn poly_fn() -> Unit
+}
+"#;
+        let sf = crate::parse_unwrap(src);
+        if let Decl::Contract(c) = &sf.decls[0].node {
+            let eff_clause = c
+                .clauses
+                .iter()
+                .find(|cl| cl.kind == ClauseKind::Effects)
+                .expect("should have an effects clause");
+            assert_eq!(
+                eff_clause.effect_variables,
+                vec!["E".to_string(), "F".to_string()],
+                "should extract both effect variables E and F"
+            );
+        } else {
+            panic!("expected Decl::Contract");
+        }
+    }
+
+    #[test]
+    fn test_effect_row_no_variables() {
+        let src = r#"
+contract ConcreteEff {
+    effects <io>
+    fn concrete_fn() -> Unit
+}
+"#;
+        let sf = crate::parse_unwrap(src);
+        if let Decl::Contract(c) = &sf.decls[0].node {
+            let eff_clause = c
+                .clauses
+                .iter()
+                .find(|cl| cl.kind == ClauseKind::Effects)
+                .expect("should have an effects clause");
+            assert!(
+                eff_clause.effect_variables.is_empty(),
+                "effects without pipe should have no effect variables, got: {:?}",
+                eff_clause.effect_variables
             );
         } else {
             panic!("expected Decl::Contract");

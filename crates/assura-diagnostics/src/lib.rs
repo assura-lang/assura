@@ -3509,4 +3509,22 @@ mod tests {
         };
         assert_eq!(a, b);
     }
+
+    /// Regression test for #179: error codes must match spec Section 7.2.
+    #[test]
+    fn test_spec_aligned_error_codes() {
+        // A02002 = "Undefined type" per spec (was "Ambiguous name")
+        let a02002 = explain("A02002").expect("A02002 should exist");
+        assert_eq!(a02002.name, "Undefined type");
+
+        // A02004 = "Ambiguous import" per spec (was "Visibility violation")
+        let a02004 = explain("A02004").expect("A02004 should exist");
+        assert_eq!(a02004.name, "Ambiguous import");
+
+        // A19001 must exist (audit trail, was entirely missing)
+        assert!(explain("A19001").is_some(), "A19001 should exist");
+
+        // A26002 must exist (i18n completeness, was missing)
+        assert!(explain("A26002").is_some(), "A26002 should exist");
+    }
 }
