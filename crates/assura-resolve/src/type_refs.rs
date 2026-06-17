@@ -439,3 +439,97 @@ fn check_enum_variant_types(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edit_distance_identical() {
+        assert_eq!(edit_distance("hello", "hello"), 0);
+    }
+
+    #[test]
+    fn edit_distance_one_sub() {
+        assert_eq!(edit_distance("cat", "car"), 1);
+    }
+
+    #[test]
+    fn edit_distance_insert_delete() {
+        assert_eq!(edit_distance("kitten", "sitting"), 3);
+    }
+
+    #[test]
+    fn edit_distance_empty() {
+        assert_eq!(edit_distance("", "abc"), 3);
+        assert_eq!(edit_distance("abc", ""), 3);
+        assert_eq!(edit_distance("", ""), 0);
+    }
+
+    #[test]
+    fn is_type_name_candidate_uppercase() {
+        assert!(is_type_name_candidate("Int"));
+        assert!(is_type_name_candidate("MyType"));
+    }
+
+    #[test]
+    fn is_type_name_candidate_lowercase_rejected() {
+        assert!(!is_type_name_candidate("value"));
+        assert!(!is_type_name_candidate("x"));
+    }
+
+    #[test]
+    fn is_type_name_candidate_syntax_tokens() {
+        assert!(!is_type_name_candidate("<"));
+        assert!(!is_type_name_candidate("->"));
+        assert!(!is_type_name_candidate("Self"));
+    }
+
+    #[test]
+    fn is_type_name_candidate_keywords() {
+        assert!(!is_type_name_candidate("ghost"));
+        assert!(!is_type_name_candidate("requires"));
+        assert!(!is_type_name_candidate("ensures"));
+    }
+
+    #[test]
+    fn extract_type_names_filters_syntax() {
+        let tokens: Vec<String> = vec!["List", "<", "Int", ">"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let names = extract_type_names(&tokens);
+        assert_eq!(names, vec!["List", "Int"]);
+    }
+
+    #[test]
+    fn extract_type_names_empty() {
+        let names = extract_type_names(&[]);
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn should_be_lenient_bare_file() {
+        let source = assura_parser::parse_unwrap("");
+        assert!(!should_be_lenient(&source, &[]));
+    }
+
+    #[test]
+    fn should_be_lenient_with_unresolved_import() {
+        let source = assura_parser::parse_unwrap("");
+        let imports = vec![ResolvedImport {
+            path: vec!["std".into(), "math".into()],
+            items: vec![],
+            alias: None,
+            status: ImportStatus::Unresolved,
+            span: 0..1,
+        }];
+        assert!(should_be_lenient(&source, &imports));
+    }
+
+    #[test]
+    fn find_scope_for_not_found() {
+        let table = SymbolTable::new();
+        assert_eq!(find_scope_for(&table, "missing", 0), None);
+    }
+}

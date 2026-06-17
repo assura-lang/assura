@@ -242,6 +242,9 @@ fn collect_expr_names(expr: &Expr, names: &mut HashSet<String>) {
 }
 
 /// Check which imports introduced names that are never referenced in the AST.
+///
+/// An import is "unused" when none of the names it introduces appear in
+/// the set of referenced names collected from the AST.
 pub(crate) fn check_unused_imports(
     imports: &[ResolvedImport],
     referenced: &HashSet<String>,
@@ -272,5 +275,96 @@ pub(crate) fn check_unused_imports(
                 suggestion: None,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::imports::{ImportStatus, ResolvedImport};
+
+    fn make_import(path: &[&str], items: &[&str]) -> ResolvedImport {
+        ResolvedImport {
+            path: path.iter().map(|s| s.to_string()).collect(),
+            items: items.iter().map(|s| s.to_string()).collect(),
+            alias: None,
+            status: ImportStatus::Unresolved,
+            span: 0..1,
+        }
+    }
+
+    #[test]
+    fn collect_referenced_names_empty() {
+        let source = assura_parser::parse_unwrap("");
+        let names = collect_referenced_names(&source);
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn collect_referenced_names_contract() {
+        let source = assura_parser::parse_unwrap("contract C { input(n: Nat) requires { n > 0 } }");
+        let names = collect_referenced_names(&source);
+        assert!(names.contains("n"));
+    }
+
+    #[test]
+    fn collect_referenced_names_fn_types_and_body() {
+        let source = assura_parser::parse_unwrap("fn f(x: Int) -> Bool { ensures { x > 0 } }");
+        let names = collect_referenced_names(&source);
+        // Type tokens from params/return are collected
+        assert!(names.contains("Int"));
+        assert!(names.contains("Bool"));
+    }
+
+    #[test]
+    fn check_unused_imports_used_name() {
+        let mut referenced = HashSet::new();
+        referenced.insert("Map".to_string());
+        let imports = vec![make_import(&["std", "collections"], &["Map"])];
+        let mut errors = Vec::new();
+        check_unused_imports(&imports, &referenced, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn check_unused_imports_unused_name() {
+        let referenced = HashSet::new();
+        let imports = vec![make_import(&["std", "math"], &[])];
+        let mut errors = Vec::new();
+        check_unused_imports(&imports, &referenced, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A02007");
+        assert!(errors[0].message.contains("std.math"));
+    }
+
+    #[test]
+    fn check_unused_imports_circular_skipped() {
+        let referenced = HashSet::new();
+        let imports = vec![ResolvedImport {
+            path: vec!["self_ref".into()],
+            items: vec![],
+            alias: None,
+            status: ImportStatus::Circular,
+            span: 0..1,
+        }];
+        let mut errors = Vec::new();
+        check_unused_imports(&imports, &referenced, &mut errors);
+        assert!(errors.is_empty(), "circular imports should be skipped");
+    }
+
+    #[test]
+    fn check_unused_imports_alias_used() {
+        let mut referenced = HashSet::new();
+        referenced.insert("M".to_string());
+        let imports = vec![ResolvedImport {
+            path: vec!["std".into(), "math".into()],
+            items: vec![],
+            alias: Some("M".into()),
+            status: ImportStatus::Unresolved,
+            span: 0..1,
+        }];
+        let mut errors = Vec::new();
+        check_unused_imports(&imports, &referenced, &mut errors);
+        assert!(errors.is_empty());
     }
 }

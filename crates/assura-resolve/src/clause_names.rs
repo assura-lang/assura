@@ -382,3 +382,94 @@ pub(crate) fn collect_pattern_bindings(
         Pattern::Wildcard | Pattern::Literal(_) | Pattern::Ident(_) => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::Pattern;
+
+    #[test]
+    fn is_body_clause_requires() {
+        assert!(is_body_clause(&ClauseKind::Requires));
+    }
+
+    #[test]
+    fn is_body_clause_ensures() {
+        assert!(is_body_clause(&ClauseKind::Ensures));
+    }
+
+    #[test]
+    fn is_body_clause_invariant() {
+        assert!(is_body_clause(&ClauseKind::Invariant));
+    }
+
+    #[test]
+    fn is_body_clause_non_body() {
+        assert!(!is_body_clause(&ClauseKind::Input));
+        assert!(!is_body_clause(&ClauseKind::Output));
+        assert!(!is_body_clause(&ClauseKind::Effects));
+    }
+
+    #[test]
+    fn collect_pattern_bindings_ident() {
+        let mut locals = Vec::new();
+        collect_pattern_bindings(&Pattern::Ident("x".into()), &mut locals);
+        assert_eq!(locals, vec!["x"]);
+    }
+
+    #[test]
+    fn collect_pattern_bindings_wildcard() {
+        let mut locals = Vec::new();
+        collect_pattern_bindings(&Pattern::Wildcard, &mut locals);
+        assert!(locals.is_empty());
+    }
+
+    #[test]
+    fn collect_pattern_bindings_underscore_ident() {
+        let mut locals = Vec::new();
+        collect_pattern_bindings(&Pattern::Ident("_".into()), &mut locals);
+        assert!(locals.is_empty(), "underscore should not bind");
+    }
+
+    #[test]
+    fn collect_pattern_bindings_constructor() {
+        let mut locals = Vec::new();
+        let pat = Pattern::Constructor {
+            name: "Some".into(),
+            fields: vec![Pattern::Ident("val".into())],
+        };
+        collect_pattern_bindings(&pat, &mut locals);
+        assert_eq!(locals, vec!["val"]);
+    }
+
+    #[test]
+    fn collect_pattern_bindings_tuple() {
+        let mut locals = Vec::new();
+        let pat = Pattern::Tuple(vec![Pattern::Ident("a".into()), Pattern::Ident("b".into())]);
+        collect_pattern_bindings(&pat, &mut locals);
+        assert_eq!(locals, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn resolve_clause_body_accepts_params() {
+        // A contract referencing its own input param should resolve fine
+        let src = "contract C { input(a: Int) requires { a > 0 } }";
+        let source = assura_parser::parse_unwrap(src);
+        let result = crate::resolve(&source);
+        assert!(
+            result.is_ok(),
+            "expected resolution to succeed, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_fn_clause_body_accepts_params() {
+        let src = "fn f(x: Int) -> Int { requires { x > 0 } }";
+        let source = assura_parser::parse_unwrap(src);
+        let result = crate::resolve(&source);
+        assert!(
+            result.is_ok(),
+            "expected resolution to succeed, got: {result:?}"
+        );
+    }
+}

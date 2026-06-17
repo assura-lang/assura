@@ -46,3 +46,36 @@ pub struct ResolvedFile {
     /// resolution from succeeding.
     pub warnings: Vec<ResolutionError>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolution_error_to_diagnostic() {
+        let err = ResolutionError {
+            code: "A02001".into(),
+            message: "undefined name `x`".into(),
+            span: 0..5,
+            secondary: None,
+            suggestion: Some("did you mean `y`?".into()),
+        };
+        let diag: assura_diagnostics::Diagnostic = err.into();
+        assert_eq!(diag.code, "A02001");
+        assert!(diag.message.contains("undefined name `x`"));
+    }
+
+    #[test]
+    fn resolution_error_with_secondary() {
+        let err = ResolutionError {
+            code: "A02002".into(),
+            message: "duplicate name `x`".into(),
+            span: 10..15,
+            secondary: Some((0..5, "previously defined here".into())),
+            suggestion: None,
+        };
+        let diag: assura_diagnostics::Diagnostic = err.into();
+        assert_eq!(diag.secondary.len(), 1);
+        assert!(diag.secondary[0].message.contains("previously defined"));
+    }
+}
