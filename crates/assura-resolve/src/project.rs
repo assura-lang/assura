@@ -427,3 +427,168 @@ fn collect_assura_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBu
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // ---- file_to_module_path ----
+
+    #[test]
+    fn file_to_module_simple() {
+        let result = file_to_module_path(Path::new("/proj/math.assura"), Path::new("/proj"));
+        assert_eq!(result, "math");
+    }
+
+    #[test]
+    fn file_to_module_nested() {
+        let result = file_to_module_path(Path::new("/proj/std/math.assura"), Path::new("/proj"));
+        assert_eq!(result, "std.math");
+    }
+
+    #[test]
+    fn file_to_module_deep_nesting() {
+        let result = file_to_module_path(Path::new("/proj/a/b/c.assura"), Path::new("/proj"));
+        assert_eq!(result, "a.b.c");
+    }
+
+    #[test]
+    fn file_to_module_same_as_root() {
+        // File is at the project root itself
+        let result = file_to_module_path(Path::new("/proj/main.assura"), Path::new("/proj"));
+        assert_eq!(result, "main");
+    }
+
+    #[test]
+    fn file_to_module_outside_root() {
+        // File outside the project root falls back to full path
+        let result = file_to_module_path(Path::new("/other/foo.assura"), Path::new("/proj"));
+        // strip_prefix fails, so we get the full path minus extension
+        assert!(result.contains("foo"));
+    }
+
+    // ---- find_project_root ----
+
+    #[test]
+    fn find_project_root_no_config() {
+        let tmp = std::env::temp_dir().join("assura_test_no_config");
+        let _ = std::fs::create_dir_all(&tmp);
+        assert!(find_project_root(&tmp).is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_project_root_with_config() {
+        let tmp = std::env::temp_dir().join("assura_test_with_config");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("assura.toml"), "").unwrap();
+        let result = find_project_root(&tmp);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), tmp);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_project_root_from_subdirectory() {
+        let tmp = std::env::temp_dir().join("assura_test_subdir");
+        let sub = tmp.join("src");
+        let _ = std::fs::create_dir_all(&sub);
+        std::fs::write(tmp.join("assura.toml"), "").unwrap();
+        let result = find_project_root(&sub);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), tmp);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_project_root_from_file_path() {
+        let tmp = std::env::temp_dir().join("assura_test_file_path");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("assura.toml"), "").unwrap();
+        let file = tmp.join("main.assura");
+        std::fs::write(&file, "").unwrap();
+        let result = find_project_root(&file);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), tmp);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ---- resolve_module_path ----
+
+    #[test]
+    fn resolve_module_path_empty() {
+        let tmp = std::env::temp_dir();
+        assert!(resolve_module_path(&tmp, &[]).is_none());
+    }
+
+    #[test]
+    fn resolve_module_path_exists() {
+        let tmp = std::env::temp_dir().join("assura_test_resolve_mod");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("math.assura"), "").unwrap();
+        let result = resolve_module_path(&tmp, &["math".into()]);
+        assert!(result.is_some());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn resolve_module_path_not_found() {
+        let tmp = std::env::temp_dir().join("assura_test_resolve_miss");
+        let _ = std::fs::create_dir_all(&tmp);
+        let result = resolve_module_path(&tmp, &["nonexistent".into()]);
+        assert!(result.is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ---- collect_assura_files ----
+
+    #[test]
+    fn collect_assura_files_empty_dir() {
+        let tmp = std::env::temp_dir().join("assura_test_collect_empty");
+        let _ = std::fs::create_dir_all(&tmp);
+        let mut files = Vec::new();
+        collect_assura_files(&tmp, &mut files);
+        assert!(files.is_empty());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn collect_assura_files_finds_files() {
+        let tmp = std::env::temp_dir().join("assura_test_collect_files");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("a.assura"), "").unwrap();
+        std::fs::write(tmp.join("b.rs"), "").unwrap(); // Not .assura
+        let mut files = Vec::new();
+        collect_assura_files(&tmp, &mut files);
+        assert_eq!(files.len(), 1);
+        assert!(files[0].to_string_lossy().contains("a.assura"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn collect_assura_files_recursive() {
+        let tmp = std::env::temp_dir().join("assura_test_collect_recursive");
+        let sub = tmp.join("sub");
+        let _ = std::fs::create_dir_all(&sub);
+        std::fs::write(tmp.join("a.assura"), "").unwrap();
+        std::fs::write(sub.join("b.assura"), "").unwrap();
+        let mut files = Vec::new();
+        collect_assura_files(&tmp, &mut files);
+        assert_eq!(files.len(), 2);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ---- ModuleError ----
+
+    #[test]
+    fn module_error_debug() {
+        let e = ModuleError {
+            module_path: "std.math".into(),
+            message: "not found".into(),
+        };
+        let debug = format!("{e:?}");
+        assert!(debug.contains("std.math"));
+        assert!(debug.contains("not found"));
+    }
+}
