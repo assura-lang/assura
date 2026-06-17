@@ -26,6 +26,7 @@ pub struct ContractClause {
 /// Clause kinds supported in inline annotations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InlineClauseKind {
+    // -- Core contract clauses --
     Requires,
     Ensures,
     Invariant,
@@ -35,6 +36,92 @@ pub enum InlineClauseKind {
     FfiBoundary,
     /// SEC.2: Trust level shorthand (`@trust trusted|audited|untrusted`)
     Trust,
+
+    // -- CORE feature annotations --
+    /// CORE.1: Ghost variable/function annotation (`@ghost`)
+    Ghost,
+    /// CORE.2: Lemma annotation (`@lemma`)
+    Lemma,
+    /// CORE.3: Frame condition / modifies clause (`@modifies`)
+    Modifies,
+    /// CORE.6: Opaque function body (`@opaque`)
+    Opaque,
+    /// CORE.8: Liveness / eventual property (`@eventually`)
+    Eventually,
+
+    // -- SEC feature annotations --
+    /// SEC.1: Taint tracking annotation (`@taint`)
+    Taint,
+    /// SEC.3: Constant-time execution (`@constant_time`)
+    ConstantTime,
+    /// SEC.4: Zeroize sensitive data (`@zeroize`)
+    Zeroize,
+
+    // -- MEM feature annotations --
+    /// MEM.1: Memory region annotation (`@region`)
+    Region,
+    /// MEM.2: Bit-width constraint (`@width`)
+    Width,
+    /// MEM.3: Allocator annotation (`@allocator`)
+    Allocator,
+    /// MEM.4: Circular buffer annotation (`@circular`)
+    Circular,
+
+    // -- TYPE feature annotations --
+    /// TYPE.1: Interface / trait bound (`@interface`)
+    Interface,
+    /// TYPE.3: Error type annotation (`@errors`)
+    Errors,
+
+    // -- CONC feature annotations --
+    /// CONC.1: Shared state annotation (`@shared`)
+    Shared,
+    /// CONC.2: Non-reentrant function (`@no_reentrant`)
+    NoReentrant,
+    /// CONC.3: Deterministic execution (`@deterministic`)
+    Deterministic,
+    /// CONC.4: Lock ordering annotation (`@lock_order`)
+    LockOrder,
+    /// CONC.5: Deadline annotation (`@deadline`)
+    Deadline,
+    /// CONC.6: Memory ordering annotation (`@ordering`)
+    MemoryOrdering,
+
+    // -- FMT feature annotations --
+    /// FMT.1: Binary format annotation (`@format`)
+    Format,
+    /// FMT.2: Bit-level layout (`@bits`)
+    Bits,
+    /// FMT.3: String/data encoding (`@encoding`)
+    Encoding,
+    /// FMT.5: Checksum annotation (`@checksum`)
+    Checksum,
+
+    // -- PLAT feature annotations --
+    /// PLAT.1: Platform-specific annotation (`@platform`)
+    Platform,
+    /// PLAT.2: Feature gate annotation (`@feature`)
+    Feature,
+    /// PLAT.3: Resource limit annotation (`@resource`)
+    Resource,
+
+    // -- PERF feature annotations --
+    /// PERF.1: Unsafe escape hatch (`@unsafe_escape`)
+    UnsafeEscape,
+    /// PERF.2: Complexity annotation (`@complexity`)
+    Complexity,
+
+    // -- NUM feature annotations --
+    /// NUM.1: Numerical precision (`@precision`)
+    Precision,
+
+    // -- STOR feature annotations --
+    /// STOR.5: Monotonic state (`@monotonic`)
+    Monotonic,
+
+    // -- MISC feature annotations --
+    /// MISC.2: Suspend invariant checking (`@suspend_invariant`)
+    SuspendInvariant,
 }
 
 impl InlineClauseKind {
@@ -48,6 +135,49 @@ impl InlineClauseKind {
             "decreases" => Some(Self::Decreases),
             "ffi_boundary" => Some(Self::FfiBoundary),
             "trust" => Some(Self::Trust),
+            // CORE
+            "ghost" => Some(Self::Ghost),
+            "lemma" => Some(Self::Lemma),
+            "modifies" => Some(Self::Modifies),
+            "opaque" => Some(Self::Opaque),
+            "eventually" => Some(Self::Eventually),
+            // SEC
+            "taint" => Some(Self::Taint),
+            "constant_time" => Some(Self::ConstantTime),
+            "zeroize" => Some(Self::Zeroize),
+            // MEM
+            "region" => Some(Self::Region),
+            "width" => Some(Self::Width),
+            "allocator" => Some(Self::Allocator),
+            "circular" => Some(Self::Circular),
+            // TYPE
+            "interface" => Some(Self::Interface),
+            "errors" => Some(Self::Errors),
+            // CONC
+            "shared" => Some(Self::Shared),
+            "no_reentrant" => Some(Self::NoReentrant),
+            "deterministic" => Some(Self::Deterministic),
+            "lock_order" => Some(Self::LockOrder),
+            "deadline" => Some(Self::Deadline),
+            "ordering" => Some(Self::MemoryOrdering),
+            // FMT
+            "format" => Some(Self::Format),
+            "bits" => Some(Self::Bits),
+            "encoding" => Some(Self::Encoding),
+            "checksum" => Some(Self::Checksum),
+            // PLAT
+            "platform" => Some(Self::Platform),
+            "feature" => Some(Self::Feature),
+            "resource" => Some(Self::Resource),
+            // PERF
+            "unsafe_escape" => Some(Self::UnsafeEscape),
+            "complexity" => Some(Self::Complexity),
+            // NUM
+            "precision" => Some(Self::Precision),
+            // STOR
+            "monotonic" => Some(Self::Monotonic),
+            // MISC
+            "suspend_invariant" => Some(Self::SuspendInvariant),
             _ => None,
         }
     }
@@ -62,7 +192,52 @@ impl InlineClauseKind {
             Self::Decreases => "decreases",
             Self::FfiBoundary => "ffi_boundary",
             Self::Trust => "trust",
+            Self::Ghost => "ghost",
+            Self::Lemma => "lemma",
+            Self::Modifies => "modifies",
+            Self::Opaque => "opaque",
+            Self::Eventually => "eventually",
+            Self::Taint => "taint",
+            Self::ConstantTime => "constant_time",
+            Self::Zeroize => "zeroize",
+            Self::Region => "region",
+            Self::Width => "width",
+            Self::Allocator => "allocator",
+            Self::Circular => "circular",
+            Self::Interface => "interface",
+            Self::Errors => "errors",
+            Self::Shared => "shared",
+            Self::NoReentrant => "no_reentrant",
+            Self::Deterministic => "deterministic",
+            Self::LockOrder => "lock_order",
+            Self::Deadline => "deadline",
+            Self::MemoryOrdering => "ordering",
+            Self::Format => "format",
+            Self::Bits => "bits",
+            Self::Encoding => "encoding",
+            Self::Checksum => "checksum",
+            Self::Platform => "platform",
+            Self::Feature => "feature",
+            Self::Resource => "resource",
+            Self::UnsafeEscape => "unsafe_escape",
+            Self::Complexity => "complexity",
+            Self::Precision => "precision",
+            Self::Monotonic => "monotonic",
+            Self::SuspendInvariant => "suspend_invariant",
         }
+    }
+
+    /// Returns true if this is a core contract clause (requires/ensures/invariant/effects/decreases).
+    pub fn is_core_clause(&self) -> bool {
+        matches!(
+            self,
+            Self::Requires | Self::Ensures | Self::Invariant | Self::Effects | Self::Decreases
+        )
+    }
+
+    /// Returns true if this is a feature annotation (not a core clause or FFI).
+    pub fn is_annotation(&self) -> bool {
+        !self.is_core_clause() && !matches!(self, Self::FfiBoundary | Self::Trust)
     }
 }
 
@@ -76,6 +251,9 @@ pub struct InlineContract {
     pub decreases: Vec<ContractClause>,
     /// SEC.2: FFI boundary trust annotations (`@ffi_boundary`, `@trust`).
     pub ffi_boundary: Vec<ContractClause>,
+    /// Feature-specific annotations (@ghost, @taint, @region, etc.).
+    /// Keyed by InlineClauseKind for all 32 feature annotation types.
+    pub annotations: Vec<ContractClause>,
 }
 
 impl InlineContract {
@@ -87,6 +265,7 @@ impl InlineContract {
             && self.effects.is_empty()
             && self.decreases.is_empty()
             && self.ffi_boundary.is_empty()
+            && self.annotations.is_empty()
     }
 
     /// Total number of clauses across all kinds.
@@ -97,6 +276,12 @@ impl InlineContract {
             + self.effects.len()
             + self.decreases.len()
             + self.ffi_boundary.len()
+            + self.annotations.len()
+    }
+
+    /// Get all annotations of a specific kind.
+    pub fn annotations_of(&self, kind: InlineClauseKind) -> Vec<&ContractClause> {
+        self.annotations.iter().filter(|c| c.kind == kind).collect()
     }
 
     fn push(&mut self, clause: ContractClause) {
@@ -109,6 +294,7 @@ impl InlineContract {
             InlineClauseKind::FfiBoundary | InlineClauseKind::Trust => {
                 self.ffi_boundary.push(clause)
             }
+            _ => self.annotations.push(clause),
         }
     }
 }
@@ -614,6 +800,7 @@ pub fn merge_contracts(
                 .iter()
                 .map(|c| (c, InlineClauseKind::Decreases)),
         )
+        .chain(inline.annotations.iter().map(|c| (c, c.kind)))
         .collect();
 
     // Add inline clauses, checking for duplicates
@@ -1180,16 +1367,53 @@ fn no_docs(y: i32) -> i32 {
 
     #[test]
     fn roundtrip_clause_kind() {
-        for kind in [
+        let all_kinds = [
             InlineClauseKind::Requires,
             InlineClauseKind::Ensures,
             InlineClauseKind::Invariant,
             InlineClauseKind::Effects,
             InlineClauseKind::Decreases,
-        ] {
+            InlineClauseKind::FfiBoundary,
+            InlineClauseKind::Trust,
+            InlineClauseKind::Ghost,
+            InlineClauseKind::Lemma,
+            InlineClauseKind::Modifies,
+            InlineClauseKind::Opaque,
+            InlineClauseKind::Eventually,
+            InlineClauseKind::Taint,
+            InlineClauseKind::ConstantTime,
+            InlineClauseKind::Zeroize,
+            InlineClauseKind::Region,
+            InlineClauseKind::Width,
+            InlineClauseKind::Allocator,
+            InlineClauseKind::Circular,
+            InlineClauseKind::Interface,
+            InlineClauseKind::Errors,
+            InlineClauseKind::Shared,
+            InlineClauseKind::NoReentrant,
+            InlineClauseKind::Deterministic,
+            InlineClauseKind::LockOrder,
+            InlineClauseKind::Deadline,
+            InlineClauseKind::MemoryOrdering,
+            InlineClauseKind::Format,
+            InlineClauseKind::Bits,
+            InlineClauseKind::Encoding,
+            InlineClauseKind::Checksum,
+            InlineClauseKind::Platform,
+            InlineClauseKind::Feature,
+            InlineClauseKind::Resource,
+            InlineClauseKind::UnsafeEscape,
+            InlineClauseKind::Complexity,
+            InlineClauseKind::Precision,
+            InlineClauseKind::Monotonic,
+            InlineClauseKind::SuspendInvariant,
+        ];
+        // Verify all 39 variants round-trip
+        assert_eq!(all_kinds.len(), 39);
+        for kind in all_kinds {
             let s = kind.as_str();
             let parsed = InlineClauseKind::from_keyword(s).unwrap();
-            assert_eq!(parsed, kind);
+            assert_eq!(parsed, kind, "round-trip failed for keyword '{s}'");
         }
     }
 
@@ -1638,5 +1862,394 @@ unsafe fn malloc(size: usize) -> *mut u8 {
             let parsed = InlineClauseKind::from_keyword(s).unwrap();
             assert_eq!(parsed, kind);
         }
+    }
+
+    // -- Feature annotation tests (Batches 1A-1D) --
+
+    #[test]
+    fn annotation_ghost_parsed() {
+        let lines = vec![(" @ghost helper_var".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Ghost);
+        assert_eq!(contract.annotations[0].body, "helper_var");
+    }
+
+    #[test]
+    fn annotation_lemma_parsed() {
+        let lines = vec![(" @lemma sum_positive".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Lemma);
+        assert_eq!(contract.annotations[0].body, "sum_positive");
+    }
+
+    #[test]
+    fn annotation_modifies_parsed() {
+        let lines = vec![(" @modifies self.buffer, self.len".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Modifies);
+        assert_eq!(contract.annotations[0].body, "self.buffer, self.len");
+    }
+
+    #[test]
+    fn annotation_opaque_parsed() {
+        let lines = vec![(" @opaque".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        // @opaque with no body produces no clause (empty body is skipped)
+        assert_eq!(contract.annotations.len(), 0);
+    }
+
+    #[test]
+    fn annotation_opaque_with_reason() {
+        let lines = vec![(" @opaque implementation_detail".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Opaque);
+        assert_eq!(contract.annotations[0].body, "implementation_detail");
+    }
+
+    #[test]
+    fn annotation_eventually_parsed() {
+        let lines = vec![(" @eventually lock_released".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Eventually);
+    }
+
+    #[test]
+    fn annotation_taint_parsed() {
+        let lines = vec![(" @taint source=user_input, sink=sql_query".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Taint);
+        assert!(contract.annotations[0].body.contains("user_input"));
+    }
+
+    #[test]
+    fn annotation_constant_time_parsed() {
+        let lines = vec![(" @constant_time".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 0); // no body
+    }
+
+    #[test]
+    fn annotation_constant_time_with_note() {
+        let lines = vec![(" @constant_time crypto_compare".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::ConstantTime);
+    }
+
+    #[test]
+    fn annotation_zeroize_parsed() {
+        let lines = vec![(" @zeroize on_drop".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Zeroize);
+        assert_eq!(contract.annotations[0].body, "on_drop");
+    }
+
+    #[test]
+    fn annotation_region_parsed() {
+        let lines = vec![(" @region stack".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Region);
+    }
+
+    #[test]
+    fn annotation_width_parsed() {
+        let lines = vec![(" @width 32".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Width);
+        assert_eq!(contract.annotations[0].body, "32");
+    }
+
+    #[test]
+    fn annotation_allocator_parsed() {
+        let lines = vec![(" @allocator bump".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Allocator);
+    }
+
+    #[test]
+    fn annotation_circular_parsed() {
+        let lines = vec![(" @circular capacity=1024".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Circular);
+    }
+
+    #[test]
+    fn annotation_interface_parsed() {
+        let lines = vec![(" @interface Readable".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Interface);
+    }
+
+    #[test]
+    fn annotation_errors_parsed() {
+        let lines = vec![(" @errors IoError, ParseError".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Errors);
+        assert_eq!(contract.annotations[0].body, "IoError, ParseError");
+    }
+
+    #[test]
+    fn annotation_shared_parsed() {
+        let lines = vec![(" @shared mutex".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Shared);
+    }
+
+    #[test]
+    fn annotation_no_reentrant_parsed() {
+        let lines = vec![(" @no_reentrant callback".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::NoReentrant);
+    }
+
+    #[test]
+    fn annotation_deterministic_parsed() {
+        let lines = vec![(" @deterministic pure_computation".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(
+            contract.annotations[0].kind,
+            InlineClauseKind::Deterministic
+        );
+    }
+
+    #[test]
+    fn annotation_lock_order_parsed() {
+        let lines = vec![(" @lock_order A < B < C".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::LockOrder);
+        assert_eq!(contract.annotations[0].body, "A < B < C");
+    }
+
+    #[test]
+    fn annotation_deadline_parsed() {
+        let lines = vec![(" @deadline 100ms".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Deadline);
+        assert_eq!(contract.annotations[0].body, "100ms");
+    }
+
+    #[test]
+    fn annotation_ordering_parsed() {
+        let lines = vec![(" @ordering seq_cst".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(
+            contract.annotations[0].kind,
+            InlineClauseKind::MemoryOrdering
+        );
+    }
+
+    #[test]
+    fn annotation_format_parsed() {
+        let lines = vec![(" @format big_endian, packed".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Format);
+    }
+
+    #[test]
+    fn annotation_bits_parsed() {
+        let lines = vec![(" @bits flags[0..3], tag[4..7]".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Bits);
+    }
+
+    #[test]
+    fn annotation_encoding_parsed() {
+        let lines = vec![(" @encoding utf8".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Encoding);
+    }
+
+    #[test]
+    fn annotation_checksum_parsed() {
+        let lines = vec![(" @checksum crc32 0..1024".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Checksum);
+    }
+
+    #[test]
+    fn annotation_platform_parsed() {
+        let lines = vec![(" @platform linux, macos".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Platform);
+    }
+
+    #[test]
+    fn annotation_feature_parsed() {
+        let lines = vec![(" @feature simd".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Feature);
+    }
+
+    #[test]
+    fn annotation_resource_parsed() {
+        let lines = vec![(" @resource max_memory=1GB, max_fds=1024".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Resource);
+    }
+
+    #[test]
+    fn annotation_unsafe_escape_parsed() {
+        let lines = vec![(
+            " @unsafe_escape reason=\"performance critical inner loop\"".to_string(),
+            0,
+        )];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::UnsafeEscape);
+    }
+
+    #[test]
+    fn annotation_complexity_parsed() {
+        let lines = vec![(" @complexity O(n log n)".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Complexity);
+        assert_eq!(contract.annotations[0].body, "O(n log n)");
+    }
+
+    #[test]
+    fn annotation_precision_parsed() {
+        let lines = vec![(" @precision epsilon=1e-6".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Precision);
+    }
+
+    #[test]
+    fn annotation_monotonic_parsed() {
+        let lines = vec![(" @monotonic counter".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(contract.annotations[0].kind, InlineClauseKind::Monotonic);
+    }
+
+    #[test]
+    fn annotation_suspend_invariant_parsed() {
+        let lines = vec![(" @suspend_invariant during_resize".to_string(), 0)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.annotations.len(), 1);
+        assert_eq!(
+            contract.annotations[0].kind,
+            InlineClauseKind::SuspendInvariant
+        );
+    }
+
+    #[test]
+    fn annotation_mixed_with_core_clauses() {
+        let lines = vec![
+            (" @ghost helper".to_string(), 0),
+            (" @requires x > 0".to_string(), 20),
+            (" @taint source=network".to_string(), 40),
+            (" @ensures result > 0".to_string(), 60),
+            (" @complexity O(1)".to_string(), 80),
+        ];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.requires.len(), 1);
+        assert_eq!(contract.ensures.len(), 1);
+        assert_eq!(contract.annotations.len(), 3);
+        assert_eq!(contract.clause_count(), 5);
+    }
+
+    #[test]
+    fn annotation_on_rust_function() {
+        let source = r#"
+/// @taint source=user_input
+/// @constant_time crypto
+/// @requires buf.len() >= 32
+fn verify_hmac(buf: &[u8]) -> bool {
+    true
+}
+"#;
+        let items = parse_rust_source(source).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].contract.annotations.len(), 2);
+        assert_eq!(items[0].contract.requires.len(), 1);
+        let taint_annotations = items[0].contract.annotations_of(InlineClauseKind::Taint);
+        assert_eq!(taint_annotations.len(), 1);
+        let ct_annotations = items[0]
+            .contract
+            .annotations_of(InlineClauseKind::ConstantTime);
+        assert_eq!(ct_annotations.len(), 1);
+    }
+
+    #[test]
+    fn annotation_is_annotation_vs_core() {
+        assert!(!InlineClauseKind::Requires.is_annotation());
+        assert!(!InlineClauseKind::Ensures.is_annotation());
+        assert!(!InlineClauseKind::FfiBoundary.is_annotation());
+        assert!(!InlineClauseKind::Trust.is_annotation());
+        assert!(InlineClauseKind::Ghost.is_annotation());
+        assert!(InlineClauseKind::Taint.is_annotation());
+        assert!(InlineClauseKind::Complexity.is_annotation());
+        assert!(InlineClauseKind::Platform.is_annotation());
+    }
+
+    #[test]
+    fn annotation_annotations_of_filters_correctly() {
+        let mut c = InlineContract::default();
+        c.push(ContractClause {
+            kind: InlineClauseKind::Ghost,
+            body: "x".to_string(),
+            offset: 0,
+        });
+        c.push(ContractClause {
+            kind: InlineClauseKind::Taint,
+            body: "source=net".to_string(),
+            offset: 10,
+        });
+        c.push(ContractClause {
+            kind: InlineClauseKind::Ghost,
+            body: "y".to_string(),
+            offset: 20,
+        });
+        assert_eq!(c.annotations_of(InlineClauseKind::Ghost).len(), 2);
+        assert_eq!(c.annotations_of(InlineClauseKind::Taint).len(), 1);
+        assert_eq!(c.annotations_of(InlineClauseKind::Region).len(), 0);
+    }
+
+    #[test]
+    fn annotation_merge_includes_annotations() {
+        let external = vec![(InlineClauseKind::Requires, "x > 0".to_string())];
+        let mut inline = InlineContract::default();
+        inline.push(ContractClause {
+            kind: InlineClauseKind::Ghost,
+            body: "helper".to_string(),
+            offset: 0,
+        });
+        inline.push(ContractClause {
+            kind: InlineClauseKind::Taint,
+            body: "source=net".to_string(),
+            offset: 10,
+        });
+        let merged = merge_contracts(&external, &inline);
+        assert_eq!(merged.clause_count(), 3);
+        assert_eq!(merged.external_clauses().len(), 1);
+        assert_eq!(merged.inline_clauses().len(), 2);
     }
 }
