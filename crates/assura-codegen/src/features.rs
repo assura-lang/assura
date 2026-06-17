@@ -13,21 +13,63 @@ use crate::expr::expr_to_rust;
 use assura_parser::ast::{Clause, ClauseKind};
 
 // ---------------------------------------------------------------------------
-// CORE features
+// Macros for common codegen patterns
 // ---------------------------------------------------------------------------
 
-/// CORE.4: Generate axiomatic definition constraints.
-/// Axioms emit `const` assertions or doc comments for unproven assumptions.
-pub fn generate_axiomatic_definition(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // Axiomatic definition (assumed without proof)\n    \
-         debug_assert!({expr}, \"axiom violation\");\n"
-    ));
+/// Generate a runtime `debug_assert!` check from a clause expression.
+/// Most feature checks follow this pattern: convert the clause body to
+/// Rust, emit a comment and a debug_assert with a descriptive message.
+macro_rules! runtime_assert_fn {
+    ($fn_name:ident, $label:expr, $msg:expr) => {
+        pub fn $fn_name(clause: &Clause, code: &mut String) {
+            let expr = expr_to_rust(&clause.body);
+            code.push_str(&format!(
+                concat!(
+                    "    // ",
+                    $label,
+                    ": {expr}\n    debug_assert!({expr}, \"",
+                    $msg,
+                    "\");\n"
+                ),
+                expr = expr
+            ));
+        }
+    };
 }
 
+/// Generate a compile-time comment stub (no `name` parameter).
+macro_rules! compiletime_comment_fn {
+    ($fn_name:ident, $comment:expr) => {
+        pub fn $fn_name(code: &mut String) {
+            code.push_str(concat!("    // ", $comment, "\n"));
+        }
+    };
+}
+
+/// Generate a compile-time comment stub with a `name` parameter.
+macro_rules! compiletime_name_fn {
+    ($fn_name:ident, $prefix:expr, $suffix:expr) => {
+        pub fn $fn_name(name: &str, code: &mut String) {
+            code.push_str(&format!(
+                concat!("    // ", $prefix, ": `{name}` ", $suffix, "\n"),
+                name = name
+            ));
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
+// CORE features (custom logic, not macro-generated)
+// ---------------------------------------------------------------------------
+
+// CORE.4: Generate axiomatic definition constraints.
+runtime_assert_fn!(
+    generate_axiomatic_definition,
+    "Axiomatic definition (assumed without proof)",
+    "axiom violation"
+);
+
 /// CORE.1: Generate compile-time ghost erasure check.
-/// Ghost code must not appear in release builds.
 pub fn generate_ghost_compile_check(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // ghost compile-time: `{name}` is erased in release builds\n    \
@@ -36,17 +78,14 @@ pub fn generate_ghost_compile_check(name: &str, code: &mut String) {
     ));
 }
 
-/// CORE.6: Generate opaque function wrapper.
-/// Opaque functions hide their implementation from the verifier.
-/// In codegen, we emit the function but mark the body as opaque.
-pub fn generate_opaque_function(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // opaque: body of `{name}` is hidden from verification\n"
-    ));
-}
+// CORE.6: Generate opaque function wrapper.
+compiletime_name_fn!(
+    generate_opaque_function,
+    "opaque",
+    "body is hidden from verification"
+);
 
 /// CORE.8: Generate liveness contract check.
-/// Liveness properties assert that something eventually happens.
 pub fn generate_liveness_check(clause: &Clause, code: &mut String) {
     let expr = expr_to_rust(&clause.body);
     code.push_str(&format!(
@@ -59,66 +98,42 @@ pub fn generate_liveness_check(clause: &Clause, code: &mut String) {
 // MEM features
 // ---------------------------------------------------------------------------
 
-/// MEM.1: Generate memory region annotation.
-/// Region annotations track which memory region a value belongs to.
-pub fn generate_region_annotation(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // region constraint: {expr}\n    \
-         debug_assert!({expr}, \"memory region violation\");\n"
-    ));
-}
-
-/// MEM.3: Generate allocator contract check.
-/// Allocator contracts verify allocation/deallocation invariants.
-pub fn generate_allocator_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // allocator invariant: {expr}\n    \
-         debug_assert!({expr}, \"allocator contract violation\");\n"
-    ));
-}
-
-/// MEM.4: Generate circular buffer invariant.
-/// Circular buffers must maintain head/tail/capacity relationships.
-pub fn generate_circular_buffer_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // circular buffer invariant: {expr}\n    \
-         debug_assert!({expr}, \"circular buffer invariant violated\");\n"
-    ));
-}
+runtime_assert_fn!(
+    generate_region_annotation,
+    "region constraint",
+    "memory region violation"
+);
+runtime_assert_fn!(
+    generate_allocator_check,
+    "allocator invariant",
+    "allocator contract violation"
+);
+runtime_assert_fn!(
+    generate_circular_buffer_check,
+    "circular buffer invariant",
+    "circular buffer invariant violated"
+);
 
 // ---------------------------------------------------------------------------
 // TYPE features
 // ---------------------------------------------------------------------------
 
-/// TYPE.2: Generate structural invariant assertion.
-/// Structural invariants are checked on construction and mutation.
-pub fn generate_structural_invariant(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // structural_invariant: {expr}\n    \
-         debug_assert!({expr}, \"structural invariant violated\");\n"
-    ));
-}
-
-/// TYPE.3: Generate error propagation check.
-/// Error propagation rules ensure errors are not silently swallowed.
-pub fn generate_error_propagation_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // error_propagation: {expr}\n    \
-         debug_assert!({expr}, \"error propagation violation\");\n"
-    ));
-}
+runtime_assert_fn!(
+    generate_structural_invariant,
+    "structural_invariant",
+    "structural invariant violated"
+);
+runtime_assert_fn!(
+    generate_error_propagation_check,
+    "error_propagation",
+    "error propagation violation"
+);
 
 // ---------------------------------------------------------------------------
 // SEC features
 // ---------------------------------------------------------------------------
 
 /// SEC.3: Generate constant-time execution annotation.
-/// Constant-time functions must not have data-dependent branches.
 pub fn generate_constant_time_annotation(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // constant_time: `{name}` must execute in constant time\n    \
@@ -126,22 +141,17 @@ pub fn generate_constant_time_annotation(name: &str, code: &mut String) {
     ));
 }
 
-/// SEC.5: Generate crypto conformance check.
-/// Crypto conformance ensures algorithms match approved standards.
-pub fn generate_crypto_conformance_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // crypto conformance: conforms to {expr}\n    \
-         debug_assert!({expr}, \"crypto conformance violation\");\n"
-    ));
-}
+runtime_assert_fn!(
+    generate_crypto_conformance_check,
+    "crypto conformance: conforms to",
+    "crypto conformance violation"
+);
 
 // ---------------------------------------------------------------------------
 // CONC features
 // ---------------------------------------------------------------------------
 
-/// CONC.2: Generate callback re-entrancy guard.
-/// Emits a re-entrancy flag check at function entry.
+/// CONC.2: Generate callback re-entrancy guard (custom, not a simple assert).
 pub fn generate_callback_reentrancy_guard(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // callback reentrancy guard for `{name}`\n    \
@@ -156,16 +166,13 @@ pub fn generate_callback_reentrancy_guard(name: &str, code: &mut String) {
     ));
 }
 
-/// CONC.3: Generate deterministic execution annotation.
-/// Deterministic functions must produce the same output for the same input.
-pub fn generate_deterministic_annotation(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // deterministic: `{name}` must be a pure function\n"
-    ));
-}
+compiletime_name_fn!(
+    generate_deterministic_annotation,
+    "deterministic",
+    "must be a pure function"
+);
 
-/// CONC.4: Generate lock_order annotation.
-/// Lock ordering prevents deadlocks by enforcing acquisition order.
+/// CONC.4: Lock ordering annotation.
 pub fn generate_lock_order_annotation(clause: &Clause, code: &mut String) {
     let expr = expr_to_rust(&clause.body);
     code.push_str(&format!(
@@ -174,8 +181,7 @@ pub fn generate_lock_order_annotation(clause: &Clause, code: &mut String) {
     ));
 }
 
-/// CONC.5: Generate temporal deadline check.
-/// Deadline annotations ensure operations complete within time bounds.
+/// CONC.5: Temporal deadline annotation.
 pub fn generate_deadline_check(clause: &Clause, code: &mut String) {
     let expr = expr_to_rust(&clause.body);
     code.push_str(&format!(
@@ -188,138 +194,87 @@ pub fn generate_deadline_check(clause: &Clause, code: &mut String) {
 // STOR features
 // ---------------------------------------------------------------------------
 
-/// STOR.1: Generate crash recovery invariant check.
-/// Crash recovery ensures data durability across crashes.
-pub fn generate_crash_recovery_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // crash_recovery invariant: {expr}\n    \
-         debug_assert!({expr}, \"crash recovery invariant violated\");\n"
-    ));
-}
-
-/// STOR.2: Generate page_cache invariant check.
-pub fn generate_page_cache_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // page_cache invariant: {expr}\n    \
-         debug_assert!({expr}, \"page cache invariant violated\");\n"
-    ));
-}
-
-/// STOR.3: Generate mvcc/snapshot isolation check.
-pub fn generate_mvcc_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // mvcc snapshot isolation: {expr}\n    \
-         debug_assert!({expr}, \"mvcc isolation violation\");\n"
-    ));
-}
-
-/// STOR.4: Generate rollback/savepoint check.
-pub fn generate_rollback_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // rollback savepoint: {expr}\n    \
-         debug_assert!({expr}, \"rollback invariant violated\");\n"
-    ));
-}
-
-/// STOR.5: Generate monotonic state check.
-/// Monotonic variables can only increase (or only decrease).
-pub fn generate_monotonic_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // monotonic state: {expr}\n    \
-         debug_assert!({expr}, \"monotonic state violation: value must not decrease\");\n"
-    ));
-}
-
-/// STOR.6: Generate storage_failure handling check.
-pub fn generate_storage_failure_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // storage_failure mode: {expr}\n    \
-         debug_assert!({expr}, \"storage failure handling violation\");\n"
-    ));
-}
+runtime_assert_fn!(
+    generate_crash_recovery_check,
+    "crash_recovery invariant",
+    "crash recovery invariant violated"
+);
+runtime_assert_fn!(
+    generate_page_cache_check,
+    "page_cache invariant",
+    "page cache invariant violated"
+);
+runtime_assert_fn!(
+    generate_mvcc_check,
+    "mvcc snapshot isolation",
+    "mvcc isolation violation"
+);
+runtime_assert_fn!(
+    generate_rollback_check,
+    "rollback savepoint",
+    "rollback invariant violated"
+);
+runtime_assert_fn!(
+    generate_monotonic_check,
+    "monotonic state",
+    "monotonic state violation: value must not decrease"
+);
+runtime_assert_fn!(
+    generate_storage_failure_check,
+    "storage_failure mode",
+    "storage failure handling violation"
+);
 
 // ---------------------------------------------------------------------------
 // FMT features
 // ---------------------------------------------------------------------------
 
-/// FMT.1: Generate binary_format layout assertion.
-pub fn generate_binary_format_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // binary_format layout: {expr}\n    \
-         debug_assert!({expr}, \"binary format layout violation\");\n"
-    ));
-}
-
-/// FMT.2: Generate bit_level layout assertion.
-pub fn generate_bit_level_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // bit_level field: {expr}\n    \
-         debug_assert!({expr}, \"bit level layout violation\");\n"
-    ));
-}
-
-/// FMT.3: Generate string_encoding validation.
-pub fn generate_string_encoding_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // string_encoding: {expr}\n    \
-         debug_assert!({expr}, \"string encoding violation\");\n"
-    ));
-}
-
-/// FMT.5: Generate checksum/integrity assertion.
-pub fn generate_checksum_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // checksum integrity: {expr}\n    \
-         debug_assert!({expr}, \"checksum integrity violation\");\n"
-    ));
-}
-
-/// FMT.6: Generate protocol_grammar state transition check.
-pub fn generate_protocol_grammar_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // protocol_grammar: {expr}\n    \
-         debug_assert!({expr}, \"protocol_grammar violation\");\n"
-    ));
-}
+runtime_assert_fn!(
+    generate_binary_format_check,
+    "binary_format layout",
+    "binary format layout violation"
+);
+runtime_assert_fn!(
+    generate_bit_level_check,
+    "bit_level field",
+    "bit level layout violation"
+);
+runtime_assert_fn!(
+    generate_string_encoding_check,
+    "string_encoding",
+    "string encoding violation"
+);
+runtime_assert_fn!(
+    generate_checksum_check,
+    "checksum integrity",
+    "checksum integrity violation"
+);
+runtime_assert_fn!(
+    generate_protocol_grammar_check,
+    "protocol_grammar",
+    "protocol_grammar violation"
+);
 
 // ---------------------------------------------------------------------------
 // NUM features
 // ---------------------------------------------------------------------------
 
-/// NUM.1: Generate numerical_precision bound check.
-pub fn generate_numerical_precision_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // numerical_precision: {expr}\n    \
-         debug_assert!({expr}, \"numerical precision exceeded\");\n"
-    ));
-}
-
-/// NUM.2: Generate precomputed_table validation.
-pub fn generate_precomputed_table_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // precomputed_table: {expr}\n    \
-         debug_assert!({expr}, \"precomputed table invariant violated\");\n"
-    ));
-}
+runtime_assert_fn!(
+    generate_numerical_precision_check,
+    "numerical_precision",
+    "numerical precision exceeded"
+);
+runtime_assert_fn!(
+    generate_precomputed_table_check,
+    "precomputed_table",
+    "precomputed table invariant violated"
+);
 
 // ---------------------------------------------------------------------------
 // PLAT features
 // ---------------------------------------------------------------------------
 
-/// PLAT.1: Generate platform_abstraction cfg annotation.
+/// PLAT.1: Platform abstraction annotation.
 pub fn generate_platform_abstraction(clause: &Clause, code: &mut String) {
     let expr = expr_to_rust(&clause.body);
     code.push_str(&format!(
@@ -328,7 +283,7 @@ pub fn generate_platform_abstraction(clause: &Clause, code: &mut String) {
     ));
 }
 
-/// PLAT.2: Generate feature_flag cfg guard.
+/// PLAT.2: Feature flag annotation.
 pub fn generate_feature_flag(clause: &Clause, code: &mut String) {
     let expr = expr_to_rust(&clause.body);
     code.push_str(&format!(
@@ -337,21 +292,17 @@ pub fn generate_feature_flag(clause: &Clause, code: &mut String) {
     ));
 }
 
-/// PLAT.3: Generate resource_limit assertion.
-pub fn generate_resource_limit_check(clause: &Clause, code: &mut String) {
-    let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
-        "    // resource_limit: {expr}\n    \
-         debug_assert!({expr}, \"resource limit exceeded\");\n"
-    ));
-}
+runtime_assert_fn!(
+    generate_resource_limit_check,
+    "resource_limit",
+    "resource limit exceeded"
+);
 
 // ---------------------------------------------------------------------------
 // PERF features
 // ---------------------------------------------------------------------------
 
-/// PERF.1: Generate unsafe_escape annotation.
-/// Marks a block as intentionally using unsafe for performance.
+/// PERF.1: Unsafe escape annotation.
 pub fn generate_unsafe_escape(clause: &Clause, code: &mut String) {
     let expr = expr_to_rust(&clause.body);
     code.push_str(&format!(
@@ -360,7 +311,7 @@ pub fn generate_unsafe_escape(clause: &Clause, code: &mut String) {
     ));
 }
 
-/// PERF.2: Generate complexity_bound annotation.
+/// PERF.2: Complexity bound annotation.
 pub fn generate_complexity_bound(clause: &Clause, code: &mut String) {
     let expr = expr_to_rust(&clause.body);
     code.push_str(&format!(
@@ -377,8 +328,179 @@ pub fn generate_complexity_bound(clause: &Clause, code: &mut String) {
 // restrictions (unsafe, visibility), and cfg attributes.
 // ---------------------------------------------------------------------------
 
-/// Compile-time enforcement: CORE.1 ghost code erasure.
-/// Ghost code in release mode triggers compile_error! if it leaks.
+// ---------------------------------------------------------------------------
+// Compile-time enforcement functions
+//
+// These generate Rust code that the compiler itself checks, not runtime
+// assertions. They use compile_error!, const assertions, type system
+// restrictions (unsafe, visibility), and cfg attributes.
+//
+// Functions with unique logic are written out; simple comment stubs use
+// the compiletime_comment_fn! or compiletime_name_fn! macros.
+// ---------------------------------------------------------------------------
+
+// -- Simple comment stubs (no name parameter) --
+compiletime_comment_fn!(
+    compile_time_weak_memory,
+    "compile_time_ordering: memory ordering validated at compile time"
+);
+compiletime_comment_fn!(
+    compile_time_fixed_width,
+    "compile_time_fixed_width: overflow is checked at compile time in const contexts"
+);
+compiletime_comment_fn!(
+    compile_time_error_propagation,
+    "compile_time_error_propagation: Result<T, E> enforced by Rust type system"
+);
+compiletime_comment_fn!(
+    compile_time_numerical_precision,
+    "compile_time_numerical_precision: const assertions on precision bounds"
+);
+compiletime_comment_fn!(
+    compile_time_resource_limit,
+    "compile_time_resource_limit: const assertion on resource bounds"
+);
+compiletime_comment_fn!(
+    compile_time_binary_format,
+    "compile_time_binary_format: const assert on layout size/alignment"
+);
+compiletime_comment_fn!(
+    compile_time_mvcc,
+    "compile_time_mvcc: SnapshotId newtype, !Copy to prevent duplication"
+);
+
+// -- Simple comment stubs (with name parameter) --
+compiletime_name_fn!(
+    compile_time_shared_memory,
+    "compile_time_shared_memory",
+    "requires Sync + Send bounds"
+);
+compiletime_name_fn!(
+    compile_time_interface,
+    "compile_time_interface",
+    "trait bounds enforced by rustc"
+);
+compiletime_name_fn!(
+    compile_time_feature_flag,
+    "compile_time_feature_flag",
+    "gated by cfg attribute"
+);
+compiletime_name_fn!(
+    compile_time_unsafe_escape,
+    "compile_time_unsafe_escape",
+    "requires unsafe block at call site"
+);
+compiletime_name_fn!(
+    compile_time_region,
+    "compile_time_region",
+    "uses struct Region<T> newtype"
+);
+compiletime_name_fn!(
+    compile_time_allocator,
+    "compile_time_allocator",
+    "requires A: GlobalAlloc bound"
+);
+compiletime_name_fn!(
+    compile_time_reentrancy,
+    "compile_time_reentrancy",
+    "callback type is !Send"
+);
+compiletime_name_fn!(
+    compile_time_structural,
+    "compile_time_structural",
+    "invariant enforced by #[non_exhaustive] + constructor"
+);
+
+// -- Multi-line comment stubs (with name) --
+compiletime_name_fn!(
+    compile_time_trigger,
+    "compile_time_trigger",
+    "trigger pattern validated at compile time\n    // Ensures quantifier triggers are syntactically valid and non-trivial"
+);
+compiletime_name_fn!(
+    compile_time_opaque,
+    "compile_time_opaque",
+    "body is hidden from callers\n    // Opaque function signatures are enforced at compile time via module privacy"
+);
+compiletime_name_fn!(
+    compile_time_prophecy,
+    "compile_time_prophecy",
+    "is a prophecy (proof-only, erased at runtime)\n    // Prophecy variables must not affect runtime behavior"
+);
+compiletime_name_fn!(
+    compile_time_liveness,
+    "compile_time_liveness",
+    "liveness obligation tracked at compile time\n    // Compiler verifies progress guarantee via ranking function"
+);
+compiletime_name_fn!(
+    compile_time_lock_order,
+    "compile_time_lock_order",
+    "lock acquisition order enforced by type system\n    // Lock rank is a compile-time constant; out-of-order acquisition is a type error"
+);
+compiletime_name_fn!(
+    compile_time_deadline,
+    "compile_time_deadline",
+    "timeout bound validated at compile time\n    // Deadline constants must be positive and finite"
+);
+compiletime_name_fn!(
+    compile_time_crash_recovery,
+    "compile_time_crash_recovery",
+    "recovery invariant tracked\n    // WAL write must precede state mutation (enforced by type ordering)"
+);
+compiletime_name_fn!(
+    compile_time_codec_registry,
+    "compile_time_codec_registry",
+    "codec must be registered at compile time\n    // Unregistered codec IDs are a compile-time error"
+);
+compiletime_name_fn!(
+    compile_time_checksum,
+    "compile_time_checksum",
+    "checksum algorithm validated at compile time\n    // Checksum width must match the declared format"
+);
+compiletime_name_fn!(
+    compile_time_protocol_grammar,
+    "compile_time_protocol_grammar",
+    "state machine transitions validated\n    // Unreachable states and missing transitions are compile-time errors"
+);
+compiletime_name_fn!(
+    compile_time_precomputed_table,
+    "compile_time_precomputed_table",
+    "table entries validated at compile time\n    // const _: () = assert!(TABLE.len() == EXPECTED_SIZE);"
+);
+compiletime_name_fn!(
+    compile_time_complexity_bound,
+    "compile_time_complexity_bound",
+    "complexity annotation checked\n    // Recursive depth and loop bounds validated against declared complexity"
+);
+compiletime_name_fn!(
+    compile_time_test_gen,
+    "compile_time_test_gen",
+    "test harness generated at compile time\n    // Property-based tests derived from contract specifications"
+);
+compiletime_name_fn!(
+    compile_time_behavioral_equiv,
+    "compile_time_behavioral_equiv",
+    "equivalence proof obligation\n    // Both implementations must satisfy the same contract"
+);
+compiletime_name_fn!(
+    compile_time_multi_pass,
+    "compile_time_multi_pass",
+    "refinement chain validated at compile time\n    // Each pass must preserve the refinement relation"
+);
+compiletime_name_fn!(
+    compile_time_incremental,
+    "compile_time_incremental",
+    "contract version compatibility checked\n    // New contract version must be backward-compatible with previous version"
+);
+compiletime_name_fn!(
+    compile_time_scoped_invariant,
+    "compile_time_scoped_invariant",
+    "invariant suspension scope tracked\n    // Invariant must be re-established before scope exit"
+);
+
+// -- Functions with unique logic (compile_error!, cfg gates, multi-line) --
+
+/// CORE.1: Ghost code erasure.
 pub fn compile_time_ghost_erasure(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_ghost: ensure `{name}` is erased in release\n    \
@@ -386,8 +508,7 @@ pub fn compile_time_ghost_erasure(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: SEC.1 taint tracking.
-/// Untrusted data flowing to trusted sink generates compile_error!.
+/// SEC.1: Taint tracking compile_error!.
 pub fn compile_time_taint(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_taint: `{name}` must be sanitized before use\n    \
@@ -398,8 +519,7 @@ pub fn compile_time_taint(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: SEC.3 constant_time.
-/// Non-constant-time operations in a constant_time function are forbidden.
+/// SEC.3: Constant-time compile_error!.
 pub fn compile_time_constant_time(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_constant_time: `{name}` must not branch on secrets\n    \
@@ -409,8 +529,7 @@ pub fn compile_time_constant_time(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: SEC.4 secure erasure via zeroize.
-/// Types without Zeroize derive in a zeroize scope get compile_error!.
+/// SEC.4: Secure erasure compile_error!.
 pub fn compile_time_zeroize(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_zeroize: `{name}` must implement Zeroize or be erased\n    \
@@ -420,89 +539,7 @@ pub fn compile_time_zeroize(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: CONC.1 shared memory.
-/// Shared memory access without synchronization triggers compile_error!.
-pub fn compile_time_shared_memory(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_shared_memory: `{name}` requires Sync + Send bounds\n"
-    ));
-}
-
-/// Compile-time enforcement: CONC.6 weak memory ordering.
-/// Uses type-level Ordering constants for compile-time verification.
-pub fn compile_time_weak_memory(code: &mut String) {
-    code.push_str("    // compile_time_ordering: memory ordering validated at compile time\n");
-}
-
-/// Compile-time enforcement: MEM.2 fixed-width integer overflow.
-/// Arithmetic overflow on fixed-width types panics in debug builds (Rust default).
-pub fn compile_time_fixed_width(code: &mut String) {
-    code.push_str(
-        "    // compile_time_fixed_width: overflow is checked at compile time in const contexts\n",
-    );
-}
-
-/// Compile-time enforcement: TYPE.1 interface contracts.
-/// Missing trait implementations are compile errors in Rust.
-pub fn compile_time_interface(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_interface: `{name}` trait bounds enforced by rustc\n"
-    ));
-}
-
-/// Compile-time enforcement: TYPE.3 error propagation.
-/// `?` operator and Result types enforce error handling at compile time.
-pub fn compile_time_error_propagation(code: &mut String) {
-    code.push_str(
-        "    // compile_time_error_propagation: Result<T, E> enforced by Rust type system\n",
-    );
-}
-
-/// Compile-time enforcement: PLAT.2 feature flags.
-/// #[cfg(feature = "...")] gates code at compile time.
-pub fn compile_time_feature_flag(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_feature_flag: `{name}` gated by cfg attribute\n"
-    ));
-}
-
-/// Compile-time enforcement: PERF.1 unsafe escape.
-/// Requires unsafe block to use, so Rust compiler enforces call-site marking.
-pub fn compile_time_unsafe_escape(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_unsafe_escape: `{name}` requires unsafe block at call site\n"
-    ));
-}
-
-/// Compile-time enforcement: NUM.1 numerical precision const checks.
-pub fn compile_time_numerical_precision(code: &mut String) {
-    code.push_str(
-        "    // compile_time_numerical_precision: const assertions on precision bounds\n",
-    );
-}
-
-/// Compile-time enforcement: PLAT.3 resource limits via const assertions.
-pub fn compile_time_resource_limit(code: &mut String) {
-    code.push_str("    // compile_time_resource_limit: const assertion on resource bounds\n");
-}
-
-/// Compile-time enforcement: FMT.1 binary format layout.
-/// Uses static_assert on struct size/alignment.
-pub fn compile_time_binary_format(code: &mut String) {
-    code.push_str("    // compile_time_binary_format: const assert on layout size/alignment\n");
-}
-
-/// Compile-time enforcement: STOR.5 monotonic state.
-/// Type-level monotonicity via wrapper types.
-pub fn compile_time_monotonic(code: &mut String) {
-    code.push_str(
-        "    // compile_time_monotonic: monotonic wrapper prevents non-monotonic updates\n    \
-         // pub struct Monotonic<T: Ord>(T); // only advance(), no set()\n",
-    );
-}
-
-/// Compile-time enforcement: SEC.5 crypto conformance.
-/// Non-approved algorithms trigger compile_error!.
+/// SEC.5: Crypto conformance compile_error!.
 pub fn compile_time_crypto(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_crypto: `{name}` must conform to approved algorithm\n    \
@@ -511,8 +548,7 @@ pub fn compile_time_crypto(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: CORE.2 lemma erasure.
-/// Lemma code must not leak to runtime.
+/// CORE.2: Lemma erasure compile_error!.
 pub fn compile_time_lemma(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_lemma: `{name}` is erased (proof-only)\n    \
@@ -521,8 +557,7 @@ pub fn compile_time_lemma(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: CORE.4 axiomatic definitions.
-/// Axioms weaken soundness; require explicit opt-in.
+/// CORE.4: Axiomatic definition compile_error!.
 pub fn compile_time_axiom(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_axiom: `{name}` is assumed without proof\n    \
@@ -531,8 +566,7 @@ pub fn compile_time_axiom(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: CONC.3 determinism.
-/// Deterministic functions must not call side-effecting code.
+/// CONC.3: Determinism compile_error!.
 pub fn compile_time_determinism(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_determinism: `{name}` must be a pure function\n    \
@@ -542,8 +576,7 @@ pub fn compile_time_determinism(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: FMT.3 string encoding.
-/// Unknown encoding names trigger compile_error!.
+/// FMT.3: String encoding compile_error!.
 pub fn compile_time_string_encoding(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_string_encoding: `{name}` must be a known encoding\n    \
@@ -552,8 +585,7 @@ pub fn compile_time_string_encoding(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: CORE.3 frame conditions.
-/// Functions must only modify declared fields.
+/// CORE.3: Frame conditions.
 pub fn compile_time_frame(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_frame: `{name}` may only modify declared fields\n    \
@@ -562,25 +594,7 @@ pub fn compile_time_frame(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: TYPE.2 structural invariants.
-/// Invariant types use private fields + constructor pattern.
-pub fn compile_time_structural(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_structural: `{name}` invariant enforced by \
-         #[non_exhaustive] + constructor\n"
-    ));
-}
-
-/// Compile-time enforcement: CONC.2 callback reentrancy.
-/// Callback types get !Send marker to prevent cross-thread reentrancy.
-pub fn compile_time_reentrancy(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_reentrancy: `{name}` callback type is !Send\n"
-    ));
-}
-
-/// Compile-time enforcement: PLAT.1 platform abstraction.
-/// Platform-specific code gated by #[cfg(target_os)].
+/// PLAT.1: Platform abstraction cfg gate.
 pub fn compile_time_platform(name: &str, code: &mut String) {
     code.push_str(&format!(
         "    // compile_time_platform: `{name}` requires cfg(target_os) gate\n    \
@@ -590,24 +604,7 @@ pub fn compile_time_platform(name: &str, code: &mut String) {
     ));
 }
 
-/// Compile-time enforcement: MEM.1 memory regions.
-/// Region types prevent cross-region assignment.
-pub fn compile_time_region(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_region: `{name}` uses struct Region<T> newtype\n"
-    ));
-}
-
-/// Compile-time enforcement: MEM.3 allocator contracts.
-/// Allocator types must implement GlobalAlloc.
-pub fn compile_time_allocator(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_allocator: `{name}` requires A: GlobalAlloc bound\n"
-    ));
-}
-
-/// Compile-time enforcement: MEM.4 circular buffer.
-/// Capacity must be a power of two for efficient modular arithmetic.
+/// MEM.4: Circular buffer power-of-two const assert.
 pub fn compile_time_circular(code: &mut String) {
     code.push_str(
         "    // compile_time_circular: const assert capacity is power of two\n    \
@@ -615,8 +612,7 @@ pub fn compile_time_circular(code: &mut String) {
     );
 }
 
-/// Compile-time enforcement: FMT.2 bit-level format.
-/// Bit field widths must sum to container size.
+/// FMT.2: Bit-level width sum const assert.
 pub fn compile_time_bit_level(code: &mut String) {
     code.push_str(
         "    // compile_time_bit_level: const assert bit field widths sum correctly\n    \
@@ -624,8 +620,7 @@ pub fn compile_time_bit_level(code: &mut String) {
     );
 }
 
-/// Compile-time enforcement: STOR.2 page cache.
-/// Page size must be aligned to system page size.
+/// STOR.2: Page cache alignment const assert.
 pub fn compile_time_page_cache(code: &mut String) {
     code.push_str(
         "    // compile_time_page_cache: const assert page size alignment\n    \
@@ -633,14 +628,7 @@ pub fn compile_time_page_cache(code: &mut String) {
     );
 }
 
-/// Compile-time enforcement: STOR.3 MVCC snapshot isolation.
-/// Snapshot IDs use newtype wrapper preventing raw integer confusion.
-pub fn compile_time_mvcc(code: &mut String) {
-    code.push_str("    // compile_time_mvcc: SnapshotId newtype, !Copy to prevent duplication\n");
-}
-
-/// Compile-time enforcement: STOR.4 rollback/savepoint.
-/// Savepoint handles are #[must_use] to prevent silent drops.
+/// STOR.4: Rollback #[must_use] handle.
 pub fn compile_time_rollback(code: &mut String) {
     code.push_str(
         "    // compile_time_rollback: #[must_use] Savepoint handle\n    \
@@ -648,166 +636,20 @@ pub fn compile_time_rollback(code: &mut String) {
     );
 }
 
-/// Compile-time enforcement: STOR.6 storage failure.
-/// Error results are #[must_use] with exhaustive match.
+/// STOR.5: Monotonic wrapper type.
+pub fn compile_time_monotonic(code: &mut String) {
+    code.push_str(
+        "    // compile_time_monotonic: monotonic wrapper prevents non-monotonic updates\n    \
+         // pub struct Monotonic<T: Ord>(T); // only advance(), no set()\n",
+    );
+}
+
+/// STOR.6: Storage failure #[must_use].
 pub fn compile_time_storage_failure(code: &mut String) {
     code.push_str(
         "    // compile_time_storage_failure: #[must_use] on error results\n    \
          // Unhandled storage failures are compile warnings\n",
     );
-}
-
-/// Compile-time enforcement: CORE.5 quantifier triggers.
-/// Trigger patterns are validated at compile time for syntactic correctness.
-pub fn compile_time_trigger(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_trigger: `{name}` trigger pattern validated at compile time\n    \
-         // Ensures quantifier triggers are syntactically valid and non-trivial\n"
-    ));
-}
-
-/// Compile-time enforcement: CORE.6 opaque functions.
-/// Opaque bodies are hidden via module privacy.
-pub fn compile_time_opaque(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_opaque: `{name}` body is hidden from callers\n    \
-         // Opaque function signatures are enforced at compile time via module privacy\n"
-    ));
-}
-
-/// Compile-time enforcement: CORE.7 prophecy variables.
-/// Prophecy variables are erased; they must not affect runtime behavior.
-pub fn compile_time_prophecy(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_prophecy: `{name}` is a prophecy (proof-only, erased at runtime)\n    \
-         // Prophecy variables must not affect runtime behavior\n"
-    ));
-}
-
-/// Compile-time enforcement: CORE.8 liveness contracts.
-/// Liveness obligations are tracked via ranking functions at compile time.
-pub fn compile_time_liveness(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_liveness: `{name}` liveness obligation tracked at compile time\n    \
-         // Compiler verifies progress guarantee via ranking function\n"
-    ));
-}
-
-/// Compile-time enforcement: CONC.4 lock ordering.
-/// Lock rank is a compile-time constant; out-of-order acquisition is a type error.
-pub fn compile_time_lock_order(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_lock_order: `{name}` lock acquisition order enforced by type system\n    \
-         // Lock rank is a compile-time constant; out-of-order acquisition is a type error\n"
-    ));
-}
-
-/// Compile-time enforcement: CONC.5 temporal deadlines.
-/// Deadline constants must be positive and finite.
-pub fn compile_time_deadline(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_deadline: `{name}` timeout bound validated at compile time\n    \
-         // Deadline constants must be positive and finite\n"
-    ));
-}
-
-/// Compile-time enforcement: STOR.1 crash recovery.
-/// WAL write must precede state mutation (enforced by type ordering).
-pub fn compile_time_crash_recovery(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_crash_recovery: `{name}` recovery invariant tracked\n    \
-         // WAL write must precede state mutation (enforced by type ordering)\n"
-    ));
-}
-
-/// Compile-time enforcement: FMT.4 codec registry.
-/// Unregistered codec IDs are a compile-time error.
-pub fn compile_time_codec_registry(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_codec_registry: `{name}` codec must be registered at compile time\n    \
-         // Unregistered codec IDs are a compile-time error\n"
-    ));
-}
-
-/// Compile-time enforcement: FMT.5 checksum/integrity.
-/// Checksum width must match the declared format.
-pub fn compile_time_checksum(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_checksum: `{name}` checksum algorithm validated at compile time\n    \
-         // Checksum width must match the declared format\n"
-    ));
-}
-
-/// Compile-time enforcement: FMT.6 protocol grammar.
-/// Unreachable states and missing transitions are compile-time errors.
-pub fn compile_time_protocol_grammar(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_protocol_grammar: `{name}` state machine transitions validated\n    \
-         // Unreachable states and missing transitions are compile-time errors\n"
-    ));
-}
-
-/// Compile-time enforcement: NUM.2 precomputed tables.
-/// Table size and entries validated at compile time via const assertions.
-pub fn compile_time_precomputed_table(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_precomputed_table: `{name}` table entries validated at compile time\n    \
-         // const _: () = assert!(TABLE.len() == EXPECTED_SIZE);\n"
-    ));
-}
-
-/// Compile-time enforcement: PERF.2 complexity bounds.
-/// Recursive depth and loop bounds validated against declared complexity.
-pub fn compile_time_complexity_bound(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_complexity_bound: `{name}` complexity annotation checked\n    \
-         // Recursive depth and loop bounds validated against declared complexity\n"
-    ));
-}
-
-/// Compile-time enforcement: TEST.1 test generation.
-/// Test harness generated at compile time from contract specifications.
-pub fn compile_time_test_gen(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_test_gen: `{name}` test harness generated at compile time\n    \
-         // Property-based tests derived from contract specifications\n"
-    ));
-}
-
-/// Compile-time enforcement: TEST.2 behavioral equivalence.
-/// Both implementations must satisfy the same contract.
-pub fn compile_time_behavioral_equiv(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_behavioral_equiv: `{name}` equivalence proof obligation\n    \
-         // Both implementations must satisfy the same contract\n"
-    ));
-}
-
-/// Compile-time enforcement: TEST.3 multi-pass refinement.
-/// Each pass must preserve the refinement relation.
-pub fn compile_time_multi_pass(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_multi_pass: `{name}` refinement chain validated at compile time\n    \
-         // Each pass must preserve the refinement relation\n"
-    ));
-}
-
-/// Compile-time enforcement: MISC.1 incremental contracts.
-/// New contract version must be backward-compatible.
-pub fn compile_time_incremental(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_incremental: `{name}` contract version compatibility checked\n    \
-         // New contract version must be backward-compatible with previous version\n"
-    ));
-}
-
-/// Compile-time enforcement: MISC.2 scoped invariant suspension.
-/// Invariant must be re-established before scope exit.
-pub fn compile_time_scoped_invariant(name: &str, code: &mut String) {
-    code.push_str(&format!(
-        "    // compile_time_scoped_invariant: `{name}` invariant suspension scope tracked\n    \
-         // Invariant must be re-established before scope exit\n"
-    ));
 }
 
 // ---------------------------------------------------------------------------
