@@ -31,6 +31,10 @@ pub enum InlineClauseKind {
     Invariant,
     Effects,
     Decreases,
+    /// SEC.2: FFI boundary trust annotation (`@ffi_boundary trusted|audited|untrusted`)
+    FfiBoundary,
+    /// SEC.2: Trust level shorthand (`@trust trusted|audited|untrusted`)
+    Trust,
 }
 
 impl InlineClauseKind {
@@ -42,6 +46,8 @@ impl InlineClauseKind {
             "invariant" => Some(Self::Invariant),
             "effects" => Some(Self::Effects),
             "decreases" => Some(Self::Decreases),
+            "ffi_boundary" => Some(Self::FfiBoundary),
+            "trust" => Some(Self::Trust),
             _ => None,
         }
     }
@@ -54,6 +60,8 @@ impl InlineClauseKind {
             Self::Invariant => "invariant",
             Self::Effects => "effects",
             Self::Decreases => "decreases",
+            Self::FfiBoundary => "ffi_boundary",
+            Self::Trust => "trust",
         }
     }
 }
@@ -66,6 +74,8 @@ pub struct InlineContract {
     pub invariants: Vec<ContractClause>,
     pub effects: Vec<ContractClause>,
     pub decreases: Vec<ContractClause>,
+    /// SEC.2: FFI boundary trust annotations (`@ffi_boundary`, `@trust`).
+    pub ffi_boundary: Vec<ContractClause>,
 }
 
 impl InlineContract {
@@ -76,6 +86,7 @@ impl InlineContract {
             && self.invariants.is_empty()
             && self.effects.is_empty()
             && self.decreases.is_empty()
+            && self.ffi_boundary.is_empty()
     }
 
     /// Total number of clauses across all kinds.
@@ -85,6 +96,7 @@ impl InlineContract {
             + self.invariants.len()
             + self.effects.len()
             + self.decreases.len()
+            + self.ffi_boundary.len()
     }
 
     fn push(&mut self, clause: ContractClause) {
@@ -94,6 +106,9 @@ impl InlineContract {
             InlineClauseKind::Invariant => self.invariants.push(clause),
             InlineClauseKind::Effects => self.effects.push(clause),
             InlineClauseKind::Decreases => self.decreases.push(clause),
+            InlineClauseKind::FfiBoundary | InlineClauseKind::Trust => {
+                self.ffi_boundary.push(clause)
+            }
         }
     }
 }
@@ -1554,5 +1569,74 @@ def untyped(x):
     fn adapter_for_extension_unknown() {
         assert!(adapter_for_extension("java").is_none());
         assert!(adapter_for_extension("go").is_none());
+    }
+
+    // -- SEC.2 FFI boundary inline annotation tests --
+
+    #[test]
+    fn ffi_boundary_clause_parsed() {
+        let lines = vec![(" @ffi_boundary untrusted".to_string(), 10)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.ffi_boundary.len(), 1);
+        assert_eq!(contract.ffi_boundary[0].body, "untrusted");
+        assert_eq!(contract.ffi_boundary[0].kind, InlineClauseKind::FfiBoundary);
+    }
+
+    #[test]
+    fn trust_clause_parsed() {
+        let lines = vec![(" @trust audited".to_string(), 10)];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.ffi_boundary.len(), 1);
+        assert_eq!(contract.ffi_boundary[0].body, "audited");
+        assert_eq!(contract.ffi_boundary[0].kind, InlineClauseKind::Trust);
+    }
+
+    #[test]
+    fn ffi_boundary_with_requires_ensures() {
+        let lines = vec![
+            (" @ffi_boundary untrusted".to_string(), 10),
+            (" @requires buf.len() >= 4".to_string(), 40),
+            (" @ensures result >= 0".to_string(), 70),
+        ];
+        let contract = parse_doc_clauses(&lines);
+        assert_eq!(contract.ffi_boundary.len(), 1);
+        assert_eq!(contract.requires.len(), 1);
+        assert_eq!(contract.ensures.len(), 1);
+    }
+
+    #[test]
+    fn ffi_boundary_on_unsafe_extern_fn() {
+        let source = r#"
+/// @ffi_boundary untrusted
+/// @requires size > 0
+/// @ensures result != 0
+unsafe fn malloc(size: usize) -> *mut u8 {
+    std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 1))
+}
+"#;
+        let items = parse_rust_source(source).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].contract.ffi_boundary.len(), 1);
+        assert_eq!(items[0].contract.ffi_boundary[0].body, "untrusted");
+        assert_eq!(items[0].contract.requires.len(), 1);
+        assert_eq!(items[0].contract.ensures.len(), 1);
+        match &items[0].kind {
+            AnnotatedItemKind::Function {
+                name, is_unsafe, ..
+            } => {
+                assert_eq!(name, "malloc");
+                assert!(is_unsafe);
+            }
+            _ => panic!("expected Function"),
+        }
+    }
+
+    #[test]
+    fn ffi_boundary_roundtrip_clause_kind() {
+        for kind in [InlineClauseKind::FfiBoundary, InlineClauseKind::Trust] {
+            let s = kind.as_str();
+            let parsed = InlineClauseKind::from_keyword(s).unwrap();
+            assert_eq!(parsed, kind);
+        }
     }
 }

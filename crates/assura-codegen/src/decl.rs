@@ -90,11 +90,45 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
         map_type_tokens(&ex.return_ty)
     };
 
-    // Generate as a regular function with contract assertions
+    // SEC.2 compile-time enforcement: determine trust boundary from clauses
+    let trust_level = ex.clauses.iter().find_map(|c| {
+        if matches!(&c.kind, ClauseKind::Other(k) if k == "trust" || k == "boundary") {
+            match &c.body {
+                Expr::Ident(v) => Some(v.as_str().to_string()),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
+    let is_untrusted = trust_level.as_deref() == Some("untrusted");
+    let has_contract = ex
+        .clauses
+        .iter()
+        .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
+
+    // SEC.2 compile-time: extern functions generate `unsafe fn` so Rust's
+    // type system enforces that callers must use an unsafe block, providing
+    // compile-time visibility of FFI boundary crossings.
+    let unsafe_kw = if trust_level.is_some() { "unsafe " } else { "" };
+
+    // Generate as a function with contract assertions
     code.push_str(&format!(
-        "/// Extern: {}\npub fn {}({params_s}) -> {ret} {{\n",
-        ex.name, ex.name
+        "/// Extern: {} [ffi_boundary: {}]\npub {unsafe_kw}fn {}({params_s}) -> {ret} {{\n",
+        ex.name,
+        trust_level.as_deref().unwrap_or("none"),
+        ex.name
     ));
+
+    // SEC.2 compile-time: untrusted externs without contracts emit compile_error!
+    // so the generated Rust will not compile until contracts are added.
+    if is_untrusted && !has_contract {
+        code.push_str(&format!(
+            "    compile_error!(\"FFI boundary violation: untrusted extern `{}` \
+             has no contract; add requires/ensures\");\n",
+            ex.name
+        ));
+    }
 
     // Collect old() expressions from ensures clauses and save pre-state values
     let mut ensures_exprs: Vec<String> = Vec::new();
@@ -115,9 +149,9 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
         }
     }
 
-    if ensures_exprs.is_empty() {
+    if ensures_exprs.is_empty() && (has_contract || !is_untrusted) {
         code.push_str("    todo!(\"extern function: implementation required\")\n");
-    } else {
+    } else if !ensures_exprs.is_empty() {
         code.push_str(&format!(
             "    let __result: {ret} = todo!(\"extern function: implementation required\");\n"
         ));
