@@ -639,9 +639,9 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Use a qualified name (module.Foo) to disambiguate, or use an \
                  alias on one of the imports: import b { Foo as BFoo }.",
         },
-        // -- A02008: Visibility violation (moved from A02004 to avoid spec conflict) --
+        // -- A02009: Visibility violation (moved from A02004 to avoid spec conflict) --
         ErrorInfo {
-            code: "A02008",
+            code: "A02009",
             name: "Visibility violation",
             description: "An attempt was made to access a field or member that \
                           is not public. Non-pub fields are only accessible within \
@@ -651,7 +651,7 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
   }
 
   contract Check {
-      requires: w.balance > 0   // A02008: balance is private
+      requires: w.balance > 0   // A02009: balance is private
   }"#,
             fix: "Mark the field as 'pub' in the type definition if external \
                  access is intended, or access it through a public getter method.",
@@ -3508,6 +3508,20 @@ mod tests {
             message: "here".to_string(),
         };
         assert_eq!(a, b);
+    }
+
+    /// Every error code in the catalog must be unique.
+    #[test]
+    fn test_no_duplicate_error_codes() {
+        let catalog = error_catalog();
+        let mut seen = std::collections::HashSet::new();
+        for entry in &catalog {
+            assert!(
+                seen.insert(entry.code),
+                "duplicate error code in catalog: {}",
+                entry.code
+            );
+        }
     }
 
     /// Regression test for #179: error codes must match spec Section 7.2.
