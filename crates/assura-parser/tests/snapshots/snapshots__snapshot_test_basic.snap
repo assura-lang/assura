@@ -45,6 +45,7 @@ SourceFile {
                                     "Int",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Output,
@@ -55,6 +56,7 @@ SourceFile {
                                     "Int",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
@@ -69,6 +71,7 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -101,6 +104,7 @@ SourceFile {
                                     "a",
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -127,12 +131,14 @@ SourceFile {
                                     ],
                                 },
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
                             body: Ident(
                                 "pure",
                             ),
+                            effect_variables: [],
                         },
                     ],
                     fn_params: [],
@@ -163,6 +169,7 @@ SourceFile {
                                     "Nat",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Output,
@@ -173,6 +180,7 @@ SourceFile {
                                     "Bytes",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
@@ -195,6 +203,7 @@ SourceFile {
                                     args: [],
                                 },
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -211,12 +220,14 @@ SourceFile {
                                     "len",
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
                             body: Ident(
                                 "pure",
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Invariant,
@@ -245,6 +256,7 @@ SourceFile {
                                     ),
                                 },
                             },
+                            effect_variables: [],
                         },
                     ],
                     fn_params: [],
@@ -383,6 +395,7 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -399,6 +412,7 @@ SourceFile {
                                     "size",
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
@@ -409,6 +423,7 @@ SourceFile {
                                     "alloc",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                     ],
                 },
@@ -486,6 +501,7 @@ SourceFile {
                                             "String",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
@@ -496,6 +512,7 @@ SourceFile {
                                             "User",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Requires,
@@ -514,6 +531,7 @@ SourceFile {
                                             ),
                                         ),
                                     },
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Ensures,
@@ -534,6 +552,7 @@ SourceFile {
                                             ),
                                         ),
                                     },
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
@@ -548,6 +567,7 @@ SourceFile {
                                             "log",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                             ],
                         },
@@ -563,6 +583,7 @@ SourceFile {
                                             "UserId",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
@@ -573,6 +594,7 @@ SourceFile {
                                             "User",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
@@ -583,6 +605,7 @@ SourceFile {
                                             "read",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                             ],
                         },
@@ -642,6 +665,7 @@ SourceFile {
                                     "0",
                                 ),
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -708,6 +732,7 @@ SourceFile {
                                     },
                                 ],
                             },
+                            effect_variables: [],
                         },
                     ],
                 },
@@ -755,12 +780,14 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Decreases,
                             body: Ident(
                                 "n",
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -775,6 +802,7 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                     ],
                 },

@@ -643,6 +643,7 @@ fn fs_cache_put_and_get() {
     let clauses = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
         body: assura_parser::ast::Expr::Ident("result".into()),
+        effect_variables: vec![],
     }];
     let results = vec![VerificationResult::Verified {
         clause_desc: "test.ensures".into(),
@@ -662,10 +663,12 @@ fn fs_cache_miss_on_different_clauses() {
     let clauses_a = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
         body: assura_parser::ast::Expr::Ident("result".into()),
+        effect_variables: vec![],
     }];
     let clauses_b = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Requires,
         body: assura_parser::ast::Expr::Ident("result".into()),
+        effect_variables: vec![],
     }];
     let results = vec![VerificationResult::Verified {
         clause_desc: "test.ensures".into(),
@@ -683,6 +686,7 @@ fn fs_cache_clear() {
     let clauses = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
         body: assura_parser::ast::Expr::Ident("result".into()),
+        effect_variables: vec![],
     }];
     let results = vec![VerificationResult::Verified {
         clause_desc: "test.ensures".into(),
@@ -703,6 +707,7 @@ fn fs_cache_entry_count() {
     let clauses = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
         body: assura_parser::ast::Expr::Ident("result".into()),
+        effect_variables: vec![],
     }];
     cache.put("alpha", &clauses, &[]);
     cache.put("beta", &clauses, &[]);

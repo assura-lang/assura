@@ -22,6 +22,7 @@ SourceFile {
                                     "Int",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Output,
@@ -32,6 +33,7 @@ SourceFile {
                                     "Nat",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
@@ -46,6 +48,7 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -58,12 +61,14 @@ SourceFile {
                                     "x",
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
                             body: Ident(
                                 "pure",
                             ),
+                            effect_variables: [],
                         },
                     ],
                     fn_params: [],

@@ -44,7 +44,15 @@ pub(crate) fn print_decl(decl: &Decl, indent: usize) {
             println!("{pad}Contract: {}{tps}", c.name);
             for cl in &c.clauses {
                 let body = truncate(&expr_to_string(&cl.body), 60);
-                println!("{pad}  {:?}: {body}", cl.kind);
+                if cl.effect_variables.is_empty() {
+                    println!("{pad}  {:?}: {body}", cl.kind);
+                } else {
+                    println!(
+                        "{pad}  {:?}: {body} [effect_variables: {}]",
+                        cl.kind,
+                        cl.effect_variables.join(", ")
+                    );
+                }
             }
         }
         Decl::TypeDef(t) => {

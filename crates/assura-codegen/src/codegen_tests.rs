@@ -1002,10 +1002,12 @@ fn interface_block_generates_trait() {
         Clause {
             kind: ClauseKind::Other("method".into()),
             body: Expr::Ident("process".into()),
+            effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Other("method".into()),
             body: Expr::Ident("validate".into()),
+            effect_variables: vec![],
         },
     ];
     super::generate_interface_trait("Processor", &body, &mut code);
@@ -1030,10 +1032,12 @@ fn interface_with_extends_generates_supertrait() {
         Clause {
             kind: ClauseKind::Other("extends".into()),
             body: Expr::Ident("Base".into()),
+            effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Other("method".into()),
             body: Expr::Ident("extra".into()),
+            effect_variables: vec![],
         },
     ];
     super::generate_interface_trait("Extended", &body, &mut code);
@@ -1053,6 +1057,7 @@ fn interface_with_invariant_generates_provided_method() {
             op: BinOp::Gt,
             rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
         },
+        effect_variables: vec![],
     }];
     super::generate_interface_trait("Positive", &body, &mut code);
     assert!(
@@ -2398,6 +2403,7 @@ fn generate_block_effects_clause_explicit() {
     let clauses = vec![Clause {
         kind: ClauseKind::Effects,
         body: Expr::Raw(vec!["io".into()]),
+        effect_variables: vec![],
     }];
     let mut code = String::new();
     generate_block(&BlockKind::Feature, "test", &clauses, &mut code);
@@ -2440,6 +2446,7 @@ fn codegen_ordering_constant_in_block() {
     let clauses = vec![Clause {
         kind: ClauseKind::Ordering,
         body: Expr::Ident("acquire".into()),
+        effect_variables: vec![],
     }];
     let mut code = String::new();
     generate_block(&BlockKind::Feature, "test", &clauses, &mut code);

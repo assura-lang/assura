@@ -270,7 +270,48 @@ fn lower_clause(n: &SyntaxNode) -> Clause {
     // The body is everything after the keyword token
     let body = lower_clause_body(n);
 
-    Clause { kind, body }
+    // For effects clauses, extract effect row variables (names after `|`)
+    let effect_variables = if kind == ClauseKind::Effects {
+        extract_effect_variables(&body)
+    } else {
+        vec![]
+    };
+
+    Clause {
+        kind,
+        body,
+        effect_variables,
+    }
+}
+
+/// Extract effect row variables from an effects clause body.
+///
+/// In `effects <io, net | E>`, the tokens after `|` that are capitalized
+/// identifiers are effect row variables. This enables effect polymorphism
+/// per Spec Section 1.12.
+fn extract_effect_variables(body: &Expr) -> Vec<String> {
+    let tokens = match body {
+        Expr::Raw(tokens) => tokens,
+        _ => return vec![],
+    };
+
+    let mut after_pipe = false;
+    let mut vars = Vec::new();
+    for tok in tokens {
+        if tok == "|" {
+            after_pipe = true;
+        } else if after_pipe {
+            let trimmed = tok.trim();
+            if !trimmed.is_empty()
+                && trimmed != ">"
+                && trimmed != ","
+                && trimmed.chars().next().is_some_and(|c| c.is_uppercase())
+            {
+                vars.push(trimmed.to_string());
+            }
+        }
+    }
+    vars
 }
 
 fn clause_kind_from_syntax(k: SyntaxKind, text: &str) -> Option<ClauseKind> {
@@ -2312,6 +2353,33 @@ liveness Fairness {
             );
         } else {
             panic!("expected Decl::CodecRegistry");
+        }
+    }
+
+    #[test]
+    fn test_effect_row_with_variable() {
+        let src = r#"
+contract EffPoly {
+    effects <io | E>
+    fn map_with_effect(f: (Int) -> Int) -> List<Int>
+}
+"#;
+        let sf = crate::parse_unwrap(src);
+        assert_eq!(sf.decls.len(), 1);
+        if let Decl::Contract(c) = &sf.decls[0].node {
+            // Should have an effects clause with effect variable E
+            let eff_clause = c
+                .clauses
+                .iter()
+                .find(|cl| cl.kind == ClauseKind::Effects)
+                .expect("should have an effects clause");
+            assert_eq!(
+                eff_clause.effect_variables,
+                vec!["E".to_string()],
+                "should extract effect variable E from row"
+            );
+        } else {
+            panic!("expected Decl::Contract");
         }
     }
 }

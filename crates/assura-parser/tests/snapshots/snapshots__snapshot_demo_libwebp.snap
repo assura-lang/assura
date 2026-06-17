@@ -173,6 +173,7 @@ SourceFile {
                                     "MAX_ALPHABET_SIZE",
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Other(
@@ -181,6 +182,7 @@ SourceFile {
                             body: Raw(
                                 [],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Other(
@@ -209,6 +211,7 @@ SourceFile {
                                     "max_secondary",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                     ],
                 },
@@ -258,6 +261,7 @@ SourceFile {
                         body: Ident(
                             "worst_case_table_size",
                         ),
+                        effect_variables: [],
                     },
                 ],
             },
@@ -319,6 +323,7 @@ SourceFile {
                             body: Ident(
                                 "untrusted",
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
@@ -329,6 +334,7 @@ SourceFile {
                                     "read",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                     ],
                 },
@@ -394,6 +400,7 @@ SourceFile {
                             body: Ident(
                                 "untrusted",
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
@@ -404,6 +411,7 @@ SourceFile {
                                     "read",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                     ],
                 },
@@ -476,12 +484,14 @@ SourceFile {
                                     "HuffmanError",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
                             body: Ident(
                                 "pure",
                             ),
+                            effect_variables: [],
                         },
                     ],
                 },
@@ -604,6 +614,7 @@ SourceFile {
                                     "read",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                     ],
                 },

@@ -371,6 +371,7 @@ mod verify_contract_tests {
                     op: BinOp::Gt,
                     rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
                 },
+                effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
@@ -379,6 +380,7 @@ mod verify_contract_tests {
                     op: BinOp::Gt,
                     rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
                 },
+                effect_variables: vec![],
             },
         ];
         let results = verify_contract("TestContract", &clauses);
@@ -399,6 +401,7 @@ mod verify_contract_tests {
                 op: BinOp::Gt,
                 rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
             },
+            effect_variables: vec![],
         }];
         let results = verify_contract("NoPrecondition", &clauses);
         assert_eq!(results.len(), 1);
@@ -421,6 +424,7 @@ mod verify_contract_tests {
                     op: BinOp::Gt,
                     rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
                 },
+                effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
@@ -429,6 +433,7 @@ mod verify_contract_tests {
                     op: BinOp::Gt,
                     rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
                 },
+                effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
@@ -437,6 +442,7 @@ mod verify_contract_tests {
                     op: BinOp::Gt,
                     rhs: Box::new(Expr::Literal(Literal::Int("20".into()))),
                 },
+                effect_variables: vec![],
             },
         ];
         let results = verify_contract("MultiClause", &clauses);
@@ -465,6 +471,7 @@ mod verify_contract_tests {
                 op: BinOp::Gt,
                 rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
             },
+            effect_variables: vec![],
         }];
         let results = verify_contract("OnlyRequires", &clauses);
         assert!(results.is_empty(), "no verifiable clauses: {results:?}");
@@ -1051,6 +1058,7 @@ mod cvc5_tests {
                     lhs: Box::new(Expr::Ident("b".into())),
                     rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
                 },
+                effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
@@ -1059,6 +1067,7 @@ mod cvc5_tests {
                     lhs: Box::new(Expr::Ident("result".into())),
                     rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
                 },
+                effect_variables: vec![],
             },
         ];
         let results = cvc5_backend::verify_contract_cvc5("TestContract", &clauses);

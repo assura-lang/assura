@@ -151,6 +151,9 @@ pub struct ContractDecl {
 pub struct Clause {
     pub kind: ClauseKind,
     pub body: Expr,
+    /// Effect row variables (e.g., `E` in `effects <io | E>`).
+    /// Only populated for `ClauseKind::Effects` clauses.
+    pub effect_variables: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

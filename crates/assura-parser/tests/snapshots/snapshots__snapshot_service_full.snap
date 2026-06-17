@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 52
 expression: ast
 ---
 SourceFile {
@@ -107,6 +106,7 @@ SourceFile {
                                             "Int",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
@@ -117,6 +117,7 @@ SourceFile {
                                             "Order",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Requires,
@@ -131,6 +132,7 @@ SourceFile {
                                             ),
                                         ),
                                     },
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Ensures,
@@ -148,6 +150,7 @@ SourceFile {
                                             ),
                                         ),
                                     },
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
@@ -158,6 +161,7 @@ SourceFile {
                                             "write",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                             ],
                         },
@@ -173,6 +177,7 @@ SourceFile {
                                             "Nat",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
@@ -183,6 +188,7 @@ SourceFile {
                                             "Order",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Requires,
@@ -197,6 +203,7 @@ SourceFile {
                                             ),
                                         ),
                                     },
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
@@ -207,6 +214,7 @@ SourceFile {
                                             "write",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                             ],
                         },
@@ -222,6 +230,7 @@ SourceFile {
                                             "Nat",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
@@ -232,6 +241,7 @@ SourceFile {
                                             "Order",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Requires,
@@ -246,6 +256,7 @@ SourceFile {
                                             ),
                                         ),
                                     },
+                                    effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
@@ -256,6 +267,7 @@ SourceFile {
                                             "read",
                                         ],
                                     ),
+                                    effect_variables: [],
                                 },
                             ],
                         },

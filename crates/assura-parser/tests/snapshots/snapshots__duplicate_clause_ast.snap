@@ -23,6 +23,7 @@ Some(
                                         "Int",
                                     ],
                                 ),
+                                effect_variables: [],
                             },
                             Clause {
                                 kind: Output,
@@ -33,6 +34,7 @@ Some(
                                         "Nat",
                                     ],
                                 ),
+                                effect_variables: [],
                             },
                             Clause {
                                 kind: Requires,
@@ -47,6 +49,7 @@ Some(
                                         ),
                                     ),
                                 },
+                                effect_variables: [],
                             },
                             Clause {
                                 kind: Requires,
@@ -61,6 +64,7 @@ Some(
                                         ),
                                     ),
                                 },
+                                effect_variables: [],
                             },
                             Clause {
                                 kind: Ensures,
@@ -73,12 +77,14 @@ Some(
                                         "x",
                                     ),
                                 },
+                                effect_variables: [],
                             },
                             Clause {
                                 kind: Effects,
                                 body: Ident(
                                     "pure",
                                 ),
+                                effect_variables: [],
                             },
                         ],
                         fn_params: [],

@@ -2592,6 +2592,7 @@ fn totality_partial_fn_skipped() {
                 func: Box::new(AstExpr::Ident("loop_forever".into())),
                 args: vec![AstExpr::Ident("n".into())],
             },
+            effect_variables: vec![],
         }],
         is_ghost: false,
         is_lemma: false,
@@ -2623,6 +2624,7 @@ fn totality_recursive_no_decreases_a09001() {
                     rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
                 }],
             },
+            effect_variables: vec![],
         }],
         is_ghost: false,
         is_lemma: false,
@@ -2647,6 +2649,7 @@ fn totality_non_recursive_is_total() {
                 op: AstBinOp::Add,
                 rhs: Box::new(AstExpr::Literal(AstLit::Int("2".into()))),
             },
+            effect_variables: vec![],
         }],
         is_ghost: false,
         is_lemma: false,
@@ -2672,6 +2675,7 @@ fn totality_decreases_with_nat_param() {
             AstClause {
                 kind: ClauseKind::Decreases,
                 body: AstExpr::Ident("n".into()),
+                effect_variables: vec![],
             },
             AstClause {
                 kind: ClauseKind::Ensures,
@@ -2683,6 +2687,7 @@ fn totality_decreases_with_nat_param() {
                         rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
                     }],
                 },
+                effect_variables: vec![],
             },
         ],
         is_ghost: false,
@@ -2705,6 +2710,7 @@ fn totality_is_partial_from_clause() {
         clauses: vec![AstClause {
             kind: ClauseKind::Other("partial".into()),
             body: AstExpr::Literal(AstLit::Bool(true)),
+            effect_variables: vec![],
         }],
         is_ghost: false,
         is_lemma: false,

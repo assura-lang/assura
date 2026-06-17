@@ -26,6 +26,7 @@ SourceFile {
                                     "Nat",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Output,
@@ -36,6 +37,7 @@ SourceFile {
                                     "Bool",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
@@ -50,6 +52,7 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
@@ -64,12 +67,14 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
                             body: Ident(
                                 "pure",
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Invariant,
@@ -84,12 +89,14 @@ SourceFile {
                                     ),
                                 ),
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Modifies,
                             body: Ident(
                                 "buf",
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: Rule,
@@ -106,6 +113,7 @@ SourceFile {
                                     args: [],
                                 },
                             },
+                            effect_variables: [],
                         },
                         Clause {
                             kind: DataFlow,
@@ -116,12 +124,14 @@ SourceFile {
                                     "result",
                                 ],
                             ),
+                            effect_variables: [],
                         },
                         Clause {
                             kind: MustNot,
                             body: Ident(
                                 "overflow",
                             ),
+                            effect_variables: [],
                         },
                     ],
                     fn_params: [],

@@ -914,6 +914,7 @@ mod tests {
         let clause = Clause {
             kind: ClauseKind::MustNot,
             body: Expr::Literal(Literal::Bool(true)),
+            effect_variables: vec![],
         };
         let results = verify_contract_cvc5("TestMustNot", &[clause]);
         // Should be Counterexample (the bad thing CAN happen)
@@ -934,6 +935,7 @@ mod tests {
         let clause = Clause {
             kind: ClauseKind::MustNot,
             body: Expr::Literal(Literal::Bool(false)),
+            effect_variables: vec![],
         };
         let results = verify_contract_cvc5("TestMustNotFalse", &[clause]);
         assert_eq!(results.len(), 1);

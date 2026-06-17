@@ -599,6 +599,7 @@ impl HirClause {
         ast::Clause {
             kind: self.kind.to_ast_kind(),
             body: self.body.to_ast_expr(),
+            effect_variables: vec![],
         }
     }
 }

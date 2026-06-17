@@ -303,10 +303,13 @@ fn extract_effect_names_from_expr(expr: &Expr) -> Vec<String> {
         Expr::Ident(name) => vec![name.clone()],
         Expr::Raw(tokens) => {
             // Join dot-separated tokens: ["console", ".", "read"] -> "console.read"
+            // Filter out delimiters: commas, braces, and effect row syntax
+            // tokens (`<`, `>`, `|`). Names after `|` are effect row
+            // variables handled separately by the parser.
             let filtered: Vec<&str> = tokens
                 .iter()
                 .map(|s| s.as_str())
-                .filter(|t| *t != "," && *t != "{" && *t != "}")
+                .filter(|t| !matches!(*t, "," | "{" | "}" | "<" | ">" | "|"))
                 .collect();
             let mut names = Vec::new();
             let mut current = String::new();
@@ -515,6 +518,24 @@ mod tests {
         assert!(
             !errs.iter().any(|e| e.code == "A07003"),
             "unexpected undeclared effect error: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn test_effect_polymorphism_basic() {
+        // Effect row with a variable: `effects <io | E>`
+        // The variable E should NOT produce A07003 (unknown effect)
+        let sf = parse_source(
+            r#"contract EffPoly {
+                effects <io | E>
+                fn map_with_effect(f: (Int) -> Int) -> List<Int>
+            }"#,
+        );
+        let errs = run_effect_checks(&sf);
+        let a07003_errors: Vec<_> = errs.iter().filter(|e| e.code == "A07003").collect();
+        assert!(
+            a07003_errors.is_empty(),
+            "effect variable E should not produce A07003, got: {a07003_errors:?}"
         );
     }
 }

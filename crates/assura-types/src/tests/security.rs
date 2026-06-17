@@ -1866,6 +1866,7 @@ fn decreases_clause(body: AstExpr) -> AstClause {
     AstClause {
         kind: ClauseKind::Other("decreases".into()),
         body,
+        effect_variables: vec![],
     }
 }
 
@@ -1873,6 +1874,7 @@ fn requires_clause(body: AstExpr) -> AstClause {
     AstClause {
         kind: ClauseKind::Requires,
         body,
+        effect_variables: vec![],
     }
 }
 
@@ -1880,6 +1882,7 @@ fn partial_clause() -> AstClause {
     AstClause {
         kind: ClauseKind::Other("partial".into()),
         body: AstExpr::Literal(AstLit::Bool(true)),
+        effect_variables: vec![],
     }
 }
 
@@ -1890,6 +1893,7 @@ fn ensures_with_recursive_call(fn_name: &str, args: Vec<AstExpr>) -> AstClause {
             func: Box::new(AstExpr::Ident(fn_name.into())),
             args,
         },
+        effect_variables: vec![],
     }
 }
 

@@ -441,6 +441,7 @@ mod tests {
                             op: BinOp::Gt,
                             rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
                         },
+                        effect_variables: vec![],
                     }],
                     fn_params: vec![],
                 }),
@@ -555,6 +556,7 @@ mod tests {
                     clauses: vec![Clause {
                         kind: ClauseKind::Requires,
                         body: Expr::Ident("Test".into()),
+                        effect_variables: vec![],
                     }],
                     fn_params: vec![],
                 }),
