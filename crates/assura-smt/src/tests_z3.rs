@@ -448,19 +448,19 @@ fn test_raw_implies_operator() {
 
 #[test]
 fn test_raw_modulo_operator() {
-    // x % 2 can be 0 or 1 for non-negative x, so x % 2 >= 0 should verify
+    // x % 2 can be 0 or 1 for non-negative x, so x mod 2 >= 0 should verify
     let src = r#"
         contract ModTest {
             input { x: Int }
             requires { x >= 0 }
-            ensures { x + 0 >= 0 }
+            ensures { x mod 2 >= 0 }
         }
     "#;
     let results = verify_source(src);
     assert!(!results.is_empty());
     assert!(
         matches!(results[0], VerificationResult::Verified { .. }),
-        "non-negative addition should verify, got: {:?}",
+        "non-negative modulo should verify, got: {:?}",
         results[0]
     );
 }

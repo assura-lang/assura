@@ -359,8 +359,17 @@ mod tests {
     #[test]
     fn check_pipeline_empty_source() {
         let result = run_check_pipeline("");
-        // Empty source may or may not parse to an AST, but should not panic
-        assert!(result.parse_errors.is_empty() || !result.parse_errors.is_empty());
+        // Empty source should parse cleanly (no declarations, no errors)
+        assert!(
+            result.parse_errors.is_empty(),
+            "empty source should produce no parse errors, got: {:?}",
+            result.parse_errors
+        );
+        assert!(
+            result.declarations.is_empty(),
+            "empty source should produce no declarations, got: {:?}",
+            result.declarations
+        );
     }
 
     #[test]
@@ -479,12 +488,22 @@ contract Bar {
 
     #[test]
     fn server_creates_without_panic() {
-        let _server = AssuraMcpServer::new();
+        let server = AssuraMcpServer::new();
+        let info = server.get_info();
+        assert!(
+            info.instructions.is_some(),
+            "new() server should have instructions"
+        );
     }
 
     #[test]
     fn server_default_creates_without_panic() {
-        let _server = AssuraMcpServer::default();
+        let server = AssuraMcpServer::default();
+        let info = server.get_info();
+        assert!(
+            info.instructions.is_some(),
+            "default() server should have instructions"
+        );
     }
 
     #[test]

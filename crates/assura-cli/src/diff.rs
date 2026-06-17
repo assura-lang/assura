@@ -335,16 +335,26 @@ contract UsePoint {
 
     #[test]
     fn test_resolution_error_diagnostic() {
-        // Valid parse but contains an unresolved reference
+        // Duplicate contract names should produce a resolution error (A02003)
         let source = r#"
 contract Foo {
-  requires { unknown_fn(x) }
+  requires { true }
+}
+contract Foo {
+  requires { false }
 }
 "#;
         let file = assura_parser::parse_unwrap(source);
-        // Resolve should succeed (soft errors for unresolved refs)
         let resolved = assura_resolve::resolve(&file);
-        assert!(resolved.is_ok());
+        assert!(
+            resolved.is_err(),
+            "duplicate contract names should produce resolution errors"
+        );
+        let errors = resolved.unwrap_err();
+        assert!(
+            !errors.is_empty(),
+            "should have at least one resolution error for duplicate Foo"
+        );
     }
 
     #[test]
