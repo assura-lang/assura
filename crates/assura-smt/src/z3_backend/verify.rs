@@ -43,6 +43,15 @@ fn verify_clauses(
         })
         .collect();
 
+    // Process feature-specific Other clauses via SMT feature dispatch
+    for clause in clauses {
+        if let ClauseKind::Other(kind) = &clause.kind
+            && let Some(result) = crate::smt_features::verify_feature_clause(kind, parent_name)
+        {
+            results.push(result);
+        }
+    }
+
     if verifiable.is_empty() {
         return;
     }

@@ -103,6 +103,8 @@ pub mod cache;
 pub mod incremental;
 /// Layer 2 verification: cross-contract and module-level properties.
 pub mod layer2;
+/// Feature-specific SMT verification for all 50 features.
+pub mod smt_features;
 // Re-export key types from submodules so callers and tests can use them
 // without qualifying the module path.
 pub use advanced::{
