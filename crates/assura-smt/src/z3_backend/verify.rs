@@ -821,7 +821,9 @@ fn resolve_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
                 && let Some(Expr::Ident(var_name)) = args.first()
             {
                 let value = args.get(1).map(|a| format!("{a:?}")).unwrap_or_default();
-                let _ = pm.resolve(&format!("{fn_name}:{var_name}"), value);
+                if let Err(e) = pm.resolve(&format!("{fn_name}:{var_name}"), value) {
+                    eprintln!("warning: prophecy resolution failed: {e}");
+                }
             }
             for arg in args {
                 resolve_prophecy_vars(arg, fn_name, pm);

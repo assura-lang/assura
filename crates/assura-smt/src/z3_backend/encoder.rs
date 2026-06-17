@@ -929,8 +929,11 @@ impl Encoder {
             //     by verify_clauses. Return a fresh bool (not hardcoded true)
             //     so missing lemmas don't trivially pass. ---
             Expr::Apply { lemma_name, args } => {
+                // Encode args for side effects (variable registration) only;
+                // the Z3 values are not used because the lemma's result is a
+                // named bool constrained via lemma injection in verify_clauses.
                 for arg in args {
-                    let _ = self.encode_expr(arg);
+                    let _side_effect = self.encode_expr(arg);
                 }
                 // Use a named bool so the solver can constrain it via
                 // lemma injection. If the lemma is missing, this stays

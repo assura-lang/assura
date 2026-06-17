@@ -171,7 +171,9 @@ impl VerificationCache {
     /// Cache files are stored in `<base_dir>/.assura-cache/verify/`.
     pub fn new(base_dir: &std::path::Path) -> Self {
         let cache_dir = base_dir.join(".assura-cache").join("verify");
-        let _ = std::fs::create_dir_all(&cache_dir);
+        if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+            eprintln!("warning: could not create verification cache directory: {e}");
+        }
         Self { cache_dir }
     }
 
@@ -198,15 +200,21 @@ impl VerificationCache {
         let hash = hash_clauses(contract_name, clauses);
         let path = self.cache_dir.join(format!("{hash}.json"));
         let cached: Vec<CachedResult> = results.iter().map(CachedResult::from).collect();
-        if let Ok(json) = serde_json::to_string(&cached) {
-            let _ = std::fs::write(&path, json);
+        if let Ok(json) = serde_json::to_string(&cached)
+            && let Err(e) = std::fs::write(&path, json)
+        {
+            eprintln!("warning: could not write verification cache entry: {e}");
         }
     }
 
     /// Remove all cached verification results.
     pub fn clear(&self) {
-        let _ = std::fs::remove_dir_all(&self.cache_dir);
-        let _ = std::fs::create_dir_all(&self.cache_dir);
+        if let Err(e) = std::fs::remove_dir_all(&self.cache_dir) {
+            eprintln!("warning: could not clear verification cache: {e}");
+        }
+        if let Err(e) = std::fs::create_dir_all(&self.cache_dir) {
+            eprintln!("warning: could not recreate verification cache directory: {e}");
+        }
     }
 
     /// Number of cached entries.
