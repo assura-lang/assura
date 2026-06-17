@@ -395,6 +395,21 @@ impl TestGenerator {
                 "f64::INFINITY".into(),
                 "f64::NAN".into(),
             ],
+            Type::String => vec![
+                r#""""#.into(),
+                r#""hello""#.into(),
+                r#""a""#.into(),
+                r#""Hello, World!""#.into(),
+            ],
+            Type::Bytes => vec!["b\"\"".into(), "b\"\\x00\"".into(), "b\"\\xff\"".into()],
+            Type::List(_) => vec!["vec![]".into(), "vec![Default::default()]".into()],
+            Type::Map(_, _) => vec!["HashMap::new()".into()],
+            Type::Set(_) => vec!["HashSet::new()".into()],
+            Type::Option(_) => vec!["None".into(), "Some(Default::default())".into()],
+            Type::Result(_, _) => vec![
+                "Ok(Default::default())".into(),
+                "Err(Default::default())".into(),
+            ],
             _ => vec![],
         }
     }

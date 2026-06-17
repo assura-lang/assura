@@ -289,7 +289,7 @@ pub(crate) fn detect_generic_arity(
                             current_is_const = false;
                         }
                     }
-                    ">" => {
+                    ">" if depth > 0 => {
                         depth -= 1;
                         if depth == 0 {
                             // Record the last parameter

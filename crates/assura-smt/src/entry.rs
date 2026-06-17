@@ -75,7 +75,7 @@ pub fn verify_with_options(
 
 /// Verify all contracts in a file using the CVC5 backend.
 fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
-    use assura_parser::ast::Decl;
+    use assura_parser::ast::{Decl, ServiceItem};
     let mut results = Vec::new();
     for decl in &typed.resolved.source.decls {
         match &decl.node {
@@ -94,7 +94,32 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
                     &e.name, &e.clauses,
                 ));
             }
-            _ => {}
+            Decl::Service(s) => {
+                for item in &s.items {
+                    match item {
+                        ServiceItem::Operation { name, clauses } => {
+                            let qname = format!("{}.{}", s.name, name);
+                            results
+                                .extend(crate::cvc5_backend::verify_contract_cvc5(&qname, clauses));
+                        }
+                        ServiceItem::Query { name, clauses } => {
+                            let qname = format!("{}.{}", s.name, name);
+                            results
+                                .extend(crate::cvc5_backend::verify_contract_cvc5(&qname, clauses));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Decl::Block { name, body, .. } => {
+                results.extend(crate::cvc5_backend::verify_contract_cvc5(name, body));
+            }
+            Decl::Bind(b) => {
+                results.extend(crate::cvc5_backend::verify_contract_cvc5(
+                    &b.name, &b.clauses,
+                ));
+            }
+            Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
     }
     results
@@ -153,6 +178,13 @@ pub fn has_verifiable_clauses(source: &assura_parser::ast::SourceFile) -> bool {
         Decl::Contract(c) => verifiable(&c.clauses),
         Decl::FnDef(f) => verifiable(&f.clauses),
         Decl::Extern(e) => verifiable(&e.clauses),
+        Decl::Service(s) => s.items.iter().any(|item| match item {
+            assura_parser::ast::ServiceItem::Operation { clauses, .. }
+            | assura_parser::ast::ServiceItem::Query { clauses, .. } => verifiable(clauses),
+            _ => false,
+        }),
+        Decl::Block { body, .. } => verifiable(body),
+        Decl::Bind(b) => verifiable(&b.clauses),
         _ => false,
     })
 }
@@ -180,7 +212,26 @@ pub fn verify_parallel_with_solver(
             Decl::Extern(e) => {
                 jobs.push((e.name.clone(), e.clauses.clone()));
             }
-            _ => {}
+            Decl::Service(s) => {
+                for item in &s.items {
+                    match item {
+                        assura_parser::ast::ServiceItem::Operation { name, clauses } => {
+                            jobs.push((format!("{}.{}", s.name, name), clauses.clone()));
+                        }
+                        assura_parser::ast::ServiceItem::Query { name, clauses } => {
+                            jobs.push((format!("{}.{}", s.name, name), clauses.clone()));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Decl::Block { name, body, .. } => {
+                jobs.push((name.clone(), body.clone()));
+            }
+            Decl::Bind(b) => {
+                jobs.push((b.name.clone(), b.clauses.clone()));
+            }
+            Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
     }
 

@@ -173,9 +173,9 @@ fn split_type_args(args: &str) -> Vec<&str> {
     for (i, ch) in args.char_indices() {
         match ch {
             '<' => depth += 1,
-            '>' => depth -= 1,
+            '>' if depth > 0 => depth -= 1,
             '(' => paren_depth += 1,
-            ')' => paren_depth -= 1,
+            ')' if paren_depth > 0 => paren_depth -= 1,
             ',' if depth == 0 && paren_depth == 0 => {
                 result.push(&args[start..i]);
                 start = i + 1;
