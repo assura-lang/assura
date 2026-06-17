@@ -1650,4 +1650,23 @@ Within the independent tasks, recommended order by impact:
 - Open issues: #45 (CodeQL, blocked on public repo)
 - **Next session**: Continue multi-perspective audit, add tests to untested modules
 
+### Session 15 (2026-06-17): Bug fix + test coverage expansion
+
+- **1 correctness bug fixed**: Enum variant fields included comma tokens.
+  `Rgb(Int, Int, Int)` produced `["Int", ",", "Int", ",", "Int"]` (5 fields)
+  instead of `["Int", "Int", "Int"]` (3 fields). Affected type env construction
+  and Rust codegen output. Fixed in `collect_paren_tokens()` by skipping
+  top-level commas. Snapshot updated.
+- **108 new tests committed across 8 files**:
+  - inference.rs: 36 tests (was 0 for 1,010 LOC)
+  - resolve type_refs.rs: 13 tests (edit_distance, type name candidate, leniency)
+  - resolve unused.rs: 8 tests (unused import detection)
+  - resolve clause_names.rs: 9 tests (pattern bindings, clause body resolution)
+  - resolve errors.rs: 2 tests (Diagnostic conversion)
+  - clauses.rs: 14 tests (param registration, pattern binding, clause checking)
+  - env.rs: 11 tests (type env builder via full pipeline)
+  - lower.rs: 1 test (regression for enum comma fix)
+- Test count: ~3,100+ (up from ~3,020)
+- **Next session**: Z3 backend test coverage, structural stub removal
+
 ---
