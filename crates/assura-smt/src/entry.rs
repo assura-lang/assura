@@ -212,7 +212,10 @@ pub fn verify_parallel_with_solver(
 
     // #180: collect feature_max constants so the encoder binds them
     // to concrete values instead of creating free Z3 variables.
+    #[cfg(feature = "z3-verify")]
     let constants = crate::z3_backend::collect_feature_max_constants(typed);
+    #[cfg(not(feature = "z3-verify"))]
+    let constants: Vec<(String, i64)> = Vec::new();
 
     // Collect verification jobs with type info for return-type constraints
     type Job = (
