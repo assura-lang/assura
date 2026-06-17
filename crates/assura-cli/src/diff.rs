@@ -1142,9 +1142,13 @@ timeout = 2000
         let file = dir.join("test.assura");
         std::fs::write(&file, "").unwrap();
 
-        // May or may not find one depending on system temp layout.
-        // At minimum, it should not panic.
-        let _ = super::load_project_config(&file);
+        // Temp dir with no assura.toml should return None.
+        let result = super::load_project_config(&file);
+        assert!(
+            result.is_none(),
+            "expected None for directory without assura.toml, got {:?}",
+            result
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

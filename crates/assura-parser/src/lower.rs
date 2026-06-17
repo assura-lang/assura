@@ -413,7 +413,12 @@ fn lower_clause_body(n: &SyntaxNode) -> Expr {
     } else if tokens.len() == 1 && tokens[0].chars().all(|c| c.is_alphanumeric() || c == '_') {
         // Single identifier token: promote to Expr::Ident so downstream
         // checkers can pattern-match on Expr::Ident rather than Raw.
-        Expr::Ident(tokens.into_iter().next().unwrap())
+        Expr::Ident(
+            tokens
+                .into_iter()
+                .next()
+                .expect("tokens.len() == 1 guarantees at least one element"),
+        )
     } else {
         Expr::Raw(tokens)
     }

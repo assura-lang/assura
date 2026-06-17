@@ -686,17 +686,21 @@ mod tests {
     #[test]
     fn all_results_contain_feature_identifier() {
         // Verify that each result's clause_desc contains a recognizable identifier
-        let result = verify_allocator_invariant("test");
-        if let VerificationResult::Unknown { clause_desc, .. } = &result {
-            assert!(clause_desc.contains("allocator"));
-        }
-        let result = verify_crash_recovery("test");
-        if let VerificationResult::Unknown { clause_desc, .. } = &result {
-            assert!(clause_desc.contains("crash_recovery"));
-        }
-        let result = verify_shared_mem_safety("test");
-        if let VerificationResult::Unknown { clause_desc, .. } = &result {
-            assert!(clause_desc.contains("shared_mem"));
-        }
+        let VerificationResult::Unknown { clause_desc, .. } = verify_allocator_invariant("test")
+        else {
+            panic!("expected Unknown for allocator invariant");
+        };
+        assert!(clause_desc.contains("allocator"));
+
+        let VerificationResult::Unknown { clause_desc, .. } = verify_crash_recovery("test") else {
+            panic!("expected Unknown for crash recovery");
+        };
+        assert!(clause_desc.contains("crash_recovery"));
+
+        let VerificationResult::Unknown { clause_desc, .. } = verify_shared_mem_safety("test")
+        else {
+            panic!("expected Unknown for shared mem safety");
+        };
+        assert!(clause_desc.contains("shared_mem"));
     }
 }

@@ -167,7 +167,9 @@ pub(crate) fn find_similar_name(
     while let Some(id) = current {
         for sym_name in table.scopes[id].symbols.keys() {
             let dist = edit_distance(name, sym_name);
-            if dist <= threshold && dist < name.len() && (best.is_none() || dist < best.unwrap().1)
+            if dist <= threshold
+                && dist < name.len()
+                && best.is_none_or(|(_, best_dist)| dist < best_dist)
             {
                 best = Some((sym_name, dist));
             }

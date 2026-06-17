@@ -961,6 +961,13 @@ fn test_safe_buffer_read_contract_verified() {
     // specifies the property, but without a body binding data_len to len,
     // the verifier correctly reports it cannot prove it.
     assert!(!results.is_empty(), "should have results");
+    // At least one result should be a Counterexample (data_len is unconstrained)
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Counterexample { .. })),
+        "unconstrained data_len should produce counterexample, got: {results:?}"
+    );
 }
 
 #[test]
