@@ -402,3 +402,121 @@ pub(crate) fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
 
     env
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: parse source, resolve, and build type env via the full pipeline.
+    fn env_from_source(src: &str) -> TypeEnv {
+        let source = assura_parser::parse_unwrap(src);
+        let resolved = assura_resolve::resolve(&source).unwrap();
+        build_type_env(&resolved.symbols, &source)
+    }
+
+    #[test]
+    fn empty_source_has_stdlib_types() {
+        let env = env_from_source("");
+        // Stdlib types like Pos, NonNeg, Email should be injected
+        assert!(env.lookup("Pos").is_some());
+        assert!(env.lookup("NonNeg").is_some());
+    }
+
+    #[test]
+    fn fndef_params_enriched() {
+        let env = env_from_source("fn add(a: Int, b: Int) -> Int { requires { a > 0 } }");
+        assert_eq!(env.lookup("a"), Some(&Type::Int));
+        assert_eq!(env.lookup("b"), Some(&Type::Int));
+        match env.lookup("add") {
+            Some(Type::Fn { params, ret }) => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], Type::Int);
+                assert_eq!(**ret, Type::Int);
+            }
+            other => panic!("expected Fn type for add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fndef_no_return_type_defaults_unit() {
+        let env = env_from_source("fn noop() { ensures { true } }");
+        match env.lookup("noop") {
+            Some(Type::Fn { ret, .. }) => assert_eq!(**ret, Type::Unit),
+            other => panic!("expected Fn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extern_params_enriched() {
+        let env = env_from_source("extern fn ext(x: Bool) -> Nat");
+        assert_eq!(env.lookup("x"), Some(&Type::Bool));
+        match env.lookup("ext") {
+            Some(Type::Fn { params, ret }) => {
+                assert_eq!(params[0], Type::Bool);
+                assert_eq!(**ret, Type::Nat);
+            }
+            other => panic!("expected Fn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bind_params_enriched() {
+        let env = env_from_source("bind \"std::collections::HashMap\" as bd {\n  input(n: Int)\n}");
+        assert_eq!(env.lookup("n"), Some(&Type::Int));
+        assert!(env.lookup("bd").is_some());
+    }
+
+    #[test]
+    fn typedef_struct_fields_registered() {
+        let env = env_from_source("type Point { x: Float, y: Float }");
+        let fields = env.struct_fields.get("Point").unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].0, "x");
+        assert_eq!(fields[0].1, Type::Float);
+    }
+
+    #[test]
+    fn enumdef_variant_constructors() {
+        let env = env_from_source("enum Shape { Circle(Float) }");
+        match env.lookup("Circle") {
+            Some(Type::Fn { params, ret }) => {
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0], Type::Float);
+                assert_eq!(**ret, Type::Named("Shape".into()));
+            }
+            other => panic!("expected Fn constructor for Circle, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn contract_input_params_registered() {
+        let env = env_from_source("contract C { input(n: Nat) ensures { n > 0 } }");
+        // The contract name should be registered
+        assert!(env.lookup("C").is_some());
+    }
+
+    #[test]
+    fn prophecy_type_registered() {
+        let env = env_from_source("ghost prophecy p: Int");
+        assert_eq!(env.lookup("p"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn prophecy_no_type_stays_unknown() {
+        let env = env_from_source("ghost prophecy q");
+        assert_eq!(env.lookup("q"), Some(&Type::Unknown));
+    }
+
+    #[test]
+    fn multiple_decls_all_registered() {
+        let env = env_from_source(
+            "contract A { ensures { true } }\n\
+             fn f(x: Int) -> Bool { ensures { true } }\n\
+             type T { val: Nat }",
+        );
+        assert!(env.lookup("A").is_some());
+        assert!(env.lookup("f").is_some());
+        assert!(env.lookup("T").is_some());
+        assert_eq!(env.lookup("x"), Some(&Type::Int));
+    }
+}
