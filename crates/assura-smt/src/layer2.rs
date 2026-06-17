@@ -516,15 +516,16 @@ fn parse_predicate_to_z3(body: &str, vars: &[(String, z3::ast::Int)]) -> Option<
             let rhs_str = body[pos + op_str.len()..].trim();
             let lhs = parse_int_expr(lhs_str, vars)?;
             let rhs = parse_int_expr(rhs_str, vars)?;
-            return Some(match op_kind {
-                "ge" => lhs.ge(&rhs),
-                "le" => lhs.le(&rhs),
-                "ne" => lhs.eq(&rhs).not(),
-                "eq" => lhs.eq(&rhs),
-                "gt" => lhs.gt(&rhs),
-                "lt" => lhs.lt(&rhs),
-                _ => unreachable!(),
-            });
+            return match op_kind {
+                "ge" => Some(lhs.ge(&rhs)),
+                "le" => Some(lhs.le(&rhs)),
+                "ne" => Some(lhs.eq(&rhs).not()),
+                "eq" => Some(lhs.eq(&rhs)),
+                "gt" => Some(lhs.gt(&rhs)),
+                "lt" => Some(lhs.lt(&rhs)),
+                // Safety: op_kind comes from the comparisons array above
+                _ => None,
+            };
         }
     }
 
