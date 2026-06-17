@@ -2,7 +2,7 @@
 //!
 //! Constant-time, crypto conformance, secure erasure, unsafe escape.
 
-use assura_parser::ast::{BinOp, BlockKind, ClauseKind, Decl, Expr};
+use assura_parser::ast::{BinOp, BlockKind, ClauseKind, Decl, Expr, Span};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -283,6 +283,27 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
     // Check that sensitive variables have scope-exit erasure
     let mut errors = Vec::new();
     let sensitive_names = checker.sensitive_names();
+    // Track the span where each sensitive variable was declared, for error reporting
+    let mut sensitive_decl_span: std::collections::HashMap<String, Span> =
+        std::collections::HashMap::new();
+    for decl in &source.decls {
+        let params = match &decl.node {
+            Decl::FnDef(f) => f.params.as_slice(),
+            Decl::Extern(e) => e.params.as_slice(),
+            _ => continue,
+        };
+        for param in params {
+            if param
+                .ty
+                .iter()
+                .any(|t| t == "sensitive" || t == "#[sensitive]")
+            {
+                sensitive_decl_span
+                    .entry(param.name.clone())
+                    .or_insert_with(|| decl.span.clone());
+            }
+        }
+    }
     for name in &sensitive_names {
         for decl in &source.decls {
             let (clauses, return_ty) = match &decl.node {
@@ -339,7 +360,9 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
             }
         }
 
-        for err in checker.check_scope_exit(name, &(0..0)) {
+        let fallback_span = 0..0usize;
+        let scope_span = sensitive_decl_span.get(name).unwrap_or(&fallback_span);
+        for err in checker.check_scope_exit(name, scope_span) {
             errors.push(TypeError {
                 code: err.code,
                 message: err.message,
@@ -349,8 +372,14 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
         }
     }
 
-    // Final check: all sensitive variables should be erased
-    for err in checker.check_all_erased(&(0..0)) {
+    // Final check: all sensitive variables should be erased.
+    // Use the first sensitive variable's declaration span as the error location.
+    let first_sensitive_span = sensitive_decl_span
+        .values()
+        .next()
+        .cloned()
+        .unwrap_or(0..0usize);
+    for err in checker.check_all_erased(&first_sensitive_span) {
         errors.push(TypeError {
             code: err.code,
             message: err.message,

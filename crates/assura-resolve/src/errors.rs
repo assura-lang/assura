@@ -19,6 +19,7 @@ pub struct ResolutionError {
 
 impl From<ResolutionError> for assura_diagnostics::Diagnostic {
     fn from(e: ResolutionError) -> Self {
+        let error_span = e.span.clone();
         let mut d = assura_diagnostics::Diagnostic::error(e.code, e.message, e.span);
         if let Some((span, label)) = e.secondary {
             d.secondary.push(assura_diagnostics::SecondaryLabel {
@@ -27,7 +28,7 @@ impl From<ResolutionError> for assura_diagnostics::Diagnostic {
             });
         }
         if let Some(hint) = e.suggestion {
-            d = d.with_suggestion(hint, 0..0, String::new());
+            d = d.with_suggestion(hint, error_span, String::new());
         }
         d
     }

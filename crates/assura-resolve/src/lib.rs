@@ -233,7 +233,7 @@ pub fn resolve_with_modules(
                     module,
                     item,
                     SymbolKind::BuiltinType,
-                    0..0,
+                    imp.span.clone(),
                 );
             }
         } else if let Some(alias) = &imp.alias {
@@ -244,7 +244,7 @@ pub fn resolve_with_modules(
                 module,
                 alias,
                 SymbolKind::BuiltinType,
-                0..0,
+                imp.span.clone(),
             );
         } else if let Some(last) = imp.path.last() {
             // Bare import: inject the last path segment
@@ -254,7 +254,7 @@ pub fn resolve_with_modules(
                 module,
                 last,
                 SymbolKind::BuiltinType,
-                0..0,
+                imp.span.clone(),
             );
         }
     }

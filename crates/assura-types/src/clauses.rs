@@ -349,10 +349,9 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
     use assura_hir::{HirClauseKind, HirDeclKind, HirServiceItem as HirSI};
 
     let mut errors = Vec::new();
-    let dummy_span = 0..0usize;
 
     for decl in &hir.decls {
-        let span = &dummy_span;
+        let span = &decl.span;
         match &decl.kind {
             HirDeclKind::Contract(c) => {
                 // Find output type from clauses
