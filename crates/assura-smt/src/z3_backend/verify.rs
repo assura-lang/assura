@@ -270,7 +270,7 @@ fn verify_invariant_expr(parent_name: &str, expr: &Expr, results: &mut Vec<Verif
 /// Returns a vec of (name, value) pairs. Only declarations with a
 /// parseable integer value are included; non-integer or missing values
 /// are silently skipped (they remain free Z3 variables).
-fn collect_feature_max_constants(typed: &TypedFile) -> Vec<(String, i64)> {
+pub(crate) fn collect_feature_max_constants(typed: &TypedFile) -> Vec<(String, i64)> {
     let mut constants = Vec::new();
     for decl in &typed.resolved.source.decls {
         // Value tokens include type annotation: [":", "Nat", "=", "65536"]

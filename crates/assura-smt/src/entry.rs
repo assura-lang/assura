@@ -212,28 +212,7 @@ pub fn verify_parallel_with_solver(
 
     // #180: collect feature_max constants so the encoder binds them
     // to concrete values instead of creating free Z3 variables.
-    let constants: Vec<(String, i64)> = typed
-        .resolved
-        .source
-        .decls
-        .iter()
-        .filter_map(|d| {
-            // Value tokens include type annotation: [":", "Nat", "=", "65536"]
-            if let Decl::Block {
-                kind,
-                name,
-                value: Some(tokens),
-                ..
-            } = &d.node
-                && *kind == assura_parser::ast::BlockKind::FeatureMax
-                && let Some(eq_pos) = tokens.iter().position(|t| t == "=")
-                && let Some(v) = tokens.get(eq_pos + 1).and_then(|s| s.parse::<i64>().ok())
-            {
-                return Some((name.clone(), v));
-            }
-            None
-        })
-        .collect();
+    let constants = crate::z3_backend::collect_feature_max_constants(typed);
 
     // Collect verification jobs with type info for return-type constraints
     type Job = (
