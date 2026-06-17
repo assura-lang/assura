@@ -132,6 +132,8 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "behavioral_equiv",
     "refinement_pass",
     "discharge_pass",
+    "multi_pass",
+    "multi_pass_refinement",
     "version",
     "suspend_invariant",
     "restore_invariant",

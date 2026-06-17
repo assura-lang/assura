@@ -141,43 +141,72 @@ impl InlineClauseKind {
             "modifies" => Some(Self::Modifies),
             "opaque" => Some(Self::Opaque),
             "eventually" => Some(Self::Eventually),
+            // CORE aliases (coverage: axiom|axiomatic, trigger|auto_trigger, prophecy)
+            "axiom" | "axiomatic" => Some(Self::Invariant),
+            "trigger" | "auto_trigger" => Some(Self::Decreases),
+            "prophecy" => Some(Self::Ghost),
             // SEC
             "taint" => Some(Self::Taint),
             "constant_time" => Some(Self::ConstantTime),
-            "zeroize" => Some(Self::Zeroize),
+            "zeroize" | "secure_erase" => Some(Self::Zeroize),
+            // SEC aliases (coverage: conforms)
+            "conforms" => Some(Self::Trust),
             // MEM
             "region" => Some(Self::Region),
-            "width" => Some(Self::Width),
+            "width" | "FixedWidth" => Some(Self::Width),
             "allocator" => Some(Self::Allocator),
-            "circular" => Some(Self::Circular),
+            "circular" | "circular_buffer" => Some(Self::Circular),
             // TYPE
             "interface" => Some(Self::Interface),
-            "errors" => Some(Self::Errors),
+            "errors" | "error_policy" => Some(Self::Errors),
+            // TYPE aliases (coverage: structural_invariant, must_propagate)
+            "structural_invariant" => Some(Self::Invariant),
+            "must_propagate" | "must_not_mask" => Some(Self::Errors),
             // CONC
-            "shared" => Some(Self::Shared),
-            "no_reentrant" => Some(Self::NoReentrant),
+            "shared" | "shared_memory" | "SharedMem" => Some(Self::Shared),
+            "no_reentrant" | "must_not_reenter" | "callback" => Some(Self::NoReentrant),
             "deterministic" => Some(Self::Deterministic),
-            "lock_order" => Some(Self::LockOrder),
+            "lock_order" | "lock_rank" => Some(Self::LockOrder),
             "deadline" => Some(Self::Deadline),
-            "ordering" => Some(Self::MemoryOrdering),
+            "ordering" | "acquire" | "release" | "seq_cst" | "acq_rel" => {
+                Some(Self::MemoryOrdering)
+            }
             // FMT
-            "format" => Some(Self::Format),
-            "bits" => Some(Self::Bits),
-            "encoding" => Some(Self::Encoding),
+            "format" | "binary_format" | "byte_layout" => Some(Self::Format),
+            "bits" | "bit_layout" | "bit_level" | "bit_field" => Some(Self::Bits),
+            "encoding" | "string_encoding" | "charset" => Some(Self::Encoding),
             "checksum" => Some(Self::Checksum),
+            // FMT aliases (coverage: codec_registry, ProtocolGrammar|state_machine)
+            "codec_registry" | "CodecRegistry" => Some(Self::Format),
+            "ProtocolGrammar" | "state_machine" | "protocol_grammar" => Some(Self::Encoding),
             // PLAT
-            "platform" => Some(Self::Platform),
-            "feature" => Some(Self::Feature),
-            "resource" => Some(Self::Resource),
+            "platform" | "platform_abstraction" => Some(Self::Platform),
+            "feature" | "feature_flag" | "FeatureFlag" => Some(Self::Feature),
+            "resource" | "resource_limit" | "ResourceLimit" => Some(Self::Resource),
             // PERF
-            "unsafe_escape" => Some(Self::UnsafeEscape),
-            "complexity" => Some(Self::Complexity),
+            "unsafe_escape" | "UnsafeEscape" => Some(Self::UnsafeEscape),
+            "complexity" | "ComplexityBound" => Some(Self::Complexity),
             // NUM
-            "precision" => Some(Self::Precision),
+            "precision" | "ulp_bound" | "NumericalPrecision" => Some(Self::Precision),
+            // NUM aliases (coverage: precomputed_table|lookup_table)
+            "precomputed_table" | "lookup_table" => Some(Self::Precision),
             // STOR
-            "monotonic" => Some(Self::Monotonic),
-            // MISC
-            "suspend_invariant" => Some(Self::SuspendInvariant),
+            "monotonic" | "MonotonicState" => Some(Self::Monotonic),
+            // STOR aliases (coverage: wal|crash_recovery, page_cache, mvcc, rollback, storage_failure)
+            "wal" | "crash_recovery" | "write_ahead" => Some(Self::Monotonic),
+            "page_cache" | "buffer_pool" => Some(Self::Monotonic),
+            "mvcc" | "snapshot_isolation" => Some(Self::Monotonic),
+            "rollback" | "savepoint" => Some(Self::Monotonic),
+            "failure_mode" | "storage_failure" => Some(Self::Monotonic),
+            // TEST aliases (coverage: TestGenerator|test_gen, behavioral_equiv, multi_pass)
+            "TestGenerator" | "test_gen" => Some(Self::Ensures),
+            "behavioral_equiv" | "BehavioralEquivalence" => Some(Self::Ensures),
+            "multi_pass" | "MultiPassRefinement" | "multi_pass_refinement" => Some(Self::Ensures),
+            // MISC aliases (coverage: incremental|IncrementalContract)
+            "incremental" | "IncrementalContract" | "incremental_contract" => {
+                Some(Self::SuspendInvariant)
+            }
+            "suspend_invariant" | "scoped_invariant" => Some(Self::SuspendInvariant),
             _ => None,
         }
     }

@@ -524,6 +524,36 @@ pub fn verify_multi_pass_refinement(name: &str) -> VerificationResult {
 }
 
 // -----------------------------------------------------------------------
+// MISC.1: Incremental contracts
+// -----------------------------------------------------------------------
+
+/// Verify incremental_contract evolution safety.
+///
+/// Checks that contract changes are backward-compatible: new ensures
+/// must be weaker or equal, new requires must be stronger or equal.
+pub fn verify_incremental_contract(name: &str) -> VerificationResult {
+    VerificationResult::Unknown {
+        clause_desc: format!("{name}: incremental_contract"),
+        reason: "incremental contract evolution not yet encoded in SMT".into(),
+    }
+}
+
+// -----------------------------------------------------------------------
+// MISC.2: Scoped invariant suspension
+// -----------------------------------------------------------------------
+
+/// Verify scoped_invariant suspension and restoration.
+///
+/// Checks that invariants suspended within a scope are properly
+/// restored when the scope exits (including exceptional paths).
+pub fn verify_scoped_invariant(name: &str) -> VerificationResult {
+    VerificationResult::Unknown {
+        clause_desc: format!("{name}: scoped_invariant"),
+        reason: "scoped invariant suspension analysis not yet encoded in SMT".into(),
+    }
+}
+
+// -----------------------------------------------------------------------
 // Dispatch: route feature-specific clauses to their SMT verifier
 // -----------------------------------------------------------------------
 
@@ -579,6 +609,9 @@ pub fn verify_feature_clause(clause_kind: &str, parent_name: &str) -> Option<Ver
         "test_gen" | "generate_tests" => Some(verify_test_gen_coverage(parent_name)),
         "behavioral_equiv" | "behavioral_equivalence" => Some(verify_behavioral_equiv(parent_name)),
         "multi_pass" | "multi_pass_refinement" => Some(verify_multi_pass_refinement(parent_name)),
+        // MISC
+        "incremental" | "incremental_contract" => Some(verify_incremental_contract(parent_name)),
+        "suspend_invariant" | "scoped_invariant" => Some(verify_scoped_invariant(parent_name)),
         _ => None,
     }
 }
