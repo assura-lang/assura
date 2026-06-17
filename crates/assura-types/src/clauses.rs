@@ -195,6 +195,12 @@ pub(crate) fn check_clause_bodies(
                         register_input_clause_params(&clause.body, &mut contract_env);
                     }
                 }
+                // Register inline fn params with their declared types
+                for p in &c.fn_params {
+                    if !p.ty.is_empty() {
+                        contract_env.insert(p.name.clone(), parse_type_tokens(&p.ty));
+                    }
+                }
                 let ensures_env = env_with_result(&contract_env, &output_ty);
                 for clause in &c.clauses {
                     let clause_env = if clause.kind == ClauseKind::Ensures {
@@ -351,12 +357,32 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
             HirDeclKind::Contract(c) => {
                 // Find output type from clauses
                 let output_ty = hir_extract_contract_output_type(c);
-                let contract_env = env_with_result(env, &output_ty);
+                // Build a contract-scoped env with params from input/output
+                // clauses AND inline fn definitions.
+                let mut contract_env = env.clone();
+                // Find the matching AST contract to get fn_params and input clauses
+                if let Some(ast_contract) = find_ast_contract(hir, &c.name) {
+                    for clause in &ast_contract.clauses {
+                        if clause.kind == assura_parser::ast::ClauseKind::Input
+                            || clause.kind == assura_parser::ast::ClauseKind::Output
+                            || clause.kind == assura_parser::ast::ClauseKind::Requires
+                            || clause.kind == assura_parser::ast::ClauseKind::Ensures
+                        {
+                            register_input_clause_params(&clause.body, &mut contract_env);
+                        }
+                    }
+                    for p in &ast_contract.fn_params {
+                        if !p.ty.is_empty() {
+                            contract_env.insert(p.name.clone(), parse_type_tokens(&p.ty));
+                        }
+                    }
+                }
+                let ensures_env = env_with_result(&contract_env, &output_ty);
                 for clause in &c.clauses {
                     let clause_env = if clause.kind == HirClauseKind::Ensures {
-                        &contract_env
+                        &ensures_env
                     } else {
-                        env
+                        &contract_env
                     };
                     let ast_kind = hir_clause_kind_to_ast(&clause.kind);
                     check_clause_hir_expr(&ast_kind, &clause.body, clause_env, &mut errors, span);
@@ -526,6 +552,20 @@ fn find_ast_fn_def<'a>(
             && f.name == name
         {
             return Some(f);
+        }
+    }
+    None
+}
+
+fn find_ast_contract<'a>(
+    hir: &'a assura_hir::HirFile,
+    name: &str,
+) -> Option<&'a assura_parser::ast::ContractDecl> {
+    for decl in &hir.resolved().source.decls {
+        if let Decl::Contract(c) = &decl.node
+            && c.name == name
+        {
+            return Some(c);
         }
     }
     None

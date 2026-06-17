@@ -448,4 +448,27 @@ fn infer_call_is_unknown() {
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
 
+/// Regression test for #172: Int > String must produce A03001
+#[test]
+fn test_clause_body_rejects_cross_type_comparison() {
+    let src = r#"
+contract Bad {
+    requires x > "hello"
+    fn bad(x: Int) -> Int
+}
+"#;
+    let resolved = resolve_ok(src);
+    let result = type_check(&resolved);
+    assert!(
+        result.is_err(),
+        "cross-type comparison should produce a type error"
+    );
+    let errors = result.unwrap_err();
+    let a03001 = errors.iter().filter(|e| e.code == "A03001").count();
+    assert!(
+        a03001 >= 1,
+        "expected A03001 for Int > String, got errors: {errors:?}"
+    );
+}
+
 // -----------------------------------------------------------------------

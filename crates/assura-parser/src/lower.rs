@@ -1806,6 +1806,32 @@ mod tests {
     }
 
     #[test]
+    fn lower_contract_with_inline_fn_params() {
+        let src = r#"
+            contract Bad {
+                requires x > 0
+                fn bad(x: Int, y: Float) -> Int
+            }
+        "#;
+        let (sf, errors) = parse_and_lower(src);
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(sf.decls.len(), 1);
+        if let Decl::Contract(c) = &sf.decls[0].node {
+            assert_eq!(c.name, "Bad");
+            assert_eq!(
+                c.fn_params.len(),
+                2,
+                "fn_params should have 2 params, got: {:?}",
+                c.fn_params
+            );
+            assert_eq!(c.fn_params[0].name, "x");
+            assert_eq!(c.fn_params[1].name, "y");
+        } else {
+            panic!("expected Contract");
+        }
+    }
+
+    #[test]
     fn lower_fn_with_clauses() {
         let src = r#"
             fn factorial(n: Nat) -> Nat
