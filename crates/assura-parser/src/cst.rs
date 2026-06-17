@@ -583,4 +583,23 @@ mod tests {
             "expected nesting depth limit error, got: {errors:?}",
         );
     }
+
+    #[test]
+    fn long_operator_chain_does_not_crash() {
+        // 500 chained && operators should hit the chain limit (256)
+        // and produce an error instead of a stack overflow.
+        let chain = "true && ".repeat(500);
+        let input = format!("contract T {{ requires {{ {chain}true }} }}");
+        let (_file, errors) = crate::parse(&input);
+        assert!(
+            !errors.is_empty(),
+            "500 chained operators should produce parse errors"
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("operator chain too long")),
+            "expected operator chain limit error, got: {errors:?}",
+        );
+    }
 }
