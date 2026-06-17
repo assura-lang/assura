@@ -1969,3 +1969,63 @@ fn check_size(payload: Nat, record: Nat) -> Int
         ensures_result.unwrap()
     );
 }
+
+#[test]
+fn test_feature_max_wrong_value_produces_counterexample() {
+    // If we claim MAX_SIZE == 1, but it's actually 65536,
+    // the ensures should still verify because the constant IS 65536.
+    // But if we assert something genuinely wrong, we should get a counterexample.
+    let src = r#"
+feature_max LIMIT: Nat = 10
+
+contract WrongClaim {
+  requires LIMIT > 0
+  ensures LIMIT > 100
+}
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    // LIMIT=10 so LIMIT > 100 is false: should be counterexample
+    assert!(
+        matches!(
+            ensures_result.unwrap(),
+            VerificationResult::Counterexample { .. }
+        ),
+        "LIMIT=10 > 100 should produce counterexample, got: {:?}",
+        ensures_result.unwrap()
+    );
+}
+
+#[test]
+fn test_multiple_feature_max_constants() {
+    // Two constants in the same file, used together in arithmetic
+    let src = r#"
+feature_max HEADER: Nat = 5
+feature_max FOOTER: Nat = 3
+
+fn check_total(payload: Nat) -> Int
+  requires payload >= 0
+  requires HEADER + payload + FOOTER <= 100
+  ensures payload <= 92
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should have verification results");
+    let ensures_result = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(ensures_result.is_some(), "should have an ensures result");
+    // HEADER(5) + payload + FOOTER(3) <= 100 => payload <= 92
+    assert!(
+        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        "5 + payload + 3 <= 100 should imply payload <= 92, got: {:?}",
+        ensures_result.unwrap()
+    );
+}

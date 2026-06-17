@@ -1745,4 +1745,27 @@ mod tests {
             "empty label should generate compile_error!, got: {code}"
         );
     }
+
+    #[test]
+    fn frame_conditions_multi_field() {
+        // Real-world pattern: modifies { ctx.peer_point, ctx.shared_secret }
+        let clause = mk_clause(
+            ClauseKind::Other("frame".into()),
+            Expr::Raw(vec![
+                "ctx.peer_point".into(),
+                ",".into(),
+                "ctx.shared_secret".into(),
+            ]),
+        );
+        let mut code = String::new();
+        compile_time_frame(&clause, "ecdh_parse", &mut code);
+        assert!(
+            code.contains("debug_assert_eq!(ctx.peer_point"),
+            "should generate assert for first field, got: {code}"
+        );
+        assert!(
+            code.contains("debug_assert_eq!(ctx.shared_secret"),
+            "should generate assert for second field, got: {code}"
+        );
+    }
 }
