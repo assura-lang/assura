@@ -36,8 +36,94 @@ fn is_nat_type(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
 }
 
+/// Extract the return type from `output(result: Nat)` clauses in a contract.
+///
+/// Contracts declare their output type via `output(result: Nat)` instead of
+/// a function return type. The clause body is `Expr::Raw(["result", ":", "Nat"])`.
+/// This function finds the first `Output` clause and extracts the type tokens.
+pub(crate) fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
+    for clause in clauses {
+        if clause.kind == ClauseKind::Output
+            && let Expr::Raw(tokens) = &clause.body
+        {
+            // Tokens: ["result", ":", "Nat"] -> skip "result :" prefix
+            if tokens.len() >= 3 && tokens[1] == ":" {
+                return tokens[2..].to_vec();
+            }
+            // Fallback: tokens might just be the type
+            return tokens.clone();
+        }
+    }
+    Vec::new()
+}
+
+/// Extract parameters from `input(raw_data: Bytes)` clauses in a contract.
+///
+/// Contracts declare their input parameters via `input(x: Type, y: Type)`.
+/// The clause body is `Expr::Raw(["x", ":", "Type", ",", "y", ":", "Type"])`.
+pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<assura_parser::ast::Param> {
+    for clause in clauses {
+        if clause.kind == ClauseKind::Input
+            && let Expr::Raw(tokens) = &clause.body
+        {
+            let mut params = Vec::new();
+            let mut i = 0;
+            while i < tokens.len() {
+                if tokens[i] == "," {
+                    i += 1;
+                    continue;
+                }
+                let name = tokens[i].clone();
+                i += 1;
+                if i < tokens.len() && tokens[i] == ":" {
+                    i += 1;
+                    let mut ty = Vec::new();
+                    while i < tokens.len() && tokens[i] != "," {
+                        ty.push(tokens[i].clone());
+                        i += 1;
+                    }
+                    params.push(assura_parser::ast::Param {
+                        name,
+                        ty,
+                        parsed_type: None,
+                    });
+                } else {
+                    params.push(assura_parser::ast::Param {
+                        name,
+                        ty: Vec::new(),
+                        parsed_type: None,
+                    });
+                }
+            }
+            return params;
+        }
+    }
+    Vec::new()
+}
+
 /// Like `verify_clauses` but also asserts type-level constraints from
 /// parameter and return type declarations (e.g., `Nat` → `>= 0`).
+///
+/// # Limitation: result-field properties (#191)
+///
+/// The SMT encoder cannot verify ensures clauses that constrain properties
+/// of `result` (e.g., `result.length() <= raw.length()`). When the encoder
+/// encounters `result`, it creates an unconstrained Z3 integer variable.
+/// When it encounters `result.length()`, it creates an uninterpreted
+/// function application `__field_len(result)`. Since both are free Z3
+/// variables with no relationship to each other or to the function's
+/// actual semantics, the solver trivially finds counterexamples.
+///
+/// This is a fundamental limitation of deductive contract verification
+/// without an implementation body: the verifier can only prove ensures
+/// clauses that are logical consequences of the requires clauses and
+/// type constraints, not arbitrary input-output relationships. Contract
+/// languages like Dafny and Verus solve this with havoc+assume encoding,
+/// which requires an implementation body to constrain `result`.
+///
+/// **Workaround**: Write ensures clauses that reference only input
+/// variables. See the "Writing Demo Contracts That Z3 Can Verify"
+/// section in AGENTS.md for details and examples.
 fn verify_clauses_with_types(
     parent_name: &str,
     clauses: &[Clause],
@@ -549,6 +635,15 @@ pub(crate) fn verify_impl_with_timeout(
     for decl in &typed.resolved.source.decls {
         match &decl.node {
             Decl::Contract(c) => {
+                // #190: Extract type constraints from output() and input()
+                // clauses. Contracts use `output(result: Nat)` instead of
+                // function return types, so we need to parse those clauses
+                // to get the same Nat >= 0 constraints that fn defs get.
+                let output_ty = extract_output_return_type(&c.clauses);
+                let input_params = extract_input_params(&c.clauses);
+                // Merge input params with any fn_params from inline fn defs
+                let mut all_params = input_params;
+                all_params.extend_from_slice(&c.fn_params);
                 verify_clauses_with_types(
                     &c.name,
                     &c.clauses,
@@ -556,9 +651,10 @@ pub(crate) fn verify_impl_with_timeout(
                     &mut cache,
                     &mut results,
                     &TypeConstraints {
+                        params: &all_params,
+                        return_ty: &output_ty,
                         constants: &constants,
                         narrowings: &narrowings,
-                        ..Default::default()
                     },
                 );
             }
@@ -1129,5 +1225,89 @@ fn collect_prophecy_refs(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
             collect_prophecy_refs(expr, fn_name, pm)
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::{BinOp, Literal};
+
+    #[test]
+    fn extract_output_return_type_nat() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Output,
+            body: Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()]),
+            effect_variables: vec![],
+        }];
+        let ty = extract_output_return_type(&clauses);
+        assert_eq!(ty, vec!["Nat"]);
+        assert!(is_nat_type(&ty));
+    }
+
+    #[test]
+    fn extract_output_return_type_non_nat() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Output,
+            body: Expr::Raw(vec!["result".into(), ":".into(), "Bytes".into()]),
+            effect_variables: vec![],
+        }];
+        let ty = extract_output_return_type(&clauses);
+        assert_eq!(ty, vec!["Bytes"]);
+        assert!(!is_nat_type(&ty));
+    }
+
+    #[test]
+    fn extract_output_return_type_missing() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::Literal(Literal::Bool(true)),
+            effect_variables: vec![],
+        }];
+        let ty = extract_output_return_type(&clauses);
+        assert!(ty.is_empty());
+    }
+
+    #[test]
+    fn extract_input_params_basic() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Input,
+            body: Expr::Raw(vec!["raw_data".into(), ":".into(), "Bytes".into()]),
+            effect_variables: vec![],
+        }];
+        let params = extract_input_params(&clauses);
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].name, "raw_data");
+        assert_eq!(params[0].ty, vec!["Bytes"]);
+    }
+
+    #[test]
+    fn contract_output_nat_constrains_result() {
+        // Verifies #190: output(result: Nat) should make `ensures { result >= 0 }` verified.
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Output,
+                body: Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()]),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("result".into())),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            },
+        ];
+        let output_ty = extract_output_return_type(&clauses);
+        let results =
+            verify_contract_impl_with_types("TestContract", &clauses, &[], &output_ty, &[]);
+        assert_eq!(results.len(), 1, "expected 1 result, got {results:?}");
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "expected Verified, got {:?}",
+            results[0]
+        );
     }
 }

@@ -567,6 +567,13 @@ impl Encoder {
 
     /// Encode field access as uninterpreted function: field_name(object).
     /// Known boolean fields return Bool; size fields return non-negative Int.
+    ///
+    /// Note (#191): When the object is `result` (a free Z3 variable), the
+    /// field access `__field_len(result)` is also unconstrained. This means
+    /// ensures clauses like `result.length() <= raw.length()` produce
+    /// spurious counterexamples because Z3 can assign any value to
+    /// `__field_len(result)`. This is a known limitation; see the doc
+    /// comment on `verify_clauses_with_types` for details.
     fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value {
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
         let func_name = format!("__field_{field}");

@@ -186,6 +186,20 @@ smt_stub!(
 );
 
 // SEC
+//
+// SEC.3 `constant_time` and SEC.4 `secure_erase` previously used stubs
+// because their verification "requires domain-specific models." However,
+// both features can have boolean predicate clause bodies that are
+// verifiable via standard Z3 validity checking (same as ensures).
+//
+// When a contract author writes:
+//   constant_time { !depends_on_secret(timing) }
+// the clause body `!depends_on_secret(timing)` is a boolean expression
+// that can be checked under the sibling requires assumptions.
+//
+// The stub functions below are kept for backward compatibility (they are
+// referenced by the coverage-matrix.sh script) but the dispatch table
+// now routes these features through `verify_feature_body` instead.
 smt_stub!(
     verify_constant_time,
     "constant_time",
@@ -287,16 +301,29 @@ smt_stub!(
 );
 
 // PLAT
+//
+// PLAT.1 `platform_abstraction`: Infeasible in SMT. Requires compiling and
+// verifying the contract on each target platform (cross-compile). This is a
+// build system concern, not a Z3 problem. The verifier would need to spawn
+// separate verification contexts per platform target and check that the
+// contract holds on each. No single Z3 query can express this.
 smt_stub!(
     verify_platform_abstraction,
     "platform_abstraction",
     "platform abstraction multi-target verification"
 );
+
+// PLAT.2 `feature_flag`: Infeasible in SMT. With N feature flags, there are
+// 2^N possible configurations. Verifying all combinations requires exponential
+// solver invocations. The clause body (if present) can be checked as a boolean
+// predicate, but the combinatorial aspect of flag interactions cannot be encoded
+// in a single Z3 query.
 smt_stub!(
     verify_feature_flag,
     "feature_flag",
     "feature flag combinatorial verification"
 );
+
 smt_stub!(
     verify_resource_limit,
     "resource_limit",
@@ -304,11 +331,18 @@ smt_stub!(
 );
 
 // PERF
+//
+// PERF.1 `unsafe_escape`: Infeasible in SMT. Each unsafe escape hatch requires
+// a custom proof goal that depends on the specific unsafe operation being
+// performed (raw pointer arithmetic, unchecked casts, etc.). There is no
+// generic SMT encoding that covers all possible unsafe operations. The clause
+// body can be checked as a boolean predicate for simple safety assertions.
 smt_stub!(
     verify_unsafe_escape,
     "unsafe_escape",
     "unsafe escape safety proof obligations"
 );
+
 smt_stub!(
     verify_complexity_bound,
     "complexity_bound",
@@ -316,11 +350,18 @@ smt_stub!(
 );
 
 // TEST
+//
+// TEST.1 `test_gen`: Infeasible in SMT. Test coverage is a meta-property of
+// the test suite (number of paths covered, branch coverage percentage), not a
+// property of the contract itself. Z3 reasons about logical formulas, not about
+// code coverage metrics. This feature is handled by the test generator, not
+// the verifier.
 smt_stub!(
     verify_test_gen_coverage,
     "test_gen",
     "test generation coverage analysis"
 );
+
 smt_stub!(
     verify_behavioral_equiv,
     "behavioral_equiv",
@@ -333,11 +374,19 @@ smt_stub!(
 );
 
 // MISC
+//
+// MISC.1 `incremental_contract`: Infeasible in SMT without two contract
+// versions. Contract evolution checking compares version N with version N+1
+// to ensure backward compatibility (e.g., preconditions can only be weakened,
+// postconditions can only be strengthened). The verifier would need both the
+// old and new contract ASTs, but the current pipeline only processes one file
+// at a time. A future multi-file verification pass could implement this.
 smt_stub!(
     verify_incremental_contract,
     "incremental_contract",
     "incremental contract evolution"
 );
+
 smt_stub!(
     verify_scoped_invariant,
     "scoped_invariant",
@@ -405,8 +454,21 @@ pub fn verify_feature_clause(
             sibling_clauses,
         )),
         // SEC
-        Feature::ConstantTime => Some(verify_constant_time(parent_name)),
-        Feature::SecureErasure => Some(verify_secure_erase(parent_name)),
+        // #189: SEC.3 and SEC.4 now use Z3 body verification instead of
+        // stubs. The clause body (if present) is checked as a boolean
+        // predicate under sibling requires assumptions, same as ensures.
+        Feature::ConstantTime => Some(verify_feature_body(
+            parent_name,
+            "constant_time",
+            body,
+            sibling_clauses,
+        )),
+        Feature::SecureErasure => Some(verify_feature_body(
+            parent_name,
+            "secure_erase",
+            body,
+            sibling_clauses,
+        )),
         Feature::CryptoConformance => Some(verify_feature_body(
             parent_name,
             "crypto_conformance",
@@ -514,8 +576,21 @@ pub fn verify_feature_clause(
             sibling_clauses,
         )),
         // PLAT
-        Feature::PlatformAbstraction => Some(verify_platform_abstraction(parent_name)),
-        Feature::FeatureFlag => Some(verify_feature_flag(parent_name)),
+        // #189: PLAT.1 and PLAT.2 are genuinely infeasible for full SMT
+        // encoding (multi-target and combinatorial respectively), but the
+        // clause body can still be checked as a boolean predicate.
+        Feature::PlatformAbstraction => Some(verify_feature_body(
+            parent_name,
+            "platform_abstraction",
+            body,
+            sibling_clauses,
+        )),
+        Feature::FeatureFlag => Some(verify_feature_body(
+            parent_name,
+            "feature_flag",
+            body,
+            sibling_clauses,
+        )),
         Feature::ResourceLimit => Some(verify_feature_body(
             parent_name,
             "resource_limit",
@@ -523,7 +598,14 @@ pub fn verify_feature_clause(
             sibling_clauses,
         )),
         // PERF
-        Feature::UnsafeEscape => Some(verify_unsafe_escape(parent_name)),
+        // #189: PERF.1 custom proof goals are infeasible generically, but
+        // boolean clause bodies can be checked.
+        Feature::UnsafeEscape => Some(verify_feature_body(
+            parent_name,
+            "unsafe_escape",
+            body,
+            sibling_clauses,
+        )),
         Feature::ComplexityBound => Some(verify_feature_body(
             parent_name,
             "complexity_bound",
@@ -531,7 +613,14 @@ pub fn verify_feature_clause(
             sibling_clauses,
         )),
         // TEST
-        Feature::TestGenCoverage => Some(verify_test_gen_coverage(parent_name)),
+        // #189: TEST.1 coverage is a meta-property, but clause bodies can
+        // express testable boolean assertions.
+        Feature::TestGenCoverage => Some(verify_feature_body(
+            parent_name,
+            "test_gen",
+            body,
+            sibling_clauses,
+        )),
         Feature::BehavioralEquiv => Some(verify_feature_body(
             parent_name,
             "behavioral_equiv",
@@ -545,7 +634,14 @@ pub fn verify_feature_clause(
             sibling_clauses,
         )),
         // MISC
-        Feature::IncrementalContract => Some(verify_incremental_contract(parent_name)),
+        // #189: MISC.1 needs two contract versions for comparison, but
+        // boolean clause bodies can be checked within a single version.
+        Feature::IncrementalContract => Some(verify_feature_body(
+            parent_name,
+            "incremental_contract",
+            body,
+            sibling_clauses,
+        )),
         Feature::ScopedInvariant => Some(verify_feature_body(
             parent_name,
             "scoped_invariant",
@@ -678,15 +774,123 @@ mod tests {
 
     #[test]
     fn stub_functions_still_return_unknown() {
-        // Stubs that remain (constant_time, secure_erase, etc.) still return Unknown
-        let VerificationResult::Unknown { clause_desc, .. } = verify_constant_time("test") else {
-            panic!("expected Unknown for constant_time");
+        // Remaining stubs (platform_abstraction, feature_flag, etc.) still return Unknown
+        // when called directly (the dispatch table routes through verify_feature_body instead)
+        let VerificationResult::Unknown { clause_desc, .. } = verify_platform_abstraction("test")
+        else {
+            panic!("expected Unknown for platform_abstraction");
         };
-        assert!(clause_desc.contains("constant_time"));
+        assert!(clause_desc.contains("platform_abstraction"));
 
-        let VerificationResult::Unknown { clause_desc, .. } = verify_secure_erase("test") else {
-            panic!("expected Unknown for secure_erase");
+        let VerificationResult::Unknown { clause_desc, .. } = verify_feature_flag("test") else {
+            panic!("expected Unknown for feature_flag");
         };
-        assert!(clause_desc.contains("secure_erase"));
+        assert!(clause_desc.contains("feature_flag"));
+
+        let VerificationResult::Unknown { clause_desc, .. } = verify_unsafe_escape("test") else {
+            panic!("expected Unknown for unsafe_escape");
+        };
+        assert!(clause_desc.contains("unsafe_escape"));
+
+        let VerificationResult::Unknown { clause_desc, .. } = verify_test_gen_coverage("test")
+        else {
+            panic!("expected Unknown for test_gen");
+        };
+        assert!(clause_desc.contains("test_gen"));
+
+        let VerificationResult::Unknown { clause_desc, .. } = verify_incremental_contract("test")
+        else {
+            panic!("expected Unknown for incremental_contract");
+        };
+        assert!(clause_desc.contains("incremental_contract"));
+    }
+
+    #[cfg(feature = "z3-verify")]
+    #[test]
+    fn converted_stubs_verify_tautology_body() {
+        // #189: Features that were converted from stubs to Z3 body
+        // verification should verify a tautology body (`true`).
+        use assura_parser::ast::Literal;
+        let body = Expr::Literal(Literal::Bool(true));
+        let clauses: &[Clause] = &[];
+
+        // SEC.3 constant_time
+        let result = verify_feature_clause("constant_time", "test_fn", &body, clauses)
+            .expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "constant_time tautology should verify, got: {result:?}"
+        );
+
+        // SEC.4 secure_erase
+        let result =
+            verify_feature_clause("zeroize", "test_fn", &body, clauses).expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "secure_erase tautology should verify, got: {result:?}"
+        );
+
+        // PLAT.1 platform_abstraction
+        let result =
+            verify_feature_clause("platform", "test_fn", &body, clauses).expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "platform_abstraction tautology should verify, got: {result:?}"
+        );
+
+        // PLAT.2 feature_flag
+        let result =
+            verify_feature_clause("feature_flag", "test_fn", &body, clauses).expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "feature_flag tautology should verify, got: {result:?}"
+        );
+
+        // PERF.1 unsafe_escape
+        let result = verify_feature_clause("unsafe_escape", "test_fn", &body, clauses)
+            .expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "unsafe_escape tautology should verify, got: {result:?}"
+        );
+
+        // TEST.1 test_gen
+        let result =
+            verify_feature_clause("test_gen", "test_fn", &body, clauses).expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "test_gen tautology should verify, got: {result:?}"
+        );
+
+        // MISC.1 incremental_contract
+        let result =
+            verify_feature_clause("incremental", "test_fn", &body, clauses).expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Verified { .. }),
+            "incremental_contract tautology should verify, got: {result:?}"
+        );
+    }
+
+    #[cfg(feature = "z3-verify")]
+    #[test]
+    fn converted_stubs_counterexample_on_false() {
+        // #189: Converted features should produce counterexamples for `false`.
+        use assura_parser::ast::Literal;
+        let body = Expr::Literal(Literal::Bool(false));
+        let clauses: &[Clause] = &[];
+
+        let result = verify_feature_clause("constant_time", "test_fn", &body, clauses)
+            .expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Counterexample { .. }),
+            "constant_time false should produce counterexample, got: {result:?}"
+        );
+
+        let result = verify_feature_clause("unsafe_escape", "test_fn", &body, clauses)
+            .expect("should match");
+        assert!(
+            matches!(result, VerificationResult::Counterexample { .. }),
+            "unsafe_escape false should produce counterexample, got: {result:?}"
+        );
     }
 }

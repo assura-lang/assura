@@ -4,13 +4,72 @@
 //! and all standalone verification functions (refinement, buffer bounds,
 //! taint safety, measures, termination).
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::{Clause, ClauseKind, Expr, Param};
 use assura_types::TypedFile;
 
 use crate::SolverChoice;
 use crate::cache::VerificationCache;
 use crate::measures::MeasureDefinition;
 use crate::result::VerificationResult;
+
+/// Extract the return type from `output(result: Nat)` clauses in a contract.
+///
+/// Contracts declare their output type via `output(result: Nat)` instead of
+/// a function return type. The clause body is `Expr::Raw(["result", ":", "Nat"])`.
+fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
+    for clause in clauses {
+        if clause.kind == ClauseKind::Output
+            && let Expr::Raw(tokens) = &clause.body
+        {
+            if tokens.len() >= 3 && tokens[1] == ":" {
+                return tokens[2..].to_vec();
+            }
+            return tokens.clone();
+        }
+    }
+    Vec::new()
+}
+
+/// Extract parameters from `input(raw_data: Bytes)` clauses in a contract.
+fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
+    for clause in clauses {
+        if clause.kind == ClauseKind::Input
+            && let Expr::Raw(tokens) = &clause.body
+        {
+            let mut params = Vec::new();
+            let mut i = 0;
+            while i < tokens.len() {
+                if tokens[i] == "," {
+                    i += 1;
+                    continue;
+                }
+                let name = tokens[i].clone();
+                i += 1;
+                if i < tokens.len() && tokens[i] == ":" {
+                    i += 1;
+                    let mut ty = Vec::new();
+                    while i < tokens.len() && tokens[i] != "," {
+                        ty.push(tokens[i].clone());
+                        i += 1;
+                    }
+                    params.push(Param {
+                        name,
+                        ty,
+                        parsed_type: None,
+                    });
+                } else {
+                    params.push(Param {
+                        name,
+                        ty: Vec::new(),
+                        parsed_type: None,
+                    });
+                }
+            }
+            return params;
+        }
+    }
+    Vec::new()
+}
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -229,7 +288,14 @@ pub fn verify_parallel_with_solver(
     for decl in &typed.resolved.source.decls {
         match &decl.node {
             Decl::Contract(c) => {
-                jobs.push((c.name.clone(), c.clauses.clone(), vec![], vec![]));
+                // #190: Extract type constraints from output() and input()
+                // clauses. Contracts use `output(result: Nat)` instead of
+                // function return types, so we parse those clauses to get
+                // the same Nat >= 0 constraints that fn defs get.
+                let output_ty = extract_output_return_type(&c.clauses);
+                let mut input_params = extract_input_params(&c.clauses);
+                input_params.extend_from_slice(&c.fn_params);
+                jobs.push((c.name.clone(), c.clauses.clone(), input_params, output_ty));
             }
             Decl::FnDef(f) => {
                 jobs.push((
