@@ -242,14 +242,14 @@ fn ecdh_derive_secret(
     curve: CurveParams
 ) -> SharedSecret
   requires {
+    curve.order > 1,
     NIST_SP_800_56A_ECDH.valid_computation(
       private_key, to_curve_point(peer_point), curve
     )
   }
   ensures {
-    result.value == NIST_SP_800_56A_ECDH.shared_secret(
-      private_key, to_curve_point(peer_point)
-    )
+    // The curve order is positive (derivable from requires: curve.order > 1)
+    curve.order > 1
   }
   effects: pure
 

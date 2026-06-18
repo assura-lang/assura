@@ -583,6 +583,31 @@ SourceFile {
                             effect_variables: [],
                         },
                         Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Field(
+                                    Ident(
+                                        "state",
+                                    ),
+                                    "extra_bytes_copied",
+                                ),
+                                op: Lte,
+                                rhs: Field(
+                                    Field(
+                                        Field(
+                                            Ident(
+                                                "state",
+                                            ),
+                                            "head",
+                                        ),
+                                        "extra",
+                                    ),
+                                    "extra_max",
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
                             kind: Modifies,
                             body: Raw(
                                 [
@@ -640,7 +665,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 2341..3037,
+            span: 2341..3046,
         },
     ],
 }

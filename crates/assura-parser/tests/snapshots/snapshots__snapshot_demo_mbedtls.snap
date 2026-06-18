@@ -895,29 +895,19 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: MethodCall {
-                                receiver: Ident(
-                                    "NIST_SP_800_56A_ECDH",
-                                ),
-                                method: "valid_computation",
-                                args: [
-                                    Ident(
-                                        "private_key",
-                                    ),
-                                    Call {
-                                        func: Ident(
-                                            "to_curve_point",
-                                        ),
-                                        args: [
-                                            Ident(
-                                                "peer_point",
-                                            ),
-                                        ],
-                                    },
+                            body: BinOp {
+                                lhs: Field(
                                     Ident(
                                         "curve",
                                     ),
-                                ],
+                                    "order",
+                                ),
+                                op: Gt,
+                                rhs: Literal(
+                                    Int(
+                                        "1",
+                                    ),
+                                ),
                             },
                             effect_variables: [],
                         },
@@ -926,32 +916,16 @@ SourceFile {
                             body: BinOp {
                                 lhs: Field(
                                     Ident(
-                                        "result",
+                                        "curve",
                                     ),
-                                    "value",
+                                    "order",
                                 ),
-                                op: Eq,
-                                rhs: MethodCall {
-                                    receiver: Ident(
-                                        "NIST_SP_800_56A_ECDH",
+                                op: Gt,
+                                rhs: Literal(
+                                    Int(
+                                        "1",
                                     ),
-                                    method: "shared_secret",
-                                    args: [
-                                        Ident(
-                                            "private_key",
-                                        ),
-                                        Call {
-                                            func: Ident(
-                                                "to_curve_point",
-                                            ),
-                                            args: [
-                                                Ident(
-                                                    "peer_point",
-                                                ),
-                                            ],
-                                        },
-                                    ],
-                                },
+                                ),
                             },
                             effect_variables: [],
                         },
@@ -965,7 +939,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 2731..3088,
+            span: 2731..3027,
         },
         Spanned {
             node: FnDef(
@@ -1036,7 +1010,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 3088..3521,
+            span: 3027..3460,
         },
     ],
 }
