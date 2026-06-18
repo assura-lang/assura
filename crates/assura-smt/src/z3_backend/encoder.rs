@@ -636,7 +636,7 @@ impl Encoder {
         // Z3 select returns a Dynamic; extract as Int
         let result = selected.as_int().unwrap_or_else(|| self.fresh_int());
 
-        // Also add the uninterpreted function version for backward compat
+        // Also add an uninterpreted function so Z3 can reason about indexing
         let decl = self.make_func("__index", 2);
         let uif_result = decl.apply(&[
             &coll_val as &dyn z3::ast::Ast,
