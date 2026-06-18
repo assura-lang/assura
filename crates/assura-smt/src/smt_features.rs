@@ -28,7 +28,7 @@ use z3::Solver;
 // check-sat. UNSAT = the feature property holds under the preconditions.
 // -----------------------------------------------------------------------
 
-/// Fallback when Z3 is not available: return Unknown for all feature bodies.
+/// Fallback when Z3 is not available: use CVC5 if available, else Unknown.
 #[cfg(not(feature = "z3-verify"))]
 fn verify_feature_body(
     parent_name: &str,
@@ -36,9 +36,21 @@ fn verify_feature_body(
     _body: &Expr,
     _sibling_clauses: &[Clause],
 ) -> VerificationResult {
-    VerificationResult::Unknown {
-        clause_desc: format!("{parent_name}: {feature_label}"),
-        reason: format!("{feature_label} not yet encoded in SMT"),
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_feature_body_cvc5(
+            parent_name,
+            feature_label,
+            _body,
+            _sibling_clauses,
+        )
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        VerificationResult::Unknown {
+            clause_desc: format!("{parent_name}: {feature_label}"),
+            reason: format!("{feature_label} not yet encoded in SMT"),
+        }
     }
 }
 
@@ -156,17 +168,28 @@ pub fn verify_opaque_contract(name: &str, has_ensures: bool) -> VerificationResu
 /// Both are standard validity checks. The preservation step is strictly
 /// stronger because it also asserts sibling ensures as assumptions.
 ///
-/// Fallback when Z3 is not available.
+/// Fallback when Z3 is not available: use CVC5 if available, else Unknown.
 #[cfg(not(feature = "z3-verify"))]
 pub fn verify_structural_invariant_inductive(
     parent_name: &str,
     _body: &Expr,
     _sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
-    vec![VerificationResult::Unknown {
-        clause_desc: format!("{parent_name}: structural_invariant"),
-        reason: "structural_invariant not yet encoded in SMT".into(),
-    }]
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_structural_invariant_inductive_cvc5(
+            parent_name,
+            _body,
+            _sibling_clauses,
+        )
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::Unknown {
+            clause_desc: format!("{parent_name}: structural_invariant"),
+            reason: "structural_invariant not yet encoded in SMT".into(),
+        }]
+    }
 }
 
 /// Verify structural invariant via inductive checking (Z3 implementation).

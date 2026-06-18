@@ -548,7 +548,11 @@ pub fn check_refinement_subtype(antecedent: &Expr, consequent: &Expr) -> Verific
     {
         crate::z3_backend::check_refinement_subtype_impl(antecedent, consequent)
     }
-    #[cfg(not(feature = "z3-verify"))]
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::check_refinement_subtype_cvc5(antecedent, consequent)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
     {
         crate::no_z3::refinement_stub(antecedent, consequent)
     }
@@ -570,7 +574,11 @@ pub fn verify_buffer_bounds(requires: &[Expr], ensures: &Expr) -> VerificationRe
     {
         crate::z3_backend::verify_buffer_bounds_impl(requires, ensures)
     }
-    #[cfg(not(feature = "z3-verify"))]
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_buffer_bounds_cvc5(requires, ensures)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
     {
         let _ = (requires, ensures);
         VerificationResult::Unknown {
@@ -600,7 +608,13 @@ pub fn verify_region_containment(
             context, sub_lo, sub_hi, parent_lo, parent_hi,
         )
     }
-    #[cfg(not(feature = "z3-verify"))]
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_region_containment_cvc5(
+            context, sub_lo, sub_hi, parent_lo, parent_hi,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
     {
         let _ = (context, sub_lo, sub_hi, parent_lo, parent_hi);
         VerificationResult::Unknown {
@@ -626,7 +640,13 @@ pub fn check_refinement_subtype_with_context(
             context, antecedent, consequent,
         )
     }
-    #[cfg(not(feature = "z3-verify"))]
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::check_refinement_subtype_with_context_cvc5(
+            context, antecedent, consequent,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
     {
         crate::no_z3::refinement_ctx_stub(context, antecedent, consequent)
     }
@@ -654,7 +674,11 @@ pub fn verify_taint_safety(
     {
         crate::z3_backend::verify_taint_safety_impl(taint_labels, validation_fns, sensitive_uses)
     }
-    #[cfg(not(feature = "z3-verify"))]
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_taint_safety_cvc5(taint_labels, validation_fns, sensitive_uses)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
     {
         let _ = (taint_labels, validation_fns, sensitive_uses);
         VerificationResult::Unknown {
@@ -681,7 +705,11 @@ pub fn verify_with_measures(
     {
         crate::z3_backend::verify_with_measures_impl(requires, ensures, measures)
     }
-    #[cfg(not(feature = "z3-verify"))]
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_with_measures_cvc5(requires, ensures, measures)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
     {
         let _ = (requires, ensures, measures);
         VerificationResult::Unknown {
@@ -722,7 +750,16 @@ pub fn verify_decrease(
             clause_desc,
         )
     }
-    #[cfg(not(feature = "z3-verify"))]
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_decrease_cvc5(
+            preconditions,
+            measure_expr,
+            call_arg_expr,
+            clause_desc,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
     {
         let _ = (preconditions, measure_expr, call_arg_expr);
         VerificationResult::Unknown {
