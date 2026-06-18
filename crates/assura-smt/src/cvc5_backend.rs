@@ -1,5 +1,5 @@
 use super::*;
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Literal, Pattern, UnaryOp};
+use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
 
 // =========================================================================
@@ -252,7 +252,6 @@ fn collect_apply_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
 pub(crate) fn collect_lemma_defs_for_cvc5(
     typed: &assura_types::TypedFile,
 ) -> std::collections::HashMap<String, Vec<&Expr>> {
-    use assura_parser::ast::Decl;
     let mut lemmas = std::collections::HashMap::new();
     for decl in &typed.resolved.source.decls {
         if let Decl::FnDef(f) = &decl.node
@@ -268,6 +267,58 @@ pub(crate) fn collect_lemma_defs_for_cvc5(
         }
     }
     lemmas
+}
+
+// =========================================================================
+// Feature-max constant collection and refinement narrowing (CVC5)
+// =========================================================================
+
+/// Collect `feature_max` constants from a `TypedFile`'s declarations.
+///
+/// Each `feature_max NAME: Nat = VALUE` declaration is returned as
+/// `(NAME, VALUE)`. The CVC5 backend binds these as concrete integer
+/// constants instead of free Z3/CVC5 variables (matching the Z3
+/// backend's behavior from #180).
+pub(crate) fn collect_feature_max_constants_cvc5(typed: &crate::TypedFile) -> Vec<(String, i64)> {
+    let mut constants = Vec::new();
+    for decl in &typed.resolved.source.decls {
+        if let Decl::Block {
+            kind,
+            name,
+            value: Some(tokens),
+            ..
+        } = &decl.node
+            && *kind == BlockKind::FeatureMax
+            && let Some(eq_pos) = tokens.iter().position(|t| t == "=")
+            && let Some(val_str) = tokens.get(eq_pos + 1)
+            && let Ok(v) = val_str.parse::<i64>()
+        {
+            constants.push((name.clone(), v));
+        }
+    }
+    constants
+}
+
+/// Derive refinement narrowings from `feature_max` constants.
+///
+/// For a constant named `max_X` or `MAX_X`, derives a narrowing
+/// `(X, value)` that asserts `X <= value` in the solver. This
+/// mirrors the Z3 backend's `derive_narrowings`.
+pub(crate) fn derive_narrowings_cvc5(constants: &[(String, i64)]) -> Vec<(String, i64)> {
+    let mut narrowings = Vec::new();
+    for (name, value) in constants {
+        let narrowed = name
+            .strip_prefix("max_")
+            .or_else(|| name.strip_prefix("MAX_"));
+        if let Some(narrowed) = narrowed.filter(|s| !s.is_empty()) {
+            narrowings.push((narrowed.to_string(), *value));
+            let lower = narrowed.to_lowercase();
+            if lower != narrowed {
+                narrowings.push((lower, *value));
+            }
+        }
+    }
+    narrowings
 }
 
 // =========================================================================
@@ -317,7 +368,23 @@ pub(crate) fn verify_contract_cvc5_with_types(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
 ) -> Vec<VerificationResult> {
-    verify_contract_cvc5_with_lemmas(contract_name, clauses, params, return_ty, None)
+    verify_contract_cvc5_with_full_context(contract_name, clauses, params, return_ty, &[])
+}
+
+/// Verify a single contract's clauses using CVC5 with full context.
+///
+/// Like `verify_contract_cvc5_with_types` but also takes `feature_max`
+/// constants that are bound to concrete integer values in the solver
+/// (matching the Z3 backend's behavior from #180). Refinement narrowings
+/// are derived from constants with `max_`/`MAX_` prefixes.
+pub(crate) fn verify_contract_cvc5_with_full_context(
+    contract_name: &str,
+    clauses: &[Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+    constants: &[(String, i64)],
+) -> Vec<VerificationResult> {
+    verify_contract_cvc5_with_lemmas(contract_name, clauses, params, return_ty, None, constants)
 }
 
 /// Verify a single contract's clauses using CVC5, with optional lemma defs.
@@ -325,20 +392,38 @@ pub(crate) fn verify_contract_cvc5_with_types(
 /// When `lemma_defs` is `Some`, `apply lemma_name(args)` expressions will
 /// have the referenced lemma's ensures clauses injected as solver
 /// assumptions (matching the Z3 backend's behavior).
+///
+/// `constants` binds `feature_max` names to concrete values instead of
+/// leaving them as free solver variables.
 pub(crate) fn verify_contract_cvc5_with_lemmas(
     contract_name: &str,
     clauses: &[Clause],
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+    constants: &[(String, i64)],
 ) -> Vec<VerificationResult> {
     #[cfg(feature = "cvc5-verify")]
     {
-        verify_contract_cvc5_native(contract_name, clauses, params, return_ty, lemma_defs)
+        verify_contract_cvc5_native(
+            contract_name,
+            clauses,
+            params,
+            return_ty,
+            lemma_defs,
+            constants,
+        )
     }
     #[cfg(not(feature = "cvc5-verify"))]
     {
-        verify_contract_cvc5_shellout(contract_name, clauses, params, return_ty, lemma_defs)
+        verify_contract_cvc5_shellout(
+            contract_name,
+            clauses,
+            params,
+            return_ty,
+            lemma_defs,
+            constants,
+        )
     }
 }
 
@@ -353,8 +438,12 @@ fn verify_contract_cvc5_native(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+    constants: &[(String, i64)],
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
+
+    // Derive refinement narrowings from feature_max constants
+    let narrowings = derive_narrowings_cvc5(constants);
 
     let requires_exprs: Vec<&Expr> = clauses
         .iter()
@@ -389,6 +478,8 @@ fn verify_contract_cvc5_native(
                     clause.kind.clone(),
                     params,
                     return_ty,
+                    constants,
+                    &narrowings,
                     &frame_checker,
                     lemma_defs,
                 );
@@ -412,6 +503,7 @@ fn verify_contract_cvc5_native(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[expect(clippy::too_many_arguments)]
 fn check_clause_cvc5_native(
     desc: &str,
     requires: &[&Expr],
@@ -419,6 +511,8 @@ fn check_clause_cvc5_native(
     kind: ClauseKind,
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    constants: &[(String, i64)],
+    narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
 ) -> VerificationResult {
@@ -456,6 +550,12 @@ fn check_clause_cvc5_native(
         var_map.insert(name.clone(), term);
     }
 
+    // Bind feature_max constants to concrete values (#257)
+    for (name, value) in constants {
+        let key = sanitize_smtlib_name(name);
+        var_map.insert(key, tm.mk_integer(*value));
+    }
+
     // Assert type-level constraints (Nat params get >= 0)
     let zero = tm.mk_integer(0);
     for param in params {
@@ -477,6 +577,15 @@ fn check_clause_cvc5_native(
         if let Some(term) = var_map.get("result") {
             let geq = tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero]);
             solver.assert_formula(geq);
+        }
+    }
+
+    // Assert refinement narrowings: for each (name, max_value), assert name <= max_value (#257)
+    for (name, value) in narrowings {
+        let key = sanitize_smtlib_name(name);
+        if let Some(var) = var_map.get(&key) {
+            let upper = tm.mk_integer(*value);
+            solver.assert_formula(tm.mk_term(cvc5::Kind::Leq, &[var.clone(), upper]));
         }
     }
 
@@ -2190,8 +2299,12 @@ fn verify_contract_cvc5_shellout(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+    constants: &[(String, i64)],
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
+
+    // Derive refinement narrowings from feature_max constants
+    let narrowings = derive_narrowings_cvc5(constants);
 
     let mut requires_exprs: Vec<&Expr> = Vec::new();
     for clause in clauses {
@@ -2227,6 +2340,8 @@ fn verify_contract_cvc5_shellout(
                     clause.kind.clone(),
                     params,
                     return_ty,
+                    constants,
+                    &narrowings,
                     &frame_checker,
                     lemma_defs,
                 );
@@ -2258,6 +2373,7 @@ enum Cvc5Result {
 }
 
 #[cfg(not(feature = "cvc5-verify"))]
+#[expect(clippy::too_many_arguments)]
 fn check_clause_cvc5_shellout(
     desc: &str,
     requires: &[&Expr],
@@ -2265,6 +2381,8 @@ fn check_clause_cvc5_shellout(
     kind: ClauseKind,
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    constants: &[(String, i64)],
+    narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
 ) -> VerificationResult {
@@ -2309,6 +2427,22 @@ fn check_clause_cvc5_shellout(
         // Also constrain "result" (different encoding paths use different names)
         if vars.contains("result") {
             script.push_str("(assert (>= result 0))\n");
+        }
+    }
+
+    // Bind feature_max constants to concrete values (#257)
+    for (name, value) in constants {
+        let key = sanitize_smtlib_name(name);
+        if vars.contains(&key) {
+            script.push_str(&format!("(assert (= {key} {value}))\n"));
+        }
+    }
+
+    // Assert refinement narrowings: name <= max_value (#257)
+    for (name, value) in narrowings {
+        let key = sanitize_smtlib_name(name);
+        if vars.contains(&key) {
+            script.push_str(&format!("(assert (<= {key} {value}))\n"));
         }
     }
 
@@ -2983,6 +3117,49 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
 mod tests {
     use super::*;
     use assura_parser::ast::{BinOp, Literal, Pattern, UnaryOp};
+
+    // -------------------------------------------------------------------
+    // derive_narrowings_cvc5 tests (#257)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_derive_narrowings_cvc5_basic() {
+        let narrowings = derive_narrowings_cvc5(&[("max_size".into(), 100)]);
+        assert_eq!(narrowings.len(), 1);
+        assert_eq!(narrowings[0], ("size".into(), 100));
+    }
+
+    #[test]
+    fn test_derive_narrowings_cvc5_empty() {
+        let narrowings = derive_narrowings_cvc5(&[]);
+        assert!(narrowings.is_empty());
+    }
+
+    #[test]
+    fn test_derive_narrowings_cvc5_no_prefix() {
+        let narrowings = derive_narrowings_cvc5(&[("size".into(), 50)]);
+        assert!(narrowings.is_empty());
+    }
+
+    #[test]
+    fn test_derive_narrowings_cvc5_uppercase_prefix() {
+        let narrowings = derive_narrowings_cvc5(&[("MAX_BUFFER".into(), 1024)]);
+        assert_eq!(narrowings.len(), 2);
+        assert_eq!(narrowings[0], ("BUFFER".into(), 1024));
+        assert_eq!(narrowings[1], ("buffer".into(), 1024));
+    }
+
+    #[test]
+    fn test_derive_narrowings_cvc5_multiple() {
+        let narrowings = derive_narrowings_cvc5(&[
+            ("max_size".into(), 100),
+            ("max_count".into(), 50),
+            ("threshold".into(), 10),
+        ]);
+        assert_eq!(narrowings.len(), 2);
+        assert_eq!(narrowings[0], ("size".into(), 100));
+        assert_eq!(narrowings[1], ("count".into(), 50));
+    }
 
     // -------------------------------------------------------------------
     // expr_to_smtlib tests
