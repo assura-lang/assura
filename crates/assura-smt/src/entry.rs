@@ -13,7 +13,7 @@ use crate::advanced::{
     CodecDispatcher, LivenessChecker, LivenessKind, MemoryOrdering, ProphecyManager,
     WeakMemoryChecker,
 };
-use crate::cache::VerificationCache;
+use crate::cache::{SessionCache, VerificationCache};
 use crate::measures::MeasureDefinition;
 use crate::result::VerificationResult;
 
@@ -669,6 +669,9 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
     // to concrete values instead of creating free solver variables.
     let constants = crate::cvc5_backend::collect_feature_max_constants_cvc5(typed);
 
+    // #253: per-file session cache for CVC5 clause deduplication
+    let mut session_cache = SessionCache::new();
+
     // Clause-level verification via CVC5
     for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
         results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
@@ -678,6 +681,7 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
             &return_ty,
             Some(&lemma_defs),
             &constants,
+            &mut session_cache,
         ));
     }
 
@@ -949,12 +953,14 @@ fn verify_contract_with_types_and_solver(
             }
         }
         SolverChoice::Cvc5 | SolverChoice::Portfolio => {
+            let mut cache = SessionCache::new();
             crate::cvc5_backend::verify_contract_cvc5_with_full_context(
                 contract_name,
                 clauses,
                 params,
                 return_ty,
                 constants,
+                &mut cache,
             )
         }
     }

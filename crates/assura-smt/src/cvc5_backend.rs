@@ -1,4 +1,5 @@
 use super::*;
+use crate::cache::SessionCache;
 use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
 
@@ -432,7 +433,8 @@ pub(crate) fn verify_contract_cvc5(
 ) -> Vec<VerificationResult> {
     let params = crate::entry::extract_input_params(clauses);
     let return_ty = crate::entry::extract_output_return_type(clauses);
-    verify_contract_cvc5_with_types(contract_name, clauses, &params, &return_ty)
+    let mut cache = SessionCache::new();
+    verify_contract_cvc5_with_types(contract_name, clauses, &params, &return_ty, &mut cache)
 }
 
 /// Verify a single contract's clauses using CVC5 with explicit type info.
@@ -447,8 +449,9 @@ pub(crate) fn verify_contract_cvc5_with_types(
     clauses: &[Clause],
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
-    verify_contract_cvc5_with_full_context(contract_name, clauses, params, return_ty, &[])
+    verify_contract_cvc5_with_full_context(contract_name, clauses, params, return_ty, &[], cache)
 }
 
 /// Verify a single contract's clauses using CVC5 with full context.
@@ -463,8 +466,17 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
     constants: &[(String, i64)],
+    cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
-    verify_contract_cvc5_with_lemmas(contract_name, clauses, params, return_ty, None, constants)
+    verify_contract_cvc5_with_lemmas(
+        contract_name,
+        clauses,
+        params,
+        return_ty,
+        None,
+        constants,
+        cache,
+    )
 }
 
 /// Verify a single contract's clauses using CVC5, with optional lemma defs.
@@ -482,6 +494,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     constants: &[(String, i64)],
+    cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     #[cfg(feature = "cvc5-verify")]
     {
@@ -492,6 +505,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
             return_ty,
             lemma_defs,
             constants,
+            cache,
         )
     }
     #[cfg(not(feature = "cvc5-verify"))]
@@ -503,6 +517,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
             return_ty,
             lemma_defs,
             constants,
+            cache,
         )
     }
 }
@@ -519,6 +534,7 @@ fn verify_contract_cvc5_native(
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     constants: &[(String, i64)],
+    cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
@@ -562,6 +578,7 @@ fn verify_contract_cvc5_native(
                     &narrowings,
                     &frame_checker,
                     lemma_defs,
+                    cache,
                 );
                 results.push(result);
             }
@@ -595,7 +612,22 @@ fn check_clause_cvc5_native(
     narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+    cache: &mut SessionCache,
 ) -> VerificationResult {
+    // Check cache first (#253)
+    let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
+    if let Some(entry) = cache.lookup(&cache_key) {
+        return match entry.result.as_str() {
+            "verified" => VerificationResult::Verified {
+                clause_desc: desc.to_string(),
+            },
+            other => VerificationResult::Unknown {
+                clause_desc: desc.to_string(),
+                reason: format!("cached: {other}"),
+            },
+        };
+    }
+
     // Pre-check for unmodelable features (matching Z3 backend behavior).
     // Skip clauses with typestate annotations etc. before attempting encoding,
     // preventing false counterexamples from partial encoding.
@@ -753,7 +785,7 @@ fn check_clause_cvc5_native(
 
     let sat_result = solver.check_sat();
 
-    if sat_result.is_unsat() {
+    let result = if sat_result.is_unsat() {
         if matches!(kind, ClauseKind::Invariant) {
             VerificationResult::Counterexample {
                 clause_desc: desc.to_string(),
@@ -803,7 +835,18 @@ fn check_clause_cvc5_native(
         VerificationResult::Timeout {
             clause_desc: desc.to_string(),
         }
-    }
+    };
+
+    // Insert result into session cache (#253)
+    let result_str = match &result {
+        VerificationResult::Verified { .. } => "verified",
+        VerificationResult::Counterexample { .. } => "counterexample",
+        VerificationResult::Timeout { .. } => "timeout",
+        VerificationResult::Unknown { .. } => "unknown",
+    };
+    cache.insert(cache_key, result_str.to_string(), 0);
+
+    result
 }
 
 /// Hash a pattern name to a stable i64 for CVC5 match encoding.
@@ -3072,6 +3115,7 @@ fn verify_contract_cvc5_shellout(
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     constants: &[(String, i64)],
+    cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
@@ -3116,6 +3160,7 @@ fn verify_contract_cvc5_shellout(
                     &narrowings,
                     &frame_checker,
                     lemma_defs,
+                    cache,
                 );
                 results.push(result);
             }
@@ -3157,7 +3202,22 @@ fn check_clause_cvc5_shellout(
     narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+    cache: &mut SessionCache,
 ) -> VerificationResult {
+    // Check cache first (#253)
+    let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
+    if let Some(entry) = cache.lookup(&cache_key) {
+        return match entry.result.as_str() {
+            "verified" => VerificationResult::Verified {
+                clause_desc: desc.to_string(),
+            },
+            other => VerificationResult::Unknown {
+                clause_desc: desc.to_string(),
+                reason: format!("cached: {other}"),
+            },
+        };
+    }
+
     // Pre-check for unmodelable features (matching Z3 backend behavior)
     if expr_has_unmodelable_features_cvc5(ensures_body) {
         let reasons = collect_unmodelable_reasons_cvc5(ensures_body);
@@ -3273,7 +3333,7 @@ fn check_clause_cvc5_shellout(
     script.push_str("(check-sat)\n");
     script.push_str("(get-model)\n");
 
-    match run_cvc5_binary(&script) {
+    let result = match run_cvc5_binary(&script) {
         Cvc5Result::Unsat => {
             if matches!(kind, ClauseKind::Invariant) {
                 VerificationResult::Counterexample {
@@ -3319,7 +3379,18 @@ fn check_clause_cvc5_shellout(
             clause_desc: desc.to_string(),
             reason,
         },
-    }
+    };
+
+    // Insert result into session cache (#253)
+    let result_str = match &result {
+        VerificationResult::Verified { .. } => "verified",
+        VerificationResult::Counterexample { .. } => "counterexample",
+        VerificationResult::Timeout { .. } => "timeout",
+        VerificationResult::Unknown { .. } => "unknown",
+    };
+    cache.insert(cache_key, result_str.to_string(), 0);
+
+    result
 }
 
 #[cfg(not(feature = "cvc5-verify"))]
@@ -5707,7 +5778,9 @@ mod tests {
                 },
                 effect_variables: vec![],
             }];
-            let results = verify_contract_cvc5_with_types("FnNatParam", &clauses, &params, &[]);
+            let mut cache = SessionCache::new();
+            let results =
+                verify_contract_cvc5_with_types("FnNatParam", &clauses, &params, &[], &mut cache);
             assert_eq!(results.len(), 1);
             assert!(
                 matches!(&results[0], VerificationResult::Verified { .. }),
@@ -6886,12 +6959,15 @@ mod tests {
                     effect_variables: vec![],
                 },
             ];
+            let mut cache = SessionCache::new();
             let results = verify_contract_cvc5_with_lemmas(
                 "ApplyPostcondTest",
                 &clauses,
                 &[],
                 &[],
                 Some(&lemma_defs),
+                &[],
+                &mut cache,
             );
             assert!(
                 !results.is_empty(),
@@ -6934,12 +7010,15 @@ mod tests {
                     effect_variables: vec![],
                 },
             ];
+            let mut cache = SessionCache::new();
             let results = verify_contract_cvc5_with_lemmas(
                 "LemmaVerifTest",
                 &clauses,
                 &[],
                 &[],
                 Some(&lemma_defs),
+                &[],
+                &mut cache,
             );
             assert_eq!(results.len(), 1);
             assert!(
@@ -6961,7 +7040,16 @@ mod tests {
                 },
                 effect_variables: vec![],
             }];
-            let results = verify_contract_cvc5_with_lemmas("NoLemmaDefs", &clauses, &[], &[], None);
+            let mut cache = SessionCache::new();
+            let results = verify_contract_cvc5_with_lemmas(
+                "NoLemmaDefs",
+                &clauses,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut cache,
+            );
             assert!(
                 !results.is_empty(),
                 "should produce results even without lemma defs"
@@ -7271,6 +7359,139 @@ mod tests {
                 !patterns.is_empty(),
                 "should infer trigger from multi-arg lookup(table, i)"
             );
+        }
+
+        // -------------------------------------------------------------------
+        // CVC5 session cache tests (#253)
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn test_cvc5_session_cache_hit() {
+            // Verify same contract twice; second call should return cached result
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+
+            let mut cache = SessionCache::new();
+
+            // First call: cache miss, runs CVC5
+            let results1 = verify_contract_cvc5_with_lemmas(
+                "CacheTest",
+                &clauses,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut cache,
+            );
+            assert_eq!(results1.len(), 1);
+            assert!(matches!(&results1[0], VerificationResult::Verified { .. }));
+            assert_eq!(cache.entry_count(), 1);
+
+            // Second call: cache hit, should not invoke CVC5
+            let results2 = verify_contract_cvc5_with_lemmas(
+                "CacheTest",
+                &clauses,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut cache,
+            );
+            assert_eq!(results2.len(), 1);
+            assert!(matches!(&results2[0], VerificationResult::Verified { .. }));
+            // Cache should still have 1 entry (same key), with 1 hit
+            assert_eq!(cache.entry_count(), 1);
+            assert!(cache.hit_rate() > 0.0);
+        }
+
+        #[test]
+        fn test_cvc5_session_cache_miss() {
+            // Two different contracts should be cache misses
+            let clauses_a = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let clauses_b = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("y".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("y".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+
+            let mut cache = SessionCache::new();
+
+            let results_a = verify_contract_cvc5_with_lemmas(
+                "CacheA",
+                &clauses_a,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut cache,
+            );
+            assert_eq!(results_a.len(), 1);
+            assert_eq!(cache.entry_count(), 1);
+
+            let results_b = verify_contract_cvc5_with_lemmas(
+                "CacheB",
+                &clauses_b,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut cache,
+            );
+            assert_eq!(results_b.len(), 1);
+            // Both should be cache misses, so 2 entries
+            assert_eq!(cache.entry_count(), 2);
         }
     }
 }
