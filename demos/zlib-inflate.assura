@@ -212,7 +212,9 @@ fn inflate_extra_field_step(
     input: &[U8]
 ) -> InflateStepResult
   requires {
-    state.state @ ExtraField,
+    state.state @ ExtraField
+  }
+  requires {
     state.extra_bytes_copied <= state.head.extra.extra_max
   }
   modifies { state.head.extra.data, state.extra_bytes_copied,

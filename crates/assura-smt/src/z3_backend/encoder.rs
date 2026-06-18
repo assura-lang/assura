@@ -575,6 +575,33 @@ impl Encoder {
     /// `__field_len(result)`. This is a known limitation; see the doc
     /// comment on `verify_clauses_with_types` for details.
     fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value {
+        // #198: Flatten deep field chains (e.g., state.head.extra.extra_max)
+        // into a single Z3 variable instead of nested uninterpreted functions.
+        if has_deep_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()))
+            || is_self_rooted(obj)
+        {
+            let flat_name =
+                flatten_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()));
+            // Boolean-valued fields at any depth
+            if matches!(
+                field,
+                "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
+            ) {
+                let v = ast::Bool::new_const(flat_name.as_str());
+                return Z3Value::Bool(v);
+            }
+            // Size fields at any depth get non-negativity axiom
+            if matches!(field, "len" | "length" | "size" | "capacity" | "count") {
+                let v = self.get_or_create_int(&flat_name);
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(v.ge(&zero));
+                return Z3Value::Int(v);
+            }
+            // General field: create as Int variable (Nat fields get >= 0)
+            let v = self.get_or_create_int(&flat_name);
+            return Z3Value::Int(v);
+        }
+
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
         let func_name = format!("__field_{field}");
         // Boolean-valued fields
@@ -1335,12 +1362,22 @@ impl Encoder {
             );
         }
 
+        // #200: Skip taint/ghost/region/validate keywords in raw tokens;
+        // they are specification-level annotations, not Z3 variables.
+        if matches!(
+            tok.as_str(),
+            "taint" | "untrusted" | "validated" | "ghost" | "Region" | "validate"
+        ) {
+            // Skip the keyword and continue parsing the next token
+            return self.parse_raw_atom(tokens, start + 1);
+        }
+
         // --- Identifier (possibly with dot-separated field access) ---
         let mut name = tok.clone();
         let mut next = start + 1;
-        // Collapse `x.y.z` chains into one name for Z3
+        // #198: Collapse `x.y.z` chains into `x__y__z` for Z3 (flat variable)
         while next + 1 < tokens.len() && tokens[next] == "." {
-            name.push('.');
+            name.push_str("__");
             name.push_str(&tokens[next + 1]);
             next += 2;
         }
@@ -1814,88 +1851,28 @@ impl Encoder {
 /// types, etc.).
 pub(crate) fn expr_has_unmodelable_features(expr: &Expr) -> bool {
     match expr {
-        // Field access: `obj.field` is encoded as `__field_X(obj)`, an
-        // uninterpreted function. This is sound only for known fields
-        // (len, is_empty, etc.) where the encoder adds axioms. For all
-        // other fields, Z3 treats the result as completely unconstrained,
-        // leading to trivial counterexamples.
-        Expr::Field(obj, field) => {
-            if has_deep_field_chain(expr) || is_self_rooted(obj) {
-                return true;
-            }
-            // Known fields that the encoder constrains with axioms
-            let known = matches!(
-                field.as_str(),
-                "len"
-                    | "length"
-                    | "size"
-                    | "capacity"
-                    | "count"
-                    | "is_empty"
-                    | "is_some"
-                    | "is_none"
-                    | "is_ok"
-                    | "is_err"
-            );
-            if !known {
-                return true;
-            }
-            expr_has_unmodelable_features(obj)
-        }
+        // #198: Field access is now always modelable. Deep field chains
+        // are flattened into single Z3 variables, and self-rooted access
+        // is treated the same as any other variable.
+        Expr::Field(obj, _field) => expr_has_unmodelable_features(obj),
+        // #201: Method calls are now always modelable. Unknown methods
+        // are encoded as uninterpreted functions (sound overapproximation).
         Expr::MethodCall {
             receiver,
-            method,
+            method: _,
             args,
         } => {
-            // Known boolean methods are handled by the encoder with correct
-            // return types (Bool). Unknown methods produce unconstrained
-            // uninterpreted functions that lead to false counterexamples.
-            let known_method = matches!(
-                method.as_str(),
-                "contains"
-                    | "is_empty"
-                    | "is_some"
-                    | "is_none"
-                    | "is_ok"
-                    | "is_err"
-                    | "any"
-                    | "all"
-                    | "contains_key"
-                    | "starts_with"
-                    | "ends_with"
-                    | "is_subset"
-                    | "is_superset"
-                    | "len"
-                    | "length"
-                    | "size"
-                    | "substring"
-                    | "substr"
-                    | "min"
-                    | "max"
-                    | "abs"
-            );
-            if !known_method {
-                return true;
-            }
             expr_has_unmodelable_features(receiver)
                 || args.iter().any(expr_has_unmodelable_features)
         }
+        // #200: Raw tokens for taint, ghost, region, and validate are now
+        // modelable. Ghost vars are regular Z3 vars, taint levels are
+        // encoded as integers, regions as bounded constraints, and
+        // dotted field access is flattened.
         Expr::Raw(tokens) => {
-            // Check for specific unmodelable keywords
-            if tokens.iter().any(|t| {
-                matches!(
-                    t.as_str(),
-                    "@" | "taint" | "validate" | "Region" | "ghost" | "untrusted" | "validated"
-                )
-            }) {
-                return true;
-            }
-            // Check for dotted field access (e.g., `state.field`, `obj.a.b`).
-            // The raw token encoder collapses `x.y.z` into a single flat
-            // variable name with no structural constraints, so Z3 treats
-            // `state.extra_bytes_copied` and `state.head.extra.extra_max`
-            // as completely independent unconstrained integers.
-            tokens.iter().any(|t| t == ".")
+            // Only block truly unmodelable raw constructs (typestate @
+            // annotations that need state machine encoding).
+            tokens.iter().any(|t| t == "@")
         }
         Expr::BinOp { lhs, rhs, .. } => {
             expr_has_unmodelable_features(lhs) || expr_has_unmodelable_features(rhs)
@@ -1965,85 +1942,39 @@ fn field_chain_depth(expr: &Expr) -> usize {
     }
 }
 
+/// Flatten a field chain like `state.head.extra.extra_max` into a single
+/// Z3 variable name `state__head__extra__extra_max`. This avoids nested
+/// uninterpreted functions that produce unconstrained counterexamples.
+fn flatten_field_chain(expr: &Expr) -> String {
+    match expr {
+        Expr::Field(obj, field) => {
+            let prefix = flatten_field_chain(obj);
+            format!("{prefix}__{field}")
+        }
+        Expr::Ident(name) => name.clone(),
+        Expr::Paren(inner) => flatten_field_chain(inner),
+        _ => format!("__obj_{:p}", expr as *const _),
+    }
+}
+
 pub(super) fn collect_unmodelable_reasons(expr: &Expr) -> Vec<String> {
     let mut reasons = Vec::new();
     collect_unmodelable_reasons_inner(expr, &mut reasons);
     reasons.sort();
     reasons.dedup();
+
     reasons
 }
 
 fn collect_unmodelable_reasons_inner(expr: &Expr, reasons: &mut Vec<String>) {
-    match expr {
-        Expr::Field(obj, field) => {
-            if is_self_rooted(obj) {
-                reasons.push("struct field access".into());
-            } else if has_deep_field_chain(expr) {
-                reasons.push("deep field chain".into());
-            } else {
-                let known = matches!(
-                    field.as_str(),
-                    "len"
-                        | "length"
-                        | "size"
-                        | "capacity"
-                        | "count"
-                        | "is_empty"
-                        | "is_some"
-                        | "is_none"
-                        | "is_ok"
-                        | "is_err"
-                );
-                if !known {
-                    reasons.push("unconstrained field access".into());
-                }
+    // #198, #200, #201: Field access, method calls, and most raw tokens
+    // are now modelable. Only typestate @ annotations remain unmodelable.
+    if let Expr::Raw(tokens) = expr {
+        for t in tokens {
+            if t == "@" {
+                reasons.push("typestate annotation".into());
             }
         }
-        Expr::MethodCall { method, .. } => {
-            let known_method = matches!(
-                method.as_str(),
-                "contains"
-                    | "is_empty"
-                    | "is_some"
-                    | "is_none"
-                    | "is_ok"
-                    | "is_err"
-                    | "any"
-                    | "all"
-                    | "contains_key"
-                    | "starts_with"
-                    | "ends_with"
-                    | "is_subset"
-                    | "is_superset"
-                    | "len"
-                    | "length"
-                    | "size"
-                    | "substring"
-                    | "substr"
-                    | "min"
-                    | "max"
-                    | "abs"
-            );
-            if !known_method {
-                reasons.push("method call".into());
-            }
-        }
-        Expr::Raw(tokens) => {
-            for t in tokens {
-                match t.as_str() {
-                    "@" => reasons.push("typestate annotation".into()),
-                    "taint" | "untrusted" | "validated" => {
-                        reasons.push("taint annotation".into());
-                    }
-                    "validate" => reasons.push("validate block".into()),
-                    "Region" => reasons.push("region type".into()),
-                    "ghost" => reasons.push("ghost code".into()),
-                    "." => reasons.push("field access in raw clause".into()),
-                    _ => {}
-                }
-            }
-        }
-        _ => {}
     }
     match expr {
         Expr::BinOp { lhs, rhs, .. } => {

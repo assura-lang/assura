@@ -2179,3 +2179,117 @@ fn test_feature_max_narrowing_derives_pairs() {
         "LIMIT should not produce narrowing"
     );
 }
+
+// -----------------------------------------------------------------------
+// #198: Deep field chain SMT encoding
+// -----------------------------------------------------------------------
+
+#[test]
+fn deep_field_chain_ensures_verifies() {
+    // Deep field chain: state.head.extra.extra_max should be flattened
+    // to a single Z3 variable, making the ensures verifiable.
+    let src = r#"
+        contract DeepChain {
+            requires: x.head.extra.extra_max >= 0
+            ensures: x.head.extra.extra_max >= 0
+        }
+    "#;
+    let results = verify_source(src);
+    assert!(
+        !results.is_empty(),
+        "should have results for deep field chain"
+    );
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "deep field chain ensures should verify, got: {:?}",
+        results[0]
+    );
+}
+
+#[test]
+fn deep_field_chain_not_unmodelable() {
+    use z3_backend::encoder::expr_has_unmodelable_features;
+    // state.head.extra.extra_max should NOT be unmodelable
+    let expr = Expr::Field(
+        Box::new(Expr::Field(
+            Box::new(Expr::Field(
+                Box::new(Expr::Ident("state".into())),
+                "head".into(),
+            )),
+            "extra".into(),
+        )),
+        "extra_max".into(),
+    );
+    assert!(
+        !expr_has_unmodelable_features(&expr),
+        "deep field chain should be modelable after #198"
+    );
+}
+
+// -----------------------------------------------------------------------
+// #200: Taint/validate/ghost/region SMT encoding
+// -----------------------------------------------------------------------
+
+#[test]
+fn taint_keyword_not_unmodelable() {
+    use z3_backend::encoder::expr_has_unmodelable_features;
+    // Raw tokens with taint/ghost/region but no @ should be modelable
+    let expr = Expr::Raw(vec![
+        "taint".into(),
+        "untrusted".into(),
+        "x".into(),
+        ">=".into(),
+        "0".into(),
+    ]);
+    assert!(
+        !expr_has_unmodelable_features(&expr),
+        "taint keywords should be modelable after #200"
+    );
+}
+
+#[test]
+fn typestate_at_still_unmodelable() {
+    use z3_backend::encoder::expr_has_unmodelable_features;
+    // Raw tokens with @ should still be unmodelable (typestate)
+    let expr = Expr::Raw(vec![
+        "state".into(),
+        ".".into(),
+        "status".into(),
+        "@".into(),
+        "Active".into(),
+    ]);
+    assert!(
+        expr_has_unmodelable_features(&expr),
+        "typestate @ annotation should remain unmodelable"
+    );
+}
+
+// -----------------------------------------------------------------------
+// #201: Unknown method call encoding as uninterpreted functions
+// -----------------------------------------------------------------------
+
+#[test]
+fn unknown_method_call_not_unmodelable() {
+    use z3_backend::encoder::expr_has_unmodelable_features;
+    // Method calls should NOT be unmodelable (encoded as uninterpreted functions)
+    let expr = Expr::MethodCall {
+        receiver: Box::new(Expr::Ident("data".into())),
+        method: "custom_check".into(),
+        args: vec![Expr::Ident("x".into())],
+    };
+    assert!(
+        !expr_has_unmodelable_features(&expr),
+        "unknown method calls should be modelable after #201"
+    );
+}
+
+#[test]
+fn field_access_not_unmodelable() {
+    use z3_backend::encoder::expr_has_unmodelable_features;
+    // Field access (even unknown fields) should be modelable
+    let expr = Expr::Field(Box::new(Expr::Ident("obj".into())), "custom_field".into());
+    assert!(
+        !expr_has_unmodelable_features(&expr),
+        "field access should be modelable after #198"
+    );
+}
