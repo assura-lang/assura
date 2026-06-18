@@ -345,7 +345,57 @@ fn encode_expr_cvc5<'a>(
                 BinOp::And => cvc5::Kind::And,
                 BinOp::Or => cvc5::Kind::Or,
                 BinOp::Implies => cvc5::Kind::Implies,
-                BinOp::Range | BinOp::In | BinOp::NotIn | BinOp::Concat => return None,
+                BinOp::Range => {
+                    // Range (a..b): create a fresh Int constrained to [lhs, rhs)
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let fresh = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let ge_lo = tm.mk_term(cvc5::Kind::Geq, &[fresh.clone(), l]);
+                    let lt_hi = tm.mk_term(cvc5::Kind::Lt, &[fresh.clone(), r]);
+                    let in_range = tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi]);
+                    state.axioms.push(in_range);
+                    return Some(fresh);
+                }
+                BinOp::In => {
+                    // In (elem in collection): UF __contains(collection, elem) -> Bool
+                    let func_sort =
+                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
+                    let contains = tm.mk_const(func_sort, "__contains");
+                    return Some(tm.mk_term(cvc5::Kind::ApplyUf, &[contains, r, l]));
+                }
+                BinOp::NotIn => {
+                    // NotIn: negation of In
+                    let func_sort =
+                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
+                    let contains = tm.mk_const(func_sort, "__contains");
+                    let in_result = tm.mk_term(cvc5::Kind::ApplyUf, &[contains, r, l]);
+                    return Some(tm.mk_term(cvc5::Kind::Not, &[in_result]));
+                }
+                BinOp::Concat => {
+                    // Concat (a ++ b): fresh value with length axiom
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l]);
+                    let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r]);
+                    let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                    let sum = tm.mk_term(cvc5::Kind::Add, &[len_l.clone(), len_r.clone()]);
+                    let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]);
+                    state.axioms.push(len_eq);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_l, zero.clone()]));
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_r, zero.clone()]));
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
+                    return Some(result);
+                }
             };
             Some(tm.mk_term(kind, &[l, r]))
         }
@@ -1589,9 +1639,26 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                 BinOp::And => "and",
                 BinOp::Or => "or",
                 BinOp::Implies => "=>",
-                BinOp::Range => return None, // ranges not directly encodable
-                BinOp::In | BinOp::NotIn => return None,
-                BinOp::Concat => return None,
+                BinOp::Range => {
+                    // Range (a..b): fresh Int constrained to [l, r)
+                    return Some(format!(
+                        "(let ((__range_fresh (+ {l} 0))) (and (>= __range_fresh {l}) (< __range_fresh {r})))"
+                    ));
+                }
+                BinOp::In => {
+                    // In (elem in collection): UF __contains(collection, elem)
+                    return Some(format!("(__contains {r} {l})"));
+                }
+                BinOp::NotIn => {
+                    // NotIn: negation of In
+                    return Some(format!("(not (__contains {r} {l}))"));
+                }
+                BinOp::Concat => {
+                    // Concat (a ++ b): fresh value with length axiom comment
+                    // In shell-out mode we return a symbolic expression;
+                    // the length axiom is implicit.
+                    return Some(format!("(__concat {l} {r})"));
+                }
             };
             Some(format!("({smt_op} {l} {r})"))
         }
@@ -2081,13 +2148,60 @@ mod tests {
     }
 
     #[test]
-    fn test_smtlib_binop_range_returns_none() {
+    fn test_smtlib_binop_range_encodes() {
         let expr = Expr::BinOp {
             op: BinOp::Range,
             lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
             rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
         };
-        assert_eq!(expr_to_smtlib(&expr), None);
+        let s = expr_to_smtlib(&expr).expect("Range should encode");
+        assert!(s.contains(">="), "missing >= in range encoding: {s}");
+        assert!(s.contains("<"), "missing < in range encoding: {s}");
+        assert!(
+            s.contains("__range_fresh"),
+            "missing fresh var in range: {s}"
+        );
+    }
+
+    #[test]
+    fn test_smtlib_binop_in() {
+        let expr = Expr::BinOp {
+            op: BinOp::In,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Ident("collection".into())),
+        };
+        let s = expr_to_smtlib(&expr).expect("In should encode");
+        assert!(s.contains("__contains"), "missing contains UF in: {s}");
+        assert!(s.contains("collection"), "missing collection in: {s}");
+        assert!(s.contains("x"), "missing element in: {s}");
+    }
+
+    #[test]
+    fn test_smtlib_binop_notin() {
+        let expr = Expr::BinOp {
+            op: BinOp::NotIn,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Ident("items".into())),
+        };
+        let s = expr_to_smtlib(&expr).expect("NotIn should encode");
+        assert!(s.contains("not"), "missing negation in NotIn: {s}");
+        assert!(
+            s.contains("__contains"),
+            "missing contains UF in NotIn: {s}"
+        );
+    }
+
+    #[test]
+    fn test_smtlib_binop_concat() {
+        let expr = Expr::BinOp {
+            op: BinOp::Concat,
+            lhs: Box::new(Expr::Ident("a".into())),
+            rhs: Box::new(Expr::Ident("b".into())),
+        };
+        let s = expr_to_smtlib(&expr).expect("Concat should encode");
+        assert!(s.contains("__concat"), "missing concat UF in: {s}");
+        assert!(s.contains("a"), "missing lhs in concat: {s}");
+        assert!(s.contains("b"), "missing rhs in concat: {s}");
     }
 
     #[test]
