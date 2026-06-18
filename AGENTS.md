@@ -42,7 +42,7 @@ At the start of every session:
    writing any code. Know what "done" looks like before you start.
 6. Implement the task.
 7. Run every acceptance test command from the task. See each one pass.
-8. Run the pre-commit gate: `cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --workspace`
+8. Run the pre-commit gate: `cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --workspace && cargo check --no-default-features -p assura-smt`
 9. Mark the task `[x]` in `MASTER-PLAN.md`. Commit and push.
 10. Continue to the next task until the session ends or context runs out.
 11. Before the session ends, update the Progress Notes section with
@@ -382,8 +382,13 @@ were silently ignored until the method was wired in during #62.
 Run this exact command before every commit. No exceptions.
 
 ```bash
-cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --workspace
+cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --workspace && cargo check --no-default-features -p assura-smt
 ```
+
+The final `cargo check --no-default-features` verifies the no-z3 build.
+Any code in `assura-smt` that imports from `z3_backend` or `z3` must be
+behind `#[cfg(feature = "z3-verify")]` with a fallback. This check has
+caught cfg-gate violations twice; do not skip it.
 
 If any step fails, fix it before committing. Do not commit with
 `--no-verify` or skip tests. If a test is flaky, fix the test.
