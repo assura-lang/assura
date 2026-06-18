@@ -238,6 +238,18 @@ fn verify_contract_cvc5_native(
         .map(|c| &c.body)
         .collect();
 
+    // Build frame checker from modifies clauses
+    let modifies_bodies: Vec<&Expr> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Modifies)
+        .map(|c| &c.body)
+        .collect();
+    let frame_checker = if modifies_bodies.is_empty() {
+        assura_types::FrameChecker::empty()
+    } else {
+        assura_types::FrameChecker::new(&modifies_bodies)
+    };
+
     for clause in clauses {
         match &clause.kind {
             ClauseKind::Ensures
@@ -253,6 +265,7 @@ fn verify_contract_cvc5_native(
                     clause.kind.clone(),
                     params,
                     return_ty,
+                    &frame_checker,
                 );
                 results.push(result);
             }
@@ -281,6 +294,7 @@ fn check_clause_cvc5_native(
     kind: ClauseKind,
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    frame_checker: &assura_types::FrameChecker,
 ) -> VerificationResult {
     // Pre-check for unmodelable features (matching Z3 backend behavior).
     // Skip clauses with typestate annotations etc. before attempting encoding,
@@ -367,6 +381,25 @@ fn check_clause_cvc5_native(
     // Assert background axioms collected during encoding
     for axiom in &enc_state.axioms {
         solver.assert_formula(axiom.clone());
+    }
+
+    // Frame axioms: for ensures with modifies, assert var == old_var for unmodified vars
+    if kind == ClauseKind::Ensures && frame_checker.has_modifies() {
+        let frame_vars = frame_checker.frame_axiom_vars(ensures_body);
+        for var_name in &frame_vars {
+            let current_key = sanitize_smtlib_name(var_name);
+            let old_key = sanitize_smtlib_name(&format!("{var_name}__old"));
+            let current = var_map
+                .get(&current_key)
+                .cloned()
+                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &current_key));
+            let old_var = var_map
+                .get(&old_key)
+                .cloned()
+                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_key));
+            let axiom = tm.mk_term(cvc5::Kind::Equal, &[current, old_var]);
+            solver.assert_formula(axiom);
+        }
     }
 
     // Assert clause according to verification semantics
@@ -2023,6 +2056,18 @@ fn verify_contract_cvc5_shellout(
         }
     }
 
+    // Build frame checker from modifies clauses
+    let modifies_bodies: Vec<&Expr> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Modifies)
+        .map(|c| &c.body)
+        .collect();
+    let frame_checker = if modifies_bodies.is_empty() {
+        assura_types::FrameChecker::empty()
+    } else {
+        assura_types::FrameChecker::new(&modifies_bodies)
+    };
+
     for clause in clauses {
         match &clause.kind {
             ClauseKind::Ensures
@@ -2038,6 +2083,7 @@ fn verify_contract_cvc5_shellout(
                     clause.kind.clone(),
                     params,
                     return_ty,
+                    &frame_checker,
                 );
                 results.push(result);
             }
@@ -2074,6 +2120,7 @@ fn check_clause_cvc5_shellout(
     kind: ClauseKind,
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    frame_checker: &assura_types::FrameChecker,
 ) -> VerificationResult {
     // Pre-check for unmodelable features (matching Z3 backend behavior)
     if expr_has_unmodelable_features_cvc5(ensures_body) {
@@ -2122,6 +2169,19 @@ fn check_clause_cvc5_shellout(
     for req in requires {
         if let Some(smt) = expr_to_smtlib(req) {
             script.push_str(&format!("(assert {smt})\n"));
+        }
+    }
+
+    // Frame axioms: for ensures with modifies, assert var == old_var for unmodified vars
+    if kind == ClauseKind::Ensures && frame_checker.has_modifies() {
+        let frame_vars = frame_checker.frame_axiom_vars(ensures_body);
+        for var_name in &frame_vars {
+            let current = sanitize_smtlib_name(var_name);
+            let old = sanitize_smtlib_name(&format!("{var_name}__old"));
+            if !vars.contains(&old) {
+                script.push_str(&format!("(declare-const {old} Int)\n"));
+            }
+            script.push_str(&format!("(assert (= {current} {old}))\n"));
         }
     }
 
@@ -4395,5 +4455,83 @@ mod tests {
         };
         let s = expr_to_smtlib(&expr).unwrap();
         assert_eq!(s, "(trim s)");
+    }
+
+    // -------------------------------------------------------------------
+    // Frame axiom tests (CVC5 native, issue #256)
+    // -------------------------------------------------------------------
+
+    #[cfg(feature = "cvc5-verify")]
+    mod frame_tests {
+        use super::*;
+
+        #[test]
+        fn test_cvc5_frame_axiom_injection() {
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Modifies,
+                    body: Expr::Ident("y".into()),
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = crate::cvc5_backend::verify_contract_cvc5("FrameTest", &clauses);
+            assert!(!results.is_empty());
+        }
+
+        #[test]
+        fn test_cvc5_modifies_preserves_unmodified() {
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Eq,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Modifies,
+                    body: Expr::Ident("y".into()),
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Eq,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = crate::cvc5_backend::verify_contract_cvc5("FramePreserve", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "Frame axiom should prevent counterexample: {:?}",
+                    r
+                );
+            }
+        }
     }
 }
