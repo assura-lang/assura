@@ -1796,13 +1796,13 @@ compiles" failure on taint-tracking.assura.
 
 ### Round 3: Medium parity (#247, #248, #250, #252) -- depends on: Round 1
 
-- [ ] **10.08** #247 CVC5: Quantifier trigger pattern inference
+- [x] **10.08** #247 CVC5: Quantifier trigger pattern inference
   - Integrate TriggerManager, use CVC5 Kind::InstPattern
-- [ ] **10.09** #248 CVC5: Real sort for floats
+- [x] **10.09** #248 CVC5: Real sort for floats
   - tm.mk_real(numer, denom), Real-aware negation, ITE sort promotion
-- [ ] **10.10** #250 CVC5: Deep field chain flattening
+- [x] **10.10** #250 CVC5: Deep field chain flattening
   - Port has_deep_field_chain/flatten_field_chain to CVC5
-- [ ] **10.11** #252 CVC5: Constructor/Tuple match patterns
+- [x] **10.11** #252 CVC5: Constructor/Tuple match patterns
   - Hash-based tag matching, field binding, tuple accessors
 - **Acceptance**:
   ```bash
