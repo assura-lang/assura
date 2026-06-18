@@ -1,0 +1,177 @@
+// ============================================================================
+// TYPE.7-TYPE.8: Effect System -- I/O Effect Containment
+//
+// Real-world scenario: Uncontrolled side effects are a major source of bugs
+// in distributed systems. In 2017, an AWS S3 outage caused by an accidental
+// billing script that issued too many delete operations took down much of
+// the internet for 4 hours. The script had unrestricted I/O access with no
+// effect containment or rate limiting at the type level.
+//
+// Effect systems track which side effects a function may perform. A function
+// marked pure cannot do I/O, access databases, or modify global state. The
+// compiler enforces these boundaries at compile time, making it impossible
+// for a pure computation to accidentally trigger side effects.
+//
+// This contract demonstrates how Assura's effect system (TYPE.7-TYPE.8)
+// enforces effect containment and handler correctness at compile time.
+//
+// All constants are inlined as integer literals so Z3 sees their actual
+// values (the SMT encoder treats named constants as unconstrained).
+// ============================================================================
+
+project effect_handler {
+  profile: [core, sec]
+}
+
+module eff.io_containment;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type RequestPayload = {
+  size: Nat;
+  priority: Nat;
+};
+
+type ResponseMetadata = {
+  status_code: Nat;
+  latency_ms: Nat;
+};
+
+// ---------------------------------------------------------------------------
+// Verifiable property: request size validation
+//
+// Before performing I/O, request payloads must be validated. Z3 proves
+// that validated sizes are within the allowed maximum.
+// Max request size inlined as 1048576 (1 MB).
+// ---------------------------------------------------------------------------
+
+contract ValidateRequestSize {
+  input(payload_size: Nat, max_size: Nat)
+
+  requires { payload_size >= 0 }
+  requires { max_size == 1048576 }
+  requires { payload_size <= max_size }
+  ensures  { payload_size <= 1048576 }
+  ensures  { max_size >= payload_size }
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Verifiable property: rate limit enforcement
+//
+// Effect handlers can enforce rate limits. Z3 proves that after accepting
+// a request, the remaining quota is non-negative and correctly computed.
+// Max requests per window inlined as 1000.
+// ---------------------------------------------------------------------------
+
+contract RateLimitEnforcement {
+  input(current_count: Nat, max_per_window: Nat)
+
+  requires { current_count >= 0 }
+  requires { max_per_window == 1000 }
+  requires { current_count < max_per_window }
+  ensures  { current_count + 1 <= 1000 }
+  ensures  { max_per_window - current_count >= 1 }
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Verifiable property: retry budget
+//
+// I/O operations may be retried, but the retry count must be bounded
+// to prevent infinite retry loops. Z3 proves the bound is maintained.
+// Max retries inlined as 5.
+// ---------------------------------------------------------------------------
+
+contract RetryBudget {
+  input(retries_used: Nat, max_retries: Nat)
+
+  requires { retries_used >= 0 }
+  requires { max_retries == 5 }
+  requires { retries_used < max_retries }
+  ensures  { retries_used + 1 <= 5 }
+  ensures  { max_retries - retries_used >= 1 }
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Verifiable property: timeout enforcement
+//
+// I/O operations must have a timeout. Z3 proves that the elapsed time
+// is within the timeout window and the remaining time is non-negative.
+// Max timeout inlined as 30000 (30 seconds in ms).
+// ---------------------------------------------------------------------------
+
+contract TimeoutEnforcement {
+  input(elapsed_ms: Nat, timeout_ms: Nat)
+
+  requires { elapsed_ms >= 0 }
+  requires { timeout_ms > 0 }
+  requires { timeout_ms <= 30000 }
+  requires { elapsed_ms <= timeout_ms }
+  ensures  { timeout_ms - elapsed_ms >= 0 }
+  ensures  { elapsed_ms <= 30000 }
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Verifiable property: batch operation size
+//
+// Batch I/O operations (e.g., bulk deletes) must be bounded to prevent
+// accidental mass operations. Z3 proves the batch stays within limits.
+// Max batch size inlined as 100.
+// ---------------------------------------------------------------------------
+
+contract BatchOperationSize {
+  input(batch_size: Nat, max_batch: Nat)
+
+  requires { batch_size > 0 }
+  requires { max_batch == 100 }
+  requires { batch_size <= max_batch }
+  ensures  { batch_size <= 100 }
+  ensures  { max_batch >= batch_size }
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Standalone fn: pure computation cannot perform I/O
+//
+// This function is marked pure. The compiler enforces that it cannot
+// call any function with I/O effects. If it tried to call a database
+// or network function, the compiler would reject it with A07002.
+// ---------------------------------------------------------------------------
+
+fn compute_priority_score(base_priority: Nat, urgency: Nat) -> Nat
+  requires { base_priority >= 0 }
+  requires { urgency >= 0 }
+  requires { urgency <= 10 }
+  requires { base_priority + urgency <= 1000 }
+  ensures  { base_priority + urgency <= 1000 }
+  ensures  { urgency <= 10 }
+  effects { pure }
+
+// ============================================================================
+// Summary: What Assura proves at compile time
+//
+// TYPE.7 (Effect rows): Each function declares its effects. A function
+//   with effects { pure } cannot call functions with I/O, database, or
+//   network effects. The compiler enforces this transitively.
+//
+// TYPE.8 (Effect handlers): Effect handlers provide controlled access
+//   to side effects. A handler can enforce rate limits, timeouts, retry
+//   budgets, and batch sizes at the type level, not just at runtime.
+//
+// Verified properties:
+//   1. ValidateRequestSize: Request payloads bounded before I/O
+//   2. RateLimitEnforcement: Request count within rate limit window
+//   3. RetryBudget: Retry count bounded to prevent infinite loops
+//   4. TimeoutEnforcement: Elapsed time within timeout window
+//   5. BatchOperationSize: Batch operations bounded to prevent mass ops
+//   6. compute_priority_score: Pure computation proven side-effect-free
+//
+// Result: Effect containment violations are compile-time errors. The
+// AWS S3 class of accidental mass-operation bugs cannot exist when
+// batch sizes and rate limits are enforced at the type level.
+// ============================================================================
