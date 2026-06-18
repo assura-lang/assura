@@ -75,6 +75,8 @@ cargo test --workspace
 cargo run --bin assura -- demos/libwebp-huffman.assura
 cargo run --bin assura -- demos/zlib-inflate.assura
 cargo run --bin assura -- demos/mbedtls-x509.assura
+cargo run --bin assura -- demos/taint-tracking.assura
+cargo run --bin assura -- demos/heartbleed.assura
 ```
 
 ### 4. Commit
@@ -133,8 +135,9 @@ Full pipeline tests in `tests/e2e/` exercise parsing through verification.
 
 ### Demo files
 
-The three files in `demos/` are regression guards. Every PR must not
-break them. They model real CVEs (libwebp, zlib, mbedtls).
+The five files in `demos/` are regression guards. Every PR must not
+break them. They model real CVEs (libwebp, zlib, mbedtls, heartbleed,
+taint-tracking).
 
 ## Adding a New Compiler Pass
 
