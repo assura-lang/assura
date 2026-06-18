@@ -1712,4 +1712,26 @@ compiles" failure on taint-tracking.assura.
 - 3,495 tests passing, zero clippy warnings
 - **Next session**: Verify CI passes, session-improve, further development
 
+### Sessions 18-19 (2026-06-18): Z3/CVC5 SMT backend parity (31 issues)
+
+- **31 issues created and resolved** (#213-#245) across 3 batches:
+  - Batch 1 (a682eb6): CVC5 expression encoder parity with Z3 (10 issues #235-#244)
+    - Filled all None arms in encode_expr_cvc5 and expr_to_smtlib
+    - Added Cvc5EncoderState for background axiom threading
+    - Float, String, Old, Field, Index, MethodCall, Call, Block, Tuple, List, Apply, Raw
+  - Batch 2 (00097c7): Standalone functions, feature dispatch, clause enrichments (15 issues #215-#229)
+    - Generic check_validity_cvc5/check_satisfiability_cvc5 reusable functions
+    - CVC5 impls for 7 standalone entry-point functions
+    - Feature body dispatch to CVC5 backend
+    - ClauseKind::Other handling in CVC5 verification
+  - Batch 3 (5ab449d): Tech debt, advanced passes, parallel portfolio (8 issues #213-#214, #230-#234, #245)
+    - Extracted collect_verification_jobs() to deduplicate Decl dispatch
+    - Moved 5 solver-agnostic analysis passes to shared run_*_checks() functions
+    - Wired all 5 advanced passes (weak memory, prophecy, liveness, layer 2, codec) into CVC5 path
+    - Refactored z3_backend/verify.rs to call shared functions (removed ~400 lines)
+    - Implemented true parallel portfolio solving (Z3+CVC5 via std::thread::scope)
+- 3,514 tests passing, zero clippy warnings
+- Only open issue: #45 (CodeQL, blocked on repo going public)
+- **Next session**: Multi-perspective audit, OSS launch readiness
+
 ---
