@@ -144,7 +144,6 @@ pub(crate) struct Encoder {
     /// literals and .length(). When false (default), use integer encoding.
     pub(crate) use_string_theory: bool,
     /// Registered ADT definitions for lightweight emulation.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) adt_defs: HashMap<String, AdtDef>,
 }
 
@@ -167,6 +166,13 @@ impl Encoder {
         Self {
             use_string_theory,
             ..Self::new()
+        }
+    }
+
+    /// Register baseline ADT infrastructure used by match-pattern encoding.
+    pub(crate) fn init_adt_infrastructure(&mut self) {
+        if !self.adt_defs.contains_key("Option") {
+            self.define_adt("Option", &[("Some", &["value"]), ("None", &[])]);
         }
     }
 
@@ -359,7 +365,27 @@ impl Encoder {
 
     /// Encode a function call as an uninterpreted function application.
     /// Known boolean methods return Bool; everything else returns Int.
+    fn adt_for_constructor(&self, ctor_name: &str) -> Option<String> {
+        self.adt_defs.iter().find_map(|(adt_name, def)| {
+            def.constructors
+                .iter()
+                .any(|c| c.name == ctor_name)
+                .then_some(adt_name.clone())
+        })
+    }
+
     fn encode_call(&mut self, func_name: &str, args: &[Expr]) -> Z3Value {
+        if func_name.chars().next().is_some_and(|c| c.is_uppercase()) {
+            self.init_adt_infrastructure();
+            let arg_vals: Vec<ast::Int> = args
+                .iter()
+                .map(|a| self.encode_expr(a).as_int(&mut self.fresh_counter))
+                .collect();
+            if let Some(adt_name) = self.adt_for_constructor(func_name) {
+                return Z3Value::Int(self.adt_constructor(&adt_name, func_name, &arg_vals));
+            }
+        }
+
         // Native string theory: length(str_val) uses Z3's str.len
         if self.use_string_theory && matches!(func_name, "len" | "length") && args.len() == 1 {
             let arg_val = self.encode_expr(&args[0]);
@@ -798,7 +824,12 @@ impl Encoder {
 
     /// Bind pattern variables as fresh Z3 integer constants so they
     /// are available in the arm body.
-    fn bind_pattern_vars(&mut self, pattern: &assura_parser::ast::Pattern, _scrutinee: &Z3Value) {
+    fn bind_pattern_vars(
+        &mut self,
+        pattern: &assura_parser::ast::Pattern,
+        scrutinee: &Z3Value,
+        match_adt: Option<&str>,
+    ) {
         match pattern {
             assura_parser::ast::Pattern::Ident(name) => {
                 // Ident patterns in match bind the variable to the scrutinee,
@@ -809,20 +840,77 @@ impl Encoder {
                     self.vars.insert(name.clone(), Z3Value::Int(v));
                 }
             }
-            assura_parser::ast::Pattern::Constructor { fields, .. } => {
-                // Each field in the constructor is an uninterpreted extraction
-                // from the scrutinee; bind as fresh int variables.
-                for field in fields {
-                    self.bind_pattern_vars(field, _scrutinee);
+            assura_parser::ast::Pattern::Constructor { name, fields } => {
+                if let (Some(adt_name), Z3Value::Int(s)) = (match_adt, scrutinee) {
+                    let accessors: Vec<String> = self
+                        .adt_defs
+                        .get(adt_name)
+                        .and_then(|def| {
+                            def.constructors
+                                .iter()
+                                .find(|c| c.name == *name)
+                                .map(|c| c.accessors.clone())
+                        })
+                        .unwrap_or_default();
+                    for (i, field) in fields.iter().enumerate() {
+                        if let assura_parser::ast::Pattern::Ident(bind_name) = field {
+                            let accessor = accessors.get(i).map(String::as_str).unwrap_or("value");
+                            let val = self.adt_accessor(adt_name, accessor, s);
+                            self.vars.insert(bind_name.clone(), Z3Value::Int(val));
+                        } else {
+                            self.bind_pattern_vars(field, scrutinee, match_adt);
+                        }
+                    }
+                } else {
+                    for field in fields {
+                        self.bind_pattern_vars(field, scrutinee, match_adt);
+                    }
                 }
             }
             assura_parser::ast::Pattern::Tuple(pats) => {
                 for pat in pats {
-                    self.bind_pattern_vars(pat, _scrutinee);
+                    self.bind_pattern_vars(pat, scrutinee, match_adt);
                 }
             }
             assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Literal(_) => {}
         }
+    }
+
+    /// Register a synthetic ADT for constructor patterns in a match expression.
+    fn register_match_adt_from_arms(
+        &mut self,
+        arms: &[assura_parser::ast::MatchArm],
+    ) -> Option<String> {
+        let mut ctor_specs: Vec<(String, Vec<String>)> = Vec::new();
+        for arm in arms {
+            if let assura_parser::ast::Pattern::Constructor { name, fields } = &arm.pattern {
+                let accessors: Vec<String> = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| match field {
+                        assura_parser::ast::Pattern::Ident(n) => n.clone(),
+                        _ => format!("f{i}"),
+                    })
+                    .collect();
+                ctor_specs.push((name.clone(), accessors));
+            }
+        }
+        if ctor_specs.is_empty() {
+            return None;
+        }
+        let adt_name = format!("__match_adt_{}", self.fresh_counter);
+        self.fresh_counter += 1;
+        let accessor_refs: Vec<Vec<&str>> = ctor_specs
+            .iter()
+            .map(|(_, accessors)| accessors.iter().map(|s| s.as_str()).collect())
+            .collect();
+        let spec: Vec<(&str, &[&str])> = ctor_specs
+            .iter()
+            .zip(accessor_refs.iter())
+            .map(|((name, _), refs)| (name.as_str(), refs.as_slice()))
+            .collect();
+        self.define_adt(&adt_name, &spec);
+        Some(adt_name)
     }
 
     // -------------------------------------------------------------------
@@ -966,7 +1054,7 @@ impl Encoder {
             }
         }
 
-        self.adt_defs.insert(adt_name.to_string(), adt_def.clone());
+        self.adt_defs.insert(adt_def.name.clone(), adt_def.clone());
         adt_def
     }
 
@@ -1301,12 +1389,13 @@ impl Encoder {
             // --- Match: encode as ITE chain over arm bodies ---
             Expr::Match { scrutinee, arms } => {
                 let scrut = self.encode_expr(scrutinee);
+                let match_adt = self.register_match_adt_from_arms(arms);
                 // Build an if-then-else chain: if scrut == pattern1 then body1
                 // else if scrut == pattern2 then body2 ... else default
                 let default = Z3Value::Int(self.fresh_int());
                 arms.iter().rev().fold(default, |else_val, arm| {
                     // Bind pattern variables before encoding the body
-                    self.bind_pattern_vars(&arm.pattern, &scrut);
+                    self.bind_pattern_vars(&arm.pattern, &scrut, match_adt.as_deref());
                     let body = self.encode_expr(&arm.body);
                     // For wildcard patterns, the arm always matches
                     if matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard) {
@@ -1339,10 +1428,16 @@ impl Encoder {
                                 _ => ast::Bool::from_bool(true),
                             }
                         }
-                        // Constructor and Tuple patterns bind variables
-                        // but always match in this overapproximation.
-                        assura_parser::ast::Pattern::Constructor { .. }
-                        | assura_parser::ast::Pattern::Tuple(_) => ast::Bool::from_bool(true),
+                        assura_parser::ast::Pattern::Constructor { name, .. } => {
+                            if let (Some(adt_name), Z3Value::Int(s)) =
+                                (match_adt.as_deref(), &scrut)
+                            {
+                                self.adt_is_constructor(adt_name, name, s)
+                            } else {
+                                ast::Bool::from_bool(true)
+                            }
+                        }
+                        assura_parser::ast::Pattern::Tuple(_) => ast::Bool::from_bool(true),
                         _ => ast::Bool::from_bool(true),
                     };
                     // Build ITE: if cond then body else else_val

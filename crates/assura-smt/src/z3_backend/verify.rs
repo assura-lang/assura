@@ -134,6 +134,7 @@ fn verify_clauses_with_types(
 
     let solver = Solver::new();
     let mut encoder = Encoder::new();
+    encoder.init_adt_infrastructure();
 
     // Bind named constants so Z3 uses concrete values, not free vars.
     for (name, value) in types.constants {
@@ -235,6 +236,7 @@ fn verify_clauses_with_types(
         solver.push(); // Save solver state
 
         let mut encoder = Encoder::with_string_theory(types.use_string_theory);
+        encoder.init_adt_infrastructure();
 
         // Bind named constants so Z3 uses concrete values, not free vars.
         for (name, value) in types.constants {
@@ -370,6 +372,7 @@ fn verify_invariant_expr(parent_name: &str, expr: &Expr, results: &mut Vec<Verif
     let desc = format!("{parent_name}::invariant");
     let solver = Solver::new();
     let mut encoder = Encoder::new();
+    encoder.init_adt_infrastructure();
     let val = encoder.encode_expr(expr);
     let bool_val = val.as_bool();
     solver.assert(&bool_val);
@@ -544,6 +547,7 @@ pub(crate) fn verify_quantified_impl(
     solver.set_params(&params);
 
     let mut encoder = Encoder::new();
+    encoder.init_adt_infrastructure();
 
     // Assert assumptions
     for assumption in assumptions {

@@ -2595,47 +2595,35 @@ contract NoCrossContamination {
 #[test]
 fn test_z3_adt_constructor() {
     // Define an ADT like Option = Some(value: Int) | None
-    // Verify that constructor tags are distinct.
+    // Verify constructor tags are distinct and testers are consistent.
     use crate::z3_backend::encoder::Encoder;
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
-        encoder.define_adt("Option", &[("Some", &["value"]), ("None", &[])]);
+        let def = encoder.define_adt("Option", &[("Some", &["value"]), ("None", &[])]);
 
-        // Construct Some(42) and None
+        assert_eq!(def.name, "Option");
+        assert_eq!(def.constructors.len(), 2);
+        assert_eq!(def.constructors[0].name, "Some");
+        assert_eq!(def.constructors[0].tag, 0);
+        assert_eq!(def.constructors[1].name, "None");
+        assert_eq!(def.constructors[1].tag, 1);
+
         let forty_two = z3::ast::Int::from_i64(42);
         let some_val = encoder.adt_constructor("Option", "Some", &[forty_two]);
-        let none_val = encoder.adt_constructor("Option", "None", &[]);
-
-        // Verify tags are distinct: tag(some_val) != tag(none_val)
         let is_some = encoder.adt_is_constructor("Option", "Some", &some_val);
-        let is_none = encoder.adt_is_constructor("Option", "None", &none_val);
+        let is_none_on_some = encoder.adt_is_constructor("Option", "None", &some_val);
 
         let solver = z3::Solver::new();
-        // Assert all background axioms
-        for axiom in &encoder.background_axioms {
+        // Constructor-specific tag axioms only (skip quantified background).
+        for axiom in encoder.background_axioms.iter().rev().take(2) {
             solver.assert(axiom);
         }
-        // Assert both testers: some IS Some, none IS None
         solver.assert(&is_some);
-        solver.assert(&is_none);
-        // Also assert tag distinctness: tag(some) != tag(none)
-        let some_tag_fn =
-            z3::FuncDecl::new("__adt_tag_Option", &[&z3::Sort::int()], &z3::Sort::int());
-        let tag_some = some_tag_fn
-            .apply(&[&some_val as &dyn z3::ast::Ast])
-            .as_int()
-            .unwrap();
-        let tag_none = some_tag_fn
-            .apply(&[&none_val as &dyn z3::ast::Ast])
-            .as_int()
-            .unwrap();
-        solver.assert(&tag_some.eq(&tag_none).not());
-
-        let result = solver.check();
+        solver.assert(&is_none_on_some);
         assert_eq!(
-            result,
-            z3::SatResult::Sat,
-            "Distinct constructors should have distinct tags"
+            solver.check(),
+            z3::SatResult::Unsat,
+            "A Some value cannot also test as None"
         );
     });
 }

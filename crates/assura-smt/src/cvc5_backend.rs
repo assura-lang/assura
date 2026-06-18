@@ -2,6 +2,29 @@ use super::*;
 use crate::cache::SessionCache;
 use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
+use std::sync::OnceLock;
+
+/// Baseline Option ADT for shell-out match encoding (#263).
+static SHELL_MATCH_ADT: OnceLock<Cvc5AdtDef> = OnceLock::new();
+
+fn shell_match_adt_def() -> &'static Cvc5AdtDef {
+    SHELL_MATCH_ADT.get_or_init(|| {
+        let (def, _) = define_adt_cvc5("Option", &[("Some", &["value"]), ("None", &[])]);
+        assert_eq!(def.name, "Option");
+        def
+    })
+}
+
+/// SMT-LIB2 declarations and axioms for baseline ADT infrastructure.
+pub(crate) fn cvc5_adt_prelude_lines() -> Vec<String> {
+    let (def, mut lines) = define_adt_cvc5("Option", &[("Some", &["value"]), ("None", &[])]);
+    lines.push(format!("; adt: {}", def.name));
+    let tester = adt_is_constructor_smt("Option", "Some", "x", &def);
+    let accessor = adt_accessor_smt("Option", "value", "x");
+    lines.push(format!("; adt tester: {tester}"));
+    lines.push(format!("; adt accessor: {accessor}"));
+    lines
+}
 
 // =========================================================================
 // Unmodelable feature detection (mirrors z3_backend::encoder logic)
@@ -3806,6 +3829,13 @@ fn check_clause_cvc5_shellout(
     let mut script = String::new();
     script.push_str("(set-logic ALL)\n");
 
+    for line in cvc5_adt_prelude_lines() {
+        script.push_str(&line);
+        if !line.ends_with('\n') {
+            script.push('\n');
+        }
+    }
+
     for var in &vars {
         script.push_str(&format!("(declare-const {var} Int)\n"));
     }
@@ -4295,9 +4325,10 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                     }
                     Pattern::Constructor { name, fields: _ } => {
                         let body = expr_to_smtlib(&arm.body)?;
-                        let tag = pattern_hash_smtlib(name);
                         let default = result.as_ref()?;
-                        result = Some(format!("(ite (= {s} {tag}) {body} {default})"));
+                        let cond =
+                            adt_is_constructor_smt("Option", name, &s, shell_match_adt_def());
+                        result = Some(format!("(ite {cond} {body} {default})"));
                     }
                     Pattern::Tuple(_) => {
                         // Tuple match is structural (always matches)

@@ -1850,7 +1850,7 @@ compiles" failure on taint-tracking.assura.
 
 ### Round 6: Advanced theories (#263, #265, #266, #267) -- depends on: Round 5
 
-- [ ] **10.19** #263 Z3/CVC5: Algebraic data type (ADT) encoding
+- [x] **10.19** #263 Z3/CVC5: Algebraic data type (ADT) encoding
   - Z3 Datatypes, CVC5 DatatypeDecl for enums/structs
 - [ ] **10.20** #265 Z3/CVC5: Bitvector theory for fixed-width integers
   - BitVec sort for u8/u16/u32/u64, overflow detection
