@@ -4,7 +4,9 @@
 
 use super::encoder::{Encoder, collect_unmodelable_reasons, expr_has_unmodelable_features};
 use super::solver::extract_counter_model;
-use super::solver::{check_satisfiability, check_validity, clause_desc};
+use super::solver::{
+    assert_tracked, check_satisfiability, check_validity, clause_desc, enable_unsat_cores,
+};
 use crate::cache::SessionCache;
 use crate::*;
 use assura_parser::ast::{BlockKind, Clause};
@@ -133,6 +135,7 @@ fn verify_clauses_with_types(
     // ---------------------------------------------------------------
 
     let solver = Solver::new();
+    enable_unsat_cores(&solver);
     let mut encoder = Encoder::new();
     encoder.init_adt_infrastructure();
     encoder.init_bitvector_infrastructure();
@@ -155,17 +158,9 @@ fn verify_clauses_with_types(
         collect_function_names_for_triggers(&other_clause.body, &mut encoder.trigger_manager);
     }
 
-    // Assert all requires as assumptions ONCE (shared across all clauses)
-    for req in &requires {
-        let req_val = encoder.encode_expr(&req.body);
-        let req_bool = req_val.as_bool();
-        solver.assert(&req_bool);
-    }
-    // Assert background axioms from requires encoding
-    for axiom in &encoder.background_axioms {
-        solver.assert(axiom);
-    }
-    encoder.background_axioms.clear();
+    // Requires are asserted per-clause with tracking labels (below) so
+    // unsat-core extraction identifies which preconditions were needed.
+    // Type-level constraints and lemmas are still shared at base level.
 
     // Assert type-level constraints for parameters and return type.
     for param in types.params {
@@ -229,7 +224,7 @@ fn verify_clauses_with_types(
         let clause_hash = format!("{desc}:{:?}", clause.body);
         if let Some(cached) = cache.lookup(&clause_hash) {
             match cached.result.as_str() {
-                "verified" => results.push(VerificationResult::Verified { clause_desc: desc }),
+                "verified" => results.push(VerificationResult::verified(desc)),
                 "timeout" => results.push(VerificationResult::Timeout { clause_desc: desc }),
                 other => results.push(VerificationResult::Unknown {
                     clause_desc: desc,
@@ -263,11 +258,12 @@ fn verify_clauses_with_types(
             collect_function_names_for_triggers(&other_clause.body, &mut encoder.trigger_manager);
         }
 
-        // Assert all requires as assumptions
-        for req in &requires {
+        // Assert all requires as tracked assumptions for unsat-core extraction
+        for (i, req) in requires.iter().enumerate() {
             let req_val = encoder.encode_expr(&req.body);
             let req_bool = req_val.as_bool();
-            solver.assert(&req_bool);
+            let label = format!("req_{i}");
+            assert_tracked(&solver, &req_bool, &label);
         }
         // Assert background axioms from requires encoding (e.g., map
         // read-over-write, string length axioms)
@@ -576,9 +572,7 @@ pub(crate) fn verify_quantified_impl(
     solver.assert(body_bool.not());
 
     match solver.check() {
-        SatResult::Unsat => VerificationResult::Verified {
-            clause_desc: name.into(),
-        },
+        SatResult::Unsat => VerificationResult::verified(name),
         SatResult::Sat => {
             let (model_str, counter_model) = if let Some(m) = solver.get_model() {
                 let cm = extract_counter_model(&m);

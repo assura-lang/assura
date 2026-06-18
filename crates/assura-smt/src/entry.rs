@@ -582,9 +582,7 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
         for l2r in l2.verify() {
             match l2r {
                 crate::layer2::Layer2Result::Verified { invariant, .. } => {
-                    results.push(VerificationResult::Verified {
-                        clause_desc: format!("layer2:{invariant}"),
-                    });
+                    results.push(VerificationResult::verified(format!("layer2:{invariant}")));
                 }
                 crate::layer2::Layer2Result::Counterexample {
                     invariant, model, ..
@@ -1260,9 +1258,7 @@ pub fn verify_evolution(
     // If new has no requires, it accepts everything, so weakening holds trivially.
     let precondition_weakening = if new_requires.is_empty() {
         // New accepts everything; weakening holds trivially
-        VerificationResult::Verified {
-            clause_desc: format!("{contract_name}: precondition weakening"),
-        }
+        VerificationResult::verified(format!("{contract_name}: precondition weakening"))
     } else {
         check_implication(
             &old_requires,
@@ -1278,9 +1274,7 @@ pub fn verify_evolution(
     // If new has no ensures but old does, strengthening fails (lost guarantees).
     let postcondition_strengthening = if old_ensures.is_empty() {
         // Old had no guarantees; any new guarantees are fine
-        VerificationResult::Verified {
-            clause_desc: format!("{contract_name}: postcondition strengthening"),
-        }
+        VerificationResult::verified(format!("{contract_name}: postcondition strengthening"))
     } else if new_ensures.is_empty() {
         // Old had guarantees, new dropped them
         VerificationResult::Counterexample {
@@ -1683,7 +1677,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         // The description should contain the contract name
         match &results[0] {
-            VerificationResult::Verified { clause_desc }
+            VerificationResult::Verified { clause_desc, .. }
             | VerificationResult::Counterexample { clause_desc, .. }
             | VerificationResult::Timeout { clause_desc }
             | VerificationResult::Unknown { clause_desc, .. } => {

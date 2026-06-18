@@ -1832,7 +1832,7 @@ fn nat_fn(n: Nat) -> Nat
     }
     // Find the ensures result
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -1895,7 +1895,7 @@ fn nat_param(n: Nat) -> Int
     let results = verify_source(src);
     assert!(!results.is_empty(), "should have verification results");
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -1931,7 +1931,7 @@ contract UsesConstant {
     }
     // Both requires-as-ensures and the equality check should verify
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -1958,7 +1958,7 @@ fn check_size(payload: Nat, record: Nat) -> Int
     let results = verify_source(src);
     assert!(!results.is_empty(), "should have verification results");
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -1986,7 +1986,7 @@ contract WrongClaim {
     let results = verify_source(src);
     assert!(!results.is_empty(), "should have verification results");
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -2017,7 +2017,7 @@ fn check_total(payload: Nat) -> Int
     let results = verify_source(src);
     assert!(!results.is_empty(), "should have verification results");
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -2048,7 +2048,7 @@ fn validate_page(page_size: Nat) -> Int
     let results = verify_source(src);
     assert!(!results.is_empty(), "should have verification results");
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -2072,7 +2072,7 @@ fn check_content(CONTENT_LEN: Nat) -> Int
     "#;
     let results = verify_source(src);
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -2100,7 +2100,7 @@ fn validate_page(page_size: Nat) -> Int
     "#;
     let results = verify_source(src);
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -2129,7 +2129,7 @@ fn check_buffer(buffer: Nat) -> Int
     "#;
     let results = verify_source(src);
     let ensures_result = results.iter().find(|r| match r {
-        VerificationResult::Verified { clause_desc }
+        VerificationResult::Verified { clause_desc, .. }
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
@@ -2804,4 +2804,78 @@ fn test_z3_bitvector_bitwise_ops() {
         solver.assert(&xor_val.eq(&BitvectorEncoder::bv_from_u64(0b0110, 8)));
         assert_eq!(solver.check(), z3::SatResult::Sat);
     });
+}
+
+// -----------------------------------------------------------------------
+// #266: Unsat core extraction
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_z3_unsat_core_extraction() {
+    let src = r#"
+contract UnsatCoreTest {
+    requires: x > 50
+    requires: x < 100
+    ensures: x > 10
+}
+"#;
+    let results = verify_source(src);
+    let ensures = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc, .. }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(
+        ensures.is_some(),
+        "expected ensures result, got: {results:?}"
+    );
+    match ensures.unwrap() {
+        VerificationResult::Verified { unsat_core, .. } => {
+            let core = unsat_core
+                .as_ref()
+                .expect("verified ensures should include unsat core");
+            assert!(
+                core.iter().any(|l| l == "req_0"),
+                "core should include the strong require req_0, got: {core:?}"
+            );
+        }
+        other => panic!("expected verified ensures, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_unsat_core_minimal() {
+    let src = r#"
+contract MinimalCore {
+    requires: x > 50
+    requires: x > 10
+    ensures: x > 0
+}
+"#;
+    let results = verify_source(src);
+    let ensures = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc, .. }
+        | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
+        _ => false,
+    });
+    assert!(
+        ensures.is_some(),
+        "expected ensures result, got: {results:?}"
+    );
+    match ensures.unwrap() {
+        VerificationResult::Verified { unsat_core, .. } => {
+            let core = unsat_core
+                .as_ref()
+                .expect("verified ensures should include unsat core");
+            assert!(
+                core.iter().any(|l| l == "req_0"),
+                "minimal core should retain req_0 (x > 50), got: {core:?}"
+            );
+            assert!(
+                !core.iter().any(|l| l == "req_1"),
+                "redundant req_1 (x > 10) should be excluded from minimal core, got: {core:?}"
+            );
+        }
+        other => panic!("expected verified ensures, got: {other:?}"),
+    }
 }

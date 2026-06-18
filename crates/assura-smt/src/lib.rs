@@ -389,7 +389,7 @@ mod verify_contract_tests {
         let results = verify_contract("TestContract", &clauses);
         assert_eq!(results.len(), 1, "one ensures clause: {results:?}");
         assert!(
-            matches!(&results[0], VerificationResult::Verified { clause_desc } if clause_desc.contains("TestContract")),
+            matches!(&results[0], VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("TestContract")),
             "should verify: {results:?}"
         );
     }

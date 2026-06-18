@@ -30,6 +30,28 @@ impl CounterexampleModel {
     }
 }
 
+impl VerificationResult {
+    /// Build a verified result without an unsat core.
+    pub fn verified(clause_desc: impl Into<String>) -> Self {
+        Self::Verified {
+            clause_desc: clause_desc.into(),
+            unsat_core: None,
+        }
+    }
+
+    /// Build a verified result with an extracted unsat core.
+    pub fn verified_with_core(clause_desc: impl Into<String>, unsat_core: Vec<String>) -> Self {
+        Self::Verified {
+            clause_desc: clause_desc.into(),
+            unsat_core: if unsat_core.is_empty() {
+                None
+            } else {
+                Some(unsat_core)
+            },
+        }
+    }
+}
+
 /// The result of verifying a single contract clause.
 #[derive(Debug, Clone)]
 pub enum VerificationResult {
@@ -37,6 +59,9 @@ pub enum VerificationResult {
     Verified {
         /// Human-readable description of what was verified.
         clause_desc: String,
+        /// Labels of tracked assumptions in the unsat core (requires clauses
+        /// that were necessary to prove validity), when available.
+        unsat_core: Option<Vec<String>>,
     },
     /// A counterexample was found (the clause does not hold).
     Counterexample {
@@ -111,9 +136,7 @@ mod tests {
 
     #[test]
     fn verification_result_debug_verified() {
-        let r = VerificationResult::Verified {
-            clause_desc: "SafeDiv: ensures".into(),
-        };
+        let r = VerificationResult::verified("SafeDiv: ensures");
         let debug = format!("{r:?}");
         assert!(debug.contains("Verified"));
         assert!(debug.contains("SafeDiv"));
@@ -154,9 +177,7 @@ mod tests {
 
     #[test]
     fn verification_result_clone() {
-        let r = VerificationResult::Verified {
-            clause_desc: "test".into(),
-        };
+        let r = VerificationResult::verified("test");
         let r2 = r.clone();
         assert!(format!("{r:?}") == format!("{r2:?}"));
     }

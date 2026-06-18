@@ -91,7 +91,7 @@ enum CachedResult {
 impl From<&VerificationResult> for CachedResult {
     fn from(r: &VerificationResult) -> Self {
         match r {
-            VerificationResult::Verified { clause_desc } => CachedResult::Verified {
+            VerificationResult::Verified { clause_desc, .. } => CachedResult::Verified {
                 clause_desc: clause_desc.clone(),
             },
             VerificationResult::Counterexample {
@@ -117,7 +117,7 @@ impl From<&VerificationResult> for CachedResult {
 impl From<CachedResult> for VerificationResult {
     fn from(c: CachedResult) -> Self {
         match c {
-            CachedResult::Verified { clause_desc } => VerificationResult::Verified { clause_desc },
+            CachedResult::Verified { clause_desc } => VerificationResult::verified(clause_desc),
             CachedResult::Counterexample { clause_desc, model } => {
                 VerificationResult::Counterexample {
                     clause_desc,
@@ -321,9 +321,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
         let clauses: Vec<assura_parser::ast::Clause> = vec![];
-        let results = vec![VerificationResult::Verified {
-            clause_desc: "test::ensures".into(),
-        }];
+        let results = vec![VerificationResult::verified("test::ensures")];
         cache.put("my_contract", &clauses, &results);
         let got = cache.get("my_contract", &clauses).unwrap();
         assert_eq!(got.len(), 1);
@@ -346,9 +344,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
         let clauses: Vec<assura_parser::ast::Clause> = vec![];
-        let r1 = vec![VerificationResult::Verified {
-            clause_desc: "a::ensures".into(),
-        }];
+        let r1 = vec![VerificationResult::verified("a::ensures")];
         let r2 = vec![VerificationResult::Timeout {
             clause_desc: "b::ensures".into(),
         }];

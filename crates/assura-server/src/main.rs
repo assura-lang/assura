@@ -176,7 +176,7 @@ fn run_check(
     let mut verifications = Vec::new();
     for vr in &output.verification {
         let (clause, status, cex) = match vr {
-            assura_smt::VerificationResult::Verified { clause_desc } => {
+            assura_smt::VerificationResult::Verified { clause_desc, .. } => {
                 (clause_desc.clone(), "verified".into(), String::new())
             }
             assura_smt::VerificationResult::Counterexample {

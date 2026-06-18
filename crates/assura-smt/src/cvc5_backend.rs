@@ -975,9 +975,7 @@ fn verify_contract_cvc5_native(
         let cache_key = format!("{desc}::{:?}:{:?}", clause.kind, clause.body);
         if let Some(entry) = cache.lookup(&cache_key) {
             let cached_result = match entry.result.as_str() {
-                "verified" => VerificationResult::Verified {
-                    clause_desc: desc.clone(),
-                },
+                "verified" => VerificationResult::verified(desc.clone()),
                 other => VerificationResult::Unknown {
                     clause_desc: desc.clone(),
                     reason: format!("cached: {other}"),
@@ -1067,15 +1065,11 @@ fn verify_contract_cvc5_native(
                     counter_model: None,
                 }
             } else {
-                VerificationResult::Verified {
-                    clause_desc: desc.clone(),
-                }
+                VerificationResult::verified(desc.clone())
             }
         } else if sat_result.is_sat() {
             if matches!(clause.kind, ClauseKind::Invariant) {
-                VerificationResult::Verified {
-                    clause_desc: desc.clone(),
-                }
+                VerificationResult::verified(desc.clone())
             } else {
                 let mut variables: Vec<(String, String)> = var_map
                     .iter()
@@ -1148,9 +1142,7 @@ fn check_clause_cvc5_native(
     let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
     if let Some(entry) = cache.lookup(&cache_key) {
         return match entry.result.as_str() {
-            "verified" => VerificationResult::Verified {
-                clause_desc: desc.to_string(),
-            },
+            "verified" => VerificationResult::verified(desc.to_string()),
             other => VerificationResult::Unknown {
                 clause_desc: desc.to_string(),
                 reason: format!("cached: {other}"),
@@ -1324,15 +1316,11 @@ fn check_clause_cvc5_native(
                 counter_model: None,
             }
         } else {
-            VerificationResult::Verified {
-                clause_desc: desc.to_string(),
-            }
+            VerificationResult::verified(desc.to_string())
         }
     } else if sat_result.is_sat() {
         if matches!(kind, ClauseKind::Invariant) {
-            VerificationResult::Verified {
-                clause_desc: desc.to_string(),
-            }
+            VerificationResult::verified(desc.to_string())
         } else {
             // Extract counterexample model, filtering internal variables
             // and sorting alphabetically (matching Z3 backend behavior)
@@ -3254,6 +3242,42 @@ fn parse_raw_atom_cvc5<'a>(
 // Generic CVC5 validity checker (reusable for standalone functions)
 // -------------------------------------------------------------------------
 
+/// Extract tracking-label names from a CVC5 unsat core / unsat assumptions.
+#[cfg(feature = "cvc5-verify")]
+fn extract_cvc5_unsat_core_labels(solver: &cvc5::Solver, tracked: &[cvc5::Term]) -> Vec<String> {
+    let mut labels: Vec<String> = solver
+        .get_unsat_assumptions()
+        .iter()
+        .map(|t| cvc5_term_label(t))
+        .collect();
+    if labels.is_empty() {
+        labels = solver
+            .get_unsat_core()
+            .iter()
+            .map(|t| cvc5_term_label(t))
+            .collect();
+    }
+    if labels.is_empty() && !tracked.is_empty() {
+        labels = tracked.iter().map(|t| cvc5_term_label(t)).collect();
+    }
+    labels.sort();
+    labels.dedup();
+    labels
+}
+
+/// Best-effort human-readable label for a CVC5 term (tracking constants).
+#[cfg(feature = "cvc5-verify")]
+fn cvc5_term_label(term: &cvc5::Term) -> String {
+    let s = term.to_string();
+    if let Some(start) = s.find(' ') {
+        let rest = s[start + 1..].trim();
+        if !rest.is_empty() {
+            return rest.to_string();
+        }
+    }
+    s
+}
+
 /// Check validity of `body` under `assumptions` using CVC5.
 ///
 /// Encodes: assert all assumptions, negate body, check-sat.
@@ -3284,6 +3308,7 @@ pub(crate) fn check_validity_cvc5(
     let mut solver = cvc5::Solver::new(&tm);
     solver.set_logic("ALL");
     solver.set_option("produce-models", "true");
+    solver.set_option("produce-unsat-cores", "true");
     solver.set_option("tlimit", "2000");
 
     let mut var_names = std::collections::HashSet::new();
@@ -3305,10 +3330,17 @@ pub(crate) fn check_validity_cvc5(
         use_string_theory: false,
     };
 
-    // Assert assumptions
-    for a in assumptions {
+    let bool_sort = tm.boolean_sort();
+    let mut tracked_assumptions: Vec<cvc5::Term> = Vec::new();
+
+    // Track assumptions with labels for unsat-core extraction (#266).
+    for (i, a) in assumptions.iter().enumerate() {
         if let Some(term) = encode_expr_cvc5(&tm, a, &var_map, &mut enc_state) {
-            solver.assert_formula(term);
+            let label = format!("req_{i}");
+            let track = tm.mk_const(bool_sort.clone(), &label);
+            tracked_assumptions.push(track.clone());
+            let implication = tm.mk_term(cvc5::Kind::Implies, &[track, term]);
+            solver.assert_formula(implication);
         }
     }
 
@@ -3328,15 +3360,18 @@ pub(crate) fn check_validity_cvc5(
         solver.assert_formula(axiom.clone());
     }
 
-    // Negate body, check-sat: UNSAT = valid
+    // Negate body, check-sat-assuming tracked requires: UNSAT = valid
     let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
     solver.assert_formula(negated);
 
-    let sat_result = solver.check_sat();
+    let sat_result = if tracked_assumptions.is_empty() {
+        solver.check_sat()
+    } else {
+        solver.check_sat_assuming(&tracked_assumptions)
+    };
     if sat_result.is_unsat() {
-        VerificationResult::Verified {
-            clause_desc: desc.to_string(),
-        }
+        let core = extract_cvc5_unsat_core_labels(&solver, &tracked_assumptions);
+        VerificationResult::verified_with_core(desc.to_string(), core)
     } else if sat_result.is_sat() {
         // Filter internal variables and sort alphabetically
         let mut variables: Vec<(String, String)> = var_map
@@ -3441,9 +3476,7 @@ pub(crate) fn check_satisfiability_cvc5(
 
     let sat_result = solver.check_sat();
     if sat_result.is_sat() {
-        VerificationResult::Verified {
-            clause_desc: desc.to_string(),
-        }
+        VerificationResult::verified(desc.to_string())
     } else if sat_result.is_unsat() {
         VerificationResult::Counterexample {
             clause_desc: desc.to_string(),
@@ -3617,9 +3650,7 @@ pub(crate) fn verify_taint_safety_cvc5(
         }
     }
 
-    VerificationResult::Verified {
-        clause_desc: "taint_safety".to_string(),
-    }
+    VerificationResult::verified("taint_safety".to_string())
 }
 
 /// CVC5 implementation of feature clause body verification.
@@ -3798,9 +3829,7 @@ fn check_clause_cvc5_shellout(
     let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
     if let Some(entry) = cache.lookup(&cache_key) {
         return match entry.result.as_str() {
-            "verified" => VerificationResult::Verified {
-                clause_desc: desc.to_string(),
-            },
+            "verified" => VerificationResult::verified(desc.to_string()),
             other => VerificationResult::Unknown {
                 clause_desc: desc.to_string(),
                 reason: format!("cached: {other}"),
@@ -3939,16 +3968,12 @@ fn check_clause_cvc5_shellout(
                     counter_model: None,
                 }
             } else {
-                VerificationResult::Verified {
-                    clause_desc: desc.to_string(),
-                }
+                VerificationResult::verified(desc.to_string())
             }
         }
         Cvc5Result::Sat(model_str) => {
             if matches!(kind, ClauseKind::Invariant) {
-                VerificationResult::Verified {
-                    clause_desc: desc.to_string(),
-                }
+                VerificationResult::verified(desc.to_string())
             } else {
                 let counter_model = parse_smtlib_model(&model_str);
                 // Build a filtered model string from the parsed model
@@ -8315,6 +8340,37 @@ mod tests {
         // -------------------------------------------------------------------
         // #265: CVC5 bitvector wrapping test
         // -------------------------------------------------------------------
+
+        #[test]
+        fn test_cvc5_unsat_core_extraction() {
+            use assura_parser::ast::{BinOp, Literal};
+
+            let int_lit = |n: &str| Expr::Literal(Literal::Int(n.into()));
+            let var = |name: &str| Expr::Ident(name.into());
+            let cmp = |name: &str, op: BinOp, n: &str| Expr::BinOp {
+                lhs: Box::new(var(name)),
+                op,
+                rhs: Box::new(int_lit(n)),
+            };
+
+            let req0 = cmp("x", BinOp::Gt, "50");
+            let req1 = cmp("x", BinOp::Lt, "100");
+            let ensures = cmp("x", BinOp::Gt, "10");
+
+            let result = check_validity_cvc5("unsat_core_test", &[&req0, &req1], &ensures);
+            match result {
+                VerificationResult::Verified { unsat_core, .. } => {
+                    let core = unsat_core
+                        .as_ref()
+                        .expect("CVC5 verified result should include unsat core");
+                    assert!(
+                        core.iter().any(|l| l.contains("req_0")),
+                        "core should include req_0, got: {core:?}"
+                    );
+                }
+                other => panic!("expected verified result, got: {other:?}"),
+            }
+        }
 
         #[test]
         fn test_cvc5_bitvector_wrapping() {

@@ -245,9 +245,7 @@ pub(crate) fn verify_taint_safety_impl(
     }
 
     if sensitive_uses.is_empty() {
-        return VerificationResult::Verified {
-            clause_desc: "taint_safety (no sensitive uses)".into(),
-        };
+        return VerificationResult::verified("taint_safety (no sensitive uses)");
     }
 
     // For each sensitive use, check taint_var >= required

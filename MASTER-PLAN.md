@@ -1854,7 +1854,7 @@ compiles" failure on taint-tracking.assura.
   - Z3 Datatypes, CVC5 DatatypeDecl for enums/structs
 - [x] **10.20** #265 Z3/CVC5: Bitvector theory for fixed-width integers
   - BitVec sort for u8/u16/u32/u64, overflow detection
-- [ ] **10.21** #266 Z3/CVC5: Unsatisfiable core extraction
+- [x] **10.21** #266 Z3/CVC5: Unsatisfiable core extraction
   - produce-unsat-cores, extract and report in VerificationResult
 - [ ] **10.22** #267 Z3/CVC5: Havoc+assume encoding for result-field
   - Implementation IR constrains result, structural axioms for pure contracts

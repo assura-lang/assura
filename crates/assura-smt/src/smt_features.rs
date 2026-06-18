@@ -141,9 +141,7 @@ fn verify_feature_body(
 /// verifies the requires/ensures interface contract.
 pub fn verify_opaque_contract(name: &str, has_ensures: bool) -> VerificationResult {
     if has_ensures {
-        VerificationResult::Verified {
-            clause_desc: format!("{name}: opaque contract assumed"),
-        }
+        VerificationResult::verified(format!("{name}: opaque contract assumed"))
     } else {
         VerificationResult::Unknown {
             clause_desc: format!("{name}: opaque"),
@@ -762,13 +760,13 @@ mod tests {
             "inductive check should produce 2 results: {results:?}"
         );
         assert!(
-            matches!(&results[0], VerificationResult::Verified { clause_desc }
+            matches!(&results[0], VerificationResult::Verified { clause_desc, .. }
                 if clause_desc.contains("establishment")),
             "establishment should verify for tautology: {:?}",
             results[0]
         );
         assert!(
-            matches!(&results[1], VerificationResult::Verified { clause_desc }
+            matches!(&results[1], VerificationResult::Verified { clause_desc, .. }
                 if clause_desc.contains("preservation")),
             "preservation should verify for tautology: {:?}",
             results[1]
@@ -858,7 +856,7 @@ mod tests {
         );
         // Should have establishment result from inductive checker
         let has_establishment = results.iter().any(|r| {
-            matches!(r, VerificationResult::Verified { clause_desc }
+            matches!(r, VerificationResult::Verified { clause_desc, .. }
                 if clause_desc.contains("establishment"))
         });
         assert!(

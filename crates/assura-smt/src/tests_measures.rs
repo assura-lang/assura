@@ -645,9 +645,7 @@ fn fs_cache_put_and_get() {
         body: assura_parser::ast::Expr::Ident("result".into()),
         effect_variables: vec![],
     }];
-    let results = vec![VerificationResult::Verified {
-        clause_desc: "test.ensures".into(),
-    }];
+    let results = vec![VerificationResult::verified("test.ensures")];
     cache.put("test", &clauses, &results);
     let cached = cache.get("test", &clauses);
     assert!(cached.is_some());
@@ -670,9 +668,7 @@ fn fs_cache_miss_on_different_clauses() {
         body: assura_parser::ast::Expr::Ident("result".into()),
         effect_variables: vec![],
     }];
-    let results = vec![VerificationResult::Verified {
-        clause_desc: "test.ensures".into(),
-    }];
+    let results = vec![VerificationResult::verified("test.ensures")];
     cache.put("test", &clauses_a, &results);
     assert!(cache.get("test", &clauses_b).is_none());
     let _ = std::fs::remove_dir_all(&dir);
@@ -688,9 +684,7 @@ fn fs_cache_clear() {
         body: assura_parser::ast::Expr::Ident("result".into()),
         effect_variables: vec![],
     }];
-    let results = vec![VerificationResult::Verified {
-        clause_desc: "test.ensures".into(),
-    }];
+    let results = vec![VerificationResult::verified("test.ensures")];
     cache.put("test", &clauses, &results);
     assert_eq!(cache.entry_count(), 1);
     cache.clear();

@@ -40,11 +40,21 @@ pub fn write_grouped_verification(
     results: &[VerificationResult],
     indent: &str,
 ) -> std::io::Result<()> {
+    write_grouped_verification_with_cores(w, results, indent, false)
+}
+
+/// Like [`write_grouped_verification`], but optionally prints unsat cores.
+pub fn write_grouped_verification_with_cores(
+    w: &mut dyn Write,
+    results: &[VerificationResult],
+    indent: &str,
+    show_cores: bool,
+) -> std::io::Result<()> {
     let mut groups: Vec<(String, Vec<&VerificationResult>)> = Vec::new();
 
     for vr in results {
         let desc = match vr {
-            VerificationResult::Verified { clause_desc }
+            VerificationResult::Verified { clause_desc, .. }
             | VerificationResult::Counterexample { clause_desc, .. }
             | VerificationResult::Timeout { clause_desc }
             | VerificationResult::Unknown { clause_desc, .. } => clause_desc.as_str(),
@@ -62,9 +72,18 @@ pub fn write_grouped_verification(
         writeln!(w, "{indent}{owner}:")?;
         for vr in results {
             match vr {
-                VerificationResult::Verified { clause_desc } => {
+                VerificationResult::Verified {
+                    clause_desc,
+                    unsat_core,
+                } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
                     writeln!(w, "{indent}  {kind:<20} ... verified")?;
+                    if show_cores
+                        && let Some(core) = unsat_core
+                        && !core.is_empty()
+                    {
+                        writeln!(w, "{indent}    unsat core: {}", core.join(", "))?;
+                    }
                 }
                 VerificationResult::Counterexample {
                     clause_desc,
@@ -566,9 +585,7 @@ mod tests {
 
     #[test]
     fn test_write_grouped_verified() {
-        let results = vec![VerificationResult::Verified {
-            clause_desc: "Foo::ensures".to_string(),
-        }];
+        let results = vec![VerificationResult::verified("Foo::ensures")];
         let mut buf = Vec::new();
         write_grouped_verification(&mut buf, &results, "  ").unwrap();
         let output = String::from_utf8(buf).unwrap();
@@ -618,12 +635,8 @@ mod tests {
     #[test]
     fn test_write_grouped_multiple_same_owner() {
         let results = vec![
-            VerificationResult::Verified {
-                clause_desc: "C::requires".to_string(),
-            },
-            VerificationResult::Verified {
-                clause_desc: "C::ensures".to_string(),
-            },
+            VerificationResult::verified("C::requires"),
+            VerificationResult::verified("C::ensures"),
         ];
         let mut buf = Vec::new();
         write_grouped_verification(&mut buf, &results, "").unwrap();

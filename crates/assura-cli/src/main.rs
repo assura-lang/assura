@@ -132,6 +132,10 @@ enum Commands {
         /// Write SMT-LIB2 files for each verification query to this directory
         #[arg(long, value_name = "DIR")]
         dump_smt: Option<String>,
+
+        /// Display unsat cores for verified clauses
+        #[arg(long)]
+        show_cores: bool,
     },
 
     /// Verify inline contract annotations in Rust source files
@@ -361,6 +365,7 @@ struct CheckOptions<'a> {
     watch: bool,
     stats: bool,
     dump_smt: Option<&'a str>,
+    show_cores: bool,
 }
 
 /// Context for verification + diagnostic reporting.
@@ -375,6 +380,7 @@ struct VerifyContext<'a> {
     verbosity: Verbosity,
     layer: u8,
     solver: assura_smt::SolverChoice,
+    show_cores: bool,
 }
 
 /// Configuration for the `assura audit` command.
@@ -437,6 +443,7 @@ fn main() {
             watch,
             stats,
             dump_smt,
+            show_cores,
         }) => run_check(CheckOptions {
             filename: &file,
             output_mode,
@@ -446,6 +453,7 @@ fn main() {
             watch,
             stats,
             dump_smt: dump_smt.as_deref(),
+            show_cores,
         }),
         Some(Commands::CheckRust {
             path,

@@ -258,7 +258,7 @@ fn decl_summary(decl: &Decl) -> String {
 
 fn convert_verification(r: &assura_smt::VerificationResult) -> VerificationEntry {
     match r {
-        assura_smt::VerificationResult::Verified { clause_desc } => VerificationEntry {
+        assura_smt::VerificationResult::Verified { clause_desc, .. } => VerificationEntry {
             status: "verified".into(),
             clause: clause_desc.clone(),
             model: None,

@@ -2,7 +2,8 @@
 //! and clause description formatting.
 
 use crate::*;
-use z3::{Model, SatResult, Solver};
+use z3::ast::Ast;
+use z3::{Model, Params, SatResult, Solver, ast};
 
 // -----------------------------------------------------------------------
 // Clause description helper
@@ -69,6 +70,36 @@ pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
 }
 
 // -----------------------------------------------------------------------
+// Unsat core helpers (#266)
+// -----------------------------------------------------------------------
+
+/// Enable unsat-core production and optional core minimization on a solver.
+pub(crate) fn enable_unsat_cores(solver: &Solver) {
+    let mut params = Params::new();
+    params.set_bool("unsat_core", true);
+    params.set_bool("smt.core.minimize", true);
+    solver.set_params(&params);
+}
+
+/// Assert `expr` and track it under `label` for unsat-core extraction.
+pub(crate) fn assert_tracked(solver: &Solver, expr: &ast::Bool, label: &str) {
+    let track = ast::Bool::new_const(label);
+    solver.assert_and_track(expr, &track);
+}
+
+/// Extract tracking-label names from the solver's unsat core after UNSAT.
+pub(crate) fn extract_unsat_core_labels(solver: &Solver) -> Option<Vec<String>> {
+    let core = solver.get_unsat_core();
+    if core.is_empty() {
+        return None;
+    }
+    let mut labels: Vec<String> = core.iter().map(|b| b.decl().name().to_string()).collect();
+    labels.sort();
+    labels.dedup();
+    Some(labels)
+}
+
+// -----------------------------------------------------------------------
 // Solver result interpretation
 // -----------------------------------------------------------------------
 
@@ -77,7 +108,11 @@ pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
 pub(crate) fn check_validity(solver: &Solver, desc: String, results: &mut Vec<VerificationResult>) {
     match solver.check() {
         SatResult::Unsat => {
-            results.push(VerificationResult::Verified { clause_desc: desc });
+            let core = extract_unsat_core_labels(solver);
+            results.push(VerificationResult::Verified {
+                clause_desc: desc,
+                unsat_core: core,
+            });
         }
         SatResult::Sat => {
             let (model_str, counter_model) = if let Some(m) = solver.get_model() {
@@ -117,7 +152,7 @@ pub(super) fn check_satisfiability(
 ) {
     match solver.check() {
         SatResult::Sat => {
-            results.push(VerificationResult::Verified { clause_desc: desc });
+            results.push(VerificationResult::verified(desc));
         }
         SatResult::Unsat => {
             results.push(VerificationResult::Counterexample {

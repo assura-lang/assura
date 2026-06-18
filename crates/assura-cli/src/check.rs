@@ -149,6 +149,7 @@ pub(crate) fn run_check_rust(
                     verbosity,
                     layer,
                     solver: solver_choice,
+                    show_cores: false,
                 });
                 if has_err {
                     total_errors += diags.len();
@@ -283,6 +284,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         watch,
         stats,
         dump_smt,
+        show_cores,
     } = opts;
     // Load project config (assura.toml) if available
     let project = load_project_config(Path::new(filename));
@@ -429,6 +431,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         verbosity,
         layer,
         solver,
+        show_cores,
     });
 
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
@@ -534,11 +537,18 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
             let verification_json: Vec<serde_json::Value> = verification_results
                 .iter()
                 .map(|vr| match vr {
-                    assura_smt::VerificationResult::Verified { clause_desc } => {
-                        serde_json::json!({
+                    assura_smt::VerificationResult::Verified {
+                        clause_desc,
+                        unsat_core,
+                    } => {
+                        let mut val = serde_json::json!({
                             "status": "verified",
                             "clause": clause_desc,
-                        })
+                        });
+                        if let Some(core) = unsat_core {
+                            val["unsat_core"] = serde_json::json!(core);
+                        }
+                        val
                     }
                     assura_smt::VerificationResult::Counterexample {
                         clause_desc,
@@ -700,6 +710,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         verbosity,
         layer,
         solver,
+        show_cores,
     } = ctx;
     // Short-circuit: skip cache/thread-pool init when there are no
     // verifiable clauses (requires/ensures/invariant) in the source.
@@ -752,7 +763,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             assura_smt::VerificationResult::Counterexample { clause_desc, .. }
             | assura_smt::VerificationResult::Timeout { clause_desc }
             | assura_smt::VerificationResult::Unknown { clause_desc, .. }
-            | assura_smt::VerificationResult::Verified { clause_desc } => clause_desc,
+            | assura_smt::VerificationResult::Verified { clause_desc, .. } => clause_desc,
         };
         let span = lookup_clause_span(clause_desc, &decl_spans);
 
@@ -825,10 +836,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             if !verification_results.is_empty() {
                 eprintln!();
                 eprintln!("Verification ({} clause(s)):", verification_results.len());
-                let _ = assura_smt::display::write_grouped_verification(
+                let _ = assura_smt::display::write_grouped_verification_with_cores(
                     &mut std::io::stderr(),
                     &verification_results,
                     "  ",
+                    show_cores,
                 );
             } else if layer == 0 {
                 eprintln!();
@@ -951,6 +963,7 @@ pub(crate) fn check_file_once(
         verbosity,
         layer,
         solver: assura_smt::SolverChoice::Z3,
+        show_cores: false,
     });
 
     has_errors
