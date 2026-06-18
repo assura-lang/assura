@@ -14,17 +14,39 @@ use std::collections::HashMap;
 /// When the `cvc5-verify` feature is enabled, uses the native Rust cvc5
 /// crate (direct API calls, no process spawning). Otherwise falls back to
 /// generating SMT-LIB2 text and invoking the `cvc5` binary.
+///
+/// This variant extracts params from `input()` clauses. For function
+/// definitions whose params live in `FnDef.params`, use
+/// `verify_contract_cvc5_with_types` instead.
 pub(crate) fn verify_contract_cvc5(
     contract_name: &str,
     clauses: &[Clause],
 ) -> Vec<VerificationResult> {
+    let params = crate::entry::extract_input_params(clauses);
+    let return_ty = crate::entry::extract_output_return_type(clauses);
+    verify_contract_cvc5_with_types(contract_name, clauses, &params, &return_ty)
+}
+
+/// Verify a single contract's clauses using CVC5 with explicit type info.
+///
+/// `params` and `return_ty` supply Nat constraints that cannot be extracted
+/// from clauses alone (e.g., function parameters declared outside the clause
+/// list). This fixes the parity gap where the Z3 backend received Nat >= 0
+/// constraints via `verify_contract_impl_with_types` but the CVC5 backend
+/// only extracted them from `input()` clauses.
+pub(crate) fn verify_contract_cvc5_with_types(
+    contract_name: &str,
+    clauses: &[Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+) -> Vec<VerificationResult> {
     #[cfg(feature = "cvc5-verify")]
     {
-        verify_contract_cvc5_native(contract_name, clauses)
+        verify_contract_cvc5_native(contract_name, clauses, params, return_ty)
     }
     #[cfg(not(feature = "cvc5-verify"))]
     {
-        verify_contract_cvc5_shellout(contract_name, clauses)
+        verify_contract_cvc5_shellout(contract_name, clauses, params, return_ty)
     }
 }
 
@@ -33,12 +55,13 @@ pub(crate) fn verify_contract_cvc5(
 // -------------------------------------------------------------------------
 
 #[cfg(feature = "cvc5-verify")]
-fn verify_contract_cvc5_native(contract_name: &str, clauses: &[Clause]) -> Vec<VerificationResult> {
+fn verify_contract_cvc5_native(
+    contract_name: &str,
+    clauses: &[Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+) -> Vec<VerificationResult> {
     let mut results = Vec::new();
-
-    // Extract type constraints from input/output clauses (fixes #192)
-    let params = crate::entry::extract_input_params(clauses);
-    let return_ty = crate::entry::extract_output_return_type(clauses);
 
     let requires_exprs: Vec<&Expr> = clauses
         .iter()
@@ -59,8 +82,8 @@ fn verify_contract_cvc5_native(contract_name: &str, clauses: &[Clause]) -> Vec<V
                     &requires_exprs,
                     &clause.body,
                     clause.kind.clone(),
-                    &params,
-                    &return_ty,
+                    params,
+                    return_ty,
                 );
                 results.push(result);
             }
@@ -392,12 +415,10 @@ fn encode_expr_cvc5<'a>(
 fn verify_contract_cvc5_shellout(
     contract_name: &str,
     clauses: &[Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
-
-    // Extract type constraints from input/output clauses (fixes #192)
-    let params = crate::entry::extract_input_params(clauses);
-    let return_ty = crate::entry::extract_output_return_type(clauses);
 
     let mut requires_exprs: Vec<&Expr> = Vec::new();
     for clause in clauses {
@@ -419,8 +440,8 @@ fn verify_contract_cvc5_shellout(
                     &requires_exprs,
                     &clause.body,
                     clause.kind.clone(),
-                    &params,
-                    &return_ty,
+                    params,
+                    return_ty,
                 );
                 results.push(result);
             }

@@ -139,18 +139,30 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
     for decl in &typed.resolved.source.decls {
         match &decl.node {
             Decl::Contract(c) => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5(
-                    &c.name, &c.clauses,
+                let output_ty = extract_output_return_type(&c.clauses);
+                let mut input_params = extract_input_params(&c.clauses);
+                input_params.extend_from_slice(&c.fn_params);
+                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
+                    &c.name,
+                    &c.clauses,
+                    &input_params,
+                    &output_ty,
                 ));
             }
             Decl::FnDef(f) => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5(
-                    &f.name, &f.clauses,
+                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
+                    &f.name,
+                    &f.clauses,
+                    &f.params,
+                    &f.return_ty,
                 ));
             }
             Decl::Extern(e) => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5(
-                    &e.name, &e.clauses,
+                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
+                    &e.name,
+                    &e.clauses,
+                    &e.params,
+                    &e.return_ty,
                 ));
             }
             Decl::Service(s) => {
@@ -185,8 +197,11 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
                 results.extend(crate::cvc5_backend::verify_contract_cvc5(name, body));
             }
             Decl::Bind(b) => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5(
-                    &b.name, &b.clauses,
+                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
+                    &b.name,
+                    &b.clauses,
+                    &b.params,
+                    &b.return_ty,
                 ));
             }
             Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
@@ -509,7 +524,14 @@ fn verify_contract_with_types_and_solver(
                 verify_contract_with_solver(contract_name, clauses, solver)
             }
         }
-        _ => verify_contract_with_solver(contract_name, clauses, solver),
+        SolverChoice::Cvc5 | SolverChoice::Portfolio => {
+            crate::cvc5_backend::verify_contract_cvc5_with_types(
+                contract_name,
+                clauses,
+                params,
+                return_ty,
+            )
+        }
     }
 }
 
