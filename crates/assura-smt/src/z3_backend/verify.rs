@@ -94,11 +94,14 @@ fn verify_clauses_with_types(
     // Pass the clause body and sibling clauses so features with boolean
     // predicate bodies get real Z3 validity checking.
     for clause in clauses {
-        if let ClauseKind::Other(kind) = &clause.kind
-            && let Some(result) =
-                crate::smt_features::verify_feature_clause(kind, parent_name, &clause.body, clauses)
-        {
-            results.push(result);
+        if let ClauseKind::Other(kind) = &clause.kind {
+            let feature_results = crate::smt_features::verify_feature_clause(
+                kind,
+                parent_name,
+                &clause.body,
+                clauses,
+            );
+            results.extend(feature_results);
         }
     }
 
