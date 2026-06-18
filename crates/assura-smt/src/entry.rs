@@ -4,10 +4,15 @@
 //! and all standalone verification functions (refinement, buffer bounds,
 //! taint safety, measures, termination).
 
-use assura_parser::ast::{Clause, ClauseKind, Expr, Param};
+use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, Param, ServiceItem};
 use assura_types::TypedFile;
+use assura_types::checkers::expr_references_var;
 
 use crate::SolverChoice;
+use crate::advanced::{
+    CodecDispatcher, LivenessChecker, LivenessKind, MemoryOrdering, ProphecyManager,
+    WeakMemoryChecker,
+};
 use crate::cache::VerificationCache;
 use crate::measures::MeasureDefinition;
 use crate::result::VerificationResult;
@@ -96,23 +101,10 @@ pub fn verify_with_options(
     match options.solver {
         SolverChoice::Cvc5 => verify_file_with_cvc5(typed),
         SolverChoice::Portfolio => {
-            // Try Z3 first; fall back to CVC5 on timeout/unknown
+            // Run Z3 and CVC5 concurrently, take the best result (#245)
             #[cfg(feature = "z3-verify")]
             {
-                let z3_results =
-                    crate::z3_backend::verify_impl_with_timeout(typed, options.timeout_ms);
-                let has_unknown = z3_results.iter().any(|r| {
-                    matches!(
-                        r,
-                        VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. }
-                    )
-                });
-                if has_unknown {
-                    let cvc5_results = verify_file_with_cvc5(typed);
-                    merge_portfolio_results(z3_results, cvc5_results)
-                } else {
-                    z3_results
-                }
+                verify_portfolio_parallel(typed, options.timeout_ms)
             }
             #[cfg(not(feature = "z3-verify"))]
             {
@@ -132,61 +124,74 @@ pub fn verify_with_options(
     }
 }
 
-/// Verify all contracts in a file using the CVC5 backend.
-fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
-    use assura_parser::ast::{Decl, ServiceItem};
-    let mut results = Vec::new();
+// ---------------------------------------------------------------------------
+// Shared job collection (#213): eliminates duplicated Decl dispatch in
+// verify_file_with_cvc5, verify_parallel_with_solver, and z3_backend.
+// ---------------------------------------------------------------------------
+
+/// A verification job: contract name, clauses, parameters, and return type.
+pub(crate) type VerificationJob = (String, Vec<Clause>, Vec<Param>, Vec<String>);
+
+/// Collect verification jobs from all declarations in a source file.
+///
+/// Each job is a (name, clauses, params, return_ty) tuple suitable for
+/// passing to either the Z3 or CVC5 backend.
+pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJob> {
+    let mut jobs = Vec::new();
     for decl in &typed.resolved.source.decls {
         match &decl.node {
             Decl::Contract(c) => {
                 let output_ty = extract_output_return_type(&c.clauses);
                 let mut input_params = extract_input_params(&c.clauses);
                 input_params.extend_from_slice(&c.fn_params);
-                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
-                    &c.name,
-                    &c.clauses,
-                    &input_params,
-                    &output_ty,
-                ));
+                jobs.push((c.name.clone(), c.clauses.clone(), input_params, output_ty));
             }
             Decl::FnDef(f) => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
-                    &f.name,
-                    &f.clauses,
-                    &f.params,
-                    &f.return_ty,
+                jobs.push((
+                    f.name.clone(),
+                    f.clauses.clone(),
+                    f.params.clone(),
+                    f.return_ty.clone(),
                 ));
             }
             Decl::Extern(e) => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
-                    &e.name,
-                    &e.clauses,
-                    &e.params,
-                    &e.return_ty,
+                jobs.push((
+                    e.name.clone(),
+                    e.clauses.clone(),
+                    e.params.clone(),
+                    e.return_ty.clone(),
                 ));
             }
             Decl::Service(s) => {
                 for item in &s.items {
                     match item {
                         ServiceItem::Operation { name, clauses } => {
-                            let qname = format!("{}.{}", s.name, name);
-                            results
-                                .extend(crate::cvc5_backend::verify_contract_cvc5(&qname, clauses));
+                            jobs.push((
+                                format!("{}.{}", s.name, name),
+                                clauses.clone(),
+                                vec![],
+                                vec![],
+                            ));
                         }
                         ServiceItem::Query { name, clauses } => {
-                            let qname = format!("{}.{}", s.name, name);
-                            results
-                                .extend(crate::cvc5_backend::verify_contract_cvc5(&qname, clauses));
+                            jobs.push((
+                                format!("{}.{}", s.name, name),
+                                clauses.clone(),
+                                vec![],
+                                vec![],
+                            ));
                         }
                         ServiceItem::Invariant(expr) => {
-                            let inv_clause = assura_parser::ast::Clause {
-                                kind: assura_parser::ast::ClauseKind::Invariant,
+                            let inv_clause = Clause {
+                                kind: ClauseKind::Invariant,
                                 body: expr.clone(),
                                 effect_variables: vec![],
                             };
-                            results.extend(crate::cvc5_backend::verify_contract_cvc5(
-                                &format!("{}::invariant", s.name),
-                                &[inv_clause],
+                            jobs.push((
+                                format!("{}::invariant", s.name),
+                                vec![inv_clause],
+                                vec![],
+                                vec![],
                             ));
                         }
                         _ => {}
@@ -194,41 +199,560 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
                 }
             }
             Decl::Block { name, body, .. } => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5(name, body));
+                jobs.push((name.clone(), body.clone(), vec![], vec![]));
             }
             Decl::Bind(b) => {
-                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
-                    &b.name,
-                    &b.clauses,
-                    &b.params,
-                    &b.return_ty,
+                jobs.push((
+                    b.name.clone(),
+                    b.clauses.clone(),
+                    b.params.clone(),
+                    b.return_ty.clone(),
                 ));
             }
             Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
         }
     }
+    jobs
+}
+
+// ---------------------------------------------------------------------------
+// Shared advanced-pass helpers (solver-agnostic, used by both Z3 and CVC5)
+// ---------------------------------------------------------------------------
+
+/// Parse a string into the SMT-local MemoryOrdering enum.
+fn parse_memory_ordering(s: &str) -> Option<MemoryOrdering> {
+    match s {
+        "relaxed" => Some(MemoryOrdering::Relaxed),
+        "acquire" => Some(MemoryOrdering::Acquire),
+        "release" => Some(MemoryOrdering::Release),
+        "acqrel" | "acq_rel" => Some(MemoryOrdering::AcqRel),
+        "seq_cst" => Some(MemoryOrdering::SeqCst),
+        _ => None,
+    }
+}
+
+/// Extract a numeric argument from an expression tree (for eventually_within bounds).
+fn extract_numeric_arg(expr: &Expr) -> Option<u64> {
+    match expr {
+        Expr::Literal(assura_parser::ast::Literal::Int(s)) => s.parse().ok(),
+        Expr::Call { args, .. } => args.iter().find_map(extract_numeric_arg),
+        Expr::Raw(tokens) => tokens.iter().find_map(|t| t.parse::<u64>().ok()),
+        Expr::Block(exprs) => exprs.iter().find_map(extract_numeric_arg),
+        _ => None,
+    }
+}
+
+/// Scan an expression for prophecy resolution calls: resolve(var, value).
+fn resolve_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref()
+                && (name == "resolve" || name == "resolve_prophecy")
+                && let Some(Expr::Ident(var_name)) = args.first()
+            {
+                let value = args.get(1).map(|a| format!("{a:?}")).unwrap_or_default();
+                if let Err(e) = pm.resolve(&format!("{fn_name}:{var_name}"), value) {
+                    eprintln!("warning: prophecy resolution failed: {e}");
+                }
+            }
+            for arg in args {
+                resolve_prophecy_vars(arg, fn_name, pm);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            resolve_prophecy_vars(lhs, fn_name, pm);
+            resolve_prophecy_vars(rhs, fn_name, pm);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            resolve_prophecy_vars(expr, fn_name, pm)
+        }
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                resolve_prophecy_vars(e, fn_name, pm);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Scan an expression for prophecy constraint patterns (equality with prophecy vars).
+fn constrain_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref()
+                && (name == "constrain" || name == "constrain_prophecy")
+                && let Some(Expr::Ident(var_name)) = args.first()
+            {
+                let constraint = args.get(1).map(|a| format!("{a:?}")).unwrap_or_default();
+                pm.add_constraint(&format!("{fn_name}:{var_name}"), constraint);
+            }
+            for arg in args {
+                constrain_prophecy_vars(arg, fn_name, pm);
+            }
+        }
+        Expr::BinOp { lhs, rhs, op } => {
+            // An equality like `prophecy(x) == expr` constrains x
+            if *op == BinOp::Eq
+                && let Expr::Call { func, args } = lhs.as_ref()
+                && let Expr::Ident(name) = func.as_ref()
+                && (name == "prophecy" || name == "prophesy")
+                && let Some(Expr::Ident(var_name)) = args.first()
+            {
+                pm.add_constraint(&format!("{fn_name}:{var_name}"), format!("{rhs:?}"));
+            }
+            constrain_prophecy_vars(lhs, fn_name, pm);
+            constrain_prophecy_vars(rhs, fn_name, pm);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            constrain_prophecy_vars(expr, fn_name, pm)
+        }
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                constrain_prophecy_vars(e, fn_name, pm);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collect prophecy variable references from ensures clauses.
+fn collect_prophecy_refs(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
+    match expr {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = func.as_ref()
+                && (name == "prophecy" || name == "prophesy")
+                && let Some(Expr::Ident(var_name)) = args.first()
+            {
+                pm.declare(format!("{fn_name}:{var_name}"));
+            }
+            for arg in args {
+                collect_prophecy_refs(arg, fn_name, pm);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_prophecy_refs(lhs, fn_name, pm);
+            collect_prophecy_refs(rhs, fn_name, pm);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+            collect_prophecy_refs(expr, fn_name, pm)
+        }
+        _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Five advanced verification passes (solver-agnostic)
+// ---------------------------------------------------------------------------
+
+/// Run weak memory ordering checks on all declarations (#230).
+///
+/// Scans contracts/functions for ordering annotations and keyword patterns,
+/// then checks for data races.
+pub(crate) fn run_weak_memory_checks(typed: &TypedFile) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+    let mut wm_checker = WeakMemoryChecker::new();
+    for decl in &typed.resolved.source.decls {
+        let (name, clauses) = match &decl.node {
+            Decl::Contract(c) => (c.name.as_str(), &c.clauses[..]),
+            Decl::FnDef(f) => (f.name.as_str(), &f.clauses[..]),
+            _ => continue,
+        };
+        // Prefer structured ClauseKind::Ordering over keyword scanning
+        let mut found_ordering = false;
+        for clause in clauses {
+            if clause.kind == ClauseKind::Ordering {
+                let ordering_str = match &clause.body {
+                    Expr::Ident(s) => Some(s.as_str()),
+                    Expr::Raw(tokens) => tokens
+                        .iter()
+                        .find(|t| parse_memory_ordering(t).is_some())
+                        .map(|t| t.as_str()),
+                    _ => None,
+                };
+                if let Some(ord) = ordering_str.and_then(parse_memory_ordering) {
+                    wm_checker.record_access(1, name.to_string(), true, ord);
+                    found_ordering = true;
+                }
+            }
+        }
+        // Fall back to keyword scanning in effects clauses
+        if !found_ordering {
+            for clause in clauses {
+                if clause.kind == ClauseKind::Effects
+                    && (expr_references_var(&clause.body, "relaxed")
+                        || expr_references_var(&clause.body, "acquire")
+                        || expr_references_var(&clause.body, "release")
+                        || expr_references_var(&clause.body, "seq_cst"))
+                {
+                    let ordering = if expr_references_var(&clause.body, "seq_cst") {
+                        MemoryOrdering::SeqCst
+                    } else if expr_references_var(&clause.body, "acquire") {
+                        MemoryOrdering::Acquire
+                    } else if expr_references_var(&clause.body, "release") {
+                        MemoryOrdering::Release
+                    } else {
+                        MemoryOrdering::Relaxed
+                    };
+                    wm_checker.record_access(1, name.to_string(), true, ordering);
+                }
+            }
+        }
+    }
+    for race in wm_checker.check_data_races() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: "weak_memory".into(),
+            reason: race,
+        });
+    }
     results
 }
 
-/// Merge portfolio results: prefer Z3 result unless it was Timeout/Unknown,
-/// in which case use CVC5 result.
+/// Run prophecy variable checks on all declarations (#233).
+///
+/// Registers top-level prophecy declarations, scans ensures/requires for
+/// prophecy refs, resolutions, and constraints, then checks for unresolved
+/// and unconstrained prophecy variables.
+pub(crate) fn run_prophecy_checks(typed: &TypedFile) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+    let mut pm = ProphecyManager::new();
+    // Register top-level prophecy declarations
+    for decl in &typed.resolved.source.decls {
+        if let Decl::Prophecy(p) = &decl.node {
+            pm.declare(p.name.clone());
+        }
+    }
+    for decl in &typed.resolved.source.decls {
+        let (clauses, ctx_name) = match &decl.node {
+            Decl::FnDef(f) => (&f.clauses[..], f.name.as_str()),
+            Decl::Contract(c) => (&c.clauses[..], c.name.as_str()),
+            _ => continue,
+        };
+        for clause in clauses {
+            if clause.kind == ClauseKind::Ensures {
+                collect_prophecy_refs(&clause.body, ctx_name, &mut pm);
+            }
+            if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
+                resolve_prophecy_vars(&clause.body, ctx_name, &mut pm);
+                constrain_prophecy_vars(&clause.body, ctx_name, &mut pm);
+            }
+        }
+    }
+    for err in pm.check_all_resolved() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: format!("prophecy [{}]", err.code),
+            reason: err.message,
+        });
+    }
+    for err in pm.check_unconstrained() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: format!("prophecy [{}]", err.code),
+            reason: err.message,
+        });
+    }
+    results
+}
+
+/// Run liveness obligation checks on all declarations (#231).
+///
+/// Extracts obligations from liveness blocks and contract ensures clauses,
+/// then checks fairness, bounds, and unverified obligations.
+pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+    let mut lc = LivenessChecker::new();
+    for decl in &typed.resolved.source.decls {
+        match &decl.node {
+            Decl::Block {
+                kind, name, body, ..
+            } if *kind == BlockKind::Liveness => {
+                for clause in body {
+                    match &clause.kind {
+                        ClauseKind::Other(k) if k == "assume" => {
+                            let text = format!("{:?}", clause.body);
+                            if text.contains("fair") {
+                                lc.add_fairness(format!("{name}:fair"));
+                            }
+                        }
+                        ClauseKind::Other(k) if k == "prove" => {
+                            let text = format!("{:?}", clause.body);
+                            let liveness_kind = if expr_references_var(&clause.body, "leads_to") {
+                                LivenessKind::LeadsTo
+                            } else if expr_references_var(&clause.body, "eventually_within") {
+                                let bound = extract_numeric_arg(&clause.body).unwrap_or(100);
+                                LivenessKind::EventuallyWithin(bound)
+                            } else {
+                                LivenessKind::Eventually
+                            };
+                            lc.add_obligation(
+                                format!("{name}:prove"),
+                                liveness_kind,
+                                text.clone(),
+                                text,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Decl::Contract(c) => {
+                for clause in &c.clauses {
+                    if clause.kind == ClauseKind::Ensures
+                        && (expr_references_var(&clause.body, "eventually")
+                            || expr_references_var(&clause.body, "leads_to"))
+                    {
+                        lc.add_obligation(
+                            format!("{}:liveness", c.name),
+                            LivenessKind::Eventually,
+                            format!("{:?}", clause.body),
+                            String::new(),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for err in lc.check_fairness() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: "liveness:fairness".into(),
+            reason: err,
+        });
+    }
+    for err in lc.check_bounded() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: "liveness:bounds".into(),
+            reason: err,
+        });
+    }
+    for err in lc.check_unverified() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: "liveness".into(),
+            reason: err,
+        });
+    }
+    results
+}
+
+/// Run Layer 2 verification: quantified invariants, termination, roundtrip (#232).
+pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+    let l2_config = crate::layer2::Layer2Config::new().with_timeout(timeout_ms);
+    let mut l2 = crate::layer2::Layer2Verifier::new(l2_config);
+
+    for decl in &typed.resolved.source.decls {
+        let (name, clauses): (&str, &[Clause]) = match &decl.node {
+            Decl::Contract(c) => (&c.name, &c.clauses),
+            Decl::FnDef(f) => (&f.name, &f.clauses),
+            _ => continue,
+        };
+        for clause in clauses {
+            if clause.kind == ClauseKind::Invariant {
+                match &clause.body {
+                    Expr::Forall { var, domain, body } => {
+                        let sort = format!("{domain:?}");
+                        l2.add_invariant(crate::layer2::QuantifiedInvariant {
+                            name: format!("{name}:invariant"),
+                            bound_vars: vec![(var.clone(), sort)],
+                            body: format!("{body:?}"),
+                            triggers: Vec::new(),
+                        });
+                    }
+                    Expr::Exists { var, domain, body } => {
+                        let sort = format!("{domain:?}");
+                        l2.add_invariant(crate::layer2::QuantifiedInvariant {
+                            name: format!("{name}:invariant"),
+                            bound_vars: vec![(var.clone(), sort)],
+                            body: format!("{body:?}"),
+                            triggers: Vec::new(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            if clause.kind == ClauseKind::Decreases {
+                l2.add_termination(crate::layer2::TerminationObligation {
+                    fn_name: name.to_string(),
+                    measure: format!("{:?}", clause.body),
+                    recursive_calls: Vec::new(),
+                });
+            }
+        }
+    }
+
+    if l2.obligation_count() > 0 {
+        for l2r in l2.verify() {
+            match l2r {
+                crate::layer2::Layer2Result::Verified { invariant, .. } => {
+                    results.push(VerificationResult::Verified {
+                        clause_desc: format!("layer2:{invariant}"),
+                    });
+                }
+                crate::layer2::Layer2Result::Counterexample {
+                    invariant, model, ..
+                } => {
+                    let model_str = model
+                        .iter()
+                        .map(|(k, v)| format!("{k} = {v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    results.push(VerificationResult::Counterexample {
+                        clause_desc: format!("layer2:{invariant}"),
+                        model: model_str,
+                        counter_model: None,
+                    });
+                }
+                crate::layer2::Layer2Result::Timeout {
+                    invariant,
+                    timeout_ms: t,
+                } => {
+                    results.push(VerificationResult::Timeout {
+                        clause_desc: format!("layer2:{invariant} (timeout {t}ms)"),
+                    });
+                }
+                crate::layer2::Layer2Result::Unknown { invariant, reason } => {
+                    results.push(VerificationResult::Unknown {
+                        clause_desc: format!("layer2:{invariant}"),
+                        reason,
+                    });
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Run codec ambiguity checks on all declarations (#234).
+pub(crate) fn run_codec_checks(typed: &TypedFile) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+    let mut codec_disp = CodecDispatcher::new();
+    for decl in &typed.resolved.source.decls {
+        if let Decl::CodecRegistry(cr) = &decl.node {
+            for entry in &cr.codecs {
+                if let assura_parser::ast::MagicPattern::Bytes { bytes, .. } = &entry.magic {
+                    codec_disp.register(entry.name.clone(), bytes.clone(), 0);
+                }
+            }
+        }
+    }
+    for (a, b) in codec_disp.check_ambiguity() {
+        results.push(VerificationResult::Unknown {
+            clause_desc: format!("codec:ambiguity:{a}/{b}"),
+            reason: format!(
+                "codecs `{a}` and `{b}` share identical magic bytes at the same offset"
+            ),
+        });
+    }
+    results
+}
+
+/// Run all five advanced verification passes (solver-agnostic).
+///
+/// Called by both the Z3 and CVC5 file-level verification paths.
+pub(crate) fn run_advanced_passes(typed: &TypedFile, timeout_ms: u64) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+    results.extend(run_weak_memory_checks(typed));
+    results.extend(run_prophecy_checks(typed));
+    results.extend(run_liveness_checks(typed));
+    results.extend(run_layer2_checks(typed, timeout_ms));
+    results.extend(run_codec_checks(typed));
+    results
+}
+
+/// Verify all contracts in a file using the CVC5 backend.
+fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    // Clause-level verification via CVC5
+    for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
+        results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
+            &name, &clauses, &params, &return_ty,
+        ));
+    }
+
+    // Run the same 5 advanced passes that the Z3 backend runs
+    results.extend(run_advanced_passes(typed, 2000));
+
+    results
+}
+
+/// Run Z3 and CVC5 concurrently, merge results per-clause (#245).
+///
+/// Uses `std::thread::scope` for exactly 2 threads (not rayon). Each solver
+/// gets its own context. The merge prefers definitive results (Verified or
+/// Counterexample) over inconclusive ones (Timeout or Unknown).
+#[cfg(feature = "z3-verify")]
+fn verify_portfolio_parallel(typed: &TypedFile, timeout_ms: u64) -> Vec<VerificationResult> {
+    use std::sync::mpsc;
+
+    std::thread::scope(|s| {
+        let (tx_z3, rx) = mpsc::channel::<(&str, Vec<VerificationResult>)>();
+        let tx_cvc5 = tx_z3.clone();
+
+        s.spawn(move || {
+            let results = crate::z3_backend::verify_impl_with_timeout(typed, timeout_ms);
+            let _ = tx_z3.send(("z3", results));
+        });
+        s.spawn(move || {
+            let results = verify_file_with_cvc5(typed);
+            let _ = tx_cvc5.send(("cvc5", results));
+        });
+
+        // Collect both results
+        let mut z3_results = None;
+        let mut cvc5_results = None;
+        for (solver, results) in rx {
+            match solver {
+                "z3" => z3_results = Some(results),
+                _ => cvc5_results = Some(results),
+            }
+        }
+
+        let z3 = z3_results.unwrap_or_default();
+        let cvc5 = cvc5_results.unwrap_or_default();
+        merge_portfolio_results(z3, cvc5)
+    })
+}
+
+/// Merge Z3 and CVC5 results per-clause.
+///
+/// For each position, prefer the definitive result (Verified or Counterexample,
+/// favoring Z3 for richer counter-models). Fall back to the less-bad
+/// inconclusive result.
 #[cfg(feature = "z3-verify")]
 fn merge_portfolio_results(
     z3: Vec<VerificationResult>,
     cvc5: Vec<VerificationResult>,
 ) -> Vec<VerificationResult> {
-    let mut merged = Vec::with_capacity(z3.len());
+    let mut merged = Vec::with_capacity(z3.len().max(cvc5.len()));
     let mut cvc5_iter = cvc5.into_iter();
-    for r in z3 {
-        match &r {
-            VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. } => {
-                // Use CVC5 result if available, otherwise keep Z3's
-                merged.push(cvc5_iter.next().unwrap_or(r));
-            }
-            _ => merged.push(r),
+    for z3r in z3 {
+        if let Some(cvc5r) = cvc5_iter.next() {
+            merged.push(pick_better_result(z3r, cvc5r));
+        } else {
+            merged.push(z3r);
         }
     }
+    // Any extra CVC5 results (CVC5 found more clauses)
+    merged.extend(cvc5_iter);
     merged
+}
+
+/// Pick the better of two results for the same clause.
+///
+/// Priority: Verified > Counterexample > Unknown > Timeout.
+/// Between equal priorities, prefer Z3 (richer counter-models).
+#[cfg(feature = "z3-verify")]
+fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> VerificationResult {
+    fn priority(r: &VerificationResult) -> u8 {
+        match r {
+            VerificationResult::Verified { .. } => 3,
+            VerificationResult::Counterexample { .. } => 2,
+            VerificationResult::Unknown { .. } => 1,
+            VerificationResult::Timeout { .. } => 0,
+        }
+    }
+    let z3_pri = priority(&z3r);
+    let cvc5_pri = priority(&cvc5r);
+    if z3_pri >= cvc5_pri { z3r } else { cvc5r }
 }
 
 /// Verify all declarations in parallel using rayon.
@@ -281,7 +805,6 @@ pub fn verify_parallel_with_solver(
     cache: &VerificationCache,
     solver: SolverChoice,
 ) -> Vec<VerificationResult> {
-    use assura_parser::ast::Decl;
     use rayon::prelude::*;
 
     // #180: collect feature_max constants so the encoder binds them
@@ -291,93 +814,8 @@ pub fn verify_parallel_with_solver(
     #[cfg(not(feature = "z3-verify"))]
     let constants: Vec<(String, i64)> = Vec::new();
 
-    // Collect verification jobs with type info for return-type constraints
-    type Job = (
-        String,
-        Vec<assura_parser::ast::Clause>,
-        Vec<assura_parser::ast::Param>,
-        Vec<String>,
-    );
-    let mut jobs: Vec<Job> = Vec::new();
-
-    for decl in &typed.resolved.source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                // #190: Extract type constraints from output() and input()
-                // clauses. Contracts use `output(result: Nat)` instead of
-                // function return types, so we parse those clauses to get
-                // the same Nat >= 0 constraints that fn defs get.
-                let output_ty = extract_output_return_type(&c.clauses);
-                let mut input_params = extract_input_params(&c.clauses);
-                input_params.extend_from_slice(&c.fn_params);
-                jobs.push((c.name.clone(), c.clauses.clone(), input_params, output_ty));
-            }
-            Decl::FnDef(f) => {
-                jobs.push((
-                    f.name.clone(),
-                    f.clauses.clone(),
-                    f.params.clone(),
-                    f.return_ty.clone(),
-                ));
-            }
-            Decl::Extern(e) => {
-                jobs.push((
-                    e.name.clone(),
-                    e.clauses.clone(),
-                    e.params.clone(),
-                    e.return_ty.clone(),
-                ));
-            }
-            Decl::Service(s) => {
-                for item in &s.items {
-                    match item {
-                        assura_parser::ast::ServiceItem::Operation { name, clauses } => {
-                            jobs.push((
-                                format!("{}.{}", s.name, name),
-                                clauses.clone(),
-                                vec![],
-                                vec![],
-                            ));
-                        }
-                        assura_parser::ast::ServiceItem::Query { name, clauses } => {
-                            jobs.push((
-                                format!("{}.{}", s.name, name),
-                                clauses.clone(),
-                                vec![],
-                                vec![],
-                            ));
-                        }
-                        assura_parser::ast::ServiceItem::Invariant(expr) => {
-                            let inv_clause = assura_parser::ast::Clause {
-                                kind: assura_parser::ast::ClauseKind::Invariant,
-                                body: expr.clone(),
-                                effect_variables: vec![],
-                            };
-                            jobs.push((
-                                format!("{}::invariant", s.name),
-                                vec![inv_clause],
-                                vec![],
-                                vec![],
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Decl::Block { name, body, .. } => {
-                jobs.push((name.clone(), body.clone(), vec![], vec![]));
-            }
-            Decl::Bind(b) => {
-                jobs.push((
-                    b.name.clone(),
-                    b.clauses.clone(),
-                    b.params.clone(),
-                    b.return_ty.clone(),
-                ));
-            }
-            Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
-        }
-    }
+    // Collect verification jobs (#213: shared with CVC5 and Z3 paths)
+    let jobs = collect_verification_jobs(typed);
 
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
@@ -454,45 +892,18 @@ pub fn verify_contract_with_solver(
         }
         SolverChoice::Cvc5 => crate::cvc5_backend::verify_contract_cvc5(contract_name, clauses),
         SolverChoice::Portfolio => {
-            // Try Z3 first, fall back to CVC5 for timeout/unknown results
+            // Run Z3 and CVC5 concurrently per-contract (#245)
             let z3_results = verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3);
-            let needs_fallback = z3_results.iter().any(|r| {
-                matches!(
-                    r,
-                    VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. }
-                )
-            });
-            if !needs_fallback {
-                return z3_results;
-            }
-            // Re-check only the failed clauses with CVC5
             let cvc5_results = crate::cvc5_backend::verify_contract_cvc5(contract_name, clauses);
-
-            // Merge: use CVC5 result for any Z3 timeout/unknown
-            z3_results
-                .into_iter()
-                .map(|r| match &r {
-                    VerificationResult::Timeout { clause_desc }
-                    | VerificationResult::Unknown { clause_desc, .. } => {
-                        // Find the matching CVC5 result
-                        cvc5_results
-                            .iter()
-                            .find(|cr| match cr {
-                                VerificationResult::Verified { clause_desc: cd }
-                                | VerificationResult::Counterexample {
-                                    clause_desc: cd, ..
-                                }
-                                | VerificationResult::Timeout { clause_desc: cd }
-                                | VerificationResult::Unknown {
-                                    clause_desc: cd, ..
-                                } => cd == clause_desc,
-                            })
-                            .cloned()
-                            .unwrap_or(r)
-                    }
-                    _ => r,
-                })
-                .collect()
+            #[cfg(feature = "z3-verify")]
+            {
+                merge_portfolio_results(z3_results, cvc5_results)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let _ = z3_results;
+                cvc5_results
+            }
         }
     }
 }
