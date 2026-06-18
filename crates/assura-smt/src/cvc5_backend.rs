@@ -201,7 +201,6 @@ fn run_cvc5(script: &str) -> Cvc5Result {
     }
 }
 
-/// Convert an Assura expression to SMT-LIB2 s-expression.
 /// Convert an AST expression to an SMT-LIB2 string representation.
 pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
     match expr {
@@ -360,7 +359,6 @@ fn sanitize_smtlib_name(name: &str) -> String {
     name.replace('.', "_")
 }
 
-/// Collect variable names from an expression.
 /// Collect all variable names referenced in an expression.
 pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
     match expr {

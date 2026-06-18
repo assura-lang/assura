@@ -123,7 +123,6 @@ dependencies = [
  "logos",
  "notify",
  "quote",
- "serde",
  "serde_json",
  "syn",
  "tempfile",
@@ -222,7 +221,6 @@ name = "assura-mcp"
 version = "0.1.0"
 dependencies = [
  "assura-codegen",
- "assura-config",
  "assura-diagnostics",
  "assura-pipeline",
  "assura-rust-analyzer",
@@ -230,7 +228,6 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "tokio",
 ]
 
 [[package]]
@@ -281,14 +278,10 @@ dependencies = [
 name = "assura-server"
 version = "0.1.0"
 dependencies = [
- "assura-codegen",
  "assura-config",
  "assura-diagnostics",
- "assura-parser",
  "assura-pipeline",
- "assura-resolve",
  "assura-smt",
- "assura-types",
  "axum",
  "http",
  "prost",

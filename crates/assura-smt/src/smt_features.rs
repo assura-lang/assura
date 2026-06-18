@@ -80,6 +80,17 @@ fn verify_feature_body(
         };
     }
 
+    // Skip declarative feature clauses whose body is a bare identifier
+    // (e.g., `incremental InflateDecoder`). These are type/declaration
+    // references, not boolean predicates. Sending them to Z3 creates an
+    // unconstrained variable that trivially produces counterexamples.
+    if matches!(body, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+        return VerificationResult::Unknown {
+            clause_desc: desc,
+            reason: format!("{feature_label} not yet encoded in SMT"),
+        };
+    }
+
     let solver = Solver::new();
     let mut params = z3::Params::new();
     params.set_u32("timeout", 2000);

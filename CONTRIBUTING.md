@@ -61,13 +61,17 @@ under `crates/`.
 
 ### 2. Run the pre-commit gate
 
-Every change must pass all three checks:
+Every change must pass all four checks:
 
 ```bash
 cargo fmt --all
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
+cargo check --no-default-features -p assura-smt
 ```
+
+The final check verifies the no-Z3 build. Any code in `assura-smt` that
+imports Z3 must be behind `#[cfg(feature = "z3-verify")]` with a fallback.
 
 ### 3. Verify demo files still parse
 
@@ -75,6 +79,8 @@ cargo test --workspace
 cargo run --bin assura -- demos/libwebp-huffman.assura
 cargo run --bin assura -- demos/zlib-inflate.assura
 cargo run --bin assura -- demos/mbedtls-x509.assura
+cargo run --bin assura -- demos/taint-tracking.assura
+cargo run --bin assura -- demos/heartbleed.assura
 ```
 
 ### 4. Commit
@@ -133,8 +139,9 @@ Full pipeline tests in `tests/e2e/` exercise parsing through verification.
 
 ### Demo files
 
-The three files in `demos/` are regression guards. Every PR must not
-break them. They model real CVEs (libwebp, zlib, mbedtls).
+The five files in `demos/` are regression guards. Every PR must not
+break them. They model real CVEs (libwebp, zlib, mbedtls, heartbleed,
+taint-tracking).
 
 ## Adding a New Compiler Pass
 

@@ -36,70 +36,9 @@ fn is_nat_type(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
 }
 
-/// Extract the return type from `output(result: Nat)` clauses in a contract.
-///
-/// Contracts declare their output type via `output(result: Nat)` instead of
-/// a function return type. The clause body is `Expr::Raw(["result", ":", "Nat"])`.
-/// This function finds the first `Output` clause and extracts the type tokens.
-pub(crate) fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
-    for clause in clauses {
-        if clause.kind == ClauseKind::Output
-            && let Expr::Raw(tokens) = &clause.body
-        {
-            // Tokens: ["result", ":", "Nat"] -> skip "result :" prefix
-            if tokens.len() >= 3 && tokens[1] == ":" {
-                return tokens[2..].to_vec();
-            }
-            // Fallback: tokens might just be the type
-            return tokens.clone();
-        }
-    }
-    Vec::new()
-}
-
-/// Extract parameters from `input(raw_data: Bytes)` clauses in a contract.
-///
-/// Contracts declare their input parameters via `input(x: Type, y: Type)`.
-/// The clause body is `Expr::Raw(["x", ":", "Type", ",", "y", ":", "Type"])`.
-pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<assura_parser::ast::Param> {
-    for clause in clauses {
-        if clause.kind == ClauseKind::Input
-            && let Expr::Raw(tokens) = &clause.body
-        {
-            let mut params = Vec::new();
-            let mut i = 0;
-            while i < tokens.len() {
-                if tokens[i] == "," {
-                    i += 1;
-                    continue;
-                }
-                let name = tokens[i].clone();
-                i += 1;
-                if i < tokens.len() && tokens[i] == ":" {
-                    i += 1;
-                    let mut ty = Vec::new();
-                    while i < tokens.len() && tokens[i] != "," {
-                        ty.push(tokens[i].clone());
-                        i += 1;
-                    }
-                    params.push(assura_parser::ast::Param {
-                        name,
-                        ty,
-                        parsed_type: None,
-                    });
-                } else {
-                    params.push(assura_parser::ast::Param {
-                        name,
-                        ty: Vec::new(),
-                        parsed_type: None,
-                    });
-                }
-            }
-            return params;
-        }
-    }
-    Vec::new()
-}
+// Re-use extract_output_return_type and extract_input_params from entry.rs
+// (single source of truth, avoids divergence between parallel and non-parallel paths).
+pub(crate) use crate::entry::{extract_input_params, extract_output_return_type};
 
 /// Like `verify_clauses` but also asserts type-level constraints from
 /// parameter and return type declarations (e.g., `Nat` → `>= 0`).

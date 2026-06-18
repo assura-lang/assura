@@ -16,7 +16,7 @@ use crate::result::VerificationResult;
 ///
 /// Contracts declare their output type via `output(result: Nat)` instead of
 /// a function return type. The clause body is `Expr::Raw(["result", ":", "Nat"])`.
-fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
+pub(crate) fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
     for clause in clauses {
         if clause.kind == ClauseKind::Output
             && let Expr::Raw(tokens) = &clause.body
@@ -31,7 +31,7 @@ fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
 }
 
 /// Extract parameters from `input(raw_data: Bytes)` clauses in a contract.
-fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
+pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
     for clause in clauses {
         if clause.kind == ClauseKind::Input
             && let Expr::Raw(tokens) = &clause.body
@@ -966,5 +966,142 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ---- extract_output_return_type tests ----
+
+    #[test]
+    fn extract_output_return_type_nat() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Output,
+            body: Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()]),
+            effect_variables: vec![],
+        }];
+        assert_eq!(extract_output_return_type(&clauses), vec!["Nat"]);
+    }
+
+    #[test]
+    fn extract_output_return_type_complex() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Output,
+            body: Expr::Raw(vec![
+                "result".into(),
+                ":".into(),
+                "List".into(),
+                "<".into(),
+                "Int".into(),
+                ">".into(),
+            ]),
+            effect_variables: vec![],
+        }];
+        assert_eq!(
+            extract_output_return_type(&clauses),
+            vec!["List", "<", "Int", ">"]
+        );
+    }
+
+    #[test]
+    fn extract_output_return_type_no_colon_fallback() {
+        // Fallback path: tokens without ":" at position 1 are returned as-is
+        let clauses = vec![Clause {
+            kind: ClauseKind::Output,
+            body: Expr::Raw(vec!["Nat".into()]),
+            effect_variables: vec![],
+        }];
+        assert_eq!(extract_output_return_type(&clauses), vec!["Nat"]);
+    }
+
+    #[test]
+    fn extract_output_return_type_missing() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::Literal(Literal::Bool(true)),
+            effect_variables: vec![],
+        }];
+        assert!(extract_output_return_type(&clauses).is_empty());
+    }
+
+    #[test]
+    fn extract_output_return_type_non_raw_body() {
+        // Output clause with non-Raw body (should be skipped)
+        let clauses = vec![Clause {
+            kind: ClauseKind::Output,
+            body: Expr::Literal(Literal::Bool(true)),
+            effect_variables: vec![],
+        }];
+        assert!(extract_output_return_type(&clauses).is_empty());
+    }
+
+    // ---- extract_input_params tests ----
+
+    #[test]
+    fn extract_input_params_single() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Input,
+            body: Expr::Raw(vec!["raw_data".into(), ":".into(), "Bytes".into()]),
+            effect_variables: vec![],
+        }];
+        let params = extract_input_params(&clauses);
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].name, "raw_data");
+        assert_eq!(params[0].ty, vec!["Bytes"]);
+    }
+
+    #[test]
+    fn extract_input_params_multiple() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Input,
+            body: Expr::Raw(vec![
+                "x".into(),
+                ":".into(),
+                "Int".into(),
+                ",".into(),
+                "y".into(),
+                ":".into(),
+                "Nat".into(),
+            ]),
+            effect_variables: vec![],
+        }];
+        let params = extract_input_params(&clauses);
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].name, "x");
+        assert_eq!(params[0].ty, vec!["Int"]);
+        assert_eq!(params[1].name, "y");
+        assert_eq!(params[1].ty, vec!["Nat"]);
+    }
+
+    #[test]
+    fn extract_input_params_no_type() {
+        // Parameter without a type annotation
+        let clauses = vec![Clause {
+            kind: ClauseKind::Input,
+            body: Expr::Raw(vec!["x".into()]),
+            effect_variables: vec![],
+        }];
+        let params = extract_input_params(&clauses);
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].name, "x");
+        assert!(params[0].ty.is_empty());
+    }
+
+    #[test]
+    fn extract_input_params_empty() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::Literal(Literal::Bool(true)),
+            effect_variables: vec![],
+        }];
+        assert!(extract_input_params(&clauses).is_empty());
+    }
+
+    #[test]
+    fn extract_input_params_non_raw_body() {
+        // Input clause with non-Raw body (should be skipped)
+        let clauses = vec![Clause {
+            kind: ClauseKind::Input,
+            body: Expr::Literal(Literal::Bool(true)),
+            effect_variables: vec![],
+        }];
+        assert!(extract_input_params(&clauses).is_empty());
     }
 }
