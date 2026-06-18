@@ -301,6 +301,10 @@ enum Commands {
         /// Output format: human or json
         #[arg(long, default_value = "human")]
         format: String,
+        /// Run SMT verification of contract evolution (precondition
+        /// weakening + postcondition strengthening)
+        #[arg(long)]
+        verify: bool,
     },
 
     /// Parse, validate, and codegen an Implementation IR file (Section 4)
@@ -512,8 +516,16 @@ fn main() {
             unsafe_only,
         }),
         Some(Commands::Repl) => run_repl(),
-        Some(Commands::Diff { old, new, format }) => {
+        Some(Commands::Diff {
+            old,
+            new,
+            format,
+            verify,
+        }) => {
             run_diff(&old, &new, &format);
+            if verify {
+                run_diff_verify(&old, &new, &format);
+            }
         }
         Some(Commands::Ir {
             file,

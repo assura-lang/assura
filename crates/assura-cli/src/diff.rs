@@ -176,6 +176,137 @@ pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) {
     }
 }
 
+/// Run SMT-based evolution verification on two contract files.
+///
+/// Parses both files and checks backward compatibility:
+/// - Precondition weakening: old_requires => new_requires
+/// - Postcondition strengthening: new_ensures => old_ensures
+pub(crate) fn run_diff_verify(old_path: &str, new_path: &str, format: &str) {
+    let old_src = match fs::read_to_string(old_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {old_path}: {e}");
+            process::exit(1);
+        }
+    };
+    let new_src = match fs::read_to_string(new_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {new_path}: {e}");
+            process::exit(1);
+        }
+    };
+
+    let (old_ast, old_errs) = assura_parser::parse(&old_src);
+    let (new_ast, new_errs) = assura_parser::parse(&new_src);
+
+    if !old_errs.is_empty() || old_ast.is_none() {
+        eprintln!("Cannot verify evolution: {old_path} has parse errors");
+        process::exit(1);
+    }
+    if !new_errs.is_empty() || new_ast.is_none() {
+        eprintln!("Cannot verify evolution: {new_path} has parse errors");
+        process::exit(1);
+    }
+
+    let old_ast = old_ast.unwrap();
+    let new_ast = new_ast.unwrap();
+
+    let results = assura_smt::verify_file_evolution(&old_ast, &new_ast);
+
+    if results.is_empty() {
+        if format == "json" {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "evolution": [],
+                    "compatible": true,
+                }))
+                .unwrap()
+            );
+        } else {
+            println!("No matching contracts to verify evolution.");
+        }
+        return;
+    }
+
+    let mut all_pass = true;
+    if format == "json" {
+        let json_results: Vec<serde_json::Value> = results
+            .iter()
+            .map(|r| {
+                let pre_ok = matches!(
+                    r.precondition_weakening,
+                    assura_smt::VerificationResult::Verified { .. }
+                );
+                let post_ok = matches!(
+                    r.postcondition_strengthening,
+                    assura_smt::VerificationResult::Verified { .. }
+                );
+                if !pre_ok || !post_ok {
+                    all_pass = false;
+                }
+                serde_json::json!({
+                    "contract": r.contract_name,
+                    "precondition_weakening": format!("{:?}", r.precondition_weakening),
+                    "postcondition_strengthening": format!("{:?}", r.postcondition_strengthening),
+                    "compatible": pre_ok && post_ok,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "evolution": json_results,
+                "compatible": all_pass,
+            }))
+            .unwrap()
+        );
+    } else {
+        println!("\nContract evolution verification:");
+        for r in &results {
+            println!("  {}:", r.contract_name);
+            let pre_status = match &r.precondition_weakening {
+                assura_smt::VerificationResult::Verified { .. } => "verified",
+                assura_smt::VerificationResult::Counterexample { .. } => {
+                    all_pass = false;
+                    "FAILED (preconditions strengthened)"
+                }
+                assura_smt::VerificationResult::Unknown { reason, .. } => {
+                    eprintln!("    warning: {reason}");
+                    "unknown"
+                }
+                assura_smt::VerificationResult::Timeout { .. } => {
+                    all_pass = false;
+                    "timeout"
+                }
+            };
+            println!("    precondition weakening  ... {pre_status}");
+
+            let post_status = match &r.postcondition_strengthening {
+                assura_smt::VerificationResult::Verified { .. } => "verified",
+                assura_smt::VerificationResult::Counterexample { .. } => {
+                    all_pass = false;
+                    "FAILED (postconditions weakened)"
+                }
+                assura_smt::VerificationResult::Unknown { reason, .. } => {
+                    eprintln!("    warning: {reason}");
+                    "unknown"
+                }
+                assura_smt::VerificationResult::Timeout { .. } => {
+                    all_pass = false;
+                    "timeout"
+                }
+            };
+            println!("    postcondition strength. ... {post_status}");
+        }
+    }
+
+    if !all_pass {
+        process::exit(1);
+    }
+}
+
 pub(crate) struct DiffEntry {
     name: String,
     kind: String,
