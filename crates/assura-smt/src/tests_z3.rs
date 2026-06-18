@@ -2587,3 +2587,165 @@ contract NoCrossContamination {
         results[1]
     );
 }
+
+// -----------------------------------------------------------------------
+// #263: ADT (algebraic data type) encoding tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_z3_adt_constructor() {
+    // Define an ADT like Option = Some(value: Int) | None
+    // Verify that constructor tags are distinct.
+    use crate::z3_backend::encoder::Encoder;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        encoder.define_adt("Option", &[("Some", &["value"]), ("None", &[])]);
+
+        // Construct Some(42) and None
+        let forty_two = z3::ast::Int::from_i64(42);
+        let some_val = encoder.adt_constructor("Option", "Some", &[forty_two]);
+        let none_val = encoder.adt_constructor("Option", "None", &[]);
+
+        // Verify tags are distinct: tag(some_val) != tag(none_val)
+        let is_some = encoder.adt_is_constructor("Option", "Some", &some_val);
+        let is_none = encoder.adt_is_constructor("Option", "None", &none_val);
+
+        let solver = z3::Solver::new();
+        // Assert all background axioms
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        // Assert both testers: some IS Some, none IS None
+        solver.assert(&is_some);
+        solver.assert(&is_none);
+        // Also assert tag distinctness: tag(some) != tag(none)
+        let some_tag_fn =
+            z3::FuncDecl::new("__adt_tag_Option", &[&z3::Sort::int()], &z3::Sort::int());
+        let tag_some = some_tag_fn
+            .apply(&[&some_val as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap();
+        let tag_none = some_tag_fn
+            .apply(&[&none_val as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap();
+        solver.assert(&tag_some.eq(&tag_none).not());
+
+        let result = solver.check();
+        assert_eq!(
+            result,
+            z3::SatResult::Sat,
+            "Distinct constructors should have distinct tags"
+        );
+    });
+}
+
+#[test]
+fn test_z3_adt_accessor() {
+    // Verify that accessor(Constructor(val)) == val.
+    use crate::z3_backend::encoder::Encoder;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        encoder.define_adt("Option", &[("Some", &["value"]), ("None", &[])]);
+
+        // Construct Some(42)
+        let forty_two = z3::ast::Int::from_i64(42);
+        let some_val = encoder.adt_constructor("Option", "Some", &[forty_two.clone()]);
+
+        // Access the value field
+        let accessed = encoder.adt_accessor("Option", "value", &some_val);
+
+        // Check that accessor(Constructor(42)) == 42
+        let solver = z3::Solver::new();
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        // Assert accessed != 42 and check unsat (proving they must be equal)
+        solver.assert(&accessed.eq(&forty_two).not());
+        let result = solver.check();
+        assert_eq!(
+            result,
+            z3::SatResult::Unsat,
+            "accessor(Ctor(42)) must equal 42 (negation should be UNSAT)"
+        );
+    });
+}
+
+#[test]
+fn test_z3_adt_exhaustiveness() {
+    // Verify that tag(x) must be one of the defined constructors.
+    // With Option = Some | None, tag(x) must be 0 or 1.
+    // Asserting tag(x) == 99 should be UNSAT.
+    use crate::z3_backend::encoder::Encoder;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        encoder.define_adt("Option", &[("Some", &["value"]), ("None", &[])]);
+
+        let x = z3::ast::Int::new_const("x_adt");
+        let tag_fn = z3::FuncDecl::new("__adt_tag_Option", &[&z3::Sort::int()], &z3::Sort::int());
+        let tag_x = tag_fn.apply(&[&x as &dyn z3::ast::Ast]).as_int().unwrap();
+
+        let solver = z3::Solver::new();
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        // Assert tag(x) == 99 (not a valid tag)
+        solver.assert(&tag_x.eq(&z3::ast::Int::from_i64(99)));
+        let result = solver.check();
+        assert_eq!(
+            result,
+            z3::SatResult::Unsat,
+            "tag(x) == 99 should be UNSAT with only tags 0 and 1 defined"
+        );
+    });
+}
+
+#[test]
+fn test_z3_adt_injectivity() {
+    // Verify Ctor(a, b) == Ctor(c, d) => a == c && b == d.
+    // Define Pair = MkPair(fst, snd).
+    // Construct MkPair(a, b) and MkPair(c, d), assert they are equal,
+    // then verify a == c and b == d.
+    use crate::z3_backend::encoder::Encoder;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::new();
+        encoder.define_adt("Pair", &[("MkPair", &["fst", "snd"])]);
+
+        let a = z3::ast::Int::new_const("a");
+        let b = z3::ast::Int::new_const("b");
+        let c = z3::ast::Int::new_const("c");
+        let d = z3::ast::Int::new_const("d");
+
+        let pair_ab = encoder.adt_constructor("Pair", "MkPair", &[a.clone(), b.clone()]);
+        let pair_cd = encoder.adt_constructor("Pair", "MkPair", &[c.clone(), d.clone()]);
+
+        let solver = z3::Solver::new();
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        // Assert pair_ab == pair_cd
+        solver.assert(&pair_ab.eq(&pair_cd));
+
+        // Assert NOT(a == c) -- should be UNSAT if injectivity holds
+        solver.push();
+        solver.assert(&a.eq(&c).not());
+        let result_fst = solver.check();
+        assert_eq!(
+            result_fst,
+            z3::SatResult::Unsat,
+            "MkPair(a,b) == MkPair(c,d) should imply a == c"
+        );
+        solver.pop(1);
+
+        // Assert NOT(b == d) -- should be UNSAT if injectivity holds
+        solver.push();
+        solver.assert(&b.eq(&d).not());
+        let result_snd = solver.check();
+        assert_eq!(
+            result_snd,
+            z3::SatResult::Unsat,
+            "MkPair(a,b) == MkPair(c,d) should imply b == d"
+        );
+        solver.pop(1);
+    });
+}

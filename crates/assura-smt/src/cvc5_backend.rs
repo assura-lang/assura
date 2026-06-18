@@ -325,6 +325,302 @@ fn is_internal_cvc5_var(name: &str) -> bool {
 }
 
 // =========================================================================
+// ADT (algebraic data type) emulation for CVC5 (#263)
+//
+// Mirrors the Z3 backend's ADT encoding using integer tags and
+// uninterpreted functions. Each constructor gets a unique tag, accessors
+// are UFs, and exhaustiveness/injectivity axioms are generated.
+// =========================================================================
+
+/// A single ADT constructor for CVC5 emulation.
+#[derive(Debug, Clone)]
+pub(crate) struct Cvc5AdtConstructor {
+    /// Constructor name.
+    pub(crate) name: String,
+    /// Unique integer tag.
+    pub(crate) tag: i64,
+    /// Named accessor fields.
+    pub(crate) accessors: Vec<String>,
+}
+
+/// An ADT definition for CVC5 emulation.
+#[derive(Debug, Clone)]
+pub(crate) struct Cvc5AdtDef {
+    /// ADT type name.
+    pub(crate) name: String,
+    /// Constructors.
+    pub(crate) constructors: Vec<Cvc5AdtConstructor>,
+}
+
+/// Define an ADT for CVC5 and generate SMT-LIB2 assertions.
+///
+/// Returns `(Cvc5AdtDef, Vec<String>)` where the Vec contains SMT-LIB2
+/// assert statements for exhaustiveness and injectivity axioms.
+pub(crate) fn define_adt_cvc5(
+    adt_name: &str,
+    constructors: &[(&str, &[&str])],
+) -> (Cvc5AdtDef, Vec<String>) {
+    let mut adt_ctors = Vec::new();
+    let mut assertions = Vec::new();
+
+    for (tag, (ctor_name, accessors)) in constructors.iter().enumerate() {
+        adt_ctors.push(Cvc5AdtConstructor {
+            name: ctor_name.to_string(),
+            tag: tag as i64,
+            accessors: accessors.iter().map(|a| a.to_string()).collect(),
+        });
+    }
+
+    let adt_def = Cvc5AdtDef {
+        name: adt_name.to_string(),
+        constructors: adt_ctors,
+    };
+
+    // Declare the tag function
+    let tag_fn = format!("__adt_tag_{adt_name}");
+    assertions.push(format!("(declare-fun {tag_fn} (Int) Int)"));
+
+    // Declare accessor functions
+    for ctor in &adt_def.constructors {
+        for accessor in &ctor.accessors {
+            let acc_fn = format!("__adt_{adt_name}_{accessor}");
+            assertions.push(format!("(declare-fun {acc_fn} (Int) Int)"));
+        }
+    }
+
+    // Exhaustiveness axiom
+    let tag_eqs: Vec<String> = adt_def
+        .constructors
+        .iter()
+        .map(|c| format!("(= ({tag_fn} x) {})", c.tag))
+        .collect();
+    let exhaustive = if tag_eqs.len() == 1 {
+        tag_eqs[0].clone()
+    } else {
+        format!("(or {})", tag_eqs.join(" "))
+    };
+    assertions.push(format!("(assert (forall ((x Int)) {exhaustive}))"));
+
+    // Injectivity axioms
+    for ctor in &adt_def.constructors {
+        if ctor.accessors.is_empty() {
+            // Nullary: both tagged => equal
+            assertions.push(format!(
+                "(assert (forall ((a Int) (b Int)) \
+                 (=> (and (= ({tag_fn} a) {}) (= ({tag_fn} b) {})) (= a b))))",
+                ctor.tag, ctor.tag
+            ));
+        } else {
+            // With fields: matching tag and all accessors => equal
+            let mut conjuncts = vec![
+                format!("(= ({tag_fn} a) {})", ctor.tag),
+                format!("(= ({tag_fn} b) {})", ctor.tag),
+            ];
+            for accessor in &ctor.accessors {
+                let acc_fn = format!("__adt_{adt_name}_{accessor}");
+                conjuncts.push(format!("(= ({acc_fn} a) ({acc_fn} b))"));
+            }
+            assertions.push(format!(
+                "(assert (forall ((a Int) (b Int)) \
+                 (=> (and {}) (= a b))))",
+                conjuncts.join(" ")
+            ));
+        }
+    }
+
+    (adt_def, assertions)
+}
+
+/// Generate an SMT-LIB2 assertion for a constructor tester.
+///
+/// Returns `(= (__adt_tag_<adt> <value>) <tag>)`.
+pub(crate) fn adt_is_constructor_smt(
+    adt_name: &str,
+    ctor_name: &str,
+    value: &str,
+    adt_def: &Cvc5AdtDef,
+) -> String {
+    let tag = adt_def
+        .constructors
+        .iter()
+        .find(|c| c.name == ctor_name)
+        .map_or(0, |c| c.tag);
+    let tag_fn = format!("__adt_tag_{adt_name}");
+    format!("(= ({tag_fn} {value}) {tag})")
+}
+
+/// Generate an SMT-LIB2 expression for an accessor application.
+///
+/// Returns `(__adt_<adt>_<accessor> <value>)`.
+pub(crate) fn adt_accessor_smt(adt_name: &str, accessor: &str, value: &str) -> String {
+    let acc_fn = format!("__adt_{adt_name}_{accessor}");
+    format!("({acc_fn} {value})")
+}
+
+/// Define an ADT using CVC5 native API and assert axioms.
+///
+/// Returns the `Cvc5AdtDef` with constructor tags assigned.
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn define_adt_cvc5_native<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    adt_name: &str,
+    constructors: &[(&str, &[&str])],
+) -> Cvc5AdtDef {
+    let mut adt_ctors = Vec::new();
+
+    for (tag, (ctor_name, accessors)) in constructors.iter().enumerate() {
+        adt_ctors.push(Cvc5AdtConstructor {
+            name: ctor_name.to_string(),
+            tag: tag as i64,
+            accessors: accessors.iter().map(|a| a.to_string()).collect(),
+        });
+    }
+
+    let adt_def = Cvc5AdtDef {
+        name: adt_name.to_string(),
+        constructors: adt_ctors,
+    };
+
+    // Declare the tag function: Int -> Int
+    let tag_fn_name = format!("__adt_tag_{adt_name}");
+    let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+    let tag_fn = tm.mk_const(tag_sort, &tag_fn_name);
+
+    // Declare accessor functions
+    let mut acc_fns = std::collections::HashMap::new();
+    for ctor in &adt_def.constructors {
+        for accessor in &ctor.accessors {
+            let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+            let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let acc_fn_term = tm.mk_const(acc_sort, &acc_fn_name);
+            acc_fns.insert(acc_fn_name, acc_fn_term);
+        }
+    }
+
+    // Exhaustiveness axiom: forall x: tag(x) == 0 || tag(x) == 1 || ...
+    let x = tm.mk_var(tm.integer_sort(), &format!("__adt_exh_{adt_name}"));
+    let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), x.clone()]);
+
+    let tag_eqs: Vec<cvc5::Term> = adt_def
+        .constructors
+        .iter()
+        .map(|c| tm.mk_term(cvc5::Kind::Equal, &[tag_x.clone(), tm.mk_integer(c.tag)]))
+        .collect();
+    let exhaustive = if tag_eqs.len() == 1 {
+        tag_eqs[0].clone()
+    } else {
+        tm.mk_term(cvc5::Kind::Or, &tag_eqs)
+    };
+    let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[x.clone()]);
+    let forall_exhaustive = tm.mk_term(cvc5::Kind::Forall, &[bound_list, exhaustive]);
+    solver.assert_formula(forall_exhaustive);
+
+    // Injectivity axioms
+    for ctor in &adt_def.constructors {
+        let a = tm.mk_var(
+            tm.integer_sort(),
+            &format!("__adt_inj_{adt_name}_{}_a", ctor.name),
+        );
+        let b = tm.mk_var(
+            tm.integer_sort(),
+            &format!("__adt_inj_{adt_name}_{}_b", ctor.name),
+        );
+        let tag_a = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), a.clone()]);
+        let tag_b = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), b.clone()]);
+        let tag_val = tm.mk_integer(ctor.tag);
+
+        let mut conjuncts = vec![
+            tm.mk_term(cvc5::Kind::Equal, &[tag_a, tag_val.clone()]),
+            tm.mk_term(cvc5::Kind::Equal, &[tag_b, tag_val]),
+        ];
+
+        for accessor in &ctor.accessors {
+            let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+            if let Some(acc_fn_term) = acc_fns.get(&acc_fn_name) {
+                let acc_a = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), a.clone()]);
+                let acc_b = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), b.clone()]);
+                conjuncts.push(tm.mk_term(cvc5::Kind::Equal, &[acc_a, acc_b]));
+            }
+        }
+
+        let premise = tm.mk_term(cvc5::Kind::And, &conjuncts);
+        let eq_ab = tm.mk_term(cvc5::Kind::Equal, &[a.clone(), b.clone()]);
+        let implication = tm.mk_term(cvc5::Kind::Implies, &[premise, eq_ab]);
+        let bound_list_ab = tm.mk_term(cvc5::Kind::VariableList, &[a, b]);
+        let forall_inj = tm.mk_term(cvc5::Kind::Forall, &[bound_list_ab, implication]);
+        solver.assert_formula(forall_inj);
+    }
+
+    adt_def
+}
+
+/// Build a CVC5 constructor application (native API): create a fresh
+/// constant, set its tag, and bind accessor values.
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn adt_constructor_cvc5_native<'a>(
+    tm: &'a cvc5::TermManager,
+    adt_name: &str,
+    ctor: &Cvc5AdtConstructor,
+    args: &[cvc5::Term<'a>],
+    axioms: &mut Vec<cvc5::Term<'a>>,
+    fresh_counter: &mut usize,
+) -> cvc5::Term<'a> {
+    let val_name = format!("__adt_val_{}_{}", fresh_counter, ctor.name);
+    *fresh_counter += 1;
+    let val = tm.mk_const(tm.integer_sort(), &val_name);
+
+    // Tag axiom
+    let tag_fn_name = format!("__adt_tag_{adt_name}");
+    let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+    let tag_fn = tm.mk_const(tag_sort, &tag_fn_name);
+    let tag_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn, val.clone()]);
+    axioms.push(tm.mk_term(cvc5::Kind::Equal, &[tag_applied, tm.mk_integer(ctor.tag)]));
+
+    // Accessor axioms
+    for (i, accessor) in ctor.accessors.iter().enumerate() {
+        if let Some(arg) = args.get(i) {
+            let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+            let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let acc_fn = tm.mk_const(acc_sort, &acc_fn_name);
+            let acc_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn, val.clone()]);
+            axioms.push(tm.mk_term(cvc5::Kind::Equal, &[acc_applied, arg.clone()]));
+        }
+    }
+
+    val
+}
+
+/// Test whether a CVC5 value was built with a specific constructor (native API).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn adt_is_constructor_cvc5_native<'a>(
+    tm: &'a cvc5::TermManager,
+    adt_name: &str,
+    ctor: &Cvc5AdtConstructor,
+    value: &cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    let tag_fn_name = format!("__adt_tag_{adt_name}");
+    let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+    let tag_fn = tm.mk_const(tag_sort, &tag_fn_name);
+    let tag_val = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn, value.clone()]);
+    tm.mk_term(cvc5::Kind::Equal, &[tag_val, tm.mk_integer(ctor.tag)])
+}
+
+/// Access a field of a CVC5 ADT value (native API).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn adt_accessor_cvc5_native<'a>(
+    tm: &'a cvc5::TermManager,
+    adt_name: &str,
+    accessor: &str,
+    value: &cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+    let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+    let acc_fn = tm.mk_const(acc_sort, &acc_fn_name);
+    tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn, value.clone()])
+}
+
+// =========================================================================
 // Native CVC5 API backend (feature = "cvc5-verify")
 // =========================================================================
 
@@ -7842,6 +8138,147 @@ mod tests {
             assert_eq!(results_b.len(), 1);
             // Both should be cache misses, so 2 entries
             assert_eq!(cache.entry_count(), 2);
+        }
+
+        // -------------------------------------------------------------------
+        // #263: CVC5 ADT encoding tests
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn test_cvc5_adt_constructor() {
+            // Define Option = Some(value: Int) | None using CVC5 native API.
+            // Verify that constructor tags are distinct and accessors work.
+            let tm = cvc5::TermManager::new();
+            let mut solver = cvc5::Solver::new(&tm);
+            solver.set_logic("ALL");
+            solver.set_option("produce-models", "true");
+            solver.set_option("tlimit", "2000");
+
+            let adt_def = super::define_adt_cvc5_native(
+                &tm,
+                &mut solver,
+                "Option",
+                &[("Some", &["value"]), ("None", &[])],
+            );
+
+            // Construct Some(42)
+            let some_ctor = adt_def
+                .constructors
+                .iter()
+                .find(|c| c.name == "Some")
+                .unwrap();
+            let none_ctor = adt_def
+                .constructors
+                .iter()
+                .find(|c| c.name == "None")
+                .unwrap();
+
+            let mut axioms = Vec::new();
+            let mut fresh = 0usize;
+
+            let forty_two = tm.mk_integer(42);
+            let some_val = super::adt_constructor_cvc5_native(
+                &tm,
+                "Option",
+                some_ctor,
+                &[forty_two.clone()],
+                &mut axioms,
+                &mut fresh,
+            );
+            let none_val = super::adt_constructor_cvc5_native(
+                &tm,
+                "Option",
+                none_ctor,
+                &[],
+                &mut axioms,
+                &mut fresh,
+            );
+
+            // Assert all axioms
+            for axiom in &axioms {
+                solver.assert_formula(axiom.clone());
+            }
+
+            // Verify tags are distinct
+            let is_some =
+                super::adt_is_constructor_cvc5_native(&tm, "Option", some_ctor, &some_val);
+            let is_none =
+                super::adt_is_constructor_cvc5_native(&tm, "Option", none_ctor, &none_val);
+            solver.assert_formula(is_some);
+            solver.assert_formula(is_none);
+
+            // Verify accessor: value(some_val) == 42
+            let accessed = super::adt_accessor_cvc5_native(&tm, "Option", "value", &some_val);
+            let eq_42 = tm.mk_term(cvc5::Kind::Equal, &[accessed, forty_two]);
+            let not_eq_42 = tm.mk_term(cvc5::Kind::Not, &[eq_42]);
+            solver.push(1);
+            solver.assert_formula(not_eq_42);
+            let result = solver.check_sat();
+            assert!(
+                result.is_unsat(),
+                "accessor(Some(42)) must equal 42 (negation should be UNSAT)"
+            );
+            solver.pop(1);
+
+            // Verify exhaustiveness: tag(x) == 99 should be UNSAT
+            let x = tm.mk_const(tm.integer_sort(), "x_adt_exh");
+            let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let tag_fn = tm.mk_const(tag_sort, "__adt_tag_Option");
+            let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn, x]);
+            let bad_tag = tm.mk_term(cvc5::Kind::Equal, &[tag_x, tm.mk_integer(99)]);
+            solver.push(1);
+            solver.assert_formula(bad_tag);
+            let result = solver.check_sat();
+            assert!(
+                result.is_unsat(),
+                "tag(x) == 99 should be UNSAT with only tags 0 and 1"
+            );
+            solver.pop(1);
+        }
+
+        #[test]
+        fn test_cvc5_adt_smtlib_generation() {
+            // Test that the SMT-LIB2 generation functions produce valid output
+            let (adt_def, assertions) =
+                super::define_adt_cvc5("Option", &[("Some", &["value"]), ("None", &[])]);
+
+            // Should have 3 declarations + 1 exhaustiveness + 2 injectivity = 6
+            assert!(
+                assertions.len() >= 5,
+                "should have at least 5 SMT-LIB2 assertions, got {}",
+                assertions.len()
+            );
+
+            // Check tag function declaration
+            assert!(
+                assertions.iter().any(|a| a.contains("__adt_tag_Option")),
+                "should declare tag function"
+            );
+
+            // Check accessor function declaration
+            assert!(
+                assertions.iter().any(|a| a.contains("__adt_Option_value")),
+                "should declare value accessor"
+            );
+
+            // Check exhaustiveness axiom
+            assert!(
+                assertions
+                    .iter()
+                    .any(|a| a.contains("forall") && a.contains("or")),
+                "should have exhaustiveness axiom with forall/or"
+            );
+
+            // Test constructor tester SMT generation
+            let tester = super::adt_is_constructor_smt("Option", "Some", "x", &adt_def);
+            assert_eq!(tester, "(= (__adt_tag_Option x) 0)");
+
+            let tester_none = super::adt_is_constructor_smt("Option", "None", "x", &adt_def);
+            assert_eq!(tester_none, "(= (__adt_tag_Option x) 1)");
+
+            // Test accessor SMT generation
+            let acc = super::adt_accessor_smt("Option", "value", "x");
+            assert_eq!(acc, "(__adt_Option_value x)");
         }
     }
 }

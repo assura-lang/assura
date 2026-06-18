@@ -92,6 +92,41 @@ impl Z3Value {
 // Expression encoder
 // -----------------------------------------------------------------------
 
+/// A single constructor in an ADT emulation.
+///
+/// Each constructor has a unique integer tag, a name, and a list of named
+/// accessor fields. The encoder uses uninterpreted functions for accessors
+/// and integer equality for constructor testing.
+#[derive(Debug, Clone)]
+pub(crate) struct AdtConstructor {
+    /// Display name of the constructor (e.g., "Some", "None").
+    pub(crate) name: String,
+    /// Unique integer tag assigned to this constructor.
+    pub(crate) tag: i64,
+    /// Named accessor fields. Each accessor is encoded as an uninterpreted
+    /// function `Int -> Int` applied to the ADT value.
+    pub(crate) accessors: Vec<String>,
+}
+
+/// An ADT (algebraic data type) definition emulated via integer tags and
+/// uninterpreted functions.
+///
+/// Since the encoder is currently untyped (all values are Int or Bool),
+/// ADTs are emulated as follows:
+/// - Each constructor gets a unique integer tag.
+/// - A tag function (`__adt_tag_<name>`) returns the constructor tag.
+/// - Each accessor is an uninterpreted function `__adt_<adt>_<accessor>(x) -> Int`.
+/// - Constructor tester: `tag(x) == CONSTRUCTOR_TAG`.
+/// - Injectivity axiom: `Ctor(a, b) == Ctor(c, d) => a == c && b == d`.
+/// - Exhaustiveness: `tag(x) == Tag1 || tag(x) == Tag2 || ...`.
+#[derive(Debug, Clone)]
+pub(crate) struct AdtDef {
+    /// ADT type name (e.g., "Option", "List").
+    pub(crate) name: String,
+    /// Constructors in definition order.
+    pub(crate) constructors: Vec<AdtConstructor>,
+}
+
 /// Translates Assura AST expressions into Z3 formulas.
 pub(crate) struct Encoder {
     pub(crate) vars: HashMap<String, Z3Value>,
@@ -108,6 +143,9 @@ pub(crate) struct Encoder {
     /// When true, use native Z3 string theory (QF_S/QF_SLIA) for string
     /// literals and .length(). When false (default), use integer encoding.
     pub(crate) use_string_theory: bool,
+    /// Registered ADT definitions for lightweight emulation.
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) adt_defs: HashMap<String, AdtDef>,
 }
 
 impl Encoder {
@@ -120,6 +158,7 @@ impl Encoder {
             trigger_manager: crate::advanced::TriggerManager::new(),
             string_constants: Vec::new(),
             use_string_theory: false,
+            adt_defs: HashMap::new(),
         }
     }
 
@@ -784,6 +823,239 @@ impl Encoder {
             }
             assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Literal(_) => {}
         }
+    }
+
+    // -------------------------------------------------------------------
+    // ADT (algebraic data type) emulation
+    // -------------------------------------------------------------------
+
+    /// Define an ADT with named constructors and their accessor fields.
+    ///
+    /// Each constructor gets a unique integer tag (sequential, starting at 0).
+    /// The method registers:
+    /// 1. A tag function `__adt_tag_<adt_name>` (uninterpreted, Int -> Int)
+    /// 2. Accessor functions `__adt_<adt_name>_<field>` (uninterpreted, Int -> Int)
+    /// 3. Exhaustiveness axiom: for any value x, tag(x) is one of the defined tags
+    /// 4. Injectivity axioms: Ctor(a1, ..., an) == Ctor(b1, ..., bn) => ai == bi
+    ///
+    /// Returns the registered `AdtDef`.
+    pub(crate) fn define_adt(
+        &mut self,
+        adt_name: &str,
+        constructors: &[(&str, &[&str])],
+    ) -> AdtDef {
+        let mut adt_ctors = Vec::new();
+        for (tag, (ctor_name, accessors)) in constructors.iter().enumerate() {
+            adt_ctors.push(AdtConstructor {
+                name: ctor_name.to_string(),
+                tag: tag as i64,
+                accessors: accessors.iter().map(|a| a.to_string()).collect(),
+            });
+        }
+        let adt_def = AdtDef {
+            name: adt_name.to_string(),
+            constructors: adt_ctors,
+        };
+
+        // Register uninterpreted functions for the tag and accessors
+        let tag_fn_name = format!("__adt_tag_{adt_name}");
+        self.make_func(&tag_fn_name, 1);
+
+        for ctor in &adt_def.constructors {
+            for accessor in &ctor.accessors {
+                let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+                self.make_func(&acc_fn_name, 1);
+            }
+        }
+
+        // Generate exhaustiveness axiom:
+        //   forall x: tag(x) == 0 || tag(x) == 1 || ... || tag(x) == n
+        let x = ast::Int::new_const(format!("__adt_exh_{adt_name}"));
+        let tag_fn = self.make_func(&tag_fn_name, 1);
+        let tag_x = tag_fn
+            .apply(&[&x as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap_or_else(|| self.fresh_int());
+
+        let tag_eqs: Vec<ast::Bool> = adt_def
+            .constructors
+            .iter()
+            .map(|c| tag_x.eq(ast::Int::from_i64(c.tag)))
+            .collect();
+        let tag_eq_refs: Vec<&ast::Bool> = tag_eqs.iter().collect();
+        let exhaustive = ast::Bool::or(&tag_eq_refs);
+        let forall_exhaustive = ast::forall_const(&[&x as &dyn z3::ast::Ast], &[], &exhaustive);
+        self.background_axioms.push(forall_exhaustive);
+
+        // Generate injectivity axioms for each constructor with fields:
+        //   forall a1..an, b1..bn:
+        //     (tag(x) == TAG && acc_i(x) == ai) &&
+        //     (tag(y) == TAG && acc_i(y) == bi) &&
+        //     x == y
+        //     => a1 == b1 && ... && an == bn
+        //
+        // Simplified form: for each constructor with accessors,
+        //   forall x, y: x == y => acc_i(x) == acc_i(y)
+        //
+        // This is trivially true for UFs, so instead we encode the
+        // more useful injectivity:
+        //   forall x, y: (tag(x) == tag(y) == TAG &&
+        //     acc_1(x) == acc_1(y) && ... && acc_n(x) == acc_n(y))
+        //     => x == y
+        for ctor in &adt_def.constructors {
+            if ctor.accessors.is_empty() {
+                // Nullary constructor: any two values with this tag are equal
+                let a = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_a", ctor.name));
+                let b = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_b", ctor.name));
+
+                let tag_a = tag_fn
+                    .apply(&[&a as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let tag_b = tag_fn
+                    .apply(&[&b as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let tag_val = ast::Int::from_i64(ctor.tag);
+                let both_tagged = ast::Bool::and(&[&tag_a.eq(&tag_val), &tag_b.eq(&tag_val)]);
+                let eq_ab = a.eq(&b);
+                let axiom = ast::forall_const(
+                    &[&a as &dyn z3::ast::Ast, &b as &dyn z3::ast::Ast],
+                    &[],
+                    &both_tagged.implies(&eq_ab),
+                );
+                self.background_axioms.push(axiom);
+            } else {
+                // Constructor with fields: matching all accessors implies equality
+                let a = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_a", ctor.name));
+                let b = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_b", ctor.name));
+
+                let tag_a = tag_fn
+                    .apply(&[&a as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let tag_b = tag_fn
+                    .apply(&[&b as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let tag_val = ast::Int::from_i64(ctor.tag);
+
+                let mut conjuncts = vec![tag_a.eq(&tag_val), tag_b.eq(&tag_val)];
+                for accessor in &ctor.accessors {
+                    let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+                    let acc_fn = self.make_func(&acc_fn_name, 1);
+                    let acc_a = acc_fn
+                        .apply(&[&a as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let acc_b = acc_fn
+                        .apply(&[&b as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    conjuncts.push(acc_a.eq(&acc_b));
+                }
+                let conjunct_refs: Vec<&ast::Bool> = conjuncts.iter().collect();
+                let premise = ast::Bool::and(&conjunct_refs);
+                let eq_ab = a.eq(&b);
+                let axiom = ast::forall_const(
+                    &[&a as &dyn z3::ast::Ast, &b as &dyn z3::ast::Ast],
+                    &[],
+                    &premise.implies(&eq_ab),
+                );
+                self.background_axioms.push(axiom);
+            }
+        }
+
+        self.adt_defs.insert(adt_name.to_string(), adt_def.clone());
+        adt_def
+    }
+
+    /// Build a constructor application: create a fresh Int value, set its
+    /// tag to the constructor's tag, and bind accessor values to the
+    /// provided arguments.
+    ///
+    /// Returns the fresh Int representing the constructed value.
+    pub(crate) fn adt_constructor(
+        &mut self,
+        adt_name: &str,
+        ctor_name: &str,
+        args: &[ast::Int],
+    ) -> ast::Int {
+        let adt_def = self.adt_defs.get(adt_name).cloned();
+        let ctor = adt_def
+            .as_ref()
+            .and_then(|d| d.constructors.iter().find(|c| c.name == ctor_name));
+
+        let tag = ctor.map_or(0, |c| c.tag);
+        let accessors: Vec<String> = ctor.map_or_else(Vec::new, |c| c.accessors.clone());
+
+        let val = self.fresh_int();
+
+        // Set tag
+        let tag_fn_name = format!("__adt_tag_{adt_name}");
+        let tag_fn = self.make_func(&tag_fn_name, 1);
+        let tag_applied = tag_fn
+            .apply(&[&val as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap_or_else(|| self.fresh_int());
+        self.background_axioms
+            .push(tag_applied.eq(ast::Int::from_i64(tag)));
+
+        // Bind accessor values
+        for (i, accessor) in accessors.iter().enumerate() {
+            if let Some(arg) = args.get(i) {
+                let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+                let acc_fn = self.make_func(&acc_fn_name, 1);
+                let acc_applied = acc_fn
+                    .apply(&[&val as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                self.background_axioms.push(acc_applied.eq(arg));
+            }
+        }
+
+        val
+    }
+
+    /// Test whether a value was built with a specific constructor.
+    ///
+    /// Returns `tag(x) == CONSTRUCTOR_TAG` as a Z3 Bool.
+    pub(crate) fn adt_is_constructor(
+        &mut self,
+        adt_name: &str,
+        ctor_name: &str,
+        value: &ast::Int,
+    ) -> ast::Bool {
+        let tag = self
+            .adt_defs
+            .get(adt_name)
+            .and_then(|d| d.constructors.iter().find(|c| c.name == ctor_name))
+            .map_or(0, |c| c.tag);
+
+        let tag_fn_name = format!("__adt_tag_{adt_name}");
+        let tag_fn = self.make_func(&tag_fn_name, 1);
+        let tag_val = tag_fn
+            .apply(&[value as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap_or_else(|| self.fresh_int());
+        tag_val.eq(ast::Int::from_i64(tag))
+    }
+
+    /// Access a field of a constructed ADT value.
+    ///
+    /// Returns `accessor(x)` as a Z3 Int.
+    pub(crate) fn adt_accessor(
+        &mut self,
+        adt_name: &str,
+        accessor: &str,
+        value: &ast::Int,
+    ) -> ast::Int {
+        let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+        let acc_fn = self.make_func(&acc_fn_name, 1);
+        acc_fn
+            .apply(&[value as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap_or_else(|| self.fresh_int())
     }
 
     /// Encode an AST expression into a Z3 value.
