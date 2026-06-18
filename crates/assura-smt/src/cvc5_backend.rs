@@ -366,6 +366,39 @@ fn flatten_field_chain_cvc5(expr: &Expr) -> String {
 }
 
 // =========================================================================
+// Internal variable filtering (matches Z3 backend's extract_counter_model)
+//
+// The CVC5 encoder creates many internal variables (__str_*, __field_*,
+// __fresh_*, etc.) that should not appear in user-facing counterexample
+// models. This mirrors the Z3 backend's filtering in solver.rs.
+// =========================================================================
+
+/// Check if a variable name is an internal encoder artifact.
+///
+/// Internal variables are created by the SMT encoder for string constants,
+/// field access UFs, fresh temporaries, etc. They should be filtered out
+/// of counterexample models shown to users. The only `__`-prefixed variable
+/// kept is `__result` (the return value).
+fn is_internal_cvc5_var(name: &str) -> bool {
+    name.starts_with("__str_")
+        || name.starts_with("__tuple_")
+        || name.starts_with("__list_")
+        || name.starts_with("__fresh_")
+        || name.starts_with("__field_")
+        || name.starts_with("__index")
+        || name.starts_with("__len")
+        || name.starts_with("__arr_")
+        || name.starts_with("__domain_contains")
+        || name.starts_with("__apply_")
+        || name.starts_with("__coerce")
+        || name.starts_with("__trigger_")
+        || name.starts_with("__list_get")
+        || name.starts_with("__result")
+        || name.starts_with("__contains")
+        || name.starts_with("__obj_")
+}
+
+// =========================================================================
 // Native CVC5 API backend (feature = "cvc5-verify")
 // =========================================================================
 
@@ -738,14 +771,17 @@ fn check_clause_cvc5_native(
                 clause_desc: desc.to_string(),
             }
         } else {
-            // Extract counterexample model
-            let mut variables = Vec::new();
-            for (name, term) in &var_map {
-                if !name.starts_with("__coerce") {
+            // Extract counterexample model, filtering internal variables
+            // and sorting alphabetically (matching Z3 backend behavior)
+            let mut variables: Vec<(String, String)> = var_map
+                .iter()
+                .filter(|(name, _)| !is_internal_cvc5_var(name))
+                .map(|(name, term)| {
                     let val = solver.get_value(term.clone());
-                    variables.push((name.clone(), val.to_string()));
-                }
-            }
+                    (name.clone(), val.to_string())
+                })
+                .collect();
+            variables.sort_by(|(a, _), (b, _)| a.cmp(b));
             let model_str = variables
                 .iter()
                 .map(|(n, v)| format!("{n} = {v}"))
@@ -2670,13 +2706,16 @@ pub(crate) fn check_validity_cvc5(
             clause_desc: desc.to_string(),
         }
     } else if sat_result.is_sat() {
-        let mut variables = Vec::new();
-        for (name, term) in &var_map {
-            if !name.starts_with("__coerce") {
+        // Filter internal variables and sort alphabetically
+        let mut variables: Vec<(String, String)> = var_map
+            .iter()
+            .filter(|(name, _)| !is_internal_cvc5_var(name))
+            .map(|(name, term)| {
                 let val = solver.get_value(term.clone());
-                variables.push((name.clone(), val.to_string()));
-            }
-        }
+                (name.clone(), val.to_string())
+            })
+            .collect();
+        variables.sort_by(|(a, _), (b, _)| a.cmp(b));
         let model_str = variables
             .iter()
             .map(|(n, v)| format!("{n} = {v}"))
@@ -3255,9 +3294,20 @@ fn check_clause_cvc5_shellout(
                 }
             } else {
                 let counter_model = parse_smtlib_model(&model_str);
+                // Build a filtered model string from the parsed model
+                let filtered_model = counter_model
+                    .as_ref()
+                    .map(|cm| {
+                        cm.variables
+                            .iter()
+                            .map(|(n, v)| format!("{n} = {v}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or(model_str);
                 VerificationResult::Counterexample {
                     clause_desc: desc.to_string(),
-                    model: model_str,
+                    model: filtered_model,
                     counter_model,
                 }
             }
@@ -4092,6 +4142,9 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
 }
 
 /// Parse a CVC5 model output into a CounterexampleModel.
+///
+/// Filters out internal encoder variables and sorts the remaining
+/// user variables alphabetically (matching Z3 backend behavior).
 #[cfg_attr(feature = "cvc5-verify", expect(dead_code))]
 pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel> {
     // CVC5 model format: (define-fun name () Int value)
@@ -4112,7 +4165,7 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
                     let raw = &type_and_value[space_idx + 1..];
                     // Strip exactly one trailing ')' (the define-fun closer)
                     let value = raw.strip_suffix(')').unwrap_or(raw).trim().to_string();
-                    if !name.starts_with("__coerce") {
+                    if !is_internal_cvc5_var(&name) {
                         variables.push((name, value));
                     }
                 }
@@ -4122,6 +4175,8 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
     if variables.is_empty() {
         None
     } else {
+        // Sort alphabetically for deterministic output
+        variables.sort_by(|(a, _), (b, _)| a.cmp(b));
         Some(CounterexampleModel { variables })
     }
 }
@@ -4857,6 +4912,84 @@ mod tests {
         let parsed = parse_smtlib_model(model).unwrap();
         assert_eq!(parsed.variables.len(), 1);
         assert_eq!(parsed.variables[0].0, "x");
+    }
+
+    // -------------------------------------------------------------------
+    // is_internal_cvc5_var and counterexample model filtering (#260)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_is_internal_cvc5_var_internal_prefixes() {
+        assert!(is_internal_cvc5_var("__str_hello"));
+        assert!(is_internal_cvc5_var("__tuple_0"));
+        assert!(is_internal_cvc5_var("__list_vals"));
+        assert!(is_internal_cvc5_var("__fresh_3"));
+        assert!(is_internal_cvc5_var("__field_len"));
+        assert!(is_internal_cvc5_var("__index_0"));
+        assert!(is_internal_cvc5_var("__len_buf"));
+        assert!(is_internal_cvc5_var("__arr_data"));
+        assert!(is_internal_cvc5_var("__domain_contains_x"));
+        assert!(is_internal_cvc5_var("__apply_func"));
+        assert!(is_internal_cvc5_var("__coerce_1"));
+        assert!(is_internal_cvc5_var("__trigger_pat"));
+        assert!(is_internal_cvc5_var("__list_get_0"));
+        assert!(is_internal_cvc5_var("__result"));
+        assert!(is_internal_cvc5_var("__contains"));
+        assert!(is_internal_cvc5_var("__obj_ptr"));
+    }
+
+    #[test]
+    fn test_is_internal_cvc5_var_user_variables() {
+        assert!(!is_internal_cvc5_var("x"));
+        assert!(!is_internal_cvc5_var("buffer_size"));
+        assert!(!is_internal_cvc5_var("payload_length"));
+        assert!(!is_internal_cvc5_var("n"));
+        assert!(!is_internal_cvc5_var("result_count"));
+        assert!(!is_internal_cvc5_var("max_size"));
+        assert!(!is_internal_cvc5_var("i"));
+    }
+
+    #[test]
+    fn test_parse_model_filters_all_internal_vars() {
+        let model = "\
+(define-fun __str_hello () Int 1)\n\
+(define-fun __field_len () Int 5)\n\
+(define-fun __fresh_0 () Int 99)\n\
+(define-fun __result () Int 42)\n\
+(define-fun __coerce_1 () Int 0)\n\
+(define-fun x () Int 10)\n\
+(define-fun y () Int 20)";
+        let parsed = parse_smtlib_model(model).unwrap();
+        let names: Vec<&str> = parsed.variables.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["x", "y"]);
+        assert!(!names.contains(&"__str_hello"));
+        assert!(!names.contains(&"__field_len"));
+        assert!(!names.contains(&"__fresh_0"));
+        assert!(!names.contains(&"__result"));
+        assert!(!names.contains(&"__coerce_1"));
+    }
+
+    #[test]
+    fn test_parse_model_sorted_alphabetically() {
+        let model = "\
+(define-fun z_var () Int 3)\n\
+(define-fun a_var () Int 1)\n\
+(define-fun m_var () Int 2)";
+        let parsed = parse_smtlib_model(model).unwrap();
+        let names: Vec<&str> = parsed.variables.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["a_var", "m_var", "z_var"]);
+    }
+
+    #[test]
+    fn test_parse_model_all_internal_returns_none() {
+        let model = "\
+(define-fun __str_a () Int 1)\n\
+(define-fun __fresh_0 () Int 2)\n\
+(define-fun __coerce_1 () Int 3)";
+        assert!(
+            parse_smtlib_model(model).is_none(),
+            "model with only internal vars should return None"
+        );
     }
 
     // -------------------------------------------------------------------
