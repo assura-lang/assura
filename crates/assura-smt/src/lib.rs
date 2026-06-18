@@ -44,8 +44,9 @@ pub use result::{CounterexampleModel, VerificationResult};
 /// Public entry point functions for SMT verification.
 mod entry;
 pub use entry::{
-    check_refinement_subtype, check_refinement_subtype_with_context, has_verifiable_clauses,
-    verify, verify_buffer_bounds, verify_contract, verify_contract_with_solver, verify_decrease,
+    EvolutionResult, check_refinement_subtype, check_refinement_subtype_with_context,
+    has_verifiable_clauses, verify, verify_buffer_bounds, verify_contract,
+    verify_contract_with_solver, verify_decrease, verify_evolution, verify_file_evolution,
     verify_parallel, verify_parallel_with_solver, verify_region_containment, verify_taint_safety,
     verify_with_measures, verify_with_options,
 };

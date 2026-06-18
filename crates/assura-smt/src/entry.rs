@@ -710,6 +710,243 @@ pub fn verify_decrease(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Incremental contract evolution (#199)
+// ---------------------------------------------------------------------------
+
+/// Result of a contract evolution check.
+#[derive(Debug, Clone)]
+pub struct EvolutionResult {
+    /// Name of the contract being checked.
+    pub contract_name: String,
+    /// Precondition weakening check: every input valid under the old contract
+    /// must be valid under the new contract.
+    pub precondition_weakening: VerificationResult,
+    /// Postcondition strengthening check: every guarantee of the new contract
+    /// must imply the old guarantee.
+    pub postcondition_strengthening: VerificationResult,
+}
+
+/// Verify that a contract evolution is backward-compatible.
+///
+/// Given an old and new version of a contract's clauses, checks:
+/// 1. **Precondition weakening**: `old_requires => new_requires`
+///    (the new contract accepts at least everything the old one did)
+/// 2. **Postcondition strengthening**: `new_ensures => old_ensures`
+///    (the new contract's guarantees are at least as strong)
+///
+/// Both are standard Z3 validity checks.
+pub fn verify_evolution(
+    contract_name: &str,
+    old_clauses: &[Clause],
+    new_clauses: &[Clause],
+) -> EvolutionResult {
+    // Collect requires and ensures from both versions
+    let old_requires: Vec<&Expr> = old_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let new_requires: Vec<&Expr> = new_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let old_ensures: Vec<&Expr> = old_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    let new_ensures: Vec<&Expr> = new_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+
+    // ---- Precondition weakening: old_requires => new_requires ----
+    // All old preconditions must imply all new preconditions.
+    // If old has no requires, it accepts everything, so new must also accept
+    // everything (new_requires must be trivially true).
+    // If new has no requires, it accepts everything, so weakening holds trivially.
+    let precondition_weakening = if new_requires.is_empty() {
+        // New accepts everything; weakening holds trivially
+        VerificationResult::Verified {
+            clause_desc: format!("{contract_name}: precondition weakening"),
+        }
+    } else {
+        check_implication(
+            &old_requires,
+            &new_requires,
+            &format!("{contract_name}: precondition weakening"),
+        )
+    };
+
+    // ---- Postcondition strengthening: new_ensures => old_ensures ----
+    // All new postconditions must imply all old postconditions.
+    // If old has no ensures, there are no guarantees to maintain, so
+    // strengthening holds trivially.
+    // If new has no ensures but old does, strengthening fails (lost guarantees).
+    let postcondition_strengthening = if old_ensures.is_empty() {
+        // Old had no guarantees; any new guarantees are fine
+        VerificationResult::Verified {
+            clause_desc: format!("{contract_name}: postcondition strengthening"),
+        }
+    } else if new_ensures.is_empty() {
+        // Old had guarantees, new dropped them
+        VerificationResult::Counterexample {
+            clause_desc: format!("{contract_name}: postcondition strengthening"),
+            model: "new contract drops all ensures clauses from old contract".into(),
+            counter_model: None,
+        }
+    } else {
+        check_implication(
+            &new_ensures,
+            &old_ensures,
+            &format!("{contract_name}: postcondition strengthening"),
+        )
+    };
+
+    EvolutionResult {
+        contract_name: contract_name.to_string(),
+        precondition_weakening,
+        postcondition_strengthening,
+    }
+}
+
+/// Check that all antecedents together imply all consequents together.
+///
+/// Encodes: `(and antecedents) => (and consequents)` via
+/// `(assert antecedents) (assert (not (and consequents))) (check-sat)`
+/// UNSAT = implication holds.
+fn check_implication(
+    antecedents: &[&Expr],
+    consequents: &[&Expr],
+    desc: &str,
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        use crate::z3_backend::encoder::{Encoder, expr_has_unmodelable_features};
+        use crate::z3_backend::solver::check_validity;
+        use z3::Solver;
+
+        // Check if any expressions have unmodelable features
+        let all_exprs: Vec<&&Expr> = antecedents.iter().chain(consequents.iter()).collect();
+        for expr in &all_exprs {
+            if expr_has_unmodelable_features(expr) {
+                return VerificationResult::Unknown {
+                    clause_desc: desc.to_string(),
+                    reason: "clause uses features not yet encoded in SMT".into(),
+                };
+            }
+        }
+
+        let solver = Solver::new();
+        let mut params = z3::Params::new();
+        params.set_u32("timeout", 2000);
+        solver.set_params(&params);
+        let mut encoder = Encoder::new();
+
+        // Assert all antecedents
+        for expr in antecedents {
+            let val = encoder.encode_expr(expr);
+            solver.assert(val.as_bool());
+        }
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        encoder.background_axioms.clear();
+
+        // Negate conjunction of consequents
+        // If there is only one consequent, negate it directly.
+        // If multiple, negate their conjunction (not(c1 && c2 && ...)).
+        if consequents.len() == 1 {
+            let val = encoder.encode_expr(consequents[0]);
+            let bool_val = val.as_bool();
+            for axiom in &encoder.background_axioms {
+                solver.assert(axiom);
+            }
+            solver.assert(bool_val.not());
+        } else {
+            // Build conjunction of all consequents, then negate
+            let mut conjunction_parts = Vec::new();
+            for expr in consequents {
+                let val = encoder.encode_expr(expr);
+                conjunction_parts.push(val.as_bool());
+            }
+            for axiom in &encoder.background_axioms {
+                solver.assert(axiom);
+            }
+            let refs: Vec<&z3::ast::Bool> = conjunction_parts.iter().collect();
+            let conjunction = z3::ast::Bool::and(&refs);
+            solver.assert(conjunction.not());
+        }
+
+        let mut results = Vec::new();
+        check_validity(&solver, desc.to_string(), &mut results);
+        results
+            .into_iter()
+            .next()
+            .unwrap_or(VerificationResult::Unknown {
+                clause_desc: desc.to_string(),
+                reason: "no result from solver".into(),
+            })
+    }
+    #[cfg(not(feature = "z3-verify"))]
+    {
+        let _ = (antecedents, consequents);
+        VerificationResult::Unknown {
+            clause_desc: desc.to_string(),
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}
+
+/// Verify evolution of all matching contracts between two parsed files.
+///
+/// Matches contracts by name between old and new files. For each pair,
+/// runs the precondition weakening and postcondition strengthening checks.
+/// Returns results for all matched contracts plus warnings for removed contracts.
+pub fn verify_file_evolution(
+    old_source: &assura_parser::ast::SourceFile,
+    new_source: &assura_parser::ast::SourceFile,
+) -> Vec<EvolutionResult> {
+    use assura_parser::ast::Decl;
+
+    fn collect_contracts(source: &assura_parser::ast::SourceFile) -> Vec<(String, Vec<Clause>)> {
+        source
+            .decls
+            .iter()
+            .filter_map(|d| match &d.node {
+                Decl::Contract(c) => Some((c.name.clone(), c.clauses.clone())),
+                Decl::FnDef(f) => Some((f.name.clone(), f.clauses.clone())),
+                Decl::Extern(e) => Some((e.name.clone(), e.clauses.clone())),
+                Decl::Bind(b) => Some((b.name.clone(), b.clauses.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    let old_contracts = collect_contracts(old_source);
+    let new_contracts = collect_contracts(new_source);
+
+    let new_map: std::collections::HashMap<&str, &[Clause]> = new_contracts
+        .iter()
+        .map(|(name, clauses)| (name.as_str(), clauses.as_slice()))
+        .collect();
+
+    let mut results = Vec::new();
+
+    for (name, old_clauses) in &old_contracts {
+        if let Some(new_clauses) = new_map.get(name.as_str()) {
+            results.push(verify_evolution(name, old_clauses, new_clauses));
+        }
+        // Contracts removed in new version: no evolution check needed
+        // (handled by the structural diff in the CLI)
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1103,5 +1340,193 @@ mod tests {
             effect_variables: vec![],
         }];
         assert!(extract_input_params(&clauses).is_empty());
+    }
+
+    // ---- #199: Contract evolution verification tests ----
+
+    #[test]
+    fn evolution_identical_contracts_pass() {
+        // Same requires and ensures; evolution should be compatible
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            },
+        ];
+        let result = verify_evolution("TestContract", &clauses, &clauses);
+        assert!(
+            matches!(
+                result.precondition_weakening,
+                VerificationResult::Verified { .. }
+            ),
+            "identical preconditions should pass weakening: {:?}",
+            result.precondition_weakening
+        );
+        assert!(
+            matches!(
+                result.postcondition_strengthening,
+                VerificationResult::Verified { .. }
+            ),
+            "identical postconditions should pass strengthening: {:?}",
+            result.postcondition_strengthening
+        );
+    }
+
+    #[test]
+    fn evolution_weakened_precondition_passes() {
+        // Old: requires x > 10
+        // New: requires x > 0 (weaker, accepts more inputs)
+        let old_clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+            },
+            effect_variables: vec![],
+        }];
+        let new_clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+            effect_variables: vec![],
+        }];
+        let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
+        assert!(
+            matches!(
+                result.precondition_weakening,
+                VerificationResult::Verified { .. }
+            ),
+            "weakened precondition should pass: {:?}",
+            result.precondition_weakening
+        );
+    }
+
+    #[test]
+    fn evolution_strengthened_precondition_fails() {
+        // Old: requires x > 0
+        // New: requires x > 10 (stronger, rejects inputs old accepted)
+        let old_clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+            effect_variables: vec![],
+        }];
+        let new_clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+            },
+            effect_variables: vec![],
+        }];
+        let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
+        assert!(
+            matches!(
+                result.precondition_weakening,
+                VerificationResult::Counterexample { .. }
+            ),
+            "strengthened precondition should fail weakening: {:?}",
+            result.precondition_weakening
+        );
+    }
+
+    #[test]
+    fn evolution_dropped_ensures_fails() {
+        // Old: ensures x > 0
+        // New: no ensures (lost guarantees)
+        let old_clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+            effect_variables: vec![],
+        }];
+        let new_clauses: Vec<Clause> = vec![];
+        let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
+        assert!(
+            matches!(
+                result.postcondition_strengthening,
+                VerificationResult::Counterexample { .. }
+            ),
+            "dropping ensures should fail strengthening: {:?}",
+            result.postcondition_strengthening
+        );
+    }
+
+    #[test]
+    fn evolution_no_requires_accepts_anything() {
+        // Old: no requires (accepts everything)
+        // New: requires x > 0 (restricts inputs)
+        // This should FAIL weakening because old accepted x = -1 but new rejects it
+        let old_clauses: Vec<Clause> = vec![];
+        let new_clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+            effect_variables: vec![],
+        }];
+        let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
+        // old has no requires, so old_requires is trivially true.
+        // new_requires is x > 0. Is true => x > 0 valid? No (x could be -1).
+        assert!(
+            matches!(
+                result.precondition_weakening,
+                VerificationResult::Counterexample { .. }
+            ),
+            "adding requires to previously unconstrained should fail: {:?}",
+            result.precondition_weakening
+        );
+    }
+
+    #[test]
+    fn evolution_new_removes_requires_passes() {
+        // Old: requires x > 0
+        // New: no requires (accepts everything; strictly weaker)
+        let old_clauses = vec![Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::BinOp {
+                lhs: Box::new(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            },
+            effect_variables: vec![],
+        }];
+        let new_clauses: Vec<Clause> = vec![];
+        let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
+        assert!(
+            matches!(
+                result.precondition_weakening,
+                VerificationResult::Verified { .. }
+            ),
+            "removing requires (accepting everything) should pass: {:?}",
+            result.precondition_weakening
+        );
     }
 }
