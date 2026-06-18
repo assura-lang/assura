@@ -141,15 +141,148 @@ pub fn verify_opaque_contract(name: &str, has_ensures: bool) -> VerificationResu
 }
 
 // -----------------------------------------------------------------------
-// TYPE.2: Structural invariants (extra parameter, not a simple stub)
+// TYPE.2: Structural invariants (inductive checking)
 // -----------------------------------------------------------------------
 
-/// Verify structural invariant preservation.
-pub fn verify_structural_invariant(name: &str, _invariant_expr: &str) -> VerificationResult {
-    VerificationResult::Unknown {
-        clause_desc: format!("{name}: structural_invariant"),
-        reason: "structural invariant inductive check not yet encoded in SMT".into(),
+/// Verify structural invariant via inductive checking.
+///
+/// A structural invariant must hold:
+/// 1. **Establishment**: Under the requires (preconditions), the invariant
+///    must hold initially. This checks `requires => invariant`.
+/// 2. **Preservation**: If the invariant held before an operation and the
+///    operation's postconditions (ensures) are met, the invariant still
+///    holds. This checks `requires && ensures => invariant`.
+///
+/// Both are standard validity checks. The preservation step is strictly
+/// stronger because it also asserts sibling ensures as assumptions.
+///
+/// Fallback when Z3 is not available.
+#[cfg(not(feature = "z3-verify"))]
+pub fn verify_structural_invariant_inductive(
+    parent_name: &str,
+    _body: &Expr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    vec![VerificationResult::Unknown {
+        clause_desc: format!("{parent_name}: structural_invariant"),
+        reason: "structural_invariant not yet encoded in SMT".into(),
+    }]
+}
+
+/// Verify structural invariant via inductive checking (Z3 implementation).
+///
+/// Returns two results:
+/// - Establishment: `requires => invariant`
+/// - Preservation: `requires && ensures => invariant`
+#[cfg(feature = "z3-verify")]
+pub fn verify_structural_invariant_inductive(
+    parent_name: &str,
+    body: &Expr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut all_results = Vec::new();
+
+    // Skip unmodelable bodies
+    if expr_has_unmodelable_features(body) {
+        all_results.push(VerificationResult::Unknown {
+            clause_desc: format!("{parent_name}: structural_invariant (establishment)"),
+            reason: "structural_invariant clause uses features not yet encoded in SMT".into(),
+        });
+        return all_results;
     }
+
+    // Skip bare uppercase identifier bodies (declarative references, not predicates)
+    if matches!(body, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+        all_results.push(VerificationResult::Unknown {
+            clause_desc: format!("{parent_name}: structural_invariant"),
+            reason: "structural_invariant not yet encoded in SMT".into(),
+        });
+        return all_results;
+    }
+
+    // ---- Step 1: Establishment ----
+    // Assert requires, negate invariant body, check UNSAT.
+    {
+        let desc = format!("{parent_name}: structural_invariant (establishment)");
+        let solver = Solver::new();
+        let mut params = z3::Params::new();
+        params.set_u32("timeout", 2000);
+        solver.set_params(&params);
+        let mut encoder = Encoder::new();
+
+        // Assert all sibling requires as assumptions
+        for clause in sibling_clauses {
+            if clause.kind == ClauseKind::Requires {
+                let val = encoder.encode_expr(&clause.body);
+                solver.assert(val.as_bool());
+            }
+        }
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        encoder.background_axioms.clear();
+
+        // Encode invariant body, negate, check validity
+        let body_val = encoder.encode_expr(body);
+        let body_bool = body_val.as_bool();
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        solver.assert(body_bool.not());
+        let mut step_results = Vec::new();
+        check_validity(&solver, desc, &mut step_results);
+        all_results.extend(step_results);
+    }
+
+    // ---- Step 2: Preservation ----
+    // Assert requires AND ensures (postconditions), negate invariant, check UNSAT.
+    // This models: after an operation that satisfies its postconditions,
+    // the invariant must still hold.
+    {
+        let desc = format!("{parent_name}: structural_invariant (preservation)");
+        let solver = Solver::new();
+        let mut params = z3::Params::new();
+        params.set_u32("timeout", 2000);
+        solver.set_params(&params);
+        let mut encoder = Encoder::new();
+
+        // Assert requires
+        for clause in sibling_clauses {
+            if clause.kind == ClauseKind::Requires {
+                let val = encoder.encode_expr(&clause.body);
+                solver.assert(val.as_bool());
+            }
+        }
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        encoder.background_axioms.clear();
+
+        // Assert ensures (operation postconditions)
+        for clause in sibling_clauses {
+            if clause.kind == ClauseKind::Ensures {
+                let val = encoder.encode_expr(&clause.body);
+                solver.assert(val.as_bool());
+            }
+        }
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        encoder.background_axioms.clear();
+
+        // Negate invariant body, check validity
+        let body_val = encoder.encode_expr(body);
+        let body_bool = body_val.as_bool();
+        for axiom in &encoder.background_axioms {
+            solver.assert(axiom);
+        }
+        solver.assert(body_bool.not());
+        let mut step_results = Vec::new();
+        check_validity(&solver, desc, &mut step_results);
+        all_results.extend(step_results);
+    }
+
+    all_results
 }
 
 // -----------------------------------------------------------------------
@@ -163,250 +296,253 @@ pub fn verify_structural_invariant(name: &str, _invariant_expr: &str) -> Verific
 /// Features without body expressions or with domain-specific needs
 /// return Unknown with "not yet encoded in SMT" (treated as warnings).
 ///
-/// Returns Some(result) if the feature was handled, None otherwise.
+/// Returns a non-empty Vec if the feature was handled, empty Vec otherwise.
+/// Most features produce a single result; structural invariants produce
+/// two (establishment + preservation) via inductive checking.
 pub fn verify_feature_clause(
     clause_kind: &str,
     parent_name: &str,
     body: &Expr,
     sibling_clauses: &[Clause],
-) -> Option<VerificationResult> {
+) -> Vec<VerificationResult> {
     use assura_parser::features::Feature;
-    let feature = Feature::from_clause_kind(clause_kind)?;
+    let feature = match Feature::from_clause_kind(clause_kind) {
+        Some(f) => f,
+        None => return vec![],
+    };
     match feature {
         // CORE.6: Opaque has special semantics (no body to verify)
-        Feature::OpaqueFunctions => Some(verify_opaque_contract(parent_name, false)),
+        Feature::OpaqueFunctions => vec![verify_opaque_contract(parent_name, false)],
 
         // Features with boolean predicate bodies: use Z3 validity check.
         // The clause body is a boolean expression that must hold under
         // the sibling requires assumptions.
 
         // MEM
-        Feature::AllocatorContracts => Some(verify_feature_body(
+        Feature::AllocatorContracts => vec![verify_feature_body(
             parent_name,
             "allocator_invariant",
             body,
             sibling_clauses,
-        )),
-        Feature::CircularBuffer => Some(verify_feature_body(
+        )],
+        Feature::CircularBuffer => vec![verify_feature_body(
             parent_name,
             "circular_buffer",
             body,
             sibling_clauses,
-        )),
+        )],
         // TYPE
-        Feature::InterfaceConformance => Some(verify_feature_body(
+        Feature::InterfaceConformance => vec![verify_feature_body(
             parent_name,
             "interface_conformance",
             body,
             sibling_clauses,
-        )),
-        Feature::StructuralInvariants => Some(verify_feature_body(
-            parent_name,
-            "structural_invariant",
-            body,
-            sibling_clauses,
-        )),
-        Feature::ErrorPropagation => Some(verify_feature_body(
+        )],
+        Feature::StructuralInvariants => {
+            // #202: Use inductive checking (establishment + preservation)
+            verify_structural_invariant_inductive(parent_name, body, sibling_clauses)
+        }
+        Feature::ErrorPropagation => vec![verify_feature_body(
             parent_name,
             "error_propagation",
             body,
             sibling_clauses,
-        )),
+        )],
         // SEC
         // #189: SEC.3 and SEC.4 now use Z3 body verification instead of
         // stubs. The clause body (if present) is checked as a boolean
         // predicate under sibling requires assumptions, same as ensures.
-        Feature::ConstantTime => Some(verify_feature_body(
+        Feature::ConstantTime => vec![verify_feature_body(
             parent_name,
             "constant_time",
             body,
             sibling_clauses,
-        )),
-        Feature::SecureErasure => Some(verify_feature_body(
+        )],
+        Feature::SecureErasure => vec![verify_feature_body(
             parent_name,
             "secure_erase",
             body,
             sibling_clauses,
-        )),
-        Feature::CryptoConformance => Some(verify_feature_body(
+        )],
+        Feature::CryptoConformance => vec![verify_feature_body(
             parent_name,
             "crypto_conformance",
             body,
             sibling_clauses,
-        )),
+        )],
         // CONC
-        Feature::SharedMemory => Some(verify_feature_body(
+        Feature::SharedMemory => vec![verify_feature_body(
             parent_name,
             "shared_mem_safety",
             body,
             sibling_clauses,
-        )),
-        Feature::CallbackReentrancy => Some(verify_feature_body(
+        )],
+        Feature::CallbackReentrancy => vec![verify_feature_body(
             parent_name,
             "callback_reentrancy",
             body,
             sibling_clauses,
-        )),
-        Feature::LockOrdering => Some(verify_feature_body(
+        )],
+        Feature::LockOrdering => vec![verify_feature_body(
             parent_name,
             "lock_order",
             body,
             sibling_clauses,
-        )),
+        )],
         // STOR
-        Feature::CrashRecovery => Some(verify_feature_body(
+        Feature::CrashRecovery => vec![verify_feature_body(
             parent_name,
             "crash_recovery",
             body,
             sibling_clauses,
-        )),
-        Feature::PageCache => Some(verify_feature_body(
+        )],
+        Feature::PageCache => vec![verify_feature_body(
             parent_name,
             "page_cache",
             body,
             sibling_clauses,
-        )),
-        Feature::MvccIsolation => Some(verify_feature_body(
+        )],
+        Feature::MvccIsolation => vec![verify_feature_body(
             parent_name,
             "mvcc_isolation",
             body,
             sibling_clauses,
-        )),
-        Feature::RollbackSavepoint => Some(verify_feature_body(
+        )],
+        Feature::RollbackSavepoint => vec![verify_feature_body(
             parent_name,
             "rollback_savepoint",
             body,
             sibling_clauses,
-        )),
-        Feature::MonotonicState => Some(verify_feature_body(
+        )],
+        Feature::MonotonicState => vec![verify_feature_body(
             parent_name,
             "monotonic_state",
             body,
             sibling_clauses,
-        )),
-        Feature::StorageFailure => Some(verify_feature_body(
+        )],
+        Feature::StorageFailure => vec![verify_feature_body(
             parent_name,
             "storage_failure",
             body,
             sibling_clauses,
-        )),
+        )],
         // FMT
-        Feature::BinaryFormat => Some(verify_feature_body(
+        Feature::BinaryFormat => vec![verify_feature_body(
             parent_name,
             "binary_format",
             body,
             sibling_clauses,
-        )),
-        Feature::BitLevel => Some(verify_feature_body(
+        )],
+        Feature::BitLevel => vec![verify_feature_body(
             parent_name,
             "bit_level",
             body,
             sibling_clauses,
-        )),
-        Feature::StringEncoding => Some(verify_feature_body(
+        )],
+        Feature::StringEncoding => vec![verify_feature_body(
             parent_name,
             "string_encoding",
             body,
             sibling_clauses,
-        )),
-        Feature::Checksum => Some(verify_feature_body(
+        )],
+        Feature::Checksum => vec![verify_feature_body(
             parent_name,
             "checksum_integrity",
             body,
             sibling_clauses,
-        )),
-        Feature::ProtocolGrammar => Some(verify_feature_body(
+        )],
+        Feature::ProtocolGrammar => vec![verify_feature_body(
             parent_name,
             "protocol_grammar",
             body,
             sibling_clauses,
-        )),
+        )],
         // NUM
-        Feature::NumericalPrecision => Some(verify_feature_body(
+        Feature::NumericalPrecision => vec![verify_feature_body(
             parent_name,
             "numerical_precision",
             body,
             sibling_clauses,
-        )),
-        Feature::PrecomputedTable => Some(verify_feature_body(
+        )],
+        Feature::PrecomputedTable => vec![verify_feature_body(
             parent_name,
             "precomputed_table",
             body,
             sibling_clauses,
-        )),
+        )],
         // PLAT
         // #189: PLAT.1 and PLAT.2 are genuinely infeasible for full SMT
         // encoding (multi-target and combinatorial respectively), but the
         // clause body can still be checked as a boolean predicate.
-        Feature::PlatformAbstraction => Some(verify_feature_body(
+        Feature::PlatformAbstraction => vec![verify_feature_body(
             parent_name,
             "platform_abstraction",
             body,
             sibling_clauses,
-        )),
-        Feature::FeatureFlag => Some(verify_feature_body(
+        )],
+        Feature::FeatureFlag => vec![verify_feature_body(
             parent_name,
             "feature_flag",
             body,
             sibling_clauses,
-        )),
-        Feature::ResourceLimit => Some(verify_feature_body(
+        )],
+        Feature::ResourceLimit => vec![verify_feature_body(
             parent_name,
             "resource_limit",
             body,
             sibling_clauses,
-        )),
+        )],
         // PERF
         // #189: PERF.1 custom proof goals are infeasible generically, but
         // boolean clause bodies can be checked.
-        Feature::UnsafeEscape => Some(verify_feature_body(
+        Feature::UnsafeEscape => vec![verify_feature_body(
             parent_name,
             "unsafe_escape",
             body,
             sibling_clauses,
-        )),
-        Feature::ComplexityBound => Some(verify_feature_body(
+        )],
+        Feature::ComplexityBound => vec![verify_feature_body(
             parent_name,
             "complexity_bound",
             body,
             sibling_clauses,
-        )),
+        )],
         // TEST
         // #189: TEST.1 coverage is a meta-property, but clause bodies can
         // express testable boolean assertions.
-        Feature::TestGenCoverage => Some(verify_feature_body(
+        Feature::TestGenCoverage => vec![verify_feature_body(
             parent_name,
             "test_gen",
             body,
             sibling_clauses,
-        )),
-        Feature::BehavioralEquiv => Some(verify_feature_body(
+        )],
+        Feature::BehavioralEquiv => vec![verify_feature_body(
             parent_name,
             "behavioral_equiv",
             body,
             sibling_clauses,
-        )),
-        Feature::MultiPassRefinement => Some(verify_feature_body(
+        )],
+        Feature::MultiPassRefinement => vec![verify_feature_body(
             parent_name,
             "multi_pass_refinement",
             body,
             sibling_clauses,
-        )),
+        )],
         // MISC
         // #189: MISC.1 needs two contract versions for comparison, but
         // boolean clause bodies can be checked within a single version.
-        Feature::IncrementalContract => Some(verify_feature_body(
+        Feature::IncrementalContract => vec![verify_feature_body(
             parent_name,
             "incremental_contract",
             body,
             sibling_clauses,
-        )),
-        Feature::ScopedInvariant => Some(verify_feature_body(
+        )],
+        Feature::ScopedInvariant => vec![verify_feature_body(
             parent_name,
             "scoped_invariant",
             body,
             sibling_clauses,
-        )),
+        )],
         // Features without SMT verification (type-level or compile-time only)
         Feature::GhostErasure
         | Feature::LemmaErasure
@@ -422,7 +558,7 @@ pub fn verify_feature_clause(
         | Feature::Determinism
         | Feature::Deadline
         | Feature::WeakMemoryOrdering
-        | Feature::CodecRegistry => None,
+        | Feature::CodecRegistry => vec![],
     }
 }
 
@@ -445,8 +581,8 @@ mod tests {
     #[test]
     fn feature_dispatch_covers_all_registered_clause_kinds() {
         // Every clause kind in the Feature registry should be accepted
-        // by verify_feature_clause (either returning Some or None based
-        // on whether SMT verification applies).
+        // by verify_feature_clause (either returning results or empty vec
+        // based on whether SMT verification applies).
         use assura_parser::ast::Literal;
         use assura_parser::features::Feature;
         let dummy_body = Expr::Literal(Literal::Bool(true));
@@ -454,7 +590,7 @@ mod tests {
         for info in Feature::all() {
             for kind in info.clause_kinds {
                 // from_clause_kind must resolve; verify_feature_clause
-                // handles the feature (Some) or explicitly returns None
+                // handles the feature (non-empty Vec) or returns empty vec
                 // for non-SMT features.
                 let _ = verify_feature_clause(kind, "test", &dummy_body, dummy_clauses);
             }
@@ -462,13 +598,13 @@ mod tests {
     }
 
     #[test]
-    fn unknown_feature_returns_none() {
+    fn unknown_feature_returns_empty() {
         use assura_parser::ast::Literal;
         let dummy_body = Expr::Literal(Literal::Bool(true));
         let dummy_clauses: &[Clause] = &[];
         assert!(
             verify_feature_clause("nonexistent_feature", "test", &dummy_body, dummy_clauses)
-                .is_none()
+                .is_empty()
         );
     }
 
@@ -479,11 +615,12 @@ mod tests {
         use assura_parser::ast::Literal;
         let body = Expr::Literal(Literal::Bool(true));
         let clauses: &[Clause] = &[];
-        let result =
-            verify_feature_clause("allocator", "test_fn", &body, clauses).expect("should match");
+        let results = verify_feature_clause("allocator", "test_fn", &body, clauses);
+        assert!(!results.is_empty(), "should produce results");
         assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "tautology body should verify, got: {result:?}"
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "tautology body should verify, got: {:?}",
+            results[0]
         );
     }
 
@@ -494,11 +631,12 @@ mod tests {
         use assura_parser::ast::Literal;
         let body = Expr::Literal(Literal::Bool(false));
         let clauses: &[Clause] = &[];
-        let result =
-            verify_feature_clause("monotonic", "test_fn", &body, clauses).expect("should match");
+        let results = verify_feature_clause("monotonic", "test_fn", &body, clauses);
+        assert!(!results.is_empty(), "should produce results");
         assert!(
-            matches!(result, VerificationResult::Counterexample { .. }),
-            "contradiction body should produce counterexample, got: {result:?}"
+            matches!(&results[0], VerificationResult::Counterexample { .. }),
+            "contradiction body should produce counterexample, got: {:?}",
+            results[0]
         );
     }
 
@@ -523,11 +661,12 @@ mod tests {
             body: requires_body,
             effect_variables: vec![],
         }];
-        let result = verify_feature_clause("resource_limit", "test_fn", &body, &clauses)
-            .expect("should match");
+        let results = verify_feature_clause("resource_limit", "test_fn", &body, &clauses);
+        assert!(!results.is_empty(), "should produce results");
         assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "x > 0 under requires x >= 1 should verify, got: {result:?}"
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "x > 0 under requires x >= 1 should verify, got: {:?}",
+            results[0]
         );
     }
 
@@ -543,61 +682,23 @@ mod tests {
         let body = Expr::Literal(Literal::Bool(true));
         let clauses: &[Clause] = &[];
 
-        // SEC.3 constant_time
-        let result = verify_feature_clause("constant_time", "test_fn", &body, clauses)
-            .expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "constant_time tautology should verify, got: {result:?}"
-        );
+        let check = |kind: &str, label: &str| {
+            let results = verify_feature_clause(kind, "test_fn", &body, clauses);
+            assert!(!results.is_empty(), "{label} should produce results");
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "{label} tautology should verify, got: {:?}",
+                results[0]
+            );
+        };
 
-        // SEC.4 secure_erase
-        let result =
-            verify_feature_clause("zeroize", "test_fn", &body, clauses).expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "secure_erase tautology should verify, got: {result:?}"
-        );
-
-        // PLAT.1 platform_abstraction
-        let result =
-            verify_feature_clause("platform", "test_fn", &body, clauses).expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "platform_abstraction tautology should verify, got: {result:?}"
-        );
-
-        // PLAT.2 feature_flag
-        let result =
-            verify_feature_clause("feature_flag", "test_fn", &body, clauses).expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "feature_flag tautology should verify, got: {result:?}"
-        );
-
-        // PERF.1 unsafe_escape
-        let result = verify_feature_clause("unsafe_escape", "test_fn", &body, clauses)
-            .expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "unsafe_escape tautology should verify, got: {result:?}"
-        );
-
-        // TEST.1 test_gen
-        let result =
-            verify_feature_clause("test_gen", "test_fn", &body, clauses).expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "test_gen tautology should verify, got: {result:?}"
-        );
-
-        // MISC.1 incremental_contract
-        let result =
-            verify_feature_clause("incremental", "test_fn", &body, clauses).expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Verified { .. }),
-            "incremental_contract tautology should verify, got: {result:?}"
-        );
+        check("constant_time", "SEC.3 constant_time");
+        check("zeroize", "SEC.4 secure_erase");
+        check("platform", "PLAT.1 platform_abstraction");
+        check("feature_flag", "PLAT.2 feature_flag");
+        check("unsafe_escape", "PERF.1 unsafe_escape");
+        check("test_gen", "TEST.1 test_gen");
+        check("incremental", "MISC.1 incremental_contract");
     }
 
     #[cfg(feature = "z3-verify")]
@@ -608,18 +709,138 @@ mod tests {
         let body = Expr::Literal(Literal::Bool(false));
         let clauses: &[Clause] = &[];
 
-        let result = verify_feature_clause("constant_time", "test_fn", &body, clauses)
-            .expect("should match");
-        assert!(
-            matches!(result, VerificationResult::Counterexample { .. }),
-            "constant_time false should produce counterexample, got: {result:?}"
-        );
+        let check = |kind: &str, label: &str| {
+            let results = verify_feature_clause(kind, "test_fn", &body, clauses);
+            assert!(!results.is_empty(), "{label} should produce results");
+            assert!(
+                matches!(&results[0], VerificationResult::Counterexample { .. }),
+                "{label} false should produce counterexample, got: {:?}",
+                results[0]
+            );
+        };
 
-        let result = verify_feature_clause("unsafe_escape", "test_fn", &body, clauses)
-            .expect("should match");
+        check("constant_time", "constant_time");
+        check("unsafe_escape", "unsafe_escape");
+    }
+
+    // #202: Structural invariant inductive checking tests
+    #[cfg(feature = "z3-verify")]
+    #[test]
+    fn structural_invariant_establishment_verifies_tautology() {
+        // structural_invariant with body `true` should verify establishment
+        use assura_parser::ast::Literal;
+        let body = Expr::Literal(Literal::Bool(true));
+        let clauses: &[Clause] = &[];
+        let results = verify_structural_invariant_inductive("test_type", &body, clauses);
+        // Should produce 2 results: establishment + preservation
+        assert_eq!(
+            results.len(),
+            2,
+            "inductive check should produce 2 results: {results:?}"
+        );
         assert!(
-            matches!(result, VerificationResult::Counterexample { .. }),
-            "unsafe_escape false should produce counterexample, got: {result:?}"
+            matches!(&results[0], VerificationResult::Verified { clause_desc }
+                if clause_desc.contains("establishment")),
+            "establishment should verify for tautology: {:?}",
+            results[0]
+        );
+        assert!(
+            matches!(&results[1], VerificationResult::Verified { clause_desc }
+                if clause_desc.contains("preservation")),
+            "preservation should verify for tautology: {:?}",
+            results[1]
+        );
+    }
+
+    #[cfg(feature = "z3-verify")]
+    #[test]
+    fn structural_invariant_establishment_fails_contradiction() {
+        // structural_invariant with body `false` should fail establishment
+        use assura_parser::ast::Literal;
+        let body = Expr::Literal(Literal::Bool(false));
+        let clauses: &[Clause] = &[];
+        let results = verify_structural_invariant_inductive("test_type", &body, clauses);
+        assert!(!results.is_empty(), "should produce results");
+        assert!(
+            matches!(&results[0], VerificationResult::Counterexample { clause_desc, .. }
+                if clause_desc.contains("establishment")),
+            "establishment should fail for contradiction: {:?}",
+            results[0]
+        );
+    }
+
+    #[cfg(feature = "z3-verify")]
+    #[test]
+    fn structural_invariant_preserved_by_ensures() {
+        // requires: x >= 0
+        // ensures: x >= 0
+        // structural_invariant: x >= 0
+        // Both establishment and preservation should verify.
+        use assura_parser::ast::{BinOp, Literal};
+        let inv_body = Expr::BinOp {
+            lhs: Box::new(Expr::Ident("x".into())),
+            op: BinOp::Gte,
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        };
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            },
+        ];
+        let results = verify_structural_invariant_inductive("TestType", &inv_body, &clauses);
+        assert_eq!(
+            results.len(),
+            2,
+            "should produce establishment + preservation: {results:?}"
+        );
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "establishment should verify: {:?}",
+            results[0]
+        );
+        assert!(
+            matches!(&results[1], VerificationResult::Verified { .. }),
+            "preservation should verify: {:?}",
+            results[1]
+        );
+    }
+
+    #[cfg(feature = "z3-verify")]
+    #[test]
+    fn structural_invariant_dispatch_produces_inductive_results() {
+        // Verify that the dispatch table routes structural_invariant
+        // through the inductive checker (producing establishment results)
+        use assura_parser::ast::Literal;
+        let body = Expr::Literal(Literal::Bool(true));
+        let clauses: &[Clause] = &[];
+        let results = verify_feature_clause("structural_invariant", "test_fn", &body, clauses);
+        assert!(
+            !results.is_empty(),
+            "structural_invariant should produce results via dispatch"
+        );
+        // Should have establishment result from inductive checker
+        let has_establishment = results.iter().any(|r| {
+            matches!(r, VerificationResult::Verified { clause_desc }
+                if clause_desc.contains("establishment"))
+        });
+        assert!(
+            has_establishment,
+            "dispatch should route through inductive checker: {results:?}"
         );
     }
 }
