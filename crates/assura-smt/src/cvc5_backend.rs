@@ -322,6 +322,50 @@ pub(crate) fn derive_narrowings_cvc5(constants: &[(String, i64)]) -> Vec<(String
 }
 
 // =========================================================================
+// Deep field chain helpers (pure AST, no CVC5 dependency)
+//
+// These mirror the Z3 backend's helpers in encoder.rs. They detect and
+// flatten deep field chains (e.g., `state.head.extra.extra_max`) into a
+// single variable name (`state__head__extra__extra_max`) to avoid nested
+// uninterpreted function calls that produce spurious counterexamples.
+// =========================================================================
+
+/// Check if an expression is rooted at `self`.
+fn is_self_rooted_cvc5(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(name) => name == "self",
+        Expr::Field(obj, _) => is_self_rooted_cvc5(obj),
+        Expr::Paren(inner) => is_self_rooted_cvc5(inner),
+        _ => false,
+    }
+}
+
+fn field_chain_depth_cvc5(expr: &Expr) -> usize {
+    match expr {
+        Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(obj),
+        Expr::Paren(inner) => field_chain_depth_cvc5(inner),
+        _ => 0,
+    }
+}
+
+fn has_deep_field_chain_cvc5(expr: &Expr) -> bool {
+    field_chain_depth_cvc5(expr) >= 2
+}
+
+/// Flatten a field chain like `a.b.c` into `"a__b__c"`.
+fn flatten_field_chain_cvc5(expr: &Expr) -> String {
+    match expr {
+        Expr::Field(obj, field) => {
+            let prefix = flatten_field_chain_cvc5(obj);
+            format!("{prefix}__{field}")
+        }
+        Expr::Ident(name) => name.clone(),
+        Expr::Paren(inner) => flatten_field_chain_cvc5(inner),
+        _ => format!("__obj_{:p}", expr as *const _),
+    }
+}
+
+// =========================================================================
 // Native CVC5 API backend (feature = "cvc5-verify")
 // =========================================================================
 
@@ -1284,6 +1328,12 @@ fn encode_expr_cvc5<'a>(
                 )
             }
             Expr::Field(obj, field) => {
+                // Deep chain flattening for old(a.b.c) -> a__b__c__old (#250)
+                let full_expr = Expr::Field(obj.clone(), field.clone());
+                if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
+                    let flat_name = flatten_field_chain_cvc5(&full_expr);
+                    return Some(tm.mk_const(tm.integer_sort(), &format!("{flat_name}__old")));
+                }
                 let old_obj = encode_expr_cvc5(tm, &Expr::Old(obj.clone()), vars, state)?;
                 let func_name = format!("__field_{field}");
                 let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
@@ -1388,8 +1438,35 @@ fn encode_expr_cvc5<'a>(
             }
             result
         }
-        // Field access: UF __field_name(receiver)
+        // Field access: flatten deep chains or self-rooted, else UF
         Expr::Field(obj, field) => {
+            // Deep field chain flattening (#250): state.head.extra.max -> state__head__extra__max
+            let full_expr = Expr::Field(Box::new(obj.as_ref().clone()), field.clone());
+            if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
+                let flat_name = flatten_field_chain_cvc5(&full_expr);
+                // Boolean-valued fields at any depth
+                if matches!(
+                    field.as_str(),
+                    "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
+                ) {
+                    return Some(tm.mk_const(tm.boolean_sort(), &flat_name));
+                }
+                // Size fields at any depth get non-negativity axiom
+                if matches!(
+                    field.as_str(),
+                    "len" | "length" | "size" | "capacity" | "count"
+                ) {
+                    let v = tm.mk_const(tm.integer_sort(), &flat_name);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+                    return Some(v);
+                }
+                // General field: Integer variable
+                return Some(tm.mk_const(tm.integer_sort(), &flat_name));
+            }
+            // Shallow field access: UF __field_name(receiver)
             let obj_val = encode_expr_cvc5(tm, obj, vars, state)?;
             let func_name = format!("__field_{field}");
             // Boolean fields return Bool sort
@@ -2904,8 +2981,13 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                 };
                 Some(old_name)
             }
-            // old(obj.field) -> (__field_name (old obj))
+            // old(obj.field) -> flatten deep chains, else UF
             Expr::Field(obj, field) => {
+                let full_expr = Expr::Field(obj.clone(), field.clone());
+                if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
+                    let flat_name = flatten_field_chain_cvc5(&full_expr);
+                    return Some(format!("{flat_name}__old"));
+                }
                 let old_obj = expr_to_smtlib(&Expr::Old(obj.clone()))?;
                 Some(format!("(__field_{field} {old_obj})"))
             }
@@ -2985,8 +3067,12 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             }
             result
         }
-        // Field access: UF __field_name(obj)
+        // Field access: flatten deep chains, else UF __field_name(obj)
         Expr::Field(obj, field) => {
+            let full_expr = Expr::Field(Box::new(obj.as_ref().clone()), field.clone());
+            if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
+                return Some(flatten_field_chain_cvc5(&full_expr));
+            }
             let o = expr_to_smtlib(obj)?;
             Some(format!("(__field_{field} {o})"))
         }
@@ -4241,6 +4327,301 @@ mod tests {
             result.contains("(/ 1500000 1000000)"),
             "match float pattern should use rational: {result}"
         );
+    }
+
+    // Deep field chain flattening helpers (#250)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_is_self_rooted_cvc5_ident_self() {
+        let expr = Expr::Ident("self".into());
+        assert!(is_self_rooted_cvc5(&expr));
+    }
+
+    #[test]
+    fn test_is_self_rooted_cvc5_ident_other() {
+        let expr = Expr::Ident("x".into());
+        assert!(!is_self_rooted_cvc5(&expr));
+    }
+
+    #[test]
+    fn test_is_self_rooted_cvc5_field_chain() {
+        // self.value
+        let expr = Expr::Field(Box::new(Expr::Ident("self".into())), "value".into());
+        assert!(is_self_rooted_cvc5(&expr));
+    }
+
+    #[test]
+    fn test_is_self_rooted_cvc5_deep_chain() {
+        // self.inner.value
+        let expr = Expr::Field(
+            Box::new(Expr::Field(
+                Box::new(Expr::Ident("self".into())),
+                "inner".into(),
+            )),
+            "value".into(),
+        );
+        assert!(is_self_rooted_cvc5(&expr));
+    }
+
+    #[test]
+    fn test_field_chain_depth_cvc5_ident() {
+        assert_eq!(field_chain_depth_cvc5(&Expr::Ident("x".into())), 0);
+    }
+
+    #[test]
+    fn test_field_chain_depth_cvc5_single() {
+        let expr = Expr::Field(Box::new(Expr::Ident("x".into())), "y".into());
+        assert_eq!(field_chain_depth_cvc5(&expr), 1);
+    }
+
+    #[test]
+    fn test_field_chain_depth_cvc5_deep() {
+        // a.b.c -> depth 2
+        let expr = Expr::Field(
+            Box::new(Expr::Field(Box::new(Expr::Ident("a".into())), "b".into())),
+            "c".into(),
+        );
+        assert_eq!(field_chain_depth_cvc5(&expr), 2);
+    }
+
+    #[test]
+    fn test_has_deep_field_chain_cvc5() {
+        // a.b -> depth 1, not deep
+        let shallow = Expr::Field(Box::new(Expr::Ident("a".into())), "b".into());
+        assert!(!has_deep_field_chain_cvc5(&shallow));
+
+        // a.b.c -> depth 2, deep
+        let deep = Expr::Field(
+            Box::new(Expr::Field(Box::new(Expr::Ident("a".into())), "b".into())),
+            "c".into(),
+        );
+        assert!(has_deep_field_chain_cvc5(&deep));
+    }
+
+    #[test]
+    fn test_flatten_field_chain_cvc5_simple() {
+        // a.b -> "a__b"
+        let expr = Expr::Field(Box::new(Expr::Ident("a".into())), "b".into());
+        assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
+    }
+
+    #[test]
+    fn test_flatten_field_chain_cvc5_deep() {
+        // state.head.extra.extra_max -> "state__head__extra__extra_max"
+        let expr = Expr::Field(
+            Box::new(Expr::Field(
+                Box::new(Expr::Field(
+                    Box::new(Expr::Ident("state".into())),
+                    "head".into(),
+                )),
+                "extra".into(),
+            )),
+            "extra_max".into(),
+        );
+        assert_eq!(
+            flatten_field_chain_cvc5(&expr),
+            "state__head__extra__extra_max"
+        );
+    }
+
+    #[test]
+    fn test_flatten_field_chain_cvc5_paren() {
+        // (a).b -> "a__b"
+        let expr = Expr::Field(
+            Box::new(Expr::Paren(Box::new(Expr::Ident("a".into())))),
+            "b".into(),
+        );
+        assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
+    }
+
+    #[test]
+    fn test_cvc5_deep_field_chain_smtlib_flattening() {
+        // state.head.extra.extra_max should flatten in SMT-LIB output
+        let expr = Expr::Field(
+            Box::new(Expr::Field(
+                Box::new(Expr::Field(
+                    Box::new(Expr::Ident("state".into())),
+                    "head".into(),
+                )),
+                "extra".into(),
+            )),
+            "extra_max".into(),
+        );
+        let result = expr_to_smtlib(&expr);
+        assert_eq!(result, Some("state__head__extra__extra_max".into()));
+    }
+
+    #[test]
+    fn test_cvc5_self_rooted_smtlib_flattening() {
+        // self.value should flatten even at depth 1
+        let expr = Expr::Field(Box::new(Expr::Ident("self".into())), "value".into());
+        let result = expr_to_smtlib(&expr);
+        assert_eq!(result, Some("self__value".into()));
+    }
+
+    #[test]
+    fn test_cvc5_shallow_field_smtlib_no_flatten() {
+        // obj.field at depth 1 (not self-rooted) should NOT flatten
+        let expr = Expr::Field(Box::new(Expr::Ident("obj".into())), "field".into());
+        let result = expr_to_smtlib(&expr);
+        assert_eq!(result, Some("(__field_field obj)".into()));
+    }
+
+    #[test]
+    fn test_cvc5_old_deep_field_smtlib_flattening() {
+        // old(state.head.value) should flatten to state__head__value__old
+        let inner = Expr::Field(
+            Box::new(Expr::Field(
+                Box::new(Expr::Ident("state".into())),
+                "head".into(),
+            )),
+            "value".into(),
+        );
+        let expr = Expr::Old(Box::new(inner));
+        let result = expr_to_smtlib(&expr);
+        assert_eq!(result, Some("state__head__value__old".into()));
+    }
+
+    #[test]
+    fn test_cvc5_old_self_rooted_smtlib_flattening() {
+        // old(self.counter) should flatten to self__counter__old
+        let inner = Expr::Field(Box::new(Expr::Ident("self".into())), "counter".into());
+        let expr = Expr::Old(Box::new(inner));
+        let result = expr_to_smtlib(&expr);
+        assert_eq!(result, Some("self__counter__old".into()));
+    }
+
+    #[test]
+    fn test_cvc5_deep_field_chain_contract_verifies() {
+        // Contract: requires { x >= 0 && x < state.head.extra.max }
+        //           ensures  { state.head.extra.max > x }
+        // With flattening, both sides reference the same flat variable.
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    op: BinOp::And,
+                    lhs: Box::new(Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    }),
+                    rhs: Box::new(Expr::BinOp {
+                        op: BinOp::Lt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Field(
+                            Box::new(Expr::Field(
+                                Box::new(Expr::Field(
+                                    Box::new(Expr::Ident("state".into())),
+                                    "head".into(),
+                                )),
+                                "extra".into(),
+                            )),
+                            "max".into(),
+                        )),
+                    }),
+                },
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    op: BinOp::Gt,
+                    lhs: Box::new(Expr::Field(
+                        Box::new(Expr::Field(
+                            Box::new(Expr::Field(
+                                Box::new(Expr::Ident("state".into())),
+                                "head".into(),
+                            )),
+                            "extra".into(),
+                        )),
+                        "max".into(),
+                    )),
+                    rhs: Box::new(Expr::Ident("x".into())),
+                },
+                effect_variables: vec![],
+            },
+        ];
+        let results = verify_contract_cvc5("DeepFieldChain", &clauses);
+        assert_eq!(results.len(), 1);
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
+            ),
+            "deep field chain contract should verify (or Unknown if cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_cvc5_self_rooted_field_contract_verifies() {
+        // Contract with self.value: requires { self.value > 0 } ensures { self.value >= 1 }
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    op: BinOp::Gt,
+                    lhs: Box::new(Expr::Field(
+                        Box::new(Expr::Ident("self".into())),
+                        "value".into(),
+                    )),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::Field(
+                        Box::new(Expr::Ident("self".into())),
+                        "value".into(),
+                    )),
+                    rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+                },
+                effect_variables: vec![],
+            },
+        ];
+        let results = verify_contract_cvc5("SelfRootedField", &clauses);
+        assert_eq!(results.len(), 1);
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
+            ),
+            "self-rooted field contract should verify (or Unknown if cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_cvc5_nested_field_boolean_smtlib() {
+        // obj.inner.is_empty should flatten in SMT-LIB output
+        let expr = Expr::Field(
+            Box::new(Expr::Field(
+                Box::new(Expr::Ident("obj".into())),
+                "inner".into(),
+            )),
+            "is_empty".into(),
+        );
+        let result = expr_to_smtlib(&expr);
+        assert_eq!(result, Some("obj__inner__is_empty".into()));
+    }
+
+    #[test]
+    fn test_cvc5_nested_field_size_smtlib() {
+        // obj.inner.length should flatten in SMT-LIB output
+        let expr = Expr::Field(
+            Box::new(Expr::Field(
+                Box::new(Expr::Ident("obj".into())),
+                "inner".into(),
+            )),
+            "length".into(),
+        );
+        let result = expr_to_smtlib(&expr);
+        assert_eq!(result, Some("obj__inner__length".into()));
     }
 
     // -------------------------------------------------------------------
