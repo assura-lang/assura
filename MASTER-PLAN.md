@@ -1815,13 +1815,13 @@ compiles" failure on taint-tracking.assura.
 
 ### Round 4: Performance + polish (#253, #255, #259, #260) -- depends on: Round 1
 
-- [ ] **10.12** #253 CVC5: Verification cache (SessionCache)
+- [x] **10.12** #253 CVC5: Verification cache (SessionCache)
   - Thread SessionCache through CVC5 path, same key format as Z3
-- [ ] **10.13** #255 CVC5: Full precedence-climbing Raw token parser
+- [x] **10.13** #255 CVC5: Full precedence-climbing Raw token parser
   - Port Z3 encode_raw_tokens with parens, old(), forall/exists, precedence
-- [ ] **10.14** #259 CVC5: ITE 6-way sort promotion
+- [x] **10.14** #259 CVC5: ITE 6-way sort promotion (done in #248)
   - Int/Real promotion, Bool-to-Int coercion in if/then/else
-- [ ] **10.15** #260 CVC5: Structured counterexample model filtering
+- [x] **10.15** #260 CVC5: Structured counterexample model filtering
   - Filter __internal vars, sort alphabetically
 - **Acceptance**:
   ```bash
