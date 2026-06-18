@@ -741,13 +741,11 @@ fn encode_expr_cvc5<'a>(
         }
         Expr::Literal(Literal::Bool(b)) => Some(tm.mk_boolean(*b)),
         Expr::Literal(Literal::Float(f_str)) => {
-            // Rational approximation matching Z3 backend
+            // Rational approximation matching Z3 backend (Real sort)
             let f: f64 = f_str.parse().unwrap_or(0.0);
             let denom = 1_000_000i64;
             let numer = (f * denom as f64) as i64;
-            // CVC5 has no direct Real sort in our integer-only encoding;
-            // approximate as numer (scaled integer) for now
-            Some(tm.mk_integer(numer))
+            Some(tm.mk_real(numer, denom))
         }
         Expr::Literal(Literal::Str(s)) => {
             // Named integer constant matching Z3 pattern
@@ -872,9 +870,20 @@ fn encode_expr_cvc5<'a>(
         } => {
             let c = encode_expr_cvc5(tm, cond, vars, state)?;
             let t = encode_expr_cvc5(tm, then_branch, vars, state)?;
-            if let Some(e) = else_branch {
-                let e = encode_expr_cvc5(tm, e, vars, state)?;
-                Some(tm.mk_term(cvc5::Kind::Ite, &[c, t, e]))
+            if let Some(eb) = else_branch {
+                let e = encode_expr_cvc5(tm, eb, vars, state)?;
+                // Sort promotion: if one branch is Real and the other Integer, promote
+                let t_sort = t.get_sort();
+                let e_sort = e.get_sort();
+                let (t_final, e_final) = if t_sort == tm.real_sort() && e_sort == tm.integer_sort()
+                {
+                    (t, tm.mk_term(cvc5::Kind::ToReal, &[e]))
+                } else if t_sort == tm.integer_sort() && e_sort == tm.real_sort() {
+                    (tm.mk_term(cvc5::Kind::ToReal, &[t]), e)
+                } else {
+                    (t, e)
+                };
+                Some(tm.mk_term(cvc5::Kind::Ite, &[c, t_final, e_final]))
             } else {
                 Some(tm.mk_term(cvc5::Kind::Implies, &[c, t]))
             }
@@ -2606,7 +2615,13 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             }
         }
         Expr::Literal(Literal::Bool(b)) => Some(b.to_string()),
-        Expr::Literal(Literal::Float(f)) => Some(f.clone()),
+        Expr::Literal(Literal::Float(f)) => {
+            // Rational encoding matching CVC5 native Real sort
+            let fv: f64 = f.parse().unwrap_or(0.0);
+            let denom = 1_000_000i64;
+            let numer = (fv * denom as f64) as i64;
+            Some(format!("(/ {numer} {denom})"))
+        }
         Expr::Literal(Literal::Str(s)) => {
             // Named integer constant matching Z3 pattern
             Some(format!("__str_{}", sanitize_smtlib_name(s)))
@@ -2839,7 +2854,12 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                     Pattern::Literal(lit) => {
                         let lit_smt = match lit {
                             Literal::Int(n) => n.clone(),
-                            Literal::Float(f) => f.clone(),
+                            Literal::Float(f) => {
+                                let fv: f64 = f.parse().unwrap_or(0.0);
+                                let denom = 1_000_000i64;
+                                let numer = (fv * denom as f64) as i64;
+                                format!("(/ {numer} {denom})")
+                            }
                             Literal::Bool(b) => b.to_string(),
                             Literal::Str(_) => return None,
                         };
@@ -3968,6 +3988,59 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
+    // SMT-LIB float encoding tests (#248)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_smtlib_float_rational_encoding() {
+        let expr = Expr::Literal(Literal::Float("3.14".into()));
+        let result = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(result, "(/ 3140000 1000000)");
+    }
+
+    #[test]
+    fn test_smtlib_float_zero() {
+        let expr = Expr::Literal(Literal::Float("0.0".into()));
+        let result = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(result, "(/ 0 1000000)");
+    }
+
+    #[test]
+    fn test_smtlib_float_negative() {
+        // Negative floats: the negation is applied by UnaryOp::Neg externally,
+        // but the literal itself may parse as negative
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::Literal(Literal::Float("2.5".into()))),
+        };
+        let result = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(result, "(- (/ 2500000 1000000))");
+    }
+
+    #[test]
+    fn test_smtlib_match_float_pattern_rational() {
+        // Match arm with float literal should use rational encoding
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("x".into())),
+            arms: vec![
+                assura_parser::ast::MatchArm {
+                    pattern: Pattern::Literal(Literal::Float("1.5".into())),
+                    body: Expr::Literal(Literal::Bool(true)),
+                },
+                assura_parser::ast::MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: Expr::Literal(Literal::Bool(false)),
+                },
+            ],
+        };
+        let result = expr_to_smtlib(&expr).unwrap();
+        assert!(
+            result.contains("(/ 1500000 1000000)"),
+            "match float pattern should use rational: {result}"
+        );
+    }
+
+    // -------------------------------------------------------------------
     // CVC5 native API tests (only when cvc5-verify feature enabled)
     // -------------------------------------------------------------------
 
@@ -5078,6 +5151,161 @@ mod tests {
             assert!(
                 !results.is_empty(),
                 "should produce results even without lemma defs"
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // CVC5 Real sort float encoding tests (#248)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn test_cvc5_float_real_sort() {
+            // Float literal in requires/ensures should encode as CVC5 Real sort.
+            // requires { x > 0 }, requires { x < 1000000 },
+            // ensures { x > 0 } -- trivially true from precondition
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("FloatRealSort", &clauses);
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "float Real sort should verify: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn test_cvc5_real_ite_promotion() {
+            // ITE with mixed Int/Real branches should sort-promote.
+            // requires { x > 0 }
+            // ensures { if x > 0 then 1.5 else 0 > 0 }
+            // The then branch is Real (1.5), else is Int (0).
+            // Sort promotion converts the Int to Real so ITE succeeds.
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::If {
+                            cond: Box::new(Expr::BinOp {
+                                op: BinOp::Gt,
+                                lhs: Box::new(Expr::Ident("x".into())),
+                                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                            }),
+                            then_branch: Box::new(Expr::Literal(Literal::Float("1.5".into()))),
+                            else_branch: Some(Box::new(Expr::Literal(Literal::Int("0".into())))),
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("ItePromotion", &clauses);
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "ITE sort promotion should verify: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn test_cvc5_real_negation() {
+            // Negated float should work with Real sort.
+            // requires { x > 1.0 }, ensures { -x < 0.0 }
+            // True because x > 1.0 implies -x < -1.0 < 0.0
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Float("1.0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Lt,
+                        lhs: Box::new(Expr::UnaryOp {
+                            op: UnaryOp::Neg,
+                            expr: Box::new(Expr::Ident("x".into())),
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("RealNeg", &clauses);
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "negated float Real should verify: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn test_cvc5_float_arithmetic_verifies() {
+            // Float arithmetic: requires { x > 2.0 }, ensures { x + 1.0 > 3.0 }
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Float("2.0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::BinOp {
+                            op: BinOp::Add,
+                            lhs: Box::new(Expr::Ident("x".into())),
+                            rhs: Box::new(Expr::Literal(Literal::Float("1.0".into()))),
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Float("3.0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("FloatArith", &clauses);
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "float arithmetic should verify: {:?}",
+                results[0]
             );
         }
     }
