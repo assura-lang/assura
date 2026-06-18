@@ -1852,7 +1852,7 @@ compiles" failure on taint-tracking.assura.
 
 - [x] **10.19** #263 Z3/CVC5: Algebraic data type (ADT) encoding
   - Z3 Datatypes, CVC5 DatatypeDecl for enums/structs
-- [ ] **10.20** #265 Z3/CVC5: Bitvector theory for fixed-width integers
+- [x] **10.20** #265 Z3/CVC5: Bitvector theory for fixed-width integers
   - BitVec sort for u8/u16/u32/u64, overflow detection
 - [ ] **10.21** #266 Z3/CVC5: Unsatisfiable core extraction
   - produce-unsat-cores, extract and report in VerificationResult

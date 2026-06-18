@@ -2737,3 +2737,71 @@ fn test_z3_adt_injectivity() {
         solver.pop(1);
     });
 }
+
+// -----------------------------------------------------------------------
+// #265: Bitvector theory tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_z3_bitvector_wrapping() {
+    use crate::z3_backend::encoder::BitvectorEncoder;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let a = BitvectorEncoder::bv_from_u64(255, 8);
+        let b = BitvectorEncoder::bv_from_u64(1, 8);
+        let sum = BitvectorEncoder::bvadd(&a, &b);
+        let zero = BitvectorEncoder::bv_from_u64(0, 8);
+        let solver = z3::Solver::new();
+        solver.assert(&sum.eq(&zero));
+        assert_eq!(
+            solver.check(),
+            z3::SatResult::Sat,
+            "255 + 1 should wrap to 0 in u8"
+        );
+    });
+}
+
+#[test]
+fn test_z3_bitvector_overflow_detect() {
+    use crate::z3_backend::encoder::BitvectorEncoder;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let a = BitvectorEncoder::bv_from_u64(255, 8);
+        let b = BitvectorEncoder::bv_from_u64(1, 8);
+        let overflow = BitvectorEncoder::bvadd_overflow_unsigned(&a, &b);
+        let solver = z3::Solver::new();
+        solver.assert(&overflow);
+        assert_eq!(
+            solver.check(),
+            z3::SatResult::Sat,
+            "255 + 1 should overflow unsigned u8"
+        );
+
+        let small_a = BitvectorEncoder::bv_from_u64(1, 8);
+        let small_b = BitvectorEncoder::bv_from_u64(2, 8);
+        let no_overflow = BitvectorEncoder::bvadd_overflow_unsigned(&small_a, &small_b);
+        solver.reset();
+        solver.assert(&no_overflow);
+        assert_eq!(
+            solver.check(),
+            z3::SatResult::Unsat,
+            "1 + 2 should not overflow u8"
+        );
+    });
+}
+
+#[test]
+fn test_z3_bitvector_bitwise_ops() {
+    use crate::z3_backend::encoder::BitvectorEncoder;
+    z3::with_z3_config(&z3::Config::new(), || {
+        let a = BitvectorEncoder::bv_from_u64(0b1010, 8);
+        let b = BitvectorEncoder::bv_from_u64(0b1100, 8);
+        let and_val = BitvectorEncoder::bvand(&a, &b);
+        let or_val = BitvectorEncoder::bvor(&a, &b);
+        let xor_val = BitvectorEncoder::bvxor(&a, &b);
+
+        let solver = z3::Solver::new();
+        solver.assert(&and_val.eq(&BitvectorEncoder::bv_from_u64(0b1000, 8)));
+        solver.assert(&or_val.eq(&BitvectorEncoder::bv_from_u64(0b1110, 8)));
+        solver.assert(&xor_val.eq(&BitvectorEncoder::bv_from_u64(0b0110, 8)));
+        assert_eq!(solver.check(), z3::SatResult::Sat);
+    });
+}

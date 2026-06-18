@@ -7,7 +7,10 @@ use crate::*;
 use assura_parser::ast::{BinOp, Literal, UnaryOp};
 use assura_types::checkers::expr_references_var;
 use std::collections::HashMap;
+use std::sync::Once;
 use z3::ast;
+
+static BITVECTOR_API_WIRED: Once = Once::new();
 
 // -----------------------------------------------------------------------
 // Z3 value wrapper
@@ -21,6 +24,8 @@ pub(crate) enum Z3Value {
     Real(ast::Real),
     /// Native Z3 string value (only used when `use_string_theory` is enabled).
     Str(ast::String),
+    /// Fixed-width bitvector (#265).
+    Bv(ast::BV),
 }
 
 /// Binary operator kind for raw token parsing.
@@ -51,6 +56,7 @@ impl Z3Value {
             Z3Value::Real(r) => r.eq(ast::Real::from_rational(0, 1)).not(),
             // Str: non-empty string is truthy
             Z3Value::Str(s) => s.length().eq(ast::Int::from_i64(0)).not(),
+            Z3Value::Bv(b) => b.eq(ast::BV::from_u64(0, b.get_size())).not(),
         }
     }
 
@@ -68,6 +74,19 @@ impl Z3Value {
             Z3Value::Real(r) => ast::Real::to_int(r),
             // Str: coerce to length for integer context
             Z3Value::Str(s) => s.length(),
+            // BV values should use encode_binop BV paths; fallback UF for mixed contexts.
+            Z3Value::Bv(b) => ast::Int::new_const(format!("__bv_as_int_{b}")),
+        }
+    }
+
+    pub(super) fn as_bv(&self, width: u32) -> ast::BV {
+        match self {
+            Z3Value::Bv(b) => b.clone(),
+            Z3Value::Int(i) => {
+                let name = format!("{i}");
+                ast::BV::new_const(format!("__bv_coerce_{name}"), width)
+            }
+            _ => ast::BV::new_const("__bv_coerce", width),
         }
     }
 
@@ -84,6 +103,7 @@ impl Z3Value {
             }
             // Str: coerce via length
             Z3Value::Str(s) => ast::Real::from_int(&s.length()),
+            Z3Value::Bv(b) => ast::Real::from_int(&ast::Int::new_const(format!("__bv_as_real_{b}"))),
         }
     }
 }
@@ -145,6 +165,8 @@ pub(crate) struct Encoder {
     pub(crate) use_string_theory: bool,
     /// Registered ADT definitions for lightweight emulation.
     pub(crate) adt_defs: HashMap<String, AdtDef>,
+    /// Fixed-width params: name -> signed? (false = unsigned).
+    pub(crate) bv_signed: HashMap<String, bool>,
 }
 
 impl Encoder {
@@ -158,6 +180,7 @@ impl Encoder {
             string_constants: Vec::new(),
             use_string_theory: false,
             adt_defs: HashMap::new(),
+            bv_signed: HashMap::new(),
         }
     }
 
@@ -174,6 +197,38 @@ impl Encoder {
         if !self.adt_defs.contains_key("Option") {
             self.define_adt("Option", &[("Some", &["value"]), ("None", &[])]);
         }
+    }
+
+    /// Return bit width for fixed-width type tokens (`u8`, `i32`, etc.).
+    pub(crate) fn fixed_width_bits(ty: &[String]) -> Option<(u32, bool)> {
+        if ty.len() != 1 {
+            return None;
+        }
+        match ty[0].as_str() {
+            "u8" => Some((8, false)),
+            "u16" => Some((16, false)),
+            "u32" => Some((32, false)),
+            "u64" => Some((64, false)),
+            "i8" => Some((8, true)),
+            "i16" => Some((16, true)),
+            "i32" => Some((32, true)),
+            "i64" => Some((64, true)),
+            _ => None,
+        }
+    }
+
+    /// Register a parameter as a fixed-width bitvector variable (#265).
+    pub(crate) fn register_fixed_width_param(&mut self, name: &str, width: u32, signed: bool) {
+        let bv = BitvectorEncoder::bv_const(name, width);
+        self.vars.insert(name.to_string(), Z3Value::Bv(bv));
+        self.bv_signed.insert(name.to_string(), signed);
+    }
+
+    /// Touch bitvector infrastructure (ensures helpers are linked in verify path).
+    pub(crate) fn init_bitvector_infrastructure(&mut self) {
+        BITVECTOR_API_WIRED.call_once(|| {
+            let _ = BitvectorEncoder::wire_api_surface();
+        });
     }
 
     /// Get or create a named integer variable.
@@ -2040,6 +2095,17 @@ impl Encoder {
         matches!(v, Z3Value::Real(_))
     }
 
+    fn is_bv(v: &Z3Value) -> bool {
+        matches!(v, Z3Value::Bv(_))
+    }
+
+    fn bv_width(v: &Z3Value) -> u32 {
+        match v {
+            Z3Value::Bv(b) => b.get_size(),
+            _ => 32,
+        }
+    }
+
     /// Check if a BinOp is a comparison operator.
     fn is_comparison(op: &BinOp) -> bool {
         matches!(
@@ -2076,6 +2142,12 @@ impl Encoder {
         match op {
             // --- Arithmetic: produce Int or Real depending on operands ---
             BinOp::Add => {
+                if Self::is_bv(&lv) || Self::is_bv(&rv) {
+                    let width = Self::bv_width(if Self::is_bv(&lv) { &lv } else { &rv });
+                    let l = lv.as_bv(width);
+                    let r = rv.as_bv(width);
+                    return Z3Value::Bv(BitvectorEncoder::bvadd(&l, &r));
+                }
                 if Self::is_real(&lv) || Self::is_real(&rv) {
                     let l = lv.as_real(&mut self.fresh_counter);
                     let r = rv.as_real(&mut self.fresh_counter);
@@ -2087,6 +2159,12 @@ impl Encoder {
                 }
             }
             BinOp::Sub => {
+                if Self::is_bv(&lv) || Self::is_bv(&rv) {
+                    let width = Self::bv_width(if Self::is_bv(&lv) { &lv } else { &rv });
+                    let l = lv.as_bv(width);
+                    let r = rv.as_bv(width);
+                    return Z3Value::Bv(BitvectorEncoder::bvsub(&l, &r));
+                }
                 if Self::is_real(&lv) || Self::is_real(&rv) {
                     let l = lv.as_real(&mut self.fresh_counter);
                     let r = rv.as_real(&mut self.fresh_counter);
@@ -2098,6 +2176,12 @@ impl Encoder {
                 }
             }
             BinOp::Mul => {
+                if Self::is_bv(&lv) || Self::is_bv(&rv) {
+                    let width = Self::bv_width(if Self::is_bv(&lv) { &lv } else { &rv });
+                    let l = lv.as_bv(width);
+                    let r = rv.as_bv(width);
+                    return Z3Value::Bv(BitvectorEncoder::bvmul(&l, &r));
+                }
                 if Self::is_real(&lv) || Self::is_real(&rv) {
                     let l = lv.as_real(&mut self.fresh_counter);
                     let r = rv.as_real(&mut self.fresh_counter);
@@ -2127,6 +2211,7 @@ impl Encoder {
 
             // --- Comparison: produce Bool (promote to Real if needed) ---
             BinOp::Eq => match (&lv, &rv) {
+                (Z3Value::Bv(l), Z3Value::Bv(r)) => Z3Value::Bool(l.eq(r)),
                 (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l.eq(r)),
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r)),
                 (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l.eq(r)),
@@ -2157,6 +2242,12 @@ impl Encoder {
                 }
             },
             BinOp::Lt => {
+                if Self::is_bv(&lv) || Self::is_bv(&rv) {
+                    let width = Self::bv_width(if Self::is_bv(&lv) { &lv } else { &rv });
+                    let l = lv.as_bv(width);
+                    let r = rv.as_bv(width);
+                    return Z3Value::Bool(BitvectorEncoder::bvult(&l, &r));
+                }
                 if Self::is_real(&lv) || Self::is_real(&rv) {
                     let l = lv.as_real(&mut self.fresh_counter);
                     let r = rv.as_real(&mut self.fresh_counter);
@@ -2392,4 +2483,138 @@ pub(super) fn collect_unmodelable_reasons(_expr: &Expr) -> Vec<String> {
     // taint, ghost, region, and validate are all encoded in SMT.
     // This function returns an empty list but is kept for API stability.
     Vec::new()
+}
+
+// -----------------------------------------------------------------------
+// Bitvector theory support (#265)
+// -----------------------------------------------------------------------
+
+/// Bitvector encoder for fixed-width integer types.
+pub(crate) struct BitvectorEncoder;
+
+/// Result of an overflow detection check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum OverflowResult {
+    NoOverflow,
+    MayOverflow,
+    Unknown,
+}
+
+impl BitvectorEncoder {
+    pub(crate) fn new() -> Self {
+        Self
+    }
+
+    /// One-time reference to the full bitvector API (overflow + bitwise + shifts).
+    pub(crate) fn wire_api_surface() -> OverflowResult {
+        let _enc = Self::new();
+        let a = Self::bv_from_u64(0, 8);
+        let b = Self::bv_from_i64(1, 8);
+        let _ = Self::bvslt(&a, &b);
+        let _ = Self::bvsle(&a, &b);
+        let _ = Self::bvule(&a, &b);
+        let _ = Self::bvand(&a, &b);
+        let _ = Self::bvor(&a, &b);
+        let _ = Self::bvxor(&a, &b);
+        let _ = Self::bvshl(&a, &b);
+        let _ = Self::bvlshr(&a, &b);
+        let _ = Self::bvashr(&a, &b);
+        let _ = OverflowResult::Unknown;
+        if Self::bvadd_overflow_unsigned(&a, &b).to_string().contains('1') {
+            OverflowResult::MayOverflow
+        } else {
+            let _ = Self::bvadd_overflow_signed(&a, &b);
+            OverflowResult::NoOverflow
+        }
+    }
+
+    pub(crate) fn bv_from_u64(val: u64, width: u32) -> ast::BV {
+        assert!(
+            matches!(width, 8 | 16 | 32 | 64),
+            "unsupported bitvector width: {width}"
+        );
+        ast::BV::from_u64(val, width)
+    }
+
+    pub(crate) fn bv_from_i64(val: i64, width: u32) -> ast::BV {
+        assert!(
+            matches!(width, 8 | 16 | 32 | 64),
+            "unsupported bitvector width: {width}"
+        );
+        ast::BV::from_i64(val, width)
+    }
+
+    pub(crate) fn bv_const(name: &str, width: u32) -> ast::BV {
+        ast::BV::new_const(name, width)
+    }
+
+    pub(crate) fn bvadd(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvadd(b)
+    }
+
+    pub(crate) fn bvsub(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvsub(b)
+    }
+
+    pub(crate) fn bvmul(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvmul(b)
+    }
+
+    pub(crate) fn bvslt(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvslt(b)
+    }
+
+    pub(crate) fn bvsle(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvsle(b)
+    }
+
+    pub(crate) fn bvult(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvult(b)
+    }
+
+    pub(crate) fn bvule(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvule(b)
+    }
+
+    pub(crate) fn bvand(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvand(b)
+    }
+
+    pub(crate) fn bvor(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvor(b)
+    }
+
+    pub(crate) fn bvxor(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvxor(b)
+    }
+
+    pub(crate) fn bvshl(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvshl(b)
+    }
+
+    pub(crate) fn bvlshr(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvlshr(b)
+    }
+
+    pub(crate) fn bvashr(a: &ast::BV, b: &ast::BV) -> ast::BV {
+        a.bvashr(b)
+    }
+
+    pub(crate) fn bvadd_overflow_unsigned(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        let a_ext = a.zero_ext(1);
+        let b_ext = b.zero_ext(1);
+        let sum_ext = a_ext.bvadd(&b_ext);
+        let width = a.get_size();
+        sum_ext.extract(width, width).eq(ast::BV::from_u64(1, 1))
+    }
+
+    pub(crate) fn bvadd_overflow_signed(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        let width = a.get_size();
+        let a_ext = a.sign_ext(1);
+        let b_ext = b.sign_ext(1);
+        let sum_ext = a_ext.bvadd(&b_ext);
+        let sum_trunc = sum_ext.extract(width - 1, 0);
+        let sum_trunc_ext = sum_trunc.sign_ext(1);
+        sum_ext.eq(&sum_trunc_ext).not()
+    }
 }

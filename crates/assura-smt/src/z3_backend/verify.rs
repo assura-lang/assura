@@ -135,6 +135,12 @@ fn verify_clauses_with_types(
     let solver = Solver::new();
     let mut encoder = Encoder::new();
     encoder.init_adt_infrastructure();
+    encoder.init_bitvector_infrastructure();
+    for param in types.params {
+        if let Some((width, signed)) = Encoder::fixed_width_bits(&param.ty) {
+            encoder.register_fixed_width_param(&param.name, width, signed);
+        }
+    }
 
     // Bind named constants so Z3 uses concrete values, not free vars.
     for (name, value) in types.constants {
@@ -237,6 +243,12 @@ fn verify_clauses_with_types(
 
         let mut encoder = Encoder::with_string_theory(types.use_string_theory);
         encoder.init_adt_infrastructure();
+        encoder.init_bitvector_infrastructure();
+        for param in types.params {
+            if let Some((width, signed)) = Encoder::fixed_width_bits(&param.ty) {
+                encoder.register_fixed_width_param(&param.name, width, signed);
+            }
+        }
 
         // Bind named constants so Z3 uses concrete values, not free vars.
         for (name, value) in types.constants {

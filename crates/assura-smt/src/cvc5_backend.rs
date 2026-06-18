@@ -8311,5 +8311,34 @@ mod tests {
             let acc = super::adt_accessor_smt("Option", "value", "x");
             assert_eq!(acc, "(__adt_Option_value x)");
         }
+
+        // -------------------------------------------------------------------
+        // #265: CVC5 bitvector wrapping test
+        // -------------------------------------------------------------------
+
+        #[test]
+        fn test_cvc5_bitvector_wrapping() {
+            let tm = cvc5::TermManager::new();
+            let mut solver = cvc5::Solver::new(&tm);
+            solver.set_logic("QF_BV");
+            solver.set_option("produce-models", "true");
+
+            let eight = tm.mk_bv_sort(8);
+            let a = tm.mk_const(eight, "a");
+            let b = tm.mk_const(eight, "b");
+            let two_five_five = tm.mk_bitvector(8, "255");
+            let one = tm.mk_bitvector(8, "1");
+            let zero = tm.mk_bitvector(8, "0");
+
+            solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[a.clone(), two_five_five]));
+            solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[b.clone(), one]));
+            let sum = tm.mk_term(cvc5::Kind::BitwiseAdd, &[a, b]);
+            solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[sum, zero]));
+
+            assert!(
+                solver.check_sat().is_sat(),
+                "255 + 1 should wrap to 0 in 8-bit BV"
+            );
+        }
     }
 }
