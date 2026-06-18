@@ -516,4 +516,186 @@ fn is_alloc_function(name: &str) -> bool {
     )
 }
 
-// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    fn ident(s: &str) -> Expr {
+        Expr::Ident(s.to_string())
+    }
+
+    fn int_lit(n: i64) -> Expr {
+        Expr::Literal(Literal::Int(n.to_string()))
+    }
+
+    // ---- TaintLabel ----
+
+    #[test]
+    fn taint_label_ordering() {
+        assert!(TaintLabel::Untrusted < TaintLabel::Validated);
+        assert!(TaintLabel::Validated < TaintLabel::Trusted);
+    }
+
+    #[test]
+    fn taint_label_display() {
+        assert_eq!(TaintLabel::Untrusted.to_string(), "untrusted");
+        assert_eq!(TaintLabel::Validated.to_string(), "validated");
+        assert_eq!(TaintLabel::Trusted.to_string(), "trusted");
+    }
+
+    // ---- extract_taint_label ----
+
+    #[test]
+    fn extract_taint_long_form() {
+        let tokens = vec!["@".into(), "taint".into(), ":".into(), "untrusted".into()];
+        assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Untrusted));
+    }
+
+    #[test]
+    fn extract_taint_short_form() {
+        let tokens = vec!["@".into(), "validated".into()];
+        assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Validated));
+    }
+
+    #[test]
+    fn extract_taint_none() {
+        let tokens: Vec<String> = vec!["Int".into()];
+        assert_eq!(extract_taint_label(&tokens), None);
+    }
+
+    // ---- TaintChecker ----
+
+    #[test]
+    fn tc_infer_literal_trusted() {
+        let checker = TaintChecker::new();
+        assert_eq!(checker.infer_taint(&int_lit(42)), TaintLabel::Trusted);
+    }
+
+    #[test]
+    fn tc_infer_untrusted_ident() {
+        let mut checker = TaintChecker::new();
+        checker.declare("user_input".into(), TaintLabel::Untrusted);
+        assert_eq!(
+            checker.infer_taint(&ident("user_input")),
+            TaintLabel::Untrusted
+        );
+    }
+
+    #[test]
+    fn tc_infer_binop_propagates_taint() {
+        let mut checker = TaintChecker::new();
+        checker.declare("tainted".into(), TaintLabel::Untrusted);
+        let expr = Expr::BinOp {
+            lhs: Box::new(ident("tainted")),
+            op: BinOp::Add,
+            rhs: Box::new(int_lit(1)),
+        };
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
+    }
+
+    #[test]
+    fn tc_infer_validation_fn_produces_validated() {
+        let checker = TaintChecker::new();
+        let expr = Expr::Call {
+            func: Box::new(ident("validate")),
+            args: vec![ident("raw")],
+        };
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
+    }
+
+    #[test]
+    fn tc_check_untrusted_array_index() {
+        let mut checker = TaintChecker::new();
+        checker.declare("idx".into(), TaintLabel::Untrusted);
+        let expr = Expr::Index {
+            expr: Box::new(ident("arr")),
+            index: Box::new(ident("idx")),
+        };
+        let errs = checker.check_expr(&expr, &span());
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A09101"));
+    }
+
+    #[test]
+    fn tc_check_validated_array_index_ok() {
+        let mut checker = TaintChecker::new();
+        checker.declare("idx".into(), TaintLabel::Validated);
+        let expr = Expr::Index {
+            expr: Box::new(ident("arr")),
+            index: Box::new(ident("idx")),
+        };
+        let errs = checker.check_expr(&expr, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn tc_check_untrusted_alloc_size() {
+        let mut checker = TaintChecker::new();
+        checker.declare("sz".into(), TaintLabel::Untrusted);
+        let expr = Expr::Call {
+            func: Box::new(ident("malloc")),
+            args: vec![ident("sz")],
+        };
+        let errs = checker.check_expr(&expr, &span());
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A09102"));
+    }
+
+    #[test]
+    fn tc_check_trusted_sink_violation() {
+        let mut checker = TaintChecker::new();
+        checker.declare("raw".into(), TaintLabel::Untrusted);
+        checker.register_trusted_sink("exec_query".into(), vec![Some(TaintLabel::Validated)]);
+        let expr = Expr::Call {
+            func: Box::new(ident("exec_query")),
+            args: vec![ident("raw")],
+        };
+        let errs = checker.check_expr(&expr, &span());
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A09103"));
+    }
+
+    #[test]
+    fn tc_check_trusted_sink_ok() {
+        let mut checker = TaintChecker::new();
+        checker.declare("safe".into(), TaintLabel::Validated);
+        checker.register_trusted_sink("exec_query".into(), vec![Some(TaintLabel::Validated)]);
+        let expr = Expr::Call {
+            func: Box::new(ident("exec_query")),
+            args: vec![ident("safe")],
+        };
+        let errs = checker.check_expr(&expr, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn tc_has_taint_info() {
+        let mut checker = TaintChecker::new();
+        assert!(!checker.has_taint_info());
+        checker.declare("x".into(), TaintLabel::Untrusted);
+        assert!(checker.has_taint_info());
+    }
+
+    #[test]
+    fn tc_register_custom_validator() {
+        let mut checker = TaintChecker::new();
+        checker.register_validator("my_sanitize".into());
+        let expr = Expr::Call {
+            func: Box::new(ident("my_sanitize")),
+            args: vec![ident("raw")],
+        };
+        assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
+    }
+
+    #[test]
+    fn is_alloc_fn_known() {
+        assert!(is_alloc_function("malloc"));
+        assert!(is_alloc_function("realloc"));
+        assert!(is_alloc_function("reserve"));
+        assert!(!is_alloc_function("free"));
+    }
+}

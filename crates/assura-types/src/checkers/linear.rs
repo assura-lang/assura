@@ -454,3 +454,277 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    fn ident(s: &str) -> Expr {
+        Expr::Ident(s.to_string())
+    }
+
+    fn int_lit(n: i64) -> Expr {
+        Expr::Literal(Literal::Int(n.to_string()))
+    }
+
+    // ---- UsageTracker ----
+
+    #[test]
+    fn tracker_linear_used_once_ok() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        t.use_var("x");
+        let errs = t.check();
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn tracker_linear_never_used() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let errs = t.check();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A05002");
+    }
+
+    #[test]
+    fn tracker_linear_used_twice() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        t.use_var("x");
+        t.use_var("x");
+        let errs = t.check();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A05001");
+    }
+
+    #[test]
+    fn tracker_erased_used_at_runtime() {
+        let mut t = UsageTracker::new();
+        t.declare("g".into(), UsageGrade::Erased, span());
+        t.use_var("g");
+        let errs = t.check();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A05002");
+    }
+
+    #[test]
+    fn tracker_erased_not_used_ok() {
+        let mut t = UsageTracker::new();
+        t.declare("g".into(), UsageGrade::Erased, span());
+        let errs = t.check();
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn tracker_exact_correct_count() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Exact(3), span());
+        t.use_var("x");
+        t.use_var("x");
+        t.use_var("x");
+        let errs = t.check();
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn tracker_exact_wrong_count() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Exact(2), span());
+        t.use_var("x");
+        let errs = t.check();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A05003");
+    }
+
+    #[test]
+    fn tracker_unlimited_any_count_ok() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Unlimited, span());
+        t.use_var("x");
+        t.use_var("x");
+        t.use_var("x");
+        t.use_var("x");
+        let errs = t.check();
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn tracker_get_count() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        assert_eq!(t.get_count("x"), Some(0));
+        t.use_var("x");
+        assert_eq!(t.get_count("x"), Some(1));
+        assert_eq!(t.get_count("unknown"), None);
+    }
+
+    #[test]
+    fn tracker_use_undeclared_is_noop() {
+        let mut t = UsageTracker::new();
+        t.use_var("unknown"); // should not panic
+        let errs = t.check();
+        assert!(errs.is_empty());
+    }
+
+    // ---- LinearContext ----
+
+    #[test]
+    fn ctx_fork_merge_consistent() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+
+        let (mut a, mut b) = ctx.fork();
+        a.use_var("x");
+        b.use_var("x");
+
+        let errs = ctx.merge(&a, &b);
+        assert!(errs.is_empty()); // Both branches use x once: consistent
+    }
+
+    #[test]
+    fn ctx_fork_merge_inconsistent() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+
+        let (mut a, b) = ctx.fork();
+        a.use_var("x");
+        // b does not use x
+
+        let errs = ctx.merge(&a, &b);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A05004");
+    }
+
+    #[test]
+    fn ctx_merge_arms_consistent() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+
+        let mut arm1 = ctx.clone();
+        let mut arm2 = ctx.clone();
+        let mut arm3 = ctx.clone();
+        arm1.use_var("x");
+        arm2.use_var("x");
+        arm3.use_var("x");
+
+        let errs = ctx.merge_arms(&[arm1, arm2, arm3]);
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn ctx_merge_arms_inconsistent() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+
+        let mut arm1 = ctx.clone();
+        let arm2 = ctx.clone(); // does not use x
+        arm1.use_var("x");
+
+        let errs = ctx.merge_arms(&[arm1, arm2]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A05004");
+    }
+
+    #[test]
+    fn ctx_merge_arms_empty() {
+        let t = UsageTracker::new();
+        let mut ctx = LinearContext::new(t);
+        let errs = ctx.merge_arms(&[]);
+        assert!(errs.is_empty());
+    }
+
+    // ---- check_expr_linearity ----
+
+    #[test]
+    fn linearity_ident_records_use() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+        let errs = check_expr_linearity(&ident("x"), &mut ctx);
+        assert!(errs.is_empty());
+        assert_eq!(ctx.get_count("x"), Some(1));
+    }
+
+    #[test]
+    fn linearity_if_forks_context() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+        let expr = Expr::If {
+            cond: Box::new(Expr::Literal(Literal::Bool(true))),
+            then_branch: Box::new(ident("x")),
+            else_branch: Some(Box::new(ident("x"))),
+        };
+        let errs = check_expr_linearity(&expr, &mut ctx);
+        assert!(errs.is_empty()); // Used in both branches
+    }
+
+    #[test]
+    fn linearity_if_one_branch_only() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+        let expr = Expr::If {
+            cond: Box::new(Expr::Literal(Literal::Bool(true))),
+            then_branch: Box::new(ident("x")),
+            else_branch: Some(Box::new(int_lit(0))),
+        };
+        let errs = check_expr_linearity(&expr, &mut ctx);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A05004"));
+    }
+
+    #[test]
+    fn linearity_old_does_not_count() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+        let expr = Expr::Old(Box::new(ident("x")));
+        let errs = check_expr_linearity(&expr, &mut ctx);
+        assert!(errs.is_empty());
+        assert_eq!(ctx.get_count("x"), Some(0)); // old() is ghost, not counted
+    }
+
+    #[test]
+    fn linearity_ghost_does_not_count() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+        let expr = Expr::Ghost(Box::new(ident("x")));
+        let errs = check_expr_linearity(&expr, &mut ctx);
+        assert!(errs.is_empty());
+        assert_eq!(ctx.get_count("x"), Some(0));
+    }
+
+    #[test]
+    fn linearity_quantifier_does_not_count() {
+        let mut t = UsageTracker::new();
+        t.declare("x".into(), UsageGrade::Linear, span());
+        let mut ctx = LinearContext::new(t);
+        let expr = Expr::Forall {
+            var: "i".into(),
+            domain: Box::new(ident("x")),
+            body: Box::new(Expr::Literal(Literal::Bool(true))),
+        };
+        let errs = check_expr_linearity(&expr, &mut ctx);
+        assert!(errs.is_empty());
+        assert_eq!(ctx.get_count("x"), Some(0));
+    }
+
+    #[test]
+    fn usage_grade_display() {
+        assert_eq!(UsageGrade::Erased.to_string(), "erased (grade 0)");
+        assert_eq!(UsageGrade::Linear.to_string(), "linear (grade 1)");
+        assert_eq!(UsageGrade::Exact(3).to_string(), "exact (grade 3)");
+        assert!(UsageGrade::Unlimited.to_string().contains("unlimited"));
+    }
+}

@@ -741,4 +741,361 @@ impl std::fmt::Debug for TotalityChecker {
     }
 }
 
-// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::{Clause, FnDef, Param};
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    fn ident(s: &str) -> Expr {
+        Expr::Ident(s.to_string())
+    }
+
+    fn int_lit(n: i64) -> Expr {
+        Expr::Literal(Literal::Int(n.to_string()))
+    }
+
+    fn make_param(name: &str, ty: &[&str]) -> Param {
+        Param {
+            name: name.to_string(),
+            ty: ty.iter().map(|s| s.to_string()).collect(),
+            parsed_type: None,
+        }
+    }
+
+    fn make_fn(name: &str, params: Vec<Param>, clauses: Vec<Clause>) -> FnDef {
+        FnDef {
+            name: name.to_string(),
+            is_ghost: false,
+            is_lemma: false,
+            params,
+            return_ty: vec![],
+            return_type_expr: None,
+            clauses,
+        }
+    }
+
+    fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
+        Clause {
+            kind,
+            body,
+            effect_variables: vec![],
+        }
+    }
+
+    // ---- is_partial ----
+
+    #[test]
+    fn partial_fn_registered() {
+        let mut checker = TotalityChecker::new();
+        checker.mark_partial("diverge".into());
+        let f = make_fn("diverge", vec![], vec![]);
+        assert!(checker.is_partial(&f));
+    }
+
+    #[test]
+    fn partial_fn_by_clause() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "maybe_loop",
+            vec![],
+            vec![make_clause(ClauseKind::Other("partial".into()), int_lit(0))],
+        );
+        assert!(checker.is_partial(&f));
+    }
+
+    #[test]
+    fn non_partial_fn() {
+        let checker = TotalityChecker::new();
+        let f = make_fn("total", vec![], vec![]);
+        assert!(!checker.is_partial(&f));
+    }
+
+    // ---- extract_decreases_measure ----
+
+    #[test]
+    fn extract_natural_measure() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "fac",
+            vec![make_param("n", &["Nat"])],
+            vec![make_clause(ClauseKind::Decreases, ident("n"))],
+        );
+        let measure = checker.extract_decreases_measure(&f);
+        assert!(matches!(measure, Some(DecreasesMeasure::Natural(_))));
+    }
+
+    #[test]
+    fn extract_lexicographic_measure() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "ack",
+            vec![make_param("m", &["Nat"]), make_param("n", &["Nat"])],
+            vec![
+                make_clause(ClauseKind::Decreases, ident("m")),
+                make_clause(ClauseKind::Decreases, ident("n")),
+            ],
+        );
+        let measure = checker.extract_decreases_measure(&f);
+        assert!(matches!(measure, Some(DecreasesMeasure::Lexicographic(_))));
+    }
+
+    #[test]
+    fn extract_well_founded_measure() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "tree_walk",
+            vec![make_param("t", &["Tree"])],
+            vec![
+                make_clause(ClauseKind::Decreases, ident("t")),
+                make_clause(ClauseKind::Other("well_founded".into()), int_lit(0)),
+            ],
+        );
+        let measure = checker.extract_decreases_measure(&f);
+        assert!(matches!(measure, Some(DecreasesMeasure::WellFounded(_))));
+    }
+
+    #[test]
+    fn extract_no_measure() {
+        let checker = TotalityChecker::new();
+        let f = make_fn("no_dec", vec![], vec![]);
+        assert!(checker.extract_decreases_measure(&f).is_none());
+    }
+
+    // ---- is_strictly_decreasing ----
+
+    #[test]
+    fn strictly_decreasing_n_minus_1() {
+        let measure = ident("n");
+        let call_arg = Expr::BinOp {
+            lhs: Box::new(ident("n")),
+            op: BinOp::Sub,
+            rhs: Box::new(int_lit(1)),
+        };
+        assert!(TotalityChecker::is_strictly_decreasing(&measure, &call_arg));
+    }
+
+    #[test]
+    fn strictly_decreasing_structural_tail() {
+        let measure = ident("xs");
+        let call_arg = Expr::Field(Box::new(ident("xs")), "tail".into());
+        assert!(TotalityChecker::is_strictly_decreasing(&measure, &call_arg));
+    }
+
+    #[test]
+    fn not_strictly_decreasing_same_var() {
+        let measure = ident("n");
+        let call_arg = ident("n");
+        assert!(!TotalityChecker::is_strictly_decreasing(
+            &measure, &call_arg
+        ));
+    }
+
+    #[test]
+    fn not_strictly_decreasing_different_var() {
+        let measure = ident("n");
+        let call_arg = ident("m");
+        assert!(!TotalityChecker::is_strictly_decreasing(
+            &measure, &call_arg
+        ));
+    }
+
+    // ---- check_function_totality ----
+
+    #[test]
+    fn totality_non_recursive_trivially_total() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "add",
+            vec![make_param("a", &["Int"]), make_param("b", &["Int"])],
+            vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    lhs: Box::new(ident("a")),
+                    op: BinOp::Add,
+                    rhs: Box::new(ident("b")),
+                },
+            )],
+        );
+        let (errs, pending) = checker.check_function_totality(&f, &span());
+        assert!(errs.is_empty());
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn totality_recursive_without_decreases() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "loop_fn",
+            vec![make_param("n", &["Int"])],
+            vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::Call {
+                    func: Box::new(ident("loop_fn")),
+                    args: vec![ident("n")],
+                },
+            )],
+        );
+        let (errs, _) = checker.check_function_totality(&f, &span());
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A09001"));
+    }
+
+    #[test]
+    fn totality_recursive_with_valid_decreases() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "fac",
+            vec![make_param("n", &["Nat"])],
+            vec![
+                make_clause(ClauseKind::Decreases, ident("n")),
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        lhs: Box::new(ident("n")),
+                        op: BinOp::Gte,
+                        rhs: Box::new(int_lit(0)),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Ensures,
+                    Expr::Call {
+                        func: Box::new(ident("fac")),
+                        args: vec![Expr::BinOp {
+                            lhs: Box::new(ident("n")),
+                            op: BinOp::Sub,
+                            rhs: Box::new(int_lit(1)),
+                        }],
+                    },
+                ),
+            ],
+        );
+        let (errs, pending) = checker.check_function_totality(&f, &span());
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn totality_partial_fn_skipped() {
+        let mut checker = TotalityChecker::new();
+        checker.mark_partial("diverge".into());
+        let f = make_fn(
+            "diverge",
+            vec![],
+            vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::Call {
+                    func: Box::new(ident("diverge")),
+                    args: vec![],
+                },
+            )],
+        );
+        let (errs, pending) = checker.check_function_totality(&f, &span());
+        assert!(errs.is_empty());
+        assert!(pending.is_empty());
+    }
+
+    // ---- check_mutual_recursion ----
+
+    #[test]
+    fn mutual_recursion_no_measure() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "even",
+            vec![make_param("n", &["Nat"])],
+            vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::Call {
+                    func: Box::new(ident("odd")),
+                    args: vec![ident("n")],
+                },
+            )],
+        );
+        let g = make_fn(
+            "odd",
+            vec![make_param("n", &["Nat"])],
+            vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::Call {
+                    func: Box::new(ident("even")),
+                    args: vec![ident("n")],
+                },
+            )],
+        );
+        let errs = checker.check_mutual_recursion(&[(&f, &span()), (&g, &span())]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A09004"));
+    }
+
+    #[test]
+    fn mutual_recursion_with_measure_ok() {
+        let checker = TotalityChecker::new();
+        let f = make_fn(
+            "even",
+            vec![make_param("n", &["Nat"])],
+            vec![
+                make_clause(ClauseKind::Decreases, ident("n")),
+                make_clause(
+                    ClauseKind::Ensures,
+                    Expr::Call {
+                        func: Box::new(ident("odd")),
+                        args: vec![ident("n")],
+                    },
+                ),
+            ],
+        );
+        let g = make_fn(
+            "odd",
+            vec![make_param("n", &["Nat"])],
+            vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::Call {
+                    func: Box::new(ident("even")),
+                    args: vec![ident("n")],
+                },
+            )],
+        );
+        let errs = checker.check_mutual_recursion(&[(&f, &span()), (&g, &span())]);
+        assert!(errs.is_empty());
+    }
+
+    // ---- well-foundedness ----
+
+    #[test]
+    fn well_founded_nat_param() {
+        let f = make_fn("f", vec![make_param("n", &["Nat"])], vec![]);
+        assert!(TotalityChecker::is_well_founded(&ident("n"), &f));
+    }
+
+    #[test]
+    fn well_founded_requires_constraint() {
+        let f = make_fn(
+            "f",
+            vec![make_param("n", &["Int"])],
+            vec![make_clause(
+                ClauseKind::Requires,
+                Expr::BinOp {
+                    lhs: Box::new(ident("n")),
+                    op: BinOp::Gte,
+                    rhs: Box::new(int_lit(0)),
+                },
+            )],
+        );
+        assert!(TotalityChecker::is_well_founded(&ident("n"), &f));
+    }
+
+    #[test]
+    fn not_well_founded_unconstrained_int() {
+        let f = make_fn("f", vec![make_param("n", &["Int"])], vec![]);
+        assert!(!TotalityChecker::is_well_founded(&ident("n"), &f));
+    }
+
+    #[test]
+    fn well_founded_structural_type() {
+        let f = make_fn("f", vec![make_param("xs", &["List"])], vec![]);
+        assert!(TotalityChecker::is_well_founded(&ident("xs"), &f));
+    }
+}
