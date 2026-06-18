@@ -1776,14 +1776,14 @@ compiles" failure on taint-tracking.assura.
 
 ### Round 2: High-impact parity (#251, #254, #256, #257) -- depends on: Round 1
 
-- [ ] **10.04** #251 CVC5: String method axioms (8 methods + array set/put/get)
+- [x] **10.04** #251 CVC5: String method axioms (8 methods + array set/put/get)
   - substring, concat, indexOf, charAt, replace, split, trim
   - Array set/put read-over-write axioms
-- [ ] **10.05** #254 CVC5: Lemma injection for apply expressions
+- [x] **10.05** #254 CVC5: Lemma injection for apply expressions
   - Collect lemma defs, inject postconditions as assumptions
-- [ ] **10.06** #256 CVC5: Frame axioms from modifies clauses
+- [x] **10.06** #256 CVC5: Frame axioms from modifies clauses
   - Build FrameChecker, assert `var == old_var` for unmodified state
-- [ ] **10.07** #257 CVC5: Bind feature_max constants + refinement narrowing
+- [x] **10.07** #257 CVC5: Bind feature_max constants + refinement narrowing
   - Make collect_feature_max_constants shared, bind in CVC5 solver
 - **Acceptance**:
   ```bash
