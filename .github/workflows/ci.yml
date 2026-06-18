@@ -256,6 +256,69 @@ jobs:
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features
 
+  # ── CVC5 native integration tests ───────────────────────────────────────
+  cvc5:
+    name: CVC5 native tests
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    env:
+      CARGO_TARGET_DIR: target/ci-cvc5
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        if: ${{ !vars.RUNNER }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        if: ${{ !vars.RUNNER }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-cvc5
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y protobuf-compiler libz3-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Set Linux Z3 paths
+        if: runner.os == 'Linux'
+        run: |
+          echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
+          echo "CPATH=/usr/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Install CVC5 prebuilt library
+        run: |
+          if [ "$(uname)" = "Darwin" ]; then
+            ARCH=$(uname -m)
+            curl -sL "https://github.com/cvc5/cvc5/releases/latest/download/cvc5-macOS-${ARCH}-static.zip" -o /tmp/cvc5.zip
+            unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
+            echo "CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-macOS-${ARCH}-static/lib" >> "$GITHUB_ENV"
+            echo "CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-macOS-${ARCH}-static/include" >> "$GITHUB_ENV"
+          else
+            curl -sL "https://github.com/cvc5/cvc5/releases/latest/download/cvc5-Linux-x86_64-static.zip" -o /tmp/cvc5.zip
+            unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
+            echo "CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/lib" >> "$GITHUB_ENV"
+            echo "CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/include" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test assura-smt with CVC5 native
+        run: cargo test -p assura-smt --features cvc5-verify
+
+      - name: Verify portfolio solver with CVC5
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build --bin assura --features cvc5-verify
+          cargo run --bin assura --features cvc5-verify -- check --solver cvc5 demos/libwebp-huffman.assura || true
+
   # ── Tree-sitter grammar tests ───────────────────────────────────────────
   tree-sitter:
     name: Tree-sitter grammar tests
