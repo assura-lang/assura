@@ -3,6 +3,166 @@ use assura_parser::ast::{BinOp, Clause, ClauseKind, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
 
 // =========================================================================
+// Unmodelable feature detection (mirrors z3_backend::encoder logic)
+//
+// These functions detect features in clause bodies that cannot be encoded
+// to SMT formulas (currently only typestate `@` annotations). Without
+// this pre-check, the encoder either returns `None` (generic error) or
+// partially encodes the expression, producing false counterexamples.
+//
+// Duplicated here because z3_backend is behind `#[cfg(feature = "z3-verify")]`
+// and the CVC5 backend must work without Z3.
+// =========================================================================
+
+/// Returns true if the expression contains features not yet encodable in SMT.
+///
+/// Currently only typestate `@` annotations in `Expr::Raw` tokens are
+/// unmodelable. All other constructs (field access, method calls, ghost
+/// expressions, etc.) have SMT encodings.
+fn expr_has_unmodelable_features_cvc5(expr: &Expr) -> bool {
+    match expr {
+        Expr::Field(obj, _) => expr_has_unmodelable_features_cvc5(obj),
+        Expr::MethodCall {
+            receiver,
+            method: _,
+            args,
+        } => {
+            expr_has_unmodelable_features_cvc5(receiver)
+                || args.iter().any(expr_has_unmodelable_features_cvc5)
+        }
+        Expr::Raw(tokens) => tokens.iter().any(|t| t == "@"),
+        Expr::BinOp { lhs, rhs, .. } => {
+            expr_has_unmodelable_features_cvc5(lhs) || expr_has_unmodelable_features_cvc5(rhs)
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Paren(inner)
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. } => expr_has_unmodelable_features_cvc5(inner),
+        Expr::Call { func, args } => {
+            expr_has_unmodelable_features_cvc5(func)
+                || args.iter().any(expr_has_unmodelable_features_cvc5)
+        }
+        Expr::Index { expr: e, index } => {
+            expr_has_unmodelable_features_cvc5(e) || expr_has_unmodelable_features_cvc5(index)
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            expr_has_unmodelable_features_cvc5(domain) || expr_has_unmodelable_features_cvc5(body)
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_has_unmodelable_features_cvc5(cond)
+                || expr_has_unmodelable_features_cvc5(then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| expr_has_unmodelable_features_cvc5(e))
+        }
+        Expr::Let { value, body, .. } => {
+            expr_has_unmodelable_features_cvc5(value) || expr_has_unmodelable_features_cvc5(body)
+        }
+        Expr::Match { scrutinee, arms } => {
+            expr_has_unmodelable_features_cvc5(scrutinee)
+                || arms
+                    .iter()
+                    .any(|a| expr_has_unmodelable_features_cvc5(&a.body))
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            items.iter().any(expr_has_unmodelable_features_cvc5)
+        }
+        Expr::Apply { args, .. } => args.iter().any(expr_has_unmodelable_features_cvc5),
+        Expr::Literal(_) | Expr::Ident(_) => false,
+    }
+}
+
+/// Collect human-readable reasons for why an expression is unmodelable.
+fn collect_unmodelable_reasons_cvc5(expr: &Expr) -> Vec<String> {
+    let mut reasons = Vec::new();
+    collect_unmodelable_reasons_cvc5_inner(expr, &mut reasons);
+    reasons.sort();
+    reasons.dedup();
+    reasons
+}
+
+fn collect_unmodelable_reasons_cvc5_inner(expr: &Expr, reasons: &mut Vec<String>) {
+    if let Expr::Raw(tokens) = expr {
+        for t in tokens {
+            if t == "@" {
+                reasons.push("typestate annotation".into());
+            }
+        }
+    }
+    match expr {
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_unmodelable_reasons_cvc5_inner(lhs, reasons);
+            collect_unmodelable_reasons_cvc5_inner(rhs, reasons);
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Paren(inner)
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. }
+        | Expr::Field(inner, _) => {
+            collect_unmodelable_reasons_cvc5_inner(inner, reasons);
+        }
+        Expr::Call { func, args } => {
+            collect_unmodelable_reasons_cvc5_inner(func, reasons);
+            for a in args {
+                collect_unmodelable_reasons_cvc5_inner(a, reasons);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_unmodelable_reasons_cvc5_inner(receiver, reasons);
+            for a in args {
+                collect_unmodelable_reasons_cvc5_inner(a, reasons);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            collect_unmodelable_reasons_cvc5_inner(e, reasons);
+            collect_unmodelable_reasons_cvc5_inner(index, reasons);
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_unmodelable_reasons_cvc5_inner(domain, reasons);
+            collect_unmodelable_reasons_cvc5_inner(body, reasons);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_unmodelable_reasons_cvc5_inner(cond, reasons);
+            collect_unmodelable_reasons_cvc5_inner(then_branch, reasons);
+            if let Some(eb) = else_branch {
+                collect_unmodelable_reasons_cvc5_inner(eb, reasons);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_unmodelable_reasons_cvc5_inner(value, reasons);
+            collect_unmodelable_reasons_cvc5_inner(body, reasons);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_unmodelable_reasons_cvc5_inner(scrutinee, reasons);
+            for a in arms {
+                collect_unmodelable_reasons_cvc5_inner(&a.body, reasons);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_unmodelable_reasons_cvc5_inner(item, reasons);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for a in args {
+                collect_unmodelable_reasons_cvc5_inner(a, reasons);
+            }
+        }
+        _ => {}
+    }
+}
+
+// =========================================================================
 // Native CVC5 API backend (feature = "cvc5-verify")
 // =========================================================================
 
@@ -122,6 +282,20 @@ fn check_clause_cvc5_native(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
 ) -> VerificationResult {
+    // Pre-check for unmodelable features (matching Z3 backend behavior).
+    // Skip clauses with typestate annotations etc. before attempting encoding,
+    // preventing false counterexamples from partial encoding.
+    if expr_has_unmodelable_features_cvc5(ensures_body) {
+        let reasons = collect_unmodelable_reasons_cvc5(ensures_body);
+        return VerificationResult::Unknown {
+            clause_desc: desc.to_string(),
+            reason: format!(
+                "clause uses features not yet encoded in SMT ({})",
+                reasons.join(", ")
+            ),
+        };
+    }
+
     let tm = cvc5::TermManager::new();
     let mut solver = cvc5::Solver::new(&tm);
     solver.set_logic("ALL");
@@ -975,6 +1149,18 @@ pub(crate) fn check_validity_cvc5(
     assumptions: &[&Expr],
     body: &Expr,
 ) -> VerificationResult {
+    // Pre-check for unmodelable features (matching Z3 backend behavior)
+    if expr_has_unmodelable_features_cvc5(body) {
+        let reasons = collect_unmodelable_reasons_cvc5(body);
+        return VerificationResult::Unknown {
+            clause_desc: desc.to_string(),
+            reason: format!(
+                "clause uses features not yet encoded in SMT ({})",
+                reasons.join(", ")
+            ),
+        };
+    }
+
     let tm = cvc5::TermManager::new();
     let mut solver = cvc5::Solver::new(&tm);
     solver.set_logic("ALL");
@@ -1071,6 +1257,18 @@ pub(crate) fn check_satisfiability_cvc5(
     assumptions: &[&Expr],
     body: &Expr,
 ) -> VerificationResult {
+    // Pre-check for unmodelable features (matching Z3 backend behavior)
+    if expr_has_unmodelable_features_cvc5(body) {
+        let reasons = collect_unmodelable_reasons_cvc5(body);
+        return VerificationResult::Unknown {
+            clause_desc: desc.to_string(),
+            reason: format!(
+                "clause uses features not yet encoded in SMT ({})",
+                reasons.join(", ")
+            ),
+        };
+    }
+
     let tm = cvc5::TermManager::new();
     let mut solver = cvc5::Solver::new(&tm);
     solver.set_logic("ALL");
@@ -1443,6 +1641,18 @@ fn check_clause_cvc5_shellout(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
 ) -> VerificationResult {
+    // Pre-check for unmodelable features (matching Z3 backend behavior)
+    if expr_has_unmodelable_features_cvc5(ensures_body) {
+        let reasons = collect_unmodelable_reasons_cvc5(ensures_body);
+        return VerificationResult::Unknown {
+            clause_desc: desc.to_string(),
+            reason: format!(
+                "clause uses features not yet encoded in SMT ({})",
+                reasons.join(", ")
+            ),
+        };
+    }
+
     let mut vars = HashSet::new();
     for req in requires {
         collect_vars(req, &mut vars);
@@ -2703,6 +2913,107 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
+    // Unmodelable feature pre-check tests (cfg-independent)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_unmodelable_typestate_detected() {
+        // Raw tokens with @ should be detected as unmodelable
+        let expr = Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]);
+        assert!(
+            expr_has_unmodelable_features_cvc5(&expr),
+            "typestate @ annotation should be unmodelable"
+        );
+    }
+
+    #[test]
+    fn test_unmodelable_reason_typestate() {
+        let expr = Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]);
+        let reasons = collect_unmodelable_reasons_cvc5(&expr);
+        assert_eq!(reasons, vec!["typestate annotation"]);
+    }
+
+    #[test]
+    fn test_modelable_normal_expr() {
+        // Normal binary expression should be modelable
+        let expr = Expr::BinOp {
+            op: BinOp::Gt,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        };
+        assert!(
+            !expr_has_unmodelable_features_cvc5(&expr),
+            "normal binop should be modelable"
+        );
+    }
+
+    #[test]
+    fn test_unmodelable_nested_in_binop() {
+        // Typestate nested in a binary expression
+        let expr = Expr::BinOp {
+            op: BinOp::And,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Raw(vec![
+                "conn".into(),
+                "@".into(),
+                "Connected".into(),
+            ])),
+        };
+        assert!(
+            expr_has_unmodelable_features_cvc5(&expr),
+            "typestate nested in binop should be unmodelable"
+        );
+    }
+
+    #[test]
+    fn test_unmodelable_in_if_branch() {
+        let expr = Expr::If {
+            cond: Box::new(Expr::Ident("flag".into())),
+            then_branch: Box::new(Expr::Raw(vec!["s".into(), "@".into(), "Locked".into()])),
+            else_branch: None,
+        };
+        assert!(
+            expr_has_unmodelable_features_cvc5(&expr),
+            "typestate in if-then should be unmodelable"
+        );
+    }
+
+    #[test]
+    fn test_unmodelable_in_forall_body() {
+        let expr = Expr::Forall {
+            var: "i".into(),
+            domain: Box::new(Expr::Ident("xs".into())),
+            body: Box::new(Expr::Raw(vec!["item".into(), "@".into(), "Valid".into()])),
+        };
+        assert!(
+            expr_has_unmodelable_features_cvc5(&expr),
+            "typestate in forall body should be unmodelable"
+        );
+    }
+
+    #[test]
+    fn test_cvc5_shellout_unmodelable_typestate_skipped() {
+        // Clause with @ annotation should produce Unknown via verify_contract_cvc5
+        // (which dispatches to either native or shellout depending on feature flag)
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            effect_variables: vec![],
+        }];
+        let results = verify_contract_cvc5("TestTypestate", &clauses);
+        assert_eq!(results.len(), 1);
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Unknown { reason, .. }
+                    if reason.contains("not yet encoded")
+            ),
+            "expected Unknown with 'not yet encoded', got {:?}",
+            results[0]
+        );
+    }
+
+    // -------------------------------------------------------------------
     // CVC5 native API tests (only when cvc5-verify feature enabled)
     // -------------------------------------------------------------------
 
@@ -2871,6 +3182,92 @@ mod tests {
                 matches!(&results[0], VerificationResult::Verified { .. }),
                 "Nat n >= 0 should verify: {:?}",
                 results[0]
+            );
+        }
+
+        #[test]
+        fn native_cvc5_unmodelable_typestate_skipped() {
+            // A clause with @ annotations should produce Unknown, not a false counterexample
+            let clauses = vec![Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+                effect_variables: vec![],
+            }];
+            let results = verify_contract_cvc5("TestTypestate", &clauses);
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(
+                    &results[0],
+                    VerificationResult::Unknown { reason, .. }
+                        if reason.contains("not yet encoded")
+                ),
+                "expected Unknown with 'not yet encoded', got {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn native_cvc5_unmodelable_nested_typestate() {
+            // Typestate annotation nested inside a binary expression
+            let clauses = vec![Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    op: BinOp::And,
+                    lhs: Box::new(Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    }),
+                    rhs: Box::new(Expr::Raw(vec![
+                        "conn".into(),
+                        "@".into(),
+                        "Connected".into(),
+                    ])),
+                },
+                effect_variables: vec![],
+            }];
+            let results = verify_contract_cvc5("NestedTypestate", &clauses);
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(
+                    &results[0],
+                    VerificationResult::Unknown { reason, .. }
+                        if reason.contains("not yet encoded")
+                ),
+                "nested typestate should produce Unknown, got {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn native_cvc5_check_validity_unmodelable() {
+            // check_validity_cvc5 should also detect unmodelable features
+            let body = Expr::Raw(vec!["state".into(), "@".into(), "Running".into()]);
+            let result = check_validity_cvc5("validity_typestate", &[], &body);
+            assert!(
+                matches!(
+                    &result,
+                    VerificationResult::Unknown { reason, .. }
+                        if reason.contains("not yet encoded")
+                ),
+                "check_validity_cvc5 should detect unmodelable: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn native_cvc5_check_satisfiability_unmodelable() {
+            // check_satisfiability_cvc5 should also detect unmodelable features
+            let body = Expr::Raw(vec!["lock".into(), "@".into(), "Acquired".into()]);
+            let result = check_satisfiability_cvc5("sat_typestate", &[], &body);
+            assert!(
+                matches!(
+                    &result,
+                    VerificationResult::Unknown { reason, .. }
+                        if reason.contains("not yet encoded")
+                ),
+                "check_satisfiability_cvc5 should detect unmodelable: {:?}",
+                result
             );
         }
     }
