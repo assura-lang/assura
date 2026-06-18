@@ -492,8 +492,14 @@ fn check_clause_cvc5_shellout(
             }
         }
     }
-    if return_ty.len() == 1 && return_ty[0] == "Nat" && vars.contains("__result") {
-        script.push_str("(assert (>= __result 0))\n");
+    if return_ty.len() == 1 && return_ty[0] == "Nat" {
+        if vars.contains("__result") {
+            script.push_str("(assert (>= __result 0))\n");
+        }
+        // Also constrain "result" (different encoding paths use different names)
+        if vars.contains("result") {
+            script.push_str("(assert (>= result 0))\n");
+        }
     }
 
     for req in requires {
@@ -912,7 +918,7 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Literal, UnaryOp};
+    use assura_parser::ast::{BinOp, Literal, Pattern, UnaryOp};
 
     // -------------------------------------------------------------------
     // expr_to_smtlib tests
@@ -1121,6 +1127,48 @@ mod tests {
     #[test]
     fn test_smtlib_raw_returns_none() {
         let expr = Expr::Raw(vec!["foo".into()]);
+        assert_eq!(expr_to_smtlib(&expr), None);
+    }
+
+    #[test]
+    fn test_smtlib_let_expr() {
+        let expr = Expr::Let {
+            name: "x".into(),
+            value: Box::new(Expr::Literal(Literal::Int("5".into()))),
+            body: Box::new(Expr::BinOp {
+                op: BinOp::Add,
+                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+            }),
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(let ((x 5)) (+ x 1))".into()));
+    }
+
+    #[test]
+    fn test_smtlib_match_with_literal_and_wildcard() {
+        use assura_parser::ast::MatchArm;
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("n".into())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Int("0".into())),
+                    body: Expr::Literal(Literal::Int("1".into())),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: Expr::Ident("n".into()),
+                },
+            ],
+        };
+        assert_eq!(expr_to_smtlib(&expr), Some("(ite (= n 0) 1 n)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_match_empty_arms() {
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("n".into())),
+            arms: vec![],
+        };
         assert_eq!(expr_to_smtlib(&expr), None);
     }
 
@@ -1405,6 +1453,34 @@ mod tests {
     #[cfg(feature = "cvc5-verify")]
     mod native_tests {
         use super::*;
+        use assura_parser::ast::Param;
+
+        #[test]
+        fn cvc5_with_types_fn_params_nat() {
+            // FnDef-style: params passed explicitly (not via input() clause).
+            // This is the path used for `fn check_table_bounds(root_bits: Nat, ...)`
+            let params = vec![Param {
+                name: "n".into(),
+                ty: vec!["Nat".into()],
+                parsed_type: None,
+            }];
+            let clauses = vec![Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("n".into())),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            }];
+            let results = verify_contract_cvc5_with_types("FnNatParam", &clauses, &params, &[]);
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "Nat param n >= 0 should verify via explicit params: {:?}",
+                results[0]
+            );
+        }
 
         #[test]
         fn native_cvc5_trivial_ensures_verified() {
