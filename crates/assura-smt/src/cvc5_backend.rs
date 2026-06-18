@@ -372,6 +372,9 @@ fn flatten_field_chain_cvc5(expr: &Expr) -> String {
 #[cfg(feature = "cvc5-verify")]
 use std::collections::HashMap;
 
+#[cfg(feature = "cvc5-verify")]
+use assura_types::checkers::expr_references_var;
+
 /// Encoder state for the native CVC5 backend.
 /// Tracks background axioms, string constants, and fresh variable counter.
 #[cfg(feature = "cvc5-verify")]
@@ -984,21 +987,33 @@ fn encode_expr_cvc5<'a>(
             let v_name = sanitize_smtlib_name(var);
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
-            local_vars.insert(v_name, bound_var.clone());
+            local_vars.insert(v_name.clone(), bound_var.clone());
             let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
             let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, true, vars, state);
-            let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var]);
-            Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, guarded]))
+            let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var.clone()]);
+            let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
+            if trigger_terms.is_empty() {
+                Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, guarded]))
+            } else {
+                let inst_pattern = tm.mk_term(cvc5::Kind::InstPattern, &trigger_terms);
+                Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, guarded, inst_pattern]))
+            }
         }
         Expr::Exists { var, domain, body } => {
             let v_name = sanitize_smtlib_name(var);
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
-            local_vars.insert(v_name, bound_var.clone());
+            local_vars.insert(v_name.clone(), bound_var.clone());
             let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
             let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, false, vars, state);
-            let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var]);
-            Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, guarded]))
+            let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var.clone()]);
+            let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
+            if trigger_terms.is_empty() {
+                Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, guarded]))
+            } else {
+                let inst_pattern = tm.mk_term(cvc5::Kind::InstPattern, &trigger_terms);
+                Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, guarded, inst_pattern]))
+            }
         }
         Expr::Call { func, args } => {
             if let Expr::Ident(name) = func.as_ref() {
@@ -1947,6 +1962,114 @@ fn guard_quantifier_body_cvc5<'a>(
         } else {
             tm.mk_term(cvc5::Kind::And, &[membership, body])
         }
+    }
+}
+
+/// Infer CVC5 trigger patterns from function calls in a quantifier body
+/// that reference the bound variable. Returns `InstPattern` terms for
+/// e-matching hints that help the solver instantiate quantifiers efficiently.
+///
+/// First checks the `TriggerManager` for user-provided triggers, then falls
+/// back to scanning the body for `Expr::Call` expressions referencing the
+/// bound variable.
+#[cfg(feature = "cvc5-verify")]
+fn infer_quantifier_patterns_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    body: &Expr,
+    bound_var_name: &str,
+    bound_cvc5: &cvc5::Term<'a>,
+) -> Vec<cvc5::Term<'a>> {
+    let mut patterns = Vec::new();
+
+    // Check TriggerManager for user-provided or inferred triggers
+    let trigger_mgr = crate::advanced::TriggerManager::new();
+    let body_str = format!("{body:?}");
+    if let Some(trigger) = trigger_mgr.infer_trigger(&body_str) {
+        for term in &trigger.terms {
+            if let Some(fname) = term.split('(').next() {
+                let fname = fname.trim();
+                let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                let func = tm.mk_const(fun_sort, fname);
+                let app = tm.mk_term(cvc5::Kind::ApplyUf, &[func, bound_cvc5.clone()]);
+                patterns.push(app);
+            }
+        }
+    }
+
+    // Direct scan: look for Call expressions that reference the bound variable
+    if patterns.is_empty() {
+        collect_trigger_calls_cvc5(tm, body, bound_var_name, bound_cvc5, &mut patterns);
+    }
+
+    patterns
+}
+
+/// Recursively scan an expression for function calls containing the
+/// bound variable, and create CVC5 trigger terms from them.
+#[cfg(feature = "cvc5-verify")]
+fn collect_trigger_calls_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    expr: &Expr,
+    bound_var: &str,
+    bound_cvc5: &cvc5::Term<'a>,
+    patterns: &mut Vec<cvc5::Term<'a>>,
+) {
+    match expr {
+        Expr::Call { func, args } => {
+            let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
+            if refs_bound {
+                if let Expr::Ident(fname) = func.as_ref() {
+                    let arity = args.len();
+                    let param_sorts: Vec<cvc5::Sort> =
+                        (0..arity).map(|_| tm.integer_sort()).collect();
+                    let param_sort_refs: Vec<&cvc5::Sort> = param_sorts.iter().collect();
+                    let fun_sort = tm.mk_fun_sort(&param_sort_refs, tm.integer_sort());
+                    let func_decl = tm.mk_const(fun_sort, fname.as_str());
+                    let mut uf_args = vec![func_decl];
+                    for a in args {
+                        if expr_references_var(a, bound_var) {
+                            uf_args.push(bound_cvc5.clone());
+                        } else {
+                            uf_args.push(tm.mk_const(tm.integer_sort(), "__trigger_other"));
+                        }
+                    }
+                    let app = tm.mk_term(cvc5::Kind::ApplyUf, &uf_args);
+                    patterns.push(app);
+                }
+            }
+            for a in args {
+                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_trigger_calls_cvc5(tm, receiver, bound_var, bound_cvc5, patterns);
+            for a in args {
+                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_trigger_calls_cvc5(tm, lhs, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, rhs, bound_var, bound_cvc5, patterns);
+        }
+        Expr::UnaryOp { expr: e, .. } | Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
+            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_trigger_calls_cvc5(tm, cond, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, then_branch, bound_var, bound_cvc5, patterns);
+            if let Some(eb) = else_branch {
+                collect_trigger_calls_cvc5(tm, eb, bound_var, bound_cvc5, patterns);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, index, bound_var, bound_cvc5, patterns);
+        }
+        _ => {}
     }
 }
 
@@ -6064,6 +6187,156 @@ mod tests {
                 matches!(&results[0], VerificationResult::Verified { .. }),
                 "float arithmetic should verify: {:?}",
                 results[0]
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // CVC5 quantifier trigger pattern inference tests (#247)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn test_cvc5_quantifier_trigger_inference() {
+            let tm = cvc5::TermManager::new();
+            let bound = tm.mk_var(tm.integer_sort(), "i");
+
+            let body = Expr::BinOp {
+                op: BinOp::Gt,
+                lhs: Box::new(Expr::Call {
+                    func: Box::new(Expr::Ident("f".into())),
+                    args: vec![Expr::Ident("i".into())],
+                }),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            };
+
+            let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+            assert!(
+                !patterns.is_empty(),
+                "should infer trigger from f(i) call in quantifier body"
+            );
+        }
+
+        #[test]
+        fn test_cvc5_trigger_no_call_no_pattern() {
+            let tm = cvc5::TermManager::new();
+            let bound = tm.mk_var(tm.integer_sort(), "i");
+
+            let body = Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: Box::new(Expr::Ident("i".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            };
+
+            let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+            assert!(
+                patterns.is_empty(),
+                "no function calls means no triggers: got {:?}",
+                patterns.len()
+            );
+        }
+
+        #[test]
+        fn test_cvc5_trigger_nested_call() {
+            let tm = cvc5::TermManager::new();
+            let bound = tm.mk_var(tm.integer_sort(), "i");
+
+            let body = Expr::BinOp {
+                op: BinOp::Gt,
+                lhs: Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    lhs: Box::new(Expr::Call {
+                        func: Box::new(Expr::Ident("g".into())),
+                        args: vec![Expr::Ident("i".into())],
+                    }),
+                    rhs: Box::new(Expr::Call {
+                        func: Box::new(Expr::Ident("h".into())),
+                        args: vec![Expr::Ident("i".into())],
+                    }),
+                }),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            };
+
+            let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+            assert!(
+                patterns.len() >= 2,
+                "should infer triggers from both g(i) and h(i): got {}",
+                patterns.len()
+            );
+        }
+
+        #[test]
+        fn test_cvc5_trigger_manager_integration() {
+            let tm = cvc5::TermManager::new();
+            let bound = tm.mk_var(tm.integer_sort(), "i");
+
+            let body = Expr::Call {
+                func: Box::new(Expr::Ident("lookup".into())),
+                args: vec![Expr::Ident("i".into())],
+            };
+
+            let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+            assert!(
+                !patterns.is_empty(),
+                "should infer trigger from lookup(i) via direct scan fallback"
+            );
+        }
+
+        #[test]
+        fn test_cvc5_quantified_with_trigger_verifies() {
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::Forall {
+                        var: "i".into(),
+                        domain: Box::new(Expr::BinOp {
+                            op: BinOp::Range,
+                            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                            rhs: Box::new(Expr::Ident("x".into())),
+                        }),
+                        body: Box::new(Expr::BinOp {
+                            op: BinOp::Gte,
+                            lhs: Box::new(Expr::Ident("i".into())),
+                            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                        }),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("QuantTriggerTest", &clauses);
+            assert!(!results.is_empty(), "should produce verification results");
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "quantified contract should verify: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn test_cvc5_multi_arg_trigger() {
+            let tm = cvc5::TermManager::new();
+            let bound = tm.mk_var(tm.integer_sort(), "i");
+
+            let body = Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: Box::new(Expr::Call {
+                    func: Box::new(Expr::Ident("lookup".into())),
+                    args: vec![Expr::Ident("table".into()), Expr::Ident("i".into())],
+                }),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            };
+
+            let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+            assert!(
+                !patterns.is_empty(),
+                "should infer trigger from multi-arg lookup(table, i)"
             );
         }
     }
