@@ -9,6 +9,15 @@ use std::collections::HashSet;
 #[cfg(feature = "cvc5-verify")]
 use std::collections::HashMap;
 
+/// Encoder state for the native CVC5 backend.
+/// Tracks background axioms, string constants, and fresh variable counter.
+#[cfg(feature = "cvc5-verify")]
+struct Cvc5EncoderState<'a> {
+    axioms: Vec<cvc5::Term<'a>>,
+    string_constants: Vec<String>,
+    fresh_counter: usize,
+}
+
 /// Verify a single contract's clauses using CVC5.
 ///
 /// When the `cvc5-verify` feature is enabled, uses the native Rust cvc5
@@ -147,15 +156,21 @@ fn check_clause_cvc5_native(
         }
     }
 
+    let mut enc_state = Cvc5EncoderState {
+        axioms: Vec::new(),
+        string_constants: Vec::new(),
+        fresh_counter: 0,
+    };
+
     // Assert requires as assumptions
     for req in requires {
-        if let Some(term) = encode_expr_cvc5(&tm, req, &var_map) {
+        if let Some(term) = encode_expr_cvc5(&tm, req, &var_map, &mut enc_state) {
             solver.assert_formula(term);
         }
     }
 
     // Encode the clause body
-    let body_term = match encode_expr_cvc5(&tm, ensures_body, &var_map) {
+    let body_term = match encode_expr_cvc5(&tm, ensures_body, &var_map, &mut enc_state) {
         Some(t) => t,
         None => {
             return VerificationResult::Unknown {
@@ -164,6 +179,11 @@ fn check_clause_cvc5_native(
             };
         }
     };
+
+    // Assert background axioms collected during encoding
+    for axiom in &enc_state.axioms {
+        solver.assert_formula(axiom.clone());
+    }
 
     // Assert clause according to verification semantics
     match kind {
@@ -235,11 +255,15 @@ fn check_clause_cvc5_native(
 }
 
 /// Encode an AST expression as a CVC5 Term using the native API.
+///
+/// `state` collects background axioms and tracks string constants
+/// so that `check_clause_cvc5_native` can assert them before check_sat.
 #[cfg(feature = "cvc5-verify")]
 fn encode_expr_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     expr: &Expr,
     vars: &HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
     match expr {
         Expr::Literal(Literal::Int(n)) => {
@@ -247,21 +271,52 @@ fn encode_expr_cvc5<'a>(
             Some(tm.mk_integer(val))
         }
         Expr::Literal(Literal::Bool(b)) => Some(tm.mk_boolean(*b)),
-        Expr::Literal(Literal::Float(_)) | Expr::Literal(Literal::Str(_)) => None,
+        Expr::Literal(Literal::Float(f_str)) => {
+            // Rational approximation matching Z3 backend
+            let f: f64 = f_str.parse().unwrap_or(0.0);
+            let denom = 1_000_000i64;
+            let numer = (f * denom as f64) as i64;
+            // CVC5 has no direct Real sort in our integer-only encoding;
+            // approximate as numer (scaled integer) for now
+            Some(tm.mk_integer(numer))
+        }
+        Expr::Literal(Literal::Str(s)) => {
+            // Named integer constant matching Z3 pattern
+            let const_name = format!("__str_{s}");
+            let str_val = tm.mk_const(tm.integer_sort(), &const_name);
+            // Pairwise distinctness from previously seen string constants
+            if !state.string_constants.contains(&const_name) {
+                for prev in &state.string_constants {
+                    let prev_val = tm.mk_const(tm.integer_sort(), prev);
+                    let eq = tm.mk_term(cvc5::Kind::Equal, &[str_val.clone(), prev_val]);
+                    let neq = tm.mk_term(cvc5::Kind::Not, &[eq]);
+                    state.axioms.push(neq);
+                }
+                state.string_constants.push(const_name);
+            }
+            // String length axiom: len("hello") == 5
+            let len_name = "__field_len";
+            let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let len_func = tm.mk_const(len_sort, len_name);
+            let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
+            let str_len = tm.mk_integer(s.len() as i64);
+            let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len_result, str_len]);
+            state.axioms.push(len_eq);
+            Some(str_val)
+        }
         Expr::Ident(name) => {
             let key = if name == "result" {
                 "__result".to_string()
             } else {
                 sanitize_smtlib_name(name)
             };
-            vars.get(&key).cloned().or_else(|| {
-                // Create a fresh constant for unknown variables
-                Some(tm.mk_const(tm.integer_sort(), &key))
-            })
+            vars.get(&key)
+                .cloned()
+                .or_else(|| Some(tm.mk_const(tm.integer_sort(), &key)))
         }
         Expr::BinOp { op, lhs, rhs } => {
-            let l = encode_expr_cvc5(tm, lhs, vars)?;
-            let r = encode_expr_cvc5(tm, rhs, vars)?;
+            let l = encode_expr_cvc5(tm, lhs, vars, state)?;
+            let r = encode_expr_cvc5(tm, rhs, vars, state)?;
             let kind = match op {
                 BinOp::Add => cvc5::Kind::Add,
                 BinOp::Sub => cvc5::Kind::Sub,
@@ -285,7 +340,7 @@ fn encode_expr_cvc5<'a>(
             Some(tm.mk_term(kind, &[l, r]))
         }
         Expr::UnaryOp { op, expr: inner } => {
-            let e = encode_expr_cvc5(tm, inner, vars)?;
+            let e = encode_expr_cvc5(tm, inner, vars, state)?;
             match op {
                 UnaryOp::Not => Some(tm.mk_term(cvc5::Kind::Not, &[e])),
                 UnaryOp::Neg => Some(tm.mk_term(cvc5::Kind::Neg, &[e])),
@@ -296,10 +351,10 @@ fn encode_expr_cvc5<'a>(
             then_branch,
             else_branch,
         } => {
-            let c = encode_expr_cvc5(tm, cond, vars)?;
-            let t = encode_expr_cvc5(tm, then_branch, vars)?;
+            let c = encode_expr_cvc5(tm, cond, vars, state)?;
+            let t = encode_expr_cvc5(tm, then_branch, vars, state)?;
             if let Some(e) = else_branch {
-                let e = encode_expr_cvc5(tm, e, vars)?;
+                let e = encode_expr_cvc5(tm, e, vars, state)?;
                 Some(tm.mk_term(cvc5::Kind::Ite, &[c, t, e]))
             } else {
                 Some(tm.mk_term(cvc5::Kind::Implies, &[c, t]))
@@ -310,7 +365,7 @@ fn encode_expr_cvc5<'a>(
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
             local_vars.insert(v_name, bound_var.clone());
-            let b = encode_expr_cvc5(tm, body, &local_vars)?;
+            let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
             let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var]);
             Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, b]))
         }
@@ -319,49 +374,140 @@ fn encode_expr_cvc5<'a>(
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
             local_vars.insert(v_name, bound_var.clone());
-            let b = encode_expr_cvc5(tm, body, &local_vars)?;
+            let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
             let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var]);
             Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, b]))
         }
         Expr::Call { func, args } => {
-            // Uninterpreted function: create a function sort and apply
             if let Expr::Ident(name) = func.as_ref() {
                 let f_name = sanitize_smtlib_name(name);
                 if args.is_empty() {
-                    // Treat as a constant
-                    vars.get(&f_name)
+                    return vars
+                        .get(&f_name)
                         .cloned()
-                        .or_else(|| Some(tm.mk_const(tm.integer_sort(), &f_name)))
-                } else {
-                    // Encode arguments; return None if any fail
-                    let encoded_args: Option<Vec<cvc5::Term>> =
-                        args.iter().map(|a| encode_expr_cvc5(tm, a, vars)).collect();
-                    let encoded_args = encoded_args?;
-                    // Create uninterpreted function sort: (Int, ..., Int) -> Int
+                        .or_else(|| Some(tm.mk_const(tm.integer_sort(), &f_name)));
+                }
+                let encoded_args: Option<Vec<cvc5::Term>> = args
+                    .iter()
+                    .map(|a| encode_expr_cvc5(tm, a, vars, state))
+                    .collect();
+                let encoded_args = encoded_args?;
+                // Built-in functions with known semantics
+                match f_name.as_str() {
+                    // abs(x) => ite(x >= 0, x, -x)
+                    "abs" if encoded_args.len() == 1 => {
+                        let x = &encoded_args[0];
+                        let zero = tm.mk_integer(0);
+                        let neg = tm.mk_term(cvc5::Kind::Neg, &[x.clone()]);
+                        let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
+                        return Some(tm.mk_term(cvc5::Kind::Ite, &[cond, x.clone(), neg]));
+                    }
+                    // min(a, b) => ite(a <= b, a, b)
+                    "min" if encoded_args.len() == 2 => {
+                        let (a, b) = (&encoded_args[0], &encoded_args[1]);
+                        let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
+                        return Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]));
+                    }
+                    // max(a, b) => ite(a >= b, a, b)
+                    "max" if encoded_args.len() == 2 => {
+                        let (a, b) = (&encoded_args[0], &encoded_args[1]);
+                        let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
+                        return Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]));
+                    }
+                    _ => {}
+                }
+                // Boolean methods return Bool sort
+                if matches!(
+                    f_name.as_str(),
+                    "contains"
+                        | "is_empty"
+                        | "is_some"
+                        | "is_none"
+                        | "is_ok"
+                        | "is_err"
+                        | "any"
+                        | "all"
+                        | "contains_key"
+                        | "starts_with"
+                        | "ends_with"
+                        | "is_subset"
+                        | "is_superset"
+                ) {
+                    let domain: Vec<cvc5::Sort> =
+                        (0..encoded_args.len()).map(|_| tm.integer_sort()).collect();
+                    let func_sort = tm.mk_fun_sort(&domain, tm.boolean_sort());
+                    let func_const = tm.mk_const(func_sort, &f_name);
+                    let mut apply_args = vec![func_const];
+                    apply_args.extend(encoded_args);
+                    return Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args));
+                }
+                // Size methods get non-negativity axiom
+                if matches!(
+                    f_name.as_str(),
+                    "len" | "length" | "size" | "count" | "capacity"
+                ) {
                     let domain: Vec<cvc5::Sort> =
                         (0..encoded_args.len()).map(|_| tm.integer_sort()).collect();
                     let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
                     let func_const = tm.mk_const(func_sort, &f_name);
                     let mut apply_args = vec![func_const];
                     apply_args.extend(encoded_args);
-                    Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args))
+                    let result = tm.mk_term(cvc5::Kind::ApplyUf, &apply_args);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
+                    return Some(result);
                 }
+                // Default: uninterpreted function (Int, ..., Int) -> Int
+                let domain: Vec<cvc5::Sort> =
+                    (0..encoded_args.len()).map(|_| tm.integer_sort()).collect();
+                let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
+                let func_const = tm.mk_const(func_sort, &f_name);
+                let mut apply_args = vec![func_const];
+                apply_args.extend(encoded_args);
+                Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args))
             } else {
                 None
             }
         }
-        Expr::Old(inner) | Expr::Paren(inner) | Expr::Ghost(inner) => {
-            encode_expr_cvc5(tm, inner, vars)
-        }
-        Expr::Cast { expr: inner, .. } => encode_expr_cvc5(tm, inner, vars),
+        // old(expr): add __old suffix for Ident, recurse for Field/MethodCall
+        Expr::Old(inner) => match inner.as_ref() {
+            Expr::Ident(name) => {
+                let old_name = format!("{name}__old");
+                let key = sanitize_smtlib_name(&old_name);
+                Some(
+                    vars.get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key)),
+                )
+            }
+            Expr::Field(obj, field) => {
+                let old_obj = encode_expr_cvc5(tm, &Expr::Old(obj.clone()), vars, state)?;
+                let func_name = format!("__field_{field}");
+                let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                let func_const = tm.mk_const(func_sort, &func_name);
+                Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, old_obj]))
+            }
+            Expr::MethodCall {
+                receiver, method, ..
+            } => {
+                let old_recv = encode_expr_cvc5(tm, &Expr::Old(receiver.clone()), vars, state)?;
+                let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                let func_const = tm.mk_const(func_sort, method);
+                Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, old_recv]))
+            }
+            _ => encode_expr_cvc5(tm, inner, vars, state),
+        },
+        Expr::Paren(inner) | Expr::Ghost(inner) => encode_expr_cvc5(tm, inner, vars, state),
+        Expr::Cast { expr: inner, .. } => encode_expr_cvc5(tm, inner, vars, state),
         Expr::Let {
             name, value, body, ..
         } => {
-            // Encode let as substitution: evaluate value, bind in scope
-            let v = encode_expr_cvc5(tm, value, vars)?;
+            let v = encode_expr_cvc5(tm, value, vars, state)?;
             let mut local_vars = vars.clone();
             local_vars.insert(sanitize_smtlib_name(name), v);
-            encode_expr_cvc5(tm, body, &local_vars)
+            encode_expr_cvc5(tm, body, &local_vars, state)
         }
         Expr::Match {
             scrutinee, arms, ..
@@ -369,10 +515,10 @@ fn encode_expr_cvc5<'a>(
             if arms.is_empty() {
                 return None;
             }
-            let s = encode_expr_cvc5(tm, scrutinee, vars)?;
+            let s = encode_expr_cvc5(tm, scrutinee, vars, state)?;
             let mut result: Option<cvc5::Term> = None;
             for arm in arms.iter().rev() {
-                let body = encode_expr_cvc5(tm, &arm.body, vars)?;
+                let body = encode_expr_cvc5(tm, &arm.body, vars, state)?;
                 match &arm.pattern {
                     Pattern::Wildcard | Pattern::Ident(_) => {
                         result = Some(body);
@@ -395,16 +541,302 @@ fn encode_expr_cvc5<'a>(
             }
             result
         }
-        // Types we cannot encode
-        Expr::Field(_, _)
-        | Expr::Index { .. }
-        | Expr::Block(_)
-        | Expr::Raw(_)
-        | Expr::Tuple(_)
-        | Expr::MethodCall { .. }
-        | Expr::List(_)
-        | Expr::Apply { .. } => None,
+        // Field access: UF __field_name(receiver)
+        Expr::Field(obj, field) => {
+            let obj_val = encode_expr_cvc5(tm, obj, vars, state)?;
+            let func_name = format!("__field_{field}");
+            // Boolean fields return Bool sort
+            if matches!(
+                field.as_str(),
+                "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
+            ) {
+                let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.boolean_sort());
+                let func_const = tm.mk_const(func_sort, &func_name);
+                return Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]));
+            }
+            // Size fields get non-negativity axiom
+            if matches!(
+                field.as_str(),
+                "len" | "length" | "size" | "capacity" | "count"
+            ) {
+                let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                let func_const = tm.mk_const(func_sort, &func_name);
+                let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
+                let zero = tm.mk_integer(0);
+                state
+                    .axioms
+                    .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
+                return Some(result);
+            }
+            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let func_const = tm.mk_const(func_sort, &func_name);
+            Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]))
+        }
+        // Index: UF __index(collection, index) with bounds axioms
+        Expr::Index { expr: coll, index } => {
+            let coll_val = encode_expr_cvc5(tm, coll, vars, state)?;
+            let idx_val = encode_expr_cvc5(tm, index, vars, state)?;
+            let zero = tm.mk_integer(0);
+            // 0 <= index
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[idx_val.clone(), zero.clone()]));
+            // len(collection) via UF
+            let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let len_func = tm.mk_const(len_sort, "__len");
+            let len_val = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, coll_val.clone()]);
+            // len >= 0
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[len_val.clone(), zero]));
+            // index < len
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Lt, &[idx_val.clone(), len_val]));
+            // UF __index(coll, idx)
+            let idx_sort =
+                tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
+            let idx_func = tm.mk_const(idx_sort, "__index");
+            Some(tm.mk_term(cvc5::Kind::ApplyUf, &[idx_func, coll_val, idx_val]))
+        }
+        // Block: encode all expressions, return last
+        Expr::Block(body) => {
+            if body.is_empty() {
+                return Some(tm.mk_boolean(true));
+            }
+            let mut result = None;
+            for e in body {
+                result = encode_expr_cvc5(tm, e, vars, state);
+            }
+            result
+        }
+        // Raw tokens: basic parsing (single token bools/ints/idents)
+        Expr::Raw(tokens) => {
+            if tokens.is_empty() {
+                return Some(tm.mk_boolean(true));
+            }
+            if tokens.len() == 1 {
+                let t = &tokens[0];
+                if t == "true" {
+                    return Some(tm.mk_boolean(true));
+                }
+                if t == "false" {
+                    return Some(tm.mk_boolean(false));
+                }
+                if let Ok(n) = t.parse::<i64>() {
+                    return Some(tm.mk_integer(n));
+                }
+                let key = sanitize_smtlib_name(t);
+                return vars
+                    .get(&key)
+                    .cloned()
+                    .or_else(|| Some(tm.mk_const(tm.integer_sort(), &key)));
+            }
+            // Multi-token: try to parse as infix expression
+            encode_raw_tokens_cvc5(tm, tokens, vars, state)
+        }
+        // Tuple: fresh Int with element-access axioms
+        Expr::Tuple(elems) => {
+            let tuple_name = format!("__tuple_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            let tuple_val = tm.mk_const(tm.integer_sort(), &tuple_name);
+            let arity = elems.len();
+            for (i, elem) in elems.iter().enumerate() {
+                if let Some(elem_val) = encode_expr_cvc5(tm, elem, vars, state) {
+                    let accessor_name = format!("__tuple_{arity}_{i}");
+                    let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let acc_func = tm.mk_const(acc_sort, &accessor_name);
+                    let accessed = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_func, tuple_val.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val]));
+                }
+            }
+            Some(tuple_val)
+        }
+        // MethodCall: prepend receiver, call UF
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let recv_val = encode_expr_cvc5(tm, receiver, vars, state)?;
+            let mut all_encoded = vec![recv_val];
+            for arg in args {
+                all_encoded.push(encode_expr_cvc5(tm, arg, vars, state)?);
+            }
+            let f_name = sanitize_smtlib_name(method);
+            // Boolean methods return Bool sort
+            if matches!(
+                f_name.as_str(),
+                "contains"
+                    | "is_empty"
+                    | "is_some"
+                    | "is_none"
+                    | "is_ok"
+                    | "is_err"
+                    | "any"
+                    | "all"
+                    | "contains_key"
+                    | "starts_with"
+                    | "ends_with"
+                    | "is_subset"
+                    | "is_superset"
+            ) {
+                let domain: Vec<cvc5::Sort> =
+                    (0..all_encoded.len()).map(|_| tm.integer_sort()).collect();
+                let func_sort = tm.mk_fun_sort(&domain, tm.boolean_sort());
+                let func_const = tm.mk_const(func_sort, &f_name);
+                let mut apply_args = vec![func_const];
+                apply_args.extend(all_encoded);
+                return Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args));
+            }
+            // Size methods get non-negativity axiom
+            if matches!(
+                f_name.as_str(),
+                "len" | "length" | "size" | "count" | "capacity"
+            ) {
+                let domain: Vec<cvc5::Sort> =
+                    (0..all_encoded.len()).map(|_| tm.integer_sort()).collect();
+                let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
+                let func_const = tm.mk_const(func_sort, &f_name);
+                let mut apply_args = vec![func_const];
+                apply_args.extend(all_encoded);
+                let result = tm.mk_term(cvc5::Kind::ApplyUf, &apply_args);
+                let zero = tm.mk_integer(0);
+                state
+                    .axioms
+                    .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
+                return Some(result);
+            }
+            // Default: uninterpreted function
+            let domain: Vec<cvc5::Sort> =
+                (0..all_encoded.len()).map(|_| tm.integer_sort()).collect();
+            let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
+            let func_const = tm.mk_const(func_sort, &f_name);
+            let mut apply_args = vec![func_const];
+            apply_args.extend(all_encoded);
+            Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args))
+        }
+        // List: fresh Int with element-access and length axioms
+        Expr::List(elems) => {
+            let list_name = format!("__list_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            let list_val = tm.mk_const(tm.integer_sort(), &list_name);
+            let get_sort =
+                tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
+            let get_func = tm.mk_const(get_sort, "__list_get");
+            for (i, elem) in elems.iter().enumerate() {
+                if let Some(elem_val) = encode_expr_cvc5(tm, elem, vars, state) {
+                    let idx = tm.mk_integer(i as i64);
+                    let accessed = tm.mk_term(
+                        cvc5::Kind::ApplyUf,
+                        &[get_func.clone(), list_val.clone(), idx],
+                    );
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val]));
+                }
+            }
+            // Assert length
+            let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let len_func = tm.mk_const(len_sort, "__field_len");
+            let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, list_val.clone()]);
+            let expected_len = tm.mk_integer(elems.len() as i64);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[len_result, expected_len]));
+            Some(list_val)
+        }
+        // Apply: encode args for side effects, return named bool
+        Expr::Apply { lemma_name, args } => {
+            for arg in args {
+                let _ = encode_expr_cvc5(tm, arg, vars, state);
+            }
+            let apply_name = format!("__apply_{lemma_name}");
+            Some(tm.mk_const(tm.boolean_sort(), &apply_name))
+        }
     }
+}
+
+/// Encode multi-token raw expressions for the native CVC5 backend.
+/// Handles simple infix patterns: a op b.
+#[cfg(feature = "cvc5-verify")]
+fn encode_raw_tokens_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    tokens: &[String],
+    vars: &HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> Option<cvc5::Term<'a>> {
+    // Three-token pattern: lhs op rhs
+    if tokens.len() == 3 {
+        let lhs = encode_raw_atom_cvc5(tm, &tokens[0], vars);
+        let rhs = encode_raw_atom_cvc5(tm, &tokens[2], vars);
+        if let (Some(l), Some(r)) = (lhs, rhs) {
+            let kind = match tokens[1].as_str() {
+                "+" => Some(cvc5::Kind::Add),
+                "-" => Some(cvc5::Kind::Sub),
+                "*" => Some(cvc5::Kind::Mult),
+                "/" | "div" => Some(cvc5::Kind::IntsDivision),
+                "%" | "mod" => Some(cvc5::Kind::IntsModulus),
+                "=" | "==" => Some(cvc5::Kind::Equal),
+                "!=" => {
+                    let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]);
+                    return Some(tm.mk_term(cvc5::Kind::Not, &[eq]));
+                }
+                "<" => Some(cvc5::Kind::Lt),
+                "<=" => Some(cvc5::Kind::Leq),
+                ">" => Some(cvc5::Kind::Gt),
+                ">=" => Some(cvc5::Kind::Geq),
+                "&&" | "and" => Some(cvc5::Kind::And),
+                "||" | "or" => Some(cvc5::Kind::Or),
+                "=>" | "implies" => Some(cvc5::Kind::Implies),
+                _ => None,
+            };
+            if let Some(k) = kind {
+                return Some(tm.mk_term(k, &[l, r]));
+            }
+        }
+    }
+    // Fallback: try to parse as a single atom (for tokens that
+    // were split but are really one value)
+    if tokens.len() == 2 && tokens[0] == "-" {
+        if let Some(atom) = encode_raw_atom_cvc5(tm, &tokens[1], vars) {
+            return Some(tm.mk_term(cvc5::Kind::Neg, &[atom]));
+        }
+    }
+    if tokens.len() == 2 && (tokens[0] == "!" || tokens[0] == "not") {
+        if let Some(atom) = encode_raw_atom_cvc5(tm, &tokens[1], vars) {
+            return Some(tm.mk_term(cvc5::Kind::Not, &[atom]));
+        }
+    }
+    // Cannot parse: encode args for side effects, return None
+    let _ = state;
+    None
+}
+
+/// Parse a single raw token as a CVC5 atom.
+#[cfg(feature = "cvc5-verify")]
+fn encode_raw_atom_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    token: &str,
+    vars: &HashMap<String, cvc5::Term<'a>>,
+) -> Option<cvc5::Term<'a>> {
+    if token == "true" {
+        return Some(tm.mk_boolean(true));
+    }
+    if token == "false" {
+        return Some(tm.mk_boolean(false));
+    }
+    if let Ok(n) = token.parse::<i64>() {
+        return Some(tm.mk_integer(n));
+    }
+    let key = sanitize_smtlib_name(token);
+    Some(
+        vars.get(&key)
+            .cloned()
+            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key)),
+    )
 }
 
 // -------------------------------------------------------------------------
@@ -636,7 +1068,10 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         }
         Expr::Literal(Literal::Bool(b)) => Some(b.to_string()),
         Expr::Literal(Literal::Float(f)) => Some(f.clone()),
-        Expr::Literal(Literal::Str(_)) => None, // strings not easily supported
+        Expr::Literal(Literal::Str(s)) => {
+            // Named integer constant matching Z3 pattern
+            Some(format!("__str_{}", sanitize_smtlib_name(s)))
+        }
         Expr::Ident(name) => {
             // "result" in ensures context maps to __result
             if name == "result" {
@@ -710,20 +1145,56 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             Some(format!("(exists (({v} Int)) {b})"))
         }
         Expr::Call { func, args } => {
-            // func is Box<Expr>, extract name from Ident
             let f = match func.as_ref() {
                 Expr::Ident(name) => sanitize_smtlib_name(name),
                 _ => return None,
             };
             if args.is_empty() {
-                Some(f)
-            } else {
-                let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
-                let arg_strs = arg_strs?;
-                Some(format!("({f} {})", arg_strs.join(" ")))
+                return Some(f);
+            }
+            let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
+            let arg_strs = arg_strs?;
+            // Built-in functions with known semantics
+            match f.as_str() {
+                "abs" if arg_strs.len() == 1 => {
+                    let x = &arg_strs[0];
+                    Some(format!("(ite (>= {x} 0) {x} (- {x}))"))
+                }
+                "min" if arg_strs.len() == 2 => {
+                    let (a, b) = (&arg_strs[0], &arg_strs[1]);
+                    Some(format!("(ite (<= {a} {b}) {a} {b})"))
+                }
+                "max" if arg_strs.len() == 2 => {
+                    let (a, b) = (&arg_strs[0], &arg_strs[1]);
+                    Some(format!("(ite (>= {a} {b}) {a} {b})"))
+                }
+                _ => Some(format!("({f} {})", arg_strs.join(" "))),
             }
         }
-        Expr::Old(inner) => expr_to_smtlib(inner), // old(x) = x for SMT
+        Expr::Old(inner) => match inner.as_ref() {
+            // old(x) -> x__old
+            Expr::Ident(name) => {
+                let old_name = if name == "result" {
+                    "__result__old".to_string()
+                } else {
+                    format!("{}__old", sanitize_smtlib_name(name))
+                };
+                Some(old_name)
+            }
+            // old(obj.field) -> (__field_name (old obj))
+            Expr::Field(obj, field) => {
+                let old_obj = expr_to_smtlib(&Expr::Old(obj.clone()))?;
+                Some(format!("(__field_{field} {old_obj})"))
+            }
+            // old(obj.method(args)) -> (method (old obj))
+            Expr::MethodCall {
+                receiver, method, ..
+            } => {
+                let old_recv = expr_to_smtlib(&Expr::Old(receiver.clone()))?;
+                Some(format!("({method} {old_recv})"))
+            }
+            _ => expr_to_smtlib(inner),
+        },
         Expr::Paren(inner) => expr_to_smtlib(inner),
         Expr::Cast { expr: inner, .. } => expr_to_smtlib(inner),
         Expr::Ghost(inner) => expr_to_smtlib(inner),
@@ -766,14 +1237,96 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             }
             result
         }
-        Expr::Field(_, _) => None, // SMT-LIB cannot represent field access
-        Expr::Index { .. } => None, // SMT-LIB cannot represent indexing
-        Expr::Block(_) => None,    // SMT-LIB cannot represent block expressions
-        Expr::Raw(_) => None,      // SMT-LIB cannot represent raw token sequences
-        Expr::Tuple(_) => None,    // SMT-LIB cannot represent tuple expressions
-        Expr::MethodCall { .. } => None, // SMT-LIB cannot represent method calls
-        Expr::List(_) => None,     // SMT-LIB cannot represent list literals
-        Expr::Apply { .. } => None, // SMT-LIB cannot represent apply expressions
+        // Field access: UF __field_name(obj)
+        Expr::Field(obj, field) => {
+            let o = expr_to_smtlib(obj)?;
+            Some(format!("(__field_{field} {o})"))
+        }
+        // Index: UF __index(coll, idx)
+        Expr::Index { expr: coll, index } => {
+            let c = expr_to_smtlib(coll)?;
+            let i = expr_to_smtlib(index)?;
+            Some(format!("(__index {c} {i})"))
+        }
+        // Block: encode all, return last
+        Expr::Block(body) => {
+            if body.is_empty() {
+                return Some("true".to_string());
+            }
+            // SMT-LIB has no block; encode the last expression
+            expr_to_smtlib(body.last()?)
+        }
+        // Raw tokens: basic SMT-LIB encoding
+        Expr::Raw(tokens) => {
+            if tokens.is_empty() {
+                return Some("true".to_string());
+            }
+            if tokens.len() == 1 {
+                let t = &tokens[0];
+                if t == "true" || t == "false" {
+                    return Some(t.clone());
+                }
+                if t.parse::<i64>().is_ok() {
+                    return Some(t.clone());
+                }
+                return Some(sanitize_smtlib_name(t));
+            }
+            // Three-token infix: lhs op rhs
+            if tokens.len() == 3 {
+                let l = &tokens[0];
+                let r = &tokens[2];
+                let smt_op = match tokens[1].as_str() {
+                    "+" => "+",
+                    "-" => "-",
+                    "*" => "*",
+                    "/" | "div" => "div",
+                    "%" | "mod" => "mod",
+                    "=" | "==" => "=",
+                    "!=" => {
+                        return Some(format!(
+                            "(not (= {} {}))",
+                            sanitize_smtlib_name(l),
+                            sanitize_smtlib_name(r)
+                        ));
+                    }
+                    "<" => "<",
+                    "<=" => "<=",
+                    ">" => ">",
+                    ">=" => ">=",
+                    "&&" | "and" => "and",
+                    "||" | "or" => "or",
+                    "=>" | "implies" => "=>",
+                    _ => return None,
+                };
+                return Some(format!(
+                    "({smt_op} {} {})",
+                    sanitize_smtlib_name(l),
+                    sanitize_smtlib_name(r)
+                ));
+            }
+            None
+        }
+        // Tuple: use a fresh variable name
+        Expr::Tuple(_) => Some("__tuple_fresh".to_string()),
+        // MethodCall: prepend receiver as first arg to UF
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let r = expr_to_smtlib(receiver)?;
+            if args.is_empty() {
+                Some(format!("({method} {r})"))
+            } else {
+                let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
+                let arg_strs = arg_strs?;
+                Some(format!("({method} {r} {})", arg_strs.join(" ")))
+            }
+        }
+        // List: use a fresh variable name
+        Expr::List(_) => Some("__list_fresh".to_string()),
+        // Apply: return named bool
+        Expr::Apply { lemma_name, .. } => Some(format!("__apply_{lemma_name}")),
     }
 }
 
@@ -949,9 +1502,9 @@ mod tests {
     }
 
     #[test]
-    fn test_smtlib_string_returns_none() {
+    fn test_smtlib_string_encodes_as_named_const() {
         let expr = Expr::Literal(Literal::Str("hello".into()));
-        assert_eq!(expr_to_smtlib(&expr), None);
+        assert_eq!(expr_to_smtlib(&expr), Some("__str_hello".into()));
     }
 
     #[test]
@@ -1113,9 +1666,9 @@ mod tests {
     }
 
     #[test]
-    fn test_smtlib_old_transparent() {
+    fn test_smtlib_old_adds_suffix() {
         let expr = Expr::Old(Box::new(Expr::Ident("x".into())));
-        assert_eq!(expr_to_smtlib(&expr), Some("x".into()));
+        assert_eq!(expr_to_smtlib(&expr), Some("x__old".into()));
     }
 
     #[test]
@@ -1125,9 +1678,15 @@ mod tests {
     }
 
     #[test]
-    fn test_smtlib_raw_returns_none() {
+    fn test_smtlib_raw_single_token() {
         let expr = Expr::Raw(vec!["foo".into()]);
-        assert_eq!(expr_to_smtlib(&expr), None);
+        assert_eq!(expr_to_smtlib(&expr), Some("foo".into()));
+        // Integer token
+        let expr_int = Expr::Raw(vec!["42".into()]);
+        assert_eq!(expr_to_smtlib(&expr_int), Some("42".into()));
+        // Bool token
+        let expr_bool = Expr::Raw(vec!["true".into()]);
+        assert_eq!(expr_to_smtlib(&expr_bool), Some("true".into()));
     }
 
     #[test]

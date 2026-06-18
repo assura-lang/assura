@@ -1015,7 +1015,7 @@ mod cvc5_tests {
     #[test]
     fn cvc5_expr_to_smtlib_old() {
         let e = Expr::Old(Box::new(Expr::Ident("x".into())));
-        assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("x".to_string()));
+        assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("x__old".to_string()));
     }
 
     #[test]
