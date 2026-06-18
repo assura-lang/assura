@@ -172,6 +172,7 @@ Keep dependencies up to date. Run `cargo outdated -R` periodically.
 | logos | 0.16 | stable, upgrades OK |
 | z3 | 0.20 | No lifetime params on AST types; no &ctx first arg; pre-generated FFI bindings |
 | sha2 | 0.11 | Uses digest 0.11, high-level API unchanged |
+| cvc5 | 0.4 | Native FFI bindings; `Sort` not Copy; `Kind` names differ from SMT-LIB2; requires `features = ["static"]` for static linking |
 
 **rowan 0.16 patterns**: `GreenNodeBuilder`, `SyntaxNode::new_root()`,
 `Language` trait on `AssuraLanguage`, `SyntaxKind` enum with `From<u16>`.
@@ -182,6 +183,19 @@ Pratt parsing for expressions.
 No `&ctx` first arg on constructors (`Int::from_i64(n)`, not
 `Int::from_i64(&ctx, n)`). Use `.eq()` not `._eq()`. Context
 created via `z3::with_z3_config(&cfg, || { ... })`.
+
+**cvc5 0.4 patterns**: `TermManager` is the factory for all sorts,
+terms, and operators. `Solver::new(&tm)` borrows the TermManager
+(lifetime tied). `Sort` is NOT Copy; call `tm.integer_sort()` each
+time instead of reusing a variable across loop iterations. `Kind`
+enum names differ from SMT-LIB2: `IntsDivision` (not `IntsDiv`),
+`IntsModulus` (not `IntsMod`). Function sorts: `tm.mk_fun_sort()`
+(not `mk_function_sort`). Quantifier bound variables:
+`tm.mk_var(sort, name)` for bound vars, `tm.mk_const(sort, name)`
+for free constants. Wrap bound vars in `VariableList` kind for
+`Forall`/`Exists`: `tm.mk_term(Kind::VariableList, &[bound_var])`.
+Static linking: `features = ["static"]` on the cvc5 dep in
+Cargo.toml links cadical, picpoly, gmp statically.
 
 ### Specification Compliance
 
@@ -574,6 +588,42 @@ For CI (T029), add this to the GitHub Actions workflow:
 - name: Install Z3
   run: sudo apt-get install -y libz3-dev
 ```
+
+## CVC5 Installation
+
+The `assura-smt` crate optionally depends on the `cvc5` Rust crate
+(behind the `cvc5-verify` feature flag). The cvc5 crate uses native
+FFI bindings and needs the CVC5 static libraries.
+
+```bash
+# macOS (prerequisites for building cvc5)
+brew install cmake gmp
+
+# The cvc5 crate with features = ["static"] downloads and builds
+# CVC5 from source automatically. No manual install needed for
+# the Rust crate build.
+
+# For CI or manual prebuilt setup:
+# macOS ARM64
+curl -sL "https://github.com/cvc5/cvc5/releases/latest/download/cvc5-macOS-arm64-static.zip" \
+  -o /tmp/cvc5.zip
+unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
+export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/lib
+export CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/include
+
+# Linux x86_64
+curl -sL "https://github.com/cvc5/cvc5/releases/latest/download/cvc5-Linux-x86_64-static.zip" \
+  -o /tmp/cvc5.zip
+unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
+export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/lib
+export CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/include
+```
+
+The `cvc5-verify` feature mirrors the `z3-verify` feature gate. All
+CVC5 native code is behind `#[cfg(feature = "cvc5-verify")]` with a
+shell-out fallback behind `#[cfg(not(feature = "cvc5-verify"))]`.
+Build with CVC5: `cargo build --features cvc5-verify`. Test:
+`cargo test -p assura-smt --features cvc5-verify`.
 
 ## Spec Navigation Guide
 
