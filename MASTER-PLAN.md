@@ -1732,6 +1732,151 @@ compiles" failure on taint-tracking.assura.
     - Implemented true parallel portfolio solving (Z3+CVC5 via std::thread::scope)
 - 3,514 tests passing, zero clippy warnings
 - Only open issue: #45 (CodeQL, blocked on repo going public)
-- **Next session**: Multi-perspective audit, OSS launch readiness
+- **Next session**: Phase 10 (SMT full parity), then multi-perspective improvement loop
+
+---
+
+## Phase 10: Full SMT Parity (CVC5 matches Z3, both go deeper)
+
+> Deep audit found 15 CVC5 parity gaps and 7 Z3 advancement opportunities.
+> 22 GitHub issues (#246-#267) created with exact acceptance tests.
+>
+> **Goal**: CVC5 standalone (`--solver cvc5`) produces identical verification
+> results to Z3 for every demo contract. Then push both solvers further with
+> native theories (String, ADT, Bitvector), incremental solving, unsat cores,
+> and havoc+assume encoding.
+>
+> **Session survival**: Each round is self-contained. After each round,
+> commit, push, and update this section. A new session picks up at the
+> next unchecked round.
+>
+> **Execution strategy**: Independent issues within a round run in
+> parallel subagents with worktree isolation. Merge after each round.
+
+### Round 1: Critical correctness (#246, #249, #258) -- depends on: none
+
+- [ ] **10.01** #246 CVC5: Quantifier domain guards (forall/exists range bounding)
+  - Add `guard_quantifier_body_cvc5()` mirroring Z3 encoder.rs:132-176
+  - Range domains: `lo <= x && x < hi` guard
+  - Collection domains: UF `__domain_contains(domain, x)`
+- [ ] **10.02** #249 CVC5: Encode BinOp::Range, In, NotIn, Concat
+  - Remove `return None` at cvc5_backend.rs:348
+  - Range: bound constraints, In/NotIn: UF Bool, Concat: length axiom
+- [ ] **10.03** #258 CVC5: Unmodelable feature pre-check
+  - Call `expr_has_unmodelable_features()` before CVC5 encoding
+  - Return `Unknown` with reasons instead of false counterexamples
+- **Acceptance**:
+  ```bash
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_domain_guard
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_binop_range
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_binop_in
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_unmodelable
+  cargo test --workspace && cargo clippy --workspace -- -D warnings
+  ```
+
+### Round 2: High-impact parity (#251, #254, #256, #257) -- depends on: Round 1
+
+- [ ] **10.04** #251 CVC5: String method axioms (8 methods + array set/put/get)
+  - substring, concat, indexOf, charAt, replace, split, trim
+  - Array set/put read-over-write axioms
+- [ ] **10.05** #254 CVC5: Lemma injection for apply expressions
+  - Collect lemma defs, inject postconditions as assumptions
+- [ ] **10.06** #256 CVC5: Frame axioms from modifies clauses
+  - Build FrameChecker, assert `var == old_var` for unmodified state
+- [ ] **10.07** #257 CVC5: Bind feature_max constants + refinement narrowing
+  - Make collect_feature_max_constants shared, bind in CVC5 solver
+- **Acceptance**:
+  ```bash
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_string
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_lemma
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_frame
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_feature_max
+  cargo test --workspace && cargo clippy --workspace -- -D warnings
+  ```
+
+### Round 3: Medium parity (#247, #248, #250, #252) -- depends on: Round 1
+
+- [ ] **10.08** #247 CVC5: Quantifier trigger pattern inference
+  - Integrate TriggerManager, use CVC5 Kind::InstPattern
+- [ ] **10.09** #248 CVC5: Real sort for floats
+  - tm.mk_real(numer, denom), Real-aware negation, ITE sort promotion
+- [ ] **10.10** #250 CVC5: Deep field chain flattening
+  - Port has_deep_field_chain/flatten_field_chain to CVC5
+- [ ] **10.11** #252 CVC5: Constructor/Tuple match patterns
+  - Hash-based tag matching, field binding, tuple accessors
+- **Acceptance**:
+  ```bash
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_trigger
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_real
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_field_chain
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_match_constructor
+  cargo test --workspace && cargo clippy --workspace -- -D warnings
+  ```
+
+### Round 4: Performance + polish (#253, #255, #259, #260) -- depends on: Round 1
+
+- [ ] **10.12** #253 CVC5: Verification cache (SessionCache)
+  - Thread SessionCache through CVC5 path, same key format as Z3
+- [ ] **10.13** #255 CVC5: Full precedence-climbing Raw token parser
+  - Port Z3 encode_raw_tokens with parens, old(), forall/exists, precedence
+- [ ] **10.14** #259 CVC5: ITE 6-way sort promotion
+  - Int/Real promotion, Bool-to-Int coercion in if/then/else
+- [ ] **10.15** #260 CVC5: Structured counterexample model filtering
+  - Filter __internal vars, sort alphabetically
+- **Acceptance**:
+  ```bash
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_cache
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_raw_precedence
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_ite_promotion
+  cargo test -p assura-smt --features cvc5-verify -- cvc5_counter_model
+  cargo test --workspace && cargo clippy --workspace -- -D warnings
+  ```
+
+### Round 5: Z3 advancement (#262, #261, #264) -- depends on: Round 4
+
+- [ ] **10.16** #262 Z3: Typestate state-machine encoding for @ annotations
+  - Remove unmodelable skip, encode states as enumerated/integer sort
+- [ ] **10.17** #261 Z3/CVC5: Native String theory (QF_S / QF_SLIA)
+  - Replace integer encoding with Z3 ast::String, CVC5 string_sort()
+- [ ] **10.18** #264 Z3/CVC5: Incremental solving (push/pop)
+  - Assert requires once, push/pop for each clause
+- **Acceptance**:
+  ```bash
+  cargo test -p assura-smt -- typestate
+  cargo test -p assura-smt -- string_theory
+  cargo test -p assura-smt -- incremental
+  cargo test --workspace && cargo clippy --workspace -- -D warnings
+  ```
+
+### Round 6: Advanced theories (#263, #265, #266, #267) -- depends on: Round 5
+
+- [ ] **10.19** #263 Z3/CVC5: Algebraic data type (ADT) encoding
+  - Z3 Datatypes, CVC5 DatatypeDecl for enums/structs
+- [ ] **10.20** #265 Z3/CVC5: Bitvector theory for fixed-width integers
+  - BitVec sort for u8/u16/u32/u64, overflow detection
+- [ ] **10.21** #266 Z3/CVC5: Unsatisfiable core extraction
+  - produce-unsat-cores, extract and report in VerificationResult
+- [ ] **10.22** #267 Z3/CVC5: Havoc+assume encoding for result-field
+  - Implementation IR constrains result, structural axioms for pure contracts
+- **Acceptance**:
+  ```bash
+  cargo test -p assura-smt -- adt_
+  cargo test -p assura-smt -- bitvector
+  cargo test -p assura-smt -- unsat_core
+  cargo test -p assura-smt -- havoc_assume
+  cargo test --workspace && cargo clippy --workspace -- -D warnings
+  ```
+
+### Continuation prompts (for next session)
+
+If session dies mid-round, use this prompt:
+
+```
+Continue implementing Phase 10 of MASTER-PLAN.md (Full SMT Parity).
+Read MASTER-PLAN.md to find the next unchecked round (10.xx tasks).
+Run `cargo test --workspace` first to verify clean state.
+Pick up where the last session left off.
+After finishing all rounds, run /multi-perspective-improve in a loop.
+```
 
 ---
