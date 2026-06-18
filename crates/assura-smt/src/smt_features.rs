@@ -6,10 +6,15 @@
 //! primarily type-level or operational report Unknown with "not yet encoded
 //! in SMT" (treated as warnings, not errors, by the CLI).
 
+#[cfg(feature = "z3-verify")]
+use crate::ClauseKind;
+#[cfg(feature = "z3-verify")]
 use crate::z3_backend::encoder::{Encoder, expr_has_unmodelable_features};
+#[cfg(feature = "z3-verify")]
 use crate::z3_backend::solver::check_validity;
-use crate::{ClauseKind, Expr, VerificationResult};
+use crate::{Expr, VerificationResult};
 use assura_parser::ast::Clause;
+#[cfg(feature = "z3-verify")]
 use z3::Solver;
 
 // -----------------------------------------------------------------------
@@ -39,11 +44,26 @@ macro_rules! smt_stub {
 // check-sat. UNSAT = the feature property holds under the preconditions.
 // -----------------------------------------------------------------------
 
+/// Fallback when Z3 is not available: return Unknown for all feature bodies.
+#[cfg(not(feature = "z3-verify"))]
+fn verify_feature_body(
+    parent_name: &str,
+    feature_label: &str,
+    _body: &Expr,
+    _sibling_clauses: &[Clause],
+) -> VerificationResult {
+    VerificationResult::Unknown {
+        clause_desc: format!("{parent_name}: {feature_label}"),
+        reason: format!("{feature_label} not yet encoded in SMT"),
+    }
+}
+
 /// Verify a feature clause body via Z3 validity check.
 ///
 /// Collects sibling `requires` clauses as assumptions, then checks that
 /// the feature clause body holds (same encoding as ensures). Falls back
 /// to `Unknown` if the body uses unmodelable features.
+#[cfg(feature = "z3-verify")]
 fn verify_feature_body(
     parent_name: &str,
     feature_label: &str,
@@ -597,6 +617,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "z3-verify")]
     #[test]
     fn feature_body_verified_with_tautology() {
         // A feature clause with body `true` should be verified (not Unknown).
@@ -611,6 +632,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "z3-verify")]
     #[test]
     fn feature_body_counterexample_with_contradiction() {
         // A feature clause with body `false` should produce a counterexample.
@@ -625,6 +647,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "z3-verify")]
     #[test]
     fn feature_body_with_requires_assumption() {
         // Body: x > 0, Requires: x >= 1
