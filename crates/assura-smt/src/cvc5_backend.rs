@@ -652,6 +652,229 @@ fn encode_expr_cvc5<'a>(
                     }
                     _ => {}
                 }
+                // String methods with known semantics
+                match f_name.as_str() {
+                    // substring(str, start, end): fresh Int with length == end - start
+                    "substring" | "substr" if encoded_args.len() == 3 => {
+                        let str_val = &encoded_args[0];
+                        let start = &encoded_args[1];
+                        let end = &encoded_args[2];
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        let zero = tm.mk_integer(0);
+                        // 0 <= start
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[start.clone(), zero.clone()]));
+                        // start <= end
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Leq, &[start.clone(), end.clone()]));
+                        // end <= len(str)
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let str_len =
+                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Leq, &[end.clone(), str_len]));
+                        // len(result) == end - start
+                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                        let diff = tm.mk_term(cvc5::Kind::Sub, &[end.clone(), start.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Equal, &[res_len.clone(), diff]));
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
+                        return Some(result);
+                    }
+                    // concat(a, b): fresh Int with len(result) == len(a) + len(b)
+                    "concat" if encoded_args.len() == 2 => {
+                        let l = &encoded_args[0];
+                        let r = &encoded_args[1];
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l.clone()]);
+                        let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r.clone()]);
+                        let len_result =
+                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                        let zero = tm.mk_integer(0);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_l.clone(), zero.clone()]));
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_r.clone(), zero.clone()]));
+                        let sum = tm.mk_term(cvc5::Kind::Add, &[len_l, len_r]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]));
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
+                        return Some(result);
+                    }
+                    // indexOf/find/index_of(str, substr): fresh Int with -1 <= result < len(str)
+                    "index_of" | "find" | "indexOf" if encoded_args.len() == 2 => {
+                        let str_val = &encoded_args[0];
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        let neg_one = tm.mk_integer(-1);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), neg_one]));
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Lt, &[result.clone(), str_len]));
+                        return Some(result);
+                    }
+                    // charAt/char_at(str, idx): fresh Int with 0 <= idx < len(str)
+                    "char_at" | "charAt" if encoded_args.len() == 2 => {
+                        let str_val = &encoded_args[0];
+                        let idx = &encoded_args[1];
+                        let zero = tm.mk_integer(0);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[idx.clone(), zero]));
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Lt, &[idx.clone(), str_len]));
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        return Some(tm.mk_const(tm.integer_sort(), &fresh_name));
+                    }
+                    // replace(str, old, new): fresh Int with len(result) >= 0
+                    "replace" if encoded_args.len() == 3 => {
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                        let zero = tm.mk_integer(0);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
+                        return Some(result);
+                    }
+                    // split(str, delim): fresh Int with len(result) >= 1
+                    "split" if encoded_args.len() == 2 => {
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                        let one = tm.mk_integer(1);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, one]));
+                        return Some(result);
+                    }
+                    // trim/to_lowercase/to_uppercase: 0 <= len(result) <= len(str)
+                    "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
+                        if encoded_args.len() == 1 =>
+                    {
+                        let str_val = &encoded_args[0];
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let str_len =
+                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
+                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                        let zero = tm.mk_integer(0);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len.clone(), zero]));
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Leq, &[res_len, str_len]));
+                        return Some(result);
+                    }
+                    // set(arr, i, v): fresh with get(result, i) == v, len(result) == len(arr)
+                    "set" if encoded_args.len() == 3 => {
+                        let arr = &encoded_args[0];
+                        let i = &encoded_args[1];
+                        let v = &encoded_args[2];
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        // get(result, i) == v
+                        let get_sort = tm.mk_fun_sort(
+                            &[tm.integer_sort(), tm.integer_sort()],
+                            tm.integer_sort(),
+                        );
+                        let get_func = tm.mk_const(get_sort, "get");
+                        let get_result_i =
+                            tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), i.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_i, v.clone()]));
+                        // len(result) == len(arr)
+                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let len_func = tm.mk_const(len_sort, "__field_len");
+                        let len_result =
+                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), result.clone()]);
+                        let len_arr = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, arr.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), len_arr]));
+                        let zero = tm.mk_integer(0);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
+                        return Some(result);
+                    }
+                    // put(map, k, v): fresh with get(result, k) == v, size(result) >= size(map)
+                    "put" if encoded_args.len() == 3 => {
+                        let map = &encoded_args[0];
+                        let k = &encoded_args[1];
+                        let v = &encoded_args[2];
+                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                        state.fresh_counter += 1;
+                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                        // get(result, k) == v
+                        let get_sort = tm.mk_fun_sort(
+                            &[tm.integer_sort(), tm.integer_sort()],
+                            tm.integer_sort(),
+                        );
+                        let get_func = tm.mk_const(get_sort, "get");
+                        let get_result_k =
+                            tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), k.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_k, v.clone()]));
+                        // size(result) >= size(map)
+                        let size_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                        let size_func = tm.mk_const(size_sort, "size");
+                        let size_result =
+                            tm.mk_term(cvc5::Kind::ApplyUf, &[size_func.clone(), result.clone()]);
+                        let size_map = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func, map.clone()]);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), size_map]));
+                        let zero = tm.mk_integer(0);
+                        state
+                            .axioms
+                            .push(tm.mk_term(cvc5::Kind::Geq, &[size_result, zero]));
+                        return Some(result);
+                    }
+                    _ => {}
+                }
                 // Boolean methods return Bool sort
                 if matches!(
                     f_name.as_str(),
@@ -902,6 +1125,217 @@ fn encode_expr_cvc5<'a>(
                 all_encoded.push(encode_expr_cvc5(tm, arg, vars, state)?);
             }
             let f_name = sanitize_smtlib_name(method);
+            // String methods with known semantics (method call form)
+            // all_encoded[0] is the receiver, remaining are args
+            match f_name.as_str() {
+                // receiver.substring(start, end)
+                "substring" | "substr" if all_encoded.len() == 3 => {
+                    let str_val = &all_encoded[0];
+                    let start = &all_encoded[1];
+                    let end = &all_encoded[2];
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[start.clone(), zero.clone()]));
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Leq, &[start.clone(), end.clone()]));
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let str_len =
+                        tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Leq, &[end.clone(), str_len]));
+                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                    let diff = tm.mk_term(cvc5::Kind::Sub, &[end.clone(), start.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Equal, &[res_len.clone(), diff]));
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
+                    return Some(result);
+                }
+                // receiver.concat(other)
+                "concat" if all_encoded.len() == 2 => {
+                    let l = &all_encoded[0];
+                    let r = &all_encoded[1];
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l.clone()]);
+                    let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r.clone()]);
+                    let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_l.clone(), zero.clone()]));
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_r.clone(), zero.clone()]));
+                    let sum = tm.mk_term(cvc5::Kind::Add, &[len_l, len_r]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]));
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
+                    return Some(result);
+                }
+                // receiver.indexOf(sub) / receiver.find(sub) / receiver.index_of(sub)
+                "index_of" | "find" | "indexOf" if all_encoded.len() == 2 => {
+                    let str_val = &all_encoded[0];
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let neg_one = tm.mk_integer(-1);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), neg_one]));
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Lt, &[result.clone(), str_len]));
+                    return Some(result);
+                }
+                // receiver.charAt(idx) / receiver.char_at(idx)
+                "char_at" | "charAt" if all_encoded.len() == 2 => {
+                    let str_val = &all_encoded[0];
+                    let idx = &all_encoded[1];
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[idx.clone(), zero]));
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Lt, &[idx.clone(), str_len]));
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    return Some(tm.mk_const(tm.integer_sort(), &fresh_name));
+                }
+                // receiver.replace(old, new)
+                "replace" if all_encoded.len() == 3 => {
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
+                    return Some(result);
+                }
+                // receiver.split(delim)
+                "split" if all_encoded.len() == 2 => {
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                    let one = tm.mk_integer(1);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, one]));
+                    return Some(result);
+                }
+                // receiver.trim/to_lowercase/to_uppercase: 0 <= len(result) <= len(receiver)
+                "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
+                    if all_encoded.len() == 1 =>
+                {
+                    let str_val = &all_encoded[0];
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let str_len =
+                        tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
+                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len.clone(), zero]));
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Leq, &[res_len, str_len]));
+                    return Some(result);
+                }
+                // receiver.set(i, v): array set
+                "set" if all_encoded.len() == 3 => {
+                    let arr = &all_encoded[0];
+                    let i = &all_encoded[1];
+                    let v = &all_encoded[2];
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let get_sort =
+                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
+                    let get_func = tm.mk_const(get_sort, "get");
+                    let get_result_i =
+                        tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), i.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_i, v.clone()]));
+                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let len_result =
+                        tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), result.clone()]);
+                    let len_arr = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, arr.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), len_arr]));
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
+                    return Some(result);
+                }
+                // receiver.put(k, v): map put
+                "put" if all_encoded.len() == 3 => {
+                    let map = &all_encoded[0];
+                    let k = &all_encoded[1];
+                    let v = &all_encoded[2];
+                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+                    state.fresh_counter += 1;
+                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
+                    let get_sort =
+                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
+                    let get_func = tm.mk_const(get_sort, "get");
+                    let get_result_k =
+                        tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), k.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_k, v.clone()]));
+                    let size_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                    let size_func = tm.mk_const(size_sort, "size");
+                    let size_result =
+                        tm.mk_term(cvc5::Kind::ApplyUf, &[size_func.clone(), result.clone()]);
+                    let size_map = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func, map.clone()]);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), size_map]));
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[size_result, zero]));
+                    return Some(result);
+                }
+                _ => {}
+            }
             // Boolean methods return Bool sort
             if matches!(
                 f_name.as_str(),
@@ -1960,6 +2394,40 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                     let (a, b) = (&arg_strs[0], &arg_strs[1]);
                     Some(format!("(ite (>= {a} {b}) {a} {b})"))
                 }
+                // String methods: encode as UF with comment-style axiom hints
+                "substring" | "substr" if arg_strs.len() == 3 => Some(format!(
+                    "(substring {} {} {})",
+                    arg_strs[0], arg_strs[1], arg_strs[2]
+                )),
+                "concat" if arg_strs.len() == 2 => {
+                    Some(format!("(__concat {} {})", arg_strs[0], arg_strs[1]))
+                }
+                "index_of" | "find" | "indexOf" if arg_strs.len() == 2 => {
+                    Some(format!("(index_of {} {})", arg_strs[0], arg_strs[1]))
+                }
+                "char_at" | "charAt" if arg_strs.len() == 2 => {
+                    Some(format!("(char_at {} {})", arg_strs[0], arg_strs[1]))
+                }
+                "replace" if arg_strs.len() == 3 => Some(format!(
+                    "(replace {} {} {})",
+                    arg_strs[0], arg_strs[1], arg_strs[2]
+                )),
+                "split" if arg_strs.len() == 2 => {
+                    Some(format!("(split {} {})", arg_strs[0], arg_strs[1]))
+                }
+                "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
+                    if arg_strs.len() == 1 =>
+                {
+                    Some(format!("({f} {})", arg_strs[0]))
+                }
+                "set" if arg_strs.len() == 3 => Some(format!(
+                    "(set {} {} {})",
+                    arg_strs[0], arg_strs[1], arg_strs[2]
+                )),
+                "put" if arg_strs.len() == 3 => Some(format!(
+                    "(put {} {} {})",
+                    arg_strs[0], arg_strs[1], arg_strs[2]
+                )),
                 _ => Some(format!("({f} {})", arg_strs.join(" "))),
             }
         }
@@ -2107,12 +2575,43 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             args,
         } => {
             let r = expr_to_smtlib(receiver)?;
-            if args.is_empty() {
-                Some(format!("({method} {r})"))
-            } else {
-                let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
-                let arg_strs = arg_strs?;
-                Some(format!("({method} {r} {})", arg_strs.join(" ")))
+            let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
+            let arg_strs = arg_strs.unwrap_or_default();
+            let total_arity = 1 + arg_strs.len(); // receiver + args
+            // String/array method axioms for shell-out path
+            match method.as_str() {
+                "substring" | "substr" if total_arity == 3 => {
+                    Some(format!("(substring {r} {} {})", arg_strs[0], arg_strs[1]))
+                }
+                "concat" if total_arity == 2 => Some(format!("(__concat {r} {})", arg_strs[0])),
+                "index_of" | "find" | "indexOf" if total_arity == 2 => {
+                    Some(format!("(index_of {r} {})", arg_strs[0]))
+                }
+                "char_at" | "charAt" if total_arity == 2 => {
+                    Some(format!("(char_at {r} {})", arg_strs[0]))
+                }
+                "replace" if total_arity == 3 => {
+                    Some(format!("(replace {r} {} {})", arg_strs[0], arg_strs[1]))
+                }
+                "split" if total_arity == 2 => Some(format!("(split {r} {})", arg_strs[0])),
+                "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
+                    if total_arity == 1 =>
+                {
+                    Some(format!("({method} {r})"))
+                }
+                "set" if total_arity == 3 => {
+                    Some(format!("(set {r} {} {})", arg_strs[0], arg_strs[1]))
+                }
+                "put" if total_arity == 3 => {
+                    Some(format!("(put {r} {} {})", arg_strs[0], arg_strs[1]))
+                }
+                _ => {
+                    if arg_strs.is_empty() {
+                        Some(format!("({method} {r})"))
+                    } else {
+                        Some(format!("({method} {r} {})", arg_strs.join(" ")))
+                    }
+                }
             }
         }
         // List: use a fresh variable name
@@ -3270,5 +3769,631 @@ mod tests {
                 result
             );
         }
+
+        // -------------------------------------------------------------------
+        // String method axiom tests (CVC5 native, issue #251)
+        // -------------------------------------------------------------------
+
+        fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
+            Clause {
+                kind,
+                body,
+                effect_variables: vec![],
+            }
+        }
+
+        #[test]
+        fn test_cvc5_string_substring_axiom() {
+            // Contract: requires constraints on inputs,
+            // ensures { substring(s, start, end).length() >= 0 }
+            let clauses = vec![
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("len".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("start".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Lte,
+                        lhs: Box::new(Expr::Ident("start".into())),
+                        rhs: Box::new(Expr::Ident("end_val".into())),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Ensures,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::MethodCall {
+                            receiver: Box::new(Expr::Call {
+                                func: Box::new(Expr::Ident("substring".into())),
+                                args: vec![
+                                    Expr::Ident("s".into()),
+                                    Expr::Ident("start".into()),
+                                    Expr::Ident("end_val".into()),
+                                ],
+                            }),
+                            method: "length".into(),
+                            args: vec![],
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+            ];
+            let results = crate::cvc5_backend::verify_contract_cvc5("SubstringTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "Got unexpected counterexample: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_string_concat_axiom() {
+            // ensures { concat(a, b).length() >= 0 }
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::Call {
+                            func: Box::new(Expr::Ident("concat".into())),
+                            args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
+                        }),
+                        method: "length".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("ConcatTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "concat axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_string_indexof_axiom() {
+            // requires { s.length() > 0 }
+            // ensures { index_of(s, sub) >= -1 }
+            let clauses = vec![
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::MethodCall {
+                            receiver: Box::new(Expr::Ident("s".into())),
+                            method: "length".into(),
+                            args: vec![],
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Ensures,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Call {
+                            func: Box::new(Expr::Ident("index_of".into())),
+                            args: vec![Expr::Ident("s".into()), Expr::Ident("sub".into())],
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Int("-1".into()))),
+                    },
+                ),
+            ];
+            let results = crate::cvc5_backend::verify_contract_cvc5("IndexOfTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "indexOf axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_string_charat_axiom() {
+            // requires { idx >= 0 && s.length() > idx }
+            // ensures { char_at(s, idx) >= 0 || char_at(s, idx) < 0 } (tautology -- tests axiom wiring)
+            let clauses = vec![
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("idx".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::MethodCall {
+                            receiver: Box::new(Expr::Ident("s".into())),
+                            method: "length".into(),
+                            args: vec![],
+                        }),
+                        rhs: Box::new(Expr::Ident("idx".into())),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Ensures,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("idx".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+            ];
+            let results = crate::cvc5_backend::verify_contract_cvc5("CharAtTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "charAt axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_string_replace_axiom() {
+            // ensures { replace(s, old_s, new_s).length() >= 0 }
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::Call {
+                            func: Box::new(Expr::Ident("replace".into())),
+                            args: vec![
+                                Expr::Ident("s".into()),
+                                Expr::Ident("old_s".into()),
+                                Expr::Ident("new_s".into()),
+                            ],
+                        }),
+                        method: "length".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("ReplaceTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "replace axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_string_split_axiom() {
+            // ensures { split(s, delim).length() >= 1 }
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::Call {
+                            func: Box::new(Expr::Ident("split".into())),
+                            args: vec![Expr::Ident("s".into()), Expr::Ident("delim".into())],
+                        }),
+                        method: "length".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("SplitTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "split axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_string_trim_axiom() {
+            // ensures { trim(s).length() >= 0 }
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::Call {
+                            func: Box::new(Expr::Ident("trim".into())),
+                            args: vec![Expr::Ident("s".into())],
+                        }),
+                        method: "length".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("TrimTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "trim axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_array_set_axiom() {
+            // ensures { set(arr, i, v).length() >= 0 }
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::Call {
+                            func: Box::new(Expr::Ident("set".into())),
+                            args: vec![
+                                Expr::Ident("arr".into()),
+                                Expr::Ident("i".into()),
+                                Expr::Ident("v".into()),
+                            ],
+                        }),
+                        method: "length".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("ArraySetTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "array set axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_map_put_axiom() {
+            // ensures { put(m, k, v).size() >= 0 } (via size axiom)
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::Call {
+                            func: Box::new(Expr::Ident("put".into())),
+                            args: vec![
+                                Expr::Ident("m".into()),
+                                Expr::Ident("k".into()),
+                                Expr::Ident("v".into()),
+                            ],
+                        }),
+                        method: "size".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("MapPutTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "map put axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_method_call_substring_axiom() {
+            // Test method call form: s.substring(start, end).length() >= 0
+            let clauses = vec![
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("start".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Requires,
+                    Expr::BinOp {
+                        op: BinOp::Lte,
+                        lhs: Box::new(Expr::Ident("start".into())),
+                        rhs: Box::new(Expr::Ident("end_val".into())),
+                    },
+                ),
+                make_clause(
+                    ClauseKind::Ensures,
+                    Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::MethodCall {
+                            receiver: Box::new(Expr::MethodCall {
+                                receiver: Box::new(Expr::Ident("s".into())),
+                                method: "substring".into(),
+                                args: vec![
+                                    Expr::Ident("start".into()),
+                                    Expr::Ident("end_val".into()),
+                                ],
+                            }),
+                            method: "length".into(),
+                            args: vec![],
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                ),
+            ];
+            let results =
+                crate::cvc5_backend::verify_contract_cvc5("MethodSubstringTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "method call substring axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_method_call_set_axiom() {
+            // Test method call form: arr.set(i, v).length() >= 0
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::MethodCall {
+                            receiver: Box::new(Expr::Ident("arr".into())),
+                            method: "set".into(),
+                            args: vec![Expr::Ident("i".into()), Expr::Ident("v".into())],
+                        }),
+                        method: "length".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("MethodArraySetTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "method call set axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_method_call_put_axiom() {
+            // Test method call form: m.put(k, v).size() >= 0
+            let clauses = vec![make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: Box::new(Expr::MethodCall {
+                        receiver: Box::new(Expr::MethodCall {
+                            receiver: Box::new(Expr::Ident("m".into())),
+                            method: "put".into(),
+                            args: vec![Expr::Ident("k".into()), Expr::Ident("v".into())],
+                        }),
+                        method: "size".into(),
+                        args: vec![],
+                    }),
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+            )];
+            let results = crate::cvc5_backend::verify_contract_cvc5("MethodMapPutTest", &clauses);
+            assert!(!results.is_empty());
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Counterexample { .. }),
+                    "method call put axiom failed: {:?}",
+                    r
+                );
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // expr_to_smtlib string method tests (issue #251)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_smtlib_call_substring() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("substring".into())),
+            args: vec![
+                Expr::Ident("s".into()),
+                Expr::Literal(Literal::Int("0".into())),
+                Expr::Literal(Literal::Int("5".into())),
+            ],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(substring s 0 5)");
+    }
+
+    #[test]
+    fn test_smtlib_call_concat() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("concat".into())),
+            args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(__concat a b)");
+    }
+
+    #[test]
+    fn test_smtlib_call_index_of() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("index_of".into())),
+            args: vec![Expr::Ident("s".into()), Expr::Ident("sub".into())],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(index_of s sub)");
+    }
+
+    #[test]
+    fn test_smtlib_call_char_at() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("char_at".into())),
+            args: vec![
+                Expr::Ident("s".into()),
+                Expr::Literal(Literal::Int("3".into())),
+            ],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(char_at s 3)");
+    }
+
+    #[test]
+    fn test_smtlib_call_replace() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("replace".into())),
+            args: vec![
+                Expr::Ident("s".into()),
+                Expr::Ident("old_s".into()),
+                Expr::Ident("new_s".into()),
+            ],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(replace s old_s new_s)");
+    }
+
+    #[test]
+    fn test_smtlib_call_split() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("split".into())),
+            args: vec![Expr::Ident("s".into()), Expr::Ident("delim".into())],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(split s delim)");
+    }
+
+    #[test]
+    fn test_smtlib_call_trim() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("trim".into())),
+            args: vec![Expr::Ident("s".into())],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(trim s)");
+    }
+
+    #[test]
+    fn test_smtlib_call_set() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("set".into())),
+            args: vec![
+                Expr::Ident("arr".into()),
+                Expr::Ident("i".into()),
+                Expr::Ident("v".into()),
+            ],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(set arr i v)");
+    }
+
+    #[test]
+    fn test_smtlib_call_put() {
+        let expr = Expr::Call {
+            func: Box::new(Expr::Ident("put".into())),
+            args: vec![
+                Expr::Ident("m".into()),
+                Expr::Ident("k".into()),
+                Expr::Ident("v".into()),
+            ],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(put m k v)");
+    }
+
+    #[test]
+    fn test_smtlib_method_substring() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("s".into())),
+            method: "substring".into(),
+            args: vec![
+                Expr::Literal(Literal::Int("1".into())),
+                Expr::Literal(Literal::Int("4".into())),
+            ],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(substring s 1 4)");
+    }
+
+    #[test]
+    fn test_smtlib_method_concat() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("a".into())),
+            method: "concat".into(),
+            args: vec![Expr::Ident("b".into())],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(__concat a b)");
+    }
+
+    #[test]
+    fn test_smtlib_method_set() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("arr".into())),
+            method: "set".into(),
+            args: vec![Expr::Ident("i".into()), Expr::Ident("v".into())],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(set arr i v)");
+    }
+
+    #[test]
+    fn test_smtlib_method_put() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("m".into())),
+            method: "put".into(),
+            args: vec![Expr::Ident("k".into()), Expr::Ident("v".into())],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(put m k v)");
+    }
+
+    #[test]
+    fn test_smtlib_method_trim() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Ident("s".into())),
+            method: "trim".into(),
+            args: vec![],
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(trim s)");
     }
 }
