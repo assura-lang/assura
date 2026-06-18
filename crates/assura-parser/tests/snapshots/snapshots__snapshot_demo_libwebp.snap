@@ -558,6 +558,396 @@ SourceFile {
         Spanned {
             node: FnDef(
                 FnDef {
+                    name: "check_alphabet_bounds",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "size",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "max_len",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: [],
+                    return_type_expr: Some(
+                        Unit,
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "size",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "280",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "max_len",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "15",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: BinOp {
+                                    lhs: Ident(
+                                        "size",
+                                    ),
+                                    op: Add,
+                                    rhs: Ident(
+                                        "max_len",
+                                    ),
+                                },
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "295",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "size",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "280",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "max_len",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "15",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Ident(
+                                "pure",
+                            ),
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 2568..2729,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "check_table_bounds",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "root_bits",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "alphabet_size",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "table_size",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: [],
+                    return_type_expr: Some(
+                        Unit,
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "root_bits",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "15",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "alphabet_size",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "280",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "table_size",
+                                ),
+                                op: Gte,
+                                rhs: BinOp {
+                                    lhs: Ident(
+                                        "alphabet_size",
+                                    ),
+                                    op: Add,
+                                    rhs: Ident(
+                                        "root_bits",
+                                    ),
+                                },
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "table_size",
+                                ),
+                                op: Gte,
+                                rhs: Ident(
+                                    "root_bits",
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "table_size",
+                                ),
+                                op: Gte,
+                                rhs: Ident(
+                                    "alphabet_size",
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Ident(
+                                "pure",
+                            ),
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 2729..2969,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "check_code_length_bounds",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "code_len",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "max_code_len",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "root_bits",
+                            ty: [
+                                "Nat",
+                            ],
+                            parsed_type: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: [],
+                    return_type_expr: Some(
+                        Unit,
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "code_len",
+                                ),
+                                op: Lte,
+                                rhs: Ident(
+                                    "max_code_len",
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "max_code_len",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "15",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "root_bits",
+                                ),
+                                op: Lte,
+                                rhs: Ident(
+                                    "max_code_len",
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "code_len",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "15",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: BinOp {
+                                lhs: Ident(
+                                    "root_bits",
+                                ),
+                                op: Lte,
+                                rhs: Literal(
+                                    Int(
+                                        "15",
+                                    ),
+                                ),
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Ident(
+                                "pure",
+                            ),
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 2969..3186,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
                     name: "decode_huffman_group",
                     is_ghost: false,
                     is_lemma: false,
@@ -619,7 +1009,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 2568..2877,
+            span: 3186..3495,
         },
     ],
 }
