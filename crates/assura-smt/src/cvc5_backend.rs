@@ -723,6 +723,54 @@ fn check_clause_cvc5_native(
     }
 }
 
+/// Hash a pattern name to a stable i64 for CVC5 match encoding.
+///
+/// Uses FNV-1a (same algorithm as the Z3 backend) for determinism across
+/// Rust versions. Constructor variant names are hashed to integer tags so
+/// that `match` arms can be encoded as ITE chains comparing the scrutinee
+/// against the tag value.
+#[cfg(feature = "cvc5-verify")]
+fn pattern_hash_cvc5(name: &str) -> i64 {
+    let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
+    for byte in name.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3); // FNV prime
+    }
+    hash as i64
+}
+
+/// Bind pattern variables as fresh CVC5 integer constants so they are
+/// available when encoding the match arm body.
+///
+/// Recursively walks `Constructor` and `Tuple` sub-patterns. Wildcard
+/// and literal patterns introduce no new bindings.
+#[cfg(feature = "cvc5-verify")]
+fn bind_pattern_vars_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    pattern: &Pattern,
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
+) {
+    match pattern {
+        Pattern::Ident(name) => {
+            if !vars.contains_key(name) {
+                let v = tm.mk_const(tm.integer_sort(), name);
+                vars.insert(name.clone(), v);
+            }
+        }
+        Pattern::Constructor { fields, .. } => {
+            for field in fields {
+                bind_pattern_vars_cvc5(tm, field, vars);
+            }
+        }
+        Pattern::Tuple(pats) => {
+            for pat in pats {
+                bind_pattern_vars_cvc5(tm, pat, vars);
+            }
+        }
+        Pattern::Wildcard | Pattern::Literal(_) => {}
+    }
+}
+
 /// Encode an AST expression as a CVC5 Term using the native API.
 ///
 /// `state` collects background axioms and tracks string constants
@@ -1271,12 +1319,35 @@ fn encode_expr_cvc5<'a>(
             let s = encode_expr_cvc5(tm, scrutinee, vars, state)?;
             let mut result: Option<cvc5::Term> = None;
             for arm in arms.iter().rev() {
-                let body = encode_expr_cvc5(tm, &arm.body, vars, state)?;
                 match &arm.pattern {
-                    Pattern::Wildcard | Pattern::Ident(_) => {
+                    Pattern::Wildcard => {
+                        let body = encode_expr_cvc5(tm, &arm.body, vars, state)?;
                         result = Some(body);
                     }
+                    Pattern::Ident(name) => {
+                        // Bind the name as a fresh variable
+                        let mut local_vars = vars.clone();
+                        bind_pattern_vars_cvc5(tm, &arm.pattern, &mut local_vars);
+                        let body = encode_expr_cvc5(tm, &arm.body, &local_vars, state)?;
+                        // Uppercase-initial ident = constructor name -> hash match
+                        if name.starts_with(|c: char| c.is_uppercase()) {
+                            let tag_hash = pattern_hash_cvc5(name);
+                            let tag_val = tm.mk_integer(tag_hash);
+                            let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), tag_val]);
+                            if let Some(default) = result.as_ref() {
+                                result = Some(
+                                    tm.mk_term(cvc5::Kind::Ite, &[cond, body, default.clone()]),
+                                );
+                            } else {
+                                result = Some(body);
+                            }
+                        } else {
+                            // Lowercase ident = variable binding = catch-all
+                            result = Some(body);
+                        }
+                    }
                     Pattern::Literal(lit) => {
+                        let body = encode_expr_cvc5(tm, &arm.body, vars, state)?;
                         let lit_term = match lit {
                             Literal::Int(n) => {
                                 let val: i64 = n.parse().ok()?;
@@ -1289,7 +1360,30 @@ fn encode_expr_cvc5<'a>(
                         let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), lit_term]);
                         result = Some(tm.mk_term(cvc5::Kind::Ite, &[cond, body, default]));
                     }
-                    _ => return None,
+                    Pattern::Constructor { name, fields } => {
+                        // Hash-based tag matching (same as Z3 backend)
+                        let tag_hash = pattern_hash_cvc5(name);
+                        let tag_val = tm.mk_integer(tag_hash);
+                        let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), tag_val]);
+                        // Bind field variables as fresh integer constants
+                        let mut local_vars = vars.clone();
+                        for field in fields {
+                            bind_pattern_vars_cvc5(tm, field, &mut local_vars);
+                        }
+                        let body = encode_expr_cvc5(tm, &arm.body, &local_vars, state)?;
+                        let default = result.as_ref()?.clone();
+                        result = Some(tm.mk_term(cvc5::Kind::Ite, &[cond, body, default]));
+                    }
+                    Pattern::Tuple(pats) => {
+                        // Bind each tuple element as a fresh variable
+                        let mut local_vars = vars.clone();
+                        for pat in pats {
+                            bind_pattern_vars_cvc5(tm, pat, &mut local_vars);
+                        }
+                        let body = encode_expr_cvc5(tm, &arm.body, &local_vars, state)?;
+                        // Tuple match is structural (always matches)
+                        result = Some(body);
+                    }
                 }
             }
             result
@@ -2845,13 +2939,23 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             let s = expr_to_smtlib(scrutinee)?;
             let mut result = None;
             for arm in arms.iter().rev() {
-                let body = expr_to_smtlib(&arm.body)?;
                 match &arm.pattern {
-                    Pattern::Wildcard | Pattern::Ident(_) => {
-                        // Default arm
+                    Pattern::Wildcard => {
+                        let body = expr_to_smtlib(&arm.body)?;
                         result = Some(body);
                     }
+                    Pattern::Ident(name) => {
+                        let body = expr_to_smtlib(&arm.body)?;
+                        if name.starts_with(|c: char| c.is_uppercase()) {
+                            let tag = pattern_hash_smtlib(name);
+                            let default = result.as_ref()?;
+                            result = Some(format!("(ite (= {s} {tag}) {body} {default})"));
+                        } else {
+                            result = Some(body);
+                        }
+                    }
                     Pattern::Literal(lit) => {
+                        let body = expr_to_smtlib(&arm.body)?;
                         let lit_smt = match lit {
                             Literal::Int(n) => n.clone(),
                             Literal::Float(f) => {
@@ -2866,7 +2970,17 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                         let default = result.as_ref()?;
                         result = Some(format!("(ite (= {s} {lit_smt}) {body} {default})"));
                     }
-                    _ => return None, // Complex patterns cannot be encoded
+                    Pattern::Constructor { name, fields: _ } => {
+                        let body = expr_to_smtlib(&arm.body)?;
+                        let tag = pattern_hash_smtlib(name);
+                        let default = result.as_ref()?;
+                        result = Some(format!("(ite (= {s} {tag}) {body} {default})"));
+                    }
+                    Pattern::Tuple(_) => {
+                        // Tuple match is structural (always matches)
+                        let body = expr_to_smtlib(&arm.body)?;
+                        result = Some(body);
+                    }
                 }
             }
             result
@@ -2996,6 +3110,17 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
 }
 
 /// Sanitize a name for SMT-LIB2 (replace dots with underscores).
+/// Hash a pattern name to a stable i64 for SMT-LIB match encoding
+/// (shell-out path). Same FNV-1a algorithm as `pattern_hash_cvc5`.
+fn pattern_hash_smtlib(name: &str) -> i64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in name.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash as i64
+}
+
 fn sanitize_smtlib_name(name: &str) -> String {
     name.replace('.', "_")
 }
@@ -3552,6 +3677,84 @@ mod tests {
             arms: vec![],
         };
         assert_eq!(expr_to_smtlib(&expr), None);
+    }
+
+    #[test]
+    fn test_smtlib_match_constructor_pattern() {
+        use assura_parser::ast::MatchArm;
+        // match x { Some(v) => v, None => 0 }
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("x".into())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Constructor {
+                        name: "Some".into(),
+                        fields: vec![Pattern::Ident("v".into())],
+                    },
+                    body: Expr::Ident("v".into()),
+                },
+                MatchArm {
+                    pattern: Pattern::Constructor {
+                        name: "None".into(),
+                        fields: vec![],
+                    },
+                    body: Expr::Literal(Literal::Int("0".into())),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: Expr::Literal(Literal::Int("0".into())),
+                },
+            ],
+        };
+        let smt = expr_to_smtlib(&expr).expect("should encode constructor match");
+        // Should produce nested ite with hash tags for Some and None
+        let some_hash = pattern_hash_smtlib("Some");
+        let none_hash = pattern_hash_smtlib("None");
+        assert!(smt.contains(&some_hash.to_string()));
+        assert!(smt.contains(&none_hash.to_string()));
+        assert!(smt.contains("ite"));
+    }
+
+    #[test]
+    fn test_smtlib_match_tuple_pattern() {
+        use assura_parser::ast::MatchArm;
+        // match t { (a, b) => a }
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("t".into())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Tuple(vec![
+                    Pattern::Ident("a".into()),
+                    Pattern::Ident("b".into()),
+                ]),
+                body: Expr::Ident("a".into()),
+            }],
+        };
+        let smt = expr_to_smtlib(&expr).expect("should encode tuple match");
+        // Tuple is structural, body is just "a"
+        assert_eq!(smt, "a");
+    }
+
+    #[test]
+    fn test_smtlib_match_ident_constructor_like() {
+        use assura_parser::ast::MatchArm;
+        // match x { None => 1, _ => 0 }  (Ident "None" uppercase = constructor)
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Ident("x".into())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Ident("None".into()),
+                    body: Expr::Literal(Literal::Int("1".into())),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: Expr::Literal(Literal::Int("0".into())),
+                },
+            ],
+        };
+        let smt = expr_to_smtlib(&expr).expect("should encode ident-as-constructor match");
+        let none_hash = pattern_hash_smtlib("None");
+        assert!(smt.contains(&none_hash.to_string()));
+        assert!(smt.contains("ite"));
     }
 
     // -------------------------------------------------------------------
@@ -4923,6 +5126,180 @@ mod tests {
         };
         let s = expr_to_smtlib(&expr).unwrap();
         assert_eq!(s, "(trim s)");
+    }
+
+    // -------------------------------------------------------------------
+    // CVC5 match pattern tests (native API, issue #252)
+    // -------------------------------------------------------------------
+
+    #[cfg(feature = "cvc5-verify")]
+    mod match_pattern_tests {
+        use super::*;
+        use assura_parser::ast::MatchArm;
+
+        #[test]
+        fn test_cvc5_match_constructor_pattern() {
+            // ensures { match x { Some(v) => v > 0, None => true } }
+            // with requires { x >= 0 } so scrut is constrained
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::Match {
+                        scrutinee: Box::new(Expr::Ident("x".into())),
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Constructor {
+                                    name: "Positive".into(),
+                                    fields: vec![Pattern::Ident("v".into())],
+                                },
+                                body: Expr::Literal(Literal::Bool(true)),
+                            },
+                            MatchArm {
+                                pattern: Pattern::Wildcard,
+                                body: Expr::Literal(Literal::Bool(true)),
+                            },
+                        ],
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("MatchConstructor", &clauses);
+            assert!(!results.is_empty(), "should produce verification results");
+            // The match should encode without returning Unknown due to unhandled patterns
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Unknown { reason, .. }
+                        if reason.contains("not yet encoded")),
+                    "Constructor pattern should be encoded, got: {:?}",
+                    r
+                );
+            }
+        }
+
+        #[test]
+        fn test_cvc5_match_tuple_pattern() {
+            // ensures { match t { (a, b) => true } }
+            let clauses = vec![Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::Match {
+                    scrutinee: Box::new(Expr::Ident("t".into())),
+                    arms: vec![MatchArm {
+                        pattern: Pattern::Tuple(vec![
+                            Pattern::Ident("a".into()),
+                            Pattern::Ident("b".into()),
+                        ]),
+                        body: Expr::Literal(Literal::Bool(true)),
+                    }],
+                },
+                effect_variables: vec![],
+            }];
+            let results = verify_contract_cvc5("MatchTuple", &clauses);
+            assert!(!results.is_empty(), "should produce verification results");
+            // ensures { true } should verify
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "tuple match with body `true` should verify, got: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn test_cvc5_match_nested_patterns() {
+            // ensures { match x { Outer(Inner(v)) => true, _ => true } }
+            let clauses = vec![Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::Match {
+                    scrutinee: Box::new(Expr::Ident("x".into())),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::Constructor {
+                                name: "Outer".into(),
+                                fields: vec![Pattern::Constructor {
+                                    name: "Inner".into(),
+                                    fields: vec![Pattern::Ident("v".into())],
+                                }],
+                            },
+                            body: Expr::Literal(Literal::Bool(true)),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            body: Expr::Literal(Literal::Bool(true)),
+                        },
+                    ],
+                },
+                effect_variables: vec![],
+            }];
+            let results = verify_contract_cvc5("MatchNested", &clauses);
+            assert!(!results.is_empty(), "should produce verification results");
+            // All arms return true, so should verify
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "nested constructor match with all-true body should verify, got: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn test_cvc5_match_enum_verifies() {
+            // A simple enum-like match:
+            //   requires { x >= 0 }
+            //   ensures { match x { Zero => x == 0, _ => x >= 0 } }
+            // We use Ident patterns with uppercase names as constructors.
+            // Since both arms return expressions derivable from requires, it
+            // should verify (or at worst produce a result, not Unknown).
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::Match {
+                        scrutinee: Box::new(Expr::Ident("x".into())),
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Ident("Zero".into()),
+                                body: Expr::Literal(Literal::Bool(true)),
+                            },
+                            MatchArm {
+                                pattern: Pattern::Wildcard,
+                                body: Expr::BinOp {
+                                    op: BinOp::Gte,
+                                    lhs: Box::new(Expr::Ident("x".into())),
+                                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                                },
+                            },
+                        ],
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("MatchEnum", &clauses);
+            assert!(!results.is_empty(), "should produce verification results");
+            // Should not produce Unknown with "not yet encoded" reason
+            for r in &results {
+                assert!(
+                    !matches!(r, VerificationResult::Unknown { reason, .. }
+                        if reason.contains("not yet encoded")),
+                    "Enum match should be encoded, got: {:?}",
+                    r
+                );
+            }
+        }
     }
 
     // -------------------------------------------------------------------
