@@ -2476,3 +2476,114 @@ fn test_string_theory_equality_z3() {
         );
     });
 }
+
+// =======================================================================
+// #264: Z3 incremental solving (push/pop)
+// =======================================================================
+
+#[test]
+fn z3_incremental_push_pop_multi_clause() {
+    // Contract with 3 clauses sharing the same requires.
+    // The Z3 backend should use a single solver with push/pop
+    // and produce correct results for all 3 clauses.
+    let source = r#"
+contract MultiClause {
+  requires { x > 0 }
+  ensures { x > 0 }
+  ensures { x >= 1 }
+  ensures { x > 100 }
+}
+"#;
+    let results = verify_source(source);
+    assert_eq!(results.len(), 3, "expected 3 results, got {results:?}");
+    // x > 0 => x > 0 (trivially verified)
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "x > 0 => x > 0 should verify, got: {:?}",
+        results[0]
+    );
+    // x > 0 => x >= 1 (verified: x > 0 means x >= 1 for integers)
+    assert!(
+        matches!(&results[1], VerificationResult::Verified { .. }),
+        "x > 0 => x >= 1 should verify, got: {:?}",
+        results[1]
+    );
+    // x > 0 => x > 100 (counterexample: e.g. x = 1)
+    assert!(
+        matches!(&results[2], VerificationResult::Counterexample { .. }),
+        "x > 0 => x > 100 should have counterexample, got: {:?}",
+        results[2]
+    );
+}
+
+#[test]
+fn z3_incremental_correctness_verified_and_counterexample() {
+    // Two clauses: one verifiable, one not. The push/pop mechanism
+    // must not let clause-specific assertions leak between checks.
+    let source = r#"
+contract IncrementalCorrectness {
+  requires { x > 0 }
+  ensures { x > 0 }
+  ensures { x > 5 }
+}
+"#;
+    let results = verify_source(source);
+    assert_eq!(results.len(), 2, "expected 2 results, got {results:?}");
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "x > 0 => x > 0 should verify, got: {:?}",
+        results[0]
+    );
+    assert!(
+        matches!(&results[1], VerificationResult::Counterexample { .. }),
+        "x > 0 => x > 5 should have counterexample, got: {:?}",
+        results[1]
+    );
+}
+
+#[test]
+fn z3_incremental_single_clause_still_works() {
+    // Single clause contract should still work (push/pop with one clause)
+    let source = r#"
+contract SingleClause {
+  requires { y >= 0 }
+  ensures { y >= 0 }
+}
+"#;
+    let results = verify_source(source);
+    assert_eq!(results.len(), 1, "expected 1 result, got {results:?}");
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "single clause should verify, got: {:?}",
+        results[0]
+    );
+}
+
+#[test]
+fn z3_incremental_no_cross_contamination() {
+    // Verify that a counterexample clause (x > 10) does not
+    // contaminate the solver state for the next clause (x > 0).
+    // If push/pop is broken, the negation of x > 10 would persist.
+    let source = r#"
+contract NoCrossContamination {
+  requires { x > 0 }
+  ensures { x > 10 }
+  ensures { x > 0 }
+}
+"#;
+    let results = verify_source(source);
+    assert_eq!(results.len(), 2, "expected 2 results, got {results:?}");
+    // First clause: x > 0 does NOT imply x > 10
+    assert!(
+        matches!(&results[0], VerificationResult::Counterexample { .. }),
+        "x > 0 => x > 10 should have counterexample, got: {:?}",
+        results[0]
+    );
+    // Second clause: x > 0 => x > 0 must still verify
+    // (push/pop must have removed the negated x > 10 assertion)
+    assert!(
+        matches!(&results[1], VerificationResult::Verified { .. }),
+        "x > 0 => x > 0 should verify after pop, got: {:?}",
+        results[1]
+    );
+}

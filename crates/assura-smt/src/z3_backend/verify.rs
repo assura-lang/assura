@@ -122,12 +122,90 @@ fn verify_clauses_with_types(
         assura_types::FrameChecker::new(&body_refs)
     };
 
+    // ---------------------------------------------------------------
+    // Incremental solving: create ONE solver, assert shared requires
+    // ONCE, then use push/pop for each clause (#264).
+    //
+    // For single-clause contracts, the overhead is identical (one
+    // push/pop pair). For multi-clause contracts sharing requires
+    // assumptions, learned lemmas from earlier clauses benefit later
+    // ones.
+    // ---------------------------------------------------------------
+
+    let solver = Solver::new();
+    let mut encoder = Encoder::new();
+
+    // Bind named constants so Z3 uses concrete values, not free vars.
+    for (name, value) in types.constants {
+        let concrete = ast::Int::from_i64(*value);
+        encoder
+            .vars
+            .insert(name.clone(), super::encoder::Z3Value::Int(concrete));
+    }
+
+    // Register known function names for trigger inference
+    for other_clause in clauses {
+        collect_function_names_for_triggers(&other_clause.body, &mut encoder.trigger_manager);
+    }
+
+    // Assert all requires as assumptions ONCE (shared across all clauses)
+    for req in &requires {
+        let req_val = encoder.encode_expr(&req.body);
+        let req_bool = req_val.as_bool();
+        solver.assert(&req_bool);
+    }
+    // Assert background axioms from requires encoding
+    for axiom in &encoder.background_axioms {
+        solver.assert(axiom);
+    }
+    encoder.background_axioms.clear();
+
+    // Assert type-level constraints for parameters and return type.
+    for param in types.params {
+        if is_nat_type(&param.ty) {
+            let p = encoder.get_or_create_int(&param.name);
+            let zero = ast::Int::from_i64(0);
+            solver.assert(p.ge(&zero));
+        }
+    }
+    if is_nat_type(types.return_ty) {
+        let result_var = encoder.get_or_create_int("result");
+        let zero = ast::Int::from_i64(0);
+        solver.assert(result_var.ge(&zero));
+        let raw_result = encoder.get_or_create_int("__result");
+        solver.assert(raw_result.ge(&zero));
+    }
+
+    // #188: Refinement narrowing from feature_max declarations.
+    for (narrowed_name, bound) in types.narrowings {
+        let var = encoder.get_or_create_int(narrowed_name);
+        let upper = ast::Int::from_i64(*bound);
+        solver.assert(var.le(&upper));
+    }
+
+    // T044: Inject lemma ensures as assumptions for any `apply` refs
+    let apply_refs = collect_apply_refs(clauses);
+    for lemma_name in &apply_refs {
+        if let Some(ensures_bodies) = lemma_defs.get(lemma_name) {
+            for ensures_body in ensures_bodies {
+                let ens_val = encoder.encode_expr(ensures_body);
+                let ens_bool = ens_val.as_bool();
+                solver.assert(&ens_bool);
+            }
+        }
+    }
+
+    // Assert any background axioms from lemma encoding
+    for axiom in &encoder.background_axioms {
+        solver.assert(axiom);
+    }
+    encoder.background_axioms.clear();
+
+    // For each verifiable clause: push, encode, check, pop
     for clause in &verifiable {
         let desc = clause_desc(parent_name, &clause.kind);
 
-        // Skip clauses that reference features not yet encoded in SMT.
-        // Sending an incomplete encoding to Z3 produces false counterexamples
-        // (Z3 finds trivial models for unconstrained uninterpreted functions).
+        // Skip clauses with unmodelable features
         if expr_has_unmodelable_features(&clause.body) {
             let reasons = collect_unmodelable_reasons(&clause.body);
             results.push(VerificationResult::Unknown {
@@ -143,7 +221,6 @@ fn verify_clauses_with_types(
         // T113: Check verification cache before invoking Z3
         let clause_hash = format!("{desc}:{:?}", clause.body);
         if let Some(cached) = cache.lookup(&clause_hash) {
-            // Replay cached result
             match cached.result.as_str() {
                 "verified" => results.push(VerificationResult::Verified { clause_desc: desc }),
                 "timeout" => results.push(VerificationResult::Timeout { clause_desc: desc }),
@@ -155,7 +232,7 @@ fn verify_clauses_with_types(
             continue;
         }
 
-        let solver = Solver::new();
+        solver.push(); // Save solver state
 
         let mut encoder = Encoder::with_string_theory(types.use_string_theory);
 
@@ -231,12 +308,9 @@ fn verify_clauses_with_types(
         if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
             let frame_vars = frame_checker.frame_axiom_vars(&clause.body);
             for var_name in &frame_vars {
-                // Create the current-state variable
                 let current = encoder.get_or_create_int(var_name);
-                // Create the old-state variable (uses __old suffix)
                 let old_name = format!("{var_name}__old");
                 let old_var = encoder.get_or_create_int(&old_name);
-                // Assert frame axiom: current == old
                 let axiom = current.eq(&old_var);
                 solver.assert(&axiom);
             }
@@ -246,31 +320,27 @@ fn verify_clauses_with_types(
         let clause_val = encoder.encode_expr(&clause.body);
         let clause_bool = clause_val.as_bool();
 
-        // Assert background axioms (e.g., len >= 0) collected during encoding
+        // Assert background axioms from this clause's encoding
         for axiom in &encoder.background_axioms {
             solver.assert(axiom);
         }
+        encoder.background_axioms.clear();
 
         let result_before = results.len();
         match clause.kind {
             ClauseKind::Ensures | ClauseKind::Rule => {
-                // Validity check: assert NOT clause, check-sat
                 solver.assert(clause_bool.not());
                 check_validity(&solver, desc, results);
             }
             ClauseKind::Invariant => {
-                // Satisfiability check: assert clause directly
                 solver.assert(&clause_bool);
                 check_satisfiability(&solver, desc, results);
             }
             ClauseKind::MustNot => {
-                // Must-not: the bad thing should be impossible under requires
                 solver.assert(&clause_bool);
                 check_validity(&solver, desc, results);
             }
             ClauseKind::Decreases => {
-                // Decreases: verify the expression is non-negative (well-founded).
-                // Encode as: the clause expression (decreasing measure) >= 0 must hold.
                 let zero = ast::Int::from_i64(0);
                 let measure = clause_val.as_int(&mut encoder.fresh_counter);
                 let non_neg = measure.ge(&zero);
@@ -290,6 +360,8 @@ fn verify_clauses_with_types(
             };
             cache.insert(clause_hash, result_str.to_string(), 0);
         }
+
+        solver.pop(1); // Restore solver state
     }
 }
 
