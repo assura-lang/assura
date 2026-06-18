@@ -370,23 +370,25 @@ fn encode_expr_cvc5<'a>(
                 Some(tm.mk_term(cvc5::Kind::Implies, &[c, t]))
             }
         }
-        Expr::Forall { var, body, .. } => {
+        Expr::Forall { var, domain, body } => {
             let v_name = sanitize_smtlib_name(var);
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
             local_vars.insert(v_name, bound_var.clone());
             let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
+            let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, true, vars, state);
             let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var]);
-            Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, b]))
+            Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, guarded]))
         }
-        Expr::Exists { var, body, .. } => {
+        Expr::Exists { var, domain, body } => {
             let v_name = sanitize_smtlib_name(var);
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
             local_vars.insert(v_name, bound_var.clone());
             let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
+            let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, false, vars, state);
             let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var]);
-            Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, b]))
+            Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, guarded]))
         }
         Expr::Call { func, args } => {
             if let Expr::Ident(name) = func.as_ref() {
@@ -765,6 +767,62 @@ fn encode_expr_cvc5<'a>(
             }
             let apply_name = format!("__apply_{lemma_name}");
             Some(tm.mk_const(tm.boolean_sort(), &apply_name))
+        }
+    }
+}
+
+/// Build a domain guard for quantifier bodies (CVC5 native API).
+///
+/// For range domains (`lo..hi`):
+/// - `is_forall=true`:  `(lo <= x && x < hi) => body`
+/// - `is_forall=false`: `(lo <= x && x < hi) && body`
+///
+/// For non-range domains (collections, identifiers), encode
+/// membership as an uninterpreted `__domain_contains(domain, x)` predicate.
+#[cfg(feature = "cvc5-verify")]
+fn guard_quantifier_body_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    domain: &Expr,
+    bound_var: &cvc5::Term<'a>,
+    body: cvc5::Term<'a>,
+    is_forall: bool,
+    outer_vars: &HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    if let Expr::BinOp {
+        op: BinOp::Range,
+        lhs: lo,
+        rhs: hi,
+    } = domain
+    {
+        // Range domain: lo <= x && x < hi
+        let lo_val =
+            encode_expr_cvc5(tm, lo, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
+        let hi_val =
+            encode_expr_cvc5(tm, hi, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
+        let ge_lo = tm.mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
+        let lt_hi = tm.mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val]);
+        let in_range = tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi]);
+        if is_forall {
+            tm.mk_term(cvc5::Kind::Implies, &[in_range, body])
+        } else {
+            tm.mk_term(cvc5::Kind::And, &[in_range, body])
+        }
+    } else {
+        // Non-range domain: __domain_contains(domain, x) UF
+        let domain_val = encode_expr_cvc5(tm, domain, outer_vars, state)
+            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), "__domain_unknown"));
+        let contains_sort =
+            tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
+        let contains_fn = tm.mk_const(contains_sort, "__domain_contains");
+        let membership = tm.mk_term(
+            cvc5::Kind::ApplyUf,
+            &[contains_fn, domain_val, bound_var.clone()],
+        );
+        if is_forall {
+            tm.mk_term(cvc5::Kind::Implies, &[membership, body])
+        } else {
+            tm.mk_term(cvc5::Kind::And, &[membership, body])
         }
     }
 }
@@ -1559,23 +1617,47 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                 Some(format!("(=> {c} {t})"))
             }
         }
-        Expr::Forall {
-            var,
-            domain: _,
-            body,
-        } => {
+        Expr::Forall { var, domain, body } => {
             let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            Some(format!("(forall (({v} Int)) {b})"))
+            if let Expr::BinOp {
+                op: BinOp::Range,
+                lhs: lo,
+                rhs: hi,
+            } = domain.as_ref()
+            {
+                let lo_s = expr_to_smtlib(lo)?;
+                let hi_s = expr_to_smtlib(hi)?;
+                Some(format!(
+                    "(forall (({v} Int)) (=> (and (>= {v} {lo_s}) (< {v} {hi_s})) {b}))"
+                ))
+            } else {
+                let d = expr_to_smtlib(domain).unwrap_or_else(|| v.clone());
+                Some(format!(
+                    "(forall (({v} Int)) (=> (__domain_contains {d} {v}) {b}))"
+                ))
+            }
         }
-        Expr::Exists {
-            var,
-            domain: _,
-            body,
-        } => {
+        Expr::Exists { var, domain, body } => {
             let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            Some(format!("(exists (({v} Int)) {b})"))
+            if let Expr::BinOp {
+                op: BinOp::Range,
+                lhs: lo,
+                rhs: hi,
+            } = domain.as_ref()
+            {
+                let lo_s = expr_to_smtlib(lo)?;
+                let hi_s = expr_to_smtlib(hi)?;
+                Some(format!(
+                    "(exists (({v} Int)) (and (and (>= {v} {lo_s}) (< {v} {hi_s})) {b}))"
+                ))
+            } else {
+                let d = expr_to_smtlib(domain).unwrap_or_else(|| v.clone());
+                Some(format!(
+                    "(exists (({v} Int)) (and (__domain_contains {d} {v}) {b}))"
+                ))
+            }
         }
         Expr::Call { func, args } => {
             let f = match func.as_ref() {
@@ -2047,7 +2129,8 @@ mod tests {
     }
 
     #[test]
-    fn test_smtlib_forall() {
+    fn test_smtlib_forall_non_range_domain() {
+        // Non-range domain should produce __domain_contains guard
         let expr = Expr::Forall {
             var: "i".into(),
             domain: Box::new(Expr::Ident("xs".into())),
@@ -2059,12 +2142,13 @@ mod tests {
         };
         assert_eq!(
             expr_to_smtlib(&expr),
-            Some("(forall ((i Int)) (>= i 0))".into())
+            Some("(forall ((i Int)) (=> (__domain_contains xs i) (>= i 0)))".into())
         );
     }
 
     #[test]
-    fn test_smtlib_exists() {
+    fn test_smtlib_exists_non_range_domain() {
+        // Non-range domain should produce __domain_contains guard
         let expr = Expr::Exists {
             var: "x".into(),
             domain: Box::new(Expr::Ident("S".into())),
@@ -2076,8 +2160,74 @@ mod tests {
         };
         assert_eq!(
             expr_to_smtlib(&expr),
-            Some("(exists ((x Int)) (= x 0))".into())
+            Some("(exists ((x Int)) (and (__domain_contains S x) (= x 0)))".into())
         );
+    }
+
+    #[test]
+    fn test_smtlib_forall_range_domain() {
+        // forall x in 0..10 { x >= 0 } should produce range guard
+        let expr = Expr::Forall {
+            var: "x".into(),
+            domain: Box::new(Expr::BinOp {
+                op: BinOp::Range,
+                lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+            }),
+            body: Box::new(Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            }),
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(
+            s,
+            "(forall ((x Int)) (=> (and (>= x 0) (< x 10)) (>= x 0)))"
+        );
+    }
+
+    #[test]
+    fn test_smtlib_exists_range_domain() {
+        // exists x in 0..10 { x == 5 } should produce range guard with conjunction
+        let expr = Expr::Exists {
+            var: "x".into(),
+            domain: Box::new(Expr::BinOp {
+                op: BinOp::Range,
+                lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+            }),
+            body: Box::new(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
+            }),
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(
+            s,
+            "(exists ((x Int)) (and (and (>= x 0) (< x 10)) (= x 5)))"
+        );
+    }
+
+    #[test]
+    fn test_smtlib_forall_range_variable_bounds() {
+        // forall i in 0..n { i >= 0 } -- variable upper bound
+        let expr = Expr::Forall {
+            var: "i".into(),
+            domain: Box::new(Expr::BinOp {
+                op: BinOp::Range,
+                lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                rhs: Box::new(Expr::Ident("n".into())),
+            }),
+            body: Box::new(Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: Box::new(Expr::Ident("i".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            }),
+        };
+        let s = expr_to_smtlib(&expr).unwrap();
+        assert_eq!(s, "(forall ((i Int)) (=> (and (>= i 0) (< i n)) (>= i 0)))");
     }
 
     #[test]

@@ -999,7 +999,7 @@ mod cvc5_tests {
         };
         assert_eq!(
             cvc5_backend::expr_to_smtlib(&e),
-            Some("(forall ((i Int)) (> i 0))".to_string())
+            Some("(forall ((i Int)) (=> (__domain_contains S i) (> i 0)))".to_string())
         );
     }
 
