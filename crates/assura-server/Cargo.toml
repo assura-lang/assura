@@ -15,10 +15,6 @@ path = "src/main.rs"
 
 [dependencies]
 assura-diagnostics = { path = "../assura-diagnostics" }
-assura-parser = { path = "../assura-parser" }
-assura-resolve = { path = "../assura-resolve" }
-assura-types = { path = "../assura-types" }
-assura-codegen = { path = "../assura-codegen" }
 assura-smt = { path = "../assura-smt" }
 assura-pipeline = { path = "../assura-pipeline" }
 assura-config = { path = "../assura-config" }
