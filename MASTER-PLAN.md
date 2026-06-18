@@ -1755,14 +1755,14 @@ compiles" failure on taint-tracking.assura.
 
 ### Round 1: Critical correctness (#246, #249, #258) -- depends on: none
 
-- [ ] **10.01** #246 CVC5: Quantifier domain guards (forall/exists range bounding)
+- [x] **10.01** #246 CVC5: Quantifier domain guards (forall/exists range bounding)
   - Add `guard_quantifier_body_cvc5()` mirroring Z3 encoder.rs:132-176
   - Range domains: `lo <= x && x < hi` guard
   - Collection domains: UF `__domain_contains(domain, x)`
-- [ ] **10.02** #249 CVC5: Encode BinOp::Range, In, NotIn, Concat
+- [x] **10.02** #249 CVC5: Encode BinOp::Range, In, NotIn, Concat
   - Remove `return None` at cvc5_backend.rs:348
   - Range: bound constraints, In/NotIn: UF Bool, Concat: length axiom
-- [ ] **10.03** #258 CVC5: Unmodelable feature pre-check
+- [x] **10.03** #258 CVC5: Unmodelable feature pre-check
   - Call `expr_has_unmodelable_features()` before CVC5 encoding
   - Return `Unknown` with reasons instead of false counterexamples
 - **Acceptance**:
