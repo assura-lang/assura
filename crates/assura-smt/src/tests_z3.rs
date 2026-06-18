@@ -2248,9 +2248,9 @@ fn taint_keyword_not_unmodelable() {
 }
 
 #[test]
-fn typestate_at_still_unmodelable() {
+fn typestate_at_now_modelable() {
     use z3_backend::encoder::expr_has_unmodelable_features;
-    // Raw tokens with @ should still be unmodelable (typestate)
+    // #262: Raw tokens with @ are now modelable (encoded as integer equality)
     let expr = Expr::Raw(vec![
         "state".into(),
         ".".into(),
@@ -2259,8 +2259,114 @@ fn typestate_at_still_unmodelable() {
         "Active".into(),
     ]);
     assert!(
-        expr_has_unmodelable_features(&expr),
-        "typestate @ annotation should remain unmodelable"
+        !expr_has_unmodelable_features(&expr),
+        "typestate @ annotation should be modelable after #262"
+    );
+}
+
+// -----------------------------------------------------------------------
+// #262: Typestate @ encoding as integer equality
+// -----------------------------------------------------------------------
+
+#[test]
+fn z3_typestate_same_state_verifies() {
+    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    // requires { file @ Open }
+    // ensures  { file @ Open }
+    // Same typestate in pre and post => should verify
+    let clauses = vec![
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            effect_variables: vec![],
+        },
+    ];
+    let results = crate::verify_contract("TypestateIdentity", &clauses);
+    assert!(
+        !results.is_empty(),
+        "should have results for typestate identity"
+    );
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "same typestate pre/post should verify, got: {:?}",
+        results[0]
+    );
+}
+
+#[test]
+fn z3_typestate_different_state_counterexample() {
+    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    // requires { file @ Open }
+    // ensures  { file @ Closed }
+    // Different typestate in pre and post => counterexample
+    let clauses = vec![
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()]),
+            effect_variables: vec![],
+        },
+    ];
+    let results = crate::verify_contract("TypestateMismatch", &clauses);
+    assert!(
+        !results.is_empty(),
+        "should have results for typestate mismatch"
+    );
+    assert!(
+        matches!(&results[0], VerificationResult::Counterexample { .. }),
+        "different typestate pre/post should produce counterexample, got: {:?}",
+        results[0]
+    );
+}
+
+#[test]
+fn z3_typestate_with_dot_field() {
+    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    // requires { conn.state @ Connected }
+    // ensures  { conn.state @ Connected }
+    // Dot-separated field + typestate should verify
+    let clauses = vec![
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::Raw(vec![
+                "conn".into(),
+                ".".into(),
+                "state".into(),
+                "@".into(),
+                "Connected".into(),
+            ]),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::Raw(vec![
+                "conn".into(),
+                ".".into(),
+                "state".into(),
+                "@".into(),
+                "Connected".into(),
+            ]),
+            effect_variables: vec![],
+        },
+    ];
+    let results = crate::verify_contract("TypestateField", &clauses);
+    assert!(
+        !results.is_empty(),
+        "should have results for typestate with field access"
+    );
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "typestate with dot field should verify, got: {:?}",
+        results[0]
     );
 }
 

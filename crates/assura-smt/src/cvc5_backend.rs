@@ -31,7 +31,8 @@ fn expr_has_unmodelable_features_cvc5(expr: &Expr) -> bool {
             expr_has_unmodelable_features_cvc5(receiver)
                 || args.iter().any(expr_has_unmodelable_features_cvc5)
         }
-        Expr::Raw(tokens) => tokens.iter().any(|t| t == "@"),
+        // #262: Typestate @ annotations are now encoded as integer equality.
+        Expr::Raw(_tokens) => false,
         Expr::BinOp { lhs, rhs, .. } => {
             expr_has_unmodelable_features_cvc5(lhs) || expr_has_unmodelable_features_cvc5(rhs)
         }
@@ -79,88 +80,12 @@ fn expr_has_unmodelable_features_cvc5(expr: &Expr) -> bool {
 }
 
 /// Collect human-readable reasons for why an expression is unmodelable.
-fn collect_unmodelable_reasons_cvc5(expr: &Expr) -> Vec<String> {
-    let mut reasons = Vec::new();
-    collect_unmodelable_reasons_cvc5_inner(expr, &mut reasons);
-    reasons.sort();
-    reasons.dedup();
-    reasons
-}
-
-fn collect_unmodelable_reasons_cvc5_inner(expr: &Expr, reasons: &mut Vec<String>) {
-    if let Expr::Raw(tokens) = expr {
-        for t in tokens {
-            if t == "@" {
-                reasons.push("typestate annotation".into());
-            }
-        }
-    }
-    match expr {
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_unmodelable_reasons_cvc5_inner(lhs, reasons);
-            collect_unmodelable_reasons_cvc5_inner(rhs, reasons);
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Cast { expr: inner, .. }
-        | Expr::Field(inner, _) => {
-            collect_unmodelable_reasons_cvc5_inner(inner, reasons);
-        }
-        Expr::Call { func, args } => {
-            collect_unmodelable_reasons_cvc5_inner(func, reasons);
-            for a in args {
-                collect_unmodelable_reasons_cvc5_inner(a, reasons);
-            }
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            collect_unmodelable_reasons_cvc5_inner(receiver, reasons);
-            for a in args {
-                collect_unmodelable_reasons_cvc5_inner(a, reasons);
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            collect_unmodelable_reasons_cvc5_inner(e, reasons);
-            collect_unmodelable_reasons_cvc5_inner(index, reasons);
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            collect_unmodelable_reasons_cvc5_inner(domain, reasons);
-            collect_unmodelable_reasons_cvc5_inner(body, reasons);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_unmodelable_reasons_cvc5_inner(cond, reasons);
-            collect_unmodelable_reasons_cvc5_inner(then_branch, reasons);
-            if let Some(eb) = else_branch {
-                collect_unmodelable_reasons_cvc5_inner(eb, reasons);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            collect_unmodelable_reasons_cvc5_inner(value, reasons);
-            collect_unmodelable_reasons_cvc5_inner(body, reasons);
-        }
-        Expr::Match { scrutinee, arms } => {
-            collect_unmodelable_reasons_cvc5_inner(scrutinee, reasons);
-            for a in arms {
-                collect_unmodelable_reasons_cvc5_inner(&a.body, reasons);
-            }
-        }
-        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
-            for item in items {
-                collect_unmodelable_reasons_cvc5_inner(item, reasons);
-            }
-        }
-        Expr::Apply { args, .. } => {
-            for a in args {
-                collect_unmodelable_reasons_cvc5_inner(a, reasons);
-            }
-        }
-        _ => {}
-    }
+fn collect_unmodelable_reasons_cvc5(_expr: &Expr) -> Vec<String> {
+    // #262: All expression types are now modelable.
+    // Field access, method calls, raw tokens (including typestate @),
+    // taint, ghost, region, and validate are all encoded in SMT.
+    // This function returns an empty list but is kept for API stability.
+    Vec::new()
 }
 
 // =========================================================================
@@ -2548,6 +2473,24 @@ fn parse_raw_atom_cvc5<'a>(
         name.push_str("__");
         name.push_str(&sanitize_smtlib_name(&tokens[next + 1]));
         next += 2;
+    }
+
+    // --- #262: Typestate annotation: `Type @ State` ---
+    // After collapsing dot chains, if the next token is `@` followed
+    // by a state name, encode as integer equality:
+    //   __typestate_<name> == hash(state_name)
+    if next + 1 < tokens.len() && tokens[next] == "@" {
+        let state_name = &tokens[next + 1];
+        let ts_var_name = format!("__typestate_{name}");
+        let ts_var = vars
+            .get(&ts_var_name)
+            .cloned()
+            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &ts_var_name));
+        let state_val = tm.mk_integer(pattern_hash_cvc5(state_name));
+        return Some((
+            tm.mk_term(cvc5::Kind::Equal, &[ts_var, state_val]),
+            next + 2,
+        ));
     }
 
     // Check for function call: `name(args)`
@@ -5249,20 +5192,25 @@ mod tests {
     // -------------------------------------------------------------------
 
     #[test]
-    fn test_unmodelable_typestate_detected() {
-        // Raw tokens with @ should be detected as unmodelable
+    fn test_typestate_now_modelable() {
+        // #262: Raw tokens with @ are now modelable (encoded as integer equality)
         let expr = Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]);
         assert!(
-            expr_has_unmodelable_features_cvc5(&expr),
-            "typestate @ annotation should be unmodelable"
+            !expr_has_unmodelable_features_cvc5(&expr),
+            "typestate @ annotation should be modelable after #262"
         );
     }
 
     #[test]
-    fn test_unmodelable_reason_typestate() {
+    fn test_no_unmodelable_reason_for_typestate() {
+        // #262: Typestate no longer produces unmodelable reasons
         let expr = Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]);
         let reasons = collect_unmodelable_reasons_cvc5(&expr);
-        assert_eq!(reasons, vec!["typestate annotation"]);
+        assert!(
+            reasons.is_empty(),
+            "typestate should produce no unmodelable reasons after #262, got: {:?}",
+            reasons
+        );
     }
 
     #[test]
@@ -5280,8 +5228,8 @@ mod tests {
     }
 
     #[test]
-    fn test_unmodelable_nested_in_binop() {
-        // Typestate nested in a binary expression
+    fn test_typestate_nested_in_binop_modelable() {
+        // #262: Typestate nested in a binary expression is now modelable
         let expr = Expr::BinOp {
             op: BinOp::And,
             lhs: Box::new(Expr::Ident("x".into())),
@@ -5292,55 +5240,97 @@ mod tests {
             ])),
         };
         assert!(
-            expr_has_unmodelable_features_cvc5(&expr),
-            "typestate nested in binop should be unmodelable"
+            !expr_has_unmodelable_features_cvc5(&expr),
+            "typestate nested in binop should be modelable after #262"
         );
     }
 
     #[test]
-    fn test_unmodelable_in_if_branch() {
+    fn test_typestate_in_if_branch_modelable() {
+        // #262: Typestate in if branch is now modelable
         let expr = Expr::If {
             cond: Box::new(Expr::Ident("flag".into())),
             then_branch: Box::new(Expr::Raw(vec!["s".into(), "@".into(), "Locked".into()])),
             else_branch: None,
         };
         assert!(
-            expr_has_unmodelable_features_cvc5(&expr),
-            "typestate in if-then should be unmodelable"
+            !expr_has_unmodelable_features_cvc5(&expr),
+            "typestate in if-then should be modelable after #262"
         );
     }
 
     #[test]
-    fn test_unmodelable_in_forall_body() {
+    fn test_typestate_in_forall_body_modelable() {
+        // #262: Typestate in forall body is now modelable
         let expr = Expr::Forall {
             var: "i".into(),
             domain: Box::new(Expr::Ident("xs".into())),
             body: Box::new(Expr::Raw(vec!["item".into(), "@".into(), "Valid".into()])),
         };
         assert!(
-            expr_has_unmodelable_features_cvc5(&expr),
-            "typestate in forall body should be unmodelable"
+            !expr_has_unmodelable_features_cvc5(&expr),
+            "typestate in forall body should be modelable after #262"
         );
     }
 
     #[test]
-    fn test_cvc5_shellout_unmodelable_typestate_skipped() {
-        // Clause with @ annotation should produce Unknown via verify_contract_cvc5
-        // (which dispatches to either native or shellout depending on feature flag)
-        let clauses = vec![Clause {
-            kind: ClauseKind::Ensures,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
-            effect_variables: vec![],
-        }];
-        let results = verify_contract_cvc5("TestTypestate", &clauses);
-        assert_eq!(results.len(), 1);
+    fn test_cvc5_typestate_same_state_verifies() {
+        // #262: Typestate same pre/post should verify via verify_contract_cvc5
+        // (or Unknown if cvc5 is not installed on this system)
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+                effect_variables: vec![],
+            },
+        ];
+        let results = verify_contract_cvc5("TypestateIdentity", &clauses);
+        assert!(
+            !results.is_empty(),
+            "should have results for typestate identity"
+        );
         assert!(
             matches!(
                 &results[0],
-                VerificationResult::Unknown { reason, .. }
-                    if reason.contains("not yet encoded")
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
             ),
-            "expected Unknown with 'not yet encoded', got {:?}",
+            "same typestate pre/post should verify or Unknown (if cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
+
+    #[test]
+    fn test_cvc5_typestate_different_state_counterexample() {
+        // #262: Different typestate pre/post should produce counterexample
+        // (or Unknown if cvc5 is not installed on this system)
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()]),
+                effect_variables: vec![],
+            },
+        ];
+        let results = verify_contract_cvc5("TypestateMismatch", &clauses);
+        assert!(
+            !results.is_empty(),
+            "should have results for typestate mismatch"
+        );
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Counterexample { .. } | VerificationResult::Unknown { .. }
+            ),
+            "different typestate pre/post should produce counterexample or Unknown (if cvc5 not installed), got: {:?}",
             results[0]
         );
     }
@@ -5926,87 +5916,119 @@ mod tests {
         }
 
         #[test]
-        fn native_cvc5_unmodelable_typestate_skipped() {
-            // A clause with @ annotations should produce Unknown, not a false counterexample
-            let clauses = vec![Clause {
-                kind: ClauseKind::Ensures,
-                body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
-                effect_variables: vec![],
-            }];
-            let results = verify_contract_cvc5("TestTypestate", &clauses);
-            assert_eq!(results.len(), 1);
-            assert!(
-                matches!(
-                    &results[0],
-                    VerificationResult::Unknown { reason, .. }
-                        if reason.contains("not yet encoded")
-                ),
-                "expected Unknown with 'not yet encoded', got {:?}",
-                results[0]
-            );
-        }
-
-        #[test]
-        fn native_cvc5_unmodelable_nested_typestate() {
-            // Typestate annotation nested inside a binary expression
-            let clauses = vec![Clause {
-                kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    op: BinOp::And,
-                    lhs: Box::new(Expr::BinOp {
-                        op: BinOp::Gt,
-                        lhs: Box::new(Expr::Ident("x".into())),
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                    }),
-                    rhs: Box::new(Expr::Raw(vec![
-                        "conn".into(),
-                        "@".into(),
-                        "Connected".into(),
-                    ])),
+        fn native_cvc5_typestate_same_state_verifies() {
+            // #262: Typestate same pre/post should verify via native CVC5
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+                    effect_variables: vec![],
                 },
-                effect_variables: vec![],
-            }];
-            let results = verify_contract_cvc5("NestedTypestate", &clauses);
-            assert_eq!(results.len(), 1);
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("NativeTypestateIdentity", &clauses);
             assert!(
-                matches!(
-                    &results[0],
-                    VerificationResult::Unknown { reason, .. }
-                        if reason.contains("not yet encoded")
-                ),
-                "nested typestate should produce Unknown, got {:?}",
+                !results.is_empty(),
+                "should have results for typestate identity"
+            );
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "same typestate pre/post should verify via native CVC5, got: {:?}",
                 results[0]
             );
         }
 
         #[test]
-        fn native_cvc5_check_validity_unmodelable() {
-            // check_validity_cvc5 should also detect unmodelable features
-            let body = Expr::Raw(vec!["state".into(), "@".into(), "Running".into()]);
-            let result = check_validity_cvc5("validity_typestate", &[], &body);
+        fn native_cvc5_typestate_different_state_counterexample() {
+            // #262: Different typestate pre/post should produce counterexample
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()]),
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("NativeTypestateMismatch", &clauses);
             assert!(
-                matches!(
-                    &result,
-                    VerificationResult::Unknown { reason, .. }
-                        if reason.contains("not yet encoded")
-                ),
-                "check_validity_cvc5 should detect unmodelable: {:?}",
+                !results.is_empty(),
+                "should have results for typestate mismatch"
+            );
+            assert!(
+                matches!(&results[0], VerificationResult::Counterexample { .. }),
+                "different typestate pre/post should produce counterexample via native CVC5, got: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn native_cvc5_nested_typestate_encoded() {
+            // #262: Typestate nested inside a binary expression is now encoded
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::And,
+                        lhs: Box::new(Expr::BinOp {
+                            op: BinOp::Gt,
+                            lhs: Box::new(Expr::Ident("x".into())),
+                            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                        }),
+                        rhs: Box::new(Expr::Raw(vec![
+                            "conn".into(),
+                            "@".into(),
+                            "Connected".into(),
+                        ])),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::Raw(vec!["conn".into(), "@".into(), "Connected".into()]),
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("NativeNestedTypestate", &clauses);
+            assert!(
+                !results.is_empty(),
+                "should have results for nested typestate"
+            );
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "nested typestate with matching state should verify, got: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn native_cvc5_check_validity_typestate_encoded() {
+            // #262: check_validity_cvc5 should now encode typestate (not skip)
+            let assumption = Expr::Raw(vec!["state".into(), "@".into(), "Running".into()]);
+            let body = Expr::Raw(vec!["state".into(), "@".into(), "Running".into()]);
+            let result = check_validity_cvc5("validity_typestate", &[&assumption], &body);
+            assert!(
+                matches!(&result, VerificationResult::Verified { .. }),
+                "check_validity_cvc5 should verify same-state typestate: {:?}",
                 result
             );
         }
 
         #[test]
-        fn native_cvc5_check_satisfiability_unmodelable() {
-            // check_satisfiability_cvc5 should also detect unmodelable features
+        fn native_cvc5_check_satisfiability_typestate_encoded() {
+            // #262: check_satisfiability_cvc5 should now encode typestate (not skip)
             let body = Expr::Raw(vec!["lock".into(), "@".into(), "Acquired".into()]);
             let result = check_satisfiability_cvc5("sat_typestate", &[], &body);
             assert!(
-                matches!(
-                    &result,
-                    VerificationResult::Unknown { reason, .. }
-                        if reason.contains("not yet encoded")
-                ),
-                "check_satisfiability_cvc5 should detect unmodelable: {:?}",
+                matches!(&result, VerificationResult::Verified { .. }),
+                "check_satisfiability_cvc5 should find typestate satisfiable: {:?}",
                 result
             );
         }

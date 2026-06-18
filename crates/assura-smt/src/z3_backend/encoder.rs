@@ -1382,6 +1382,18 @@ impl Encoder {
             next += 2;
         }
 
+        // --- #262: Typestate annotation: `Type @ State` ---
+        // After collapsing dot chains, if the next token is `@` followed
+        // by a state name, encode as integer equality:
+        //   __typestate_<name> == hash(state_name)
+        if next + 1 < tokens.len() && tokens[next] == "@" {
+            let state_name = &tokens[next + 1];
+            let ts_var_name = format!("__typestate_{name}");
+            let ts_var = self.get_or_create_int(&ts_var_name);
+            let state_val = ast::Int::from_i64(self.pattern_hash(state_name));
+            return (Z3Value::Bool(ts_var.eq(&state_val)), next + 2);
+        }
+
         // Check for function call: `name(args)` -> encode with semantics
         if next < tokens.len() && tokens[next] == "(" {
             // Find matching close paren
@@ -1865,15 +1877,12 @@ pub(crate) fn expr_has_unmodelable_features(expr: &Expr) -> bool {
             expr_has_unmodelable_features(receiver)
                 || args.iter().any(expr_has_unmodelable_features)
         }
-        // #200: Raw tokens for taint, ghost, region, and validate are now
-        // modelable. Ghost vars are regular Z3 vars, taint levels are
-        // encoded as integers, regions as bounded constraints, and
-        // dotted field access is flattened.
-        Expr::Raw(tokens) => {
-            // Only block truly unmodelable raw constructs (typestate @
-            // annotations that need state machine encoding).
-            tokens.iter().any(|t| t == "@")
-        }
+        // #200, #262: Raw tokens for taint, ghost, region, validate, and
+        // typestate are now modelable. Ghost vars are regular Z3 vars,
+        // taint levels are encoded as integers, regions as bounded
+        // constraints, dotted field access is flattened, and typestate
+        // `@` annotations are encoded as integer equality checks.
+        Expr::Raw(_tokens) => false,
         Expr::BinOp { lhs, rhs, .. } => {
             expr_has_unmodelable_features(lhs) || expr_has_unmodelable_features(rhs)
         }
@@ -1957,89 +1966,10 @@ fn flatten_field_chain(expr: &Expr) -> String {
     }
 }
 
-pub(super) fn collect_unmodelable_reasons(expr: &Expr) -> Vec<String> {
-    let mut reasons = Vec::new();
-    collect_unmodelable_reasons_inner(expr, &mut reasons);
-    reasons.sort();
-    reasons.dedup();
-
-    reasons
-}
-
-fn collect_unmodelable_reasons_inner(expr: &Expr, reasons: &mut Vec<String>) {
-    // #198, #200, #201: Field access, method calls, and most raw tokens
-    // are now modelable. Only typestate @ annotations remain unmodelable.
-    if let Expr::Raw(tokens) = expr {
-        for t in tokens {
-            if t == "@" {
-                reasons.push("typestate annotation".into());
-            }
-        }
-    }
-    match expr {
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_unmodelable_reasons_inner(lhs, reasons);
-            collect_unmodelable_reasons_inner(rhs, reasons);
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Cast { expr: inner, .. }
-        | Expr::Field(inner, _) => {
-            collect_unmodelable_reasons_inner(inner, reasons);
-        }
-        Expr::Call { func, args } => {
-            collect_unmodelable_reasons_inner(func, reasons);
-            for a in args {
-                collect_unmodelable_reasons_inner(a, reasons);
-            }
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            collect_unmodelable_reasons_inner(receiver, reasons);
-            for a in args {
-                collect_unmodelable_reasons_inner(a, reasons);
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            collect_unmodelable_reasons_inner(e, reasons);
-            collect_unmodelable_reasons_inner(index, reasons);
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            collect_unmodelable_reasons_inner(domain, reasons);
-            collect_unmodelable_reasons_inner(body, reasons);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_unmodelable_reasons_inner(cond, reasons);
-            collect_unmodelable_reasons_inner(then_branch, reasons);
-            if let Some(eb) = else_branch {
-                collect_unmodelable_reasons_inner(eb, reasons);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            collect_unmodelable_reasons_inner(value, reasons);
-            collect_unmodelable_reasons_inner(body, reasons);
-        }
-        Expr::Match { scrutinee, arms } => {
-            collect_unmodelable_reasons_inner(scrutinee, reasons);
-            for a in arms {
-                collect_unmodelable_reasons_inner(&a.body, reasons);
-            }
-        }
-        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
-            for item in items {
-                collect_unmodelable_reasons_inner(item, reasons);
-            }
-        }
-        Expr::Apply { args, .. } => {
-            for a in args {
-                collect_unmodelable_reasons_inner(a, reasons);
-            }
-        }
-        _ => {}
-    }
+pub(super) fn collect_unmodelable_reasons(_expr: &Expr) -> Vec<String> {
+    // #198, #200, #201, #262: All expression types are now modelable.
+    // Field access, method calls, raw tokens (including typestate @),
+    // taint, ghost, region, and validate are all encoded in SMT.
+    // This function returns an empty list but is kept for API stability.
+    Vec::new()
 }
