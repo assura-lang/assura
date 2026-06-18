@@ -103,7 +103,9 @@ impl Z3Value {
             }
             // Str: coerce via length
             Z3Value::Str(s) => ast::Real::from_int(&s.length()),
-            Z3Value::Bv(b) => ast::Real::from_int(&ast::Int::new_const(format!("__bv_as_real_{b}"))),
+            Z3Value::Bv(b) => {
+                ast::Real::from_int(&ast::Int::new_const(format!("__bv_as_real_{b}")))
+            }
         }
     }
 }
@@ -2520,7 +2522,10 @@ impl BitvectorEncoder {
         let _ = Self::bvlshr(&a, &b);
         let _ = Self::bvashr(&a, &b);
         let _ = OverflowResult::Unknown;
-        if Self::bvadd_overflow_unsigned(&a, &b).to_string().contains('1') {
+        if Self::bvadd_overflow_unsigned(&a, &b)
+            .to_string()
+            .contains('1')
+        {
             OverflowResult::MayOverflow
         } else {
             let _ = Self::bvadd_overflow_signed(&a, &b);
