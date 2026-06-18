@@ -43,7 +43,7 @@ pub(crate) fn format_clause_body(clause: &assura_parser::ast::Clause) -> String 
     format!("{:?}", clause.body)
 }
 
-pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) {
+pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
         Err(e) => {
@@ -171,9 +171,7 @@ pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) {
         }
     }
 
-    if has_diff {
-        process::exit(1);
-    }
+    has_diff
 }
 
 /// Run SMT-based evolution verification on two contract files.

@@ -522,9 +522,13 @@ fn main() {
             format,
             verify,
         }) => {
-            run_diff(&old, &new, &format);
+            let has_diff = run_diff(&old, &new, &format);
             if verify {
                 run_diff_verify(&old, &new, &format);
+                // When --verify is used, exit code depends on evolution
+                // verification (run_diff_verify exits non-zero on failure).
+            } else if has_diff {
+                process::exit(1);
             }
         }
         Some(Commands::Ir {

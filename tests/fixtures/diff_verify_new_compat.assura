@@ -1,0 +1,6 @@
+// Test fixture for diff --verify: compatible evolution (weakened precondition)
+contract SafeAccess {
+  input(data: Bytes, offset: Nat)
+  requires { offset <= data.length() }
+  ensures { offset < data.length() }
+}

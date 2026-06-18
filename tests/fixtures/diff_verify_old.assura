@@ -1,0 +1,6 @@
+// Test fixture for diff --verify: original contract
+contract SafeAccess {
+  input(data: Bytes, offset: Nat)
+  requires { offset < data.length() }
+  ensures { offset < data.length() }
+}
