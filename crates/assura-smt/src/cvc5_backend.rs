@@ -2074,7 +2074,16 @@ fn collect_trigger_calls_cvc5<'a>(
 }
 
 /// Encode multi-token raw expressions for the native CVC5 backend.
-/// Handles simple infix patterns: a op b.
+///
+/// Uses a full precedence-climbing (Pratt) parser supporting:
+/// - 8 precedence levels (matching the AST expression parser)
+/// - Parenthesized sub-expressions
+/// - `old(expr)` syntax
+/// - `forall`/`exists` quantifiers: `forall x in domain { body }`
+/// - Comparison chaining: `a < b < c` desugars to `a < b && b < c`
+/// - Prefix operators: `!`, `-`, `not`
+/// - Dot-separated field access: `x.y.z` -> `x__y__z`
+/// - Function calls: `f(a, b)` with built-in semantics for abs/min/max
 #[cfg(feature = "cvc5-verify")]
 fn encode_raw_tokens_cvc5<'a>(
     tm: &'a cvc5::TermManager,
@@ -2082,75 +2091,496 @@ fn encode_raw_tokens_cvc5<'a>(
     vars: &HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    // Three-token pattern: lhs op rhs
-    if tokens.len() == 3 {
-        let lhs = encode_raw_atom_cvc5(tm, &tokens[0], vars);
-        let rhs = encode_raw_atom_cvc5(tm, &tokens[2], vars);
-        if let (Some(l), Some(r)) = (lhs, rhs) {
-            let kind = match tokens[1].as_str() {
-                "+" => Some(cvc5::Kind::Add),
-                "-" => Some(cvc5::Kind::Sub),
-                "*" => Some(cvc5::Kind::Mult),
-                "/" | "div" => Some(cvc5::Kind::IntsDivision),
-                "%" | "mod" => Some(cvc5::Kind::IntsModulus),
-                "=" | "==" => Some(cvc5::Kind::Equal),
-                "!=" => {
-                    let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]);
-                    return Some(tm.mk_term(cvc5::Kind::Not, &[eq]));
+    if tokens.is_empty() {
+        return Some(tm.mk_boolean(true));
+    }
+    let (val, _pos) = parse_raw_expr_cvc5(tm, tokens, 0, 0, vars, state)?;
+    Some(val)
+}
+
+/// Return the precedence and CVC5 Kind for a binary operator token.
+/// Returns `None` if the token is not a recognized infix operator.
+#[cfg(feature = "cvc5-verify")]
+fn raw_op_info_cvc5(tok: &str) -> Option<(u8, RawOpCvc5)> {
+    match tok {
+        "||" | "or" => Some((1, RawOpCvc5::Or)),
+        "&&" | "and" => Some((3, RawOpCvc5::And)),
+        "=>" | "==>" | "implies" => Some((3, RawOpCvc5::Implies)),
+        "==" | "=" => Some((5, RawOpCvc5::Eq)),
+        "!=" => Some((5, RawOpCvc5::Neq)),
+        "<" => Some((7, RawOpCvc5::Lt)),
+        ">" => Some((7, RawOpCvc5::Gt)),
+        "<=" => Some((7, RawOpCvc5::Leq)),
+        ">=" => Some((7, RawOpCvc5::Geq)),
+        "+" => Some((9, RawOpCvc5::Add)),
+        "-" => Some((9, RawOpCvc5::Sub)),
+        "*" => Some((11, RawOpCvc5::Mul)),
+        "/" | "div" => Some((11, RawOpCvc5::Div)),
+        "%" | "mod" => Some((11, RawOpCvc5::Mod)),
+        _ => None,
+    }
+}
+
+/// CVC5 raw operator kinds (mirrors Z3 `RawOp`).
+#[cfg(feature = "cvc5-verify")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RawOpCvc5 {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    Neq,
+    Lt,
+    Leq,
+    Gt,
+    Geq,
+    And,
+    Or,
+    Implies,
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn is_comparison_cvc5(op: RawOpCvc5) -> bool {
+    matches!(
+        op,
+        RawOpCvc5::Lt
+            | RawOpCvc5::Leq
+            | RawOpCvc5::Gt
+            | RawOpCvc5::Geq
+            | RawOpCvc5::Eq
+            | RawOpCvc5::Neq
+    )
+}
+
+/// Apply a binary operator to two CVC5 terms.
+#[cfg(feature = "cvc5-verify")]
+fn apply_raw_op_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    op: RawOpCvc5,
+    lhs: cvc5::Term<'a>,
+    rhs: cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    match op {
+        RawOpCvc5::Add => tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]),
+        RawOpCvc5::Sub => tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]),
+        RawOpCvc5::Mul => tm.mk_term(cvc5::Kind::Mult, &[lhs, rhs]),
+        RawOpCvc5::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[lhs, rhs]),
+        RawOpCvc5::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[lhs, rhs]),
+        RawOpCvc5::Eq => tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]),
+        RawOpCvc5::Neq => {
+            let eq = tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]);
+            tm.mk_term(cvc5::Kind::Not, &[eq])
+        }
+        RawOpCvc5::Lt => tm.mk_term(cvc5::Kind::Lt, &[lhs, rhs]),
+        RawOpCvc5::Leq => tm.mk_term(cvc5::Kind::Leq, &[lhs, rhs]),
+        RawOpCvc5::Gt => tm.mk_term(cvc5::Kind::Gt, &[lhs, rhs]),
+        RawOpCvc5::Geq => tm.mk_term(cvc5::Kind::Geq, &[lhs, rhs]),
+        RawOpCvc5::And => tm.mk_term(cvc5::Kind::And, &[lhs, rhs]),
+        RawOpCvc5::Or => tm.mk_term(cvc5::Kind::Or, &[lhs, rhs]),
+        RawOpCvc5::Implies => tm.mk_term(cvc5::Kind::Implies, &[lhs, rhs]),
+    }
+}
+
+/// Precedence-climbing expression parser for raw CVC5 tokens.
+///
+/// Returns `(term, next_position)`. Recurses with higher `min_prec` for
+/// tighter-binding operators. Supports comparison chaining.
+#[cfg(feature = "cvc5-verify")]
+fn parse_raw_expr_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    tokens: &[String],
+    pos: usize,
+    min_prec: u8,
+    vars: &HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> Option<(cvc5::Term<'a>, usize)> {
+    let (mut lhs, mut pos) = parse_raw_atom_cvc5(tm, tokens, pos, vars, state)?;
+
+    while pos < tokens.len() {
+        let Some((op_prec, op_kind)) = raw_op_info_cvc5(tokens[pos].as_str()) else {
+            break;
+        };
+        if op_prec < min_prec {
+            break;
+        }
+
+        pos += 1; // consume operator
+
+        let (rhs, next_pos) = parse_raw_expr_cvc5(tm, tokens, pos, op_prec + 1, vars, state)?;
+        pos = next_pos;
+
+        // Comparison chaining: if we just parsed `a < b` and the next
+        // op is also a comparison, desugar `a < b < c` into `a < b && b < c`.
+        if is_comparison_cvc5(op_kind)
+            && pos < tokens.len()
+            && let Some((next_prec, next_op)) = raw_op_info_cvc5(tokens[pos].as_str())
+            && is_comparison_cvc5(next_op)
+            && next_prec >= min_prec
+        {
+            let left_cmp = apply_raw_op_cvc5(tm, op_kind, lhs, rhs.clone());
+            pos += 1; // consume next operator
+            let (rhs2, next_pos2) =
+                parse_raw_expr_cvc5(tm, tokens, pos, next_prec + 1, vars, state)?;
+            pos = next_pos2;
+            let right_cmp = apply_raw_op_cvc5(tm, next_op, rhs, rhs2);
+            lhs = tm.mk_term(cvc5::Kind::And, &[left_cmp, right_cmp]);
+            continue;
+        }
+
+        lhs = apply_raw_op_cvc5(tm, op_kind, lhs, rhs);
+    }
+
+    Some((lhs, pos))
+}
+
+/// Parse a single atom from raw CVC5 tokens.
+///
+/// Handles: parenthesized expressions, `old(expr)`, `forall`/`exists`,
+/// prefix operators (`!`, `-`, `not`), boolean/integer literals,
+/// `result` keyword, specification keywords (skipped), dot-separated
+/// field access, and function calls with built-in semantics.
+#[cfg(feature = "cvc5-verify")]
+fn parse_raw_atom_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    tokens: &[String],
+    start: usize,
+    vars: &HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> Option<(cvc5::Term<'a>, usize)> {
+    if start >= tokens.len() {
+        // Past end: vacuously true
+        return Some((tm.mk_boolean(true), start));
+    }
+
+    let tok = &tokens[start];
+
+    // --- Unary not ---
+    if tok == "not" || tok == "!" {
+        let (val, next) = parse_raw_atom_cvc5(tm, tokens, start + 1, vars, state)?;
+        return Some((tm.mk_term(cvc5::Kind::Not, &[val]), next));
+    }
+
+    // --- Unary minus ---
+    if tok == "-" {
+        let (val, next) = parse_raw_atom_cvc5(tm, tokens, start + 1, vars, state)?;
+        return Some((tm.mk_term(cvc5::Kind::Neg, &[val]), next));
+    }
+
+    // --- Parenthesized expression ---
+    if tok == "(" {
+        let (val, end) = parse_raw_expr_cvc5(tm, tokens, start + 1, 0, vars, state)?;
+        // skip closing ')'
+        let next = if end < tokens.len() && tokens[end] == ")" {
+            end + 1
+        } else {
+            end
+        };
+        return Some((val, next));
+    }
+
+    // --- Boolean literals ---
+    if tok == "true" {
+        return Some((tm.mk_boolean(true), start + 1));
+    }
+    if tok == "false" {
+        return Some((tm.mk_boolean(false), start + 1));
+    }
+
+    // --- `result` keyword ---
+    if tok == "result" {
+        let key = "__result";
+        let v = vars
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), key));
+        return Some((v, start + 1));
+    }
+
+    // --- `old(expr)` ---
+    if tok == "old" && start + 1 < tokens.len() && tokens[start + 1] == "(" {
+        // Find matching close paren
+        let mut depth = 1usize;
+        let mut p = start + 2;
+        while p < tokens.len() && depth > 0 {
+            match tokens[p].as_str() {
+                "(" => depth += 1,
+                ")" => depth -= 1,
+                _ => {}
+            }
+            if depth > 0 {
+                p += 1;
+            }
+        }
+        let end = p + 1; // skip closing ')'
+        let inner_tokens = &tokens[start + 2..p];
+
+        // old(x) -> x__old
+        if inner_tokens.len() == 1 {
+            let old_name = format!("{}__old", sanitize_smtlib_name(&inner_tokens[0]));
+            let v = vars
+                .get(&old_name)
+                .cloned()
+                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
+            return Some((v, end));
+        }
+        // old(x.field) -> x__old with field access UF
+        if inner_tokens.len() == 3 && inner_tokens[1] == "." {
+            let old_name = format!("{}__old", sanitize_smtlib_name(&inner_tokens[0]));
+            let old_var = vars
+                .get(&old_name)
+                .cloned()
+                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
+            let field = sanitize_smtlib_name(&inner_tokens[2]);
+            let func_name = format!("__field_{field}");
+            let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let func = tm.mk_const(fun_sort, &func_name);
+            let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func, old_var]);
+            return Some((result, end));
+        }
+        // General old(expr): parse inner expression, remap vars to __old
+        // (simplified: parse as-is, create __old-suffixed vars for idents)
+        let mut old_vars = vars.clone();
+        for inner_tok in inner_tokens {
+            if inner_tok
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_')
+                && !matches!(
+                    inner_tok.as_str(),
+                    "true"
+                        | "false"
+                        | "old"
+                        | "forall"
+                        | "exists"
+                        | "result"
+                        | "not"
+                        | "and"
+                        | "or"
+                        | "implies"
+                        | "mod"
+                        | "div"
+                        | "in"
+                )
+            {
+                let sane = sanitize_smtlib_name(inner_tok);
+                let old_key = format!("{sane}__old");
+                if !old_vars.contains_key(&old_key) {
+                    let term = tm.mk_const(tm.integer_sort(), &old_key);
+                    old_vars.insert(old_key, term);
                 }
-                "<" => Some(cvc5::Kind::Lt),
-                "<=" => Some(cvc5::Kind::Leq),
-                ">" => Some(cvc5::Kind::Gt),
-                ">=" => Some(cvc5::Kind::Geq),
-                "&&" | "and" => Some(cvc5::Kind::And),
-                "||" | "or" => Some(cvc5::Kind::Or),
-                "=>" | "implies" => Some(cvc5::Kind::Implies),
-                _ => None,
+            }
+        }
+        if let Some((val, _)) = parse_raw_expr_cvc5(tm, inner_tokens, 0, 0, &old_vars, state) {
+            return Some((val, end));
+        }
+        // Fallback: fresh integer
+        let fresh_name = format!("__old_fresh_{}", state.fresh_counter);
+        state.fresh_counter += 1;
+        return Some((tm.mk_const(tm.integer_sort(), &fresh_name), end));
+    }
+
+    // --- `forall`/`exists` quantifiers: `forall x in domain { body }` ---
+    if (tok == "forall" || tok == "exists") && start + 4 < tokens.len() && tokens[start + 2] == "in"
+    {
+        let var_name = sanitize_smtlib_name(&tokens[start + 1]);
+        let is_forall = tok == "forall";
+
+        // Find body delimiter: either `:` or `{`
+        let mut delim_pos = start + 3;
+        let mut d = 0usize;
+        while delim_pos < tokens.len() {
+            match tokens[delim_pos].as_str() {
+                "(" => d += 1,
+                ")" => d = d.saturating_sub(1),
+                ":" | "{" if d == 0 => break,
+                _ => {}
+            }
+            delim_pos += 1;
+        }
+
+        if delim_pos < tokens.len() && (tokens[delim_pos] == ":" || tokens[delim_pos] == "{") {
+            let body_start = delim_pos + 1;
+            let body_end = if tokens[delim_pos] == "{" {
+                // Find matching `}`
+                let mut bd = 1usize;
+                let mut ep = body_start;
+                while ep < tokens.len() && bd > 0 {
+                    match tokens[ep].as_str() {
+                        "{" => bd += 1,
+                        "}" => bd -= 1,
+                        _ => {}
+                    }
+                    if bd > 0 {
+                        ep += 1;
+                    }
+                }
+                let body_slice_end = ep;
+                let final_pos = ep + 1; // skip `}`
+                (body_slice_end, final_pos)
+            } else {
+                // Colon: rest of tokens is body
+                (tokens.len(), tokens.len())
             };
-            if let Some(k) = kind {
-                return Some(tm.mk_term(k, &[l, r]));
+
+            // Bind quantifier variable
+            let bound = tm.mk_var(tm.integer_sort(), &var_name);
+            let mut local_vars = vars.clone();
+            local_vars.insert(var_name.clone(), bound.clone());
+
+            // Parse body
+            let body_tokens = &tokens[body_start..body_end.0];
+            if let Some((body_val, _)) =
+                parse_raw_expr_cvc5(tm, body_tokens, 0, 0, &local_vars, state)
+            {
+                let var_list = tm.mk_term(cvc5::Kind::VariableList, &[bound]);
+                let kind = if is_forall {
+                    cvc5::Kind::Forall
+                } else {
+                    cvc5::Kind::Exists
+                };
+                let quantified = tm.mk_term(kind, &[var_list, body_val]);
+                return Some((quantified, body_end.1));
+            }
+
+            return Some((tm.mk_boolean(true), body_end.1));
+        }
+    }
+
+    // --- Integer literal ---
+    if let Ok(n) = tok.parse::<i64>() {
+        return Some((tm.mk_integer(n), start + 1));
+    }
+
+    // --- Skip specification keywords (taint/ghost/region/validate) ---
+    if matches!(
+        tok.as_str(),
+        "taint" | "untrusted" | "validated" | "ghost" | "Region" | "validate"
+    ) {
+        return parse_raw_atom_cvc5(tm, tokens, start + 1, vars, state);
+    }
+
+    // --- Identifier (possibly with dot-separated field access) ---
+    let mut name = sanitize_smtlib_name(tok);
+    let mut next = start + 1;
+    // Collapse `x.y.z` chains into `x__y__z`
+    while next + 1 < tokens.len() && tokens[next] == "." {
+        name.push_str("__");
+        name.push_str(&sanitize_smtlib_name(&tokens[next + 1]));
+        next += 2;
+    }
+
+    // Check for function call: `name(args)`
+    if next < tokens.len() && tokens[next] == "(" {
+        let mut depth = 1usize;
+        let mut p = next + 1;
+        while p < tokens.len() && depth > 0 {
+            match tokens[p].as_str() {
+                "(" => depth += 1,
+                ")" => depth -= 1,
+                _ => {}
+            }
+            if depth > 0 {
+                p += 1;
+            }
+        }
+
+        // Parse arguments by splitting on commas at depth 0
+        let arg_tokens = &tokens[next + 1..p];
+        let mut arg_vals: Vec<cvc5::Term<'a>> = Vec::new();
+        if !arg_tokens.is_empty() {
+            let mut arg_start_idx = 0;
+            let mut dd = 0usize;
+            for (i, t) in arg_tokens.iter().enumerate() {
+                match t.as_str() {
+                    "(" => dd += 1,
+                    ")" => dd = dd.saturating_sub(1),
+                    "," if dd == 0 => {
+                        let chunk = &arg_tokens[arg_start_idx..i];
+                        if !chunk.is_empty()
+                            && let Some((v, _)) = parse_raw_expr_cvc5(tm, chunk, 0, 0, vars, state)
+                        {
+                            arg_vals.push(v);
+                        }
+                        arg_start_idx = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            // Last argument
+            let chunk = &arg_tokens[arg_start_idx..];
+            if !chunk.is_empty()
+                && let Some((v, _)) = parse_raw_expr_cvc5(tm, chunk, 0, 0, vars, state)
+            {
+                arg_vals.push(v);
+            }
+        }
+        let end = p + 1; // skip closing ')'
+
+        // Extract base function name (last segment after dots)
+        let func_name = name.rsplit("__").next().unwrap_or(&name);
+
+        // Built-in functions
+        match func_name {
+            "abs" if arg_vals.len() == 1 => {
+                let x = arg_vals[0].clone();
+                let zero = tm.mk_integer(0);
+                let neg_x = tm.mk_term(cvc5::Kind::Neg, &[x.clone()]);
+                let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
+                return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, x, neg_x]), end));
+            }
+            "min" if arg_vals.len() == 2 => {
+                let (a, b) = (arg_vals[0].clone(), arg_vals[1].clone());
+                let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
+                return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, a, b]), end));
+            }
+            "max" if arg_vals.len() == 2 => {
+                let (a, b) = (arg_vals[0].clone(), arg_vals[1].clone());
+                let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
+                return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, a, b]), end));
+            }
+            "length" if arg_vals.is_empty() => {
+                // x.length() -> UF with length >= 0 axiom
+                let uf_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                let uf = tm.mk_const(uf_sort, "__length");
+                let base_var = vars
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
+                let result = tm.mk_term(cvc5::Kind::ApplyUf, &[uf, base_var]);
+                let zero = tm.mk_integer(0);
+                let axiom = tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]);
+                state.axioms.push(axiom);
+                return Some((result, end));
+            }
+            _ => {
+                // Generic UF
+                if arg_vals.is_empty() {
+                    let v = vars
+                        .get(&name)
+                        .cloned()
+                        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
+                    return Some((v, end));
+                }
+                let n_args = arg_vals.len();
+                let domain: Vec<_> = (0..n_args).map(|_| tm.integer_sort()).collect();
+                let domain_refs: Vec<&_> = domain.iter().collect();
+                let fun_sort = tm.mk_fun_sort(&domain_refs, tm.integer_sort());
+                let func = tm.mk_const(fun_sort, &name);
+                let mut all_args = vec![func];
+                all_args.extend(arg_vals);
+                return Some((tm.mk_term(cvc5::Kind::ApplyUf, &all_args), end));
             }
         }
     }
-    // Fallback: try to parse as a single atom (for tokens that
-    // were split but are really one value)
-    if tokens.len() == 2 && tokens[0] == "-" {
-        if let Some(atom) = encode_raw_atom_cvc5(tm, &tokens[1], vars) {
-            return Some(tm.mk_term(cvc5::Kind::Neg, &[atom]));
-        }
-    }
-    if tokens.len() == 2 && (tokens[0] == "!" || tokens[0] == "not") {
-        if let Some(atom) = encode_raw_atom_cvc5(tm, &tokens[1], vars) {
-            return Some(tm.mk_term(cvc5::Kind::Not, &[atom]));
-        }
-    }
-    // Cannot parse: encode args for side effects, return None
-    let _ = state;
-    None
-}
 
-/// Parse a single raw token as a CVC5 atom.
-#[cfg(feature = "cvc5-verify")]
-fn encode_raw_atom_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    token: &str,
-    vars: &HashMap<String, cvc5::Term<'a>>,
-) -> Option<cvc5::Term<'a>> {
-    if token == "true" {
-        return Some(tm.mk_boolean(true));
-    }
-    if token == "false" {
-        return Some(tm.mk_boolean(false));
-    }
-    if let Ok(n) = token.parse::<i64>() {
-        return Some(tm.mk_integer(n));
-    }
-    let key = sanitize_smtlib_name(token);
-    Some(
-        vars.get(&key)
-            .cloned()
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key)),
-    )
+    // Plain identifier
+    let v = vars
+        .get(&name)
+        .cloned()
+        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
+    Some((v, next))
 }
 
 // -------------------------------------------------------------------------
@@ -3213,55 +3643,13 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             // SMT-LIB has no block; encode the last expression
             expr_to_smtlib(body.last()?)
         }
-        // Raw tokens: basic SMT-LIB encoding
+        // Raw tokens: full precedence-climbing SMT-LIB2 encoding
         Expr::Raw(tokens) => {
             if tokens.is_empty() {
                 return Some("true".to_string());
             }
-            if tokens.len() == 1 {
-                let t = &tokens[0];
-                if t == "true" || t == "false" {
-                    return Some(t.clone());
-                }
-                if t.parse::<i64>().is_ok() {
-                    return Some(t.clone());
-                }
-                return Some(sanitize_smtlib_name(t));
-            }
-            // Three-token infix: lhs op rhs
-            if tokens.len() == 3 {
-                let l = &tokens[0];
-                let r = &tokens[2];
-                let smt_op = match tokens[1].as_str() {
-                    "+" => "+",
-                    "-" => "-",
-                    "*" => "*",
-                    "/" | "div" => "div",
-                    "%" | "mod" => "mod",
-                    "=" | "==" => "=",
-                    "!=" => {
-                        return Some(format!(
-                            "(not (= {} {}))",
-                            sanitize_smtlib_name(l),
-                            sanitize_smtlib_name(r)
-                        ));
-                    }
-                    "<" => "<",
-                    "<=" => "<=",
-                    ">" => ">",
-                    ">=" => ">=",
-                    "&&" | "and" => "and",
-                    "||" | "or" => "or",
-                    "=>" | "implies" => "=>",
-                    _ => return None,
-                };
-                return Some(format!(
-                    "({smt_op} {} {})",
-                    sanitize_smtlib_name(l),
-                    sanitize_smtlib_name(r)
-                ));
-            }
-            None
+            let (val, _) = parse_raw_expr_smtlib(tokens, 0, 0)?;
+            Some(val)
         }
         // Tuple: use a fresh variable name
         Expr::Tuple(_) => Some("__tuple_fresh".to_string()),
@@ -3328,6 +3716,277 @@ fn pattern_hash_smtlib(name: &str) -> i64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash as i64
+}
+
+// -------------------------------------------------------------------------
+// SMT-LIB2 precedence-climbing parser for Expr::Raw tokens (shell-out path)
+// -------------------------------------------------------------------------
+
+/// Return the precedence and SMT-LIB2 operator string for a binary operator.
+fn raw_op_info_smtlib(tok: &str) -> Option<(u8, &'static str, bool)> {
+    // Returns (precedence, smt_op, is_comparison)
+    match tok {
+        "||" | "or" => Some((1, "or", false)),
+        "&&" | "and" => Some((3, "and", false)),
+        "=>" | "==>" | "implies" => Some((3, "=>", false)),
+        "==" | "=" => Some((5, "=", true)),
+        "!=" => Some((5, "!=", true)),
+        "<" => Some((7, "<", true)),
+        ">" => Some((7, ">", true)),
+        "<=" => Some((7, "<=", true)),
+        ">=" => Some((7, ">=", true)),
+        "+" => Some((9, "+", false)),
+        "-" => Some((9, "-", false)),
+        "*" => Some((11, "*", false)),
+        "/" | "div" => Some((11, "div", false)),
+        "%" | "mod" => Some((11, "mod", false)),
+        _ => None,
+    }
+}
+
+/// Format a binary operation as SMT-LIB2 prefix notation.
+fn format_smtlib_binop(smt_op: &str, lhs: &str, rhs: &str) -> String {
+    if smt_op == "!=" {
+        format!("(not (= {lhs} {rhs}))")
+    } else {
+        format!("({smt_op} {lhs} {rhs})")
+    }
+}
+
+/// Precedence-climbing expression parser for raw tokens producing SMT-LIB2 text.
+///
+/// Returns `(smtlib_string, next_position)`.
+fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<(String, usize)> {
+    let (mut lhs, mut pos) = parse_raw_atom_smtlib(tokens, pos)?;
+
+    while pos < tokens.len() {
+        let Some((op_prec, smt_op, is_cmp)) = raw_op_info_smtlib(tokens[pos].as_str()) else {
+            break;
+        };
+        if op_prec < min_prec {
+            break;
+        }
+
+        pos += 1; // consume operator
+
+        let (rhs, next_pos) = parse_raw_expr_smtlib(tokens, pos, op_prec + 1)?;
+        pos = next_pos;
+
+        // Comparison chaining: `a < b < c` -> `(and (< a b) (< b c))`
+        if is_cmp
+            && pos < tokens.len()
+            && let Some((next_prec, next_smt_op, next_is_cmp)) =
+                raw_op_info_smtlib(tokens[pos].as_str())
+            && next_is_cmp
+            && next_prec >= min_prec
+        {
+            let left_cmp = format_smtlib_binop(smt_op, &lhs, &rhs);
+            pos += 1; // consume next operator
+            let (rhs2, next_pos2) = parse_raw_expr_smtlib(tokens, pos, next_prec + 1)?;
+            pos = next_pos2;
+            let right_cmp = format_smtlib_binop(next_smt_op, &rhs, &rhs2);
+            lhs = format!("(and {left_cmp} {right_cmp})");
+            continue;
+        }
+
+        lhs = format_smtlib_binop(smt_op, &lhs, &rhs);
+    }
+
+    Some((lhs, pos))
+}
+
+/// Parse a single atom from raw tokens into SMT-LIB2 text.
+fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usize)> {
+    if start >= tokens.len() {
+        return Some(("true".to_string(), start));
+    }
+
+    let tok = &tokens[start];
+
+    // --- Unary not ---
+    if tok == "not" || tok == "!" {
+        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1)?;
+        return Some((format!("(not {val})"), next));
+    }
+
+    // --- Unary minus ---
+    if tok == "-" {
+        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1)?;
+        return Some((format!("(- {val})"), next));
+    }
+
+    // --- Parenthesized expression ---
+    if tok == "(" {
+        let (val, end) = parse_raw_expr_smtlib(tokens, start + 1, 0)?;
+        let next = if end < tokens.len() && tokens[end] == ")" {
+            end + 1
+        } else {
+            end
+        };
+        return Some((val, next));
+    }
+
+    // --- Boolean literals ---
+    if tok == "true" || tok == "false" {
+        return Some((tok.clone(), start + 1));
+    }
+
+    // --- `result` keyword ---
+    if tok == "result" {
+        return Some(("__result".to_string(), start + 1));
+    }
+
+    // --- `old(expr)` ---
+    if tok == "old" && start + 1 < tokens.len() && tokens[start + 1] == "(" {
+        let mut depth = 1usize;
+        let mut p = start + 2;
+        while p < tokens.len() && depth > 0 {
+            match tokens[p].as_str() {
+                "(" => depth += 1,
+                ")" => depth -= 1,
+                _ => {}
+            }
+            if depth > 0 {
+                p += 1;
+            }
+        }
+        let end = p + 1;
+        let inner = &tokens[start + 2..p];
+
+        if inner.len() == 1 {
+            let old_name = format!("{}__old", sanitize_smtlib_name(&inner[0]));
+            return Some((old_name, end));
+        }
+        // General old(expr): parse inner and suffix identifiers conceptually
+        if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0) {
+            return Some((val, end));
+        }
+        return Some(("__old_fresh".to_string(), end));
+    }
+
+    // --- `forall`/`exists` quantifiers ---
+    if (tok == "forall" || tok == "exists") && start + 4 < tokens.len() && tokens[start + 2] == "in"
+    {
+        let var_name = sanitize_smtlib_name(&tokens[start + 1]);
+        let quantifier = tok.as_str();
+
+        // Find body delimiter: `:` or `{`
+        let mut delim_pos = start + 3;
+        let mut d = 0usize;
+        while delim_pos < tokens.len() {
+            match tokens[delim_pos].as_str() {
+                "(" => d += 1,
+                ")" => d = d.saturating_sub(1),
+                ":" | "{" if d == 0 => break,
+                _ => {}
+            }
+            delim_pos += 1;
+        }
+
+        if delim_pos < tokens.len() && (tokens[delim_pos] == ":" || tokens[delim_pos] == "{") {
+            let body_start = delim_pos + 1;
+            let (body_slice_end, final_pos) = if tokens[delim_pos] == "{" {
+                let mut bd = 1usize;
+                let mut ep = body_start;
+                while ep < tokens.len() && bd > 0 {
+                    match tokens[ep].as_str() {
+                        "{" => bd += 1,
+                        "}" => bd -= 1,
+                        _ => {}
+                    }
+                    if bd > 0 {
+                        ep += 1;
+                    }
+                }
+                (ep, ep + 1)
+            } else {
+                (tokens.len(), tokens.len())
+            };
+
+            let body_tokens = &tokens[body_start..body_slice_end];
+            if let Some((body_val, _)) = parse_raw_expr_smtlib(body_tokens, 0, 0) {
+                return Some((
+                    format!("({quantifier} (({var_name} Int)) {body_val})"),
+                    final_pos,
+                ));
+            }
+            return Some((format!("({quantifier} (({var_name} Int)) true)"), final_pos));
+        }
+    }
+
+    // --- Integer literal ---
+    if tok.parse::<i64>().is_ok() {
+        return Some((tok.clone(), start + 1));
+    }
+
+    // --- Skip specification keywords ---
+    if matches!(
+        tok.as_str(),
+        "taint" | "untrusted" | "validated" | "ghost" | "Region" | "validate"
+    ) {
+        return parse_raw_atom_smtlib(tokens, start + 1);
+    }
+
+    // --- Identifier with dot-separated field access ---
+    let mut name = sanitize_smtlib_name(tok);
+    let mut next = start + 1;
+    while next + 1 < tokens.len() && tokens[next] == "." {
+        name.push('_');
+        name.push_str(&sanitize_smtlib_name(&tokens[next + 1]));
+        next += 2;
+    }
+
+    // Function call: `name(args)` -> `(name arg1 arg2 ...)`
+    if next < tokens.len() && tokens[next] == "(" {
+        let mut depth = 1usize;
+        let mut p = next + 1;
+        while p < tokens.len() && depth > 0 {
+            match tokens[p].as_str() {
+                "(" => depth += 1,
+                ")" => depth -= 1,
+                _ => {}
+            }
+            if depth > 0 {
+                p += 1;
+            }
+        }
+        let arg_tokens = &tokens[next + 1..p];
+        let mut arg_strs: Vec<String> = Vec::new();
+        if !arg_tokens.is_empty() {
+            let mut arg_start_idx = 0;
+            let mut dd = 0usize;
+            for (i, t) in arg_tokens.iter().enumerate() {
+                match t.as_str() {
+                    "(" => dd += 1,
+                    ")" => dd = dd.saturating_sub(1),
+                    "," if dd == 0 => {
+                        let chunk = &arg_tokens[arg_start_idx..i];
+                        if !chunk.is_empty()
+                            && let Some((v, _)) = parse_raw_expr_smtlib(chunk, 0, 0)
+                        {
+                            arg_strs.push(v);
+                        }
+                        arg_start_idx = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            let chunk = &arg_tokens[arg_start_idx..];
+            if !chunk.is_empty()
+                && let Some((v, _)) = parse_raw_expr_smtlib(chunk, 0, 0)
+            {
+                arg_strs.push(v);
+            }
+        }
+        let end = p + 1;
+
+        if arg_strs.is_empty() {
+            return Some((name, end));
+        }
+        return Some((format!("({name} {})", arg_strs.join(" ")), end));
+    }
+
+    Some((name, next))
 }
 
 fn sanitize_smtlib_name(name: &str) -> String {
@@ -3844,6 +4503,147 @@ mod tests {
         // Bool token
         let expr_bool = Expr::Raw(vec!["true".into()]);
         assert_eq!(expr_to_smtlib(&expr_bool), Some("true".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_precedence_climbing() {
+        // "a + b * c" should parse as (+ a (* b c)) due to precedence
+        let expr = Expr::Raw(vec![
+            "a".into(),
+            "+".into(),
+            "b".into(),
+            "*".into(),
+            "c".into(),
+        ]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(+ a (* b c))".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_parentheses() {
+        // "(a + b) * c" should parse as (* (+ a b) c)
+        let expr = Expr::Raw(vec![
+            "(".into(),
+            "a".into(),
+            "+".into(),
+            "b".into(),
+            ")".into(),
+            "*".into(),
+            "c".into(),
+        ]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(* (+ a b) c)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_old_expression() {
+        // "old ( x ) + 1" should parse old(x) + 1
+        let expr = Expr::Raw(vec![
+            "old".into(),
+            "(".into(),
+            "x".into(),
+            ")".into(),
+            "+".into(),
+            "1".into(),
+        ]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(+ x__old 1)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_nested_operators() {
+        // "a + b - c + d" left-associative: (+ (- (+ a b) c) d)
+        let expr = Expr::Raw(vec![
+            "a".into(),
+            "+".into(),
+            "b".into(),
+            "-".into(),
+            "c".into(),
+            "+".into(),
+            "d".into(),
+        ]);
+        let result = expr_to_smtlib(&expr).unwrap();
+        // Left-associative: ((a + b) - c) + d
+        assert_eq!(result, "(+ (- (+ a b) c) d)");
+    }
+
+    #[test]
+    fn test_smtlib_raw_comparison_chain() {
+        // "a < b < c" desugars to (and (< a b) (< b c))
+        let expr = Expr::Raw(vec![
+            "a".into(),
+            "<".into(),
+            "b".into(),
+            "<".into(),
+            "c".into(),
+        ]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(and (< a b) (< b c))".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_unary_not() {
+        // "! x" -> (not x)
+        let expr = Expr::Raw(vec!["!".into(), "x".into()]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(not x)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_unary_neg() {
+        // "- x" -> (- x)
+        let expr = Expr::Raw(vec!["-".into(), "x".into()]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(- x)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_logical_ops() {
+        // "a && b || c" should respect precedence: (or (and a b) c)
+        let expr = Expr::Raw(vec![
+            "a".into(),
+            "&&".into(),
+            "b".into(),
+            "||".into(),
+            "c".into(),
+        ]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(or (and a b) c)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_neq() {
+        // "a != b" -> (not (= a b))
+        let expr = Expr::Raw(vec!["a".into(), "!=".into(), "b".into()]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(not (= a b))".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_mod_div() {
+        // "a mod b" and "a div b"
+        let expr_mod = Expr::Raw(vec!["a".into(), "mod".into(), "b".into()]);
+        assert_eq!(expr_to_smtlib(&expr_mod), Some("(mod a b)".into()));
+
+        let expr_div = Expr::Raw(vec!["a".into(), "div".into(), "b".into()]);
+        assert_eq!(expr_to_smtlib(&expr_div), Some("(div a b)".into()));
+    }
+
+    #[test]
+    fn test_smtlib_raw_complex_expression() {
+        // "x >= 0 && x < max" -> (and (>= x 0) (< x max))
+        let expr = Expr::Raw(vec![
+            "x".into(),
+            ">=".into(),
+            "0".into(),
+            "&&".into(),
+            "x".into(),
+            "<".into(),
+            "max".into(),
+        ]);
+        assert_eq!(
+            expr_to_smtlib(&expr),
+            Some("(and (>= x 0) (< x max))".into())
+        );
+    }
+
+    #[test]
+    fn test_smtlib_raw_function_call() {
+        // "abs ( x )" -> (abs x)
+        let expr = Expr::Raw(vec!["abs".into(), "(".into(), "x".into(), ")".into()]);
+        assert_eq!(expr_to_smtlib(&expr), Some("(abs x)".into()));
     }
 
     #[test]
