@@ -171,9 +171,10 @@ impl VerificationCache {
     /// Cache files are stored in `<base_dir>/.assura-cache/verify/`.
     pub fn new(base_dir: &std::path::Path) -> Self {
         let cache_dir = base_dir.join(".assura-cache").join("verify");
-        if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-            eprintln!("warning: could not create verification cache directory: {e}");
-        }
+        // Silently ignore creation failures (e.g., /dev/stdin parent is
+        // /dev/ which is not writable). The cache is a performance
+        // optimization; get() and store() already handle missing dirs.
+        let _ = std::fs::create_dir_all(&cache_dir);
         Self { cache_dir }
     }
 
@@ -200,10 +201,9 @@ impl VerificationCache {
         let hash = hash_clauses(contract_name, clauses);
         let path = self.cache_dir.join(format!("{hash}.json"));
         let cached: Vec<CachedResult> = results.iter().map(CachedResult::from).collect();
-        if let Ok(json) = serde_json::to_string(&cached)
-            && let Err(e) = std::fs::write(&path, json)
-        {
-            eprintln!("warning: could not write verification cache entry: {e}");
+        if let Ok(json) = serde_json::to_string(&cached) {
+            // Silently ignore write failures (non-writable cache dir).
+            let _ = std::fs::write(&path, json);
         }
     }
 
