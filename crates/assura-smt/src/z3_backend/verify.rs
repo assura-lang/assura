@@ -27,6 +27,8 @@ struct TypeConstraints<'a> {
     /// `feature_max max_X: Nat = V` produces `("X", V)`, meaning any
     /// variable named `X` gets `X <= V` asserted as a background axiom.
     narrowings: &'a [(String, i64)],
+    /// Use native Z3 string theory (QF_S/QF_SLIA) instead of integer encoding.
+    use_string_theory: bool,
 }
 
 /// Returns true if the given type token list represents the `Nat` type.
@@ -155,7 +157,7 @@ fn verify_clauses_with_types(
 
         let solver = Solver::new();
 
-        let mut encoder = Encoder::new();
+        let mut encoder = Encoder::with_string_theory(types.use_string_theory);
 
         // Bind named constants so Z3 uses concrete values, not free vars.
         for (name, value) in types.constants {
@@ -543,6 +545,7 @@ pub(crate) fn verify_contract_impl_with_types(
         return_ty,
         constants,
         narrowings: &narrowings,
+        ..Default::default()
     };
     verify_clauses_with_types(
         contract_name,
@@ -595,6 +598,7 @@ pub(crate) fn verify_impl_with_timeout(
                         return_ty: &output_ty,
                         constants: &constants,
                         narrowings: &narrowings,
+                        ..Default::default()
                     },
                 );
             }
@@ -604,6 +608,7 @@ pub(crate) fn verify_impl_with_timeout(
                     return_ty: &f.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
+                    ..Default::default()
                 };
                 verify_clauses_with_types(
                     &f.name,
@@ -620,6 +625,7 @@ pub(crate) fn verify_impl_with_timeout(
                     return_ty: &e.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
+                    ..Default::default()
                 };
                 verify_clauses_with_types(
                     &e.name,
@@ -687,6 +693,7 @@ pub(crate) fn verify_impl_with_timeout(
                     return_ty: &b.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
+                    ..Default::default()
                 };
                 verify_clauses_with_types(
                     &b.name,

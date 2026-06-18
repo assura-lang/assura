@@ -19,6 +19,8 @@ pub(crate) enum Z3Value {
     Bool(ast::Bool),
     Int(ast::Int),
     Real(ast::Real),
+    /// Native Z3 string value (only used when `use_string_theory` is enabled).
+    Str(ast::String),
 }
 
 /// Binary operator kind for raw token parsing.
@@ -47,11 +49,13 @@ impl Z3Value {
             Z3Value::Bool(b) => b.clone(),
             Z3Value::Int(i) => i.eq(ast::Int::from_i64(0)).not(),
             Z3Value::Real(r) => r.eq(ast::Real::from_rational(0, 1)).not(),
+            // Str: non-empty string is truthy
+            Z3Value::Str(s) => s.length().eq(ast::Int::from_i64(0)).not(),
         }
     }
 
     /// Extract as Int. If Bool, use `ite(b, 1, 0)` for sound coercion.
-    /// If Real, truncate via `real2int`.
+    /// If Real, truncate via `real2int`. If Str, use `str.len`.
     pub(super) fn as_int(&self, _counter: &mut u32) -> ast::Int {
         match self {
             Z3Value::Int(i) => i.clone(),
@@ -62,6 +66,8 @@ impl Z3Value {
                 b.ite(&one, &zero)
             }
             Z3Value::Real(r) => ast::Real::to_int(r),
+            // Str: coerce to length for integer context
+            Z3Value::Str(s) => s.length(),
         }
     }
 
@@ -76,6 +82,8 @@ impl Z3Value {
                 let zero = ast::Real::from_rational(0, 1);
                 b.ite(&one, &zero)
             }
+            // Str: coerce via length
+            Z3Value::Str(s) => ast::Real::from_int(&s.length()),
         }
     }
 }
@@ -97,6 +105,9 @@ pub(crate) struct Encoder {
     pub(crate) trigger_manager: crate::advanced::TriggerManager,
     /// Track distinct string constant names for pairwise distinctness axioms
     pub(crate) string_constants: Vec<String>,
+    /// When true, use native Z3 string theory (QF_S/QF_SLIA) for string
+    /// literals and .length(). When false (default), use integer encoding.
+    pub(crate) use_string_theory: bool,
 }
 
 impl Encoder {
@@ -108,6 +119,15 @@ impl Encoder {
             background_axioms: Vec::new(),
             trigger_manager: crate::advanced::TriggerManager::new(),
             string_constants: Vec::new(),
+            use_string_theory: false,
+        }
+    }
+
+    /// Create an encoder with native string theory enabled.
+    pub(crate) fn with_string_theory(use_string_theory: bool) -> Self {
+        Self {
+            use_string_theory,
+            ..Self::new()
         }
     }
 
@@ -301,6 +321,17 @@ impl Encoder {
     /// Encode a function call as an uninterpreted function application.
     /// Known boolean methods return Bool; everything else returns Int.
     fn encode_call(&mut self, func_name: &str, args: &[Expr]) -> Z3Value {
+        // Native string theory: length(str_val) uses Z3's str.len
+        if self.use_string_theory && matches!(func_name, "len" | "length") && args.len() == 1 {
+            let arg_val = self.encode_expr(&args[0]);
+            if let Z3Value::Str(s) = &arg_val {
+                let len = s.length();
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(len.ge(&zero));
+                return Z3Value::Int(len);
+            }
+        }
+
         let arg_vals: Vec<ast::Int> = args
             .iter()
             .map(|a| self.encode_expr(a).as_int(&mut self.fresh_counter))
@@ -575,6 +606,18 @@ impl Encoder {
     /// `__field_len(result)`. This is a known limitation; see the doc
     /// comment on `verify_clauses_with_types` for details.
     fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value {
+        // Native string theory: .length() on a Str value uses Z3's str.len
+        if self.use_string_theory && matches!(field, "len" | "length") {
+            let obj_val = self.encode_expr(obj);
+            if let Z3Value::Str(s) = &obj_val {
+                let len = s.length();
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(len.ge(&zero));
+                return Z3Value::Int(len);
+            }
+            // Not a Str value; fall through to default encoding
+        }
+
         // #198: Flatten deep field chains (e.g., state.head.extra.extra_max)
         // into a single Z3 variable instead of nested uninterpreted functions.
         if has_deep_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()))
@@ -775,33 +818,41 @@ impl Encoder {
                 Z3Value::Real(ast::Real::from_rational(numer, denom))
             }
             Expr::Literal(Literal::Str(s)) => {
-                // Encode as a named integer constant. Two identical string
-                // literals produce the same constant, so equality works.
-                // Different strings get different constants.
-                let const_name = format!("__str_{s}");
-                let str_val = ast::Int::new_const(const_name.clone());
+                if self.use_string_theory {
+                    // Native Z3 string theory: use z3::ast::String directly.
+                    // Z3 handles equality, length, and distinctness natively.
+                    let str_val = ast::String::from(s.as_str());
+                    // Background axiom: length is known at compile time
+                    let len = str_val.length();
+                    let expected_len = ast::Int::from_i64(s.len() as i64);
+                    self.background_axioms.push(len.eq(&expected_len));
+                    Z3Value::Str(str_val)
+                } else {
+                    // Integer encoding (default): named integer constant.
+                    // Two identical string literals produce the same constant,
+                    // so equality works. Different strings get different constants.
+                    let const_name = format!("__str_{s}");
+                    let str_val = ast::Int::new_const(const_name.clone());
 
-                // Track this string constant for pairwise distinctness axioms.
-                // Before adding, assert distinctness from all previously seen
-                // string constants with different original values.
-                if !self.string_constants.contains(&const_name) {
-                    for prev in &self.string_constants {
-                        // Different constant names mean different string values
-                        let prev_val = ast::Int::new_const(prev.clone());
-                        self.background_axioms.push(str_val.eq(&prev_val).not());
+                    // Track this string constant for pairwise distinctness axioms.
+                    if !self.string_constants.contains(&const_name) {
+                        for prev in &self.string_constants {
+                            let prev_val = ast::Int::new_const(prev.clone());
+                            self.background_axioms.push(str_val.eq(&prev_val).not());
+                        }
+                        self.string_constants.push(const_name);
                     }
-                    self.string_constants.push(const_name);
-                }
 
-                // String length axiom: len("hello") == 5
-                let len_decl = self.make_func("__field_len", 1);
-                let len_result = len_decl
-                    .apply(&[&str_val as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                let str_len = ast::Int::from_i64(s.len() as i64);
-                self.background_axioms.push(len_result.eq(&str_len));
-                Z3Value::Int(str_val)
+                    // String length axiom: len("hello") == 5
+                    let len_decl = self.make_func("__field_len", 1);
+                    let len_result = len_decl
+                        .apply(&[&str_val as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    let str_len = ast::Int::from_i64(s.len() as i64);
+                    self.background_axioms.push(len_result.eq(&str_len));
+                    Z3Value::Int(str_val)
+                }
             }
             Expr::Literal(Literal::Bool(b)) => Z3Value::Bool(ast::Bool::from_bool(*b)),
 
@@ -1563,6 +1614,7 @@ impl Encoder {
             }
             RawOp::Eq => match (&lhs, &rhs) {
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r)),
+                (Z3Value::Str(l), Z3Value::Str(r)) => Z3Value::Bool(l.eq(r)),
                 _ => {
                     let l = lhs.as_int(&mut self.fresh_counter);
                     let r = rhs.as_int(&mut self.fresh_counter);
@@ -1571,6 +1623,7 @@ impl Encoder {
             },
             RawOp::Neq => match (&lhs, &rhs) {
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r).not()),
+                (Z3Value::Str(l), Z3Value::Str(r)) => Z3Value::Bool(l.eq(r).not()),
                 _ => {
                     let l = lhs.as_int(&mut self.fresh_counter);
                     let r = rhs.as_int(&mut self.fresh_counter);

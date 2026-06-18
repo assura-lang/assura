@@ -341,6 +341,9 @@ struct Cvc5EncoderState<'a> {
     axioms: Vec<cvc5::Term<'a>>,
     string_constants: Vec<String>,
     fresh_counter: usize,
+    /// When true, use native CVC5 string theory (string_sort, StringLength, etc.)
+    /// instead of integer encoding.
+    use_string_theory: bool,
 }
 
 /// Verify a single contract's clauses using CVC5.
@@ -630,6 +633,7 @@ fn check_clause_cvc5_native(
         axioms: Vec::new(),
         string_constants: Vec::new(),
         fresh_counter: 0,
+        use_string_theory: false,
     };
 
     // Assert requires as assumptions
@@ -847,28 +851,40 @@ fn encode_expr_cvc5<'a>(
             Some(tm.mk_real(numer, denom))
         }
         Expr::Literal(Literal::Str(s)) => {
-            // Named integer constant matching Z3 pattern
-            let const_name = format!("__str_{s}");
-            let str_val = tm.mk_const(tm.integer_sort(), &const_name);
-            // Pairwise distinctness from previously seen string constants
-            if !state.string_constants.contains(&const_name) {
-                for prev in &state.string_constants {
-                    let prev_val = tm.mk_const(tm.integer_sort(), prev);
-                    let eq = tm.mk_term(cvc5::Kind::Equal, &[str_val.clone(), prev_val]);
-                    let neq = tm.mk_term(cvc5::Kind::Not, &[eq]);
-                    state.axioms.push(neq);
+            if state.use_string_theory {
+                // Native CVC5 string theory: use string_sort and mk_string.
+                // CVC5 handles equality, length, and distinctness natively.
+                let str_val = tm.mk_string(s);
+                // Background axiom: length is known at compile time
+                let len = tm.mk_term(cvc5::Kind::StringLength, &[str_val.clone()]);
+                let expected_len = tm.mk_integer(s.len() as i64);
+                let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len, expected_len]);
+                state.axioms.push(len_eq);
+                Some(str_val)
+            } else {
+                // Integer encoding (default): named integer constant matching Z3 pattern
+                let const_name = format!("__str_{s}");
+                let str_val = tm.mk_const(tm.integer_sort(), &const_name);
+                // Pairwise distinctness from previously seen string constants
+                if !state.string_constants.contains(&const_name) {
+                    for prev in &state.string_constants {
+                        let prev_val = tm.mk_const(tm.integer_sort(), prev);
+                        let eq = tm.mk_term(cvc5::Kind::Equal, &[str_val.clone(), prev_val]);
+                        let neq = tm.mk_term(cvc5::Kind::Not, &[eq]);
+                        state.axioms.push(neq);
+                    }
+                    state.string_constants.push(const_name);
                 }
-                state.string_constants.push(const_name);
+                // String length axiom: len("hello") == 5
+                let len_name = "__field_len";
+                let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                let len_func = tm.mk_const(len_sort, len_name);
+                let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
+                let str_len = tm.mk_integer(s.len() as i64);
+                let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len_result, str_len]);
+                state.axioms.push(len_eq);
+                Some(str_val)
             }
-            // String length axiom: len("hello") == 5
-            let len_name = "__field_len";
-            let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let len_func = tm.mk_const(len_sort, len_name);
-            let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
-            let str_len = tm.mk_integer(s.len() as i64);
-            let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len_result, str_len]);
-            state.axioms.push(len_eq);
-            Some(str_val)
         }
         Expr::Ident(name) => {
             let key = if name == "result" {
@@ -1305,6 +1321,19 @@ fn encode_expr_cvc5<'a>(
                     apply_args.extend(encoded_args);
                     return Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args));
                 }
+                // Native string theory: length(str) uses StringLength
+                if state.use_string_theory
+                    && matches!(f_name.as_str(), "len" | "length")
+                    && encoded_args.len() == 1
+                    && encoded_args[0].get_sort() == tm.string_sort()
+                {
+                    let len = tm.mk_term(cvc5::Kind::StringLength, &[encoded_args[0].clone()]);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));
+                    return Some(len);
+                }
                 // Size methods get non-negativity axiom
                 if matches!(
                     f_name.as_str(),
@@ -1487,6 +1516,20 @@ fn encode_expr_cvc5<'a>(
             }
             // Shallow field access: UF __field_name(receiver)
             let obj_val = encode_expr_cvc5(tm, obj, vars, state)?;
+
+            // Native string theory: .length() on a string-sorted term uses StringLength
+            if state.use_string_theory
+                && matches!(field.as_str(), "len" | "length")
+                && obj_val.get_sort() == tm.string_sort()
+            {
+                let len = tm.mk_term(cvc5::Kind::StringLength, &[obj_val]);
+                let zero = tm.mk_integer(0);
+                state
+                    .axioms
+                    .push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));
+                return Some(len);
+            }
+
             let func_name = format!("__field_{field}");
             // Boolean fields return Bool sort
             if matches!(
@@ -2657,6 +2700,7 @@ pub(crate) fn check_validity_cvc5(
         axioms: Vec::new(),
         string_constants: Vec::new(),
         fresh_counter: 0,
+        use_string_theory: false,
     };
 
     // Assert assumptions
@@ -2768,6 +2812,7 @@ pub(crate) fn check_satisfiability_cvc5(
         axioms: Vec::new(),
         string_constants: Vec::new(),
         fresh_counter: 0,
+        use_string_theory: false,
     };
 
     for a in assumptions {

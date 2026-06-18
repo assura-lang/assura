@@ -100,6 +100,9 @@ pub struct VerifyConfig {
     pub smt_solver: SolverChoice,
     pub layer: u8,
     pub timeout: u64,
+    /// Use native SMT string theory (QF_S/QF_SLIA) instead of integer encoding.
+    /// Default: false (integer encoding is more predictable for most contracts).
+    pub string_theory: bool,
 }
 
 impl Default for VerifyConfig {
@@ -108,6 +111,7 @@ impl Default for VerifyConfig {
             smt_solver: SolverChoice::Z3,
             layer: 1,
             timeout: 1000,
+            string_theory: false,
         }
     }
 }
@@ -301,6 +305,7 @@ impl CompilerConfig {
                 layer: project.verify.layer,
                 timeout_ms: project.verify.timeout,
                 solver: project.verify.smt_solver,
+                string_theory: project.verify.string_theory,
             },
             codegen: CodegenConfig {
                 output_dir: project.build.output.clone(),
@@ -350,6 +355,8 @@ pub struct VerifyOptions {
     pub timeout_ms: u64,
     /// Which SMT solver to use.
     pub solver: SolverChoice,
+    /// Use native SMT string theory instead of integer encoding.
+    pub string_theory: bool,
 }
 
 impl Default for VerifyOptions {
@@ -358,6 +365,7 @@ impl Default for VerifyOptions {
             layer: 1,
             timeout_ms: 1000,
             solver: SolverChoice::Z3,
+            string_theory: false,
         }
     }
 }
@@ -468,6 +476,7 @@ mod tests {
                 layer: 0,
                 timeout: 5000,
                 smt_solver: SolverChoice::Cvc5,
+                string_theory: false,
             },
             build: BuildConfig {
                 output: "out".to_string(),
@@ -657,6 +666,45 @@ version = "0.5.0"
         assert_eq!(config.layer, 1);
         assert_eq!(config.timeout_ms, 1000);
         assert_eq!(config.solver, SolverChoice::Z3);
+        assert!(!config.string_theory);
+    }
+
+    #[test]
+    fn string_theory_config_default_false() {
+        let config = VerifyConfig::default();
+        assert!(!config.string_theory, "string_theory must default to false");
+        let opts = VerifyOptions::default();
+        assert!(
+            !opts.string_theory,
+            "VerifyOptions string_theory must default to false"
+        );
+    }
+
+    #[test]
+    fn parse_string_theory_from_toml() {
+        let toml_str = "[verify]\nstring-theory = true\n";
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.verify.string_theory);
+    }
+
+    #[test]
+    fn parse_string_theory_false_from_toml() {
+        let toml_str = "[verify]\nstring-theory = false\n";
+        let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.verify.string_theory);
+    }
+
+    #[test]
+    fn compiler_config_threads_string_theory() {
+        let project = ProjectConfig {
+            verify: VerifyConfig {
+                string_theory: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let config = CompilerConfig::from_project(&project, OutputMode::Human, Verbosity::Normal);
+        assert!(config.verify.string_theory);
     }
 
     // -----------------------------------------------------------------------

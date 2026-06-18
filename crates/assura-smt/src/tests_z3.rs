@@ -2399,3 +2399,80 @@ fn field_access_not_unmodelable() {
         "field access should be modelable after #198"
     );
 }
+
+// -----------------------------------------------------------------------
+// #261 — Native string theory support behind config flag
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_string_theory_literal_z3() {
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+    use assura_parser::ast::{Expr, Literal};
+    z3::with_z3_config(&z3::Config::new(), || {
+        // With string_theory=true, string literals produce Z3Value::Str
+        let mut encoder = Encoder::with_string_theory(true);
+        let val = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
+        assert!(
+            matches!(val, Z3Value::Str(_)),
+            "With string_theory=true, string literals must produce Z3Value::Str"
+        );
+        // Background axiom for length == 5 should be present
+        assert!(
+            !encoder.background_axioms.is_empty(),
+            "String theory literal must produce a length axiom"
+        );
+    });
+}
+
+#[test]
+fn test_string_theory_default_uses_int() {
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+    use assura_parser::ast::{Expr, Literal};
+    z3::with_z3_config(&z3::Config::new(), || {
+        // Default (string_theory=false): string literals produce Z3Value::Int
+        let mut encoder = Encoder::new();
+        assert!(!encoder.use_string_theory);
+        let val = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
+        assert!(
+            matches!(val, Z3Value::Int(_)),
+            "Default encoding must produce Z3Value::Int for strings"
+        );
+    });
+}
+
+#[test]
+fn test_string_theory_length_z3() {
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+    use assura_parser::ast::{Expr, Literal};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::with_string_theory(true);
+        // Encode "abc".length -> should use native str.len, producing an Int
+        let str_expr = Expr::Literal(Literal::Str("abc".into()));
+        let field_expr = Expr::Field(Box::new(str_expr), "length".into());
+        let val = encoder.encode_expr(&field_expr);
+        assert!(
+            matches!(val, Z3Value::Int(_)),
+            "String .length() must return Z3Value::Int"
+        );
+    });
+}
+
+#[test]
+fn test_string_theory_equality_z3() {
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+    use assura_parser::ast::{BinOp, Expr, Literal};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut encoder = Encoder::with_string_theory(true);
+        // "hello" == "hello" should use native string equality
+        let eq_expr = Expr::BinOp {
+            lhs: Box::new(Expr::Literal(Literal::Str("hello".into()))),
+            op: BinOp::Eq,
+            rhs: Box::new(Expr::Literal(Literal::Str("hello".into()))),
+        };
+        let val = encoder.encode_expr(&eq_expr);
+        assert!(
+            matches!(val, Z3Value::Bool(_)),
+            "String equality must return Z3Value::Bool"
+        );
+    });
+}
