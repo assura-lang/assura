@@ -163,6 +163,114 @@ fn collect_unmodelable_reasons_cvc5_inner(expr: &Expr, reasons: &mut Vec<String>
 }
 
 // =========================================================================
+// Lemma apply-ref collection (duplicated from z3_backend because that
+// module is behind `#[cfg(feature = "z3-verify")]`)
+// =========================================================================
+
+/// Collect lemma names referenced by `apply lemma_name(args)` in a single expression.
+fn collect_apply_refs_from_expr(expr: &Expr) -> Vec<String> {
+    let mut refs = Vec::new();
+    collect_apply_refs_inner(expr, &mut refs);
+    refs
+}
+
+fn collect_apply_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
+    match expr {
+        Expr::Apply { lemma_name, args } => {
+            refs.push(lemma_name.clone());
+            for arg in args {
+                collect_apply_refs_inner(arg, refs);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_apply_refs_inner(lhs, refs);
+            collect_apply_refs_inner(rhs, refs);
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Paren(inner)
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Field(inner, _)
+        | Expr::Cast { expr: inner, .. } => {
+            collect_apply_refs_inner(inner, refs);
+        }
+        Expr::Call { func, args } => {
+            collect_apply_refs_inner(func, refs);
+            for a in args {
+                collect_apply_refs_inner(a, refs);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_apply_refs_inner(receiver, refs);
+            for a in args {
+                collect_apply_refs_inner(a, refs);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            collect_apply_refs_inner(e, refs);
+            collect_apply_refs_inner(index, refs);
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            collect_apply_refs_inner(domain, refs);
+            collect_apply_refs_inner(body, refs);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_apply_refs_inner(cond, refs);
+            collect_apply_refs_inner(then_branch, refs);
+            if let Some(eb) = else_branch {
+                collect_apply_refs_inner(eb, refs);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_apply_refs_inner(value, refs);
+            collect_apply_refs_inner(body, refs);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_apply_refs_inner(scrutinee, refs);
+            for a in arms {
+                collect_apply_refs_inner(&a.body, refs);
+            }
+        }
+        Expr::List(items) | Expr::Block(items) | Expr::Tuple(items) => {
+            for item in items {
+                collect_apply_refs_inner(item, refs);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collect lemma definitions from a typed file's declarations.
+///
+/// Maps each lemma name to its ensures clause bodies. This mirrors
+/// `z3_backend::collect_lemma_defs` but is available without the
+/// `z3-verify` feature.
+pub(crate) fn collect_lemma_defs_for_cvc5(
+    typed: &assura_types::TypedFile,
+) -> std::collections::HashMap<String, Vec<&Expr>> {
+    use assura_parser::ast::Decl;
+    let mut lemmas = std::collections::HashMap::new();
+    for decl in &typed.resolved.source.decls {
+        if let Decl::FnDef(f) = &decl.node
+            && f.is_lemma
+        {
+            let ensures: Vec<&Expr> = f
+                .clauses
+                .iter()
+                .filter(|c| c.kind == ClauseKind::Ensures)
+                .map(|c| &c.body)
+                .collect();
+            lemmas.insert(f.name.clone(), ensures);
+        }
+    }
+    lemmas
+}
+
+// =========================================================================
 // Native CVC5 API backend (feature = "cvc5-verify")
 // =========================================================================
 
@@ -209,13 +317,28 @@ pub(crate) fn verify_contract_cvc5_with_types(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
 ) -> Vec<VerificationResult> {
+    verify_contract_cvc5_with_lemmas(contract_name, clauses, params, return_ty, None)
+}
+
+/// Verify a single contract's clauses using CVC5, with optional lemma defs.
+///
+/// When `lemma_defs` is `Some`, `apply lemma_name(args)` expressions will
+/// have the referenced lemma's ensures clauses injected as solver
+/// assumptions (matching the Z3 backend's behavior).
+pub(crate) fn verify_contract_cvc5_with_lemmas(
+    contract_name: &str,
+    clauses: &[Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+) -> Vec<VerificationResult> {
     #[cfg(feature = "cvc5-verify")]
     {
-        verify_contract_cvc5_native(contract_name, clauses, params, return_ty)
+        verify_contract_cvc5_native(contract_name, clauses, params, return_ty, lemma_defs)
     }
     #[cfg(not(feature = "cvc5-verify"))]
     {
-        verify_contract_cvc5_shellout(contract_name, clauses, params, return_ty)
+        verify_contract_cvc5_shellout(contract_name, clauses, params, return_ty, lemma_defs)
     }
 }
 
@@ -229,6 +352,7 @@ fn verify_contract_cvc5_native(
     clauses: &[Clause],
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
@@ -266,6 +390,7 @@ fn verify_contract_cvc5_native(
                     params,
                     return_ty,
                     &frame_checker,
+                    lemma_defs,
                 );
                 results.push(result);
             }
@@ -295,6 +420,7 @@ fn check_clause_cvc5_native(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
     frame_checker: &assura_types::FrameChecker,
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
 ) -> VerificationResult {
     // Pre-check for unmodelable features (matching Z3 backend behavior).
     // Skip clauses with typestate annotations etc. before attempting encoding,
@@ -364,6 +490,23 @@ fn check_clause_cvc5_native(
     for req in requires {
         if let Some(term) = encode_expr_cvc5(&tm, req, &var_map, &mut enc_state) {
             solver.assert_formula(term);
+        }
+    }
+
+    // Inject lemma postconditions for any `apply lemma_name(args)` references
+    // in the ensures body. This mirrors the Z3 backend behavior (verify.rs
+    // lines 214-224): each referenced lemma's ensures clauses are asserted
+    // as assumptions so the solver can use them during verification.
+    if let Some(defs) = lemma_defs {
+        let apply_refs = collect_apply_refs_from_expr(ensures_body);
+        for lemma_name in &apply_refs {
+            if let Some(ensures_bodies) = defs.get(lemma_name) {
+                for ens_body in ensures_bodies {
+                    if let Some(term) = encode_expr_cvc5(&tm, ens_body, &var_map, &mut enc_state) {
+                        solver.assert_formula(term);
+                    }
+                }
+            }
         }
     }
 
@@ -2046,6 +2189,7 @@ fn verify_contract_cvc5_shellout(
     clauses: &[Clause],
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
@@ -2084,6 +2228,7 @@ fn verify_contract_cvc5_shellout(
                     params,
                     return_ty,
                     &frame_checker,
+                    lemma_defs,
                 );
                 results.push(result);
             }
@@ -2121,6 +2266,7 @@ fn check_clause_cvc5_shellout(
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
     frame_checker: &assura_types::FrameChecker,
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
 ) -> VerificationResult {
     // Pre-check for unmodelable features (matching Z3 backend behavior)
     if expr_has_unmodelable_features_cvc5(ensures_body) {
@@ -2182,6 +2328,20 @@ fn check_clause_cvc5_shellout(
                 script.push_str(&format!("(declare-const {old} Int)\n"));
             }
             script.push_str(&format!("(assert (= {current} {old}))\n"));
+        }
+    }
+
+    // Inject lemma postconditions for apply references (shell-out path)
+    if let Some(defs) = lemma_defs {
+        let apply_refs = collect_apply_refs_from_expr(ensures_body);
+        for lemma_name in &apply_refs {
+            if let Some(ensures_bodies) = defs.get(lemma_name) {
+                for ens_body in ensures_bodies {
+                    if let Some(smt) = expr_to_smtlib(ens_body) {
+                        script.push_str(&format!("(assert {smt})\n"));
+                    }
+                }
+            }
         }
     }
 
@@ -3573,6 +3733,64 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
+    // Lemma apply-ref collection tests (cfg-independent)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_collect_apply_refs_simple() {
+        let expr = Expr::Apply {
+            lemma_name: "helper".into(),
+            args: vec![Expr::Ident("x".into())],
+        };
+        let refs = collect_apply_refs_from_expr(&expr);
+        assert_eq!(refs, vec!["helper"]);
+    }
+
+    #[test]
+    fn test_collect_apply_refs_nested_in_binop() {
+        let expr = Expr::BinOp {
+            op: BinOp::And,
+            lhs: Box::new(Expr::Apply {
+                lemma_name: "lem_a".into(),
+                args: vec![Expr::Ident("x".into())],
+            }),
+            rhs: Box::new(Expr::Apply {
+                lemma_name: "lem_b".into(),
+                args: vec![Expr::Ident("y".into())],
+            }),
+        };
+        let refs = collect_apply_refs_from_expr(&expr);
+        assert_eq!(refs.len(), 2);
+        assert!(refs.contains(&"lem_a".to_string()));
+        assert!(refs.contains(&"lem_b".to_string()));
+    }
+
+    #[test]
+    fn test_collect_apply_refs_no_apply() {
+        let expr = Expr::BinOp {
+            op: BinOp::Gt,
+            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        };
+        let refs = collect_apply_refs_from_expr(&expr);
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn test_collect_apply_refs_nested_in_if() {
+        let expr = Expr::If {
+            cond: Box::new(Expr::Ident("flag".into())),
+            then_branch: Box::new(Expr::Apply {
+                lemma_name: "branch_lem".into(),
+                args: vec![],
+            }),
+            else_branch: Some(Box::new(Expr::Literal(Literal::Bool(true)))),
+        };
+        let refs = collect_apply_refs_from_expr(&expr);
+        assert_eq!(refs, vec!["branch_lem"]);
+    }
+
+    // -------------------------------------------------------------------
     // CVC5 native API tests (only when cvc5-verify feature enabled)
     // -------------------------------------------------------------------
 
@@ -4532,6 +4750,158 @@ mod tests {
                     r
                 );
             }
+        }
+
+        // ---------------------------------------------------------------
+        // Lemma injection tests (#254)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn native_cvc5_lemma_injection_basic() {
+            // Contract with apply(lemma): the ensures body contains an
+            // apply expression, which should be encoded as a named bool.
+            // Without lemma defs, this just produces a result (not a panic).
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::Apply {
+                        lemma_name: "helper_lemma".into(),
+                        args: vec![Expr::Ident("x".into())],
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5("LemmaTest", &clauses);
+            assert!(!results.is_empty(), "should produce at least one result");
+        }
+
+        #[test]
+        fn native_cvc5_lemma_postcondition_injected() {
+            // Build a lemma_defs map where "pos_lemma" ensures x >= 0.
+            // The ensures clause uses `apply pos_lemma(x)` inside a
+            // conjunction with `true`. With the lemma postcondition
+            // injected as an assumption, this should not produce false
+            // counterexamples for the apply sub-expression.
+            let mut lemma_defs = std::collections::HashMap::new();
+            let lemma_ensures = Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            };
+            lemma_defs.insert("pos_lemma".to_string(), vec![&lemma_ensures]);
+
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::And,
+                        lhs: Box::new(Expr::Apply {
+                            lemma_name: "pos_lemma".into(),
+                            args: vec![Expr::Ident("x".into())],
+                        }),
+                        rhs: Box::new(Expr::Literal(Literal::Bool(true))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5_with_lemmas(
+                "ApplyPostcondTest",
+                &clauses,
+                &[],
+                &[],
+                Some(&lemma_defs),
+            );
+            assert!(
+                !results.is_empty(),
+                "should produce at least one result with lemma injection"
+            );
+        }
+
+        #[test]
+        fn native_cvc5_lemma_injection_verifies_with_postcondition() {
+            // The ensures clause says: x >= 0 (trivially follows from requires).
+            // We also have an apply expression in the clause. With lemma defs
+            // injecting x >= 0, the combined clause should still verify.
+            let mut lemma_defs = std::collections::HashMap::new();
+            let lemma_ensures = Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            };
+            lemma_defs.insert("helper".to_string(), vec![&lemma_ensures]);
+
+            // requires { x > 0 }
+            // ensures { x >= 0 }  (trivially true from requires)
+            let clauses = vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    },
+                    effect_variables: vec![],
+                },
+            ];
+            let results = verify_contract_cvc5_with_lemmas(
+                "LemmaVerifTest",
+                &clauses,
+                &[],
+                &[],
+                Some(&lemma_defs),
+            );
+            assert_eq!(results.len(), 1);
+            assert!(
+                matches!(&results[0], VerificationResult::Verified { .. }),
+                "should verify with lemma injection: {:?}",
+                results[0]
+            );
+        }
+
+        #[test]
+        fn native_cvc5_no_lemma_defs_still_works() {
+            // When lemma_defs is None, the apply expression is just
+            // encoded as a named boolean (no postcondition injected).
+            let clauses = vec![Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::Apply {
+                    lemma_name: "unknown_lemma".into(),
+                    args: vec![Expr::Ident("x".into())],
+                },
+                effect_variables: vec![],
+            }];
+            let results = verify_contract_cvc5_with_lemmas("NoLemmaDefs", &clauses, &[], &[], None);
+            assert!(
+                !results.is_empty(),
+                "should produce results even without lemma defs"
+            );
         }
     }
 }

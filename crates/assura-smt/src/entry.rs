@@ -661,10 +661,18 @@ pub(crate) fn run_advanced_passes(typed: &TypedFile, timeout_ms: u64) -> Vec<Ver
 fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
+    // Collect lemma definitions so `apply lemma_name(args)` can inject
+    // postconditions as solver assumptions (matching Z3 backend behavior).
+    let lemma_defs = crate::cvc5_backend::collect_lemma_defs_for_cvc5(typed);
+
     // Clause-level verification via CVC5
     for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
-        results.extend(crate::cvc5_backend::verify_contract_cvc5_with_types(
-            &name, &clauses, &params, &return_ty,
+        results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
+            &name,
+            &clauses,
+            &params,
+            &return_ty,
+            Some(&lemma_defs),
         ));
     }
 
