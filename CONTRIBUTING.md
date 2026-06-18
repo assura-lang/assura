@@ -61,13 +61,17 @@ under `crates/`.
 
 ### 2. Run the pre-commit gate
 
-Every change must pass all three checks:
+Every change must pass all four checks:
 
 ```bash
 cargo fmt --all
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
+cargo check --no-default-features -p assura-smt
 ```
+
+The final check verifies the no-Z3 build. Any code in `assura-smt` that
+imports Z3 must be behind `#[cfg(feature = "z3-verify")]` with a fallback.
 
 ### 3. Verify demo files still parse
 
