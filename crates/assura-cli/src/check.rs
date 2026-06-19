@@ -724,16 +724,13 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 .parent()
                 .unwrap_or(std::path::Path::new("."));
             let verify_cache = assura_smt::VerificationCache::new(cache_dir);
-            let ir_map =
-                assura_smt::load_ir_bodies_for_typed(std::path::Path::new(filename), typed);
-            let verify_extras = (!ir_map.is_empty()).then_some(assura_smt::VerifyFileExtras {
-                ir_bodies: Some(&ir_map),
-            });
+            let loaded_ir =
+                assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
             assura_smt::verify_parallel_with_solver(
                 typed,
                 &verify_cache,
                 solver,
-                verify_extras.as_ref(),
+                loaded_ir.extras().as_ref(),
             )
         } else {
             Vec::new()

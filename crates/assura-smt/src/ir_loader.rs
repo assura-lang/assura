@@ -5,7 +5,34 @@ use std::path::{Path, PathBuf};
 
 use assura_parser::ast::{Decl, ServiceItem};
 
+use crate::VerifyFileExtras;
 use crate::ir::{IrFunction, parse_ir_module};
+
+/// IR sidecars loaded for a source file, with a borrowed view for verification APIs.
+pub struct LoadedVerifyExtras {
+    ir_map: HashMap<String, IrFunction>,
+}
+
+impl LoadedVerifyExtras {
+    /// Load `{ContractName}.ir` sidecars for all verification jobs in `typed`.
+    pub fn load(source_file: &Path, typed: &assura_types::TypedFile) -> Self {
+        Self {
+            ir_map: load_ir_bodies_for_typed(source_file, typed),
+        }
+    }
+
+    /// Whether any sidecar IR bodies were discovered.
+    pub fn is_empty(&self) -> bool {
+        self.ir_map.is_empty()
+    }
+
+    /// `Some(VerifyFileExtras)` when sidecars exist; `None` otherwise.
+    pub fn extras(&self) -> Option<VerifyFileExtras<'_>> {
+        (!self.ir_map.is_empty()).then_some(VerifyFileExtras {
+            ir_bodies: Some(&self.ir_map),
+        })
+    }
+}
 
 /// Directories to search for `{contract_name}.ir` sidecars near a source file.
 pub fn ir_search_dirs_for_source(source_file: &Path) -> Vec<PathBuf> {
@@ -163,6 +190,14 @@ module copy {
     }
 
     #[test]
+    fn loaded_verify_extras_empty_when_no_sidecars() {
+        let typed = typed_with_contract("NoIr");
+        let loaded = LoadedVerifyExtras::load(std::path::Path::new("missing.assura"), &typed);
+        assert!(loaded.is_empty());
+        assert!(loaded.extras().is_none());
+    }
+
+    #[test]
     fn collect_job_names_includes_contract() {
         let typed = typed_with_contract("MyContract");
         let names = collect_verification_job_names(&typed);
@@ -257,11 +292,9 @@ module copy {
             generated_tests: vec![],
         };
 
-        let ir_map = load_ir_bodies_for_typed(&assura_path, &typed);
-        assert_eq!(ir_map.len(), 1, "expected CopyBytes.ir to load");
-        let extras = crate::VerifyFileExtras {
-            ir_bodies: Some(&ir_map),
-        };
+        let loaded = LoadedVerifyExtras::load(&assura_path, &typed);
+        assert!(!loaded.is_empty(), "expected CopyBytes.ir to load");
+        let extras = loaded.extras().expect("extras should be present");
         let cache = VerificationCache::new(&dir);
         let results = verify_parallel_with_solver(&typed, &cache, SolverChoice::Z3, Some(&extras));
 

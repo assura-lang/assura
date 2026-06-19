@@ -52,8 +52,8 @@ pub use entry::{
     verify_taint_safety, verify_with_measures, verify_with_options,
 };
 pub use ir_loader::{
-    collect_verification_job_names, ir_search_dirs_for_source, load_ir_bodies_for_contracts,
-    load_ir_bodies_for_typed,
+    LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source,
+    load_ir_bodies_for_contracts, load_ir_bodies_for_typed,
 };
 
 /// SMT-LIB2 dump and quantifier bound validation.
