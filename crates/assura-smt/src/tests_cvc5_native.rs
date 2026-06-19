@@ -1070,6 +1070,7 @@ mod frame_tests {
             &[],
             Some(&lemma_defs),
             &[],
+            None,
             &mut cache,
         );
         assert!(
@@ -1121,6 +1122,7 @@ mod frame_tests {
             &[],
             Some(&lemma_defs),
             &[],
+            None,
             &mut cache,
         );
         assert_eq!(results.len(), 1);
@@ -1151,6 +1153,7 @@ mod frame_tests {
             &[],
             None,
             &[],
+            None,
             &mut cache,
         );
         assert!(
@@ -1502,6 +1505,7 @@ mod frame_tests {
             &[],
             None,
             &[],
+            None,
             &mut cache,
         );
         assert_eq!(results1.len(), 1);
@@ -1516,6 +1520,7 @@ mod frame_tests {
             &[],
             None,
             &[],
+            None,
             &mut cache,
         );
         assert_eq!(results2.len(), 1);
@@ -1571,13 +1576,29 @@ mod frame_tests {
 
         let mut cache = SessionCache::new();
 
-        let results_a =
-            verify_contract_cvc5_with_lemmas("CacheA", &clauses_a, &[], &[], None, &[], &mut cache);
+        let results_a = verify_contract_cvc5_with_lemmas(
+            "CacheA",
+            &clauses_a,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            &mut cache,
+        );
         assert_eq!(results_a.len(), 1);
         assert_eq!(cache.entry_count(), 1);
 
-        let results_b =
-            verify_contract_cvc5_with_lemmas("CacheB", &clauses_b, &[], &[], None, &[], &mut cache);
+        let results_b = verify_contract_cvc5_with_lemmas(
+            "CacheB",
+            &clauses_b,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            &mut cache,
+        );
         assert_eq!(results_b.len(), 1);
         // Both should be cache misses, so 2 entries
         assert_eq!(cache.entry_count(), 2);

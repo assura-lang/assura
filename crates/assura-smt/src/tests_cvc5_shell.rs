@@ -76,6 +76,38 @@ fn shell_havoc_assume_script_emits_length_link_axiom() {
         &requires.iter().collect::<Vec<_>>(),
         &ensures.iter().collect::<Vec<_>>(),
         &["Bytes".into()],
+        &["buf".into()],
+        None,
     );
     assert!(script.contains("(assert (<= __canonical_len_result __canonical_len_buf))"));
+}
+
+#[test]
+fn shell_havoc_assume_with_ir_emits_load_length_identity() {
+    use crate::ir::parse_ir_module;
+
+    let ir_source = r#"
+module copy {
+  fn #0 : ($0: Bytes) -> Bytes ! pure
+  {
+    $result = load $0 : Bytes
+  }
+}
+"#;
+    let func = parse_ir_module(ir_source).unwrap().functions[0].clone();
+    let mut script = String::new();
+    let mut vars = HashSet::new();
+    append_havoc_assume_smtlib(
+        &mut script,
+        &mut vars,
+        &[],
+        &[],
+        &["Bytes".into()],
+        &["raw".into()],
+        Some(&func),
+    );
+    assert!(
+        script.contains("(assert (= __canonical_len_result __canonical_len_raw))"),
+        "IR load should tie result length to input, got:\n{script}"
+    );
 }

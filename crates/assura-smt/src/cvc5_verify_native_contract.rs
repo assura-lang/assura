@@ -19,6 +19,7 @@ use crate::cvc5_verify_shared::{
     cvc5_unmodelable_precheck, store_cvc5_clause_cache,
 };
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn verify_contract_cvc5_native(
     contract_name: &str,
     clauses: &[Clause],
@@ -26,6 +27,7 @@ pub(crate) fn verify_contract_cvc5_native(
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     constants: &[(String, i64)],
+    ir_body: Option<&crate::ir::IrFunction>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
@@ -86,7 +88,7 @@ pub(crate) fn verify_contract_cvc5_native(
                 params,
                 return_ty,
                 &param_names,
-                None,
+                ir_body,
                 constants,
                 &narrowings,
                 &frame_checker,
@@ -175,7 +177,7 @@ pub(crate) fn verify_contract_cvc5_native(
             &ensures_clauses,
             return_ty,
             &param_names,
-            None,
+            ir_body,
             &mut var_map,
             &mut enc_state,
         );

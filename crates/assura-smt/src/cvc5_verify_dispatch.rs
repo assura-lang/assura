@@ -51,11 +51,13 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
         return_ty,
         None,
         constants,
+        None,
         cache,
     )
 }
 
 /// Verify a single contract's clauses using CVC5, with optional lemma defs.
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn verify_contract_cvc5_with_lemmas(
     contract_name: &str,
     clauses: &[Clause],
@@ -63,6 +65,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_parser::ast::Expr>>>,
     constants: &[(String, i64)],
+    ir_body: Option<&crate::ir::IrFunction>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     #[cfg(feature = "cvc5-verify")]
@@ -74,6 +77,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
             return_ty,
             lemma_defs,
             constants,
+            ir_body,
             cache,
         )
     }
@@ -86,6 +90,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
             return_ty,
             lemma_defs,
             constants,
+            ir_body,
             cache,
         )
     }

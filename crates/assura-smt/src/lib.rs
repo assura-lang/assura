@@ -93,6 +93,7 @@ mod cvc5_if_encode;
 mod cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_ir_native;
+mod cvc5_ir_smtlib;
 mod cvc5_let_block_encode;
 mod cvc5_list_encode;
 mod cvc5_match_encode;
@@ -1270,9 +1271,7 @@ mod cvc5_tests {
     #[test]
     fn cvc5_parse_model() {
         let model = "(define-fun x () Int 42)\n(define-fun y () Int (- 1))";
-        let parsed = cvc5_backend::parse_smtlib_model(model);
-        assert!(parsed.is_some());
-        let cm = parsed.unwrap();
+        let cm = cvc5_backend::parse_smtlib_model(model).expect("model should parse");
         assert_eq!(cm.variables.len(), 2);
         assert!(cm.variables.iter().any(|(n, v)| n == "x" && v == "42"));
         assert!(cm.variables.iter().any(|(n, v)| n == "y" && v == "(- 1)"));
