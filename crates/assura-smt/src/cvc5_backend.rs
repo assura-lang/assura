@@ -1244,12 +1244,13 @@ fn verify_contract_cvc5_native(
 
     let mut enc_state = default_cvc5_encoder_state();
 
-    // Assert requires as assumptions ONCE (shared across all clauses)
-    for req in &requires_exprs {
-        if let Some(term) = encode_expr_cvc5(&tm, req, &mut var_map, &mut enc_state) {
-            solver.assert_formula(term);
-        }
-    }
+    assert_cvc5_requires(
+        &tm,
+        &mut solver,
+        &requires_exprs,
+        &mut var_map,
+        &mut enc_state,
+    );
 
     assert_cvc5_axioms(&mut solver, &enc_state.axioms);
     let requires_axiom_count = enc_state.axioms.len();
@@ -1381,12 +1382,7 @@ fn check_clause_cvc5_native(
         &mut enc_state,
     );
 
-    // Assert requires as assumptions
-    for req in requires {
-        if let Some(term) = encode_expr_cvc5(&tm, req, &mut var_map, &mut enc_state) {
-            solver.assert_formula(term);
-        }
-    }
+    assert_cvc5_requires(&tm, &mut solver, requires, &mut var_map, &mut enc_state);
 
     if let Some(defs) = lemma_defs {
         inject_cvc5_lemma_assumptions(
@@ -1826,6 +1822,64 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
 // Shell-out CVC5 fallback (no cvc5-verify feature)
 // -------------------------------------------------------------------------
 
+#[cfg(feature = "cvc5-verify")]
+fn assert_cvc5_requires<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    requires: &[&Expr],
+    var_map: &mut HashMap<String, cvc5::Term<'a>>,
+    enc_state: &mut Cvc5EncoderState<'a>,
+) {
+    for req in requires {
+        if let Some(term) = encode_expr_cvc5(tm, req, var_map, enc_state) {
+            solver.assert_formula(term);
+        }
+    }
+}
+
+#[cfg(not(feature = "cvc5-verify"))]
+fn append_cvc5_shellout_requires(script: &mut String, requires: &[&Expr]) {
+    for req in requires {
+        if let Some(smt) = expr_to_smtlib(req) {
+            script.push_str(&format!("(assert {smt})\n"));
+        }
+    }
+}
+
+#[cfg(not(feature = "cvc5-verify"))]
+fn append_cvc5_shellout_frame_axioms(
+    script: &mut String,
+    vars: &HashSet<String>,
+    frame_vars: &[String],
+) {
+    for var_name in frame_vars {
+        let current = sanitize_smtlib_name(var_name);
+        let old = sanitize_smtlib_name(&format!("{var_name}__old"));
+        if !vars.contains(&old) {
+            script.push_str(&format!("(declare-const {old} Int)\n"));
+        }
+        script.push_str(&format!("(assert (= {current} {old}))\n"));
+    }
+}
+
+#[cfg(not(feature = "cvc5-verify"))]
+fn append_cvc5_shellout_lemma_assumptions(
+    script: &mut String,
+    body: &Expr,
+    defs: &std::collections::HashMap<String, Vec<&Expr>>,
+) {
+    let apply_refs = collect_apply_refs_from_expr(body);
+    for lemma_name in &apply_refs {
+        if let Some(ensures_bodies) = defs.get(lemma_name) {
+            for ens_body in ensures_bodies {
+                if let Some(smt) = expr_to_smtlib(ens_body) {
+                    script.push_str(&format!("(assert {smt})\n"));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(not(feature = "cvc5-verify"))]
 fn append_cvc5_shellout_clause_check(script: &mut String, kind: ClauseKind, smt: &str) {
     match kind {
@@ -1986,37 +2040,15 @@ fn check_clause_cvc5_shellout(
 
     append_cvc5_shellout_constraints(&mut script, &vars, params, return_ty, constants, narrowings);
 
-    for req in requires {
-        if let Some(smt) = expr_to_smtlib(req) {
-            script.push_str(&format!("(assert {smt})\n"));
-        }
-    }
+    append_cvc5_shellout_requires(&mut script, requires);
 
-    // Frame axioms: for ensures with modifies, assert var == old_var for unmodified vars
     if kind == ClauseKind::Ensures && frame_checker.has_modifies() {
         let frame_vars = frame_checker.frame_axiom_vars(ensures_body);
-        for var_name in &frame_vars {
-            let current = sanitize_smtlib_name(var_name);
-            let old = sanitize_smtlib_name(&format!("{var_name}__old"));
-            if !vars.contains(&old) {
-                script.push_str(&format!("(declare-const {old} Int)\n"));
-            }
-            script.push_str(&format!("(assert (= {current} {old}))\n"));
-        }
+        append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
     }
 
-    // Inject lemma postconditions for apply references (shell-out path)
     if let Some(defs) = lemma_defs {
-        let apply_refs = collect_apply_refs_from_expr(ensures_body);
-        for lemma_name in &apply_refs {
-            if let Some(ensures_bodies) = defs.get(lemma_name) {
-                for ens_body in ensures_bodies {
-                    if let Some(smt) = expr_to_smtlib(ens_body) {
-                        script.push_str(&format!("(assert {smt})\n"));
-                    }
-                }
-            }
-        }
+        append_cvc5_shellout_lemma_assumptions(&mut script, ensures_body, defs);
     }
 
     let Some(smt) = expr_to_smtlib(ensures_body) else {
