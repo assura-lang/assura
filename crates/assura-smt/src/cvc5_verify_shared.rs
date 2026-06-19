@@ -11,6 +11,7 @@ use crate::cvc5_common::{
     collect_unmodelable_reasons_cvc5, expr_has_unmodelable_features_cvc5, sanitize_smtlib_name,
 };
 use crate::cvc5_feature_max::derive_narrowings_cvc5;
+use crate::cvc5_model::parse_smtlib_model;
 
 /// Backend-neutral type/constant constraints for CVC5 solver preludes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +70,25 @@ pub(crate) enum Cvc5ClauseSatOutcome {
         counter_model: Option<CounterexampleModel>,
     },
     Timeout,
+}
+
+/// Build a SAT outcome from raw SMT-LIB2 `(get-model)` stdout.
+pub(crate) fn cvc5_sat_outcome_from_smtlib_model(raw_model: String) -> Cvc5ClauseSatOutcome {
+    let counter_model = parse_smtlib_model(&raw_model);
+    let model_str = counter_model
+        .as_ref()
+        .map(|cm| {
+            cm.variables
+                .iter()
+                .map(|(n, v)| format!("{n} = {v}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or(raw_model);
+    Cvc5ClauseSatOutcome::Sat {
+        model_str,
+        counter_model,
+    }
 }
 
 /// Map SAT/UNSAT/timeout to `VerificationResult` (Ensures vs Invariant semantics).

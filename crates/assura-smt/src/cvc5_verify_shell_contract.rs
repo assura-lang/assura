@@ -171,7 +171,8 @@ pub(crate) fn verify_contract_cvc5_shellout(
                         VerificationResult::Unknown {
                             clause_desc: pending_clause.desc,
                             reason: format!(
-                                "cvc5 returned {} results for {} incremental queries",
+                                "cvc5 returned {} check-sat results for {} pending clauses; \
+                                 verify each clause body encodes to SMT-LIB2",
                                 query_results.len(),
                                 pending_count
                             ),
@@ -275,6 +276,16 @@ fn build_incremental_shell_script(
 mod tests {
     use super::*;
     use assura_parser::ast::{BinOp, Literal};
+
+    #[test]
+    fn non_ident_call_is_unencodable_but_not_unmodelable() {
+        let body = Expr::Call {
+            func: Box::new(Expr::Literal(Literal::Int("1".into()))),
+            args: vec![],
+        };
+        assert!(expr_to_smtlib(&body).is_none());
+        assert!(cvc5_unmodelable_precheck("T::Ensures", &body).is_none());
+    }
 
     #[test]
     fn incremental_script_emits_one_check_sat_per_pending_clause() {

@@ -3,8 +3,9 @@
 use assura_parser::ast::ClauseKind;
 
 use crate::VerificationResult;
-use crate::cvc5_model::parse_smtlib_model;
-use crate::cvc5_verify_shared::{Cvc5ClauseSatOutcome, cvc5_interpret_clause_check_result};
+use crate::cvc5_verify_shared::{
+    Cvc5ClauseSatOutcome, cvc5_interpret_clause_check_result, cvc5_sat_outcome_from_smtlib_model,
+};
 
 /// Result of running CVC5 binary on an SMT-LIB2 script.
 pub(crate) enum Cvc5Result {
@@ -30,27 +31,11 @@ pub(crate) fn cvc5_shell_query_to_verification_result(
         Cvc5Result::Unsat => {
             cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Unsat)
         }
-        Cvc5Result::Sat(model_str) => {
-            let counter_model = parse_smtlib_model(&model_str);
-            let filtered_model = counter_model
-                .as_ref()
-                .map(|cm| {
-                    cm.variables
-                        .iter()
-                        .map(|(n, v)| format!("{n} = {v}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or(model_str);
-            cvc5_interpret_clause_check_result(
-                desc,
-                kind,
-                Cvc5ClauseSatOutcome::Sat {
-                    model_str: filtered_model,
-                    counter_model,
-                },
-            )
-        }
+        Cvc5Result::Sat(model_str) => cvc5_interpret_clause_check_result(
+            desc,
+            kind,
+            cvc5_sat_outcome_from_smtlib_model(model_str),
+        ),
         Cvc5Result::Timeout => {
             cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Timeout)
         }
