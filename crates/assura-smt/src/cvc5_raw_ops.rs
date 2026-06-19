@@ -2,7 +2,9 @@
 //!
 //! Shell-out (`expr_to_smtlib` / `parse_raw_expr_smtlib`) and native
 //! (`encode_expr_cvc5` / `parse_raw_expr_cvc5`) share precedence, comparison
-//! chaining, quantifier wrapping, and comma-splitting utilities defined here.
+//! chaining, quantifier wrapping, comma-splitting, and AST `BinOp` tables.
+
+use assura_parser::ast::{BinOp, Expr};
 
 /// Binary operators recognized by the raw-token Pratt parsers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +237,99 @@ pub(crate) fn wrap_ast_quantifier_smtlib(
 pub(crate) fn format_raw_quantifier_smtlib(is_forall: bool, var: &str, body: &str) -> String {
     let quant = if is_forall { "forall" } else { "exists" };
     format!("({quant} (({var} Int)) {body})")
+}
+
+// -------------------------------------------------------------------------
+// AST BinOp helpers (shared shell-out + native kind mapping)
+// -------------------------------------------------------------------------
+
+/// Extract `(lo, hi)` when a quantifier domain is a range expression.
+pub(crate) fn domain_as_range(domain: &Expr) -> Option<(&Expr, &Expr)> {
+    match domain {
+        Expr::BinOp {
+            op: BinOp::Range,
+            lhs,
+            rhs,
+        } => Some((lhs.as_ref(), rhs.as_ref())),
+        _ => None,
+    }
+}
+
+/// Format a standard (non-special) AST binary operator as SMT-LIB2.
+pub(crate) fn format_standard_ast_binop_smtlib(op: &BinOp, l: &str, r: &str) -> Option<String> {
+    let smt_op = match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "div",
+        BinOp::Mod => "mod",
+        BinOp::Eq => "=",
+        BinOp::Lt => "<",
+        BinOp::Lte => "<=",
+        BinOp::Gt => ">",
+        BinOp::Gte => ">=",
+        BinOp::And => "and",
+        BinOp::Or => "or",
+        BinOp::Implies => "=>",
+        BinOp::Neq | BinOp::Range | BinOp::In | BinOp::NotIn | BinOp::Concat => return None,
+    };
+    Some(format!("({smt_op} {l} {r})"))
+}
+
+pub(crate) fn format_neq_ast_binop_smtlib(l: &str, r: &str) -> String {
+    format!("(not (= {l} {r}))")
+}
+
+pub(crate) fn range_binop_smtlib(l: &str, r: &str) -> String {
+    format!("(let ((__range_fresh (+ {l} 0))) (and (>= __range_fresh {l}) (< __range_fresh {r})))")
+}
+
+pub(crate) fn in_binop_smtlib(elem: &str, coll: &str) -> String {
+    format!("(__contains {coll} {elem})")
+}
+
+pub(crate) fn not_in_binop_smtlib(elem: &str, coll: &str) -> String {
+    format!("(not (__contains {coll} {elem}))")
+}
+
+pub(crate) fn concat_binop_smtlib(l: &str, r: &str) -> String {
+    format!("(__concat {l} {r})")
+}
+
+/// Map standard AST `BinOp` variants to native CVC5 kinds.
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn standard_ast_binop_cvc5_kind(op: &BinOp) -> Option<cvc5::Kind> {
+    match op {
+        BinOp::Add => Some(cvc5::Kind::Add),
+        BinOp::Sub => Some(cvc5::Kind::Sub),
+        BinOp::Mul => Some(cvc5::Kind::Mult),
+        BinOp::Div => Some(cvc5::Kind::IntsDivision),
+        BinOp::Mod => Some(cvc5::Kind::IntsModulus),
+        BinOp::Eq => Some(cvc5::Kind::Equal),
+        BinOp::Lt => Some(cvc5::Kind::Lt),
+        BinOp::Lte => Some(cvc5::Kind::Leq),
+        BinOp::Gt => Some(cvc5::Kind::Gt),
+        BinOp::Gte => Some(cvc5::Kind::Geq),
+        BinOp::And => Some(cvc5::Kind::And),
+        BinOp::Or => Some(cvc5::Kind::Or),
+        BinOp::Implies => Some(cvc5::Kind::Implies),
+        BinOp::Neq | BinOp::Range | BinOp::In | BinOp::NotIn | BinOp::Concat => None,
+    }
+}
+
+/// Combine a quantifier domain guard with its body (native API).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn combine_quantifier_guard_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    is_forall: bool,
+    guard: cvc5::Term<'a>,
+    body: cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    if is_forall {
+        tm.mk_term(cvc5::Kind::Implies, &[guard, body])
+    } else {
+        tm.mk_term(cvc5::Kind::And, &[guard, body])
+    }
 }
 
 /// Apply a shared raw binary operator in the native CVC5 API.

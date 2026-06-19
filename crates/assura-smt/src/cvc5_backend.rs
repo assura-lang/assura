@@ -1,8 +1,19 @@
 use super::*;
 use crate::cache::SessionCache;
+use crate::cvc5_common::{
+    collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
+    expr_has_unmodelable_features_cvc5, flatten_field_chain_cvc5, float_literal_to_smtlib,
+    has_deep_field_chain_cvc5, is_internal_cvc5_var, is_self_rooted_cvc5, old_ident_smtlib_name,
+    sanitize_smtlib_name, smtlib_result_name,
+};
+
+#[cfg(test)]
+use crate::cvc5_common::field_chain_depth_cvc5;
 use crate::cvc5_raw_ops::{
-    comma_chunk_ranges, domain_contains_guard_smtlib, find_matching_delim, format_raw_binop_smtlib,
-    format_raw_quantifier_smtlib, is_raw_spec_skip_keyword, parse_raw_quantifier_slice,
+    comma_chunk_ranges, concat_binop_smtlib, domain_as_range, domain_contains_guard_smtlib,
+    find_matching_delim, format_neq_ast_binop_smtlib, format_raw_binop_smtlib,
+    format_raw_quantifier_smtlib, format_standard_ast_binop_smtlib, in_binop_smtlib,
+    is_raw_spec_skip_keyword, not_in_binop_smtlib, parse_raw_quantifier_slice, range_binop_smtlib,
     range_guard_smtlib, raw_op_info, raw_op_is_comparison, wrap_ast_quantifier_smtlib,
 };
 use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, Pattern, UnaryOp};
@@ -29,173 +40,6 @@ pub(crate) fn cvc5_adt_prelude_lines() -> Vec<String> {
     lines.push(format!("; adt tester: {tester}"));
     lines.push(format!("; adt accessor: {accessor}"));
     lines
-}
-
-// =========================================================================
-// Unmodelable feature detection (mirrors z3_backend::encoder logic)
-//
-// These functions detect features in clause bodies that cannot be encoded
-// to SMT formulas (currently only typestate `@` annotations). Without
-// this pre-check, the encoder either returns `None` (generic error) or
-// partially encodes the expression, producing false counterexamples.
-//
-// Duplicated here because z3_backend is behind `#[cfg(feature = "z3-verify")]`
-// and the CVC5 backend must work without Z3.
-// =========================================================================
-
-/// Returns true if the expression contains features not yet encodable in SMT.
-///
-/// Currently only typestate `@` annotations in `Expr::Raw` tokens are
-/// unmodelable. All other constructs (field access, method calls, ghost
-/// expressions, etc.) have SMT encodings.
-fn expr_has_unmodelable_features_cvc5(expr: &Expr) -> bool {
-    match expr {
-        Expr::Field(obj, _) => expr_has_unmodelable_features_cvc5(obj),
-        Expr::MethodCall {
-            receiver,
-            method: _,
-            args,
-        } => {
-            expr_has_unmodelable_features_cvc5(receiver)
-                || args.iter().any(expr_has_unmodelable_features_cvc5)
-        }
-        // #262: Typestate @ annotations are now encoded as integer equality.
-        Expr::Raw(_tokens) => false,
-        Expr::BinOp { lhs, rhs, .. } => {
-            expr_has_unmodelable_features_cvc5(lhs) || expr_has_unmodelable_features_cvc5(rhs)
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Cast { expr: inner, .. } => expr_has_unmodelable_features_cvc5(inner),
-        Expr::Call { func, args } => {
-            expr_has_unmodelable_features_cvc5(func)
-                || args.iter().any(expr_has_unmodelable_features_cvc5)
-        }
-        Expr::Index { expr: e, index } => {
-            expr_has_unmodelable_features_cvc5(e) || expr_has_unmodelable_features_cvc5(index)
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            expr_has_unmodelable_features_cvc5(domain) || expr_has_unmodelable_features_cvc5(body)
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_has_unmodelable_features_cvc5(cond)
-                || expr_has_unmodelable_features_cvc5(then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_has_unmodelable_features_cvc5(e))
-        }
-        Expr::Let { value, body, .. } => {
-            expr_has_unmodelable_features_cvc5(value) || expr_has_unmodelable_features_cvc5(body)
-        }
-        Expr::Match { scrutinee, arms } => {
-            expr_has_unmodelable_features_cvc5(scrutinee)
-                || arms
-                    .iter()
-                    .any(|a| expr_has_unmodelable_features_cvc5(&a.body))
-        }
-        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
-            items.iter().any(expr_has_unmodelable_features_cvc5)
-        }
-        Expr::Apply { args, .. } => args.iter().any(expr_has_unmodelable_features_cvc5),
-        Expr::Literal(_) | Expr::Ident(_) => false,
-    }
-}
-
-/// Collect human-readable reasons for why an expression is unmodelable.
-fn collect_unmodelable_reasons_cvc5(_expr: &Expr) -> Vec<String> {
-    // #262: All expression types are now modelable.
-    // Field access, method calls, raw tokens (including typestate @),
-    // taint, ghost, region, and validate are all encoded in SMT.
-    // This function returns an empty list but is kept for API stability.
-    Vec::new()
-}
-
-// =========================================================================
-// Lemma apply-ref collection (duplicated from z3_backend because that
-// module is behind `#[cfg(feature = "z3-verify")]`)
-// =========================================================================
-
-/// Collect lemma names referenced by `apply lemma_name(args)` in a single expression.
-fn collect_apply_refs_from_expr(expr: &Expr) -> Vec<String> {
-    let mut refs = Vec::new();
-    collect_apply_refs_inner(expr, &mut refs);
-    refs
-}
-
-fn collect_apply_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
-    match expr {
-        Expr::Apply { lemma_name, args } => {
-            refs.push(lemma_name.clone());
-            for arg in args {
-                collect_apply_refs_inner(arg, refs);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_apply_refs_inner(lhs, refs);
-            collect_apply_refs_inner(rhs, refs);
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Field(inner, _)
-        | Expr::Cast { expr: inner, .. } => {
-            collect_apply_refs_inner(inner, refs);
-        }
-        Expr::Call { func, args } => {
-            collect_apply_refs_inner(func, refs);
-            for a in args {
-                collect_apply_refs_inner(a, refs);
-            }
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            collect_apply_refs_inner(receiver, refs);
-            for a in args {
-                collect_apply_refs_inner(a, refs);
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            collect_apply_refs_inner(e, refs);
-            collect_apply_refs_inner(index, refs);
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            collect_apply_refs_inner(domain, refs);
-            collect_apply_refs_inner(body, refs);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_apply_refs_inner(cond, refs);
-            collect_apply_refs_inner(then_branch, refs);
-            if let Some(eb) = else_branch {
-                collect_apply_refs_inner(eb, refs);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            collect_apply_refs_inner(value, refs);
-            collect_apply_refs_inner(body, refs);
-        }
-        Expr::Match { scrutinee, arms } => {
-            collect_apply_refs_inner(scrutinee, refs);
-            for a in arms {
-                collect_apply_refs_inner(&a.body, refs);
-            }
-        }
-        Expr::List(items) | Expr::Block(items) | Expr::Tuple(items) => {
-            for item in items {
-                collect_apply_refs_inner(item, refs);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Collect lemma definitions from a typed file's declarations.
@@ -331,83 +175,6 @@ fn cvc5_unmodelable_precheck(desc: &str, body: &Expr) -> Option<VerificationResu
             reasons.join(", ")
         ),
     })
-}
-
-// =========================================================================
-// Deep field chain helpers (pure AST, no CVC5 dependency)
-//
-// These mirror the Z3 backend's helpers in encoder.rs. They detect and
-// flatten deep field chains (e.g., `state.head.extra.extra_max`) into a
-// single variable name (`state__head__extra__extra_max`) to avoid nested
-// uninterpreted function calls that produce spurious counterexamples.
-// =========================================================================
-
-/// Check if an expression is rooted at `self`.
-fn is_self_rooted_cvc5(expr: &Expr) -> bool {
-    match expr {
-        Expr::Ident(name) => name == "self",
-        Expr::Field(obj, _) => is_self_rooted_cvc5(obj),
-        Expr::Paren(inner) => is_self_rooted_cvc5(inner),
-        _ => false,
-    }
-}
-
-fn field_chain_depth_cvc5(expr: &Expr) -> usize {
-    match expr {
-        Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(obj),
-        Expr::Paren(inner) => field_chain_depth_cvc5(inner),
-        _ => 0,
-    }
-}
-
-fn has_deep_field_chain_cvc5(expr: &Expr) -> bool {
-    field_chain_depth_cvc5(expr) >= 2
-}
-
-/// Flatten a field chain like `a.b.c` into `"a__b__c"`.
-fn flatten_field_chain_cvc5(expr: &Expr) -> String {
-    match expr {
-        Expr::Field(obj, field) => {
-            let prefix = flatten_field_chain_cvc5(obj);
-            format!("{prefix}__{field}")
-        }
-        Expr::Ident(name) => name.clone(),
-        Expr::Paren(inner) => flatten_field_chain_cvc5(inner),
-        _ => format!("__obj_{:p}", expr as *const _),
-    }
-}
-
-// =========================================================================
-// Internal variable filtering (matches Z3 backend's extract_counter_model)
-//
-// The CVC5 encoder creates many internal variables (__str_*, __field_*,
-// __fresh_*, etc.) that should not appear in user-facing counterexample
-// models. This mirrors the Z3 backend's filtering in solver.rs.
-// =========================================================================
-
-/// Check if a variable name is an internal encoder artifact.
-///
-/// Internal variables are created by the SMT encoder for string constants,
-/// field access UFs, fresh temporaries, etc. They should be filtered out
-/// of counterexample models shown to users. The only `__`-prefixed variable
-/// kept is `__result` (the return value).
-fn is_internal_cvc5_var(name: &str) -> bool {
-    name.starts_with("__str_")
-        || name.starts_with("__tuple_")
-        || name.starts_with("__list_")
-        || name.starts_with("__fresh_")
-        || name.starts_with("__field_")
-        || name.starts_with("__index")
-        || name.starts_with("__len")
-        || name.starts_with("__arr_")
-        || name.starts_with("__domain_contains")
-        || name.starts_with("__apply_")
-        || name.starts_with("__coerce")
-        || name.starts_with("__trigger_")
-        || name.starts_with("__list_get")
-        || name.starts_with("__result")
-        || name.starts_with("__contains")
-        || name.starts_with("__obj_")
 }
 
 // =========================================================================
@@ -734,8 +501,10 @@ mod cvc5_native_encoder;
 #[cfg(feature = "cvc5-verify")]
 use cvc5_native_encoder::{
     Cvc5EncoderState, apply_havoc_assume_cvc5, default_cvc5_encoder_state, encode_expr_cvc5,
-    infer_quantifier_patterns_cvc5,
 };
+
+#[cfg(all(test, feature = "cvc5-verify"))]
+use cvc5_native_encoder::infer_quantifier_patterns_cvc5;
 
 #[cfg(feature = "cvc5-verify")]
 fn build_cvc5_var_map<'a>(
@@ -2172,21 +1941,14 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             }
         }
         Expr::Literal(Literal::Bool(b)) => Some(b.to_string()),
-        Expr::Literal(Literal::Float(f)) => {
-            // Rational encoding matching CVC5 native Real sort
-            let fv: f64 = f.parse().unwrap_or(0.0);
-            let denom = 1_000_000i64;
-            let numer = (fv * denom as f64) as i64;
-            Some(format!("(/ {numer} {denom})"))
-        }
+        Expr::Literal(Literal::Float(f)) => Some(float_literal_to_smtlib(f)),
         Expr::Literal(Literal::Str(s)) => {
             // Named integer constant matching Z3 pattern
             Some(format!("__str_{}", sanitize_smtlib_name(s)))
         }
         Expr::Ident(name) => {
-            // "result" in ensures context maps to __result
             if name == "result" {
-                Some("__result".to_string())
+                Some(smtlib_result_name().to_string())
             } else {
                 Some(sanitize_smtlib_name(name))
             }
@@ -2194,43 +1956,14 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         Expr::BinOp { op, lhs, rhs } => {
             let l = expr_to_smtlib(lhs)?;
             let r = expr_to_smtlib(rhs)?;
-            let smt_op = match op {
-                BinOp::Add => "+",
-                BinOp::Sub => "-",
-                BinOp::Mul => "*",
-                BinOp::Div => "div",
-                BinOp::Mod => "mod",
-                BinOp::Eq => "=",
-                BinOp::Neq => return Some(format!("(not (= {l} {r}))")),
-                BinOp::Lt => "<",
-                BinOp::Lte => "<=",
-                BinOp::Gt => ">",
-                BinOp::Gte => ">=",
-                BinOp::And => "and",
-                BinOp::Or => "or",
-                BinOp::Implies => "=>",
-                BinOp::Range => {
-                    // Range (a..b): fresh Int constrained to [l, r)
-                    return Some(format!(
-                        "(let ((__range_fresh (+ {l} 0))) (and (>= __range_fresh {l}) (< __range_fresh {r})))"
-                    ));
-                }
-                BinOp::In => {
-                    // In (elem in collection): UF __contains(collection, elem)
-                    return Some(format!("(__contains {r} {l})"));
-                }
-                BinOp::NotIn => {
-                    // NotIn: negation of In
-                    return Some(format!("(not (__contains {r} {l}))"));
-                }
-                BinOp::Concat => {
-                    // Concat (a ++ b): fresh value with length axiom comment
-                    // In shell-out mode we return a symbolic expression;
-                    // the length axiom is implicit.
-                    return Some(format!("(__concat {l} {r})"));
-                }
-            };
-            Some(format!("({smt_op} {l} {r})"))
+            match op {
+                BinOp::Neq => Some(format_neq_ast_binop_smtlib(&l, &r)),
+                BinOp::Range => Some(range_binop_smtlib(&l, &r)),
+                BinOp::In => Some(in_binop_smtlib(&l, &r)),
+                BinOp::NotIn => Some(not_in_binop_smtlib(&l, &r)),
+                BinOp::Concat => Some(concat_binop_smtlib(&l, &r)),
+                _ => format_standard_ast_binop_smtlib(op, &l, &r),
+            }
         }
         Expr::UnaryOp { op, expr: inner } => {
             let e = expr_to_smtlib(inner)?;
@@ -2257,37 +1990,13 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         Expr::Forall { var, domain, body } => {
             let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            let guard = if let Expr::BinOp {
-                op: BinOp::Range,
-                lhs: lo,
-                rhs: hi,
-            } = domain.as_ref()
-            {
-                let lo_s = expr_to_smtlib(lo)?;
-                let hi_s = expr_to_smtlib(hi)?;
-                range_guard_smtlib(&v, &lo_s, &hi_s)
-            } else {
-                let d = expr_to_smtlib(domain).unwrap_or_else(|| v.clone());
-                domain_contains_guard_smtlib(&d, &v)
-            };
+            let guard = quantifier_domain_guard_smtlib(domain, &v)?;
             Some(wrap_ast_quantifier_smtlib(true, &v, &guard, &b))
         }
         Expr::Exists { var, domain, body } => {
             let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            let guard = if let Expr::BinOp {
-                op: BinOp::Range,
-                lhs: lo,
-                rhs: hi,
-            } = domain.as_ref()
-            {
-                let lo_s = expr_to_smtlib(lo)?;
-                let hi_s = expr_to_smtlib(hi)?;
-                range_guard_smtlib(&v, &lo_s, &hi_s)
-            } else {
-                let d = expr_to_smtlib(domain).unwrap_or_else(|| v.clone());
-                domain_contains_guard_smtlib(&d, &v)
-            };
+            let guard = quantifier_domain_guard_smtlib(domain, &v)?;
             Some(wrap_ast_quantifier_smtlib(false, &v, &guard, &b))
         }
         Expr::Call { func, args } => {
@@ -2307,14 +2016,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         }
         Expr::Old(inner) => match inner.as_ref() {
             // old(x) -> x__old
-            Expr::Ident(name) => {
-                let old_name = if name == "result" {
-                    "__result__old".to_string()
-                } else {
-                    format!("{}__old", sanitize_smtlib_name(name))
-                };
-                Some(old_name)
-            }
+            Expr::Ident(name) => Some(old_ident_smtlib_name(name)),
             // old(obj.field) -> flatten deep chains, else UF
             Expr::Field(obj, field) => {
                 let full_expr = Expr::Field(obj.clone(), field.clone());
@@ -2374,12 +2076,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                         let body = expr_to_smtlib(&arm.body)?;
                         let lit_smt = match lit {
                             Literal::Int(n) => n.clone(),
-                            Literal::Float(f) => {
-                                let fv: f64 = f.parse().unwrap_or(0.0);
-                                let denom = 1_000_000i64;
-                                let numer = (fv * denom as f64) as i64;
-                                format!("(/ {numer} {denom})")
-                            }
+                            Literal::Float(f) => float_literal_to_smtlib(f),
                             Literal::Bool(b) => b.to_string(),
                             Literal::Str(_) => return None,
                         };
@@ -2626,8 +2323,15 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     Some((name, next))
 }
 
-fn sanitize_smtlib_name(name: &str) -> String {
-    name.replace('.', "_")
+fn quantifier_domain_guard_smtlib(domain: &Expr, var: &str) -> Option<String> {
+    if let Some((lo, hi)) = domain_as_range(domain) {
+        let lo_s = expr_to_smtlib(lo)?;
+        let hi_s = expr_to_smtlib(hi)?;
+        Some(range_guard_smtlib(var, &lo_s, &hi_s))
+    } else {
+        let d = expr_to_smtlib(domain).unwrap_or_else(|| var.to_string());
+        Some(domain_contains_guard_smtlib(&d, var))
+    }
 }
 
 /// Collect all variable names referenced in an expression.
@@ -2635,7 +2339,7 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
     match expr {
         Expr::Ident(name) => {
             if name == "result" {
-                vars.insert("__result".to_string());
+                vars.insert(smtlib_result_name().to_string());
             } else {
                 vars.insert(sanitize_smtlib_name(name));
             }

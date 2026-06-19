@@ -77,6 +77,9 @@ mod no_z3;
 
 mod cvc5_backend;
 mod cvc5_builtins;
+mod cvc5_common;
+#[cfg(feature = "cvc5-verify")]
+mod cvc5_native_binops;
 mod cvc5_raw_ops;
 
 // ---------------------------------------------------------------------------

@@ -11,13 +11,18 @@ use crate::cvc5_builtins::{
     KnownBuiltin, classify_known_builtin, is_bool_field, is_bool_returning_uf, is_size_field,
     pattern_hash_name,
 };
-use crate::cvc5_raw_ops::{
-    apply_raw_op_cvc5, comma_chunk_ranges, find_matching_delim, is_raw_spec_skip_keyword,
-    parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
+use crate::cvc5_common::{
+    flatten_field_chain_cvc5, float_to_rational_parts, has_deep_field_chain_cvc5,
+    is_self_rooted_cvc5, sanitize_smtlib_name, smtlib_result_name,
 };
-
-use super::{
-    flatten_field_chain_cvc5, has_deep_field_chain_cvc5, is_self_rooted_cvc5, sanitize_smtlib_name,
+use crate::cvc5_native_binops::{
+    alloc_fresh_int_cvc5, encode_concat_binop_cvc5, encode_contains_binop_cvc5,
+    encode_range_binop_cvc5,
+};
+use crate::cvc5_raw_ops::{
+    apply_raw_op_cvc5, combine_quantifier_guard_cvc5, comma_chunk_ranges, domain_as_range,
+    find_matching_delim, is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info,
+    raw_op_is_comparison, standard_ast_binop_cvc5_kind,
 };
 
 /// Encoder state for the native CVC5 backend.
@@ -115,7 +120,6 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
     }
 }
 
-#[cfg(feature = "cvc5-verify")]
 #[cfg(feature = "cvc5-verify")]
 fn mk_ir_arith_cvc5<'a>(
     tm: &'a cvc5::TermManager,
@@ -379,9 +383,7 @@ fn fresh_int_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
-    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-    state.fresh_counter += 1;
-    tm.mk_const(tm.integer_sort(), &fresh_name)
+    alloc_fresh_int_cvc5(tm, &mut state.fresh_counter)
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -469,27 +471,15 @@ fn encode_known_builtin_cvc5<'a>(
             Some(result)
         }
         KnownBuiltin::Concat => {
-            let (l, r) = (&args[0], &args[1]);
-            let result = fresh_int_cvc5(tm, state);
             let len_func = field_len_fn_cvc5(tm, state);
-            let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l.clone()]);
-            let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r.clone()]);
-            let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-            let zero = tm.mk_integer(0);
-            state
-                .axioms
-                .push(tm.mk_term(cvc5::Kind::Geq, &[len_l.clone(), zero.clone()]));
-            state
-                .axioms
-                .push(tm.mk_term(cvc5::Kind::Geq, &[len_r.clone(), zero.clone()]));
-            let sum = tm.mk_term(cvc5::Kind::Add, &[len_l, len_r]);
-            state
-                .axioms
-                .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]));
-            state
-                .axioms
-                .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
-            Some(result)
+            Some(encode_concat_binop_cvc5(
+                tm,
+                &mut state.axioms,
+                &mut state.fresh_counter,
+                &len_func,
+                args[0].clone(),
+                args[1].clone(),
+            ))
         }
         KnownBuiltin::IndexOf => {
             let str_val = &args[0];
@@ -674,10 +664,7 @@ pub(crate) fn encode_expr_cvc5<'a>(
         }
         Expr::Literal(Literal::Bool(b)) => Some(tm.mk_boolean(*b)),
         Expr::Literal(Literal::Float(f_str)) => {
-            // Rational approximation matching Z3 backend (Real sort)
-            let f: f64 = f_str.parse().unwrap_or(0.0);
-            let denom = 1_000_000i64;
-            let numer = (f * denom as f64) as i64;
+            let (numer, denom) = float_to_rational_parts(f_str);
             Some(tm.mk_real_from_rational(numer, denom))
         }
         Expr::Literal(Literal::Str(s)) => {
@@ -718,7 +705,7 @@ pub(crate) fn encode_expr_cvc5<'a>(
         }
         Expr::Ident(name) => {
             let key = if name == "result" {
-                "__result".to_string()
+                smtlib_result_name().to_string()
             } else {
                 sanitize_smtlib_name(name)
             };
@@ -729,76 +716,39 @@ pub(crate) fn encode_expr_cvc5<'a>(
         Expr::BinOp { op, lhs, rhs } => {
             let l = encode_expr_cvc5(tm, lhs, vars, state)?;
             let r = encode_expr_cvc5(tm, rhs, vars, state)?;
-            let kind = match op {
-                BinOp::Add => cvc5::Kind::Add,
-                BinOp::Sub => cvc5::Kind::Sub,
-                BinOp::Mul => cvc5::Kind::Mult,
-                BinOp::Div => cvc5::Kind::IntsDivision,
-                BinOp::Mod => cvc5::Kind::IntsModulus,
-                BinOp::Eq => cvc5::Kind::Equal,
+            match op {
                 BinOp::Neq => {
                     let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]);
-                    return Some(tm.mk_term(cvc5::Kind::Not, &[eq]));
+                    Some(tm.mk_term(cvc5::Kind::Not, &[eq]))
                 }
-                BinOp::Lt => cvc5::Kind::Lt,
-                BinOp::Lte => cvc5::Kind::Leq,
-                BinOp::Gt => cvc5::Kind::Gt,
-                BinOp::Gte => cvc5::Kind::Geq,
-                BinOp::And => cvc5::Kind::And,
-                BinOp::Or => cvc5::Kind::Or,
-                BinOp::Implies => cvc5::Kind::Implies,
-                BinOp::Range => {
-                    // Range (a..b): create a fresh Int constrained to [lhs, rhs)
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let fresh = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let ge_lo = tm.mk_term(cvc5::Kind::Geq, &[fresh.clone(), l]);
-                    let lt_hi = tm.mk_term(cvc5::Kind::Lt, &[fresh.clone(), r]);
-                    let in_range = tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi]);
-                    state.axioms.push(in_range);
-                    return Some(fresh);
-                }
-                BinOp::In => {
-                    // In (elem in collection): UF __contains(collection, elem) -> Bool
-                    let func_sort =
-                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
-                    let contains = tm.mk_const(func_sort, "__contains");
-                    return Some(tm.mk_term(cvc5::Kind::ApplyUf, &[contains, r, l]));
-                }
+                BinOp::Range => Some(encode_range_binop_cvc5(
+                    tm,
+                    &mut state.axioms,
+                    &mut state.fresh_counter,
+                    l,
+                    r,
+                )),
+                BinOp::In => Some(encode_contains_binop_cvc5(tm, r, l)),
                 BinOp::NotIn => {
-                    // NotIn: negation of In
-                    let func_sort =
-                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
-                    let contains = tm.mk_const(func_sort, "__contains");
-                    let in_result = tm.mk_term(cvc5::Kind::ApplyUf, &[contains, r, l]);
-                    return Some(tm.mk_term(cvc5::Kind::Not, &[in_result]));
+                    let in_result = encode_contains_binop_cvc5(tm, r, l);
+                    Some(tm.mk_term(cvc5::Kind::Not, &[in_result]))
                 }
                 BinOp::Concat => {
-                    // Concat (a ++ b): fresh value with length axiom
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
                     let len_func = field_len_fn_cvc5(tm, state);
-                    let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l]);
-                    let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r]);
-                    let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                    let sum = tm.mk_term(cvc5::Kind::Add, &[len_l.clone(), len_r.clone()]);
-                    let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]);
-                    state.axioms.push(len_eq);
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_l, zero.clone()]));
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_r, zero.clone()]));
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
-                    return Some(result);
+                    Some(encode_concat_binop_cvc5(
+                        tm,
+                        &mut state.axioms,
+                        &mut state.fresh_counter,
+                        &len_func,
+                        l,
+                        r,
+                    ))
                 }
-            };
-            Some(tm.mk_term(kind, &[l, r]))
+                _ => {
+                    let kind = standard_ast_binop_cvc5_kind(op)?;
+                    Some(tm.mk_term(kind, &[l, r]))
+                }
+            }
         }
         Expr::UnaryOp { op, expr: inner } => {
             let e = encode_expr_cvc5(tm, inner, vars, state)?;
@@ -1235,42 +1185,26 @@ fn guard_quantifier_body_cvc5<'a>(
     outer_vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
-    if let Expr::BinOp {
-        op: BinOp::Range,
-        lhs: lo,
-        rhs: hi,
-    } = domain
-    {
-        // Range domain: lo <= x && x < hi
+    let guard = if let Some((lo, hi)) = domain_as_range(domain) {
         let lo_val =
             encode_expr_cvc5(tm, lo, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
         let hi_val =
             encode_expr_cvc5(tm, hi, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
         let ge_lo = tm.mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
         let lt_hi = tm.mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val]);
-        let in_range = tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi]);
-        if is_forall {
-            tm.mk_term(cvc5::Kind::Implies, &[in_range, body])
-        } else {
-            tm.mk_term(cvc5::Kind::And, &[in_range, body])
-        }
+        tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
     } else {
-        // Non-range domain: __domain_contains(domain, x) UF
         let domain_val = encode_expr_cvc5(tm, domain, outer_vars, state)
             .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), "__domain_unknown"));
         let contains_sort =
             tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
         let contains_fn = tm.mk_const(contains_sort, "__domain_contains");
-        let membership = tm.mk_term(
+        tm.mk_term(
             cvc5::Kind::ApplyUf,
             &[contains_fn, domain_val, bound_var.clone()],
-        );
-        if is_forall {
-            tm.mk_term(cvc5::Kind::Implies, &[membership, body])
-        } else {
-            tm.mk_term(cvc5::Kind::And, &[membership, body])
-        }
-    }
+        )
+    };
+    combine_quantifier_guard_cvc5(tm, is_forall, guard, body)
 }
 
 /// Infer CVC5 trigger patterns from function calls in a quantifier body
