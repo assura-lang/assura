@@ -913,6 +913,42 @@ fn count_input_params(body: &assura_parser::ast::Expr) -> usize {
     }
 }
 
+/// Placeholder `.ir` sidecar text for a declaration (AI replaces with real IR).
+///
+/// Uses identity `load` from the first parameter when present so SMT havoc+assume
+/// has a minimal implementation constraint to refine.
+pub fn stub_ir_sidecar_text(name: &str, params: &[(usize, String)], return_ty: &str) -> String {
+    let module = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let param_list = params
+        .iter()
+        .map(|(slot, ty)| format!("${slot}: {ty}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let body = if let Some((slot, _)) = params.first() {
+        format!("    $result = load ${slot} : {return_ty}\n")
+    } else {
+        format!("    $result = const 0 : {return_ty}\n")
+    };
+    format!(
+        "// Stub IR for {name} — replace with AI-generated implementation\n\
+         module {module} {{\n\
+           fn #0 : ({param_list}) -> {return_ty} ! pure\n\
+           {{\n\
+         {body}\
+           }}\n\
+         }}\n"
+    )
+}
+
 /// Generate Rust source code from a validated IR module.
 ///
 /// Each IR function becomes a Rust function with debug_assert!
@@ -1137,6 +1173,14 @@ mod tests {
     // -------------------------------------------------------------------
     // IrParser (text format) tests
     // -------------------------------------------------------------------
+
+    #[test]
+    fn stub_ir_sidecar_text_includes_identity_load() {
+        let text = stub_ir_sidecar_text("CopyBytes", &[(0, "Bytes".into())], "Bytes");
+        assert!(text.contains("CopyBytes"));
+        assert!(text.contains("$result = load $0"));
+        assert!(parse_ir_module(&text).is_ok());
+    }
 
     #[test]
     fn test_ir_parser_empty() {

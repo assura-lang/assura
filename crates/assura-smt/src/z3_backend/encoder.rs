@@ -447,7 +447,7 @@ impl Encoder {
 
     /// Create an uninterpreted function declaration (Int^arity -> Int).
     /// Z3 internally deduplicates declarations with the same name and sorts.
-    fn make_func(&mut self, name: &str, arity: usize) -> z3::FuncDecl {
+    pub(super) fn make_func(&mut self, name: &str, arity: usize) -> z3::FuncDecl {
         self.func_arities.insert(name.to_string(), arity);
         let int_sort = z3::Sort::int();
         let param_sorts: Vec<&z3::Sort> = (0..arity).map(|_| &int_sort).collect();
@@ -1854,21 +1854,13 @@ impl Encoder {
                 let (body_val, _) = self.parse_raw_expr(body_tokens, 0);
                 let body_bool = body_val.as_bool();
 
-                // Build Z3 quantifier
+                // Build Z3 quantifier (no e-matching patterns: Pattern::new panics
+                // on bare Int bound vars like service invariant quantifiers).
                 let bound_ref = &bound;
-                let pattern = z3::Pattern::new(&[bound_ref as &dyn z3::ast::Ast]);
                 let q = if is_forall {
-                    z3::ast::forall_const(
-                        &[bound_ref as &dyn z3::ast::Ast],
-                        &[&pattern],
-                        &body_bool,
-                    )
+                    z3::ast::forall_const(&[bound_ref as &dyn z3::ast::Ast], &[], &body_bool)
                 } else {
-                    z3::ast::exists_const(
-                        &[bound_ref as &dyn z3::ast::Ast],
-                        &[&pattern],
-                        &body_bool,
-                    )
+                    z3::ast::exists_const(&[bound_ref as &dyn z3::ast::Ast], &[], &body_bool)
                 };
                 return (Z3Value::Bool(q), tokens.len());
             }

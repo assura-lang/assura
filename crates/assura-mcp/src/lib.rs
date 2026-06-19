@@ -86,11 +86,11 @@ impl AssuraMcpServer {
         description = "Parse, type-check, and verify an Assura contract. Returns structured diagnostics and verification results. Provide either `source` (inline code) or `file` (path to .assura file)."
     )]
     fn assura_check(&self, Parameters(params): Parameters<CheckParams>) -> String {
-        let source = match resolve_source(params.source, params.file) {
-            Ok(s) => s,
+        let (source, filename) = match resolve_source_with_path(params.source, params.file) {
+            Ok(v) => v,
             Err(e) => return e,
         };
-        let result = run_check_pipeline(&source);
+        let result = run_check_pipeline(&source, &filename);
         serde_json::to_string_pretty(&result).unwrap_or_default()
     }
 
@@ -153,17 +153,26 @@ impl ServerHandler for AssuraMcpServer {
 // ---------------------------------------------------------------------------
 
 fn resolve_source(inline: Option<String>, file: Option<String>) -> Result<String, String> {
+    resolve_source_with_path(inline, file).map(|(s, _)| s)
+}
+
+fn resolve_source_with_path(
+    inline: Option<String>,
+    file: Option<String>,
+) -> Result<(String, String), String> {
     match (inline, file) {
-        (Some(s), _) => Ok(s),
+        (Some(s), _) => Ok((s, "<inline>".into())),
         (None, Some(path)) => {
-            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {path}: {e}"))
+            let content = std::fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read {path}: {e}"))?;
+            Ok((content, path))
         }
         (None, None) => Err("Provide either `source` (inline code) or `file` (path)".into()),
     }
 }
 
-fn run_check_pipeline(source: &str) -> assura_pipeline::PipelineResult {
-    assura_pipeline::run(source)
+fn run_check_pipeline(source: &str, filename: &str) -> assura_pipeline::PipelineResult {
+    assura_pipeline::run_at(source, filename)
 }
 
 /// Lightweight contract inference from Rust source text.
@@ -345,7 +354,7 @@ mod tests {
     #[test]
     fn check_pipeline_valid_contract() {
         let source = "contract Add {\n  input(a: Int, b: Int)\n  output(result: Int)\n  requires { a >= 0 }\n  ensures { result >= a }\n}\n";
-        let result = run_check_pipeline(source);
+        let result = run_check_pipeline(source, "<inline>");
         assert!(
             result.parse_errors.is_empty(),
             "should have no parse errors"
@@ -358,7 +367,7 @@ mod tests {
 
     #[test]
     fn check_pipeline_empty_source() {
-        let result = run_check_pipeline("");
+        let result = run_check_pipeline("", "<inline>");
         // Empty source should parse cleanly (no declarations, no errors)
         assert!(
             result.parse_errors.is_empty(),
@@ -387,7 +396,7 @@ contract Bar {
     ensures { result == y }
 }
 "#;
-        let result = run_check_pipeline(source);
+        let result = run_check_pipeline(source, "<inline>");
         assert!(result.parse_errors.is_empty());
         assert!(
             result.declarations.len() >= 2,
@@ -400,7 +409,7 @@ contract Bar {
     #[test]
     fn check_pipeline_verification_results() {
         let source = "contract Simple {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
-        let result = run_check_pipeline(source);
+        let result = run_check_pipeline(source, "<inline>");
         // Should have at least one verification entry
         assert!(
             !result.verification.is_empty(),
@@ -420,7 +429,7 @@ contract Bar {
     #[test]
     fn check_pipeline_serializes_to_json() {
         let source = "contract Test {\n  input(x: Int)\n  output(result: Int)\n  ensures { result >= 0 }\n}\n";
-        let result = run_check_pipeline(source);
+        let result = run_check_pipeline(source, "<inline>");
         let json = serde_json::to_string(&result);
         assert!(json.is_ok(), "result should serialize to JSON");
         let json_str = json.unwrap();

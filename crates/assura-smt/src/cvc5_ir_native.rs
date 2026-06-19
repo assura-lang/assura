@@ -65,6 +65,13 @@ fn encode_ir_expr_cvc5<'a>(
 
     match expr {
         IrExprKind::Const(IrLiteral::Int(n)) => tm.mk_integer(*n),
+        IrExprKind::Const(IrLiteral::Float(f)) => tm.mk_integer(*f as i64),
+        IrExprKind::Const(IrLiteral::Bool(b)) => tm.mk_integer(if *b { 1 } else { 0 }),
+        IrExprKind::Const(IrLiteral::Str(_)) => {
+            let name = format!("__fresh_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            tm.mk_const(tm.integer_sort(), &name)
+        }
         IrExprKind::Load(slot) => slots.get(slot).cloned().unwrap_or_else(|| {
             let name = format!("__fresh_{}", state.fresh_counter);
             state.fresh_counter += 1;
@@ -80,11 +87,100 @@ fn encode_ir_expr_cvc5<'a>(
             let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), slots, vars, state);
             mk_ir_cmp_as_int_cvc5(tm, *op, l, r)
         }
-        _ => {
-            let name = format!("__fresh_{}", state.fresh_counter);
-            state.fresh_counter += 1;
-            tm.mk_const(tm.integer_sort(), &name)
+        IrExprKind::Call { func, args } => mk_ir_call_cvc5(tm, func, args, slots, vars, state),
+        IrExprKind::Field { slot, index } => {
+            let base = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), slots, vars, state);
+            mk_ir_unary_uf_cvc5(tm, &format!("__ir_field_{index}"), base, vars, state)
         }
+        IrExprKind::Construct { type_id, fields } => {
+            let args: Vec<cvc5::Term<'a>> = fields
+                .iter()
+                .map(|(_, s)| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), slots, vars, state))
+                .collect();
+            mk_ir_nary_uf_cvc5(tm, &format!("__ir_construct_{type_id}"), &args, vars, state)
+        }
+        IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => {
+            encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), slots, vars, state)
+        }
+        IrExprKind::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let cond_val = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*cond), slots, vars, state);
+            let zero = tm.mk_integer(0);
+            let cond_bool = tm.mk_term(cvc5::Kind::Distinct, &[cond_val, zero]);
+            let then_v =
+                mk_ir_nullary_uf_cvc5(tm, &format!("__ir_block_{then_block}"), vars, state);
+            let else_v =
+                mk_ir_nullary_uf_cvc5(tm, &format!("__ir_block_{else_block}"), vars, state);
+            tm.mk_term(cvc5::Kind::Ite, &[cond_bool, then_v, else_v])
+        }
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn mk_ir_call_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    func: &str,
+    args: &[usize],
+    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    use crate::ir::IrExprKind;
+
+    let arg_terms: Vec<cvc5::Term<'a>> = args
+        .iter()
+        .map(|a| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*a), slots, vars, state))
+        .collect();
+    mk_ir_nary_uf_cvc5(tm, &format!("__ir_call_{func}"), &arg_terms, vars, state)
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn mk_ir_unary_uf_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    arg: cvc5::Term<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    mk_ir_nary_uf_cvc5(tm, name, &[arg], vars, state)
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn mk_ir_nullary_uf_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    mk_ir_nary_uf_cvc5(tm, name, &[], vars, state)
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn mk_ir_nary_uf_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    args: &[cvc5::Term<'a>],
+    _vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    _state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    let key = sanitize_smtlib_name(name);
+    let domain: Vec<cvc5::Sort<'_>> = (0..args.len()).map(|_| tm.integer_sort()).collect();
+    let fun_sort = if domain.is_empty() {
+        tm.integer_sort()
+    } else {
+        tm.mk_fun_sort(&domain, tm.integer_sort())
+    };
+    let decl = tm.mk_const(fun_sort, &key);
+    if args.is_empty() {
+        decl
+    } else {
+        let mut apply_args = Vec::with_capacity(1 + args.len());
+        apply_args.push(decl);
+        apply_args.extend_from_slice(args);
+        tm.mk_term(cvc5::Kind::ApplyUf, &apply_args)
     }
 }
 
@@ -197,6 +293,14 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
             .collect();
 
     for instr in &func.body {
+        if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
+            let key = sanitize_smtlib_name(&format!("__ir_slot_{}", instr.target));
+            let v = vars
+                .entry(key.clone())
+                .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
+                .clone();
+            slots.insert(instr.target, v);
+        }
         let computed = encode_ir_expr_cvc5(tm, &instr.expr, &slots, vars, state);
         if let Some(target) = slots.get(&instr.target) {
             state

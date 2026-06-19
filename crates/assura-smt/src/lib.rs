@@ -53,7 +53,7 @@ pub use entry::{
 };
 pub use ir_loader::{
     LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source,
-    load_ir_bodies_for_contracts, load_ir_bodies_for_typed,
+    load_ir_bodies_for_contracts, load_ir_bodies_for_typed, stub_ir_sidecars_for_typed,
 };
 
 /// SMT-LIB2 dump and quantifier bound validation.
@@ -198,7 +198,7 @@ pub mod havoc_assume;
 pub mod ir;
 pub use ir::{
     IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrModule, IrNode, IrParser,
-    IrPred, IrPredArg, IrSlotDecl, IrValidation, ir_to_rust, parse_ir_module,
+    IrPred, IrPredArg, IrSlotDecl, IrValidation, ir_to_rust, parse_ir_module, stub_ir_sidecar_text,
     validate_ir_against_contract,
 };
 #[cfg(test)]

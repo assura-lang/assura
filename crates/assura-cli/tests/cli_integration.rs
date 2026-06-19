@@ -1445,3 +1445,109 @@ fn infer_rust_detects_unwrap() {
         "should detect unwrap pattern, got: {stdout}"
     );
 }
+
+// =======================================================================
+// IR sidecar pipeline: assura check loads {Name}.ir from disk
+// =======================================================================
+
+#[test]
+fn check_loads_ir_sidecar_and_verifies_ensures() {
+    let tmp = std::env::temp_dir().join(format!("assura_ir_e2e_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("CopyBytes.assura");
+    std::fs::write(
+        &assura_path,
+        r#"
+contract CopyBytes {
+  input(raw: Bytes)
+  output(result: Bytes)
+  requires { raw.length() > 0 }
+  ensures  { result.length() <= raw.length() }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("CopyBytes.ir"),
+        r#"
+module copy {
+  fn #0 : ($0: Bytes) -> Bytes ! pure
+  {
+    $result = load $0 : Bytes
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .arg("check")
+        .arg(assura_path.to_str().unwrap())
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura check");
+
+    assert!(
+        out.status.success(),
+        "check should succeed with IR sidecar: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        combined.contains("verified") || combined.contains("Verified"),
+        "expected verified ensures, got: {combined}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_writes_stub_ir_sidecars_to_generated() {
+    let tmp = std::env::temp_dir().join(format!("assura_ir_build_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("StubContract.assura");
+    std::fs::write(
+        &assura_path,
+        r#"
+contract StubContract {
+  input(x: Int)
+  output(result: Int)
+  requires { x >= 0 }
+  ensures  { result >= 0 }
+}
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["build", assura_path.to_str().unwrap()])
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura build");
+
+    assert!(
+        out.status.success(),
+        "build should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir_path = tmp.join("generated/StubContract.ir");
+    assert!(
+        ir_path.exists(),
+        "build should write stub IR sidecar to generated/StubContract.ir"
+    );
+    let ir_text = std::fs::read_to_string(&ir_path).unwrap();
+    assert!(
+        ir_text.contains("$result = load $0"),
+        "stub IR should identity-load first param"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

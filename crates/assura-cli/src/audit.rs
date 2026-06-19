@@ -175,7 +175,20 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
                     if !is_json {
                         eprintln!("Verifying ...");
                     }
-                    let results = assura_smt::verify(&typed);
+                    let audit_dir =
+                        std::env::temp_dir().join(format!("assura-audit-{}", std::process::id()));
+                    let _ = fs::create_dir_all(&audit_dir);
+                    let audit_path = audit_dir.join("audit_generated.assura");
+                    let _ = fs::write(&audit_path, &assura_source);
+                    let loaded_ir = assura_smt::LoadedVerifyExtras::load(&audit_path, &typed);
+                    let verify_cache = assura_smt::VerificationCache::new(&audit_dir);
+                    let results = assura_smt::verify_parallel_with_solver(
+                        &typed,
+                        &verify_cache,
+                        assura_smt::SolverChoice::Z3,
+                        loaded_ir.extras().as_ref(),
+                    );
+                    let _ = fs::remove_dir_all(&audit_dir);
                     for r in &results {
                         match r {
                             assura_smt::VerificationResult::Verified { .. } => {
