@@ -79,7 +79,14 @@ mod cvc5_backend;
 mod cvc5_builtins;
 mod cvc5_common;
 #[cfg(feature = "cvc5-verify")]
+mod cvc5_encoder_state;
+mod cvc5_field_access;
+mod cvc5_index_access;
+mod cvc5_match_encode;
+#[cfg(feature = "cvc5-verify")]
 mod cvc5_native_binops;
+#[cfg(feature = "cvc5-verify")]
+mod cvc5_native_builtins;
 mod cvc5_raw_ops;
 
 // ---------------------------------------------------------------------------

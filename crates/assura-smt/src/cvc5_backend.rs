@@ -2,13 +2,20 @@ use super::*;
 use crate::cache::SessionCache;
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
-    expr_has_unmodelable_features_cvc5, flatten_field_chain_cvc5, float_literal_to_smtlib,
-    has_deep_field_chain_cvc5, is_internal_cvc5_var, is_self_rooted_cvc5, old_ident_smtlib_name,
-    sanitize_smtlib_name, smtlib_result_name,
+    expr_has_unmodelable_features_cvc5, float_literal_to_smtlib, is_internal_cvc5_var,
+    old_ident_smtlib_name, sanitize_smtlib_name, smtlib_result_name,
 };
+use crate::cvc5_field_access::{
+    FieldAccessPlan, old_flat_field_smtlib, plan_field_access, shallow_field_smtlib,
+};
+use crate::cvc5_index_access::index_access_smtlib;
+use crate::cvc5_match_encode::encode_match_smtlib;
 
 #[cfg(test)]
-use crate::cvc5_common::field_chain_depth_cvc5;
+use crate::cvc5_common::{
+    field_chain_depth_cvc5, flatten_field_chain_cvc5, has_deep_field_chain_cvc5,
+    is_self_rooted_cvc5,
+};
 use crate::cvc5_raw_ops::{
     comma_chunk_ranges, concat_binop_smtlib, domain_as_range, domain_contains_guard_smtlib,
     find_matching_delim, format_neq_ast_binop_smtlib, format_raw_binop_smtlib,
@@ -16,7 +23,7 @@ use crate::cvc5_raw_ops::{
     is_raw_spec_skip_keyword, not_in_binop_smtlib, parse_raw_quantifier_slice, range_binop_smtlib,
     range_guard_smtlib, raw_op_info, raw_op_is_comparison, wrap_ast_quantifier_smtlib,
 };
-use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, Pattern, UnaryOp};
+use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, UnaryOp};
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
@@ -2018,15 +2025,13 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             // old(x) -> x__old
             Expr::Ident(name) => Some(old_ident_smtlib_name(name)),
             // old(obj.field) -> flatten deep chains, else UF
-            Expr::Field(obj, field) => {
-                let full_expr = Expr::Field(obj.clone(), field.clone());
-                if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
-                    let flat_name = flatten_field_chain_cvc5(&full_expr);
-                    return Some(format!("{flat_name}__old"));
+            Expr::Field(obj, field) => match plan_field_access(obj.as_ref(), field) {
+                FieldAccessPlan::Flatten(flat) => Some(old_flat_field_smtlib(&flat)),
+                FieldAccessPlan::ShallowUf { field: f } => {
+                    let old_obj = expr_to_smtlib(&Expr::Old(obj.clone()))?;
+                    Some(shallow_field_smtlib(&f, &old_obj))
                 }
-                let old_obj = expr_to_smtlib(&Expr::Old(obj.clone()))?;
-                Some(format!("(__field_{field} {old_obj})"))
-            }
+            },
             // old(obj.method(args)) -> (method (old obj))
             Expr::MethodCall {
                 receiver, method, ..
@@ -2049,70 +2054,22 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         }
         Expr::Match {
             scrutinee, arms, ..
-        } => {
-            // Encode simple two-arm matches as nested ite chains
-            if arms.is_empty() {
-                return None;
-            }
-            let s = expr_to_smtlib(scrutinee)?;
-            let mut result = None;
-            for arm in arms.iter().rev() {
-                match &arm.pattern {
-                    Pattern::Wildcard => {
-                        let body = expr_to_smtlib(&arm.body)?;
-                        result = Some(body);
-                    }
-                    Pattern::Ident(name) => {
-                        let body = expr_to_smtlib(&arm.body)?;
-                        if name.starts_with(|c: char| c.is_uppercase()) {
-                            let tag = crate::cvc5_builtins::pattern_hash_name(name);
-                            let default = result.as_ref()?;
-                            result = Some(format!("(ite (= {s} {tag}) {body} {default})"));
-                        } else {
-                            result = Some(body);
-                        }
-                    }
-                    Pattern::Literal(lit) => {
-                        let body = expr_to_smtlib(&arm.body)?;
-                        let lit_smt = match lit {
-                            Literal::Int(n) => n.clone(),
-                            Literal::Float(f) => float_literal_to_smtlib(f),
-                            Literal::Bool(b) => b.to_string(),
-                            Literal::Str(_) => return None,
-                        };
-                        let default = result.as_ref()?;
-                        result = Some(format!("(ite (= {s} {lit_smt}) {body} {default})"));
-                    }
-                    Pattern::Constructor { name, fields: _ } => {
-                        let body = expr_to_smtlib(&arm.body)?;
-                        let default = result.as_ref()?;
-                        let cond =
-                            adt_is_constructor_smt("Option", name, &s, shell_match_adt_def());
-                        result = Some(format!("(ite {cond} {body} {default})"));
-                    }
-                    Pattern::Tuple(_) => {
-                        // Tuple match is structural (always matches)
-                        let body = expr_to_smtlib(&arm.body)?;
-                        result = Some(body);
-                    }
-                }
-            }
-            result
-        }
+        } => encode_match_smtlib(scrutinee, arms, expr_to_smtlib, |name, s| {
+            adt_is_constructor_smt("Option", name, s, shell_match_adt_def())
+        }),
         // Field access: flatten deep chains, else UF __field_name(obj)
-        Expr::Field(obj, field) => {
-            let full_expr = Expr::Field(Box::new(obj.as_ref().clone()), field.clone());
-            if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
-                return Some(flatten_field_chain_cvc5(&full_expr));
+        Expr::Field(obj, field) => match plan_field_access(obj.as_ref(), field) {
+            FieldAccessPlan::Flatten(name) => Some(name),
+            FieldAccessPlan::ShallowUf { field: f } => {
+                let o = expr_to_smtlib(obj)?;
+                Some(shallow_field_smtlib(&f, &o))
             }
-            let o = expr_to_smtlib(obj)?;
-            Some(format!("(__field_{field} {o})"))
-        }
+        },
         // Index: UF __index(coll, idx)
         Expr::Index { expr: coll, index } => {
             let c = expr_to_smtlib(coll)?;
             let i = expr_to_smtlib(index)?;
-            Some(format!("(__index {c} {i})"))
+            Some(index_access_smtlib(&c, &i))
         }
         // Block: encode all, return last
         Expr::Block(body) => {
