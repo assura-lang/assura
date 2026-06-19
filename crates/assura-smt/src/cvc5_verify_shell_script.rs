@@ -6,6 +6,7 @@ use assura_parser::ast::{ClauseKind, Expr};
 
 use crate::cvc5_common::{collect_apply_refs_from_expr, sanitize_smtlib_name};
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
+use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
 
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&Expr]) {
     for req in requires {
@@ -66,32 +67,18 @@ pub(crate) fn append_cvc5_shellout_constraints(
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
 ) {
-    for param in params {
-        if param.ty.len() == 1 && param.ty[0] == "Nat" {
-            let name = sanitize_smtlib_name(&param.name);
-            if vars.contains(&name) {
+    let constraints = collect_cvc5_type_constraints(vars, params, return_ty, constants, narrowings);
+    for constraint in constraints {
+        match constraint {
+            Cvc5TypeConstraint::NatNonNegative(name) => {
                 script.push_str(&format!("(assert (>= {name} 0))\n"));
             }
-        }
-    }
-    if return_ty.len() == 1 && return_ty[0] == "Nat" {
-        if vars.contains("__result") {
-            script.push_str("(assert (>= __result 0))\n");
-        }
-        if vars.contains("result") {
-            script.push_str("(assert (>= result 0))\n");
-        }
-    }
-    for (name, value) in constants {
-        let key = sanitize_smtlib_name(name);
-        if vars.contains(&key) {
-            script.push_str(&format!("(assert (= {key} {value}))\n"));
-        }
-    }
-    for (name, value) in narrowings {
-        let key = sanitize_smtlib_name(name);
-        if vars.contains(&key) {
-            script.push_str(&format!("(assert (<= {key} {value}))\n"));
+            Cvc5TypeConstraint::ConstantEq(name, value) => {
+                script.push_str(&format!("(assert (= {name} {value}))\n"));
+            }
+            Cvc5TypeConstraint::NarrowingLe(name, value) => {
+                script.push_str(&format!("(assert (<= {name} {value}))\n"));
+            }
         }
     }
 }

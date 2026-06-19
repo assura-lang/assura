@@ -109,7 +109,6 @@ pub(crate) fn collect_cvc5_var_names(requires: &[&Expr], body: &Expr) -> HashSet
     names
 }
 
-#[cfg(feature = "cvc5-verify")]
 pub(crate) fn collect_cvc5_var_names_from_clauses(
     requires: &[&Expr],
     clauses: &[&assura_parser::ast::Clause],

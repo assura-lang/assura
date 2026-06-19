@@ -8,6 +8,10 @@ use crate::cvc5_common::{
     collect_apply_refs_from_expr, is_internal_cvc5_var, sanitize_smtlib_name,
 };
 use crate::cvc5_native_encoder::{Cvc5EncoderState, encode_expr_cvc5};
+use crate::cvc5_verify_shared::{
+    Cvc5ClauseSatOutcome, Cvc5TypeConstraint, collect_cvc5_type_constraints,
+    cvc5_interpret_clause_check_result,
+};
 use crate::{CounterexampleModel, VerificationResult};
 
 pub(crate) fn build_cvc5_var_map<'a>(
@@ -32,30 +36,35 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
     var_map: &HashMap<String, cvc5::Term<'a>>,
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    constants: &[(String, i64)],
     narrowings: &[(String, i64)],
 ) {
+    let vars: HashSet<String> = var_map.keys().cloned().collect();
+    let constraints =
+        collect_cvc5_type_constraints(&vars, params, return_ty, constants, narrowings);
     let zero = tm.mk_integer(0);
-    for param in params {
-        if param.ty.len() == 1 && param.ty[0] == "Nat" {
-            let name = sanitize_smtlib_name(&param.name);
-            if let Some(term) = var_map.get(&name) {
-                solver.assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
+    for constraint in constraints {
+        match constraint {
+            Cvc5TypeConstraint::NatNonNegative(name) => {
+                if let Some(term) = var_map.get(&name) {
+                    solver
+                        .assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
+                }
             }
-        }
-    }
-    if return_ty.len() == 1 && return_ty[0] == "Nat" {
-        if let Some(term) = var_map.get("__result") {
-            solver.assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
-        }
-        if let Some(term) = var_map.get("result") {
-            solver.assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero]));
-        }
-    }
-    for (name, value) in narrowings {
-        let key = sanitize_smtlib_name(name);
-        if let Some(var) = var_map.get(&key) {
-            solver
-                .assert_formula(tm.mk_term(cvc5::Kind::Leq, &[var.clone(), tm.mk_integer(*value)]));
+            Cvc5TypeConstraint::ConstantEq(name, value) => {
+                if let Some(term) = var_map.get(&name) {
+                    solver.assert_formula(
+                        tm.mk_term(cvc5::Kind::Equal, &[term.clone(), tm.mk_integer(value)]),
+                    );
+                }
+            }
+            Cvc5TypeConstraint::NarrowingLe(name, value) => {
+                if let Some(var) = var_map.get(&name) {
+                    solver.assert_formula(
+                        tm.mk_term(cvc5::Kind::Leq, &[var.clone(), tm.mk_integer(value)]),
+                    );
+                }
+            }
         }
     }
 }
@@ -169,32 +178,18 @@ pub(crate) fn finish_cvc5_clause_check<'a>(
     var_map: &HashMap<String, cvc5::Term<'a>>,
 ) -> VerificationResult {
     let sat_result = solver.check_sat();
-    if sat_result.is_unsat() {
-        if matches!(kind, ClauseKind::Invariant) {
-            VerificationResult::Counterexample {
-                clause_desc: desc.to_string(),
-                model: "invariant is unsatisfiable".to_string(),
-                counter_model: None,
-            }
-        } else {
-            VerificationResult::verified(desc.to_string())
-        }
+    let outcome = if sat_result.is_unsat() {
+        Cvc5ClauseSatOutcome::Unsat
     } else if sat_result.is_sat() {
-        if matches!(kind, ClauseKind::Invariant) {
-            VerificationResult::verified(desc.to_string())
-        } else {
-            let (model_str, counter_model) = extract_cvc5_counterexample_model(solver, var_map);
-            VerificationResult::Counterexample {
-                clause_desc: desc.to_string(),
-                model: model_str,
-                counter_model,
-            }
+        let (model_str, counter_model) = extract_cvc5_counterexample_model(solver, var_map);
+        Cvc5ClauseSatOutcome::Sat {
+            model_str,
+            counter_model,
         }
     } else {
-        VerificationResult::Timeout {
-            clause_desc: desc.to_string(),
-        }
-    }
+        Cvc5ClauseSatOutcome::Timeout
+    };
+    cvc5_interpret_clause_check_result(desc, kind, outcome)
 }
 
 pub(crate) fn inject_cvc5_lemma_assumptions<'a>(

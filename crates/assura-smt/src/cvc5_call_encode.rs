@@ -4,6 +4,7 @@ use assura_parser::ast::Expr;
 
 use crate::cvc5_builtins::known_builtin_to_smtlib;
 use crate::cvc5_common::sanitize_smtlib_name;
+use crate::cvc5_havoc_assume_smtlib::canonical_length_smtlib_name;
 
 #[cfg(feature = "cvc5-verify")]
 use std::collections::HashMap;
@@ -45,6 +46,12 @@ pub(crate) fn encode_method_call_smtlib<F>(
 where
     F: FnMut(&Expr) -> Option<String>,
 {
+    if matches!(method, "length" | "len")
+        && args.is_empty()
+        && let Expr::Ident(name) = receiver
+    {
+        return Some(canonical_length_smtlib_name(name));
+    }
     let r = encode(receiver)?;
     let arg_strs: Option<Vec<String>> = args.iter().map(encode).collect();
     let arg_strs = arg_strs.unwrap_or_default();

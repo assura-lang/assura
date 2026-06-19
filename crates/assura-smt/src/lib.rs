@@ -88,6 +88,7 @@ mod cvc5_encoder_state;
 mod cvc5_expr_smtlib;
 mod cvc5_feature_max;
 mod cvc5_field_access;
+mod cvc5_havoc_assume_smtlib;
 mod cvc5_if_encode;
 mod cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
@@ -129,6 +130,8 @@ mod cvc5_verify_shared;
 mod cvc5_verify_shell;
 #[cfg(not(feature = "cvc5-verify"))]
 mod cvc5_verify_shell_clause;
+#[cfg(not(feature = "cvc5-verify"))]
+mod cvc5_verify_shell_contract;
 #[cfg(not(feature = "cvc5-verify"))]
 mod cvc5_verify_shell_runner;
 #[cfg(not(feature = "cvc5-verify"))]

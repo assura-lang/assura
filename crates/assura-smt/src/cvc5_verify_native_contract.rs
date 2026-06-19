@@ -114,7 +114,15 @@ pub(crate) fn verify_contract_cvc5_native(
 
     let var_names = collect_cvc5_var_names_from_clauses(&requires_exprs, &verifiable);
     let mut var_map = build_cvc5_var_map(&tm, &var_names, constants);
-    assert_cvc5_solver_prelude(&tm, &mut solver, &var_map, params, return_ty, &narrowings);
+    assert_cvc5_solver_prelude(
+        &tm,
+        &mut solver,
+        &var_map,
+        params,
+        return_ty,
+        &[],
+        &narrowings,
+    );
 
     let mut enc_state = default_cvc5_encoder_state();
 
