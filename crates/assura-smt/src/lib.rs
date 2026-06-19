@@ -92,6 +92,10 @@ mod z3_backend;
 #[path = "tests_z3.rs"]
 mod tests_z3;
 
+#[cfg(all(test, feature = "z3-verify"))]
+#[path = "tests_havoc_assume.rs"]
+mod tests_havoc_assume;
+
 // ---------------------------------------------------------------------------
 // Additional verification modules
 // ---------------------------------------------------------------------------
@@ -119,6 +123,9 @@ pub use layer2::{
     Layer2Config, Layer2Result, Layer2Verifier, QuantifiedInvariant, RoundtripObligation,
     TerminationObligation, verify_quantified_expr,
 };
+
+/// Havoc+assume helpers for result-field verification (#267).
+pub mod havoc_assume;
 
 /// Implementation IR (Section 4): parser, codegen, and `assura ir` CLI command.
 pub mod ir;

@@ -3,11 +3,13 @@
 //! prophecy/trigger helpers.
 
 use super::encoder::{Encoder, collect_unmodelable_reasons, expr_has_unmodelable_features};
+use super::havoc_assume::apply_havoc_assume_z3;
 use super::solver::extract_counter_model;
 use super::solver::{
     assert_tracked, check_satisfiability, check_validity, clause_desc, enable_unsat_cores,
 };
 use crate::cache::SessionCache;
+use crate::ir::IrFunction;
 use crate::*;
 use assura_parser::ast::{BlockKind, Clause};
 use z3::{SatResult, Solver, ast};
@@ -31,6 +33,8 @@ struct TypeConstraints<'a> {
     narrowings: &'a [(String, i64)],
     /// Use native Z3 string theory (QF_S/QF_SLIA) instead of integer encoding.
     use_string_theory: bool,
+    /// Optional implementation IR body for havoc+assume (#267).
+    ir_body: Option<&'a IrFunction>,
 }
 
 /// Returns true if the given type token list represents the `Nat` type.
@@ -90,6 +94,11 @@ fn verify_clauses_with_types(
                     | ClauseKind::Decreases
             )
         })
+        .collect();
+
+    let ensures_clauses: Vec<&Clause> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures)
         .collect();
 
     // Process feature-specific Other clauses via SMT feature dispatch.
@@ -257,6 +266,16 @@ fn verify_clauses_with_types(
         for other_clause in clauses {
             collect_function_names_for_triggers(&other_clause.body, &mut encoder.trigger_manager);
         }
+
+        let param_names: Vec<String> = types.params.iter().map(|p| p.name.clone()).collect();
+        apply_havoc_assume_z3(
+            &mut encoder,
+            &requires,
+            &ensures_clauses,
+            types.return_ty,
+            &param_names,
+            types.ir_body,
+        );
 
         // Assert all requires as tracked assumptions for unsat-core extraction
         for (i, req) in requires.iter().enumerate() {
@@ -618,6 +637,24 @@ pub(crate) fn verify_contract_impl_with_types(
     return_ty: &[String],
     constants: &[(String, i64)],
 ) -> Vec<VerificationResult> {
+    verify_contract_impl_with_types_and_ir(
+        contract_name,
+        clauses,
+        params,
+        return_ty,
+        constants,
+        None,
+    )
+}
+
+pub(crate) fn verify_contract_impl_with_types_and_ir(
+    contract_name: &str,
+    clauses: &[Clause],
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+    constants: &[(String, i64)],
+    ir_body: Option<&IrFunction>,
+) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let lemma_defs = std::collections::HashMap::new();
@@ -627,6 +664,7 @@ pub(crate) fn verify_contract_impl_with_types(
         return_ty,
         constants,
         narrowings: &narrowings,
+        ir_body,
         ..Default::default()
     };
     verify_clauses_with_types(

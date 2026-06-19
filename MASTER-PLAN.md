@@ -1734,6 +1734,17 @@ compiles" failure on taint-tracking.assura.
 - Only open issue: #45 (CodeQL, blocked on repo going public)
 - **Next session**: Phase 10 (SMT full parity), then multi-perspective improvement loop
 
+### Session 20 (2026-06-18): Phase 10 Round 6 complete (#263, #265, #266, #267)
+
+- **10.19-10.22 done**: ADT encoding, bitvector theory, unsat cores, havoc+assume
+- **#267 closed**: Havoc+assume for result-field verification
+  - Shared `havoc_assume` module: cross-clause length inference, collection axioms
+  - Z3: canonical `.length()` vars, IR body constraints, per-clause background axioms
+  - CVC5: matching canonical length + havoc+assume in native incremental path
+  - Acceptance: `result.length() <= raw.length()` verifies (test_sec.assura pattern)
+- **Phase 10 complete** (all 22 tasks checked)
+- **Next session**: Run `/multi-perspective-improve` loop per Phase 10 continuation prompt
+
 ---
 
 ## Phase 10: Full SMT Parity (CVC5 matches Z3, both go deeper)
@@ -1856,7 +1867,7 @@ compiles" failure on taint-tracking.assura.
   - BitVec sort for u8/u16/u32/u64, overflow detection
 - [x] **10.21** #266 Z3/CVC5: Unsatisfiable core extraction
   - produce-unsat-cores, extract and report in VerificationResult
-- [ ] **10.22** #267 Z3/CVC5: Havoc+assume encoding for result-field
+- [x] **10.22** #267 Z3/CVC5: Havoc+assume encoding for result-field
   - Implementation IR constrains result, structural axioms for pure contracts
 - **Acceptance**:
   ```bash

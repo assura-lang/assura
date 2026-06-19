@@ -169,6 +169,8 @@ pub(crate) struct Encoder {
     pub(crate) adt_defs: HashMap<String, AdtDef>,
     /// Fixed-width params: name -> signed? (false = unsigned).
     pub(crate) bv_signed: HashMap<String, bool>,
+    /// Canonical `.length()` variables per identifier (#267).
+    canonical_lengths: HashMap<String, ast::Int>,
 }
 
 impl Encoder {
@@ -183,6 +185,7 @@ impl Encoder {
             use_string_theory: false,
             adt_defs: HashMap::new(),
             bv_signed: HashMap::new(),
+            canonical_lengths: HashMap::new(),
         }
     }
 
@@ -231,6 +234,19 @@ impl Encoder {
         BITVECTOR_API_WIRED.call_once(|| {
             let _ = BitvectorEncoder::wire_api_surface();
         });
+    }
+
+    /// Canonical non-negative length variable for `name.length()` (#267).
+    pub(crate) fn canonical_length(&mut self, name: &str) -> ast::Int {
+        if let Some(v) = self.canonical_lengths.get(name) {
+            return v.clone();
+        }
+        let key = format!("__canonical_len_{name}");
+        let v = ast::Int::new_const(key.as_str());
+        let zero = ast::Int::from_i64(0);
+        self.background_axioms.push(v.ge(&zero));
+        self.canonical_lengths.insert(name.to_string(), v.clone());
+        v
     }
 
     /// Get or create a named integer variable.
@@ -452,6 +468,14 @@ impl Encoder {
                 self.background_axioms.push(len.ge(&zero));
                 return Z3Value::Int(len);
             }
+        }
+
+        // Canonical length for simple identifiers (#267).
+        if matches!(func_name, "len" | "length")
+            && args.len() == 1
+            && let Expr::Ident(name) = &args[0]
+        {
+            return Z3Value::Int(self.canonical_length(name));
         }
 
         let arg_vals: Vec<ast::Int> = args
@@ -728,6 +752,13 @@ impl Encoder {
     /// `__field_len(result)`. This is a known limitation; see the doc
     /// comment on `verify_clauses_with_types` for details.
     fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value {
+        // Canonical length for simple identifiers (#267).
+        if matches!(field, "len" | "length")
+            && let Expr::Ident(name) = obj
+        {
+            return Z3Value::Int(self.canonical_length(name));
+        }
+
         // Native string theory: .length() on a Str value uses Z3's str.len
         if self.use_string_theory && matches!(field, "len" | "length") {
             let obj_val = self.encode_expr(obj);

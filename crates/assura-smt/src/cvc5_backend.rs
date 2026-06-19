@@ -665,6 +665,263 @@ struct Cvc5EncoderState<'a> {
     use_string_theory: bool,
 }
 
+// -------------------------------------------------------------------------
+// Havoc+assume encoding (#267)
+// -------------------------------------------------------------------------
+
+#[cfg(feature = "cvc5-verify")]
+fn canonical_length_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    let key = format!("__canonical_len_{name}");
+    if let Some(v) = vars.get(&key) {
+        return v.clone();
+    }
+    let v = tm.mk_const(tm.integer_sort(), &key);
+    let zero = tm.mk_integer(0);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+    vars.insert(key, v.clone());
+    v
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn apply_havoc_assume_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    requires: &[&Clause],
+    ensures: &[&Clause],
+    return_ty: &[String],
+    param_names: &[String],
+    ir: Option<&crate::ir::IrFunction>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) {
+    use crate::havoc_assume::{infer_length_identity_links, ir_param_names, is_collection_return};
+
+    if is_collection_return(return_ty) {
+        let len = canonical_length_cvc5(tm, "result", vars, state);
+        let zero = tm.mk_integer(0);
+        state.axioms.push(tm.mk_term(cvc5::Kind::Geq, &[len, zero]));
+    }
+
+    for (result, input) in infer_length_identity_links(requires, ensures) {
+        let len_result = canonical_length_cvc5(tm, &result, vars, state);
+        let len_input = canonical_length_cvc5(tm, &input, vars, state);
+        state
+            .axioms
+            .push(tm.mk_term(cvc5::Kind::Leq, &[len_result, len_input]));
+    }
+
+    if let Some(func) = ir {
+        apply_ir_body_constraints_cvc5(tm, func, param_names, vars, state);
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn apply_ir_body_constraints_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    func: &crate::ir::IrFunction,
+    contract_param_names: &[String],
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) {
+    use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
+    use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrLiteral, IrPred, IrPredArg};
+
+    let mut slots: std::collections::HashMap<usize, cvc5::Term<'a>> =
+        std::collections::HashMap::new();
+
+    for (slot, name) in ir_param_names(func, contract_param_names) {
+        let key = sanitize_smtlib_name(&name);
+        let v = vars
+            .entry(key.clone())
+            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
+            .clone();
+        slots.insert(slot, v);
+    }
+
+    let result_key = sanitize_smtlib_name("result");
+    let result = vars
+        .entry(result_key.clone())
+        .or_insert_with(|| tm.mk_const(tm.integer_sort(), &result_key))
+        .clone();
+    slots.insert(RESULT_SLOT, result);
+
+    let slot_to_name: std::collections::HashMap<usize, String> =
+        ir_param_names(func, contract_param_names)
+            .into_iter()
+            .collect();
+
+    for instr in &func.body {
+        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &slots, vars, state);
+        if let Some(target) = slots.get(&instr.target) {
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[computed, target.clone()]));
+        }
+        if instr.target == RESULT_SLOT
+            && let IrExprKind::Load(src) = &instr.expr
+            && let Some(param) = slot_to_name.get(src)
+        {
+            let len_result = canonical_length_cvc5(tm, "result", vars, state);
+            let len_param = canonical_length_cvc5(tm, param, vars, state);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[len_result, len_param]));
+        }
+    }
+
+    if let Some(post) = &func.post
+        && let Some(pred) = encode_ir_pred_cvc5(tm, post, &slots, vars, state)
+    {
+        state.axioms.push(pred);
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn encode_ir_expr_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    expr: &crate::ir::IrExprKind,
+    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrLiteral};
+
+    match expr {
+        IrExprKind::Const(IrLiteral::Int(n)) => tm.mk_integer(*n),
+        IrExprKind::Load(slot) => slots.get(slot).cloned().unwrap_or_else(|| {
+            let name = format!("__fresh_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            tm.mk_const(tm.integer_sort(), &name)
+        }),
+        IrExprKind::Arith { op, lhs, rhs } => {
+            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), slots, vars, state);
+            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), slots, vars, state);
+            match op {
+                IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]),
+                IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]),
+                IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]),
+                IrArithOp::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[l, r]),
+                IrArithOp::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[l, r]),
+            }
+        }
+        IrExprKind::Cmp { op, lhs, rhs } => {
+            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), slots, vars, state);
+            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), slots, vars, state);
+            let b = match op {
+                IrCmpOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[l, r]),
+                IrCmpOp::Ne => {
+                    tm.mk_term(cvc5::Kind::Not, &[tm.mk_term(cvc5::Kind::Equal, &[l, r])])
+                }
+                IrCmpOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[l, r]),
+                IrCmpOp::Le => tm.mk_term(cvc5::Kind::Leq, &[l, r]),
+                IrCmpOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[l, r]),
+                IrCmpOp::Ge => tm.mk_term(cvc5::Kind::Geq, &[l, r]),
+            };
+            let one = tm.mk_integer(1);
+            let zero = tm.mk_integer(0);
+            tm.mk_term(cvc5::Kind::Ite, &[b, one, zero])
+        }
+        _ => {
+            let name = format!("__fresh_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            tm.mk_const(tm.integer_sort(), &name)
+        }
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn encode_ir_pred_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    pred: &crate::ir::IrPred,
+    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> Option<cvc5::Term<'a>> {
+    use crate::ir::{IrArithOp, IrCmpOp, IrLiteral, IrPred, IrPredArg};
+
+    match pred {
+        IrPred::True => Some(tm.mk_boolean(true)),
+        IrPred::False => Some(tm.mk_boolean(false)),
+        IrPred::Cmp { op, lhs, rhs } => {
+            let l = encode_ir_pred_arg_cvc5(tm, lhs, slots, vars, state);
+            let r = encode_ir_pred_arg_cvc5(tm, rhs, slots, vars, state);
+            Some(match op {
+                IrCmpOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[l, r]),
+                IrCmpOp::Ne => {
+                    tm.mk_term(cvc5::Kind::Not, &[tm.mk_term(cvc5::Kind::Equal, &[l, r])])
+                }
+                IrCmpOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[l, r]),
+                IrCmpOp::Le => tm.mk_term(cvc5::Kind::Leq, &[l, r]),
+                IrCmpOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[l, r]),
+                IrCmpOp::Ge => tm.mk_term(cvc5::Kind::Geq, &[l, r]),
+            })
+        }
+        IrPred::And(a, b) => {
+            let la = encode_ir_pred_cvc5(tm, a, slots, vars, state)?;
+            let lb = encode_ir_pred_cvc5(tm, b, slots, vars, state)?;
+            Some(tm.mk_term(cvc5::Kind::And, &[la, lb]))
+        }
+        IrPred::Or(a, b) => {
+            let la = encode_ir_pred_cvc5(tm, a, slots, vars, state)?;
+            let lb = encode_ir_pred_cvc5(tm, b, slots, vars, state)?;
+            Some(tm.mk_term(cvc5::Kind::Or, &[la, lb]))
+        }
+        IrPred::Not(inner) => encode_ir_pred_cvc5(tm, inner, slots, vars, state)
+            .map(|p| tm.mk_term(cvc5::Kind::Not, &[p])),
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn encode_ir_pred_arg_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    arg: &crate::ir::IrPredArg,
+    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    use crate::havoc_assume::RESULT_SLOT;
+    use crate::ir::{IrArithOp, IrLiteral, IrPredArg};
+
+    match arg {
+        IrPredArg::Slot(n) => slots.get(n).cloned().unwrap_or_else(|| {
+            let name = format!("__fresh_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            tm.mk_const(tm.integer_sort(), &name)
+        }),
+        IrPredArg::SlotResult => slots.get(&RESULT_SLOT).cloned().unwrap_or_else(|| {
+            let key = sanitize_smtlib_name("result");
+            vars.entry(key.clone())
+                .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
+                .clone()
+        }),
+        IrPredArg::Lit(IrLiteral::Int(n)) => tm.mk_integer(*n),
+        IrPredArg::Lit(IrLiteral::Float(f)) => tm.mk_integer(*f as i64),
+        IrPredArg::Lit(IrLiteral::Bool(b)) => tm.mk_integer(if *b { 1 } else { 0 }),
+        IrPredArg::Lit(IrLiteral::Str(_)) => {
+            let name = format!("__fresh_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            tm.mk_const(tm.integer_sort(), &name)
+        }
+        IrPredArg::Arith { op, lhs, rhs } => {
+            let l = encode_ir_pred_arg_cvc5(tm, lhs, slots, vars, state);
+            let r = encode_ir_pred_arg_cvc5(tm, rhs, slots, vars, state);
+            match op {
+                IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]),
+                IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]),
+                IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]),
+                IrArithOp::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[l, r]),
+                IrArithOp::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[l, r]),
+            }
+        }
+    }
+}
+
 /// Verify a single contract's clauses using CVC5.
 ///
 /// When the `cvc5-verify` feature is enabled, uses the native Rust cvc5
@@ -834,6 +1091,16 @@ fn verify_contract_cvc5_native(
         }
     }
 
+    let requires_clauses: Vec<&Clause> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .collect();
+    let ensures_clauses: Vec<&Clause> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures)
+        .collect();
+    let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+
     // For 0 or 1 verifiable clauses, fall back to per-clause solver
     // (incremental push/pop has no benefit with a single query).
     if verifiable.len() <= 1 {
@@ -842,10 +1109,14 @@ fn verify_contract_cvc5_native(
             let result = check_clause_cvc5_native(
                 &desc,
                 &requires_exprs,
+                &requires_clauses,
+                &ensures_clauses,
                 &clause.body,
                 clause.kind.clone(),
                 params,
                 return_ty,
+                &param_names,
+                None,
                 constants,
                 &narrowings,
                 &frame_checker,
@@ -965,8 +1236,6 @@ fn verify_contract_cvc5_native(
         }
     }
 
-    let base_axiom_count = enc_state.axioms.len();
-
     // For each verifiable clause: push, encode, check, pop
     for clause in &verifiable {
         let desc = format!("{contract_name}::{:?}", clause.kind);
@@ -1000,8 +1269,23 @@ fn verify_contract_cvc5_native(
 
         solver.push(1); // Save solver state
 
-        // Track axiom count before encoding this clause body
+        // Track axiom count before havoc+assume and clause encoding
         let axiom_base = enc_state.axioms.len();
+
+        apply_havoc_assume_cvc5(
+            &tm,
+            &requires_clauses,
+            &ensures_clauses,
+            return_ty,
+            &param_names,
+            None,
+            &mut var_map,
+            &mut enc_state,
+        );
+        for axiom in &enc_state.axioms[axiom_base..] {
+            solver.assert_formula(axiom.clone());
+        }
+        let havoc_axiom_end = enc_state.axioms.len();
 
         // Encode the clause body
         let body_term = match encode_expr_cvc5(&tm, &clause.body, &var_map, &mut enc_state) {
@@ -1017,8 +1301,8 @@ fn verify_contract_cvc5_native(
             }
         };
 
-        // Assert only NEW axioms from this clause's encoding
-        for axiom in &enc_state.axioms[axiom_base..] {
+        // Assert only NEW axioms from this clause's encoding (after havoc+assume)
+        for axiom in &enc_state.axioms[havoc_axiom_end..] {
             solver.assert_formula(axiom.clone());
         }
 
@@ -1115,9 +1399,9 @@ fn verify_contract_cvc5_native(
 
         solver.pop(1); // Restore solver state
 
-        // Truncate axioms back to base (body-specific axioms are
-        // removed from the solver by pop, remove from state too)
-        enc_state.axioms.truncate(base_axiom_count);
+        // Truncate havoc+assume and clause-specific axioms (removed from
+        // the solver by pop).
+        enc_state.axioms.truncate(axiom_base);
     }
 
     results
@@ -1128,10 +1412,14 @@ fn verify_contract_cvc5_native(
 fn check_clause_cvc5_native(
     desc: &str,
     requires: &[&Expr],
+    requires_clauses: &[&Clause],
+    ensures_clauses: &[&Clause],
     ensures_body: &Expr,
     kind: ClauseKind,
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    param_names: &[String],
+    ir_body: Option<&crate::ir::IrFunction>,
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
@@ -1229,6 +1517,17 @@ fn check_clause_cvc5_native(
         fresh_counter: 0,
         use_string_theory: false,
     };
+
+    apply_havoc_assume_cvc5(
+        &tm,
+        requires_clauses,
+        ensures_clauses,
+        return_ty,
+        param_names,
+        ir_body,
+        &mut var_map,
+        &mut enc_state,
+    );
 
     // Assert requires as assumptions
     for req in requires {
@@ -2078,6 +2377,12 @@ fn encode_expr_cvc5<'a>(
         }
         // Field access: flatten deep chains or self-rooted, else UF
         Expr::Field(obj, field) => {
+            if matches!(field.as_str(), "len" | "length")
+                && let Expr::Ident(name) = obj.as_ref()
+            {
+                return Some(canonical_length_cvc5(tm, name, vars, state));
+            }
+
             // Deep field chain flattening (#250): state.head.extra.max -> state__head__extra__max
             let full_expr = Expr::Field(Box::new(obj.as_ref().clone()), field.clone());
             if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
@@ -2236,6 +2541,13 @@ fn encode_expr_cvc5<'a>(
             method,
             args,
         } => {
+            if matches!(method.as_str(), "length" | "len")
+                && args.is_empty()
+                && let Expr::Ident(name) = receiver.as_ref()
+            {
+                return Some(canonical_length_cvc5(tm, name, vars, state));
+            }
+
             let recv_val = encode_expr_cvc5(tm, receiver, vars, state)?;
             let mut all_encoded = vec![recv_val];
             for arg in args {
