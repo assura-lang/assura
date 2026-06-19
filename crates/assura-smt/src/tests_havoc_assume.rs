@@ -125,6 +125,7 @@ module copy {
         &[],
         Some(&ir),
         None,
+        None,
     );
     assert!(!results.is_empty(), "expected verification results");
     assert!(

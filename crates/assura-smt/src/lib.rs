@@ -44,6 +44,7 @@ pub use result::{CounterexampleModel, VerificationResult};
 /// Shared IR expression encoding helpers.
 mod ir_encode;
 mod ir_generate;
+mod ir_type_ctx;
 
 /// Public entry point functions for SMT verification.
 mod entry;

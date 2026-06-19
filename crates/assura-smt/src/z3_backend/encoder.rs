@@ -212,6 +212,15 @@ impl Encoder {
         }
     }
 
+    /// Register a struct-like ADT for IR `field` / `construct` encoding.
+    pub(crate) fn ensure_struct_adt(&mut self, type_name: &str, field_names: &[String]) {
+        if field_names.is_empty() || self.adt_defs.contains_key(type_name) {
+            return;
+        }
+        let accessors: Vec<&str> = field_names.iter().map(String::as_str).collect();
+        self.define_adt(type_name, &[(type_name, accessors.as_slice())]);
+    }
+
     /// Return bit width for fixed-width type tokens (`u8`, `i32`, etc.).
     pub(crate) fn fixed_width_bits(ty: &[String]) -> Option<(u32, bool)> {
         if ty.len() != 1 {

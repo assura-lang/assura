@@ -11,8 +11,8 @@ use crate::ir_encode::block_map_from_module;
 
 /// IR sidecars loaded for a source file, with a borrowed view for verification APIs.
 pub struct LoadedVerifyExtras {
-    ir_map: HashMap<String, IrFunction>,
-    block_map: HashMap<String, HashMap<usize, Vec<IrInstr>>>,
+    pub(crate) ir_map: HashMap<String, IrFunction>,
+    pub(crate) block_map: HashMap<String, HashMap<usize, Vec<IrInstr>>>,
 }
 
 impl LoadedVerifyExtras {
@@ -32,6 +32,7 @@ impl LoadedVerifyExtras {
         (!self.ir_map.is_empty()).then_some(VerifyFileExtras {
             ir_bodies: Some(&self.ir_map),
             ir_blocks: Some(&self.block_map),
+            type_env: None,
         })
     }
 }

@@ -37,6 +37,8 @@ struct TypeConstraints<'a> {
     ir_body: Option<&'a IrFunction>,
     /// Optional `fn #N` block bodies from multi-function IR sidecars.
     ir_blocks: Option<&'a std::collections::HashMap<usize, Vec<IrInstr>>>,
+    /// Layer-0 type environment for type-aware IR encoding.
+    type_env: Option<&'a assura_types::TypeEnv>,
 }
 
 /// Returns true if the given type token list represents the `Nat` type.
@@ -184,6 +186,7 @@ fn verify_clauses_with_types(
         &param_names,
         types.ir_body,
         types.ir_blocks,
+        types.type_env,
     );
     for axiom in &base_encoder.background_axioms {
         solver.assert(axiom);
@@ -622,9 +625,14 @@ pub(crate) fn verify_contract_impl_with_types(
         constants,
         None,
         None,
+        None,
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "IR + type_env context mirrors CVC5 entry"
+)]
 pub(crate) fn verify_contract_impl_with_types_and_ir(
     contract_name: &str,
     clauses: &[Clause],
@@ -633,6 +641,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
     constants: &[(String, i64)],
     ir_body: Option<&IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<IrInstr>>>,
+    type_env: Option<&assura_types::TypeEnv>,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
@@ -645,6 +654,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         narrowings: &narrowings,
         ir_body,
         ir_blocks,
+        type_env,
         ..Default::default()
     };
     verify_clauses_with_types(
@@ -668,6 +678,7 @@ pub(crate) fn verify_impl_with_timeout(
     let mut cache = SessionCache::new();
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
     let ir_block_maps = extras.and_then(|e| e.ir_blocks);
+    let file_type_env = extras.and_then(|e| e.type_env).or(Some(&typed.type_env));
 
     // T044: collect all lemma definitions for apply injection
     let lemma_defs = collect_lemma_defs(typed);
@@ -705,6 +716,7 @@ pub(crate) fn verify_impl_with_timeout(
                         narrowings: &narrowings,
                         ir_body,
                         ir_blocks,
+                        type_env: file_type_env,
                         ..Default::default()
                     },
                 );
@@ -719,6 +731,7 @@ pub(crate) fn verify_impl_with_timeout(
                     narrowings: &narrowings,
                     ir_body,
                     ir_blocks,
+                    type_env: file_type_env,
                     ..Default::default()
                 };
                 verify_clauses_with_types(
@@ -740,6 +753,7 @@ pub(crate) fn verify_impl_with_timeout(
                     narrowings: &narrowings,
                     ir_body,
                     ir_blocks,
+                    type_env: file_type_env,
                     ..Default::default()
                 };
                 verify_clauses_with_types(
@@ -763,6 +777,7 @@ pub(crate) fn verify_impl_with_timeout(
                                 narrowings: &narrowings,
                                 ir_body,
                                 ir_blocks,
+                                type_env: file_type_env,
                                 ..Default::default()
                             };
                             verify_clauses_with_types(
@@ -783,6 +798,7 @@ pub(crate) fn verify_impl_with_timeout(
                                 narrowings: &narrowings,
                                 ir_body,
                                 ir_blocks,
+                                type_env: file_type_env,
                                 ..Default::default()
                             };
                             verify_clauses_with_types(
@@ -815,6 +831,7 @@ pub(crate) fn verify_impl_with_timeout(
                         narrowings: &narrowings,
                         ir_body,
                         ir_blocks,
+                        type_env: file_type_env,
                         ..Default::default()
                     },
                 );
@@ -829,6 +846,7 @@ pub(crate) fn verify_impl_with_timeout(
                     narrowings: &narrowings,
                     ir_body,
                     ir_blocks,
+                    type_env: file_type_env,
                     ..Default::default()
                 };
                 verify_clauses_with_types(

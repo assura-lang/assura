@@ -53,6 +53,7 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
         constants,
         None,
         None,
+        None,
         cache,
     )
 }
@@ -68,6 +69,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
     constants: &[(String, i64)],
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    type_env: Option<&assura_types::TypeEnv>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     #[cfg(feature = "cvc5-verify")]
@@ -81,6 +83,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
             constants,
             ir_body,
             ir_blocks,
+            type_env,
             cache,
         )
     }
@@ -95,6 +98,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
             constants,
             ir_body,
             ir_blocks,
+            type_env,
             cache,
         )
     }

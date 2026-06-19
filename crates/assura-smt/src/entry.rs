@@ -91,6 +91,20 @@ pub struct VerifyFileExtras<'a> {
             std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>,
         >,
     >,
+    /// Layer-0 type environment for HIR/type-aware IR encoding.
+    pub type_env: Option<&'a assura_types::TypeEnv>,
+}
+
+/// Build verification extras with IR sidecars (if any) and the typed file's `TypeEnv`.
+pub(crate) fn build_verify_extras<'a>(
+    typed: &'a TypedFile,
+    loaded: Option<&'a crate::ir_loader::LoadedVerifyExtras>,
+) -> VerifyFileExtras<'a> {
+    VerifyFileExtras {
+        ir_bodies: loaded.filter(|l| !l.is_empty()).map(|l| &l.ir_map),
+        ir_blocks: loaded.filter(|l| !l.is_empty()).map(|l| &l.block_map),
+        type_env: Some(&typed.type_env),
+    }
 }
 
 /// Verify all contract clauses in a type-checked file.
@@ -99,7 +113,12 @@ pub struct VerifyFileExtras<'a> {
 /// invariant). Requires clauses are collected as assumptions but not
 /// independently verified (they constrain the context for ensures).
 pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
-    verify_from_source(typed, None)
+    let extras = build_verify_extras(typed, None);
+    verify_with_options(
+        typed,
+        &assura_config::VerifyOptions::default(),
+        Some(&extras),
+    )
 }
 
 /// Verify a type-checked file, auto-loading `{Name}.ir` sidecars when `source` is set.
@@ -107,12 +126,12 @@ pub fn verify_from_source(
     typed: &TypedFile,
     source: Option<&std::path::Path>,
 ) -> Vec<VerificationResult> {
-    let loaded = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
-    let extras = loaded.as_ref().and_then(|l| l.extras());
+    let loaded_storage = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
+    let extras = build_verify_extras(typed, loaded_storage.as_ref());
     verify_with_options(
         typed,
         &assura_config::VerifyOptions::default(),
-        extras.as_ref(),
+        Some(&extras),
     )
 }
 
@@ -704,6 +723,7 @@ fn verify_file_with_cvc5(
 
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
     let ir_block_maps = extras.and_then(|e| e.ir_blocks);
+    let type_env = extras.and_then(|e| e.type_env).or(Some(&typed.type_env));
 
     // Clause-level verification via CVC5
     for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
@@ -718,6 +738,7 @@ fn verify_file_with_cvc5(
             &constants,
             ir_body,
             ir_blocks,
+            type_env,
             &mut session_cache,
         ));
     }
@@ -889,6 +910,7 @@ pub fn verify_parallel_with_solver(
 
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
     let ir_block_maps = extras.and_then(|e| e.ir_blocks);
+    let type_env = extras.and_then(|e| e.type_env).or(Some(&typed.type_env));
 
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
@@ -902,7 +924,7 @@ pub fn verify_parallel_with_solver(
             let ir_blocks = ir_block_maps.and_then(|m| m.get(name));
             // Cache miss: run solver with type constraints
             let results = verify_contract_with_types_and_solver(
-                name, clauses, params, return_ty, &constants, solver, ir_body, ir_blocks,
+                name, clauses, params, return_ty, &constants, solver, ir_body, ir_blocks, type_env,
             );
             cache.put(name, clauses, &results);
             results
@@ -997,6 +1019,7 @@ fn verify_contract_with_types_and_solver(
     solver: SolverChoice,
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    type_env: Option<&assura_types::TypeEnv>,
 ) -> Vec<VerificationResult> {
     match solver {
         SolverChoice::Z3 => {
@@ -1010,6 +1033,7 @@ fn verify_contract_with_types_and_solver(
                     constants,
                     ir_body,
                     ir_blocks,
+                    type_env,
                 )
             }
             #[cfg(not(feature = "z3-verify"))]
@@ -1029,6 +1053,7 @@ fn verify_contract_with_types_and_solver(
                 constants,
                 ir_body,
                 ir_blocks,
+                type_env,
                 &mut cache,
             )
         }

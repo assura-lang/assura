@@ -39,6 +39,7 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
     param_names: &[String],
     ir: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    type_env: Option<&'a assura_types::TypeEnv>,
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) {
@@ -59,7 +60,15 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
     }
 
     if let Some(func) = ir {
-        apply_ir_body_constraints_cvc5(tm, func, param_names, vars, state, ir_blocks);
+        apply_ir_body_constraints_cvc5(
+            tm,
+            func,
+            param_names,
+            vars,
+            state,
+            ir_blocks,
+            crate::ir_type_ctx::IrTypeContext::from_type_env(type_env),
+        );
     }
 }
 

@@ -29,6 +29,7 @@ pub(crate) fn verify_contract_cvc5_native(
     constants: &[(String, i64)],
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    type_env: Option<&assura_types::TypeEnv>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
@@ -91,6 +92,7 @@ pub(crate) fn verify_contract_cvc5_native(
                 &param_names,
                 ir_body,
                 ir_blocks,
+                type_env,
                 constants,
                 &narrowings,
                 &frame_checker,
@@ -181,6 +183,7 @@ pub(crate) fn verify_contract_cvc5_native(
             &param_names,
             ir_body,
             ir_blocks,
+            type_env,
             &mut var_map,
             &mut enc_state,
         );

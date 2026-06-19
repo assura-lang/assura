@@ -1,5 +1,9 @@
 //! Native CVC5 encoder session state.
 
+use std::collections::HashMap;
+
+use crate::cvc5_adt::{Cvc5AdtDef, Cvc5AdtNativeSymbols};
+
 /// Tracks background axioms, string constants, and fresh temporaries.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) struct Cvc5EncoderState<'a> {
@@ -8,6 +12,8 @@ pub(crate) struct Cvc5EncoderState<'a> {
     pub(crate) fresh_counter: usize,
     pub(crate) use_string_theory: bool,
     field_len_fn: Option<cvc5::Term<'a>>,
+    pub(crate) struct_adt_symbols: HashMap<String, Cvc5AdtNativeSymbols<'a>>,
+    pub(crate) struct_adt_defs: HashMap<String, Cvc5AdtDef>,
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -18,6 +24,8 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
         fresh_counter: 0,
         use_string_theory: false,
         field_len_fn: None,
+        struct_adt_symbols: HashMap::new(),
+        struct_adt_defs: HashMap::new(),
     }
 }
 

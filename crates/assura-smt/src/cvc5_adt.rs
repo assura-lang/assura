@@ -130,9 +130,8 @@ pub(crate) fn adt_accessor_smt(adt_name: &str, accessor: &str, value: &str) -> S
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn define_adt_cvc5_native<'a>(
+fn build_adt_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
     adt_name: &str,
     constructors: &[(&str, &[&str])],
 ) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols<'a>) {
@@ -164,6 +163,36 @@ pub(crate) fn define_adt_cvc5_native<'a>(
             acc_fns.insert(acc_fn_name, acc_fn_term);
         }
     }
+
+    (
+        adt_def,
+        Cvc5AdtNativeSymbols {
+            adt_name: adt_name.to_string(),
+            tag_fn,
+            acc_fns,
+        },
+    )
+}
+
+/// Declare struct ADT UF symbols for IR field/construct encoding (no solver axioms).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn declare_struct_adt_ufs_cvc5_native<'a>(
+    tm: &'a cvc5::TermManager,
+    type_name: &str,
+    field_names: &[&str],
+) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols<'a>) {
+    build_adt_cvc5_native(tm, type_name, &[(type_name, field_names)])
+}
+
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn define_adt_cvc5_native<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    adt_name: &str,
+    constructors: &[(&str, &[&str])],
+) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols<'a>) {
+    let (adt_def, symbols) = build_adt_cvc5_native(tm, adt_name, constructors);
+    let tag_fn = symbols.tag_fn.clone();
 
     let x = tm.mk_var(tm.integer_sort(), &format!("__adt_exh_{adt_name}"));
     let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), x.clone()]);
@@ -202,7 +231,7 @@ pub(crate) fn define_adt_cvc5_native<'a>(
 
         for accessor in &ctor.accessors {
             let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
-            if let Some(acc_fn_term) = acc_fns.get(&acc_fn_name) {
+            if let Some(acc_fn_term) = symbols.acc_fns.get(&acc_fn_name) {
                 let acc_a = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), a.clone()]);
                 let acc_b = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), b.clone()]);
                 conjuncts.push(tm.mk_term(cvc5::Kind::Equal, &[acc_a, acc_b]));
@@ -217,14 +246,7 @@ pub(crate) fn define_adt_cvc5_native<'a>(
         solver.assert_formula(forall_inj);
     }
 
-    (
-        adt_def,
-        Cvc5AdtNativeSymbols {
-            adt_name: adt_name.to_string(),
-            tag_fn,
-            acc_fns,
-        },
-    )
+    (adt_def, symbols)
 }
 
 #[cfg(feature = "cvc5-verify")]

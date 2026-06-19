@@ -10,7 +10,9 @@ use crate::ir::{
     IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrPred, IrPredArg,
 };
 use crate::ir_encode::{is_collection_ir_type, is_length_ir_call, slot_type_map};
+use crate::ir_type_ctx::{IrTypeContext, base_type_name};
 use assura_parser::ast::Clause;
+use assura_types::TypeEnv;
 use std::collections::HashMap;
 use z3::ast;
 
@@ -18,9 +20,11 @@ struct IrEncodeCtx<'a> {
     slot_to_name: HashMap<usize, String>,
     slot_types: HashMap<usize, String>,
     blocks: Option<&'a HashMap<usize, Vec<IrInstr>>>,
+    type_ctx: IrTypeContext<'a>,
 }
 
 /// Apply havoc+assume axioms before verifying ensures clauses.
+#[expect(clippy::too_many_arguments, reason = "mirrors CVC5 havoc+assume arity")]
 pub(crate) fn apply_havoc_assume_z3(
     encoder: &mut Encoder,
     requires: &[&Clause],
@@ -29,11 +33,18 @@ pub(crate) fn apply_havoc_assume_z3(
     param_names: &[String],
     ir: Option<&IrFunction>,
     ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
+    type_env: Option<&TypeEnv>,
 ) {
     apply_structural_result_axioms(encoder, return_ty);
     apply_length_identity_axioms(encoder, requires, ensures);
     if let Some(func) = ir {
-        apply_ir_body_constraints(encoder, func, param_names, ir_blocks);
+        apply_ir_body_constraints(
+            encoder,
+            func,
+            param_names,
+            ir_blocks,
+            IrTypeContext::from_type_env(type_env),
+        );
     }
 }
 
@@ -59,6 +70,7 @@ fn apply_ir_body_constraints(
     func: &IrFunction,
     contract_param_names: &[String],
     ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
+    type_ctx: IrTypeContext<'_>,
 ) {
     let mut slots: HashMap<usize, ast::Int> = HashMap::new();
 
@@ -77,6 +89,7 @@ fn apply_ir_body_constraints(
         slot_to_name,
         slot_types: slot_type_map(func),
         blocks: ir_blocks,
+        type_ctx,
     };
 
     for instr in &func.body {
@@ -204,6 +217,7 @@ fn encode_ir_expr_z3(
                         let (a, b) = (&arg_ints[0], &arg_ints[1]);
                         a.ge(b).ite(a, b)
                     }
+                    KnownBuiltin::Concat => ast::Int::add(&[&arg_ints[0], &arg_ints[1]]),
                     _ => encode_ir_call_uf(encoder, func, &arg_ints),
                 };
             }
@@ -218,6 +232,18 @@ fn encode_ir_expr_z3(
                 return encoder.canonical_length(name);
             }
             let base = encode_ir_expr_z3(encoder, &IrExprKind::Load(*slot), slots, ctx);
+            if let Some(ir_ty) = ctx.slot_types.get(slot)
+                && let Some(field_name) = ctx.type_ctx.field_name_at(ir_ty, *index)
+            {
+                let type_name = base_type_name(ir_ty);
+                if let Some(names) = ctx.type_ctx.field_names_for(type_name) {
+                    encoder.ensure_struct_adt(
+                        type_name,
+                        &names.into_iter().map(str::to_string).collect::<Vec<_>>(),
+                    );
+                    return encoder.adt_accessor(type_name, field_name, &base);
+                }
+            }
             let ty_suffix = ctx
                 .slot_types
                 .get(slot)
@@ -229,6 +255,24 @@ fn encode_ir_expr_z3(
                 .unwrap_or_else(|| encoder.fresh_int())
         }
         IrExprKind::Construct { type_id, fields } => {
+            if ctx.type_ctx.has_struct_layout(type_id)
+                && let Some(field_names) = ctx.type_ctx.field_names_for(type_id)
+            {
+                encoder.ensure_struct_adt(
+                    type_id,
+                    &field_names
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect::<Vec<_>>(),
+                );
+                let mut ordered = fields.clone();
+                ordered.sort_by_key(|(idx, _)| *idx);
+                let arg_ints: Vec<ast::Int> = ordered
+                    .iter()
+                    .map(|(_, s)| encode_ir_expr_z3(encoder, &IrExprKind::Load(*s), slots, ctx))
+                    .collect();
+                return encoder.adt_constructor(type_id, type_id, &arg_ints);
+            }
             let arg_ints: Vec<ast::Int> = fields
                 .iter()
                 .map(|(_, s)| encode_ir_expr_z3(encoder, &IrExprKind::Load(*s), slots, ctx))
@@ -393,6 +437,7 @@ mod tests {
                 &["raw".into()],
                 None,
                 None,
+                None,
             );
             assert!(
                 !encoder.background_axioms.is_empty(),
@@ -431,10 +476,60 @@ module test {
                 &["x".into()],
                 Some(&ir),
                 None,
+                None,
             );
             assert!(
                 !encoder.background_axioms.is_empty(),
                 "IR call body should emit axioms"
+            );
+        });
+    }
+
+    #[test]
+    fn test_z3_ir_field_construct_uses_struct_adt_accessors() {
+        use crate::ir::{IrFunction, parse_ir_module};
+        use assura_types::{Type, TypeEnv};
+
+        z3::with_z3_config(&z3::Config::new(), || {
+            let ir: IrFunction = parse_ir_module(
+                r#"
+module test {
+  fn #0 : ($0: Int, $1: Int) -> Point ! pure
+  {
+    $2 = construct Point { .0 = $0, .1 = $1 } : Point
+    $result = load $2 : Point
+  }
+}
+"#,
+            )
+            .unwrap()
+            .functions[0]
+                .clone();
+
+            let mut env = TypeEnv::new();
+            env.struct_fields.insert(
+                "Point".into(),
+                vec![("x".into(), Type::Int), ("y".into(), Type::Int)],
+            );
+
+            let mut encoder = Encoder::new();
+            apply_havoc_assume_z3(
+                &mut encoder,
+                &[],
+                &[],
+                &["Point".into()],
+                &["a".into(), "b".into()],
+                Some(&ir),
+                None,
+                Some(&env),
+            );
+            assert!(
+                encoder.adt_defs.contains_key("Point"),
+                "typed construct should register Point ADT from TypeEnv"
+            );
+            assert!(
+                !encoder.background_axioms.is_empty(),
+                "typed construct should emit accessor/tag axioms"
             );
         });
     }
@@ -467,6 +562,7 @@ module test {
                 &["Nat".into()],
                 &["raw".into()],
                 Some(&ir),
+                None,
                 None,
             );
             assert!(

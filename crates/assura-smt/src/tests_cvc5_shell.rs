@@ -90,6 +90,7 @@ fn shell_havoc_assume_script_emits_length_link_axiom() {
         &["buf".into()],
         None,
         None,
+        None,
     );
     assert!(script.contains("(assert (<= __canonical_len_result __canonical_len_buf))"));
 }
@@ -117,6 +118,7 @@ module copy {
         &["Bytes".into()],
         &["raw".into()],
         Some(&func),
+        None,
         None,
     );
     assert!(
@@ -193,6 +195,7 @@ module copy {
         None,
         &[],
         Some(&ir),
+        None,
         None,
         &mut cache,
     );
