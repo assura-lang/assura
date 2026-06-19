@@ -270,6 +270,64 @@ pub(crate) fn derive_narrowings_cvc5(constants: &[(String, i64)]) -> Vec<(String
     narrowings
 }
 
+/// Shared contract setup for native and shell-out CVC5 verify paths.
+fn cvc5_contract_shared_setup<'a>(
+    clauses: &'a [Clause],
+    constants: &[(String, i64)],
+) -> (
+    Vec<(String, i64)>,
+    Vec<&'a Expr>,
+    assura_types::FrameChecker,
+) {
+    let narrowings = derive_narrowings_cvc5(constants);
+    let requires_exprs: Vec<&Expr> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let modifies_bodies: Vec<&Expr> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Modifies)
+        .map(|c| &c.body)
+        .collect();
+    let frame_checker = if modifies_bodies.is_empty() {
+        assura_types::FrameChecker::empty()
+    } else {
+        assura_types::FrameChecker::new(&modifies_bodies)
+    };
+    (narrowings, requires_exprs, frame_checker)
+}
+
+fn cvc5_lookup_cached_clause(
+    cache: &mut SessionCache,
+    cache_key: &str,
+    desc: &str,
+) -> Option<VerificationResult> {
+    cache
+        .lookup(cache_key)
+        .map(|entry| match entry.result.as_str() {
+            "verified" => VerificationResult::verified(desc.to_string()),
+            other => VerificationResult::Unknown {
+                clause_desc: desc.to_string(),
+                reason: format!("cached: {other}"),
+            },
+        })
+}
+
+fn cvc5_unmodelable_precheck(desc: &str, body: &Expr) -> Option<VerificationResult> {
+    if !expr_has_unmodelable_features_cvc5(body) {
+        return None;
+    }
+    let reasons = collect_unmodelable_reasons_cvc5(body);
+    Some(VerificationResult::Unknown {
+        clause_desc: desc.to_string(),
+        reason: format!(
+            "clause uses features not yet encoded in SMT ({})",
+            reasons.join(", ")
+        ),
+    })
+}
+
 // =========================================================================
 // Deep field chain helpers (pure AST, no CVC5 dependency)
 //
@@ -845,26 +903,8 @@ fn verify_contract_cvc5_native(
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
-    // Derive refinement narrowings from feature_max constants
-    let narrowings = derive_narrowings_cvc5(constants);
-
-    let requires_exprs: Vec<&Expr> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Requires)
-        .map(|c| &c.body)
-        .collect();
-
-    // Build frame checker from modifies clauses
-    let modifies_bodies: Vec<&Expr> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Modifies)
-        .map(|c| &c.body)
-        .collect();
-    let frame_checker = if modifies_bodies.is_empty() {
-        assura_types::FrameChecker::empty()
-    } else {
-        assura_types::FrameChecker::new(&modifies_bodies)
-    };
+    let (narrowings, requires_exprs, frame_checker) =
+        cvc5_contract_shared_setup(clauses, constants);
 
     // Collect verifiable clauses
     let verifiable: Vec<&assura_parser::ast::Clause> = clauses
@@ -997,30 +1037,14 @@ fn verify_contract_cvc5_native(
     for clause in &verifiable {
         let desc = format!("{contract_name}::{:?}", clause.kind);
 
-        // Check cache first (#253)
         let cache_key = format!("{desc}::{:?}:{:?}", clause.kind, clause.body);
-        if let Some(entry) = cache.lookup(&cache_key) {
-            let cached_result = match entry.result.as_str() {
-                "verified" => VerificationResult::verified(desc.clone()),
-                other => VerificationResult::Unknown {
-                    clause_desc: desc.clone(),
-                    reason: format!("cached: {other}"),
-                },
-            };
+        if let Some(cached_result) = cvc5_lookup_cached_clause(cache, &cache_key, &desc) {
             results.push(cached_result);
             continue;
         }
 
-        // Pre-check for unmodelable features
-        if expr_has_unmodelable_features_cvc5(&clause.body) {
-            let reasons = collect_unmodelable_reasons_cvc5(&clause.body);
-            results.push(VerificationResult::Unknown {
-                clause_desc: desc,
-                reason: format!(
-                    "clause uses features not yet encoded in SMT ({})",
-                    reasons.join(", ")
-                ),
-            });
+        if let Some(result) = cvc5_unmodelable_precheck(&desc, &clause.body) {
+            results.push(result);
             continue;
         }
 
@@ -1183,30 +1207,13 @@ fn check_clause_cvc5_native(
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     cache: &mut SessionCache,
 ) -> VerificationResult {
-    // Check cache first (#253)
     let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
-    if let Some(entry) = cache.lookup(&cache_key) {
-        return match entry.result.as_str() {
-            "verified" => VerificationResult::verified(desc.to_string()),
-            other => VerificationResult::Unknown {
-                clause_desc: desc.to_string(),
-                reason: format!("cached: {other}"),
-            },
-        };
+    if let Some(result) = cvc5_lookup_cached_clause(cache, &cache_key, desc) {
+        return result;
     }
 
-    // Pre-check for unmodelable features (matching Z3 backend behavior).
-    // Skip clauses with typestate annotations etc. before attempting encoding,
-    // preventing false counterexamples from partial encoding.
-    if expr_has_unmodelable_features_cvc5(ensures_body) {
-        let reasons = collect_unmodelable_reasons_cvc5(ensures_body);
-        return VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason: format!(
-                "clause uses features not yet encoded in SMT ({})",
-                reasons.join(", ")
-            ),
-        };
+    if let Some(result) = cvc5_unmodelable_precheck(desc, ensures_body) {
+        return result;
     }
 
     let tm = cvc5::TermManager::new();
@@ -1439,16 +1446,8 @@ pub(crate) fn check_validity_cvc5(
     assumptions: &[&Expr],
     body: &Expr,
 ) -> VerificationResult {
-    // Pre-check for unmodelable features (matching Z3 backend behavior)
-    if expr_has_unmodelable_features_cvc5(body) {
-        let reasons = collect_unmodelable_reasons_cvc5(body);
-        return VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason: format!(
-                "clause uses features not yet encoded in SMT ({})",
-                reasons.join(", ")
-            ),
-        };
+    if let Some(result) = cvc5_unmodelable_precheck(desc, body) {
+        return result;
     }
 
     let tm = cvc5::TermManager::new();
@@ -1465,11 +1464,7 @@ pub(crate) fn check_validity_cvc5(
     }
     collect_vars(body, &mut var_names);
 
-    let mut var_map: HashMap<String, cvc5::Term> = HashMap::new();
-    for name in &var_names {
-        let term = tm.mk_const(tm.integer_sort(), name);
-        var_map.insert(name.clone(), term);
-    }
+    let mut var_map = build_cvc5_var_map(&tm, &var_names, &[]);
 
     let mut enc_state = default_cvc5_encoder_state();
 
@@ -1558,16 +1553,8 @@ pub(crate) fn check_satisfiability_cvc5(
     assumptions: &[&Expr],
     body: &Expr,
 ) -> VerificationResult {
-    // Pre-check for unmodelable features (matching Z3 backend behavior)
-    if expr_has_unmodelable_features_cvc5(body) {
-        let reasons = collect_unmodelable_reasons_cvc5(body);
-        return VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason: format!(
-                "clause uses features not yet encoded in SMT ({})",
-                reasons.join(", ")
-            ),
-        };
+    if let Some(result) = cvc5_unmodelable_precheck(desc, body) {
+        return result;
     }
 
     let tm = cvc5::TermManager::new();
@@ -1582,11 +1569,7 @@ pub(crate) fn check_satisfiability_cvc5(
     }
     collect_vars(body, &mut var_names);
 
-    let mut var_map: HashMap<String, cvc5::Term> = HashMap::new();
-    for name in &var_names {
-        let term = tm.mk_const(tm.integer_sort(), name);
-        var_map.insert(name.clone(), term);
-    }
+    let mut var_map = build_cvc5_var_map(&tm, &var_names, &[]);
 
     let mut enc_state = default_cvc5_encoder_state();
 
@@ -1867,6 +1850,45 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
 // -------------------------------------------------------------------------
 
 #[cfg(not(feature = "cvc5-verify"))]
+fn append_cvc5_shellout_constraints(
+    script: &mut String,
+    vars: &HashSet<String>,
+    params: &[assura_parser::ast::Param],
+    return_ty: &[String],
+    constants: &[(String, i64)],
+    narrowings: &[(String, i64)],
+) {
+    for param in params {
+        if param.ty.len() == 1 && param.ty[0] == "Nat" {
+            let name = sanitize_smtlib_name(&param.name);
+            if vars.contains(&name) {
+                script.push_str(&format!("(assert (>= {name} 0))\n"));
+            }
+        }
+    }
+    if return_ty.len() == 1 && return_ty[0] == "Nat" {
+        if vars.contains("__result") {
+            script.push_str("(assert (>= __result 0))\n");
+        }
+        if vars.contains("result") {
+            script.push_str("(assert (>= result 0))\n");
+        }
+    }
+    for (name, value) in constants {
+        let key = sanitize_smtlib_name(name);
+        if vars.contains(&key) {
+            script.push_str(&format!("(assert (= {key} {value}))\n"));
+        }
+    }
+    for (name, value) in narrowings {
+        let key = sanitize_smtlib_name(name);
+        if vars.contains(&key) {
+            script.push_str(&format!("(assert (<= {key} {value}))\n"));
+        }
+    }
+}
+
+#[cfg(not(feature = "cvc5-verify"))]
 fn verify_contract_cvc5_shellout(
     contract_name: &str,
     clauses: &[Clause],
@@ -1878,27 +1900,8 @@ fn verify_contract_cvc5_shellout(
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
-    // Derive refinement narrowings from feature_max constants
-    let narrowings = derive_narrowings_cvc5(constants);
-
-    let mut requires_exprs: Vec<&Expr> = Vec::new();
-    for clause in clauses {
-        if clause.kind == ClauseKind::Requires {
-            requires_exprs.push(&clause.body);
-        }
-    }
-
-    // Build frame checker from modifies clauses
-    let modifies_bodies: Vec<&Expr> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Modifies)
-        .map(|c| &c.body)
-        .collect();
-    let frame_checker = if modifies_bodies.is_empty() {
-        assura_types::FrameChecker::empty()
-    } else {
-        assura_types::FrameChecker::new(&modifies_bodies)
-    };
+    let (narrowings, requires_exprs, frame_checker) =
+        cvc5_contract_shared_setup(clauses, constants);
 
     for clause in clauses {
         match &clause.kind {
@@ -1963,28 +1966,13 @@ fn check_clause_cvc5_shellout(
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     cache: &mut SessionCache,
 ) -> VerificationResult {
-    // Check cache first (#253)
     let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
-    if let Some(entry) = cache.lookup(&cache_key) {
-        return match entry.result.as_str() {
-            "verified" => VerificationResult::verified(desc.to_string()),
-            other => VerificationResult::Unknown {
-                clause_desc: desc.to_string(),
-                reason: format!("cached: {other}"),
-            },
-        };
+    if let Some(result) = cvc5_lookup_cached_clause(cache, &cache_key, desc) {
+        return result;
     }
 
-    // Pre-check for unmodelable features (matching Z3 backend behavior)
-    if expr_has_unmodelable_features_cvc5(ensures_body) {
-        let reasons = collect_unmodelable_reasons_cvc5(ensures_body);
-        return VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason: format!(
-                "clause uses features not yet encoded in SMT ({})",
-                reasons.join(", ")
-            ),
-        };
+    if let Some(result) = cvc5_unmodelable_precheck(desc, ensures_body) {
+        return result;
     }
 
     let mut vars = HashSet::new();
@@ -2007,40 +1995,7 @@ fn check_clause_cvc5_shellout(
         script.push_str(&format!("(declare-const {var} Int)\n"));
     }
 
-    // Assert type-level constraints (Nat params get >= 0)
-    for param in params {
-        if param.ty.len() == 1 && param.ty[0] == "Nat" {
-            let name = sanitize_smtlib_name(&param.name);
-            if vars.contains(&name) {
-                script.push_str(&format!("(assert (>= {name} 0))\n"));
-            }
-        }
-    }
-    if return_ty.len() == 1 && return_ty[0] == "Nat" {
-        if vars.contains("__result") {
-            script.push_str("(assert (>= __result 0))\n");
-        }
-        // Also constrain "result" (different encoding paths use different names)
-        if vars.contains("result") {
-            script.push_str("(assert (>= result 0))\n");
-        }
-    }
-
-    // Bind feature_max constants to concrete values (#257)
-    for (name, value) in constants {
-        let key = sanitize_smtlib_name(name);
-        if vars.contains(&key) {
-            script.push_str(&format!("(assert (= {key} {value}))\n"));
-        }
-    }
-
-    // Assert refinement narrowings: name <= max_value (#257)
-    for (name, value) in narrowings {
-        let key = sanitize_smtlib_name(name);
-        if vars.contains(&key) {
-            script.push_str(&format!("(assert (<= {key} {value}))\n"));
-        }
-    }
+    append_cvc5_shellout_constraints(&mut script, &vars, params, return_ty, constants, narrowings);
 
     for req in requires {
         if let Some(smt) = expr_to_smtlib(req) {
