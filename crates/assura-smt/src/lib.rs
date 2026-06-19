@@ -76,6 +76,7 @@ mod no_z3;
 // ---------------------------------------------------------------------------
 
 mod cvc5_adt;
+mod cvc5_atom_encode;
 mod cvc5_backend;
 mod cvc5_binop_encode;
 mod cvc5_builtins;
@@ -101,6 +102,7 @@ mod cvc5_quantifier_encode;
 mod cvc5_raw_native;
 mod cvc5_raw_ops;
 mod cvc5_tuple_encode;
+mod cvc5_wrapper_encode;
 
 // ---------------------------------------------------------------------------
 // Z3 backend

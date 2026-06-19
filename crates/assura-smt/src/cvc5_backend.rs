@@ -1,11 +1,15 @@
 use super::*;
 use crate::cache::SessionCache;
+use crate::cvc5_atom_encode::{
+    encode_apply_smtlib, encode_ident_smtlib, encode_literal_smtlib, encode_raw_empty_smtlib,
+    encode_raw_single_token_smtlib,
+};
 use crate::cvc5_binop_encode::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 use crate::cvc5_call_encode::{encode_call_smtlib, encode_method_call_smtlib};
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
-    expr_has_unmodelable_features_cvc5, float_literal_to_smtlib, is_internal_cvc5_var,
-    sanitize_smtlib_name, smtlib_result_name,
+    expr_has_unmodelable_features_cvc5, is_internal_cvc5_var, sanitize_smtlib_name,
+    smtlib_result_name,
 };
 use crate::cvc5_field_access::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
 use crate::cvc5_if_encode::encode_if_smtlib;
@@ -16,6 +20,7 @@ use crate::cvc5_match_encode::encode_match_smtlib;
 use crate::cvc5_old_access::encode_old_smtlib;
 use crate::cvc5_quantifier_encode::encode_ast_quantifier_smtlib;
 use crate::cvc5_tuple_encode::encode_tuple_smtlib;
+use crate::cvc5_wrapper_encode::encode_wrapper_smtlib;
 
 #[cfg(test)]
 use crate::cvc5_common::{
@@ -27,8 +32,8 @@ use crate::cvc5_raw_ops::{
     is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
 #[cfg(any(test, feature = "cvc5-verify"))]
-use assura_parser::ast::{BinOp, UnaryOp};
-use assura_parser::ast::{BlockKind, Clause, ClauseKind, Decl, Literal};
+use assura_parser::ast::{BinOp, Literal, UnaryOp};
+use assura_parser::ast::{BlockKind, Clause, ClauseKind, Decl};
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
@@ -1645,26 +1650,8 @@ fn run_cvc5_binary(script: &str) -> Cvc5Result {
 /// Convert an AST expression to an SMT-LIB2 string representation.
 pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Literal(Literal::Int(n)) => {
-            if let Some(stripped) = n.strip_prefix('-') {
-                Some(format!("(- {stripped})"))
-            } else {
-                Some(n.clone())
-            }
-        }
-        Expr::Literal(Literal::Bool(b)) => Some(b.to_string()),
-        Expr::Literal(Literal::Float(f)) => Some(float_literal_to_smtlib(f)),
-        Expr::Literal(Literal::Str(s)) => {
-            // Named integer constant matching Z3 pattern
-            Some(format!("__str_{}", sanitize_smtlib_name(s)))
-        }
-        Expr::Ident(name) => {
-            if name == "result" {
-                Some(smtlib_result_name().to_string())
-            } else {
-                Some(sanitize_smtlib_name(name))
-            }
-        }
+        Expr::Literal(lit) => encode_literal_smtlib(lit),
+        Expr::Ident(name) => Some(encode_ident_smtlib(name)),
         Expr::BinOp { op, lhs, rhs } => {
             let l = expr_to_smtlib(lhs)?;
             let r = expr_to_smtlib(rhs)?;
@@ -1694,9 +1681,8 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         }
         Expr::Call { func, args } => encode_call_smtlib(func, args, expr_to_smtlib),
         Expr::Old(inner) => encode_old_smtlib(inner.as_ref(), expr_to_smtlib),
-        Expr::Paren(inner) => expr_to_smtlib(inner),
-        Expr::Cast { expr: inner, .. } => expr_to_smtlib(inner),
-        Expr::Ghost(inner) => expr_to_smtlib(inner),
+        Expr::Paren(inner) | Expr::Ghost(inner) => encode_wrapper_smtlib(inner, expr_to_smtlib),
+        Expr::Cast { expr: inner, .. } => encode_wrapper_smtlib(inner, expr_to_smtlib),
         Expr::Let {
             name, value, body, ..
         } => encode_let_smtlib(name, value, body, expr_to_smtlib),
@@ -1723,7 +1709,10 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         // Raw tokens: full precedence-climbing SMT-LIB2 encoding
         Expr::Raw(tokens) => {
             if tokens.is_empty() {
-                return Some("true".to_string());
+                return Some(encode_raw_empty_smtlib());
+            }
+            if tokens.len() == 1 {
+                return encode_raw_single_token_smtlib(&tokens[0]);
             }
             let (val, _) = parse_raw_expr_smtlib(tokens, 0, 0)?;
             Some(val)
@@ -1739,7 +1728,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         // List: use a fresh variable name
         Expr::List(_) => Some(encode_list_smtlib()),
         // Apply: return named bool
-        Expr::Apply { lemma_name, .. } => Some(format!("__apply_{lemma_name}")),
+        Expr::Apply { lemma_name, .. } => Some(encode_apply_smtlib(lemma_name)),
     }
 }
 

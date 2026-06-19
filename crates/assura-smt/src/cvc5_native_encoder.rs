@@ -6,9 +6,12 @@ use std::collections::HashMap;
 
 use assura_parser::ast::{Clause, Expr, Literal};
 
+use crate::cvc5_atom_encode::{
+    encode_apply_cvc5, encode_ident_cvc5, encode_literal_cvc5, encode_raw_empty_cvc5,
+    encode_raw_single_token_cvc5,
+};
 use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
 use crate::cvc5_call_encode::{encode_call_cvc5, encode_method_call_cvc5};
-use crate::cvc5_common::{float_to_rational_parts, sanitize_smtlib_name, smtlib_result_name};
 use crate::cvc5_encoder_state::{canonical_length_cvc5, field_len_fn_cvc5};
 use crate::cvc5_field_access::encode_field_cvc5;
 use crate::cvc5_if_encode::encode_if_cvc5;
@@ -24,6 +27,7 @@ use crate::cvc5_raw_native::encode_raw_tokens_cvc5;
 pub(crate) use crate::cvc5_encoder_state::{Cvc5EncoderState, default_cvc5_encoder_state};
 
 use crate::cvc5_tuple_encode::encode_tuple_cvc5;
+use crate::cvc5_wrapper_encode::encode_wrapper_cvc5;
 
 // -------------------------------------------------------------------------
 // Havoc+assume encoding (#267)
@@ -73,61 +77,8 @@ pub(crate) fn encode_expr_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
     match expr {
-        Expr::Literal(Literal::Int(n)) => {
-            let val: i64 = n.parse().ok()?;
-            Some(tm.mk_integer(val))
-        }
-        Expr::Literal(Literal::Bool(b)) => Some(tm.mk_boolean(*b)),
-        Expr::Literal(Literal::Float(f_str)) => {
-            let (numer, denom) = float_to_rational_parts(f_str);
-            Some(tm.mk_real_from_rational(numer, denom))
-        }
-        Expr::Literal(Literal::Str(s)) => {
-            if state.use_string_theory {
-                // Native CVC5 string theory: use string_sort and mk_string.
-                // CVC5 handles equality, length, and distinctness natively.
-                let str_val = tm.mk_string(s, false);
-                // Background axiom: length is known at compile time
-                let len = tm.mk_term(cvc5::Kind::StringLength, &[str_val.clone()]);
-                let expected_len = tm.mk_integer(s.len() as i64);
-                let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len, expected_len]);
-                state.axioms.push(len_eq);
-                Some(str_val)
-            } else {
-                // Integer encoding (default): named integer constant matching Z3 pattern
-                let const_name = format!("__str_{s}");
-                let str_val = tm.mk_const(tm.integer_sort(), &const_name);
-                // Pairwise distinctness from previously seen string constants
-                if !state.string_constants.contains(&const_name) {
-                    for prev in &state.string_constants {
-                        let prev_val = tm.mk_const(tm.integer_sort(), prev);
-                        let eq = tm.mk_term(cvc5::Kind::Equal, &[str_val.clone(), prev_val]);
-                        let neq = tm.mk_term(cvc5::Kind::Not, &[eq]);
-                        state.axioms.push(neq);
-                    }
-                    state.string_constants.push(const_name);
-                }
-                // String length axiom: len("hello") == 5
-                let len_name = "__field_len";
-                let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                let len_func = tm.mk_const(len_sort, len_name);
-                let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
-                let str_len = tm.mk_integer(s.len() as i64);
-                let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len_result, str_len]);
-                state.axioms.push(len_eq);
-                Some(str_val)
-            }
-        }
-        Expr::Ident(name) => {
-            let key = if name == "result" {
-                smtlib_result_name().to_string()
-            } else {
-                sanitize_smtlib_name(name)
-            };
-            vars.get(&key)
-                .cloned()
-                .or_else(|| Some(tm.mk_const(tm.integer_sort(), &key)))
-        }
+        Expr::Literal(lit) => encode_literal_cvc5(tm, lit, state),
+        Expr::Ident(name) => Some(encode_ident_cvc5(tm, name, vars)),
         Expr::BinOp { op, lhs, rhs } => {
             let l = encode_expr_cvc5(tm, lhs, vars, state)?;
             let r = encode_expr_cvc5(tm, rhs, vars, state)?;
@@ -166,8 +117,12 @@ pub(crate) fn encode_expr_cvc5<'a>(
         Expr::Old(inner) => encode_old_cvc5(tm, inner.as_ref(), vars, state, |e, v, s| {
             encode_expr_cvc5(tm, e, v, s)
         }),
-        Expr::Paren(inner) | Expr::Ghost(inner) => encode_expr_cvc5(tm, inner, vars, state),
-        Expr::Cast { expr: inner, .. } => encode_expr_cvc5(tm, inner, vars, state),
+        Expr::Paren(inner) | Expr::Ghost(inner) => {
+            encode_wrapper_cvc5(inner, vars, state, |e, v, s| encode_expr_cvc5(tm, e, v, s))
+        }
+        Expr::Cast { expr: inner, .. } => {
+            encode_wrapper_cvc5(inner, vars, state, |e, v, s| encode_expr_cvc5(tm, e, v, s))
+        }
         Expr::Let {
             name, value, body, ..
         } => encode_let_cvc5(tm, name, value, body, vars, state, |e, v, s| {
@@ -198,26 +153,11 @@ pub(crate) fn encode_expr_cvc5<'a>(
         // Raw tokens: basic parsing (single token bools/ints/idents)
         Expr::Raw(tokens) => {
             if tokens.is_empty() {
-                return Some(tm.mk_boolean(true));
+                return Some(encode_raw_empty_cvc5(tm));
             }
             if tokens.len() == 1 {
-                let t = &tokens[0];
-                if t == "true" {
-                    return Some(tm.mk_boolean(true));
-                }
-                if t == "false" {
-                    return Some(tm.mk_boolean(false));
-                }
-                if let Ok(n) = t.parse::<i64>() {
-                    return Some(tm.mk_integer(n));
-                }
-                let key = sanitize_smtlib_name(t);
-                return vars
-                    .get(&key)
-                    .cloned()
-                    .or_else(|| Some(tm.mk_const(tm.integer_sort(), &key)));
+                return encode_raw_single_token_cvc5(tm, &tokens[0], vars);
             }
-            // Multi-token: try to parse as infix expression
             encode_raw_tokens_cvc5(tm, tokens, vars, state)
         }
         // Tuple: fresh Int with element-access axioms
@@ -260,11 +200,9 @@ pub(crate) fn encode_expr_cvc5<'a>(
         }
         // Apply: encode args for side effects, return named bool
         Expr::Apply { lemma_name, args } => {
-            for arg in args {
-                let _ = encode_expr_cvc5(tm, arg, vars, state);
-            }
-            let apply_name = format!("__apply_{lemma_name}");
-            Some(tm.mk_const(tm.boolean_sort(), &apply_name))
+            encode_apply_cvc5(tm, lemma_name, args, vars, state, |e, v, s| {
+                encode_expr_cvc5(tm, e, v, s)
+            })
         }
     }
 }
