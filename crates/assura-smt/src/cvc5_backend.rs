@@ -729,6 +729,7 @@ mod cvc5_native_encoder;
 #[cfg(feature = "cvc5-verify")]
 use cvc5_native_encoder::{
     Cvc5EncoderState, apply_havoc_assume_cvc5, default_cvc5_encoder_state, encode_expr_cvc5,
+    infer_quantifier_patterns_cvc5,
 };
 
 #[cfg(feature = "cvc5-verify")]
@@ -780,6 +781,258 @@ fn assert_cvc5_solver_prelude<'a>(
             solver
                 .assert_formula(tm.mk_term(cvc5::Kind::Leq, &[var.clone(), tm.mk_integer(*value)]));
         }
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+#[derive(Default)]
+struct Cvc5SolverOpts {
+    incremental: bool,
+    unsat_core: bool,
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn new_cvc5_solver<'a>(tm: &'a cvc5::TermManager, opts: Cvc5SolverOpts) -> cvc5::Solver<'a> {
+    let mut solver = cvc5::Solver::new(tm);
+    solver.set_logic("ALL");
+    solver.set_option("produce-models", "true");
+    solver.set_option("tlimit", "2000");
+    if opts.incremental {
+        solver.set_option("incremental", "true");
+    }
+    if opts.unsat_core {
+        solver.set_option("produce-unsat-cores", "true");
+        solver.set_option("produce-unsat-assumptions", "true");
+    }
+    solver
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn collect_cvc5_var_names(requires: &[&Expr], body: &Expr) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for req in requires {
+        collect_vars(req, &mut names);
+    }
+    collect_vars(body, &mut names);
+    names
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn collect_cvc5_var_names_from_clauses(requires: &[&Expr], clauses: &[&Clause]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for req in requires {
+        collect_vars(req, &mut names);
+    }
+    for clause in clauses {
+        collect_vars(&clause.body, &mut names);
+    }
+    names
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn collect_cvc5_var_names_from_assumptions(assumptions: &[&Expr], body: &Expr) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for a in assumptions {
+        collect_vars(a, &mut names);
+    }
+    collect_vars(body, &mut names);
+    names
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn assert_cvc5_axioms<'a>(solver: &mut cvc5::Solver<'a>, axioms: &[cvc5::Term<'a>]) {
+    for axiom in axioms {
+        solver.assert_formula(axiom.clone());
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn assert_cvc5_axioms_since<'a>(
+    solver: &mut cvc5::Solver<'a>,
+    axioms: &[cvc5::Term<'a>],
+    start: usize,
+) {
+    for axiom in &axioms[start..] {
+        solver.assert_formula(axiom.clone());
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn assert_cvc5_frame_axioms<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    var_map: &HashMap<String, cvc5::Term<'a>>,
+    frame_vars: &[String],
+) {
+    for var_name in frame_vars {
+        let current_key = sanitize_smtlib_name(var_name);
+        let old_key = sanitize_smtlib_name(&format!("{var_name}__old"));
+        let current = var_map
+            .get(&current_key)
+            .cloned()
+            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &current_key));
+        let old_var = var_map
+            .get(&old_key)
+            .cloned()
+            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_key));
+        solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[current, old_var]));
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn assert_cvc5_clause_check<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    kind: ClauseKind,
+    body_term: cvc5::Term<'a>,
+) {
+    match kind {
+        ClauseKind::Invariant | ClauseKind::MustNot => solver.assert_formula(body_term),
+        _ => {
+            let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
+            solver.assert_formula(negated);
+        }
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn extract_cvc5_counterexample_model<'a>(
+    solver: &cvc5::Solver<'a>,
+    var_map: &HashMap<String, cvc5::Term<'a>>,
+) -> (String, Option<CounterexampleModel>) {
+    let mut variables: Vec<(String, String)> = var_map
+        .iter()
+        .filter(|(name, _)| !is_internal_cvc5_var(name))
+        .map(|(name, term)| {
+            let val = solver.get_value(term.clone());
+            (name.clone(), val.to_string())
+        })
+        .collect();
+    variables.sort_by(|(a, _), (b, _)| a.cmp(b));
+    let model_str = variables
+        .iter()
+        .map(|(n, v)| format!("{n} = {v}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let counter_model = if variables.is_empty() {
+        None
+    } else {
+        Some(CounterexampleModel { variables })
+    };
+    (model_str, counter_model)
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn finish_cvc5_clause_check<'a>(
+    desc: &str,
+    kind: ClauseKind,
+    solver: &mut cvc5::Solver<'a>,
+    var_map: &HashMap<String, cvc5::Term<'a>>,
+) -> VerificationResult {
+    let sat_result = solver.check_sat();
+    if sat_result.is_unsat() {
+        if matches!(kind, ClauseKind::Invariant) {
+            VerificationResult::Counterexample {
+                clause_desc: desc.to_string(),
+                model: "invariant is unsatisfiable".to_string(),
+                counter_model: None,
+            }
+        } else {
+            VerificationResult::verified(desc.to_string())
+        }
+    } else if sat_result.is_sat() {
+        if matches!(kind, ClauseKind::Invariant) {
+            VerificationResult::verified(desc.to_string())
+        } else {
+            let (model_str, counter_model) = extract_cvc5_counterexample_model(solver, var_map);
+            VerificationResult::Counterexample {
+                clause_desc: desc.to_string(),
+                model: model_str,
+                counter_model,
+            }
+        }
+    } else {
+        VerificationResult::Timeout {
+            clause_desc: desc.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn inject_cvc5_lemma_assumptions<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    body: &'a Expr,
+    defs: &std::collections::HashMap<String, Vec<&Expr>>,
+    var_map: &mut HashMap<String, cvc5::Term<'a>>,
+    enc_state: &mut Cvc5EncoderState<'a>,
+) {
+    inject_cvc5_lemma_assumptions_for_bodies(
+        tm,
+        solver,
+        std::iter::once(body),
+        defs,
+        var_map,
+        enc_state,
+    );
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn inject_cvc5_lemma_assumptions_for_bodies<'a, I>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    bodies: I,
+    defs: &std::collections::HashMap<String, Vec<&Expr>>,
+    var_map: &mut HashMap<String, cvc5::Term<'a>>,
+    enc_state: &mut Cvc5EncoderState<'a>,
+) where
+    I: IntoIterator<Item = &'a Expr>,
+{
+    for body in bodies {
+        let apply_refs = collect_apply_refs_from_expr(body);
+        for lemma_name in &apply_refs {
+            if let Some(ensures_bodies) = defs.get(lemma_name) {
+                for ens_body in ensures_bodies {
+                    if let Some(term) = encode_expr_cvc5(tm, ens_body, var_map, enc_state) {
+                        solver.assert_formula(term);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn cvc5_encode_failure(desc: &str) -> VerificationResult {
+    VerificationResult::Unknown {
+        clause_desc: desc.to_string(),
+        reason: "could not encode clause to CVC5 terms".into(),
+    }
+}
+
+fn store_cvc5_clause_cache(
+    cache: &mut SessionCache,
+    cache_key: String,
+    result: &VerificationResult,
+) {
+    let result_str = match result {
+        VerificationResult::Verified { .. } => "verified",
+        VerificationResult::Counterexample { .. } => "counterexample",
+        VerificationResult::Timeout { .. } => "timeout",
+        VerificationResult::Unknown { .. } => "unknown",
+    };
+    cache.insert(cache_key, result_str.to_string(), 0);
+}
+
+fn cvc5_clause_result_from_unsat(desc: &str, kind: ClauseKind) -> VerificationResult {
+    if matches!(kind, ClauseKind::Invariant) {
+        VerificationResult::Counterexample {
+            clause_desc: desc.to_string(),
+            model: "invariant is unsatisfiable".to_string(),
+            counter_model: None,
+        }
+    } else {
+        VerificationResult::verified(desc.to_string())
     }
 }
 
@@ -977,21 +1230,15 @@ fn verify_contract_cvc5_native(
     // ---------------------------------------------------------------
 
     let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
-    solver.set_option("tlimit", "2000");
-    solver.set_option("incremental", "true");
+    let mut solver = new_cvc5_solver(
+        &tm,
+        Cvc5SolverOpts {
+            incremental: true,
+            ..Default::default()
+        },
+    );
 
-    // Collect all variable names across requires + all clause bodies
-    let mut var_names = HashSet::new();
-    for req in &requires_exprs {
-        collect_vars(req, &mut var_names);
-    }
-    for clause in &verifiable {
-        collect_vars(&clause.body, &mut var_names);
-    }
-
+    let var_names = collect_cvc5_var_names_from_clauses(&requires_exprs, &verifiable);
     let mut var_map = build_cvc5_var_map(&tm, &var_names, constants);
     assert_cvc5_solver_prelude(&tm, &mut solver, &var_map, params, return_ty, &narrowings);
 
@@ -1004,33 +1251,19 @@ fn verify_contract_cvc5_native(
         }
     }
 
-    // Assert background axioms from requires encoding
-    for axiom in &enc_state.axioms {
-        solver.assert_formula(axiom.clone());
-    }
-    // Record the base axiom count after encoding requires
+    assert_cvc5_axioms(&mut solver, &enc_state.axioms);
     let requires_axiom_count = enc_state.axioms.len();
 
-    // Inject lemma postconditions for any `apply` references in ANY clause
     if let Some(defs) = lemma_defs {
-        for clause in &verifiable {
-            let apply_refs = collect_apply_refs_from_expr(&clause.body);
-            for lemma_name in &apply_refs {
-                if let Some(ensures_bodies) = defs.get(lemma_name) {
-                    for ens_body in ensures_bodies {
-                        if let Some(term) =
-                            encode_expr_cvc5(&tm, ens_body, &mut var_map, &mut enc_state)
-                        {
-                            solver.assert_formula(term);
-                        }
-                    }
-                }
-            }
-        }
-        // Assert any new axioms from lemma encoding
-        for axiom in &enc_state.axioms[requires_axiom_count..] {
-            solver.assert_formula(axiom.clone());
-        }
+        inject_cvc5_lemma_assumptions_for_bodies(
+            &tm,
+            &mut solver,
+            verifiable.iter().map(|c| &c.body),
+            defs,
+            &mut var_map,
+            &mut enc_state,
+        );
+        assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, requires_axiom_count);
     }
 
     // For each verifiable clause: push, encode, check, pop
@@ -1063,118 +1296,30 @@ fn verify_contract_cvc5_native(
             &mut var_map,
             &mut enc_state,
         );
-        for axiom in &enc_state.axioms[axiom_base..] {
-            solver.assert_formula(axiom.clone());
-        }
+        assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, axiom_base);
         let havoc_axiom_end = enc_state.axioms.len();
 
-        // Encode the clause body
         let body_term = match encode_expr_cvc5(&tm, &clause.body, &mut var_map, &mut enc_state) {
             Some(t) => t,
             None => {
                 solver.pop(1);
                 enc_state.axioms.truncate(axiom_base);
-                results.push(VerificationResult::Unknown {
-                    clause_desc: desc,
-                    reason: "could not encode clause to CVC5 terms".into(),
-                });
+                results.push(cvc5_encode_failure(&desc));
                 continue;
             }
         };
 
-        // Assert only NEW axioms from this clause's encoding (after havoc+assume)
-        for axiom in &enc_state.axioms[havoc_axiom_end..] {
-            solver.assert_formula(axiom.clone());
-        }
+        assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, havoc_axiom_end);
 
-        // Frame axioms for ensures with modifies
         if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
             let frame_vars = frame_checker.frame_axiom_vars(&clause.body);
-            for var_name in &frame_vars {
-                let current_key = sanitize_smtlib_name(var_name);
-                let old_key = sanitize_smtlib_name(&format!("{var_name}__old"));
-                let current = var_map
-                    .get(&current_key)
-                    .cloned()
-                    .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &current_key));
-                let old_var = var_map
-                    .get(&old_key)
-                    .cloned()
-                    .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_key));
-                let axiom = tm.mk_term(cvc5::Kind::Equal, &[current, old_var]);
-                solver.assert_formula(axiom);
-            }
+            assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
         }
 
-        // Assert clause according to verification semantics
-        match clause.kind {
-            ClauseKind::Invariant => {
-                solver.assert_formula(body_term);
-            }
-            ClauseKind::MustNot => {
-                solver.assert_formula(body_term);
-            }
-            _ => {
-                let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
-                solver.assert_formula(negated);
-            }
-        }
+        assert_cvc5_clause_check(&tm, &mut solver, clause.kind.clone(), body_term);
 
-        let sat_result = solver.check_sat();
-
-        let result = if sat_result.is_unsat() {
-            if matches!(clause.kind, ClauseKind::Invariant) {
-                VerificationResult::Counterexample {
-                    clause_desc: desc.clone(),
-                    model: "invariant is unsatisfiable".to_string(),
-                    counter_model: None,
-                }
-            } else {
-                VerificationResult::verified(desc.clone())
-            }
-        } else if sat_result.is_sat() {
-            if matches!(clause.kind, ClauseKind::Invariant) {
-                VerificationResult::verified(desc.clone())
-            } else {
-                let mut variables: Vec<(String, String)> = var_map
-                    .iter()
-                    .filter(|(name, _)| !is_internal_cvc5_var(name))
-                    .map(|(name, term)| {
-                        let val = solver.get_value(term.clone());
-                        (name.clone(), val.to_string())
-                    })
-                    .collect();
-                variables.sort_by(|(a, _), (b, _)| a.cmp(b));
-                let model_str = variables
-                    .iter()
-                    .map(|(n, v)| format!("{n} = {v}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let counter_model = if variables.is_empty() {
-                    None
-                } else {
-                    Some(CounterexampleModel { variables })
-                };
-                VerificationResult::Counterexample {
-                    clause_desc: desc.clone(),
-                    model: model_str,
-                    counter_model,
-                }
-            }
-        } else {
-            VerificationResult::Timeout {
-                clause_desc: desc.clone(),
-            }
-        };
-
-        // Cache the result (#253)
-        let result_str = match &result {
-            VerificationResult::Verified { .. } => "verified",
-            VerificationResult::Counterexample { .. } => "counterexample",
-            VerificationResult::Timeout { .. } => "timeout",
-            VerificationResult::Unknown { .. } => "unknown",
-        };
-        cache.insert(cache_key, result_str.to_string(), 0);
+        let result = finish_cvc5_clause_check(&desc, clause.kind.clone(), &mut solver, &var_map);
+        store_cvc5_clause_cache(cache, cache_key, &result);
 
         results.push(result);
 
@@ -1217,18 +1362,9 @@ fn check_clause_cvc5_native(
     }
 
     let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
-    solver.set_option("tlimit", "2000");
+    let mut solver = new_cvc5_solver(&tm, Cvc5SolverOpts::default());
 
-    // Collect all variable names
-    let mut var_names = HashSet::new();
-    for req in requires {
-        collect_vars(req, &mut var_names);
-    }
-    collect_vars(ensures_body, &mut var_names);
-
+    let var_names = collect_cvc5_var_names(requires, ensures_body);
     let mut var_map = build_cvc5_var_map(&tm, &var_names, constants);
     assert_cvc5_solver_prelude(&tm, &mut solver, &var_map, params, return_ty, narrowings);
 
@@ -1252,146 +1388,37 @@ fn check_clause_cvc5_native(
         }
     }
 
-    // Inject lemma postconditions for any `apply lemma_name(args)` references
-    // in the ensures body. This mirrors the Z3 backend behavior (verify.rs
-    // lines 214-224): each referenced lemma's ensures clauses are asserted
-    // as assumptions so the solver can use them during verification.
     if let Some(defs) = lemma_defs {
-        let apply_refs = collect_apply_refs_from_expr(ensures_body);
-        for lemma_name in &apply_refs {
-            if let Some(ensures_bodies) = defs.get(lemma_name) {
-                for ens_body in ensures_bodies {
-                    if let Some(term) =
-                        encode_expr_cvc5(&tm, ens_body, &mut var_map, &mut enc_state)
-                    {
-                        solver.assert_formula(term);
-                    }
-                }
-            }
-        }
+        inject_cvc5_lemma_assumptions(
+            &tm,
+            &mut solver,
+            ensures_body,
+            defs,
+            &mut var_map,
+            &mut enc_state,
+        );
     }
 
-    // Encode the clause body
     let body_term = match encode_expr_cvc5(&tm, ensures_body, &mut var_map, &mut enc_state) {
         Some(t) => t,
-        None => {
-            return VerificationResult::Unknown {
-                clause_desc: desc.to_string(),
-                reason: "could not encode clause to CVC5 terms".into(),
-            };
-        }
+        None => return cvc5_encode_failure(desc),
     };
 
-    // Assert background axioms collected during encoding
-    for axiom in &enc_state.axioms {
-        solver.assert_formula(axiom.clone());
-    }
+    assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
-    // Frame axioms: for ensures with modifies, assert var == old_var for unmodified vars
     if kind == ClauseKind::Ensures && frame_checker.has_modifies() {
         let frame_vars = frame_checker.frame_axiom_vars(ensures_body);
-        for var_name in &frame_vars {
-            let current_key = sanitize_smtlib_name(var_name);
-            let old_key = sanitize_smtlib_name(&format!("{var_name}__old"));
-            let current = var_map
-                .get(&current_key)
-                .cloned()
-                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &current_key));
-            let old_var = var_map
-                .get(&old_key)
-                .cloned()
-                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_key));
-            let axiom = tm.mk_term(cvc5::Kind::Equal, &[current, old_var]);
-            solver.assert_formula(axiom);
-        }
+        assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
     }
 
-    // Assert clause according to verification semantics
-    match kind {
-        ClauseKind::Invariant => {
-            // Invariant: check satisfiability (not always false)
-            solver.assert_formula(body_term);
-        }
-        ClauseKind::MustNot => {
-            // MustNot P: assert P directly; UNSAT means P is impossible
-            solver.assert_formula(body_term);
-        }
-        _ => {
-            // Ensures/rule/decreases: check validity via negation
-            let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
-            solver.assert_formula(negated);
-        }
-    }
+    assert_cvc5_clause_check(&tm, &mut solver, kind.clone(), body_term);
 
-    let sat_result = solver.check_sat();
-
-    let result = if sat_result.is_unsat() {
-        if matches!(kind, ClauseKind::Invariant) {
-            VerificationResult::Counterexample {
-                clause_desc: desc.to_string(),
-                model: "invariant is unsatisfiable".to_string(),
-                counter_model: None,
-            }
-        } else {
-            VerificationResult::verified(desc.to_string())
-        }
-    } else if sat_result.is_sat() {
-        if matches!(kind, ClauseKind::Invariant) {
-            VerificationResult::verified(desc.to_string())
-        } else {
-            // Extract counterexample model, filtering internal variables
-            // and sorting alphabetically (matching Z3 backend behavior)
-            let mut variables: Vec<(String, String)> = var_map
-                .iter()
-                .filter(|(name, _)| !is_internal_cvc5_var(name))
-                .map(|(name, term)| {
-                    let val = solver.get_value(term.clone());
-                    (name.clone(), val.to_string())
-                })
-                .collect();
-            variables.sort_by(|(a, _), (b, _)| a.cmp(b));
-            let model_str = variables
-                .iter()
-                .map(|(n, v)| format!("{n} = {v}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let counter_model = if variables.is_empty() {
-                None
-            } else {
-                Some(CounterexampleModel { variables })
-            };
-            VerificationResult::Counterexample {
-                clause_desc: desc.to_string(),
-                model: model_str,
-                counter_model,
-            }
-        }
-    } else {
-        // Unknown/timeout
-        VerificationResult::Timeout {
-            clause_desc: desc.to_string(),
-        }
-    };
-
-    // Insert result into session cache (#253)
-    let result_str = match &result {
-        VerificationResult::Verified { .. } => "verified",
-        VerificationResult::Counterexample { .. } => "counterexample",
-        VerificationResult::Timeout { .. } => "timeout",
-        VerificationResult::Unknown { .. } => "unknown",
-    };
-    cache.insert(cache_key, result_str.to_string(), 0);
+    let result = finish_cvc5_clause_check(desc, kind, &mut solver, &var_map);
+    store_cvc5_clause_cache(cache, cache_key, &result);
 
     result
 }
 
-/// Hash a pattern name to a stable i64 for CVC5 match encoding.
-///
-/// Uses FNV-1a (same algorithm as the Z3 backend) for determinism across
-/// Rust versions. Constructor variant names are hashed to integer tags so
-/// that `match` arms can be encoded as ITE chains comparing the scrutinee
-/// against the tag value.
-#[cfg(feature = "cvc5-verify")]
 // -------------------------------------------------------------------------
 // Generic CVC5 validity checker (reusable for standalone functions)
 // -------------------------------------------------------------------------
@@ -1451,19 +1478,15 @@ pub(crate) fn check_validity_cvc5(
     }
 
     let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
-    solver.set_option("produce-unsat-cores", "true");
-    solver.set_option("produce-unsat-assumptions", "true");
-    solver.set_option("tlimit", "2000");
+    let mut solver = new_cvc5_solver(
+        &tm,
+        Cvc5SolverOpts {
+            unsat_core: true,
+            ..Default::default()
+        },
+    );
 
-    let mut var_names = std::collections::HashSet::new();
-    for a in assumptions {
-        collect_vars(a, &mut var_names);
-    }
-    collect_vars(body, &mut var_names);
-
+    let var_names = collect_cvc5_var_names_from_assumptions(assumptions, body);
     let mut var_map = build_cvc5_var_map(&tm, &var_names, &[]);
 
     let mut enc_state = default_cvc5_encoder_state();
@@ -1485,20 +1508,11 @@ pub(crate) fn check_validity_cvc5(
     // Encode body
     let body_term = match encode_expr_cvc5(&tm, body, &mut var_map, &mut enc_state) {
         Some(t) => t,
-        None => {
-            return VerificationResult::Unknown {
-                clause_desc: desc.to_string(),
-                reason: "could not encode clause to CVC5 terms".into(),
-            };
-        }
+        None => return cvc5_encode_failure(desc),
     };
 
-    // Assert background axioms
-    for axiom in &enc_state.axioms {
-        solver.assert_formula(axiom.clone());
-    }
+    assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
-    // Negate body, check-sat-assuming tracked requires: UNSAT = valid
     let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
     solver.assert_formula(negated);
 
@@ -1511,26 +1525,7 @@ pub(crate) fn check_validity_cvc5(
         let core = extract_cvc5_unsat_core_labels(&solver, &tracked_assumptions);
         VerificationResult::verified_with_core(desc.to_string(), core)
     } else if sat_result.is_sat() {
-        // Filter internal variables and sort alphabetically
-        let mut variables: Vec<(String, String)> = var_map
-            .iter()
-            .filter(|(name, _)| !is_internal_cvc5_var(name))
-            .map(|(name, term)| {
-                let val = solver.get_value(term.clone());
-                (name.clone(), val.to_string())
-            })
-            .collect();
-        variables.sort_by(|(a, _), (b, _)| a.cmp(b));
-        let model_str = variables
-            .iter()
-            .map(|(n, v)| format!("{n} = {v}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let counter_model = if variables.is_empty() {
-            None
-        } else {
-            Some(crate::result::CounterexampleModel { variables })
-        };
+        let (model_str, counter_model) = extract_cvc5_counterexample_model(&solver, &var_map);
         VerificationResult::Counterexample {
             clause_desc: desc.to_string(),
             model: model_str,
@@ -1558,17 +1553,9 @@ pub(crate) fn check_satisfiability_cvc5(
     }
 
     let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
-    solver.set_option("tlimit", "2000");
+    let mut solver = new_cvc5_solver(&tm, Cvc5SolverOpts::default());
 
-    let mut var_names = std::collections::HashSet::new();
-    for a in assumptions {
-        collect_vars(a, &mut var_names);
-    }
-    collect_vars(body, &mut var_names);
-
+    let var_names = collect_cvc5_var_names_from_assumptions(assumptions, body);
     let mut var_map = build_cvc5_var_map(&tm, &var_names, &[]);
 
     let mut enc_state = default_cvc5_encoder_state();
@@ -1581,17 +1568,10 @@ pub(crate) fn check_satisfiability_cvc5(
 
     let body_term = match encode_expr_cvc5(&tm, body, &mut var_map, &mut enc_state) {
         Some(t) => t,
-        None => {
-            return VerificationResult::Unknown {
-                clause_desc: desc.to_string(),
-                reason: "could not encode clause to CVC5 terms".into(),
-            };
-        }
+        None => return cvc5_encode_failure(desc),
     };
 
-    for axiom in &enc_state.axioms {
-        solver.assert_formula(axiom.clone());
-    }
+    assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
     solver.assert_formula(body_term);
 
@@ -1726,10 +1706,7 @@ pub(crate) fn verify_taint_safety_cvc5(
     use assura_types::TaintLabel;
 
     let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
-    solver.set_option("tlimit", "2000");
+    let mut solver = new_cvc5_solver(&tm, Cvc5SolverOpts::default());
 
     let mut var_map: HashMap<String, cvc5::Term> = HashMap::new();
     let zero = tm.mk_integer(0);
@@ -1848,6 +1825,18 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
 // -------------------------------------------------------------------------
 // Shell-out CVC5 fallback (no cvc5-verify feature)
 // -------------------------------------------------------------------------
+
+#[cfg(not(feature = "cvc5-verify"))]
+fn append_cvc5_shellout_clause_check(script: &mut String, kind: ClauseKind, smt: &str) {
+    match kind {
+        ClauseKind::Invariant | ClauseKind::MustNot => {
+            script.push_str(&format!("(assert {smt})\n"));
+        }
+        _ => {
+            script.push_str(&format!("(assert (not {smt}))\n"));
+        }
+    }
+}
 
 #[cfg(not(feature = "cvc5-verify"))]
 fn append_cvc5_shellout_constraints(
@@ -2030,46 +2019,24 @@ fn check_clause_cvc5_shellout(
         }
     }
 
-    if let Some(smt) = expr_to_smtlib(ensures_body) {
-        match kind {
-            ClauseKind::Invariant => {
-                script.push_str(&format!("(assert {smt})\n"));
-            }
-            ClauseKind::MustNot => {
-                script.push_str(&format!("(assert {smt})\n"));
-            }
-            _ => {
-                script.push_str(&format!("(assert (not {smt}))\n"));
-            }
-        }
-    } else {
+    let Some(smt) = expr_to_smtlib(ensures_body) else {
         return VerificationResult::Unknown {
             clause_desc: desc.to_string(),
             reason: "could not encode clause to SMT-LIB2".into(),
         };
-    }
+    };
+    append_cvc5_shellout_clause_check(&mut script, kind.clone(), &smt);
 
     script.push_str("(check-sat)\n");
     script.push_str("(get-model)\n");
 
     let result = match run_cvc5_binary(&script) {
-        Cvc5Result::Unsat => {
-            if matches!(kind, ClauseKind::Invariant) {
-                VerificationResult::Counterexample {
-                    clause_desc: desc.to_string(),
-                    model: "invariant is unsatisfiable".to_string(),
-                    counter_model: None,
-                }
-            } else {
-                VerificationResult::verified(desc.to_string())
-            }
-        }
+        Cvc5Result::Unsat => cvc5_clause_result_from_unsat(desc, kind),
         Cvc5Result::Sat(model_str) => {
             if matches!(kind, ClauseKind::Invariant) {
                 VerificationResult::verified(desc.to_string())
             } else {
                 let counter_model = parse_smtlib_model(&model_str);
-                // Build a filtered model string from the parsed model
                 let filtered_model = counter_model
                     .as_ref()
                     .map(|cm| {
@@ -2096,14 +2063,7 @@ fn check_clause_cvc5_shellout(
         },
     };
 
-    // Insert result into session cache (#253)
-    let result_str = match &result {
-        VerificationResult::Verified { .. } => "verified",
-        VerificationResult::Counterexample { .. } => "counterexample",
-        VerificationResult::Timeout { .. } => "timeout",
-        VerificationResult::Unknown { .. } => "unknown",
-    };
-    cache.insert(cache_key, result_str.to_string(), 0);
+    store_cvc5_clause_cache(cache, cache_key, &result);
 
     result
 }

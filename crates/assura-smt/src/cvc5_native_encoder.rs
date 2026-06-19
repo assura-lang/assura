@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, UnaryOp};
+use assura_parser::ast::{BinOp, Clause, Expr, Literal, Pattern, UnaryOp};
 use assura_types::checkers::expr_references_var;
 
 use super::{
@@ -107,6 +107,55 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[cfg(feature = "cvc5-verify")]
+fn mk_ir_arith_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    op: crate::ir::IrArithOp,
+    l: cvc5::Term<'a>,
+    r: cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    use crate::ir::IrArithOp;
+
+    match op {
+        IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]),
+        IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]),
+        IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]),
+        IrArithOp::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[l, r]),
+        IrArithOp::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[l, r]),
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn mk_ir_cmp_bool_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    op: crate::ir::IrCmpOp,
+    l: cvc5::Term<'a>,
+    r: cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    use crate::ir::IrCmpOp;
+
+    match op {
+        IrCmpOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[l, r]),
+        IrCmpOp::Ne => tm.mk_term(cvc5::Kind::Not, &[tm.mk_term(cvc5::Kind::Equal, &[l, r])]),
+        IrCmpOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[l, r]),
+        IrCmpOp::Le => tm.mk_term(cvc5::Kind::Leq, &[l, r]),
+        IrCmpOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[l, r]),
+        IrCmpOp::Ge => tm.mk_term(cvc5::Kind::Geq, &[l, r]),
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn mk_ir_cmp_as_int_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    op: crate::ir::IrCmpOp,
+    l: cvc5::Term<'a>,
+    r: cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    let b = mk_ir_cmp_bool_cvc5(tm, op, l, r);
+    tm.mk_term(cvc5::Kind::Ite, &[b, tm.mk_integer(1), tm.mk_integer(0)])
+}
+
+#[cfg(feature = "cvc5-verify")]
 fn apply_ir_body_constraints_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     func: &crate::ir::IrFunction,
@@ -115,7 +164,7 @@ fn apply_ir_body_constraints_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) {
     use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
-    use crate::ir::{IrCmpOp, IrExprKind, IrPred};
+    use crate::ir::IrExprKind;
 
     let mut slots: std::collections::HashMap<usize, cvc5::Term<'a>> =
         std::collections::HashMap::new();
@@ -175,7 +224,7 @@ fn encode_ir_expr_cvc5<'a>(
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
-    use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrLiteral};
+    use crate::ir::{IrExprKind, IrLiteral};
 
     match expr {
         IrExprKind::Const(IrLiteral::Int(n)) => tm.mk_integer(*n),
@@ -187,30 +236,12 @@ fn encode_ir_expr_cvc5<'a>(
         IrExprKind::Arith { op, lhs, rhs } => {
             let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), slots, vars, state);
             let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), slots, vars, state);
-            match op {
-                IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]),
-                IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]),
-                IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]),
-                IrArithOp::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[l, r]),
-                IrArithOp::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[l, r]),
-            }
+            mk_ir_arith_cvc5(tm, *op, l, r)
         }
         IrExprKind::Cmp { op, lhs, rhs } => {
             let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), slots, vars, state);
             let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), slots, vars, state);
-            let b = match op {
-                IrCmpOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[l, r]),
-                IrCmpOp::Ne => {
-                    tm.mk_term(cvc5::Kind::Not, &[tm.mk_term(cvc5::Kind::Equal, &[l, r])])
-                }
-                IrCmpOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[l, r]),
-                IrCmpOp::Le => tm.mk_term(cvc5::Kind::Leq, &[l, r]),
-                IrCmpOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[l, r]),
-                IrCmpOp::Ge => tm.mk_term(cvc5::Kind::Geq, &[l, r]),
-            };
-            let one = tm.mk_integer(1);
-            let zero = tm.mk_integer(0);
-            tm.mk_term(cvc5::Kind::Ite, &[b, one, zero])
+            mk_ir_cmp_as_int_cvc5(tm, *op, l, r)
         }
         _ => {
             let name = format!("__fresh_{}", state.fresh_counter);
@@ -228,7 +259,7 @@ fn encode_ir_pred_cvc5<'a>(
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    use crate::ir::{IrCmpOp, IrPred};
+    use crate::ir::IrPred;
 
     match pred {
         IrPred::True => Some(tm.mk_boolean(true)),
@@ -236,16 +267,7 @@ fn encode_ir_pred_cvc5<'a>(
         IrPred::Cmp { op, lhs, rhs } => {
             let l = encode_ir_pred_arg_cvc5(tm, lhs, slots, vars, state);
             let r = encode_ir_pred_arg_cvc5(tm, rhs, slots, vars, state);
-            Some(match op {
-                IrCmpOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[l, r]),
-                IrCmpOp::Ne => {
-                    tm.mk_term(cvc5::Kind::Not, &[tm.mk_term(cvc5::Kind::Equal, &[l, r])])
-                }
-                IrCmpOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[l, r]),
-                IrCmpOp::Le => tm.mk_term(cvc5::Kind::Leq, &[l, r]),
-                IrCmpOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[l, r]),
-                IrCmpOp::Ge => tm.mk_term(cvc5::Kind::Geq, &[l, r]),
-            })
+            Some(mk_ir_cmp_bool_cvc5(tm, *op, l, r))
         }
         IrPred::And(a, b) => {
             let la = encode_ir_pred_cvc5(tm, a, slots, vars, state)?;
@@ -271,7 +293,7 @@ fn encode_ir_pred_arg_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     use crate::havoc_assume::RESULT_SLOT;
-    use crate::ir::{IrArithOp, IrLiteral, IrPredArg};
+    use crate::ir::{IrLiteral, IrPredArg};
 
     match arg {
         IrPredArg::Slot(n) => slots.get(n).cloned().unwrap_or_else(|| {
@@ -296,13 +318,7 @@ fn encode_ir_pred_arg_cvc5<'a>(
         IrPredArg::Arith { op, lhs, rhs } => {
             let l = encode_ir_pred_arg_cvc5(tm, lhs, slots, vars, state);
             let r = encode_ir_pred_arg_cvc5(tm, rhs, slots, vars, state);
-            match op {
-                IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]),
-                IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]),
-                IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]),
-                IrArithOp::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[l, r]),
-                IrArithOp::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[l, r]),
-            }
+            mk_ir_arith_cvc5(tm, *op, l, r)
         }
     }
 }
@@ -1292,7 +1308,7 @@ fn guard_quantifier_body_cvc5<'a>(
 /// back to scanning the body for `Expr::Call` expressions referencing the
 /// bound variable.
 #[cfg(feature = "cvc5-verify")]
-fn infer_quantifier_patterns_cvc5<'a>(
+pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     body: &Expr,
     bound_var_name: &str,
