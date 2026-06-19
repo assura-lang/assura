@@ -111,6 +111,7 @@ mod cvc5_raw_native;
 mod cvc5_raw_ops;
 mod cvc5_raw_smtlib;
 mod cvc5_tuple_encode;
+mod cvc5_verify_dispatch;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_verify_native;
 #[cfg(feature = "cvc5-verify")]

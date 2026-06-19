@@ -1,4 +1,7 @@
 use super::*;
+use crate::cache::SessionCache;
+use crate::{VerificationResult, cvc5_backend};
+use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, UnaryOp};
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
     expr_has_unmodelable_features_cvc5, field_chain_depth_cvc5, flatten_field_chain_cvc5,
@@ -6,7 +9,6 @@ use crate::cvc5_common::{
 };
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
-use assura_parser::ast::{BinOp, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
 
 // -------------------------------------------------------------------
