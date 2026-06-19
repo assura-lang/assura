@@ -186,7 +186,9 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
     // --- SMT verification ---
     let verify_start = Instant::now();
     if let Some(ref typed) = output.typed {
-        output.verification = assura_smt::verify(typed);
+        let loaded_ir = assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
+        output.verification =
+            assura_smt::verify_with_options(typed, &config.verify, loaded_ir.extras().as_ref());
     }
     output.timing.verify_ms = Some(verify_start.elapsed().as_secs_f64() * 1000.0);
 
