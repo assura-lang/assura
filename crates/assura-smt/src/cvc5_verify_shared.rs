@@ -1,11 +1,36 @@
 //! Shared verification helpers for CVC5 native and shell-out paths.
 
-use assura_parser::ast::{Clause, ClauseKind, Expr};
+use assura_parser::ast::{Clause, ClauseKind, Decl, Expr};
 
 use crate::VerificationResult;
 use crate::cache::SessionCache;
 use crate::cvc5_common::{collect_unmodelable_reasons_cvc5, expr_has_unmodelable_features_cvc5};
 use crate::cvc5_feature_max::derive_narrowings_cvc5;
+
+/// Collect lemma definitions from a typed file's declarations.
+///
+/// Maps each lemma name to its ensures clause bodies. This mirrors
+/// `z3_backend::collect_lemma_defs` but is available without the
+/// `z3-verify` feature.
+pub(crate) fn collect_lemma_defs_for_cvc5(
+    typed: &assura_types::TypedFile,
+) -> std::collections::HashMap<String, Vec<&Expr>> {
+    let mut lemmas = std::collections::HashMap::new();
+    for decl in &typed.resolved.source.decls {
+        if let Decl::FnDef(f) = &decl.node
+            && f.is_lemma
+        {
+            let ensures: Vec<&Expr> = f
+                .clauses
+                .iter()
+                .filter(|c| c.kind == ClauseKind::Ensures)
+                .map(|c| &c.body)
+                .collect();
+            lemmas.insert(f.name.clone(), ensures);
+        }
+    }
+    lemmas
+}
 
 /// Shared contract setup for native and shell-out CVC5 verify paths.
 pub(crate) fn cvc5_contract_shared_setup<'a>(

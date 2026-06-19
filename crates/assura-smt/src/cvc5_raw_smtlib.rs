@@ -1,6 +1,6 @@
 //! SMT-LIB2 Pratt parser for multi-token `Expr::Raw` expressions (shell-out path).
 
-use crate::cvc5_common::sanitize_smtlib_name;
+use crate::cvc5_common::{append_raw_dotted_segment, sanitize_smtlib_name};
 use crate::cvc5_raw_ops::{
     comma_chunk_ranges, find_matching_delim, format_raw_binop_smtlib, format_raw_quantifier_smtlib,
     is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
@@ -129,8 +129,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     let mut name = sanitize_smtlib_name(tok);
     let mut next = start + 1;
     while next + 1 < tokens.len() && tokens[next] == "." {
-        name.push('_');
-        name.push_str(&sanitize_smtlib_name(&tokens[next + 1]));
+        append_raw_dotted_segment(&mut name, &tokens[next + 1]);
         next += 2;
     }
 
@@ -176,6 +175,15 @@ mod tests {
         assert_eq!(
             encode_raw_tokens_smtlib(&tokens),
             Some("(and (< a b) (< b c))".into())
+        );
+    }
+
+    #[test]
+    fn dotted_raw_token_chain_uses_single_underscore() {
+        let tokens = vec!["state".into(), ".".into(), "field".into()];
+        assert_eq!(
+            encode_raw_tokens_smtlib(&tokens),
+            Some("state_field".into())
         );
     }
 

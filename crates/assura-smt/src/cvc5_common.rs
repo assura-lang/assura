@@ -10,6 +10,15 @@ pub(crate) fn sanitize_smtlib_name(name: &str) -> String {
     name.replace('.', "_")
 }
 
+/// Append a dotted raw-token segment (`tok . segment`) to a sanitized base name.
+///
+/// Uses a single `_` separator so `state . field` becomes `state_field`, matching
+/// `sanitize_smtlib_name("state.field")` and shell-out raw parsing.
+pub(crate) fn append_raw_dotted_segment(base: &mut String, segment: &str) {
+    base.push('_');
+    base.push_str(&sanitize_smtlib_name(segment));
+}
+
 /// Map `result` to the encoder's return-value name.
 pub(crate) fn smtlib_result_name() -> &'static str {
     "__result"
@@ -252,6 +261,10 @@ mod tests {
     #[test]
     fn sanitize_dots() {
         assert_eq!(sanitize_smtlib_name("a.b"), "a_b");
+
+        let mut name = sanitize_smtlib_name("state");
+        append_raw_dotted_segment(&mut name, "field");
+        assert_eq!(name, "state_field");
     }
 
     #[test]

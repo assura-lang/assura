@@ -1,31 +1,6 @@
 use super::*;
 use crate::cache::SessionCache;
-use assura_parser::ast::{Clause, ClauseKind, Decl};
-
-/// Collect lemma definitions from a typed file's declarations.
-///
-/// Maps each lemma name to its ensures clause bodies. This mirrors
-/// `z3_backend::collect_lemma_defs` but is available without the
-/// `z3-verify` feature.
-pub(crate) fn collect_lemma_defs_for_cvc5(
-    typed: &assura_types::TypedFile,
-) -> std::collections::HashMap<String, Vec<&Expr>> {
-    let mut lemmas = std::collections::HashMap::new();
-    for decl in &typed.resolved.source.decls {
-        if let Decl::FnDef(f) = &decl.node
-            && f.is_lemma
-        {
-            let ensures: Vec<&Expr> = f
-                .clauses
-                .iter()
-                .filter(|c| c.kind == ClauseKind::Ensures)
-                .map(|c| &c.body)
-                .collect();
-            lemmas.insert(f.name.clone(), ensures);
-        }
-    }
-    lemmas
-}
+use assura_parser::ast::Clause;
 
 pub use crate::cvc5_collect::collect_vars;
 #[allow(unused_imports)]
@@ -34,6 +9,7 @@ pub(crate) use crate::cvc5_feature_max::{
 };
 #[allow(unused_imports)]
 pub(crate) use crate::cvc5_model::parse_smtlib_model;
+pub(crate) use crate::cvc5_verify_shared::collect_lemma_defs_for_cvc5;
 
 #[cfg(feature = "cvc5-verify")]
 #[allow(unused_imports)]

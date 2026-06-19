@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::cvc5_builtins::pattern_hash_name;
-use crate::cvc5_common::sanitize_smtlib_name;
+use crate::cvc5_common::{append_raw_dotted_segment, sanitize_smtlib_name};
 use crate::cvc5_encoder_state::Cvc5EncoderState;
 use crate::cvc5_raw_ops::{
     apply_raw_op_cvc5, comma_chunk_ranges, find_matching_delim, is_raw_spec_skip_keyword,
@@ -223,8 +223,7 @@ fn parse_raw_atom_cvc5<'a>(
     let mut name = sanitize_smtlib_name(tok);
     let mut next = start + 1;
     while next + 1 < tokens.len() && tokens[next] == "." {
-        name.push_str("__");
-        name.push_str(&sanitize_smtlib_name(&tokens[next + 1]));
+        append_raw_dotted_segment(&mut name, &tokens[next + 1]);
         next += 2;
     }
 
