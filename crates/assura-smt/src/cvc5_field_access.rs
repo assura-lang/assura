@@ -42,6 +42,71 @@ pub(crate) fn old_flat_field_smtlib(flat_name: &str) -> String {
 }
 
 #[cfg(feature = "cvc5-verify")]
+fn get_or_create_int_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+) -> cvc5::Term<'a> {
+    vars.entry(name.to_string())
+        .or_insert_with(|| tm.mk_const(tm.integer_sort(), name))
+        .clone()
+}
+
+/// Encode `obj.field` for the native CVC5 backend (flatten, shallow UF, or length).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn encode_field_cvc5<'a, E>(
+    tm: &'a cvc5::TermManager,
+    obj: &Expr,
+    field: &str,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    mut encode: E,
+) -> Option<cvc5::Term<'a>>
+where
+    E: FnMut(
+        &Expr,
+        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    ) -> Option<cvc5::Term<'a>>,
+{
+    use crate::cvc5_builtins::{is_bool_field, is_size_field};
+    use crate::cvc5_encoder_state::canonical_length_cvc5;
+
+    if matches!(field, "len" | "length")
+        && let Expr::Ident(name) = obj
+    {
+        return Some(canonical_length_cvc5(tm, name, vars, state));
+    }
+
+    match plan_field_access(obj, field) {
+        FieldAccessPlan::Flatten(flat_name) => {
+            if is_bool_field(field) {
+                return Some(tm.mk_const(tm.boolean_sort(), &flat_name));
+            }
+            if is_size_field(field) {
+                let v = get_or_create_int_cvc5(tm, &flat_name, vars);
+                let zero = tm.mk_integer(0);
+                state
+                    .axioms
+                    .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+                return Some(v);
+            }
+            Some(get_or_create_int_cvc5(tm, &flat_name, vars))
+        }
+        FieldAccessPlan::ShallowUf { field: f } => {
+            let obj_val = encode(obj, vars, state)?;
+            Some(encode_shallow_field_cvc5(
+                tm,
+                &f,
+                obj_val,
+                &mut state.axioms,
+                state.use_string_theory,
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_shallow_field_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     field: &str,

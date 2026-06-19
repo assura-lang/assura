@@ -88,6 +88,7 @@ mod cvc5_if_encode;
 mod cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_ir_native;
+mod cvc5_let_block_encode;
 mod cvc5_list_encode;
 mod cvc5_match_encode;
 #[cfg(feature = "cvc5-verify")]

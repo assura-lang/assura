@@ -7,14 +7,14 @@ use std::collections::HashMap;
 use assura_parser::ast::{Clause, Expr, Literal};
 
 use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
-use crate::cvc5_builtins::{is_bool_field, is_size_field};
 use crate::cvc5_call_encode::{encode_call_cvc5, encode_method_call_cvc5};
 use crate::cvc5_common::{float_to_rational_parts, sanitize_smtlib_name, smtlib_result_name};
 use crate::cvc5_encoder_state::{canonical_length_cvc5, field_len_fn_cvc5};
-use crate::cvc5_field_access::{FieldAccessPlan, encode_shallow_field_cvc5, plan_field_access};
+use crate::cvc5_field_access::encode_field_cvc5;
 use crate::cvc5_if_encode::encode_if_cvc5;
 use crate::cvc5_index_access::encode_index_access_cvc5;
 use crate::cvc5_ir_native::apply_ir_body_constraints_cvc5;
+use crate::cvc5_let_block_encode::{encode_block_cvc5, encode_let_cvc5};
 use crate::cvc5_list_encode::encode_list_cvc5;
 use crate::cvc5_match_encode::encode_match_cvc5;
 use crate::cvc5_old_access::encode_old_cvc5;
@@ -28,17 +28,6 @@ use crate::cvc5_tuple_encode::encode_tuple_cvc5;
 // -------------------------------------------------------------------------
 // Havoc+assume encoding (#267)
 // -------------------------------------------------------------------------
-
-#[cfg(feature = "cvc5-verify")]
-fn get_or_create_int_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    name: &str,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-) -> cvc5::Term<'a> {
-    vars.entry(name.to_string())
-        .or_insert_with(|| tm.mk_const(tm.integer_sort(), name))
-        .clone()
-}
 
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn apply_havoc_assume_cvc5<'a>(
@@ -181,52 +170,17 @@ pub(crate) fn encode_expr_cvc5<'a>(
         Expr::Cast { expr: inner, .. } => encode_expr_cvc5(tm, inner, vars, state),
         Expr::Let {
             name, value, body, ..
-        } => {
-            let v = encode_expr_cvc5(tm, value, vars, state)?;
-            let mut local_vars = vars.clone();
-            local_vars.insert(sanitize_smtlib_name(name), v);
-            encode_expr_cvc5(tm, body, &mut local_vars, state)
-        }
+        } => encode_let_cvc5(tm, name, value, body, vars, state, |e, v, s| {
+            encode_expr_cvc5(tm, e, v, s)
+        }),
         Expr::Match {
             scrutinee, arms, ..
         } => encode_match_cvc5(tm, scrutinee, arms, vars, state, |e, v, s| {
             encode_expr_cvc5(tm, e, v, s)
         }),
-        // Field access: flatten deep chains or self-rooted, else UF
-        Expr::Field(obj, field) => {
-            if matches!(field.as_str(), "len" | "length")
-                && let Expr::Ident(name) = obj.as_ref()
-            {
-                return Some(canonical_length_cvc5(tm, name, vars, state));
-            }
-
-            match plan_field_access(obj.as_ref(), field) {
-                FieldAccessPlan::Flatten(flat_name) => {
-                    if is_bool_field(field) {
-                        return Some(tm.mk_const(tm.boolean_sort(), &flat_name));
-                    }
-                    if is_size_field(field) {
-                        let v = get_or_create_int_cvc5(tm, &flat_name, vars);
-                        let zero = tm.mk_integer(0);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
-                        return Some(v);
-                    }
-                    Some(get_or_create_int_cvc5(tm, &flat_name, vars))
-                }
-                FieldAccessPlan::ShallowUf { field: f } => {
-                    let obj_val = encode_expr_cvc5(tm, obj, vars, state)?;
-                    Some(encode_shallow_field_cvc5(
-                        tm,
-                        &f,
-                        obj_val,
-                        &mut state.axioms,
-                        state.use_string_theory,
-                    ))
-                }
-            }
-        }
+        Expr::Field(obj, field) => encode_field_cvc5(tm, obj, field, vars, state, |e, v, s| {
+            encode_expr_cvc5(tm, e, v, s)
+        }),
         // Index: UF __index(collection, index) with bounds axioms
         Expr::Index { expr: coll, index } => {
             let coll_val = encode_expr_cvc5(tm, coll, vars, state)?;
@@ -238,17 +192,9 @@ pub(crate) fn encode_expr_cvc5<'a>(
                 &mut state.axioms,
             ))
         }
-        // Block: encode all expressions, return last
-        Expr::Block(body) => {
-            if body.is_empty() {
-                return Some(tm.mk_boolean(true));
-            }
-            let mut result = None;
-            for e in body {
-                result = encode_expr_cvc5(tm, e, vars, state);
-            }
-            result
-        }
+        Expr::Block(body) => encode_block_cvc5(tm, body, vars, state, |e, v, s| {
+            encode_expr_cvc5(tm, e, v, s)
+        }),
         // Raw tokens: basic parsing (single token bools/ints/idents)
         Expr::Raw(tokens) => {
             if tokens.is_empty() {

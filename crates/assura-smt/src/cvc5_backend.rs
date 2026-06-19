@@ -10,6 +10,7 @@ use crate::cvc5_common::{
 use crate::cvc5_field_access::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
 use crate::cvc5_if_encode::encode_if_smtlib;
 use crate::cvc5_index_access::index_access_smtlib;
+use crate::cvc5_let_block_encode::{encode_block_smtlib, encode_let_smtlib};
 use crate::cvc5_list_encode::encode_list_smtlib;
 use crate::cvc5_match_encode::encode_match_smtlib;
 use crate::cvc5_old_access::encode_old_smtlib;
@@ -1698,12 +1699,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         Expr::Ghost(inner) => expr_to_smtlib(inner),
         Expr::Let {
             name, value, body, ..
-        } => {
-            let v = sanitize_smtlib_name(name);
-            let val = expr_to_smtlib(value)?;
-            let b = expr_to_smtlib(body)?;
-            Some(format!("(let (({v} {val})) {b})"))
-        }
+        } => encode_let_smtlib(name, value, body, expr_to_smtlib),
         Expr::Match {
             scrutinee, arms, ..
         } => encode_match_smtlib(scrutinee, arms, expr_to_smtlib, |name, s| {
@@ -1723,14 +1719,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             let i = expr_to_smtlib(index)?;
             Some(index_access_smtlib(&c, &i))
         }
-        // Block: encode all, return last
-        Expr::Block(body) => {
-            if body.is_empty() {
-                return Some("true".to_string());
-            }
-            // SMT-LIB has no block; encode the last expression
-            expr_to_smtlib(body.last()?)
-        }
+        Expr::Block(body) => encode_block_smtlib(body, expr_to_smtlib),
         // Raw tokens: full precedence-climbing SMT-LIB2 encoding
         Expr::Raw(tokens) => {
             if tokens.is_empty() {
