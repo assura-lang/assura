@@ -80,13 +80,19 @@ pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
 // Public entry point
 // ---------------------------------------------------------------------------
 
+/// Optional per-file inputs discovered outside the typed AST (e.g. IR sidecars).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct VerifyFileExtras<'a> {
+    pub ir_bodies: Option<&'a std::collections::HashMap<String, crate::ir::IrFunction>>,
+}
+
 /// Verify all contract clauses in a type-checked file.
 ///
 /// Returns a `VerificationResult` for each verifiable clause (ensures,
 /// invariant). Requires clauses are collected as assumptions but not
 /// independently verified (they constrain the context for ensures).
 pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
-    verify_with_options(typed, &assura_config::VerifyOptions::default())
+    verify_with_options(typed, &assura_config::VerifyOptions::default(), None)
 }
 
 /// Verify all contract clauses using the given verification options.
@@ -97,27 +103,29 @@ pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
 pub fn verify_with_options(
     typed: &TypedFile,
     options: &assura_config::VerifyOptions,
+    extras: Option<&VerifyFileExtras<'_>>,
 ) -> Vec<VerificationResult> {
     match options.solver {
-        SolverChoice::Cvc5 => verify_file_with_cvc5(typed),
+        SolverChoice::Cvc5 => verify_file_with_cvc5(typed, extras),
         SolverChoice::Portfolio => {
             // Run Z3 and CVC5 concurrently, take the best result (#245)
             #[cfg(feature = "z3-verify")]
             {
-                verify_portfolio_parallel(typed, options.timeout_ms)
+                verify_portfolio_parallel(typed, options.timeout_ms, extras)
             }
             #[cfg(not(feature = "z3-verify"))]
             {
-                verify_file_with_cvc5(typed)
+                verify_file_with_cvc5(typed, extras)
             }
         }
         SolverChoice::Z3 => {
             #[cfg(feature = "z3-verify")]
             {
-                crate::z3_backend::verify_impl_with_timeout(typed, options.timeout_ms)
+                crate::z3_backend::verify_impl_with_timeout(typed, options.timeout_ms, extras)
             }
             #[cfg(not(feature = "z3-verify"))]
             {
+                let _ = extras;
                 crate::no_z3::verify_stub(typed)
             }
         }
@@ -656,7 +664,10 @@ pub(crate) fn run_advanced_passes(typed: &TypedFile, timeout_ms: u64) -> Vec<Ver
 }
 
 /// Verify all contracts in a file using the CVC5 backend.
-fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
+fn verify_file_with_cvc5(
+    typed: &TypedFile,
+    extras: Option<&VerifyFileExtras<'_>>,
+) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
     // Collect lemma definitions so `apply lemma_name(args)` can inject
@@ -670,8 +681,11 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
     // #253: per-file session cache for CVC5 clause deduplication
     let mut session_cache = SessionCache::new();
 
+    let ir_bodies = extras.and_then(|e| e.ir_bodies);
+
     // Clause-level verification via CVC5
     for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
+        let ir_body = ir_bodies.and_then(|m| m.get(&name));
         results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
             &name,
             &clauses,
@@ -679,7 +693,7 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
             &return_ty,
             Some(&lemma_defs),
             &constants,
-            None,
+            ir_body,
             &mut session_cache,
         ));
     }
@@ -696,7 +710,11 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
 /// gets its own context. The merge prefers definitive results (Verified or
 /// Counterexample) over inconclusive ones (Timeout or Unknown).
 #[cfg(feature = "z3-verify")]
-fn verify_portfolio_parallel(typed: &TypedFile, timeout_ms: u64) -> Vec<VerificationResult> {
+fn verify_portfolio_parallel(
+    typed: &TypedFile,
+    timeout_ms: u64,
+    extras: Option<&VerifyFileExtras<'_>>,
+) -> Vec<VerificationResult> {
     use std::sync::mpsc;
 
     std::thread::scope(|s| {
@@ -704,11 +722,11 @@ fn verify_portfolio_parallel(typed: &TypedFile, timeout_ms: u64) -> Vec<Verifica
         let tx_cvc5 = tx_z3.clone();
 
         s.spawn(move || {
-            let results = crate::z3_backend::verify_impl_with_timeout(typed, timeout_ms);
+            let results = crate::z3_backend::verify_impl_with_timeout(typed, timeout_ms, extras);
             let _ = tx_z3.send(("z3", results));
         });
         s.spawn(move || {
-            let results = verify_file_with_cvc5(typed);
+            let results = verify_file_with_cvc5(typed, extras);
             let _ = tx_cvc5.send(("cvc5", results));
         });
 
@@ -781,7 +799,7 @@ fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> Ver
 /// Also uses the filesystem cache: cache hits are returned immediately,
 /// only cache misses go to Z3 (potentially in parallel).
 pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<VerificationResult> {
-    verify_parallel_with_solver(typed, cache, SolverChoice::Z3)
+    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, None)
 }
 
 /// Check whether any declaration in the source file has verifiable clauses
@@ -820,6 +838,7 @@ pub fn verify_parallel_with_solver(
     typed: &TypedFile,
     cache: &VerificationCache,
     solver: SolverChoice,
+    extras: Option<&VerifyFileExtras<'_>>,
 ) -> Vec<VerificationResult> {
     use rayon::prelude::*;
 
@@ -833,6 +852,8 @@ pub fn verify_parallel_with_solver(
     // Collect verification jobs (#213: shared with CVC5 and Z3 paths)
     let jobs = collect_verification_jobs(typed);
 
+    let ir_bodies = extras.and_then(|e| e.ir_bodies);
+
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
         .par_iter()
@@ -841,9 +862,10 @@ pub fn verify_parallel_with_solver(
             if let Some(cached) = cache.get(name, clauses) {
                 return cached;
             }
+            let ir_body = ir_bodies.and_then(|m| m.get(name));
             // Cache miss: run solver with type constraints
             let results = verify_contract_with_types_and_solver(
-                name, clauses, params, return_ty, &constants, solver,
+                name, clauses, params, return_ty, &constants, solver, ir_body,
             );
             cache.put(name, clauses, &results);
             results
@@ -932,33 +954,37 @@ fn verify_contract_with_types_and_solver(
     return_ty: &[String],
     constants: &[(String, i64)],
     solver: SolverChoice,
+    ir_body: Option<&crate::ir::IrFunction>,
 ) -> Vec<VerificationResult> {
     match solver {
         SolverChoice::Z3 => {
             #[cfg(feature = "z3-verify")]
             {
-                crate::z3_backend::verify_contract_impl_with_types(
+                crate::z3_backend::verify_contract_impl_with_types_and_ir(
                     contract_name,
                     clauses,
                     params,
                     return_ty,
                     constants,
+                    ir_body,
                 )
             }
             #[cfg(not(feature = "z3-verify"))]
             {
-                let _ = constants;
+                let _ = (constants, ir_body);
                 verify_contract_with_solver(contract_name, clauses, solver)
             }
         }
         SolverChoice::Cvc5 | SolverChoice::Portfolio => {
             let mut cache = SessionCache::new();
-            crate::cvc5_backend::verify_contract_cvc5_with_full_context(
+            crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
                 contract_name,
                 clauses,
                 params,
                 return_ty,
+                None,
                 constants,
+                ir_body,
                 &mut cache,
             )
         }

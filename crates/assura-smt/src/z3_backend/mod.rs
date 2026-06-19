@@ -16,9 +16,7 @@ pub(crate) use features::{
     verify_buffer_bounds_impl, verify_decrease_impl, verify_region_containment_impl,
     verify_taint_safety_impl, verify_with_measures_impl,
 };
-#[cfg(test)]
-pub(crate) use verify::verify_contract_impl_with_types_and_ir;
 pub(crate) use verify::{
-    collect_feature_max_constants, verify_contract_impl, verify_contract_impl_with_types,
+    collect_feature_max_constants, verify_contract_impl, verify_contract_impl_with_types_and_ir,
     verify_impl_with_timeout, verify_quantified_impl,
 };

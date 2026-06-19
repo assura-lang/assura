@@ -655,10 +655,12 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
 pub(crate) fn verify_impl_with_timeout(
     typed: &TypedFile,
     timeout_ms: u64,
+    extras: Option<&crate::VerifyFileExtras<'_>>,
 ) -> Vec<VerificationResult> {
     let _ = timeout_ms; // timeout is set per-solver in verify_clauses
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
+    let ir_bodies = extras.and_then(|e| e.ir_bodies);
 
     // T044: collect all lemma definitions for apply injection
     let lemma_defs = collect_lemma_defs(typed);
@@ -681,6 +683,7 @@ pub(crate) fn verify_impl_with_timeout(
                 // Merge input params with any fn_params from inline fn defs
                 let mut all_params = input_params;
                 all_params.extend_from_slice(&c.fn_params);
+                let ir_body = ir_bodies.and_then(|m| m.get(&c.name));
                 verify_clauses_with_types(
                     &c.name,
                     &c.clauses,
@@ -692,16 +695,19 @@ pub(crate) fn verify_impl_with_timeout(
                         return_ty: &output_ty,
                         constants: &constants,
                         narrowings: &narrowings,
+                        ir_body,
                         ..Default::default()
                     },
                 );
             }
             Decl::FnDef(f) => {
+                let ir_body = ir_bodies.and_then(|m| m.get(&f.name));
                 let types = TypeConstraints {
                     params: &f.params,
                     return_ty: &f.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
+                    ir_body,
                     ..Default::default()
                 };
                 verify_clauses_with_types(
@@ -714,11 +720,13 @@ pub(crate) fn verify_impl_with_timeout(
                 );
             }
             Decl::Extern(e) => {
+                let ir_body = ir_bodies.and_then(|m| m.get(&e.name));
                 let types = TypeConstraints {
                     params: &e.params,
                     return_ty: &e.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
+                    ir_body,
                     ..Default::default()
                 };
                 verify_clauses_with_types(
@@ -731,15 +739,17 @@ pub(crate) fn verify_impl_with_timeout(
                 );
             }
             Decl::Service(s) => {
-                let svc_types = TypeConstraints {
-                    constants: &constants,
-                    narrowings: &narrowings,
-                    ..Default::default()
-                };
                 for item in &s.items {
                     match item {
                         ServiceItem::Operation { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
+                            let ir_body = ir_bodies.and_then(|m| m.get(&qname));
+                            let svc_types = TypeConstraints {
+                                constants: &constants,
+                                narrowings: &narrowings,
+                                ir_body,
+                                ..Default::default()
+                            };
                             verify_clauses_with_types(
                                 &qname,
                                 clauses,
@@ -751,6 +761,13 @@ pub(crate) fn verify_impl_with_timeout(
                         }
                         ServiceItem::Query { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
+                            let ir_body = ir_bodies.and_then(|m| m.get(&qname));
+                            let svc_types = TypeConstraints {
+                                constants: &constants,
+                                narrowings: &narrowings,
+                                ir_body,
+                                ..Default::default()
+                            };
                             verify_clauses_with_types(
                                 &qname,
                                 clauses,
@@ -768,6 +785,7 @@ pub(crate) fn verify_impl_with_timeout(
                 }
             }
             Decl::Block { name, body, .. } => {
+                let ir_body = ir_bodies.and_then(|m| m.get(name));
                 verify_clauses_with_types(
                     name,
                     body,
@@ -777,16 +795,19 @@ pub(crate) fn verify_impl_with_timeout(
                     &TypeConstraints {
                         constants: &constants,
                         narrowings: &narrowings,
+                        ir_body,
                         ..Default::default()
                     },
                 );
             }
             Decl::Bind(b) => {
+                let ir_body = ir_bodies.and_then(|m| m.get(&b.name));
                 let types = TypeConstraints {
                     params: &b.params,
                     return_ty: &b.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
+                    ir_body,
                     ..Default::default()
                 };
                 verify_clauses_with_types(

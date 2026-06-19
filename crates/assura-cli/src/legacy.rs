@@ -93,7 +93,16 @@ pub(crate) fn run_legacy(filename: &str, verbosity: Verbosity, show_ast: bool, s
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let explain_verify_cache = assura_smt::VerificationCache::new(explain_cache_dir);
-    let mut verification_results = assura_smt::verify_parallel(&typed, &explain_verify_cache);
+    let ir_map = assura_smt::load_ir_bodies_for_typed(std::path::Path::new(filename), &typed);
+    let verify_extras = (!ir_map.is_empty()).then_some(assura_smt::VerifyFileExtras {
+        ir_bodies: Some(&ir_map),
+    });
+    let mut verification_results = assura_smt::verify_parallel_with_solver(
+        &typed,
+        &explain_verify_cache,
+        assura_smt::SolverChoice::Z3,
+        verify_extras.as_ref(),
+    );
     verification_results.extend(assura_smt::display::dispatch_decrease_checks(&typed));
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
