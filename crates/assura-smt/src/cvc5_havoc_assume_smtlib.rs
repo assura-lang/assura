@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use assura_parser::ast::Clause;
 
 use crate::cvc5_common::sanitize_smtlib_name;
+use crate::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
 use crate::havoc_assume::{infer_length_identity_links, is_collection_return};
+use crate::ir::IrFunction;
 
 /// Canonical length variable name for a named binding (`__canonical_len_{name}`).
 pub(crate) fn canonical_length_smtlib_name(name: &str) -> String {
@@ -19,6 +21,8 @@ pub(crate) fn append_havoc_assume_smtlib(
     requires: &[&Clause],
     ensures: &[&Clause],
     return_ty: &[String],
+    param_names: &[String],
+    ir: Option<&IrFunction>,
 ) {
     if is_collection_return(return_ty) {
         declare_canonical_len(script, vars, "result");
@@ -34,6 +38,10 @@ pub(crate) fn append_havoc_assume_smtlib(
         script.push_str(&format!("(assert (>= {len_result} 0))\n"));
         script.push_str(&format!("(assert (>= {len_input} 0))\n"));
         script.push_str(&format!("(assert (<= {len_result} {len_input}))\n"));
+    }
+
+    if let Some(func) = ir {
+        append_ir_body_constraints_smtlib(script, vars, func, param_names);
     }
 }
 
@@ -65,7 +73,15 @@ mod tests {
     fn havoc_assume_smtlib_collection_return_emits_nonneg() {
         let mut script = String::new();
         let mut vars = HashSet::new();
-        append_havoc_assume_smtlib(&mut script, &mut vars, &[], &[], &["Bytes".into()]);
+        append_havoc_assume_smtlib(
+            &mut script,
+            &mut vars,
+            &[],
+            &[],
+            &["Bytes".into()],
+            &[],
+            None,
+        );
         assert!(script.contains("(declare-const __canonical_len_result Int)"));
         assert!(script.contains("(assert (>= __canonical_len_result 0))"));
     }
@@ -91,6 +107,8 @@ mod tests {
             &requires.iter().collect::<Vec<_>>(),
             &ensures.iter().collect::<Vec<_>>(),
             &["Bytes".into()],
+            &["raw".into()],
+            None,
         );
         assert!(script.contains("(assert (<= __canonical_len_result __canonical_len_raw))"));
     }

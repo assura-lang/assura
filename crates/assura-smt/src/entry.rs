@@ -679,6 +679,7 @@ fn verify_file_with_cvc5(typed: &TypedFile) -> Vec<VerificationResult> {
             &return_ty,
             Some(&lemma_defs),
             &constants,
+            None,
             &mut session_cache,
         ));
     }

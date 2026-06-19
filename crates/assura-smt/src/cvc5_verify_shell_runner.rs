@@ -155,7 +155,10 @@ mod tests {
             ClauseKind::Ensures,
             Cvc5Result::Unsat,
         );
-        assert!(matches!(result, VerificationResult::Verified { .. }));
+        assert!(matches!(
+            result,
+                VerificationResult::Verified { clause_desc, .. } if clause_desc == "T::Ensures"
+        ));
     }
 
     #[test]
@@ -165,7 +168,15 @@ mod tests {
             ClauseKind::Ensures,
             Cvc5Result::Sat("(define-fun x () Int 0)".into()),
         );
-        assert!(matches!(result, VerificationResult::Counterexample { .. }));
+        match result {
+            VerificationResult::Counterexample {
+                clause_desc, model, ..
+            } => {
+                assert_eq!(clause_desc, "T::Ensures");
+                assert!(model.contains("x = 0"), "model should name x: {model}");
+            }
+            other => panic!("expected Counterexample, got {other:?}"),
+        }
     }
 
     #[test]

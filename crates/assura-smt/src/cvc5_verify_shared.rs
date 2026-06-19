@@ -272,6 +272,22 @@ mod tests {
     }
 
     #[test]
+    fn sat_outcome_from_smtlib_model_parses_variables() {
+        let outcome = cvc5_sat_outcome_from_smtlib_model("(define-fun x () Int 7)".into());
+        match outcome {
+            Cvc5ClauseSatOutcome::Sat {
+                model_str,
+                counter_model,
+            } => {
+                assert_eq!(model_str, "x = 7");
+                let cm = counter_model.expect("counter model");
+                assert_eq!(cm.variables, vec![("x".into(), "7".into())]);
+            }
+            other => panic!("expected Sat outcome, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn interpret_invariant_unsat_is_counterexample() {
         let result = cvc5_interpret_clause_check_result(
             "C::Invariant",

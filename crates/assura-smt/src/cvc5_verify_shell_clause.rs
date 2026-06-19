@@ -30,7 +30,8 @@ pub(crate) fn check_clause_cvc5_shellout(
     kind: ClauseKind,
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
-    _param_names: &[String],
+    param_names: &[String],
+    ir_body: Option<&crate::ir::IrFunction>,
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
@@ -74,6 +75,8 @@ pub(crate) fn check_clause_cvc5_shellout(
         requires_clauses,
         ensures_clauses,
         return_ty,
+        param_names,
+        ir_body,
     );
 
     append_cvc5_shellout_requires(&mut script, requires);

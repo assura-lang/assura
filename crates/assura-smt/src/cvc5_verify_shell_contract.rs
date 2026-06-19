@@ -29,6 +29,7 @@ struct PendingShellClause {
     cache_key: String,
 }
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn verify_contract_cvc5_shellout(
     contract_name: &str,
     clauses: &[Clause],
@@ -36,6 +37,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
     return_ty: &[String],
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     constants: &[(String, i64)],
+    ir_body: Option<&crate::ir::IrFunction>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
@@ -92,6 +94,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
                 params,
                 return_ty,
                 &param_names,
+                ir_body,
                 constants,
                 &narrowings,
                 &frame_checker,
@@ -146,6 +149,8 @@ pub(crate) fn verify_contract_cvc5_shellout(
             &pending,
             params,
             return_ty,
+            &param_names,
+            ir_body,
             constants,
             &narrowings,
             &frame_checker,
@@ -208,6 +213,8 @@ fn build_incremental_shell_script(
     pending: &[PendingShellClause],
     params: &[assura_parser::ast::Param],
     return_ty: &[String],
+    param_names: &[String],
+    ir_body: Option<&crate::ir::IrFunction>,
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
@@ -254,6 +261,8 @@ fn build_incremental_shell_script(
             requires_clauses,
             ensures_clauses,
             return_ty,
+            param_names,
+            ir_body,
         );
 
         if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
@@ -350,13 +359,15 @@ mod tests {
             &[],
             &["Int".into()],
             &[],
+            None,
+            &[],
             &[],
             &assura_types::FrameChecker::empty(),
             None,
         );
         let check_count = script.matches("(check-sat)").count();
         assert_eq!(check_count, 2, "expected one check-sat per pending clause");
-        assert!(script.contains("(push 1)"));
-        assert!(script.contains("(pop 1)"));
+        assert_eq!(script.matches("(push 1)").count(), 2);
+        assert_eq!(script.matches("(pop 1)").count(), 2);
     }
 }
