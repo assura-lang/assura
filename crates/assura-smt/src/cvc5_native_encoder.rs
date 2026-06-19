@@ -11,6 +11,10 @@ use crate::cvc5_builtins::{
     KnownBuiltin, classify_known_builtin, is_bool_field, is_bool_returning_uf, is_size_field,
     pattern_hash_name,
 };
+use crate::cvc5_raw_ops::{
+    apply_raw_op_cvc5, comma_chunk_ranges, find_matching_delim, is_raw_spec_skip_keyword,
+    parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
+};
 
 use super::{
     flatten_field_chain_cvc5, has_deep_field_chain_cvc5, is_self_rooted_cvc5, sanitize_smtlib_name,
@@ -1401,91 +1405,6 @@ fn encode_raw_tokens_cvc5<'a>(
     Some(val)
 }
 
-/// Return the precedence and CVC5 Kind for a binary operator token.
-/// Returns `None` if the token is not a recognized infix operator.
-#[cfg(feature = "cvc5-verify")]
-fn raw_op_info_cvc5(tok: &str) -> Option<(u8, RawOpCvc5)> {
-    match tok {
-        "||" | "or" => Some((1, RawOpCvc5::Or)),
-        "&&" | "and" => Some((3, RawOpCvc5::And)),
-        "=>" | "==>" | "implies" => Some((3, RawOpCvc5::Implies)),
-        "==" | "=" => Some((5, RawOpCvc5::Eq)),
-        "!=" => Some((5, RawOpCvc5::Neq)),
-        "<" => Some((7, RawOpCvc5::Lt)),
-        ">" => Some((7, RawOpCvc5::Gt)),
-        "<=" => Some((7, RawOpCvc5::Leq)),
-        ">=" => Some((7, RawOpCvc5::Geq)),
-        "+" => Some((9, RawOpCvc5::Add)),
-        "-" => Some((9, RawOpCvc5::Sub)),
-        "*" => Some((11, RawOpCvc5::Mul)),
-        "/" | "div" => Some((11, RawOpCvc5::Div)),
-        "%" | "mod" => Some((11, RawOpCvc5::Mod)),
-        _ => None,
-    }
-}
-
-/// CVC5 raw operator kinds (mirrors Z3 `RawOp`).
-#[cfg(feature = "cvc5-verify")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RawOpCvc5 {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Eq,
-    Neq,
-    Lt,
-    Leq,
-    Gt,
-    Geq,
-    And,
-    Or,
-    Implies,
-}
-
-#[cfg(feature = "cvc5-verify")]
-fn is_comparison_cvc5(op: RawOpCvc5) -> bool {
-    matches!(
-        op,
-        RawOpCvc5::Lt
-            | RawOpCvc5::Leq
-            | RawOpCvc5::Gt
-            | RawOpCvc5::Geq
-            | RawOpCvc5::Eq
-            | RawOpCvc5::Neq
-    )
-}
-
-/// Apply a binary operator to two CVC5 terms.
-#[cfg(feature = "cvc5-verify")]
-fn apply_raw_op_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    op: RawOpCvc5,
-    lhs: cvc5::Term<'a>,
-    rhs: cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
-    match op {
-        RawOpCvc5::Add => tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]),
-        RawOpCvc5::Sub => tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]),
-        RawOpCvc5::Mul => tm.mk_term(cvc5::Kind::Mult, &[lhs, rhs]),
-        RawOpCvc5::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[lhs, rhs]),
-        RawOpCvc5::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[lhs, rhs]),
-        RawOpCvc5::Eq => tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]),
-        RawOpCvc5::Neq => {
-            let eq = tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]);
-            tm.mk_term(cvc5::Kind::Not, &[eq])
-        }
-        RawOpCvc5::Lt => tm.mk_term(cvc5::Kind::Lt, &[lhs, rhs]),
-        RawOpCvc5::Leq => tm.mk_term(cvc5::Kind::Leq, &[lhs, rhs]),
-        RawOpCvc5::Gt => tm.mk_term(cvc5::Kind::Gt, &[lhs, rhs]),
-        RawOpCvc5::Geq => tm.mk_term(cvc5::Kind::Geq, &[lhs, rhs]),
-        RawOpCvc5::And => tm.mk_term(cvc5::Kind::And, &[lhs, rhs]),
-        RawOpCvc5::Or => tm.mk_term(cvc5::Kind::Or, &[lhs, rhs]),
-        RawOpCvc5::Implies => tm.mk_term(cvc5::Kind::Implies, &[lhs, rhs]),
-    }
-}
-
 /// Precedence-climbing expression parser for raw CVC5 tokens.
 ///
 /// Returns `(term, next_position)`. Recurses with higher `min_prec` for
@@ -1502,7 +1421,7 @@ fn parse_raw_expr_cvc5<'a>(
     let (mut lhs, mut pos) = parse_raw_atom_cvc5(tm, tokens, pos, vars, state)?;
 
     while pos < tokens.len() {
-        let Some((op_prec, op_kind)) = raw_op_info_cvc5(tokens[pos].as_str()) else {
+        let Some((op_prec, op_kind)) = raw_op_info(tokens[pos].as_str()) else {
             break;
         };
         if op_prec < min_prec {
@@ -1516,10 +1435,10 @@ fn parse_raw_expr_cvc5<'a>(
 
         // Comparison chaining: if we just parsed `a < b` and the next
         // op is also a comparison, desugar `a < b < c` into `a < b && b < c`.
-        if is_comparison_cvc5(op_kind)
+        if raw_op_is_comparison(op_kind)
             && pos < tokens.len()
-            && let Some((next_prec, next_op)) = raw_op_info_cvc5(tokens[pos].as_str())
-            && is_comparison_cvc5(next_op)
+            && let Some((next_prec, next_op)) = raw_op_info(tokens[pos].as_str())
+            && raw_op_is_comparison(next_op)
             && next_prec >= min_prec
         {
             let left_cmp = apply_raw_op_cvc5(tm, op_kind, lhs, rhs.clone());
@@ -1603,19 +1522,7 @@ fn parse_raw_atom_cvc5<'a>(
 
     // --- `old(expr)` ---
     if tok == "old" && start + 1 < tokens.len() && tokens[start + 1] == "(" {
-        // Find matching close paren
-        let mut depth = 1usize;
-        let mut p = start + 2;
-        while p < tokens.len() && depth > 0 {
-            match tokens[p].as_str() {
-                "(" => depth += 1,
-                ")" => depth -= 1,
-                _ => {}
-            }
-            if depth > 0 {
-                p += 1;
-            }
-        }
+        let p = find_matching_delim(tokens, start + 1, "(", ")")?;
         let end = p + 1; // skip closing ')'
         let inner_tokens = &tokens[start + 2..p];
 
@@ -1685,70 +1592,30 @@ fn parse_raw_atom_cvc5<'a>(
     }
 
     // --- `forall`/`exists` quantifiers: `forall x in domain { body }` ---
-    if (tok == "forall" || tok == "exists") && start + 4 < tokens.len() && tokens[start + 2] == "in"
-    {
-        let var_name = sanitize_smtlib_name(&tokens[start + 1]);
-        let is_forall = tok == "forall";
+    if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {
+        let var_name = sanitize_smtlib_name(&tokens[slice.var_token_idx]);
 
-        // Find body delimiter: either `:` or `{`
-        let mut delim_pos = start + 3;
-        let mut d = 0usize;
-        while delim_pos < tokens.len() {
-            match tokens[delim_pos].as_str() {
-                "(" => d += 1,
-                ")" => d = d.saturating_sub(1),
-                ":" | "{" if d == 0 => break,
-                _ => {}
-            }
-            delim_pos += 1;
-        }
+        // Bind quantifier variable
+        let bound = tm.mk_var(tm.integer_sort(), &var_name);
+        let mut local_vars = vars.clone();
+        local_vars.insert(var_name.clone(), bound.clone());
 
-        if delim_pos < tokens.len() && (tokens[delim_pos] == ":" || tokens[delim_pos] == "{") {
-            let body_start = delim_pos + 1;
-            let body_end = if tokens[delim_pos] == "{" {
-                // Find matching `}`
-                let mut bd = 1usize;
-                let mut ep = body_start;
-                while ep < tokens.len() && bd > 0 {
-                    match tokens[ep].as_str() {
-                        "{" => bd += 1,
-                        "}" => bd -= 1,
-                        _ => {}
-                    }
-                    if bd > 0 {
-                        ep += 1;
-                    }
-                }
-                let body_slice_end = ep;
-                let final_pos = ep + 1; // skip `}`
-                (body_slice_end, final_pos)
+        // Parse body
+        let body_tokens = &tokens[slice.body_start..slice.body_end];
+        if let Some((body_val, _)) =
+            parse_raw_expr_cvc5(tm, body_tokens, 0, 0, &mut local_vars, state)
+        {
+            let var_list = tm.mk_term(cvc5::Kind::VariableList, &[bound]);
+            let kind = if slice.is_forall {
+                cvc5::Kind::Forall
             } else {
-                // Colon: rest of tokens is body
-                (tokens.len(), tokens.len())
+                cvc5::Kind::Exists
             };
-
-            // Bind quantifier variable
-            let bound = tm.mk_var(tm.integer_sort(), &var_name);
-            let mut local_vars = vars.clone();
-            local_vars.insert(var_name.clone(), bound.clone());
-
-            // Parse body
-            let body_tokens = &tokens[body_start..body_end.0];
-            if let Some((body_val, _)) =
-                parse_raw_expr_cvc5(tm, body_tokens, 0, 0, &mut local_vars, state)
-            {
-                let var_list = tm.mk_term(cvc5::Kind::VariableList, &[bound]);
-                let kind = if is_forall {
-                    cvc5::Kind::Forall
-                } else {
-                    cvc5::Kind::Exists
-                };
-                let quantified = tm.mk_term(kind, &[var_list, body_val]);
-                return Some((quantified, body_end.1));
-            }
-
-            return Some((tm.mk_boolean(true), body_end.1));
+            let quantified = tm.mk_term(kind, &[var_list, body_val]);
+            return Some((quantified, slice.final_pos));
         }
+
+        return Some((tm.mk_boolean(true), slice.final_pos));
     }
 
     // --- Integer literal ---
@@ -1757,10 +1624,7 @@ fn parse_raw_atom_cvc5<'a>(
     }
 
     // --- Skip specification keywords (taint/ghost/region/validate) ---
-    if matches!(
-        tok.as_str(),
-        "taint" | "untrusted" | "validated" | "ghost" | "Region" | "validate"
-    ) {
+    if is_raw_spec_skip_keyword(tok) {
         return parse_raw_atom_cvc5(tm, tokens, start + 1, vars, state);
     }
 
@@ -1794,43 +1658,13 @@ fn parse_raw_atom_cvc5<'a>(
 
     // Check for function call: `name(args)`
     if next < tokens.len() && tokens[next] == "(" {
-        let mut depth = 1usize;
-        let mut p = next + 1;
-        while p < tokens.len() && depth > 0 {
-            match tokens[p].as_str() {
-                "(" => depth += 1,
-                ")" => depth -= 1,
-                _ => {}
-            }
-            if depth > 0 {
-                p += 1;
-            }
-        }
+        let p = find_matching_delim(tokens, next, "(", ")")?;
 
         // Parse arguments by splitting on commas at depth 0
         let arg_tokens = &tokens[next + 1..p];
         let mut arg_vals: Vec<cvc5::Term<'a>> = Vec::new();
-        if !arg_tokens.is_empty() {
-            let mut arg_start_idx = 0;
-            let mut dd = 0usize;
-            for (i, t) in arg_tokens.iter().enumerate() {
-                match t.as_str() {
-                    "(" => dd += 1,
-                    ")" => dd = dd.saturating_sub(1),
-                    "," if dd == 0 => {
-                        let chunk = &arg_tokens[arg_start_idx..i];
-                        if !chunk.is_empty()
-                            && let Some((v, _)) = parse_raw_expr_cvc5(tm, chunk, 0, 0, vars, state)
-                        {
-                            arg_vals.push(v);
-                        }
-                        arg_start_idx = i + 1;
-                    }
-                    _ => {}
-                }
-            }
-            // Last argument
-            let chunk = &arg_tokens[arg_start_idx..];
+        for (lo, hi) in comma_chunk_ranges(arg_tokens) {
+            let chunk = &arg_tokens[lo..hi];
             if !chunk.is_empty()
                 && let Some((v, _)) = parse_raw_expr_cvc5(tm, chunk, 0, 0, vars, state)
             {

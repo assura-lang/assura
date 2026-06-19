@@ -1,5 +1,10 @@
 use super::*;
 use crate::cache::SessionCache;
+use crate::cvc5_raw_ops::{
+    comma_chunk_ranges, domain_contains_guard_smtlib, find_matching_delim, format_raw_binop_smtlib,
+    format_raw_quantifier_smtlib, is_raw_spec_skip_keyword, parse_raw_quantifier_slice,
+    range_guard_smtlib, raw_op_info, raw_op_is_comparison, wrap_ast_quantifier_smtlib,
+};
 use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -2252,7 +2257,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         Expr::Forall { var, domain, body } => {
             let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            if let Expr::BinOp {
+            let guard = if let Expr::BinOp {
                 op: BinOp::Range,
                 lhs: lo,
                 rhs: hi,
@@ -2260,20 +2265,17 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             {
                 let lo_s = expr_to_smtlib(lo)?;
                 let hi_s = expr_to_smtlib(hi)?;
-                Some(format!(
-                    "(forall (({v} Int)) (=> (and (>= {v} {lo_s}) (< {v} {hi_s})) {b}))"
-                ))
+                range_guard_smtlib(&v, &lo_s, &hi_s)
             } else {
                 let d = expr_to_smtlib(domain).unwrap_or_else(|| v.clone());
-                Some(format!(
-                    "(forall (({v} Int)) (=> (__domain_contains {d} {v}) {b}))"
-                ))
-            }
+                domain_contains_guard_smtlib(&d, &v)
+            };
+            Some(wrap_ast_quantifier_smtlib(true, &v, &guard, &b))
         }
         Expr::Exists { var, domain, body } => {
             let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            if let Expr::BinOp {
+            let guard = if let Expr::BinOp {
                 op: BinOp::Range,
                 lhs: lo,
                 rhs: hi,
@@ -2281,15 +2283,12 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             {
                 let lo_s = expr_to_smtlib(lo)?;
                 let hi_s = expr_to_smtlib(hi)?;
-                Some(format!(
-                    "(exists (({v} Int)) (and (and (>= {v} {lo_s}) (< {v} {hi_s})) {b}))"
-                ))
+                range_guard_smtlib(&v, &lo_s, &hi_s)
             } else {
                 let d = expr_to_smtlib(domain).unwrap_or_else(|| v.clone());
-                Some(format!(
-                    "(exists (({v} Int)) (and (__domain_contains {d} {v}) {b}))"
-                ))
-            }
+                domain_contains_guard_smtlib(&d, &v)
+            };
+            Some(wrap_ast_quantifier_smtlib(false, &v, &guard, &b))
         }
         Expr::Call { func, args } => {
             let f = match func.as_ref() {
@@ -2469,37 +2468,6 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
 // SMT-LIB2 precedence-climbing parser for Expr::Raw tokens (shell-out path)
 // -------------------------------------------------------------------------
 
-/// Return the precedence and SMT-LIB2 operator string for a binary operator.
-fn raw_op_info_smtlib(tok: &str) -> Option<(u8, &'static str, bool)> {
-    // Returns (precedence, smt_op, is_comparison)
-    match tok {
-        "||" | "or" => Some((1, "or", false)),
-        "&&" | "and" => Some((3, "and", false)),
-        "=>" | "==>" | "implies" => Some((3, "=>", false)),
-        "==" | "=" => Some((5, "=", true)),
-        "!=" => Some((5, "!=", true)),
-        "<" => Some((7, "<", true)),
-        ">" => Some((7, ">", true)),
-        "<=" => Some((7, "<=", true)),
-        ">=" => Some((7, ">=", true)),
-        "+" => Some((9, "+", false)),
-        "-" => Some((9, "-", false)),
-        "*" => Some((11, "*", false)),
-        "/" | "div" => Some((11, "div", false)),
-        "%" | "mod" => Some((11, "mod", false)),
-        _ => None,
-    }
-}
-
-/// Format a binary operation as SMT-LIB2 prefix notation.
-fn format_smtlib_binop(smt_op: &str, lhs: &str, rhs: &str) -> String {
-    if smt_op == "!=" {
-        format!("(not (= {lhs} {rhs}))")
-    } else {
-        format!("({smt_op} {lhs} {rhs})")
-    }
-}
-
 /// Precedence-climbing expression parser for raw tokens producing SMT-LIB2 text.
 ///
 /// Returns `(smtlib_string, next_position)`.
@@ -2507,7 +2475,7 @@ fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<
     let (mut lhs, mut pos) = parse_raw_atom_smtlib(tokens, pos)?;
 
     while pos < tokens.len() {
-        let Some((op_prec, smt_op, is_cmp)) = raw_op_info_smtlib(tokens[pos].as_str()) else {
+        let Some((op_prec, op_kind)) = raw_op_info(tokens[pos].as_str()) else {
             break;
         };
         if op_prec < min_prec {
@@ -2520,23 +2488,22 @@ fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<
         pos = next_pos;
 
         // Comparison chaining: `a < b < c` -> `(and (< a b) (< b c))`
-        if is_cmp
+        if raw_op_is_comparison(op_kind)
             && pos < tokens.len()
-            && let Some((next_prec, next_smt_op, next_is_cmp)) =
-                raw_op_info_smtlib(tokens[pos].as_str())
-            && next_is_cmp
+            && let Some((next_prec, next_op)) = raw_op_info(tokens[pos].as_str())
+            && raw_op_is_comparison(next_op)
             && next_prec >= min_prec
         {
-            let left_cmp = format_smtlib_binop(smt_op, &lhs, &rhs);
+            let left_cmp = format_raw_binop_smtlib(op_kind, &lhs, &rhs);
             pos += 1; // consume next operator
             let (rhs2, next_pos2) = parse_raw_expr_smtlib(tokens, pos, next_prec + 1)?;
             pos = next_pos2;
-            let right_cmp = format_smtlib_binop(next_smt_op, &rhs, &rhs2);
+            let right_cmp = format_raw_binop_smtlib(next_op, &rhs, &rhs2);
             lhs = format!("(and {left_cmp} {right_cmp})");
             continue;
         }
 
-        lhs = format_smtlib_binop(smt_op, &lhs, &rhs);
+        lhs = format_raw_binop_smtlib(op_kind, &lhs, &rhs);
     }
 
     Some((lhs, pos))
@@ -2585,18 +2552,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
 
     // --- `old(expr)` ---
     if tok == "old" && start + 1 < tokens.len() && tokens[start + 1] == "(" {
-        let mut depth = 1usize;
-        let mut p = start + 2;
-        while p < tokens.len() && depth > 0 {
-            match tokens[p].as_str() {
-                "(" => depth += 1,
-                ")" => depth -= 1,
-                _ => {}
-            }
-            if depth > 0 {
-                p += 1;
-            }
-        }
+        let p = find_matching_delim(tokens, start + 1, "(", ")")?;
         let end = p + 1;
         let inner = &tokens[start + 2..p];
 
@@ -2612,53 +2568,19 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     }
 
     // --- `forall`/`exists` quantifiers ---
-    if (tok == "forall" || tok == "exists") && start + 4 < tokens.len() && tokens[start + 2] == "in"
-    {
-        let var_name = sanitize_smtlib_name(&tokens[start + 1]);
-        let quantifier = tok.as_str();
-
-        // Find body delimiter: `:` or `{`
-        let mut delim_pos = start + 3;
-        let mut d = 0usize;
-        while delim_pos < tokens.len() {
-            match tokens[delim_pos].as_str() {
-                "(" => d += 1,
-                ")" => d = d.saturating_sub(1),
-                ":" | "{" if d == 0 => break,
-                _ => {}
-            }
-            delim_pos += 1;
+    if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {
+        let var_name = sanitize_smtlib_name(&tokens[slice.var_token_idx]);
+        let body_tokens = &tokens[slice.body_start..slice.body_end];
+        if let Some((body_val, _)) = parse_raw_expr_smtlib(body_tokens, 0, 0) {
+            return Some((
+                format_raw_quantifier_smtlib(slice.is_forall, &var_name, &body_val),
+                slice.final_pos,
+            ));
         }
-
-        if delim_pos < tokens.len() && (tokens[delim_pos] == ":" || tokens[delim_pos] == "{") {
-            let body_start = delim_pos + 1;
-            let (body_slice_end, final_pos) = if tokens[delim_pos] == "{" {
-                let mut bd = 1usize;
-                let mut ep = body_start;
-                while ep < tokens.len() && bd > 0 {
-                    match tokens[ep].as_str() {
-                        "{" => bd += 1,
-                        "}" => bd -= 1,
-                        _ => {}
-                    }
-                    if bd > 0 {
-                        ep += 1;
-                    }
-                }
-                (ep, ep + 1)
-            } else {
-                (tokens.len(), tokens.len())
-            };
-
-            let body_tokens = &tokens[body_start..body_slice_end];
-            if let Some((body_val, _)) = parse_raw_expr_smtlib(body_tokens, 0, 0) {
-                return Some((
-                    format!("({quantifier} (({var_name} Int)) {body_val})"),
-                    final_pos,
-                ));
-            }
-            return Some((format!("({quantifier} (({var_name} Int)) true)"), final_pos));
-        }
+        return Some((
+            format_raw_quantifier_smtlib(slice.is_forall, &var_name, "true"),
+            slice.final_pos,
+        ));
     }
 
     // --- Integer literal ---
@@ -2667,10 +2589,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     }
 
     // --- Skip specification keywords ---
-    if matches!(
-        tok.as_str(),
-        "taint" | "untrusted" | "validated" | "ghost" | "Region" | "validate"
-    ) {
+    if is_raw_spec_skip_keyword(tok) {
         return parse_raw_atom_smtlib(tokens, start + 1);
     }
 
@@ -2685,40 +2604,11 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
 
     // Function call: `name(args)` -> `(name arg1 arg2 ...)`
     if next < tokens.len() && tokens[next] == "(" {
-        let mut depth = 1usize;
-        let mut p = next + 1;
-        while p < tokens.len() && depth > 0 {
-            match tokens[p].as_str() {
-                "(" => depth += 1,
-                ")" => depth -= 1,
-                _ => {}
-            }
-            if depth > 0 {
-                p += 1;
-            }
-        }
+        let p = find_matching_delim(tokens, next, "(", ")")?;
         let arg_tokens = &tokens[next + 1..p];
         let mut arg_strs: Vec<String> = Vec::new();
-        if !arg_tokens.is_empty() {
-            let mut arg_start_idx = 0;
-            let mut dd = 0usize;
-            for (i, t) in arg_tokens.iter().enumerate() {
-                match t.as_str() {
-                    "(" => dd += 1,
-                    ")" => dd = dd.saturating_sub(1),
-                    "," if dd == 0 => {
-                        let chunk = &arg_tokens[arg_start_idx..i];
-                        if !chunk.is_empty()
-                            && let Some((v, _)) = parse_raw_expr_smtlib(chunk, 0, 0)
-                        {
-                            arg_strs.push(v);
-                        }
-                        arg_start_idx = i + 1;
-                    }
-                    _ => {}
-                }
-            }
-            let chunk = &arg_tokens[arg_start_idx..];
+        for (lo, hi) in comma_chunk_ranges(arg_tokens) {
+            let chunk = &arg_tokens[lo..hi];
             if !chunk.is_empty()
                 && let Some((v, _)) = parse_raw_expr_smtlib(chunk, 0, 0)
             {
