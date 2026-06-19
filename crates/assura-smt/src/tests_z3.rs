@@ -2329,6 +2329,38 @@ fn z3_typestate_different_state_counterexample() {
 }
 
 #[test]
+fn z3_typestate_mismatch_completes_without_hang() {
+    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    use std::time::{Duration, Instant};
+
+    // Regression (#264): eager Option ADT forall axioms made this SAT query hang.
+    let clauses = vec![
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()]),
+            effect_variables: vec![],
+        },
+    ];
+    let start = Instant::now();
+    let results = crate::verify_contract("TypestateMismatchPerf", &clauses);
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "typestate mismatch check should finish quickly, took {:?}",
+        start.elapsed()
+    );
+    assert!(
+        matches!(&results[0], VerificationResult::Counterexample { .. }),
+        "expected counterexample, got: {:?}",
+        results[0]
+    );
+}
+
+#[test]
 fn z3_typestate_with_dot_field() {
     use assura_parser::ast::{Clause, ClauseKind, Expr};
     // requires { conn.state @ Connected }
