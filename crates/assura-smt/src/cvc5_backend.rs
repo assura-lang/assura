@@ -9,8 +9,10 @@ use crate::cvc5_common::{
 use crate::cvc5_field_access::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
 use crate::cvc5_if_encode::encode_if_smtlib;
 use crate::cvc5_index_access::index_access_smtlib;
+use crate::cvc5_list_encode::encode_list_smtlib;
 use crate::cvc5_match_encode::encode_match_smtlib;
 use crate::cvc5_old_access::encode_old_smtlib;
+use crate::cvc5_quantifier_encode::encode_ast_quantifier_smtlib;
 use crate::cvc5_tuple_encode::encode_tuple_smtlib;
 
 #[cfg(test)]
@@ -19,10 +21,8 @@ use crate::cvc5_common::{
     is_self_rooted_cvc5,
 };
 use crate::cvc5_raw_ops::{
-    comma_chunk_ranges, domain_as_range, domain_contains_guard_smtlib, find_matching_delim,
-    format_raw_binop_smtlib, format_raw_quantifier_smtlib, is_raw_spec_skip_keyword,
-    parse_raw_quantifier_slice, range_guard_smtlib, raw_op_info, raw_op_is_comparison,
-    wrap_ast_quantifier_smtlib,
+    comma_chunk_ranges, find_matching_delim, format_raw_binop_smtlib, format_raw_quantifier_smtlib,
+    is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
 #[cfg(any(test, feature = "cvc5-verify"))]
 use assura_parser::ast::{BinOp, UnaryOp};
@@ -214,7 +214,7 @@ use cvc5_native_encoder::{
 };
 
 #[cfg(all(test, feature = "cvc5-verify"))]
-use cvc5_native_encoder::infer_quantifier_patterns_cvc5;
+use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
 
 #[cfg(feature = "cvc5-verify")]
 fn build_cvc5_var_map<'a>(
@@ -1683,16 +1683,12 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             Some(encode_if_smtlib(&c, &t, e.as_deref()))
         }
         Expr::Forall { var, domain, body } => {
-            let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            let guard = quantifier_domain_guard_smtlib(domain, &v)?;
-            Some(wrap_ast_quantifier_smtlib(true, &v, &guard, &b))
+            encode_ast_quantifier_smtlib(true, var, domain, &b, expr_to_smtlib)
         }
         Expr::Exists { var, domain, body } => {
-            let v = sanitize_smtlib_name(var);
             let b = expr_to_smtlib(body)?;
-            let guard = quantifier_domain_guard_smtlib(domain, &v)?;
-            Some(wrap_ast_quantifier_smtlib(false, &v, &guard, &b))
+            encode_ast_quantifier_smtlib(false, var, domain, &b, expr_to_smtlib)
         }
         Expr::Call { func, args } => {
             let f = match func.as_ref() {
@@ -1781,7 +1777,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             }
         }
         // List: use a fresh variable name
-        Expr::List(_) => Some("__list_fresh".to_string()),
+        Expr::List(_) => Some(encode_list_smtlib()),
         // Apply: return named bool
         Expr::Apply { lemma_name, .. } => Some(format!("__apply_{lemma_name}")),
     }
@@ -1947,17 +1943,6 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     }
 
     Some((name, next))
-}
-
-fn quantifier_domain_guard_smtlib(domain: &Expr, var: &str) -> Option<String> {
-    if let Some((lo, hi)) = domain_as_range(domain) {
-        let lo_s = expr_to_smtlib(lo)?;
-        let hi_s = expr_to_smtlib(hi)?;
-        Some(range_guard_smtlib(var, &lo_s, &hi_s))
-    } else {
-        let d = expr_to_smtlib(domain).unwrap_or_else(|| var.to_string());
-        Some(domain_contains_guard_smtlib(&d, var))
-    }
 }
 
 /// Collect all variable names referenced in an expression.

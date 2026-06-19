@@ -87,12 +87,14 @@ mod cvc5_if_encode;
 mod cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_ir_native;
+mod cvc5_list_encode;
 mod cvc5_match_encode;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_native_binops;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_native_builtins;
 mod cvc5_old_access;
+mod cvc5_quantifier_encode;
 mod cvc5_raw_ops;
 mod cvc5_tuple_encode;
 

@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 
 use assura_parser::ast::{BinOp, Clause, Expr, Literal, Pattern, UnaryOp};
-use assura_types::checkers::expr_references_var;
 
 use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
 use crate::cvc5_builtins::{is_bool_field, is_size_field, pattern_hash_name};
@@ -15,18 +14,21 @@ use crate::cvc5_field_access::{FieldAccessPlan, encode_shallow_field_cvc5, plan_
 use crate::cvc5_if_encode::encode_if_cvc5;
 use crate::cvc5_index_access::encode_index_access_cvc5;
 use crate::cvc5_ir_native::apply_ir_body_constraints_cvc5;
+use crate::cvc5_list_encode::encode_list_cvc5;
 use crate::cvc5_match_encode::encode_match_cvc5;
 use crate::cvc5_old_access::encode_old_cvc5;
+use crate::cvc5_quantifier_encode::encode_ast_quantifier_cvc5;
 
 pub(crate) use crate::cvc5_encoder_state::{Cvc5EncoderState, default_cvc5_encoder_state};
 use crate::cvc5_native_builtins::{
     encode_known_builtin_cvc5, encode_uf_call_cvc5, field_len_of_receiver_cvc5,
 };
 use crate::cvc5_raw_ops::{
-    apply_raw_op_cvc5, combine_quantifier_guard_cvc5, comma_chunk_ranges, domain_as_range,
-    find_matching_delim, is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info,
-    raw_op_is_comparison,
+    apply_raw_op_cvc5, comma_chunk_ranges, find_matching_delim, is_raw_spec_skip_keyword,
+    parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
+
+pub(crate) use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
 use crate::cvc5_tuple_encode::encode_tuple_cvc5;
 
 // -------------------------------------------------------------------------
@@ -179,36 +181,14 @@ pub(crate) fn encode_expr_cvc5<'a>(
             Some(encode_if_cvc5(tm, c, t, e))
         }
         Expr::Forall { var, domain, body } => {
-            let v_name = sanitize_smtlib_name(var);
-            let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
-            let mut local_vars = vars.clone();
-            local_vars.insert(v_name.clone(), bound_var.clone());
-            let b = encode_expr_cvc5(tm, body, &mut local_vars, state)?;
-            let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, true, vars, state);
-            let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var.clone()]);
-            let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
-            if trigger_terms.is_empty() {
-                Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, guarded]))
-            } else {
-                let inst_pattern = tm.mk_term(cvc5::Kind::InstPattern, &trigger_terms);
-                Some(tm.mk_term(cvc5::Kind::Forall, &[bound_list, guarded, inst_pattern]))
-            }
+            encode_ast_quantifier_cvc5(tm, true, var, domain, body, vars, state, |e, v, s| {
+                encode_expr_cvc5(tm, e, v, s)
+            })
         }
         Expr::Exists { var, domain, body } => {
-            let v_name = sanitize_smtlib_name(var);
-            let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
-            let mut local_vars = vars.clone();
-            local_vars.insert(v_name.clone(), bound_var.clone());
-            let b = encode_expr_cvc5(tm, body, &mut local_vars, state)?;
-            let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, false, vars, state);
-            let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var.clone()]);
-            let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
-            if trigger_terms.is_empty() {
-                Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, guarded]))
-            } else {
-                let inst_pattern = tm.mk_term(cvc5::Kind::InstPattern, &trigger_terms);
-                Some(tm.mk_term(cvc5::Kind::Exists, &[bound_list, guarded, inst_pattern]))
-            }
+            encode_ast_quantifier_cvc5(tm, false, var, domain, body, vars, state, |e, v, s| {
+                encode_expr_cvc5(tm, e, v, s)
+            })
         }
         Expr::Call { func, args } => {
             if let Expr::Ident(name) = func.as_ref() {
@@ -373,32 +353,19 @@ pub(crate) fn encode_expr_cvc5<'a>(
         }
         // List: fresh Int with element-access and length axioms
         Expr::List(elems) => {
-            let list_name = format!("__list_{}", state.fresh_counter);
-            state.fresh_counter += 1;
-            let list_val = tm.mk_const(tm.integer_sort(), &list_name);
-            let get_sort =
-                tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
-            let get_func = tm.mk_const(get_sort, "__list_get");
-            for (i, elem) in elems.iter().enumerate() {
-                if let Some(elem_val) = encode_expr_cvc5(tm, elem, vars, state) {
-                    let idx = tm.mk_integer(i as i64);
-                    let accessed = tm.mk_term(
-                        cvc5::Kind::ApplyUf,
-                        &[get_func.clone(), list_val.clone(), idx],
-                    );
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val]));
-                }
-            }
-            // Assert length
+            let elem_vals: Option<Vec<_>> = elems
+                .iter()
+                .map(|elem| encode_expr_cvc5(tm, elem, vars, state))
+                .collect();
+            let elem_vals = elem_vals?;
             let len_func = field_len_fn_cvc5(tm, state);
-            let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, list_val.clone()]);
-            let expected_len = tm.mk_integer(elems.len() as i64);
-            state
-                .axioms
-                .push(tm.mk_term(cvc5::Kind::Equal, &[len_result, expected_len]));
-            Some(list_val)
+            Some(encode_list_cvc5(
+                tm,
+                &elem_vals,
+                &mut state.axioms,
+                &mut state.fresh_counter,
+                &len_func,
+            ))
         }
         // Apply: encode args for side effects, return named bool
         Expr::Apply { lemma_name, args } => {
@@ -408,153 +375,6 @@ pub(crate) fn encode_expr_cvc5<'a>(
             let apply_name = format!("__apply_{lemma_name}");
             Some(tm.mk_const(tm.boolean_sort(), &apply_name))
         }
-    }
-}
-
-/// Build a domain guard for quantifier bodies (CVC5 native API).
-///
-/// For range domains (`lo..hi`):
-/// - `is_forall=true`:  `(lo <= x && x < hi) => body`
-/// - `is_forall=false`: `(lo <= x && x < hi) && body`
-///
-/// For non-range domains (collections, identifiers), encode
-/// membership as an uninterpreted `__domain_contains(domain, x)` predicate.
-#[cfg(feature = "cvc5-verify")]
-fn guard_quantifier_body_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    domain: &Expr,
-    bound_var: &cvc5::Term<'a>,
-    body: cvc5::Term<'a>,
-    is_forall: bool,
-    outer_vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-) -> cvc5::Term<'a> {
-    let guard = if let Some((lo, hi)) = domain_as_range(domain) {
-        let lo_val =
-            encode_expr_cvc5(tm, lo, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
-        let hi_val =
-            encode_expr_cvc5(tm, hi, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
-        let ge_lo = tm.mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
-        let lt_hi = tm.mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val]);
-        tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
-    } else {
-        let domain_val = encode_expr_cvc5(tm, domain, outer_vars, state)
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), "__domain_unknown"));
-        let contains_sort =
-            tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
-        let contains_fn = tm.mk_const(contains_sort, "__domain_contains");
-        tm.mk_term(
-            cvc5::Kind::ApplyUf,
-            &[contains_fn, domain_val, bound_var.clone()],
-        )
-    };
-    combine_quantifier_guard_cvc5(tm, is_forall, guard, body)
-}
-
-/// Infer CVC5 trigger patterns from function calls in a quantifier body
-/// that reference the bound variable. Returns `InstPattern` terms for
-/// e-matching hints that help the solver instantiate quantifiers efficiently.
-///
-/// First checks the `TriggerManager` for user-provided triggers, then falls
-/// back to scanning the body for `Expr::Call` expressions referencing the
-/// bound variable.
-#[cfg(feature = "cvc5-verify")]
-pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    body: &Expr,
-    bound_var_name: &str,
-    bound_cvc5: &cvc5::Term<'a>,
-) -> Vec<cvc5::Term<'a>> {
-    let mut patterns = Vec::new();
-
-    // Check TriggerManager for user-provided or inferred triggers
-    let trigger_mgr = crate::advanced::TriggerManager::new();
-    let body_str = format!("{body:?}");
-    if let Some(trigger) = trigger_mgr.infer_trigger(&body_str) {
-        for term in &trigger.terms {
-            if let Some(fname) = term.split('(').next() {
-                let fname = fname.trim();
-                let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                let func = tm.mk_const(fun_sort, fname);
-                let app = tm.mk_term(cvc5::Kind::ApplyUf, &[func, bound_cvc5.clone()]);
-                patterns.push(app);
-            }
-        }
-    }
-
-    // Direct scan: look for Call expressions that reference the bound variable
-    if patterns.is_empty() {
-        collect_trigger_calls_cvc5(tm, body, bound_var_name, bound_cvc5, &mut patterns);
-    }
-
-    patterns
-}
-
-/// Recursively scan an expression for function calls containing the
-/// bound variable, and create CVC5 trigger terms from them.
-#[cfg(feature = "cvc5-verify")]
-fn collect_trigger_calls_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    expr: &Expr,
-    bound_var: &str,
-    bound_cvc5: &cvc5::Term<'a>,
-    patterns: &mut Vec<cvc5::Term<'a>>,
-) {
-    match expr {
-        Expr::Call { func, args } => {
-            let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
-            if refs_bound {
-                if let Expr::Ident(fname) = func.as_ref() {
-                    let arity = args.len();
-                    let param_sorts: Vec<cvc5::Sort> =
-                        (0..arity).map(|_| tm.integer_sort()).collect();
-                    let fun_sort = tm.mk_fun_sort(&param_sorts, tm.integer_sort());
-                    let func_decl = tm.mk_const(fun_sort, fname.as_str());
-                    let mut uf_args = vec![func_decl];
-                    for a in args {
-                        if expr_references_var(a, bound_var) {
-                            uf_args.push(bound_cvc5.clone());
-                        } else {
-                            uf_args.push(tm.mk_const(tm.integer_sort(), "__trigger_other"));
-                        }
-                    }
-                    let app = tm.mk_term(cvc5::Kind::ApplyUf, &uf_args);
-                    patterns.push(app);
-                }
-            }
-            for a in args {
-                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
-            }
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            collect_trigger_calls_cvc5(tm, receiver, bound_var, bound_cvc5, patterns);
-            for a in args {
-                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_trigger_calls_cvc5(tm, lhs, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, rhs, bound_var, bound_cvc5, patterns);
-        }
-        Expr::UnaryOp { expr: e, .. } | Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
-            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_trigger_calls_cvc5(tm, cond, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, then_branch, bound_var, bound_cvc5, patterns);
-            if let Some(eb) = else_branch {
-                collect_trigger_calls_cvc5(tm, eb, bound_var, bound_cvc5, patterns);
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, index, bound_var, bound_cvc5, patterns);
-        }
-        _ => {}
     }
 }
 
