@@ -221,9 +221,11 @@ name = "assura-mcp"
 version = "0.1.0"
 dependencies = [
  "assura-codegen",
+ "assura-config",
  "assura-diagnostics",
  "assura-pipeline",
  "assura-rust-analyzer",
+ "assura-smt",
  "rmcp",
  "schemars",
  "serde",

@@ -8,9 +8,11 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+assura-config = { path = "../assura-config" }
 assura-codegen = { path = "../assura-codegen" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 assura-pipeline = { path = "../assura-pipeline" }
+assura-smt = { path = "../assura-smt" }
 assura-rust-analyzer = { path = "../assura-rust-analyzer" }
 rmcp = { version = "1.7", features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }

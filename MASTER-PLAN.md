@@ -1776,7 +1776,20 @@ compiles" failure on taint-tracking.assura.
 - **Pipeline wiring**: `ir_bodies` threaded through `entry.rs` parallel verify, Z3
   `TypeConstraints`, and CVC5 dispatch/native/shell havoc+assume paths
 - **Tests**: `test_z3_ir_call_inlines_callee_sidecar`; full workspace gate green
-- **Next**: OSS launch (#45 CodeQL blocked on public repo), AI IR templates for complex contracts
+- **Next**: OSS launch (#45 CodeQL blocked on public repo), richer IR planners (if/match), multi-file call-chain generation
+
+### Session 24 (2026-06-19): AI IR template pipeline (DRY)
+
+- **`templates/ir/base.md`**: single canonical IR syntax reference; thin overlays in
+  `templates/ir/patterns/*.md` (identity, arithmetic, length-copy, call-chain,
+  bounds-check, field-access) — no duplicated instruction tables
+- **`ir_templates.rs`**: `render_ir_prompt()` stitches base + pattern + contract
+  block + heuristic starter IR; `suggest_ir_pattern()` reuses `classify_ensures_shape`
+- **`ir_generate.rs`**: planner registry (`ENSURES_PLANNERS`); length-copy planner for
+  `result.length() <= param.length()` ensures
+- **CLI**: `assura ir-prompt <file> [--decl NAME] [--pattern auto]`
+- **MCP**: `assura_ir_prompt` tool returns JSON with per-decl prompts
+- **Tests**: ir_templates, length-copy generation, CLI fixture, MCP inline contract
 
 ---
 

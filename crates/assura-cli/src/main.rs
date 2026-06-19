@@ -21,6 +21,7 @@ mod fmt_cmd;
 mod infer;
 mod init;
 mod ir_cmd;
+mod ir_prompt_cmd;
 mod legacy;
 mod lsp_doctor;
 mod repl;
@@ -311,6 +312,20 @@ enum Commands {
         verify: bool,
     },
 
+    /// Emit an AI prompt to generate Implementation IR for a contract
+    IrPrompt {
+        /// Assura source file
+        file: String,
+
+        /// Declaration name (default: all verification jobs in the file)
+        #[arg(long)]
+        decl: Option<String>,
+
+        /// Pattern overlay: auto, identity, arithmetic, length-copy, call-chain, bounds-check, field-access
+        #[arg(long, default_value = "auto")]
+        pattern: String,
+    },
+
     /// Parse, validate, and codegen an Implementation IR file (Section 4)
     Ir {
         /// IR text file to process
@@ -539,6 +554,11 @@ fn main() {
                 process::exit(1);
             }
         }
+        Some(Commands::IrPrompt {
+            file,
+            decl,
+            pattern,
+        }) => ir_prompt_cmd::run_ir_prompt(&file, decl.as_deref(), &pattern, verbosity),
         Some(Commands::Ir {
             file,
             contract,

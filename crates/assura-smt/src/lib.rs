@@ -44,6 +44,7 @@ pub use result::{CounterexampleModel, VerificationResult};
 /// Shared IR expression encoding helpers.
 mod ir_encode;
 mod ir_generate;
+mod ir_templates;
 mod ir_type_ctx;
 
 /// Public entry point functions for SMT verification.
@@ -57,9 +58,14 @@ pub use entry::{
     verify_parallel_with_solver, verify_region_containment, verify_taint_safety,
     verify_with_measures, verify_with_options,
 };
+pub use ir_generate::{EnsuresShape, classify_ensures_shape, generate_ir_sidecar_text};
 pub use ir_loader::{
     LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source,
     load_ir_bodies_for_contracts, load_ir_bodies_for_typed, stub_ir_sidecars_for_typed,
+};
+pub use ir_templates::{
+    IrPromptContext, IrPromptPattern, ir_prompt_contexts_for_typed, render_ir_prompt,
+    resolve_ir_pattern, suggest_ir_pattern,
 };
 
 /// SMT-LIB2 dump and quantifier bound validation.

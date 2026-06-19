@@ -51,6 +51,27 @@ pub struct TypeMapParams {
     pub rust_type: String,
 }
 
+/// Parameters for the `ir_prompt` MCP tool (AI Implementation IR generation prompt).
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct IrPromptParams {
+    /// Assura source (inline). Provide either `source` or `file`.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Path to an .assura file. Provide either `source` or `file`.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Declaration name (omit for all verification jobs in the file).
+    #[serde(default)]
+    pub decl: Option<String>,
+    /// Pattern overlay: auto, identity, arithmetic, length-copy, call-chain, bounds-check, field-access
+    #[serde(default = "default_ir_pattern")]
+    pub pattern: String,
+}
+
+fn default_ir_pattern() -> String {
+    "auto".into()
+}
+
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
@@ -135,6 +156,16 @@ impl AssuraMcpServer {
         })
         .to_string()
     }
+
+    #[tool(
+        description = "Render an AI prompt to generate Implementation IR (.ir sidecar) for an Assura contract. Provide `source` or `file`, optional `decl`, and `pattern` (auto by default)."
+    )]
+    fn assura_ir_prompt(&self, Parameters(params): Parameters<IrPromptParams>) -> String {
+        match render_ir_prompt_tool(params) {
+            Ok(json) => json,
+            Err(e) => e,
+        }
+    }
 }
 
 #[tool_handler]
@@ -142,8 +173,9 @@ impl ServerHandler for AssuraMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "Assura contract-first AI-native language tools. Use assura_check to verify \
-                 contracts, assura_infer to generate contracts from Rust code, assura_explain \
-                 to look up error codes, and assura_type_map to convert Rust types.",
+                 contracts, assura_infer to generate contracts from Rust code, assura_ir_prompt \
+                 to generate Implementation IR prompts, assura_explain to look up error codes, \
+                 and assura_type_map to convert Rust types.",
         )
     }
 }
@@ -173,6 +205,75 @@ fn resolve_source_with_path(
 
 fn run_check_pipeline(source: &str, filename: &str) -> assura_pipeline::PipelineResult {
     assura_pipeline::run_at(source, filename)
+}
+
+fn render_ir_prompt_tool(params: IrPromptParams) -> Result<String, String> {
+    let (source, filename) = resolve_source_with_path(params.source, params.file)?;
+    let pattern = params
+        .pattern
+        .parse::<assura_smt::IrPromptPattern>()
+        .map_err(|()| {
+            format!(
+                "unknown pattern '{}': expected auto, identity, arithmetic, length-copy, \
+             call-chain, bounds-check, or field-access",
+                params.pattern
+            )
+        })?;
+
+    let output = assura_pipeline::compile(
+        &source,
+        &filename,
+        &assura_config::CompilerConfig::default(),
+    );
+    if output.has_errors {
+        return Err(output
+            .diagnostics
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"));
+    }
+    let typed = output
+        .typed
+        .ok_or_else(|| "type check produced no TypedFile".to_string())?;
+
+    let path = std::path::Path::new(&filename);
+    let mut jobs: Vec<_> = assura_smt::ir_prompt_contexts_for_typed(&typed, Some(path));
+    if let Some(ref name) = params.decl {
+        jobs.retain(|c| &c.decl_name == name);
+        if jobs.is_empty() {
+            return Err(format!("no verification job named '{name}'"));
+        }
+    }
+
+    let suggested = jobs
+        .first()
+        .map(assura_smt::suggest_ir_pattern)
+        .map(|p| p.as_str().to_string());
+    let resolved_pattern = jobs.first().map(|ctx| {
+        assura_smt::resolve_ir_pattern(ctx, pattern)
+            .as_str()
+            .to_string()
+    });
+
+    let prompts: Vec<serde_json::Value> = jobs
+        .iter()
+        .map(|ctx| {
+            serde_json::json!({
+                "decl": ctx.decl_name,
+                "pattern": assura_smt::resolve_ir_pattern(ctx, pattern).as_str(),
+                "prompt": assura_smt::render_ir_prompt(ctx, pattern),
+            })
+        })
+        .collect();
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "file": filename,
+        "suggested_pattern": suggested,
+        "resolved_pattern": resolved_pattern,
+        "prompts": prompts,
+    }))
+    .map_err(|e| e.to_string())
 }
 
 /// Lightweight contract inference from Rust source text.
@@ -404,6 +505,23 @@ contract Bar {
         );
         assert!(result.declarations.contains(&"contract Foo".to_string()));
         assert!(result.declarations.contains(&"contract Bar".to_string()));
+    }
+
+    #[test]
+    fn ir_prompt_tool_renders_for_inline_contract() {
+        let json = render_ir_prompt_tool(IrPromptParams {
+            source: Some(
+                "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n"
+                    .into(),
+            ),
+            file: None,
+            decl: None,
+            pattern: "auto".into(),
+        })
+        .expect("prompt should render");
+        assert!(json.contains("Instruction reference"));
+        assert!(json.contains("Echo"));
+        assert!(json.contains("pattern"));
     }
 
     #[test]

@@ -8,10 +8,77 @@ use std::collections::HashMap;
 
 use crate::ir::stub_ir_sidecar_text;
 
+/// Shared context for IR body planners (contract params → slots).
+#[derive(Debug, Clone)]
+pub(crate) struct PlanCtx<'a> {
+    pub name_to_slot: HashMap<&'a str, usize>,
+    pub return_ty: &'a str,
+    pub param_count: usize,
+}
+
+/// Shape of the primary `ensures` clause (drives template suggestion).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnsuresShape {
+    Identity,
+    Arithmetic,
+    LengthCopy,
+    BoundsCheck,
+    FieldAccess,
+    Unknown,
+}
+
 /// A planned IR instruction sequence for the main `fn #0` body.
 #[derive(Debug, Clone, PartialEq)]
 struct IrGenBody {
     lines: Vec<String>,
+}
+
+type IrPlannerFn = fn(&Expr, &PlanCtx<'_>) -> Option<IrGenBody>;
+
+const ENSURES_PLANNERS: &[IrPlannerFn] = &[plan_identity_equality, plan_length_copy_ensures];
+
+/// Classify the best-matching ensures shape for template selection.
+pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> EnsuresShape {
+    let name_to_slot: HashMap<&str, usize> = param_names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+
+    let has_bounds_requires = clauses
+        .iter()
+        .any(|c| c.kind == ClauseKind::Requires && clause_mentions_index_bounds(&c.body));
+
+    for clause in clauses.iter().filter(|c| c.kind == ClauseKind::Ensures) {
+        if length_relation_ensures(&clause.body, &name_to_slot).is_some() {
+            return if has_bounds_requires {
+                EnsuresShape::BoundsCheck
+            } else {
+                EnsuresShape::LengthCopy
+            };
+        }
+        if let Some((lhs, rhs)) = equality_operands(&clause.body) {
+            let other = if is_result_ident(lhs) {
+                rhs
+            } else if is_result_ident(rhs) {
+                lhs
+            } else {
+                continue;
+            };
+            if matches!(other, Expr::Ident(_)) {
+                return EnsuresShape::Identity;
+            }
+            if matches!(other, Expr::BinOp { op, .. } if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod))
+            {
+                return EnsuresShape::Arithmetic;
+            }
+        }
+        if clause_mentions_result_field(&clause.body) {
+            return EnsuresShape::FieldAccess;
+        }
+    }
+
+    EnsuresShape::Unknown
 }
 
 /// Generate `.ir` sidecar text from contract structure and ensures clauses.
@@ -31,15 +98,18 @@ pub fn generate_ir_sidecar_text(
         .filter(|c| c.kind == ClauseKind::Ensures)
         .count();
 
-    let name_to_slot: HashMap<&str, usize> = param_names
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.as_str(), i))
-        .collect();
+    let ctx = PlanCtx {
+        name_to_slot: param_names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.as_str(), i))
+            .collect(),
+        return_ty,
+        param_count: params.len(),
+    };
 
     for clause in clauses.iter().filter(|c| c.kind == ClauseKind::Ensures) {
-        if let Some(body) = plan_from_ensures(&clause.body, &name_to_slot, return_ty, params.len())
-        {
+        if let Some(body) = plan_from_ensures(&clause.body, &ctx) {
             return format_ir_module(
                 name,
                 params,
@@ -54,41 +124,42 @@ pub fn generate_ir_sidecar_text(
     stub_ir_sidecar_text(name, params, return_ty, requires_count, ensures_count)
 }
 
-fn plan_from_ensures(
-    expr: &Expr,
-    name_to_slot: &HashMap<&str, usize>,
-    return_ty: &str,
-    param_count: usize,
-) -> Option<IrGenBody> {
-    if let Some((lhs, rhs)) = equality_operands(expr) {
-        if is_result_ident(lhs) {
-            return plan_result_equals(rhs, name_to_slot, return_ty, param_count);
-        }
-        if is_result_ident(rhs) {
-            return plan_result_equals(lhs, name_to_slot, return_ty, param_count);
+fn plan_from_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+    for planner in ENSURES_PLANNERS {
+        if let Some(body) = planner(expr, ctx) {
+            return Some(body);
         }
     }
     None
 }
 
-fn plan_result_equals(
-    other: &Expr,
-    name_to_slot: &HashMap<&str, usize>,
-    return_ty: &str,
-    param_count: usize,
-) -> Option<IrGenBody> {
+fn plan_identity_equality(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    if is_result_ident(lhs) {
+        return plan_result_equals(rhs, ctx);
+    }
+    if is_result_ident(rhs) {
+        return plan_result_equals(lhs, ctx);
+    }
+    None
+}
+
+fn plan_length_copy_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+    let slot = length_relation_ensures(expr, &ctx.name_to_slot)?;
+    Some(single_load(slot, ctx.return_ty))
+}
+
+fn plan_result_equals(other: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
     match other {
         Expr::Ident(name) => {
-            let slot = *name_to_slot.get(name.as_str())?;
-            Some(single_load(slot, return_ty))
+            let slot = *ctx.name_to_slot.get(name.as_str())?;
+            Some(single_load(slot, ctx.return_ty))
         }
-        Expr::Literal(lit) => Some(single_const(&literal_to_ir_const(lit)?, return_ty)),
-        Expr::BinOp { op, lhs, rhs } => {
-            plan_result_arith(op.clone(), lhs, rhs, name_to_slot, return_ty)
-        }
+        Expr::Literal(lit) => Some(single_const(&literal_to_ir_const(lit)?, ctx.return_ty)),
+        Expr::BinOp { op, lhs, rhs } => plan_result_arith(op.clone(), lhs, rhs, ctx),
         _ => {
-            if param_count == 1 {
-                Some(single_load(0, return_ty))
+            if ctx.param_count == 1 {
+                Some(single_load(0, ctx.return_ty))
             } else {
                 None
             }
@@ -96,13 +167,7 @@ fn plan_result_equals(
     }
 }
 
-fn plan_result_arith(
-    op: BinOp,
-    lhs: &Expr,
-    rhs: &Expr,
-    name_to_slot: &HashMap<&str, usize>,
-    return_ty: &str,
-) -> Option<IrGenBody> {
+fn plan_result_arith(op: BinOp, lhs: &Expr, rhs: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
     let ir_op = match op {
         BinOp::Add => "add",
         BinOp::Sub => "sub",
@@ -112,16 +177,111 @@ fn plan_result_arith(
         _ => return None,
     };
 
-    let lhs_slot = expr_to_param_slot(lhs, name_to_slot)?;
-    let rhs_slot = expr_to_param_slot(rhs, name_to_slot)?;
+    let lhs_slot = expr_to_param_slot(lhs, &ctx.name_to_slot)?;
+    let rhs_slot = expr_to_param_slot(rhs, &ctx.name_to_slot)?;
     let temp_slot = next_temp_slot(&[lhs_slot, rhs_slot]);
 
     Some(IrGenBody {
         lines: vec![
-            format!("    ${temp_slot} = arith {ir_op} ${lhs_slot} ${rhs_slot} : {return_ty}"),
-            format!("    $result = load ${temp_slot} : {return_ty}"),
+            format!(
+                "    ${temp_slot} = arith {ir_op} ${lhs_slot} ${rhs_slot} : {}",
+                ctx.return_ty
+            ),
+            format!("    $result = load ${temp_slot} : {}", ctx.return_ty),
         ],
     })
+}
+
+fn length_relation_ensures(expr: &Expr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
+    match expr {
+        Expr::BinOp {
+            op: BinOp::Lte | BinOp::Lt | BinOp::Eq,
+            lhs,
+            rhs,
+        } => length_pair_to_param_slot(lhs, rhs, name_to_slot)
+            .or_else(|| length_pair_to_param_slot(rhs, lhs, name_to_slot)),
+        _ => None,
+    }
+}
+
+fn length_pair_to_param_slot(
+    result_side: &Expr,
+    other_side: &Expr,
+    name_to_slot: &HashMap<&str, usize>,
+) -> Option<usize> {
+    if !is_result_length_call(result_side) {
+        return None;
+    }
+    match other_side {
+        Expr::MethodCall {
+            receiver, method, ..
+        } if method == "length"
+            && matches!(receiver.as_ref(), Expr::Ident(name) if name_to_slot.contains_key(name.as_str())) =>
+        {
+            name_to_slot
+                .get(receiver_as_ident(receiver).unwrap())
+                .copied()
+        }
+        Expr::Ident(name) => name_to_slot.get(name.as_str()).copied(),
+        _ => None,
+    }
+}
+
+fn receiver_as_ident(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Ident(name) => Some(name.as_str()),
+        _ => None,
+    }
+}
+
+fn is_result_length_call(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::MethodCall {
+            receiver,
+            method,
+            ..
+        } if method == "length"
+            && matches!(receiver.as_ref(), Expr::Ident(name) if name == "result")
+    )
+}
+
+/// Requires clauses that mention index/buffer access (not mere `length() > 0`).
+fn clause_mentions_index_bounds(expr: &Expr) -> bool {
+    match expr {
+        Expr::Index { .. } => true,
+        Expr::BinOp { lhs, rhs, .. } => {
+            clause_mentions_index_bounds(lhs) || clause_mentions_index_bounds(rhs)
+        }
+        Expr::Field(inner, field) => {
+            clause_mentions_index_bounds(inner)
+                || matches!(
+                    field.as_str(),
+                    "offset" | "index" | "start" | "end" | "capacity"
+                )
+        }
+        Expr::Ident(name) => matches!(
+            name.as_str(),
+            "offset" | "index" | "start" | "end" | "capacity" | "buf_size"
+        ),
+        Expr::MethodCall { receiver, .. } => clause_mentions_index_bounds(receiver),
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Paren(inner) => {
+            clause_mentions_index_bounds(inner)
+        }
+        _ => false,
+    }
+}
+
+fn clause_mentions_result_field(expr: &Expr) -> bool {
+    match expr {
+        Expr::Field(receiver, _) => {
+            matches!(receiver.as_ref(), Expr::Ident(name) if name == "result")
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            clause_mentions_result_field(lhs) || clause_mentions_result_field(rhs)
+        }
+        _ => false,
+    }
 }
 
 fn expr_to_param_slot(expr: &Expr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
@@ -221,6 +381,22 @@ mod tests {
         (slot, "Int".into())
     }
 
+    fn bytes_len_le_result_raw() -> Expr {
+        Expr::BinOp {
+            op: BinOp::Lte,
+            lhs: Box::new(Expr::MethodCall {
+                receiver: Box::new(Expr::Ident("result".into())),
+                method: "length".into(),
+                args: vec![],
+            }),
+            rhs: Box::new(Expr::MethodCall {
+                receiver: Box::new(Expr::Ident("raw".into())),
+                method: "length".into(),
+                args: vec![],
+            }),
+        }
+    }
+
     #[test]
     fn generates_load_when_ensures_result_eq_param() {
         let clauses = vec![Clause {
@@ -277,6 +453,37 @@ mod tests {
         );
         assert!(text.contains("arith add $0 $1"));
         assert!(text.contains("$result = load $2"));
+    }
+
+    #[test]
+    fn generates_load_when_ensures_length_copy() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: bytes_len_le_result_raw(),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "CopyBytes",
+            &[(0, "Bytes".into())],
+            &["raw".into()],
+            "Bytes",
+            &clauses,
+        );
+        assert!(text.contains("$result = load $0 : Bytes"));
+        assert!(text.contains("Generated IR"));
+    }
+
+    #[test]
+    fn classifies_length_copy_shape() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: bytes_len_le_result_raw(),
+            effect_variables: vec![],
+        }];
+        assert_eq!(
+            classify_ensures_shape(&clauses, &["raw".into()]),
+            EnsuresShape::LengthCopy
+        );
     }
 
     #[test]
