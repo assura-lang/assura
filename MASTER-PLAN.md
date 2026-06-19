@@ -1767,6 +1767,17 @@ compiles" failure on taint-tracking.assura.
 - **Next session**: OSS launch (public repo → CodeQL #45, crates.io 6.03), deeper IR semantics
   (HIR/type-aware Call/Field), AI template pipeline for complex contracts
 
+### Session 23 (2026-06-19): IR `call` inlining from loaded sidecar bodies
+
+- **`IrEncodeContext`**: shared `type_ctx` + `ir_bodies` + `ir_blocks` for Z3, CVC5 native,
+  and shell SMT-LIB IR encoding
+- **Cross-function `call`**: when IR has `call helper ($0)`, inline callee body from
+  `VerifyFileExtras.ir_bodies` instead of opaque `__ir_call_*` UF (Z3 + CVC5 native + shell)
+- **Pipeline wiring**: `ir_bodies` threaded through `entry.rs` parallel verify, Z3
+  `TypeConstraints`, and CVC5 dispatch/native/shell havoc+assume paths
+- **Tests**: `test_z3_ir_call_inlines_callee_sidecar`; full workspace gate green
+- **Next**: OSS launch (#45 CodeQL blocked on public repo), AI IR templates for complex contracts
+
 ---
 
 ## Phase 10: Full SMT Parity (CVC5 matches Z3, both go deeper)

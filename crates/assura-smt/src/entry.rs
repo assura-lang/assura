@@ -738,6 +738,7 @@ fn verify_file_with_cvc5(
             &constants,
             ir_body,
             ir_blocks,
+            ir_bodies,
             type_env,
             &mut session_cache,
         ));
@@ -924,7 +925,8 @@ pub fn verify_parallel_with_solver(
             let ir_blocks = ir_block_maps.and_then(|m| m.get(name));
             // Cache miss: run solver with type constraints
             let results = verify_contract_with_types_and_solver(
-                name, clauses, params, return_ty, &constants, solver, ir_body, ir_blocks, type_env,
+                name, clauses, params, return_ty, &constants, solver, ir_body, ir_blocks,
+                ir_bodies, type_env,
             );
             cache.put(name, clauses, &results);
             results
@@ -1019,6 +1021,7 @@ fn verify_contract_with_types_and_solver(
     solver: SolverChoice,
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
     type_env: Option<&assura_types::TypeEnv>,
 ) -> Vec<VerificationResult> {
     match solver {
@@ -1033,6 +1036,7 @@ fn verify_contract_with_types_and_solver(
                     constants,
                     ir_body,
                     ir_blocks,
+                    ir_bodies,
                     type_env,
                 )
             }
@@ -1053,6 +1057,7 @@ fn verify_contract_with_types_and_solver(
                 constants,
                 ir_body,
                 ir_blocks,
+                ir_bodies,
                 type_env,
                 &mut cache,
             )

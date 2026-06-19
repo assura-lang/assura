@@ -37,6 +37,8 @@ struct TypeConstraints<'a> {
     ir_body: Option<&'a IrFunction>,
     /// Optional `fn #N` block bodies from multi-function IR sidecars.
     ir_blocks: Option<&'a std::collections::HashMap<usize, Vec<IrInstr>>>,
+    /// All loaded IR sidecar bodies for cross-function `call` inlining.
+    ir_bodies: Option<&'a std::collections::HashMap<String, IrFunction>>,
     /// Layer-0 type environment for type-aware IR encoding.
     type_env: Option<&'a assura_types::TypeEnv>,
 }
@@ -186,6 +188,7 @@ fn verify_clauses_with_types(
         &param_names,
         types.ir_body,
         types.ir_blocks,
+        types.ir_bodies,
         types.type_env,
     );
     for axiom in &base_encoder.background_axioms {
@@ -626,6 +629,7 @@ pub(crate) fn verify_contract_impl_with_types(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -641,6 +645,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
     constants: &[(String, i64)],
     ir_body: Option<&IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<IrInstr>>>,
+    ir_bodies: Option<&std::collections::HashMap<String, IrFunction>>,
     type_env: Option<&assura_types::TypeEnv>,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
@@ -654,6 +659,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         narrowings: &narrowings,
         ir_body,
         ir_blocks,
+        ir_bodies,
         type_env,
         ..Default::default()
     };
@@ -716,6 +722,7 @@ pub(crate) fn verify_impl_with_timeout(
                         narrowings: &narrowings,
                         ir_body,
                         ir_blocks,
+                        ir_bodies,
                         type_env: file_type_env,
                         ..Default::default()
                     },
@@ -731,6 +738,7 @@ pub(crate) fn verify_impl_with_timeout(
                     narrowings: &narrowings,
                     ir_body,
                     ir_blocks,
+                    ir_bodies,
                     type_env: file_type_env,
                     ..Default::default()
                 };
@@ -753,6 +761,7 @@ pub(crate) fn verify_impl_with_timeout(
                     narrowings: &narrowings,
                     ir_body,
                     ir_blocks,
+                    ir_bodies,
                     type_env: file_type_env,
                     ..Default::default()
                 };
@@ -777,6 +786,7 @@ pub(crate) fn verify_impl_with_timeout(
                                 narrowings: &narrowings,
                                 ir_body,
                                 ir_blocks,
+                                ir_bodies,
                                 type_env: file_type_env,
                                 ..Default::default()
                             };
@@ -798,6 +808,7 @@ pub(crate) fn verify_impl_with_timeout(
                                 narrowings: &narrowings,
                                 ir_body,
                                 ir_blocks,
+                                ir_bodies,
                                 type_env: file_type_env,
                                 ..Default::default()
                             };
@@ -831,6 +842,7 @@ pub(crate) fn verify_impl_with_timeout(
                         narrowings: &narrowings,
                         ir_body,
                         ir_blocks,
+                        ir_bodies,
                         type_env: file_type_env,
                         ..Default::default()
                     },
@@ -846,6 +858,7 @@ pub(crate) fn verify_impl_with_timeout(
                     narrowings: &narrowings,
                     ir_body,
                     ir_blocks,
+                    ir_bodies,
                     type_env: file_type_env,
                     ..Default::default()
                 };

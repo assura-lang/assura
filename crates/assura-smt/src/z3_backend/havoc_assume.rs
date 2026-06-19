@@ -9,8 +9,8 @@ use crate::havoc_assume::{
 use crate::ir::{
     IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrPred, IrPredArg,
 };
-use crate::ir_encode::{is_collection_ir_type, is_length_ir_call, slot_type_map};
-use crate::ir_type_ctx::{IrTypeContext, base_type_name};
+use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, is_length_ir_call, slot_type_map};
+use crate::ir_type_ctx::base_type_name;
 use assura_parser::ast::Clause;
 use assura_types::TypeEnv;
 use std::collections::HashMap;
@@ -19,8 +19,7 @@ use z3::ast;
 struct IrEncodeCtx<'a> {
     slot_to_name: HashMap<usize, String>,
     slot_types: HashMap<usize, String>,
-    blocks: Option<&'a HashMap<usize, Vec<IrInstr>>>,
-    type_ctx: IrTypeContext<'a>,
+    enc: IrEncodeContext<'a>,
 }
 
 /// Apply havoc+assume axioms before verifying ensures clauses.
@@ -33,6 +32,7 @@ pub(crate) fn apply_havoc_assume_z3(
     param_names: &[String],
     ir: Option<&IrFunction>,
     ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
+    ir_bodies: Option<&HashMap<String, IrFunction>>,
     type_env: Option<&TypeEnv>,
 ) {
     apply_structural_result_axioms(encoder, return_ty);
@@ -42,8 +42,7 @@ pub(crate) fn apply_havoc_assume_z3(
             encoder,
             func,
             param_names,
-            ir_blocks,
-            IrTypeContext::from_type_env(type_env),
+            IrEncodeContext::new(type_env, ir_bodies, ir_blocks),
         );
     }
 }
@@ -69,8 +68,7 @@ fn apply_ir_body_constraints(
     encoder: &mut Encoder,
     func: &IrFunction,
     contract_param_names: &[String],
-    ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
-    type_ctx: IrTypeContext<'_>,
+    enc_ctx: IrEncodeContext<'_>,
 ) {
     let mut slots: HashMap<usize, ast::Int> = HashMap::new();
 
@@ -88,8 +86,7 @@ fn apply_ir_body_constraints(
     let ctx = IrEncodeCtx {
         slot_to_name,
         slot_types: slot_type_map(func),
-        blocks: ir_blocks,
-        type_ctx,
+        enc: enc_ctx,
     };
 
     for instr in &func.body {
@@ -128,13 +125,67 @@ fn apply_ir_body_constraints(
     }
 }
 
+fn eval_ir_call_z3(
+    encoder: &mut Encoder,
+    func: &str,
+    args: &[usize],
+    slots: &HashMap<usize, ast::Int>,
+    ctx: &IrEncodeCtx<'_>,
+) -> Option<ast::Int> {
+    let callee = ctx.enc.callee_ir(func)?;
+    if callee.params.len() != args.len() {
+        return None;
+    }
+
+    let prefix = format!("__ir_call_{func}_");
+    let mut local: HashMap<usize, ast::Int> = HashMap::new();
+
+    for (i, param) in callee.params.iter().enumerate() {
+        let arg_val = encode_ir_expr_z3(encoder, &IrExprKind::Load(args[i]), slots, ctx);
+        let name = format!("{prefix}param_{}", param.slot);
+        let slot_var = encoder.get_or_create_int(&name);
+        encoder.background_axioms.push(arg_val.eq(&slot_var));
+        local.insert(param.slot, slot_var);
+    }
+
+    let result_name = format!("{prefix}result");
+    let result_var = encoder.get_or_create_int(&result_name);
+    local.insert(RESULT_SLOT, result_var);
+
+    let callee_slot_types = slot_type_map(callee);
+    let callee_names: HashMap<usize, String> = callee
+        .params
+        .iter()
+        .map(|p| (p.slot, format!("{prefix}param_{}", p.slot)))
+        .collect();
+    let callee_ctx = IrEncodeCtx {
+        slot_to_name: callee_names,
+        slot_types: callee_slot_types,
+        enc: ctx.enc,
+    };
+
+    for instr in &callee.body {
+        if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
+            let name = format!("{prefix}slot_{}", instr.target);
+            let v = encoder.get_or_create_int(&name);
+            local.insert(instr.target, v);
+        }
+        let computed = encode_ir_expr_z3(encoder, &instr.expr, &local, &callee_ctx);
+        if let Some(target) = local.get(&instr.target) {
+            encoder.background_axioms.push(computed.eq(target));
+        }
+    }
+
+    local.get(&RESULT_SLOT).cloned()
+}
+
 fn eval_ir_block_z3(
     encoder: &mut Encoder,
     block_id: usize,
     slots: &HashMap<usize, ast::Int>,
     ctx: &IrEncodeCtx<'_>,
 ) -> Option<ast::Int> {
-    let body = ctx.blocks?.get(&block_id)?;
+    let body = ctx.enc.ir_blocks?.get(&block_id)?;
     let mut local = slots.clone();
     let mut last: Option<ast::Int> = None;
     for instr in body {
@@ -197,6 +248,9 @@ fn encode_ir_expr_z3(
             {
                 return encoder.canonical_length(name);
             }
+            if let Some(inlined) = eval_ir_call_z3(encoder, func, args, slots, ctx) {
+                return inlined;
+            }
             let arg_ints: Vec<ast::Int> = args
                 .iter()
                 .map(|a| encode_ir_expr_z3(encoder, &IrExprKind::Load(*a), slots, ctx))
@@ -233,10 +287,10 @@ fn encode_ir_expr_z3(
             }
             let base = encode_ir_expr_z3(encoder, &IrExprKind::Load(*slot), slots, ctx);
             if let Some(ir_ty) = ctx.slot_types.get(slot)
-                && let Some(field_name) = ctx.type_ctx.field_name_at(ir_ty, *index)
+                && let Some(field_name) = ctx.enc.type_ctx.field_name_at(ir_ty, *index)
             {
                 let type_name = base_type_name(ir_ty);
-                if let Some(names) = ctx.type_ctx.field_names_for(type_name) {
+                if let Some(names) = ctx.enc.type_ctx.field_names_for(type_name) {
                     encoder.ensure_struct_adt(
                         type_name,
                         &names.into_iter().map(str::to_string).collect::<Vec<_>>(),
@@ -255,8 +309,8 @@ fn encode_ir_expr_z3(
                 .unwrap_or_else(|| encoder.fresh_int())
         }
         IrExprKind::Construct { type_id, fields } => {
-            if ctx.type_ctx.has_struct_layout(type_id)
-                && let Some(field_names) = ctx.type_ctx.field_names_for(type_id)
+            if ctx.enc.type_ctx.has_struct_layout(type_id)
+                && let Some(field_names) = ctx.enc.type_ctx.field_names_for(type_id)
             {
                 encoder.ensure_struct_adt(
                     type_id,
@@ -438,6 +492,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert!(
                 !encoder.background_axioms.is_empty(),
@@ -475,6 +530,7 @@ module test {
                 &["Bool".into()],
                 &["x".into()],
                 Some(&ir),
+                None,
                 None,
                 None,
             );
@@ -521,6 +577,7 @@ module test {
                 &["a".into(), "b".into()],
                 Some(&ir),
                 None,
+                None,
                 Some(&env),
             );
             assert!(
@@ -564,10 +621,71 @@ module test {
                 Some(&ir),
                 None,
                 None,
+                None,
             );
             assert!(
                 !encoder.background_axioms.is_empty(),
                 "length call should tie result to raw.length()"
+            );
+        });
+    }
+
+    #[test]
+    fn test_z3_ir_call_inlines_callee_sidecar() {
+        use crate::ir::{IrFunction, parse_ir_module};
+
+        z3::with_z3_config(&z3::Config::new(), || {
+            let main_ir: IrFunction = parse_ir_module(
+                r#"
+module main {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = call double ($0) : Int
+    $result = load $1 : Int
+  }
+}
+"#,
+            )
+            .unwrap()
+            .functions[0]
+                .clone();
+
+            let helper_ir: IrFunction = parse_ir_module(
+                r#"
+module double {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = arith add $0 $0 : Int
+    $result = load $1 : Int
+  }
+}
+"#,
+            )
+            .unwrap()
+            .functions[0]
+                .clone();
+
+            let mut bodies = HashMap::new();
+            bodies.insert("double".into(), helper_ir);
+
+            let mut encoder = Encoder::new();
+            apply_havoc_assume_z3(
+                &mut encoder,
+                &[],
+                &[],
+                &["Int".into()],
+                &["x".into()],
+                Some(&main_ir),
+                None,
+                Some(&bodies),
+                None,
+            );
+            assert!(
+                encoder
+                    .background_axioms
+                    .iter()
+                    .any(|a| a.to_string().contains("__ir_call_double_")),
+                "call double should inline callee IR with prefixed slots"
             );
         });
     }

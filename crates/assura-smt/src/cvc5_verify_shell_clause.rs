@@ -33,6 +33,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     param_names: &[String],
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
     type_env: Option<&assura_types::TypeEnv>,
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
@@ -80,6 +81,7 @@ pub(crate) fn check_clause_cvc5_shellout(
         param_names,
         ir_body,
         ir_blocks,
+        ir_bodies,
         type_env,
     );
 

@@ -39,6 +39,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
     constants: &[(String, i64)],
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
     type_env: Option<&assura_types::TypeEnv>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
@@ -98,6 +99,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
                 &param_names,
                 ir_body,
                 ir_blocks,
+                ir_bodies,
                 type_env,
                 constants,
                 &narrowings,
@@ -156,6 +158,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
             &param_names,
             ir_body,
             ir_blocks,
+            ir_bodies,
             type_env,
             constants,
             &narrowings,
@@ -222,6 +225,7 @@ fn build_incremental_shell_script(
     param_names: &[String],
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
     type_env: Option<&assura_types::TypeEnv>,
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
@@ -272,6 +276,7 @@ fn build_incremental_shell_script(
             param_names,
             ir_body,
             ir_blocks,
+            ir_bodies,
             type_env,
         );
 
@@ -369,6 +374,7 @@ mod tests {
             &[],
             &["Int".into()],
             &[],
+            None,
             None,
             None,
             None,

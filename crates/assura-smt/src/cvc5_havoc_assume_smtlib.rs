@@ -10,7 +10,6 @@ use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
 use crate::havoc_assume::{infer_length_identity_links, is_collection_return};
 use crate::ir::IrFunction;
-use crate::ir_type_ctx::IrTypeContext;
 
 /// Canonical length variable name for a named binding (`__canonical_len_{name}`).
 pub(crate) fn canonical_length_smtlib_name(name: &str) -> String {
@@ -31,6 +30,7 @@ pub(crate) fn append_havoc_assume_smtlib(
     param_names: &[String],
     ir: Option<&IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
+    ir_bodies: Option<&std::collections::HashMap<String, IrFunction>>,
     type_env: Option<&TypeEnv>,
 ) {
     if is_collection_return(return_ty) {
@@ -55,8 +55,7 @@ pub(crate) fn append_havoc_assume_smtlib(
             vars,
             func,
             param_names,
-            ir_blocks,
-            IrTypeContext::from_type_env(type_env),
+            crate::ir_encode::IrEncodeContext::new(type_env, ir_bodies, ir_blocks),
         );
     }
 }
@@ -99,6 +98,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(script.contains("(declare-const __canonical_len_result Int)"));
         assert!(script.contains("(assert (>= __canonical_len_result 0))"));
@@ -126,6 +126,7 @@ mod tests {
             &ensures.iter().collect::<Vec<_>>(),
             &["Bytes".into()],
             &["raw".into()],
+            None,
             None,
             None,
             None,
