@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::{Clause, Expr, Literal};
+use assura_parser::ast::{Clause, Expr};
 
 use crate::cvc5_atom_encode::{encode_apply_cvc5, encode_ident_cvc5, encode_literal_cvc5};
 use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};

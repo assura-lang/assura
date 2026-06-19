@@ -1,5 +1,6 @@
 //! CVC5 backend public surface: re-exports for shell-out and native paths.
 
+#[allow(unused_imports)]
 pub use crate::cvc5_collect::collect_vars;
 #[allow(unused_imports)]
 pub(crate) use crate::cvc5_feature_max::{
@@ -36,6 +37,7 @@ pub(crate) use crate::cvc5_adt::{
     adt_is_constructor_cvc5_native, define_adt_cvc5_native,
 };
 
+#[allow(unused_imports)]
 pub use crate::cvc5_expr_smtlib::expr_to_smtlib;
 
 #[cfg(test)]
