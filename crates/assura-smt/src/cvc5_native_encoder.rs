@@ -8,9 +8,7 @@ use assura_parser::ast::{BinOp, Clause, Expr, Literal, Pattern, UnaryOp};
 use assura_types::checkers::expr_references_var;
 
 use crate::cvc5_builtins::{is_bool_field, is_size_field, pattern_hash_name};
-use crate::cvc5_common::{
-    float_to_rational_parts, sanitize_smtlib_name, smtlib_result_name,
-};
+use crate::cvc5_common::{float_to_rational_parts, sanitize_smtlib_name, smtlib_result_name};
 use crate::cvc5_encoder_state::{canonical_length_cvc5, field_len_fn_cvc5};
 use crate::cvc5_field_access::{FieldAccessPlan, encode_shallow_field_cvc5, plan_field_access};
 use crate::cvc5_index_access::encode_index_access_cvc5;

@@ -75,6 +75,7 @@ mod no_z3;
 // CVC5 backend (shell out to cvc5 binary via SMT-LIB2)
 // ---------------------------------------------------------------------------
 
+mod cvc5_adt;
 mod cvc5_backend;
 mod cvc5_builtins;
 mod cvc5_common;
