@@ -65,6 +65,13 @@ fn encode_ir_expr_cvc5<'a>(
 
     match expr {
         IrExprKind::Const(IrLiteral::Int(n)) => tm.mk_integer(*n),
+        IrExprKind::Const(IrLiteral::Float(f)) => tm.mk_integer(*f as i64),
+        IrExprKind::Const(IrLiteral::Bool(b)) => tm.mk_integer(if *b { 1 } else { 0 }),
+        IrExprKind::Const(IrLiteral::Str(_)) => {
+            let name = format!("__fresh_{}", state.fresh_counter);
+            state.fresh_counter += 1;
+            tm.mk_const(tm.integer_sort(), &name)
+        }
         IrExprKind::Load(slot) => slots.get(slot).cloned().unwrap_or_else(|| {
             let name = format!("__fresh_{}", state.fresh_counter);
             state.fresh_counter += 1;
@@ -121,6 +128,8 @@ fn mk_ir_call_cvc5<'a>(
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
+    use crate::ir::IrExprKind;
+
     let arg_terms: Vec<cvc5::Term<'a>> = args
         .iter()
         .map(|a| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*a), slots, vars, state))
@@ -154,29 +163,24 @@ fn mk_ir_nary_uf_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     name: &str,
     args: &[cvc5::Term<'a>],
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    _vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    _state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     let key = sanitize_smtlib_name(name);
-    let int_sort = tm.integer_sort();
-    let domain: Vec<cvc5::Sort<'_>> = (0..args.len()).map(|_| int_sort).collect();
-    let range = int_sort;
+    let domain: Vec<cvc5::Sort<'_>> = (0..args.len()).map(|_| tm.integer_sort()).collect();
     let fun_sort = if domain.is_empty() {
-        range
+        tm.integer_sort()
     } else {
-        tm.mk_fun_sort(&domain, &range)
+        tm.mk_fun_sort(&domain, tm.integer_sort())
     };
     let decl = tm.mk_const(fun_sort, &key);
     if args.is_empty() {
         decl
     } else {
-        tm.mk_term(
-            cvc5::Kind::ApplyUf,
-            std::iter::once(&decl)
-                .chain(args.iter())
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
+        let mut apply_args = Vec::with_capacity(1 + args.len());
+        apply_args.push(decl);
+        apply_args.extend_from_slice(args);
+        tm.mk_term(cvc5::Kind::ApplyUf, &apply_args)
     }
 }
 
