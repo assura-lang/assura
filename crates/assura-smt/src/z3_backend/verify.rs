@@ -9,7 +9,7 @@ use super::solver::{
     assert_tracked, check_satisfiability, check_validity, clause_desc, enable_unsat_cores,
 };
 use crate::cache::SessionCache;
-use crate::ir::IrFunction;
+use crate::ir::{IrFunction, IrInstr};
 use crate::*;
 use assura_parser::ast::{BlockKind, Clause};
 use z3::{SatResult, Solver, ast};
@@ -35,6 +35,8 @@ struct TypeConstraints<'a> {
     use_string_theory: bool,
     /// Optional implementation IR body for havoc+assume (#267).
     ir_body: Option<&'a IrFunction>,
+    /// Optional `fn #N` block bodies from multi-function IR sidecars.
+    ir_blocks: Option<&'a std::collections::HashMap<usize, Vec<IrInstr>>>,
 }
 
 /// Returns true if the given type token list represents the `Nat` type.
@@ -181,6 +183,7 @@ fn verify_clauses_with_types(
         types.return_ty,
         &param_names,
         types.ir_body,
+        types.ir_blocks,
     );
     for axiom in &base_encoder.background_axioms {
         solver.assert(axiom);
@@ -618,6 +621,7 @@ pub(crate) fn verify_contract_impl_with_types(
         return_ty,
         constants,
         None,
+        None,
     )
 }
 
@@ -628,6 +632,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
     return_ty: &[String],
     constants: &[(String, i64)],
     ir_body: Option<&IrFunction>,
+    ir_blocks: Option<&std::collections::HashMap<usize, Vec<IrInstr>>>,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
@@ -639,6 +644,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         constants,
         narrowings: &narrowings,
         ir_body,
+        ir_blocks,
         ..Default::default()
     };
     verify_clauses_with_types(
@@ -661,6 +667,7 @@ pub(crate) fn verify_impl_with_timeout(
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
+    let ir_block_maps = extras.and_then(|e| e.ir_blocks);
 
     // T044: collect all lemma definitions for apply injection
     let lemma_defs = collect_lemma_defs(typed);
@@ -684,6 +691,7 @@ pub(crate) fn verify_impl_with_timeout(
                 let mut all_params = input_params;
                 all_params.extend_from_slice(&c.fn_params);
                 let ir_body = ir_bodies.and_then(|m| m.get(&c.name));
+                let ir_blocks = ir_block_maps.and_then(|m| m.get(&c.name));
                 verify_clauses_with_types(
                     &c.name,
                     &c.clauses,
@@ -696,18 +704,21 @@ pub(crate) fn verify_impl_with_timeout(
                         constants: &constants,
                         narrowings: &narrowings,
                         ir_body,
+                        ir_blocks,
                         ..Default::default()
                     },
                 );
             }
             Decl::FnDef(f) => {
                 let ir_body = ir_bodies.and_then(|m| m.get(&f.name));
+                let ir_blocks = ir_block_maps.and_then(|m| m.get(&f.name));
                 let types = TypeConstraints {
                     params: &f.params,
                     return_ty: &f.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
                     ir_body,
+                    ir_blocks,
                     ..Default::default()
                 };
                 verify_clauses_with_types(
@@ -721,12 +732,14 @@ pub(crate) fn verify_impl_with_timeout(
             }
             Decl::Extern(e) => {
                 let ir_body = ir_bodies.and_then(|m| m.get(&e.name));
+                let ir_blocks = ir_block_maps.and_then(|m| m.get(&e.name));
                 let types = TypeConstraints {
                     params: &e.params,
                     return_ty: &e.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
                     ir_body,
+                    ir_blocks,
                     ..Default::default()
                 };
                 verify_clauses_with_types(
@@ -744,10 +757,12 @@ pub(crate) fn verify_impl_with_timeout(
                         ServiceItem::Operation { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
                             let ir_body = ir_bodies.and_then(|m| m.get(&qname));
+                            let ir_blocks = ir_block_maps.and_then(|m| m.get(&qname));
                             let svc_types = TypeConstraints {
                                 constants: &constants,
                                 narrowings: &narrowings,
                                 ir_body,
+                                ir_blocks,
                                 ..Default::default()
                             };
                             verify_clauses_with_types(
@@ -762,10 +777,12 @@ pub(crate) fn verify_impl_with_timeout(
                         ServiceItem::Query { name, clauses } => {
                             let qname = format!("{}.{}", s.name, name);
                             let ir_body = ir_bodies.and_then(|m| m.get(&qname));
+                            let ir_blocks = ir_block_maps.and_then(|m| m.get(&qname));
                             let svc_types = TypeConstraints {
                                 constants: &constants,
                                 narrowings: &narrowings,
                                 ir_body,
+                                ir_blocks,
                                 ..Default::default()
                             };
                             verify_clauses_with_types(
@@ -786,6 +803,7 @@ pub(crate) fn verify_impl_with_timeout(
             }
             Decl::Block { name, body, .. } => {
                 let ir_body = ir_bodies.and_then(|m| m.get(name));
+                let ir_blocks = ir_block_maps.and_then(|m| m.get(name));
                 verify_clauses_with_types(
                     name,
                     body,
@@ -796,18 +814,21 @@ pub(crate) fn verify_impl_with_timeout(
                         constants: &constants,
                         narrowings: &narrowings,
                         ir_body,
+                        ir_blocks,
                         ..Default::default()
                     },
                 );
             }
             Decl::Bind(b) => {
                 let ir_body = ir_bodies.and_then(|m| m.get(&b.name));
+                let ir_blocks = ir_block_maps.and_then(|m| m.get(&b.name));
                 let types = TypeConstraints {
                     params: &b.params,
                     return_ty: &b.return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
                     ir_body,
+                    ir_blocks,
                     ..Default::default()
                 };
                 verify_clauses_with_types(

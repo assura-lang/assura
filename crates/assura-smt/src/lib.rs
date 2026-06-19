@@ -41,6 +41,9 @@ pub use measures::{
 pub mod result;
 pub use result::{CounterexampleModel, VerificationResult};
 
+/// Shared IR expression encoding helpers.
+mod ir_encode;
+
 /// Public entry point functions for SMT verification.
 mod entry;
 mod ir_loader;
@@ -48,8 +51,9 @@ pub use entry::{
     EvolutionResult, VerifyFileExtras, check_refinement_subtype,
     check_refinement_subtype_with_context, has_verifiable_clauses, verify, verify_buffer_bounds,
     verify_contract, verify_contract_with_solver, verify_decrease, verify_evolution,
-    verify_file_evolution, verify_parallel, verify_parallel_with_solver, verify_region_containment,
-    verify_taint_safety, verify_with_measures, verify_with_options,
+    verify_file_evolution, verify_from_source, verify_parallel, verify_parallel_from_source,
+    verify_parallel_with_solver, verify_region_containment, verify_taint_safety,
+    verify_with_measures, verify_with_options,
 };
 pub use ir_loader::{
     LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source,

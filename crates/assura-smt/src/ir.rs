@@ -917,7 +917,13 @@ fn count_input_params(body: &assura_parser::ast::Expr) -> usize {
 ///
 /// Uses identity `load` from the first parameter when present so SMT havoc+assume
 /// has a minimal implementation constraint to refine.
-pub fn stub_ir_sidecar_text(name: &str, params: &[(usize, String)], return_ty: &str) -> String {
+pub fn stub_ir_sidecar_text(
+    name: &str,
+    params: &[(usize, String)],
+    return_ty: &str,
+    requires_count: usize,
+    ensures_count: usize,
+) -> String {
     let module = name
         .chars()
         .map(|c| {
@@ -939,9 +945,11 @@ pub fn stub_ir_sidecar_text(name: &str, params: &[(usize, String)], return_ty: &
         format!("    $result = const 0 : {return_ty}\n")
     };
     format!(
-        "// Stub IR for {name} — replace with AI-generated implementation\n\
+        "// Stub IR for {name} — AI replaces body to satisfy contract ensures\n\
+         // Contract: {requires_count} requires, {ensures_count} ensures\n\
          module {module} {{\n\
            fn #0 : ({param_list}) -> {return_ty} ! pure\n\
+           pre: true\n\
            {{\n\
          {body}\
            }}\n\
@@ -1176,9 +1184,11 @@ mod tests {
 
     #[test]
     fn stub_ir_sidecar_text_includes_identity_load() {
-        let text = stub_ir_sidecar_text("CopyBytes", &[(0, "Bytes".into())], "Bytes");
+        let text = stub_ir_sidecar_text("CopyBytes", &[(0, "Bytes".into())], "Bytes", 1, 1);
         assert!(text.contains("CopyBytes"));
         assert!(text.contains("$result = load $0"));
+        assert!(text.contains("pre: true"));
+        assert!(text.contains("1 requires, 1 ensures"));
         assert!(parse_ir_module(&text).is_ok());
     }
 

@@ -124,6 +124,7 @@ module copy {
         &["Bytes".into()],
         &[],
         Some(&ir),
+        None,
     );
     assert!(!results.is_empty(), "expected verification results");
     assert!(

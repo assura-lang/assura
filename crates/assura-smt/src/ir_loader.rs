@@ -3,22 +3,23 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use assura_parser::ast::{Decl, ServiceItem};
+use assura_parser::ast::{ClauseKind, Decl, ServiceItem};
 
 use crate::VerifyFileExtras;
-use crate::ir::{IrFunction, parse_ir_module};
+use crate::ir::{IrFunction, IrInstr, IrModule, parse_ir_module};
+use crate::ir_encode::block_map_from_module;
 
 /// IR sidecars loaded for a source file, with a borrowed view for verification APIs.
 pub struct LoadedVerifyExtras {
     ir_map: HashMap<String, IrFunction>,
+    block_map: HashMap<String, HashMap<usize, Vec<IrInstr>>>,
 }
 
 impl LoadedVerifyExtras {
     /// Load `{ContractName}.ir` sidecars for all verification jobs in `typed`.
     pub fn load(source_file: &Path, typed: &assura_types::TypedFile) -> Self {
-        Self {
-            ir_map: load_ir_bodies_for_typed(source_file, typed),
-        }
+        let (ir_map, block_map) = load_ir_sidecars_for_typed(source_file, typed);
+        Self { ir_map, block_map }
     }
 
     /// Whether any sidecar IR bodies were discovered.
@@ -30,6 +31,7 @@ impl LoadedVerifyExtras {
     pub fn extras(&self) -> Option<VerifyFileExtras<'_>> {
         (!self.ir_map.is_empty()).then_some(VerifyFileExtras {
             ir_bodies: Some(&self.ir_map),
+            ir_blocks: Some(&self.block_map),
         })
     }
 }
@@ -75,40 +77,67 @@ pub fn collect_verification_job_names(typed: &assura_types::TypedFile) -> Vec<St
     names
 }
 
+/// Parsed IR sidecar: entry function plus optional block bodies from sibling `fn #N`.
+pub(crate) struct IrSidecar {
+    func: IrFunction,
+    blocks: HashMap<usize, Vec<IrInstr>>,
+}
+
 /// Load IR bodies for the given contract names from sidecar `.ir` files.
-///
-/// Looks for `{contract_name}.ir` in each search directory. Uses the first
-/// function in the module when the file parses successfully.
 pub fn load_ir_bodies_for_contracts(
     search_dirs: &[&Path],
     contract_names: &[String],
 ) -> HashMap<String, IrFunction> {
     let mut out = HashMap::new();
     for name in contract_names {
-        if let Some(func) = resolve_ir_sidecar(search_dirs, name) {
-            out.insert(name.clone(), func);
+        if let Some(sidecar) = resolve_ir_sidecar(search_dirs, name) {
+            out.insert(name.clone(), sidecar.func);
         }
     }
     out
 }
 
-/// Load IR sidecars for all verification jobs in a typed file.
+/// Functions and per-contract `fn #N` block maps loaded from sidecars.
+pub type LoadedIrSidecars = (
+    HashMap<String, IrFunction>,
+    HashMap<String, HashMap<usize, Vec<IrInstr>>>,
+);
+
+/// Load IR sidecars (functions + block maps) for all verification jobs in a typed file.
+pub fn load_ir_sidecars_for_typed(
+    source_file: &Path,
+    typed: &assura_types::TypedFile,
+) -> LoadedIrSidecars {
+    let dirs = ir_search_dirs_for_source(source_file);
+    let dir_refs: Vec<&Path> = dirs.iter().map(|p| p.as_path()).collect();
+    let names = collect_verification_job_names(typed);
+    let mut ir_map = HashMap::new();
+    let mut block_map = HashMap::new();
+    for name in &names {
+        if let Some(sidecar) = resolve_ir_sidecar(&dir_refs, name) {
+            ir_map.insert(name.clone(), sidecar.func);
+            if !sidecar.blocks.is_empty() {
+                block_map.insert(name.clone(), sidecar.blocks);
+            }
+        }
+    }
+    (ir_map, block_map)
+}
+
+/// Load IR sidecars for all verification jobs in a typed file (functions only).
 pub fn load_ir_bodies_for_typed(
     source_file: &Path,
     typed: &assura_types::TypedFile,
 ) -> HashMap<String, IrFunction> {
-    let dirs = ir_search_dirs_for_source(source_file);
-    let dir_refs: Vec<&Path> = dirs.iter().map(|p| p.as_path()).collect();
-    let names = collect_verification_job_names(typed);
-    load_ir_bodies_for_contracts(&dir_refs, &names)
+    load_ir_sidecars_for_typed(source_file, typed).0
 }
 
-pub(crate) fn resolve_ir_sidecar(search_dirs: &[&Path], contract_name: &str) -> Option<IrFunction> {
+pub(crate) fn resolve_ir_sidecar(search_dirs: &[&Path], contract_name: &str) -> Option<IrSidecar> {
     let file_name = format!("{contract_name}.ir");
     for dir in search_dirs {
         let path = dir.join(&file_name);
-        if let Some(func) = load_ir_file(&path) {
-            return Some(func);
+        if let Some(sidecar) = load_ir_file(&path) {
+            return Some(sidecar);
         }
     }
     None
@@ -117,7 +146,7 @@ pub(crate) fn resolve_ir_sidecar(search_dirs: &[&Path], contract_name: &str) -> 
 /// Emit stub `.ir` sidecar text for every verification job in a typed file.
 pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    for (name, _clauses, params, return_ty) in crate::entry::collect_verification_jobs(typed) {
+    for (name, clauses, params, return_ty) in crate::entry::collect_verification_jobs(typed) {
         let param_tys: Vec<(usize, String)> = params
             .iter()
             .enumerate()
@@ -137,18 +166,28 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
         } else {
             return_ty.join(" ")
         };
+        let requires_count = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Requires)
+            .count();
+        let ensures_count = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Ensures)
+            .count();
         out.insert(
             name.clone(),
-            crate::ir::stub_ir_sidecar_text(&name, &param_tys, &ret),
+            crate::ir::stub_ir_sidecar_text(&name, &param_tys, &ret, requires_count, ensures_count),
         );
     }
     out
 }
 
-fn load_ir_file(path: &Path) -> Option<IrFunction> {
+fn load_ir_file(path: &Path) -> Option<IrSidecar> {
     let source = std::fs::read_to_string(path).ok()?;
-    let module = parse_ir_module(&source).ok()?;
-    module.functions.into_iter().next()
+    let module: IrModule = parse_ir_module(&source).ok()?;
+    let func = module.functions.first()?.clone();
+    let blocks = block_map_from_module(&module);
+    Some(IrSidecar { func, blocks })
 }
 
 #[cfg(test)]
@@ -214,8 +253,8 @@ module copy {
         )
         .unwrap();
 
-        let func = resolve_ir_sidecar(&[dir.as_path()], "CopyBytes").expect("should load IR");
-        assert_eq!(func.id, "#0");
+        let sidecar = resolve_ir_sidecar(&[dir.as_path()], "CopyBytes").expect("should load IR");
+        assert_eq!(sidecar.func.id, "#0");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -233,6 +272,34 @@ module copy {
         let typed = typed_with_contract("MyContract");
         let names = collect_verification_job_names(&typed);
         assert_eq!(names, vec!["MyContract".to_string()]);
+    }
+
+    #[test]
+    fn sidecar_loads_block_map_from_module() {
+        let dir = std::env::temp_dir().join(format!("assura-ir-blocks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Branch.ir"),
+            r#"
+module branch {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+  fn #1 : ($0: Int) -> Int ! pure
+  {
+    $result = const 1 : Int
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let sidecar = resolve_ir_sidecar(&[dir.as_path()], "Branch").expect("load branch IR");
+        assert!(sidecar.blocks.contains_key(&1));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #273: IR sidecars loaded from disk reach parallel verification.

@@ -87,6 +87,9 @@ fn encode_ir_expr_smtlib(
                 .iter()
                 .map(|a| encode_ir_expr_smtlib(&IrExprKind::Load(*a), slots, enc))
                 .collect();
+            if let Some(builtin) = crate::cvc5_builtins::known_builtin_to_smtlib(func, &arg_terms) {
+                return builtin;
+            }
             let fname = sanitize_smtlib_name(&format!("__ir_call_{func}"));
             format!("({fname} {})", arg_terms.join(" "))
         }
