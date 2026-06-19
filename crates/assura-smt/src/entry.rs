@@ -84,6 +84,13 @@ pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct VerifyFileExtras<'a> {
     pub ir_bodies: Option<&'a std::collections::HashMap<String, crate::ir::IrFunction>>,
+    /// Block bodies (`fn #N`) from multi-function IR modules, keyed by contract name.
+    pub ir_blocks: Option<
+        &'a std::collections::HashMap<
+            String,
+            std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>,
+        >,
+    >,
 }
 
 /// Verify all contract clauses in a type-checked file.
@@ -92,7 +99,21 @@ pub struct VerifyFileExtras<'a> {
 /// invariant). Requires clauses are collected as assumptions but not
 /// independently verified (they constrain the context for ensures).
 pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
-    verify_with_options(typed, &assura_config::VerifyOptions::default(), None)
+    verify_from_source(typed, None)
+}
+
+/// Verify a type-checked file, auto-loading `{Name}.ir` sidecars when `source` is set.
+pub fn verify_from_source(
+    typed: &TypedFile,
+    source: Option<&std::path::Path>,
+) -> Vec<VerificationResult> {
+    let loaded = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
+    let extras = loaded.as_ref().and_then(|l| l.extras());
+    verify_with_options(
+        typed,
+        &assura_config::VerifyOptions::default(),
+        extras.as_ref(),
+    )
 }
 
 /// Verify all contract clauses using the given verification options.
@@ -799,7 +820,18 @@ fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> Ver
 /// Also uses the filesystem cache: cache hits are returned immediately,
 /// only cache misses go to Z3 (potentially in parallel).
 pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<VerificationResult> {
-    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, None)
+    verify_parallel_from_source(typed, cache, None)
+}
+
+/// Parallel verification with automatic IR sidecar loading from `source`.
+pub fn verify_parallel_from_source(
+    typed: &TypedFile,
+    cache: &VerificationCache,
+    source: Option<&std::path::Path>,
+) -> Vec<VerificationResult> {
+    let loaded = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
+    let extras = loaded.as_ref().and_then(|l| l.extras());
+    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, extras.as_ref())
 }
 
 /// Check whether any declaration in the source file has verifiable clauses
@@ -853,6 +885,7 @@ pub fn verify_parallel_with_solver(
     let jobs = collect_verification_jobs(typed);
 
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
+    let ir_block_maps = extras.and_then(|e| e.ir_blocks);
 
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
@@ -863,9 +896,10 @@ pub fn verify_parallel_with_solver(
                 return cached;
             }
             let ir_body = ir_bodies.and_then(|m| m.get(name));
+            let ir_blocks = ir_block_maps.and_then(|m| m.get(name));
             // Cache miss: run solver with type constraints
             let results = verify_contract_with_types_and_solver(
-                name, clauses, params, return_ty, &constants, solver, ir_body,
+                name, clauses, params, return_ty, &constants, solver, ir_body, ir_blocks,
             );
             cache.put(name, clauses, &results);
             results
@@ -947,6 +981,7 @@ pub fn verify_contract_with_solver(
 }
 
 /// Verify a contract with type-level constraints from params and return type.
+#[expect(clippy::too_many_arguments, reason = "per-job solver dispatch mirrors Z3 backend")]
 fn verify_contract_with_types_and_solver(
     contract_name: &str,
     clauses: &[assura_parser::ast::Clause],
@@ -955,7 +990,9 @@ fn verify_contract_with_types_and_solver(
     constants: &[(String, i64)],
     solver: SolverChoice,
     ir_body: Option<&crate::ir::IrFunction>,
+    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
 ) -> Vec<VerificationResult> {
+    let _ = ir_blocks;
     match solver {
         SolverChoice::Z3 => {
             #[cfg(feature = "z3-verify")]
@@ -967,6 +1004,7 @@ fn verify_contract_with_types_and_solver(
                     return_ty,
                     constants,
                     ir_body,
+                    ir_blocks,
                 )
             }
             #[cfg(not(feature = "z3-verify"))]

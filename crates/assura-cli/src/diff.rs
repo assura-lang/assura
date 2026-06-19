@@ -590,7 +590,7 @@ contract Typed {
                         // Type check passed; try SMT verification for
                         // error codes in the A05xxx range (prophecy,
                         // verification failures).
-                        let vr = assura_smt::verify(&typed);
+                        let vr = assura_smt::verify_from_source(&typed, Some(&path));
                         let found = vr.iter().any(|r| match r {
                             assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
                                 clause_desc.contains(&code)
@@ -1317,7 +1317,7 @@ timeout = 2000
     ///
     /// E2E tests use verify_parallel with caching (matches real CLI
     /// behavior) rather than the shared pipeline's basic verify().
-    fn run_e2e_pipeline(source: &str) -> (bool, bool) {
+    fn run_e2e_pipeline(source: &str, source_path: &std::path::Path) -> (bool, bool) {
         let (file, parse_errors) = assura_parser::parse(source);
         if !parse_errors.is_empty() {
             return (true, false);
@@ -1338,7 +1338,7 @@ timeout = 2000
         let cache_dir = std::env::temp_dir().join("assura_e2e_cache");
         let _ = std::fs::create_dir_all(&cache_dir);
         let cache = assura_smt::VerificationCache::new(&cache_dir);
-        let results = assura_smt::verify_parallel(&typed, &cache);
+        let results = assura_smt::verify_parallel_from_source(&typed, &cache, Some(source_path));
         let has_counterexample = results
             .iter()
             .any(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }));
@@ -1374,7 +1374,7 @@ timeout = 2000
                 }
             };
 
-            let (has_errors, has_counterexample) = run_e2e_pipeline(&source);
+            let (has_errors, has_counterexample) = run_e2e_pipeline(&source, &path);
 
             match expected {
                 ExpectedOutcome::Verified => {
