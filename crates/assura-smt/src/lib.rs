@@ -85,6 +85,7 @@ mod cvc5_collect;
 mod cvc5_common;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_encoder_state;
+mod cvc5_expr_smtlib;
 mod cvc5_feature_max;
 mod cvc5_field_access;
 mod cvc5_if_encode;
