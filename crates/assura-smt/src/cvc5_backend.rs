@@ -375,6 +375,14 @@ pub(crate) struct Cvc5AdtDef {
     pub(crate) constructors: Vec<Cvc5AdtConstructor>,
 }
 
+/// Native CVC5 UF symbols declared by `define_adt_cvc5_native`.
+#[cfg(feature = "cvc5-verify")]
+pub(crate) struct Cvc5AdtNativeSymbols<'a> {
+    pub(crate) adt_name: String,
+    pub(crate) tag_fn: cvc5::Term<'a>,
+    pub(crate) acc_fns: std::collections::HashMap<String, cvc5::Term<'a>>,
+}
+
 /// Define an ADT for CVC5 and generate SMT-LIB2 assertions.
 ///
 /// Returns `(Cvc5AdtDef, Vec<String>)` where the Vec contains SMT-LIB2
@@ -489,7 +497,7 @@ pub(crate) fn define_adt_cvc5_native<'a>(
     solver: &mut cvc5::Solver<'a>,
     adt_name: &str,
     constructors: &[(&str, &[&str])],
-) -> Cvc5AdtDef {
+) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols<'a>) {
     let mut adt_ctors = Vec::new();
 
     for (tag, (ctor_name, accessors)) in constructors.iter().enumerate() {
@@ -575,7 +583,14 @@ pub(crate) fn define_adt_cvc5_native<'a>(
         solver.assert_formula(forall_inj);
     }
 
-    adt_def
+    (
+        adt_def,
+        Cvc5AdtNativeSymbols {
+            adt_name: adt_name.to_string(),
+            tag_fn,
+            acc_fns,
+        },
+    )
 }
 
 /// Build a CVC5 constructor application (native API): create a fresh
@@ -583,7 +598,7 @@ pub(crate) fn define_adt_cvc5_native<'a>(
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn adt_constructor_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
-    adt_name: &str,
+    symbols: &Cvc5AdtNativeSymbols<'a>,
     ctor: &Cvc5AdtConstructor,
     args: &[cvc5::Term<'a>],
     axioms: &mut Vec<cvc5::Term<'a>>,
@@ -594,20 +609,17 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
     let val = tm.mk_const(tm.integer_sort(), &val_name);
 
     // Tag axiom
-    let tag_fn_name = format!("__adt_tag_{adt_name}");
-    let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let tag_fn = tm.mk_const(tag_sort, &tag_fn_name);
-    let tag_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn, val.clone()]);
+    let tag_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[symbols.tag_fn.clone(), val.clone()]);
     axioms.push(tm.mk_term(cvc5::Kind::Equal, &[tag_applied, tm.mk_integer(ctor.tag)]));
 
     // Accessor axioms
     for (i, accessor) in ctor.accessors.iter().enumerate() {
         if let Some(arg) = args.get(i) {
-            let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
-            let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let acc_fn = tm.mk_const(acc_sort, &acc_fn_name);
-            let acc_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn, val.clone()]);
-            axioms.push(tm.mk_term(cvc5::Kind::Equal, &[acc_applied, arg.clone()]));
+            let acc_fn_name = format!("__adt_{}_{accessor}", symbols.adt_name);
+            if let Some(acc_fn) = symbols.acc_fns.get(&acc_fn_name) {
+                let acc_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn.clone(), val.clone()]);
+                axioms.push(tm.mk_term(cvc5::Kind::Equal, &[acc_applied, arg.clone()]));
+            }
         }
     }
 
@@ -618,14 +630,14 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn adt_is_constructor_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
-    adt_name: &str,
+    symbols: &Cvc5AdtNativeSymbols<'a>,
     ctor: &Cvc5AdtConstructor,
     value: &cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
-    let tag_fn_name = format!("__adt_tag_{adt_name}");
-    let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let tag_fn = tm.mk_const(tag_sort, &tag_fn_name);
-    let tag_val = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn, value.clone()]);
+    let tag_val = tm.mk_term(
+        cvc5::Kind::ApplyUf,
+        &[symbols.tag_fn.clone(), value.clone()],
+    );
     tm.mk_term(cvc5::Kind::Equal, &[tag_val, tm.mk_integer(ctor.tag)])
 }
 
@@ -633,14 +645,16 @@ pub(crate) fn adt_is_constructor_cvc5_native<'a>(
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn adt_accessor_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
-    adt_name: &str,
+    symbols: &Cvc5AdtNativeSymbols<'a>,
     accessor: &str,
     value: &cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
-    let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
-    let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let acc_fn = tm.mk_const(acc_sort, &acc_fn_name);
-    tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn, value.clone()])
+    let acc_fn_name = format!("__adt_{}_{accessor}", symbols.adt_name);
+    let acc_fn = symbols
+        .acc_fns
+        .get(&acc_fn_name)
+        .expect("accessor must be declared by define_adt_cvc5_native");
+    tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn.clone(), value.clone()])
 }
 
 // =========================================================================
@@ -663,11 +677,38 @@ struct Cvc5EncoderState<'a> {
     /// When true, use native CVC5 string theory (string_sort, StringLength, etc.)
     /// instead of integer encoding.
     use_string_theory: bool,
+    /// Shared `__field_len` UF (one declaration per encoder session).
+    field_len_fn: Option<cvc5::Term<'a>>,
 }
 
 // -------------------------------------------------------------------------
 // Havoc+assume encoding (#267)
 // -------------------------------------------------------------------------
+
+#[cfg(feature = "cvc5-verify")]
+fn get_or_create_int_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+) -> cvc5::Term<'a> {
+    vars.entry(name.to_string())
+        .or_insert_with(|| tm.mk_const(tm.integer_sort(), name))
+        .clone()
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn field_len_fn_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    if let Some(f) = state.field_len_fn.as_ref() {
+        return f.clone();
+    }
+    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+    let len_func = tm.mk_const(len_sort, "__field_len");
+    state.field_len_fn = Some(len_func.clone());
+    len_func
+}
 
 #[cfg(feature = "cvc5-verify")]
 fn canonical_length_cvc5<'a>(
@@ -700,7 +741,7 @@ fn apply_havoc_assume_cvc5<'a>(
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) {
-    use crate::havoc_assume::{infer_length_identity_links, ir_param_names, is_collection_return};
+    use crate::havoc_assume::{infer_length_identity_links, is_collection_return};
 
     if is_collection_return(return_ty) {
         let len = canonical_length_cvc5(tm, "result", vars, state);
@@ -730,7 +771,7 @@ fn apply_ir_body_constraints_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) {
     use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
-    use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrLiteral, IrPred, IrPredArg};
+    use crate::ir::{IrCmpOp, IrExprKind, IrPred};
 
     let mut slots: std::collections::HashMap<usize, cvc5::Term<'a>> =
         std::collections::HashMap::new();
@@ -843,7 +884,7 @@ fn encode_ir_pred_cvc5<'a>(
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    use crate::ir::{IrArithOp, IrCmpOp, IrLiteral, IrPred, IrPredArg};
+    use crate::ir::{IrCmpOp, IrPred};
 
     match pred {
         IrPred::True => Some(tm.mk_boolean(true)),
@@ -1194,15 +1235,11 @@ fn verify_contract_cvc5_native(
         }
     }
 
-    let mut enc_state = Cvc5EncoderState {
-        axioms: Vec::new(),
-        string_constants: Vec::new(),
-        fresh_counter: 0,
-    };
+    let mut enc_state = default_cvc5_encoder_state();
 
     // Assert requires as assumptions ONCE (shared across all clauses)
     for req in &requires_exprs {
-        if let Some(term) = encode_expr_cvc5(&tm, req, &var_map, &mut enc_state) {
+        if let Some(term) = encode_expr_cvc5(&tm, req, &mut var_map, &mut enc_state) {
             solver.assert_formula(term);
         }
     }
@@ -1222,7 +1259,7 @@ fn verify_contract_cvc5_native(
                 if let Some(ensures_bodies) = defs.get(lemma_name) {
                     for ens_body in ensures_bodies {
                         if let Some(term) =
-                            encode_expr_cvc5(&tm, ens_body, &var_map, &mut enc_state)
+                            encode_expr_cvc5(&tm, ens_body, &mut var_map, &mut enc_state)
                         {
                             solver.assert_formula(term);
                         }
@@ -1288,7 +1325,7 @@ fn verify_contract_cvc5_native(
         let havoc_axiom_end = enc_state.axioms.len();
 
         // Encode the clause body
-        let body_term = match encode_expr_cvc5(&tm, &clause.body, &var_map, &mut enc_state) {
+        let body_term = match encode_expr_cvc5(&tm, &clause.body, &mut var_map, &mut enc_state) {
             Some(t) => t,
             None => {
                 solver.pop(1);
@@ -1511,12 +1548,7 @@ fn check_clause_cvc5_native(
         }
     }
 
-    let mut enc_state = Cvc5EncoderState {
-        axioms: Vec::new(),
-        string_constants: Vec::new(),
-        fresh_counter: 0,
-        use_string_theory: false,
-    };
+    let mut enc_state = default_cvc5_encoder_state();
 
     apply_havoc_assume_cvc5(
         &tm,
@@ -1531,7 +1563,7 @@ fn check_clause_cvc5_native(
 
     // Assert requires as assumptions
     for req in requires {
-        if let Some(term) = encode_expr_cvc5(&tm, req, &var_map, &mut enc_state) {
+        if let Some(term) = encode_expr_cvc5(&tm, req, &mut var_map, &mut enc_state) {
             solver.assert_formula(term);
         }
     }
@@ -1545,7 +1577,9 @@ fn check_clause_cvc5_native(
         for lemma_name in &apply_refs {
             if let Some(ensures_bodies) = defs.get(lemma_name) {
                 for ens_body in ensures_bodies {
-                    if let Some(term) = encode_expr_cvc5(&tm, ens_body, &var_map, &mut enc_state) {
+                    if let Some(term) =
+                        encode_expr_cvc5(&tm, ens_body, &mut var_map, &mut enc_state)
+                    {
                         solver.assert_formula(term);
                     }
                 }
@@ -1554,7 +1588,7 @@ fn check_clause_cvc5_native(
     }
 
     // Encode the clause body
-    let body_term = match encode_expr_cvc5(&tm, ensures_body, &var_map, &mut enc_state) {
+    let body_term = match encode_expr_cvc5(&tm, ensures_body, &mut var_map, &mut enc_state) {
         Some(t) => t,
         None => {
             return VerificationResult::Unknown {
@@ -1715,6 +1749,314 @@ fn bind_pattern_vars_cvc5<'a>(
     }
 }
 
+#[cfg(feature = "cvc5-verify")]
+fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
+    Cvc5EncoderState {
+        axioms: Vec::new(),
+        string_constants: Vec::new(),
+        fresh_counter: 0,
+        use_string_theory: false,
+        field_len_fn: None,
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn fresh_int_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    let fresh_name = format!("__fresh_{}", state.fresh_counter);
+    state.fresh_counter += 1;
+    tm.mk_const(tm.integer_sort(), &fresh_name)
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn field_len_of_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    state: &mut Cvc5EncoderState<'a>,
+    value: &cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    let len_func = field_len_fn_cvc5(tm, state);
+    tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, value.clone()])
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn apply_int_uf_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    args: &[cvc5::Term<'a>],
+    returns_bool: bool,
+) -> cvc5::Term<'a> {
+    let domain: Vec<cvc5::Sort> = (0..args.len()).map(|_| tm.integer_sort()).collect();
+    let codomain = if returns_bool {
+        tm.boolean_sort()
+    } else {
+        tm.integer_sort()
+    };
+    let func_sort = tm.mk_fun_sort(&domain, codomain);
+    let func_const = tm.mk_const(func_sort, name);
+    let mut apply_args = vec![func_const];
+    apply_args.extend_from_slice(args);
+    tm.mk_term(cvc5::Kind::ApplyUf, &apply_args)
+}
+
+/// Encode builtins with known semantics (shared by `Call` and `MethodCall`).
+#[cfg(feature = "cvc5-verify")]
+fn encode_known_builtin_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    op: &str,
+    args: &[cvc5::Term<'a>],
+    state: &mut Cvc5EncoderState<'a>,
+) -> Option<cvc5::Term<'a>> {
+    match op {
+        "abs" if args.len() == 1 => {
+            let x = &args[0];
+            let zero = tm.mk_integer(0);
+            let neg = tm.mk_term(cvc5::Kind::Neg, &[x.clone()]);
+            let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
+            Some(tm.mk_term(cvc5::Kind::Ite, &[cond, x.clone(), neg]))
+        }
+        "min" if args.len() == 2 => {
+            let (a, b) = (&args[0], &args[1]);
+            let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
+            Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
+        }
+        "max" if args.len() == 2 => {
+            let (a, b) = (&args[0], &args[1]);
+            let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
+            Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
+        }
+        "substring" | "substr" if args.len() == 3 => {
+            let str_val = &args[0];
+            let start = &args[1];
+            let end = &args[2];
+            let result = fresh_int_cvc5(tm, state);
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[start.clone(), zero.clone()]));
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Leq, &[start.clone(), end.clone()]));
+            let len_func = field_len_fn_cvc5(tm, state);
+            let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Leq, &[end.clone(), str_len]));
+            let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+            let diff = tm.mk_term(cvc5::Kind::Sub, &[end.clone(), start.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[res_len.clone(), diff]));
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
+            Some(result)
+        }
+        "concat" if args.len() == 2 => {
+            let (l, r) = (&args[0], &args[1]);
+            let result = fresh_int_cvc5(tm, state);
+            let len_func = field_len_fn_cvc5(tm, state);
+            let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l.clone()]);
+            let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r.clone()]);
+            let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[len_l.clone(), zero.clone()]));
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[len_r.clone(), zero.clone()]));
+            let sum = tm.mk_term(cvc5::Kind::Add, &[len_l, len_r]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]));
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
+            Some(result)
+        }
+        "index_of" | "find" | "indexOf" if args.len() == 2 => {
+            let str_val = &args[0];
+            let result = fresh_int_cvc5(tm, state);
+            let neg_one = tm.mk_integer(-1);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), neg_one]));
+            let str_len = field_len_of_cvc5(tm, state, str_val);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Lt, &[result.clone(), str_len]));
+            Some(result)
+        }
+        "char_at" | "charAt" if args.len() == 2 => {
+            let str_val = &args[0];
+            let idx = &args[1];
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[idx.clone(), zero]));
+            let str_len = field_len_of_cvc5(tm, state, str_val);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Lt, &[idx.clone(), str_len]));
+            Some(fresh_int_cvc5(tm, state))
+        }
+        "replace" if args.len() == 3 => {
+            let result = fresh_int_cvc5(tm, state);
+            let res_len = field_len_of_cvc5(tm, state, &result);
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
+            Some(result)
+        }
+        "split" if args.len() == 2 => {
+            let result = fresh_int_cvc5(tm, state);
+            let res_len = field_len_of_cvc5(tm, state, &result);
+            let one = tm.mk_integer(1);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, one]));
+            Some(result)
+        }
+        "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper" if args.len() == 1 => {
+            let str_val = &args[0];
+            let result = fresh_int_cvc5(tm, state);
+            let len_func = field_len_fn_cvc5(tm, state);
+            let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
+            let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[res_len.clone(), zero]));
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Leq, &[res_len, str_len]));
+            Some(result)
+        }
+        "set" if args.len() == 3 => {
+            let arr = &args[0];
+            let i = &args[1];
+            let v = &args[2];
+            let result = fresh_int_cvc5(tm, state);
+            let get_sort =
+                tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
+            let get_func = tm.mk_const(get_sort, "get");
+            let get_result_i =
+                tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), i.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_i, v.clone()]));
+            let len_func = field_len_fn_cvc5(tm, state);
+            let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), result.clone()]);
+            let len_arr = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, arr.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), len_arr]));
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
+            Some(result)
+        }
+        "put" if args.len() == 3 => {
+            let map = &args[0];
+            let k = &args[1];
+            let v = &args[2];
+            let result = fresh_int_cvc5(tm, state);
+            let get_sort =
+                tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
+            let get_func = tm.mk_const(get_sort, "get");
+            let get_result_k =
+                tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), k.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_k, v.clone()]));
+            let size_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let size_func = tm.mk_const(size_sort, "size");
+            let size_result = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func.clone(), result.clone()]);
+            let size_map = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func, map.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), size_map]));
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[size_result, zero]));
+            Some(result)
+        }
+        _ => None,
+    }
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn encode_uf_call_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    f_name: &str,
+    encoded_args: &[cvc5::Term<'a>],
+    state: &mut Cvc5EncoderState<'a>,
+) -> Option<cvc5::Term<'a>> {
+    if matches!(
+        f_name,
+        "contains"
+            | "is_empty"
+            | "is_some"
+            | "is_none"
+            | "is_ok"
+            | "is_err"
+            | "any"
+            | "all"
+            | "contains_key"
+            | "starts_with"
+            | "ends_with"
+            | "is_subset"
+            | "is_superset"
+    ) {
+        return Some(apply_int_uf_cvc5(tm, f_name, encoded_args, true));
+    }
+    if state.use_string_theory
+        && matches!(f_name, "len" | "length")
+        && encoded_args.len() == 1
+        && encoded_args[0].sort().is_string()
+    {
+        let len = tm.mk_term(cvc5::Kind::StringLength, &[encoded_args[0].clone()]);
+        let zero = tm.mk_integer(0);
+        state
+            .axioms
+            .push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));
+        return Some(len);
+    }
+    if matches!(f_name, "len" | "length" | "size" | "count" | "capacity") {
+        let result = apply_int_uf_cvc5(tm, f_name, encoded_args, false);
+        let zero = tm.mk_integer(0);
+        state
+            .axioms
+            .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
+        return Some(result);
+    }
+    Some(apply_int_uf_cvc5(tm, f_name, encoded_args, false))
+}
+
+#[cfg(feature = "cvc5-verify")]
+fn encode_length_receiver_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    receiver: &Expr,
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> Option<cvc5::Term<'a>> {
+    if let Expr::Ident(name) = receiver {
+        return Some(canonical_length_cvc5(tm, name, vars, state));
+    }
+    let recv_val = encode_expr_cvc5(tm, receiver, vars, state)?;
+    let len = field_len_of_cvc5(tm, state, &recv_val);
+    let zero = tm.mk_integer(0);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));
+    Some(len)
+}
+
 /// Encode an AST expression as a CVC5 Term using the native API.
 ///
 /// `state` collects background axioms and tracks string constants
@@ -1723,7 +2065,7 @@ fn bind_pattern_vars_cvc5<'a>(
 fn encode_expr_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     expr: &Expr,
-    vars: &HashMap<String, cvc5::Term<'a>>,
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
     match expr {
@@ -1737,13 +2079,13 @@ fn encode_expr_cvc5<'a>(
             let f: f64 = f_str.parse().unwrap_or(0.0);
             let denom = 1_000_000i64;
             let numer = (f * denom as f64) as i64;
-            Some(tm.mk_real(numer, denom))
+            Some(tm.mk_real_from_rational(numer, denom))
         }
         Expr::Literal(Literal::Str(s)) => {
             if state.use_string_theory {
                 // Native CVC5 string theory: use string_sort and mk_string.
                 // CVC5 handles equality, length, and distinctness natively.
-                let str_val = tm.mk_string(s);
+                let str_val = tm.mk_string(s, false);
                 // Background axiom: length is known at compile time
                 let len = tm.mk_term(cvc5::Kind::StringLength, &[str_val.clone()]);
                 let expected_len = tm.mk_integer(s.len() as i64);
@@ -1837,8 +2179,7 @@ fn encode_expr_cvc5<'a>(
                     let fresh_name = format!("__fresh_{}", state.fresh_counter);
                     state.fresh_counter += 1;
                     let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
+                    let len_func = field_len_fn_cvc5(tm, state);
                     let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l]);
                     let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r]);
                     let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
@@ -1877,12 +2218,9 @@ fn encode_expr_cvc5<'a>(
             if let Some(eb) = else_branch {
                 let e = encode_expr_cvc5(tm, eb, vars, state)?;
                 // Sort promotion: if one branch is Real and the other Integer, promote
-                let t_sort = t.get_sort();
-                let e_sort = e.get_sort();
-                let (t_final, e_final) = if t_sort == tm.real_sort() && e_sort == tm.integer_sort()
-                {
+                let (t_final, e_final) = if t.sort().is_real() && e.sort().is_integer() {
                     (t, tm.mk_term(cvc5::Kind::ToReal, &[e]))
-                } else if t_sort == tm.integer_sort() && e_sort == tm.real_sort() {
+                } else if t.sort().is_integer() && e.sort().is_real() {
                     (tm.mk_term(cvc5::Kind::ToReal, &[t]), e)
                 } else {
                     (t, e)
@@ -1897,7 +2235,7 @@ fn encode_expr_cvc5<'a>(
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
             local_vars.insert(v_name.clone(), bound_var.clone());
-            let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
+            let b = encode_expr_cvc5(tm, body, &mut local_vars, state)?;
             let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, true, vars, state);
             let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var.clone()]);
             let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
@@ -1913,7 +2251,7 @@ fn encode_expr_cvc5<'a>(
             let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
             let mut local_vars = vars.clone();
             local_vars.insert(v_name.clone(), bound_var.clone());
-            let b = encode_expr_cvc5(tm, body, &local_vars, state)?;
+            let b = encode_expr_cvc5(tm, body, &mut local_vars, state)?;
             let guarded = guard_quantifier_body_cvc5(tm, domain, &bound_var, b, false, vars, state);
             let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var.clone()]);
             let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
@@ -1938,317 +2276,12 @@ fn encode_expr_cvc5<'a>(
                     .map(|a| encode_expr_cvc5(tm, a, vars, state))
                     .collect();
                 let encoded_args = encoded_args?;
-                // Built-in functions with known semantics
-                match f_name.as_str() {
-                    // abs(x) => ite(x >= 0, x, -x)
-                    "abs" if encoded_args.len() == 1 => {
-                        let x = &encoded_args[0];
-                        let zero = tm.mk_integer(0);
-                        let neg = tm.mk_term(cvc5::Kind::Neg, &[x.clone()]);
-                        let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
-                        return Some(tm.mk_term(cvc5::Kind::Ite, &[cond, x.clone(), neg]));
-                    }
-                    // min(a, b) => ite(a <= b, a, b)
-                    "min" if encoded_args.len() == 2 => {
-                        let (a, b) = (&encoded_args[0], &encoded_args[1]);
-                        let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
-                        return Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]));
-                    }
-                    // max(a, b) => ite(a >= b, a, b)
-                    "max" if encoded_args.len() == 2 => {
-                        let (a, b) = (&encoded_args[0], &encoded_args[1]);
-                        let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
-                        return Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]));
-                    }
-                    _ => {}
-                }
-                // String methods with known semantics
-                match f_name.as_str() {
-                    // substring(str, start, end): fresh Int with length == end - start
-                    "substring" | "substr" if encoded_args.len() == 3 => {
-                        let str_val = &encoded_args[0];
-                        let start = &encoded_args[1];
-                        let end = &encoded_args[2];
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        let zero = tm.mk_integer(0);
-                        // 0 <= start
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[start.clone(), zero.clone()]));
-                        // start <= end
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Leq, &[start.clone(), end.clone()]));
-                        // end <= len(str)
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let str_len =
-                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Leq, &[end.clone(), str_len]));
-                        // len(result) == end - start
-                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                        let diff = tm.mk_term(cvc5::Kind::Sub, &[end.clone(), start.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Equal, &[res_len.clone(), diff]));
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
-                        return Some(result);
-                    }
-                    // concat(a, b): fresh Int with len(result) == len(a) + len(b)
-                    "concat" if encoded_args.len() == 2 => {
-                        let l = &encoded_args[0];
-                        let r = &encoded_args[1];
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l.clone()]);
-                        let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r.clone()]);
-                        let len_result =
-                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                        let zero = tm.mk_integer(0);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_l.clone(), zero.clone()]));
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_r.clone(), zero.clone()]));
-                        let sum = tm.mk_term(cvc5::Kind::Add, &[len_l, len_r]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]));
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
-                        return Some(result);
-                    }
-                    // indexOf/find/index_of(str, substr): fresh Int with -1 <= result < len(str)
-                    "index_of" | "find" | "indexOf" if encoded_args.len() == 2 => {
-                        let str_val = &encoded_args[0];
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        let neg_one = tm.mk_integer(-1);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), neg_one]));
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Lt, &[result.clone(), str_len]));
-                        return Some(result);
-                    }
-                    // charAt/char_at(str, idx): fresh Int with 0 <= idx < len(str)
-                    "char_at" | "charAt" if encoded_args.len() == 2 => {
-                        let str_val = &encoded_args[0];
-                        let idx = &encoded_args[1];
-                        let zero = tm.mk_integer(0);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[idx.clone(), zero]));
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Lt, &[idx.clone(), str_len]));
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        return Some(tm.mk_const(tm.integer_sort(), &fresh_name));
-                    }
-                    // replace(str, old, new): fresh Int with len(result) >= 0
-                    "replace" if encoded_args.len() == 3 => {
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                        let zero = tm.mk_integer(0);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
-                        return Some(result);
-                    }
-                    // split(str, delim): fresh Int with len(result) >= 1
-                    "split" if encoded_args.len() == 2 => {
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                        let one = tm.mk_integer(1);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, one]));
-                        return Some(result);
-                    }
-                    // trim/to_lowercase/to_uppercase: 0 <= len(result) <= len(str)
-                    "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
-                        if encoded_args.len() == 1 =>
-                    {
-                        let str_val = &encoded_args[0];
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let str_len =
-                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
-                        let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                        let zero = tm.mk_integer(0);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[res_len.clone(), zero]));
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Leq, &[res_len, str_len]));
-                        return Some(result);
-                    }
-                    // set(arr, i, v): fresh with get(result, i) == v, len(result) == len(arr)
-                    "set" if encoded_args.len() == 3 => {
-                        let arr = &encoded_args[0];
-                        let i = &encoded_args[1];
-                        let v = &encoded_args[2];
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        // get(result, i) == v
-                        let get_sort = tm.mk_fun_sort(
-                            &[tm.integer_sort(), tm.integer_sort()],
-                            tm.integer_sort(),
-                        );
-                        let get_func = tm.mk_const(get_sort, "get");
-                        let get_result_i =
-                            tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), i.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_i, v.clone()]));
-                        // len(result) == len(arr)
-                        let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let len_func = tm.mk_const(len_sort, "__field_len");
-                        let len_result =
-                            tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), result.clone()]);
-                        let len_arr = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, arr.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), len_arr]));
-                        let zero = tm.mk_integer(0);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
-                        return Some(result);
-                    }
-                    // put(map, k, v): fresh with get(result, k) == v, size(result) >= size(map)
-                    "put" if encoded_args.len() == 3 => {
-                        let map = &encoded_args[0];
-                        let k = &encoded_args[1];
-                        let v = &encoded_args[2];
-                        let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                        state.fresh_counter += 1;
-                        let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                        // get(result, k) == v
-                        let get_sort = tm.mk_fun_sort(
-                            &[tm.integer_sort(), tm.integer_sort()],
-                            tm.integer_sort(),
-                        );
-                        let get_func = tm.mk_const(get_sort, "get");
-                        let get_result_k =
-                            tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), k.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_k, v.clone()]));
-                        // size(result) >= size(map)
-                        let size_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                        let size_func = tm.mk_const(size_sort, "size");
-                        let size_result =
-                            tm.mk_term(cvc5::Kind::ApplyUf, &[size_func.clone(), result.clone()]);
-                        let size_map = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func, map.clone()]);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), size_map]));
-                        let zero = tm.mk_integer(0);
-                        state
-                            .axioms
-                            .push(tm.mk_term(cvc5::Kind::Geq, &[size_result, zero]));
-                        return Some(result);
-                    }
-                    _ => {}
-                }
-                // Boolean methods return Bool sort
-                if matches!(
-                    f_name.as_str(),
-                    "contains"
-                        | "is_empty"
-                        | "is_some"
-                        | "is_none"
-                        | "is_ok"
-                        | "is_err"
-                        | "any"
-                        | "all"
-                        | "contains_key"
-                        | "starts_with"
-                        | "ends_with"
-                        | "is_subset"
-                        | "is_superset"
-                ) {
-                    let domain: Vec<cvc5::Sort> =
-                        (0..encoded_args.len()).map(|_| tm.integer_sort()).collect();
-                    let func_sort = tm.mk_fun_sort(&domain, tm.boolean_sort());
-                    let func_const = tm.mk_const(func_sort, &f_name);
-                    let mut apply_args = vec![func_const];
-                    apply_args.extend(encoded_args);
-                    return Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args));
-                }
-                // Native string theory: length(str) uses StringLength
-                if state.use_string_theory
-                    && matches!(f_name.as_str(), "len" | "length")
-                    && encoded_args.len() == 1
-                    && encoded_args[0].get_sort() == tm.string_sort()
+                if let Some(term) =
+                    encode_known_builtin_cvc5(tm, f_name.as_str(), &encoded_args, state)
                 {
-                    let len = tm.mk_term(cvc5::Kind::StringLength, &[encoded_args[0].clone()]);
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));
-                    return Some(len);
+                    return Some(term);
                 }
-                // Size methods get non-negativity axiom
-                if matches!(
-                    f_name.as_str(),
-                    "len" | "length" | "size" | "count" | "capacity"
-                ) {
-                    let domain: Vec<cvc5::Sort> =
-                        (0..encoded_args.len()).map(|_| tm.integer_sort()).collect();
-                    let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
-                    let func_const = tm.mk_const(func_sort, &f_name);
-                    let mut apply_args = vec![func_const];
-                    apply_args.extend(encoded_args);
-                    let result = tm.mk_term(cvc5::Kind::ApplyUf, &apply_args);
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
-                    return Some(result);
-                }
-                // Default: uninterpreted function (Int, ..., Int) -> Int
-                let domain: Vec<cvc5::Sort> =
-                    (0..encoded_args.len()).map(|_| tm.integer_sort()).collect();
-                let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
-                let func_const = tm.mk_const(func_sort, &f_name);
-                let mut apply_args = vec![func_const];
-                apply_args.extend(encoded_args);
-                Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args))
+                encode_uf_call_cvc5(tm, &f_name, &encoded_args, state)
             } else {
                 None
             }
@@ -2295,7 +2328,7 @@ fn encode_expr_cvc5<'a>(
             let v = encode_expr_cvc5(tm, value, vars, state)?;
             let mut local_vars = vars.clone();
             local_vars.insert(sanitize_smtlib_name(name), v);
-            encode_expr_cvc5(tm, body, &local_vars, state)
+            encode_expr_cvc5(tm, body, &mut local_vars, state)
         }
         Expr::Match {
             scrutinee, arms, ..
@@ -2315,7 +2348,7 @@ fn encode_expr_cvc5<'a>(
                         // Bind the name as a fresh variable
                         let mut local_vars = vars.clone();
                         bind_pattern_vars_cvc5(tm, &arm.pattern, &mut local_vars);
-                        let body = encode_expr_cvc5(tm, &arm.body, &local_vars, state)?;
+                        let body = encode_expr_cvc5(tm, &arm.body, &mut local_vars, state)?;
                         // Uppercase-initial ident = constructor name -> hash match
                         if name.starts_with(|c: char| c.is_uppercase()) {
                             let tag_hash = pattern_hash_cvc5(name);
@@ -2357,7 +2390,7 @@ fn encode_expr_cvc5<'a>(
                         for field in fields {
                             bind_pattern_vars_cvc5(tm, field, &mut local_vars);
                         }
-                        let body = encode_expr_cvc5(tm, &arm.body, &local_vars, state)?;
+                        let body = encode_expr_cvc5(tm, &arm.body, &mut local_vars, state)?;
                         let default = result.as_ref()?.clone();
                         result = Some(tm.mk_term(cvc5::Kind::Ite, &[cond, body, default]));
                     }
@@ -2367,7 +2400,7 @@ fn encode_expr_cvc5<'a>(
                         for pat in pats {
                             bind_pattern_vars_cvc5(tm, pat, &mut local_vars);
                         }
-                        let body = encode_expr_cvc5(tm, &arm.body, &local_vars, state)?;
+                        let body = encode_expr_cvc5(tm, &arm.body, &mut local_vars, state)?;
                         // Tuple match is structural (always matches)
                         result = Some(body);
                     }
@@ -2399,7 +2432,7 @@ fn encode_expr_cvc5<'a>(
                     field.as_str(),
                     "len" | "length" | "size" | "capacity" | "count"
                 ) {
-                    let v = tm.mk_const(tm.integer_sort(), &flat_name);
+                    let v = get_or_create_int_cvc5(tm, &flat_name, vars);
                     let zero = tm.mk_integer(0);
                     state
                         .axioms
@@ -2407,7 +2440,7 @@ fn encode_expr_cvc5<'a>(
                     return Some(v);
                 }
                 // General field: Integer variable
-                return Some(tm.mk_const(tm.integer_sort(), &flat_name));
+                return Some(get_or_create_int_cvc5(tm, &flat_name, vars));
             }
             // Shallow field access: UF __field_name(receiver)
             let obj_val = encode_expr_cvc5(tm, obj, vars, state)?;
@@ -2415,7 +2448,7 @@ fn encode_expr_cvc5<'a>(
             // Native string theory: .length() on a string-sorted term uses StringLength
             if state.use_string_theory
                 && matches!(field.as_str(), "len" | "length")
-                && obj_val.get_sort() == tm.string_sort()
+                && obj_val.sort().is_string()
             {
                 let len = tm.mk_term(cvc5::Kind::StringLength, &[obj_val]);
                 let zero = tm.mk_integer(0);
@@ -2541,11 +2574,8 @@ fn encode_expr_cvc5<'a>(
             method,
             args,
         } => {
-            if matches!(method.as_str(), "length" | "len")
-                && args.is_empty()
-                && let Expr::Ident(name) = receiver.as_ref()
-            {
-                return Some(canonical_length_cvc5(tm, name, vars, state));
+            if matches!(method.as_str(), "length" | "len") && args.is_empty() {
+                return encode_length_receiver_cvc5(tm, receiver, vars, state);
             }
 
             let recv_val = encode_expr_cvc5(tm, receiver, vars, state)?;
@@ -2554,268 +2584,11 @@ fn encode_expr_cvc5<'a>(
                 all_encoded.push(encode_expr_cvc5(tm, arg, vars, state)?);
             }
             let f_name = sanitize_smtlib_name(method);
-            // String methods with known semantics (method call form)
-            // all_encoded[0] is the receiver, remaining are args
-            match f_name.as_str() {
-                // receiver.substring(start, end)
-                "substring" | "substr" if all_encoded.len() == 3 => {
-                    let str_val = &all_encoded[0];
-                    let start = &all_encoded[1];
-                    let end = &all_encoded[2];
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[start.clone(), zero.clone()]));
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Leq, &[start.clone(), end.clone()]));
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let str_len =
-                        tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Leq, &[end.clone(), str_len]));
-                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                    let diff = tm.mk_term(cvc5::Kind::Sub, &[end.clone(), start.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Equal, &[res_len.clone(), diff]));
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
-                    return Some(result);
-                }
-                // receiver.concat(other)
-                "concat" if all_encoded.len() == 2 => {
-                    let l = &all_encoded[0];
-                    let r = &all_encoded[1];
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let len_l = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), l.clone()]);
-                    let len_r = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), r.clone()]);
-                    let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_l.clone(), zero.clone()]));
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_r.clone(), zero.clone()]));
-                    let sum = tm.mk_term(cvc5::Kind::Add, &[len_l, len_r]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), sum]));
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
-                    return Some(result);
-                }
-                // receiver.indexOf(sub) / receiver.find(sub) / receiver.index_of(sub)
-                "index_of" | "find" | "indexOf" if all_encoded.len() == 2 => {
-                    let str_val = &all_encoded[0];
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let neg_one = tm.mk_integer(-1);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), neg_one]));
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Lt, &[result.clone(), str_len]));
-                    return Some(result);
-                }
-                // receiver.charAt(idx) / receiver.char_at(idx)
-                "char_at" | "charAt" if all_encoded.len() == 2 => {
-                    let str_val = &all_encoded[0];
-                    let idx = &all_encoded[1];
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[idx.clone(), zero]));
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let str_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Lt, &[idx.clone(), str_len]));
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    return Some(tm.mk_const(tm.integer_sort(), &fresh_name));
-                }
-                // receiver.replace(old, new)
-                "replace" if all_encoded.len() == 3 => {
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
-                    return Some(result);
-                }
-                // receiver.split(delim)
-                "split" if all_encoded.len() == 2 => {
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                    let one = tm.mk_integer(1);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, one]));
-                    return Some(result);
-                }
-                // receiver.trim/to_lowercase/to_uppercase: 0 <= len(result) <= len(receiver)
-                "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
-                    if all_encoded.len() == 1 =>
-                {
-                    let str_val = &all_encoded[0];
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let str_len =
-                        tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), str_val.clone()]);
-                    let res_len = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, result.clone()]);
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[res_len.clone(), zero]));
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Leq, &[res_len, str_len]));
-                    return Some(result);
-                }
-                // receiver.set(i, v): array set
-                "set" if all_encoded.len() == 3 => {
-                    let arr = &all_encoded[0];
-                    let i = &all_encoded[1];
-                    let v = &all_encoded[2];
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let get_sort =
-                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
-                    let get_func = tm.mk_const(get_sort, "get");
-                    let get_result_i =
-                        tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), i.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_i, v.clone()]));
-                    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let len_func = tm.mk_const(len_sort, "__field_len");
-                    let len_result =
-                        tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), result.clone()]);
-                    let len_arr = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, arr.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Equal, &[len_result.clone(), len_arr]));
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
-                    return Some(result);
-                }
-                // receiver.put(k, v): map put
-                "put" if all_encoded.len() == 3 => {
-                    let map = &all_encoded[0];
-                    let k = &all_encoded[1];
-                    let v = &all_encoded[2];
-                    let fresh_name = format!("__fresh_{}", state.fresh_counter);
-                    state.fresh_counter += 1;
-                    let result = tm.mk_const(tm.integer_sort(), &fresh_name);
-                    let get_sort =
-                        tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
-                    let get_func = tm.mk_const(get_sort, "get");
-                    let get_result_k =
-                        tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), k.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_k, v.clone()]));
-                    let size_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let size_func = tm.mk_const(size_sort, "size");
-                    let size_result =
-                        tm.mk_term(cvc5::Kind::ApplyUf, &[size_func.clone(), result.clone()]);
-                    let size_map = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func, map.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), size_map]));
-                    let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[size_result, zero]));
-                    return Some(result);
-                }
-                _ => {}
+            if let Some(term) = encode_known_builtin_cvc5(tm, f_name.as_str(), &all_encoded, state)
+            {
+                return Some(term);
             }
-            // Boolean methods return Bool sort
-            if matches!(
-                f_name.as_str(),
-                "contains"
-                    | "is_empty"
-                    | "is_some"
-                    | "is_none"
-                    | "is_ok"
-                    | "is_err"
-                    | "any"
-                    | "all"
-                    | "contains_key"
-                    | "starts_with"
-                    | "ends_with"
-                    | "is_subset"
-                    | "is_superset"
-            ) {
-                let domain: Vec<cvc5::Sort> =
-                    (0..all_encoded.len()).map(|_| tm.integer_sort()).collect();
-                let func_sort = tm.mk_fun_sort(&domain, tm.boolean_sort());
-                let func_const = tm.mk_const(func_sort, &f_name);
-                let mut apply_args = vec![func_const];
-                apply_args.extend(all_encoded);
-                return Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args));
-            }
-            // Size methods get non-negativity axiom
-            if matches!(
-                f_name.as_str(),
-                "len" | "length" | "size" | "count" | "capacity"
-            ) {
-                let domain: Vec<cvc5::Sort> =
-                    (0..all_encoded.len()).map(|_| tm.integer_sort()).collect();
-                let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
-                let func_const = tm.mk_const(func_sort, &f_name);
-                let mut apply_args = vec![func_const];
-                apply_args.extend(all_encoded);
-                let result = tm.mk_term(cvc5::Kind::ApplyUf, &apply_args);
-                let zero = tm.mk_integer(0);
-                state
-                    .axioms
-                    .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
-                return Some(result);
-            }
-            // Default: uninterpreted function
-            let domain: Vec<cvc5::Sort> =
-                (0..all_encoded.len()).map(|_| tm.integer_sort()).collect();
-            let func_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
-            let func_const = tm.mk_const(func_sort, &f_name);
-            let mut apply_args = vec![func_const];
-            apply_args.extend(all_encoded);
-            Some(tm.mk_term(cvc5::Kind::ApplyUf, &apply_args))
+            encode_uf_call_cvc5(tm, &f_name, &all_encoded, state)
         }
         // List: fresh Int with element-access and length axioms
         Expr::List(elems) => {
@@ -2838,8 +2611,7 @@ fn encode_expr_cvc5<'a>(
                 }
             }
             // Assert length
-            let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let len_func = tm.mk_const(len_sort, "__field_len");
+            let len_func = field_len_fn_cvc5(tm, state);
             let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, list_val.clone()]);
             let expected_len = tm.mk_integer(elems.len() as i64);
             state
@@ -2873,7 +2645,7 @@ fn guard_quantifier_body_cvc5<'a>(
     bound_var: &cvc5::Term<'a>,
     body: cvc5::Term<'a>,
     is_forall: bool,
-    outer_vars: &HashMap<String, cvc5::Term<'a>>,
+    outer_vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     if let Expr::BinOp {
@@ -2971,8 +2743,7 @@ fn collect_trigger_calls_cvc5<'a>(
                     let arity = args.len();
                     let param_sorts: Vec<cvc5::Sort> =
                         (0..arity).map(|_| tm.integer_sort()).collect();
-                    let param_sort_refs: Vec<&cvc5::Sort> = param_sorts.iter().collect();
-                    let fun_sort = tm.mk_fun_sort(&param_sort_refs, tm.integer_sort());
+                    let fun_sort = tm.mk_fun_sort(&param_sorts, tm.integer_sort());
                     let func_decl = tm.mk_const(fun_sort, fname.as_str());
                     let mut uf_args = vec![func_decl];
                     for a in args {
@@ -3037,7 +2808,7 @@ fn collect_trigger_calls_cvc5<'a>(
 fn encode_raw_tokens_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     tokens: &[String],
-    vars: &HashMap<String, cvc5::Term<'a>>,
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
     if tokens.is_empty() {
@@ -3142,7 +2913,7 @@ fn parse_raw_expr_cvc5<'a>(
     tokens: &[String],
     pos: usize,
     min_prec: u8,
-    vars: &HashMap<String, cvc5::Term<'a>>,
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<(cvc5::Term<'a>, usize)> {
     let (mut lhs, mut pos) = parse_raw_atom_cvc5(tm, tokens, pos, vars, state)?;
@@ -3195,7 +2966,7 @@ fn parse_raw_atom_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     tokens: &[String],
     start: usize,
-    vars: &HashMap<String, cvc5::Term<'a>>,
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<(cvc5::Term<'a>, usize)> {
     if start >= tokens.len() {
@@ -3321,7 +3092,7 @@ fn parse_raw_atom_cvc5<'a>(
                 }
             }
         }
-        if let Some((val, _)) = parse_raw_expr_cvc5(tm, inner_tokens, 0, 0, &old_vars, state) {
+        if let Some((val, _)) = parse_raw_expr_cvc5(tm, inner_tokens, 0, 0, &mut old_vars, state) {
             return Some((val, end));
         }
         // Fallback: fresh integer
@@ -3381,7 +3152,7 @@ fn parse_raw_atom_cvc5<'a>(
             // Parse body
             let body_tokens = &tokens[body_start..body_end.0];
             if let Some((body_val, _)) =
-                parse_raw_expr_cvc5(tm, body_tokens, 0, 0, &local_vars, state)
+                parse_raw_expr_cvc5(tm, body_tokens, 0, 0, &mut local_vars, state)
             {
                 let var_list = tm.mk_term(cvc5::Kind::VariableList, &[bound]);
                 let kind = if is_forall {
@@ -3428,9 +3199,9 @@ fn parse_raw_atom_cvc5<'a>(
         let state_name = &tokens[next + 1];
         let ts_var_name = format!("__typestate_{name}");
         let ts_var = vars
-            .get(&ts_var_name)
-            .cloned()
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &ts_var_name));
+            .entry(ts_var_name)
+            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &format!("__typestate_{name}")))
+            .clone();
         let state_val = tm.mk_integer(pattern_hash_cvc5(state_name));
         return Some((
             tm.mk_term(cvc5::Kind::Equal, &[ts_var, state_val]),
@@ -3532,8 +3303,7 @@ fn parse_raw_atom_cvc5<'a>(
                 }
                 let n_args = arg_vals.len();
                 let domain: Vec<_> = (0..n_args).map(|_| tm.integer_sort()).collect();
-                let domain_refs: Vec<&_> = domain.iter().collect();
-                let fun_sort = tm.mk_fun_sort(&domain_refs, tm.integer_sort());
+                let fun_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
                 let func = tm.mk_const(fun_sort, &name);
                 let mut all_args = vec![func];
                 all_args.extend(arg_vals);
@@ -3621,6 +3391,7 @@ pub(crate) fn check_validity_cvc5(
     solver.set_logic("ALL");
     solver.set_option("produce-models", "true");
     solver.set_option("produce-unsat-cores", "true");
+    solver.set_option("produce-unsat-assumptions", "true");
     solver.set_option("tlimit", "2000");
 
     let mut var_names = std::collections::HashSet::new();
@@ -3635,19 +3406,14 @@ pub(crate) fn check_validity_cvc5(
         var_map.insert(name.clone(), term);
     }
 
-    let mut enc_state = Cvc5EncoderState {
-        axioms: Vec::new(),
-        string_constants: Vec::new(),
-        fresh_counter: 0,
-        use_string_theory: false,
-    };
+    let mut enc_state = default_cvc5_encoder_state();
 
     let bool_sort = tm.boolean_sort();
     let mut tracked_assumptions: Vec<cvc5::Term> = Vec::new();
 
     // Track assumptions with labels for unsat-core extraction (#266).
     for (i, a) in assumptions.iter().enumerate() {
-        if let Some(term) = encode_expr_cvc5(&tm, a, &var_map, &mut enc_state) {
+        if let Some(term) = encode_expr_cvc5(&tm, a, &mut var_map, &mut enc_state) {
             let label = format!("req_{i}");
             let track = tm.mk_const(bool_sort.clone(), &label);
             tracked_assumptions.push(track.clone());
@@ -3657,7 +3423,7 @@ pub(crate) fn check_validity_cvc5(
     }
 
     // Encode body
-    let body_term = match encode_expr_cvc5(&tm, body, &var_map, &mut enc_state) {
+    let body_term = match encode_expr_cvc5(&tm, body, &mut var_map, &mut enc_state) {
         Some(t) => t,
         None => {
             return VerificationResult::Unknown {
@@ -3757,20 +3523,15 @@ pub(crate) fn check_satisfiability_cvc5(
         var_map.insert(name.clone(), term);
     }
 
-    let mut enc_state = Cvc5EncoderState {
-        axioms: Vec::new(),
-        string_constants: Vec::new(),
-        fresh_counter: 0,
-        use_string_theory: false,
-    };
+    let mut enc_state = default_cvc5_encoder_state();
 
     for a in assumptions {
-        if let Some(term) = encode_expr_cvc5(&tm, a, &var_map, &mut enc_state) {
+        if let Some(term) = encode_expr_cvc5(&tm, a, &mut var_map, &mut enc_state) {
             solver.assert_formula(term);
         }
     }
 
-    let body_term = match encode_expr_cvc5(&tm, body, &var_map, &mut enc_state) {
+    let body_term = match encode_expr_cvc5(&tm, body, &mut var_map, &mut enc_state) {
         Some(t) => t,
         None => {
             return VerificationResult::Unknown {
@@ -8521,7 +8282,7 @@ mod tests {
             solver.set_option("produce-models", "true");
             solver.set_option("tlimit", "2000");
 
-            let adt_def = super::define_adt_cvc5_native(
+            let (adt_def, adt_symbols) = super::define_adt_cvc5_native(
                 &tm,
                 &mut solver,
                 "Option",
@@ -8546,7 +8307,7 @@ mod tests {
             let forty_two = tm.mk_integer(42);
             let some_val = super::adt_constructor_cvc5_native(
                 &tm,
-                "Option",
+                &adt_symbols,
                 some_ctor,
                 &[forty_two.clone()],
                 &mut axioms,
@@ -8554,7 +8315,7 @@ mod tests {
             );
             let none_val = super::adt_constructor_cvc5_native(
                 &tm,
-                "Option",
+                &adt_symbols,
                 none_ctor,
                 &[],
                 &mut axioms,
@@ -8568,14 +8329,14 @@ mod tests {
 
             // Verify tags are distinct
             let is_some =
-                super::adt_is_constructor_cvc5_native(&tm, "Option", some_ctor, &some_val);
+                super::adt_is_constructor_cvc5_native(&tm, &adt_symbols, some_ctor, &some_val);
             let is_none =
-                super::adt_is_constructor_cvc5_native(&tm, "Option", none_ctor, &none_val);
+                super::adt_is_constructor_cvc5_native(&tm, &adt_symbols, none_ctor, &none_val);
             solver.assert_formula(is_some);
             solver.assert_formula(is_none);
 
             // Verify accessor: value(some_val) == 42
-            let accessed = super::adt_accessor_cvc5_native(&tm, "Option", "value", &some_val);
+            let accessed = super::adt_accessor_cvc5_native(&tm, &adt_symbols, "value", &some_val);
             let eq_42 = tm.mk_term(cvc5::Kind::Equal, &[accessed, forty_two]);
             let not_eq_42 = tm.mk_term(cvc5::Kind::Not, &[eq_42]);
             solver.push(1);
@@ -8589,9 +8350,7 @@ mod tests {
 
             // Verify exhaustiveness: tag(x) == 99 should be UNSAT
             let x = tm.mk_const(tm.integer_sort(), "x_adt_exh");
-            let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let tag_fn = tm.mk_const(tag_sort, "__adt_tag_Option");
-            let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn, x]);
+            let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[adt_symbols.tag_fn.clone(), x]);
             let bad_tag = tm.mk_term(cvc5::Kind::Equal, &[tag_x, tm.mk_integer(99)]);
             solver.push(1);
             solver.assert_formula(bad_tag);
@@ -8691,15 +8450,15 @@ mod tests {
             solver.set_option("produce-models", "true");
 
             let eight = tm.mk_bv_sort(8);
-            let a = tm.mk_const(eight, "a");
+            let a = tm.mk_const(eight.clone(), "a");
             let b = tm.mk_const(eight, "b");
-            let two_five_five = tm.mk_bitvector(8, "255");
-            let one = tm.mk_bitvector(8, "1");
-            let zero = tm.mk_bitvector(8, "0");
+            let two_five_five = tm.mk_bv(8, 255);
+            let one = tm.mk_bv(8, 1);
+            let zero = tm.mk_bv(8, 0);
 
             solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[a.clone(), two_five_five]));
             solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[b.clone(), one]));
-            let sum = tm.mk_term(cvc5::Kind::BitwiseAdd, &[a, b]);
+            let sum = tm.mk_term(cvc5::Kind::BitvectorAdd, &[a, b]);
             solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[sum, zero]));
 
             assert!(
