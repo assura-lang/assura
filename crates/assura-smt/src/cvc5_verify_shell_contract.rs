@@ -8,13 +8,14 @@ use crate::cvc5_adt::cvc5_adt_prelude_lines;
 use crate::cvc5_collect::collect_cvc5_var_names_from_clauses;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
-use crate::cvc5_model::parse_smtlib_model;
 use crate::cvc5_verify_shared::{
-    Cvc5ClauseSatOutcome, cvc5_contract_shared_setup, cvc5_interpret_clause_check_result,
-    cvc5_lookup_cached_clause, cvc5_unmodelable_precheck, store_cvc5_clause_cache,
+    cvc5_contract_shared_setup, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
+    store_cvc5_clause_cache,
 };
 use crate::cvc5_verify_shell_clause::check_clause_cvc5_shellout;
-use crate::cvc5_verify_shell_runner::{Cvc5Result, run_cvc5_binary_queries};
+use crate::cvc5_verify_shell_runner::{
+    cvc5_shell_query_to_verification_result, run_cvc5_binary_queries,
+};
 use crate::cvc5_verify_shell_script::{
     append_cvc5_shellout_clause_check, append_cvc5_shellout_constraints,
     append_cvc5_shellout_frame_axioms, append_cvc5_shellout_lemma_assumptions,
@@ -116,6 +117,16 @@ pub(crate) fn verify_contract_cvc5_shellout(
             resolved.push((index, precheck));
             continue;
         }
+        if expr_to_smtlib(&clause.body).is_none() {
+            resolved.push((
+                index,
+                VerificationResult::Unknown {
+                    clause_desc: desc,
+                    reason: "could not encode clause to SMT-LIB2".into(),
+                },
+            ));
+            continue;
+        }
 
         pending.push(PendingShellClause {
             index,
@@ -144,7 +155,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
         match run_cvc5_binary_queries(&script) {
             Ok(query_results) if query_results.len() == pending_count => {
                 for (pending_clause, query) in pending.into_iter().zip(query_results) {
-                    let result = shell_query_to_verification_result(
+                    let result = cvc5_shell_query_to_verification_result(
                         &pending_clause.desc,
                         pending_clause.kind,
                         query,
@@ -160,7 +171,8 @@ pub(crate) fn verify_contract_cvc5_shellout(
                         VerificationResult::Unknown {
                             clause_desc: pending_clause.desc,
                             reason: format!(
-                                "cvc5 returned {} results for {} incremental queries",
+                                "cvc5 returned {} check-sat results for {} pending clauses; \
+                                 verify each clause body encodes to SMT-LIB2",
                                 query_results.len(),
                                 pending_count
                             ),
@@ -260,42 +272,91 @@ fn build_incremental_shell_script(
     script
 }
 
-fn shell_query_to_verification_result(
-    desc: &str,
-    kind: ClauseKind,
-    query: Cvc5Result,
-) -> VerificationResult {
-    match query {
-        Cvc5Result::Unsat => {
-            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Unsat)
-        }
-        Cvc5Result::Sat(model_str) => {
-            let counter_model = parse_smtlib_model(&model_str);
-            let filtered_model = counter_model
-                .as_ref()
-                .map(|cm| {
-                    cm.variables
-                        .iter()
-                        .map(|(n, v)| format!("{n} = {v}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or(model_str);
-            cvc5_interpret_clause_check_result(
-                desc,
-                kind,
-                Cvc5ClauseSatOutcome::Sat {
-                    model_str: filtered_model,
-                    counter_model,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::{BinOp, Literal};
+
+    #[test]
+    fn non_ident_call_is_unencodable_but_not_unmodelable() {
+        let body = Expr::Call {
+            func: Box::new(Expr::Literal(Literal::Int("1".into()))),
+            args: vec![],
+        };
+        assert!(expr_to_smtlib(&body).is_none());
+        assert!(cvc5_unmodelable_precheck("T::Ensures", &body).is_none());
+    }
+
+    #[test]
+    fn incremental_script_emits_one_check_sat_per_pending_clause() {
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
                 },
-            )
-        }
-        Cvc5Result::Timeout => {
-            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Timeout)
-        }
-        Cvc5Result::Error(reason) => VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason,
-        },
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                },
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    lhs: Box::new(Expr::Ident("x".into())),
+                    op: BinOp::Lte,
+                    rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
+                },
+                effect_variables: vec![],
+            },
+        ];
+        let verifiable: Vec<&Clause> = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Ensures)
+            .collect();
+        let requires_exprs: Vec<&Expr> = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Requires)
+            .map(|c| &c.body)
+            .collect();
+        let pending = vec![
+            PendingShellClause {
+                index: 0,
+                desc: "T::Ensures".into(),
+                kind: ClauseKind::Ensures,
+                cache_key: "k1".into(),
+            },
+            PendingShellClause {
+                index: 1,
+                desc: "T::Ensures".into(),
+                kind: ClauseKind::Ensures,
+                cache_key: "k2".into(),
+            },
+        ];
+        let script = build_incremental_shell_script(
+            &requires_exprs,
+            &[],
+            &verifiable,
+            &verifiable,
+            &pending,
+            &[],
+            &["Int".into()],
+            &[],
+            &[],
+            &assura_types::FrameChecker::empty(),
+            None,
+        );
+        let check_count = script.matches("(check-sat)").count();
+        assert_eq!(check_count, 2, "expected one check-sat per pending clause");
+        assert!(script.contains("(push 1)"));
+        assert!(script.contains("(pop 1)"));
     }
 }

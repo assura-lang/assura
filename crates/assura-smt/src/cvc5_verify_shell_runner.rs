@@ -1,5 +1,12 @@
 //! CVC5 binary invocation for shell-out verification.
 
+use assura_parser::ast::ClauseKind;
+
+use crate::VerificationResult;
+use crate::cvc5_verify_shared::{
+    Cvc5ClauseSatOutcome, cvc5_interpret_clause_check_result, cvc5_sat_outcome_from_smtlib_model,
+};
+
 /// Result of running CVC5 binary on an SMT-LIB2 script.
 pub(crate) enum Cvc5Result {
     Unsat,
@@ -12,6 +19,30 @@ pub(crate) fn run_cvc5_binary(script: &str) -> Cvc5Result {
     match execute_cvc5(script) {
         Ok(stdout) => parse_cvc5_stdout_first(&stdout),
         Err(reason) => Cvc5Result::Error(reason),
+    }
+}
+
+pub(crate) fn cvc5_shell_query_to_verification_result(
+    desc: &str,
+    kind: ClauseKind,
+    query: Cvc5Result,
+) -> VerificationResult {
+    match query {
+        Cvc5Result::Unsat => {
+            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Unsat)
+        }
+        Cvc5Result::Sat(model_str) => cvc5_interpret_clause_check_result(
+            desc,
+            kind,
+            cvc5_sat_outcome_from_smtlib_model(model_str),
+        ),
+        Cvc5Result::Timeout => {
+            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Timeout)
+        }
+        Cvc5Result::Error(reason) => VerificationResult::Unknown {
+            clause_desc: desc.to_string(),
+            reason,
+        },
     }
 }
 
@@ -114,6 +145,28 @@ fn parse_cvc5_stdout_all(stdout: &str) -> Result<Vec<Cvc5Result>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::VerificationResult;
+    use assura_parser::ast::ClauseKind;
+
+    #[test]
+    fn shell_query_helper_maps_unsat_to_verified_ensures() {
+        let result = cvc5_shell_query_to_verification_result(
+            "T::Ensures",
+            ClauseKind::Ensures,
+            Cvc5Result::Unsat,
+        );
+        assert!(matches!(result, VerificationResult::Verified { .. }));
+    }
+
+    #[test]
+    fn shell_query_helper_maps_sat_to_counterexample() {
+        let result = cvc5_shell_query_to_verification_result(
+            "T::Ensures",
+            ClauseKind::Ensures,
+            Cvc5Result::Sat("(define-fun x () Int 0)".into()),
+        );
+        assert!(matches!(result, VerificationResult::Counterexample { .. }));
+    }
 
     #[test]
     fn parse_multi_query_stdout() {

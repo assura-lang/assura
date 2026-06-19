@@ -10,12 +10,10 @@ use crate::cvc5_adt::cvc5_adt_prelude_lines;
 use crate::cvc5_collect::collect_vars;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
-use crate::cvc5_model::parse_smtlib_model;
 use crate::cvc5_verify_shared::{
-    Cvc5ClauseSatOutcome, cvc5_interpret_clause_check_result, cvc5_lookup_cached_clause,
-    cvc5_unmodelable_precheck, store_cvc5_clause_cache,
+    cvc5_lookup_cached_clause, cvc5_unmodelable_precheck, store_cvc5_clause_cache,
 };
-use crate::cvc5_verify_shell_runner::{Cvc5Result, run_cvc5_binary};
+use crate::cvc5_verify_shell_runner::{cvc5_shell_query_to_verification_result, run_cvc5_binary};
 use crate::cvc5_verify_shell_script::{
     append_cvc5_shellout_clause_check, append_cvc5_shellout_constraints,
     append_cvc5_shellout_frame_axioms, append_cvc5_shellout_lemma_assumptions,
@@ -100,39 +98,8 @@ pub(crate) fn check_clause_cvc5_shellout(
     script.push_str("(check-sat)\n");
     script.push_str("(get-model)\n");
 
-    let result = match run_cvc5_binary(&script) {
-        Cvc5Result::Unsat => {
-            cvc5_interpret_clause_check_result(desc, kind.clone(), Cvc5ClauseSatOutcome::Unsat)
-        }
-        Cvc5Result::Sat(model_str) => {
-            let counter_model = parse_smtlib_model(&model_str);
-            let filtered_model = counter_model
-                .as_ref()
-                .map(|cm| {
-                    cm.variables
-                        .iter()
-                        .map(|(n, v)| format!("{n} = {v}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or(model_str);
-            cvc5_interpret_clause_check_result(
-                desc,
-                kind.clone(),
-                Cvc5ClauseSatOutcome::Sat {
-                    model_str: filtered_model,
-                    counter_model,
-                },
-            )
-        }
-        Cvc5Result::Timeout => {
-            cvc5_interpret_clause_check_result(desc, kind.clone(), Cvc5ClauseSatOutcome::Timeout)
-        }
-        Cvc5Result::Error(reason) => VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason,
-        },
-    };
+    let result =
+        cvc5_shell_query_to_verification_result(desc, kind.clone(), run_cvc5_binary(&script));
 
     store_cvc5_clause_cache(cache, cache_key, &result);
 
