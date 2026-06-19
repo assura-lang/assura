@@ -144,52 +144,86 @@ fn verify_clauses_with_types(
     // ---------------------------------------------------------------
 
     let solver = Solver::new();
-    enable_unsat_cores(&solver);
-    let mut encoder = Encoder::new();
-    encoder.init_adt_infrastructure();
-    encoder.init_bitvector_infrastructure();
+    let mut solver_params = z3::Params::new();
+    solver_params.set_u32("timeout", 10000);
+    solver.set_params(&solver_params);
+    if requires.len() > 1 {
+        enable_unsat_cores(&solver);
+    }
+    let mut base_encoder = Encoder::with_string_theory(types.use_string_theory);
+    // ADT axioms (forall over uninterpreted tag UFs) are initialized lazily
+    // during encoding when a match/constructor pattern needs them (#262).
+    base_encoder.init_bitvector_infrastructure();
     for param in types.params {
         if let Some((width, signed)) = Encoder::fixed_width_bits(&param.ty) {
-            encoder.register_fixed_width_param(&param.name, width, signed);
+            base_encoder.register_fixed_width_param(&param.name, width, signed);
         }
     }
 
     // Bind named constants so Z3 uses concrete values, not free vars.
     for (name, value) in types.constants {
         let concrete = ast::Int::from_i64(*value);
-        encoder
+        base_encoder
             .vars
             .insert(name.clone(), super::encoder::Z3Value::Int(concrete));
     }
 
     // Register known function names for trigger inference
     for other_clause in clauses {
-        collect_function_names_for_triggers(&other_clause.body, &mut encoder.trigger_manager);
+        collect_function_names_for_triggers(&other_clause.body, &mut base_encoder.trigger_manager);
     }
 
-    // Requires are asserted per-clause with tracking labels (below) so
-    // unsat-core extraction identifies which preconditions were needed.
-    // Type-level constraints and lemmas are still shared at base level.
+    let param_names: Vec<String> = types.params.iter().map(|p| p.name.clone()).collect();
+    apply_havoc_assume_z3(
+        &mut base_encoder,
+        &requires,
+        &ensures_clauses,
+        types.return_ty,
+        &param_names,
+        types.ir_body,
+    );
+    for axiom in &base_encoder.background_axioms {
+        solver.assert(axiom);
+    }
+    base_encoder.background_axioms.clear();
+
+    // Assert requires ONCE (#264). Use tracked assertions only when there
+    // are multiple requires so unsat-core extraction (#266) can identify
+    // which preconditions matter; a single require does not need tracking.
+    for (i, req) in requires.iter().enumerate() {
+        let req_val = base_encoder.encode_expr(&req.body);
+        let req_bool = req_val.as_bool();
+        if requires.len() > 1 {
+            let label = format!("req_{i}");
+            assert_tracked(&solver, &req_bool, &label);
+        } else {
+            solver.assert(&req_bool);
+        }
+    }
+    for axiom in &base_encoder.background_axioms {
+        solver.assert(axiom);
+    }
+    base_encoder.background_axioms.clear();
 
     // Assert type-level constraints for parameters and return type.
     for param in types.params {
         if is_nat_type(&param.ty) {
-            let p = encoder.get_or_create_int(&param.name);
+            let p = base_encoder.get_or_create_int(&param.name);
             let zero = ast::Int::from_i64(0);
             solver.assert(p.ge(&zero));
         }
     }
     if is_nat_type(types.return_ty) {
-        let result_var = encoder.get_or_create_int("result");
+        let result_var = base_encoder.get_or_create_int("result");
         let zero = ast::Int::from_i64(0);
         solver.assert(result_var.ge(&zero));
-        let raw_result = encoder.get_or_create_int("__result");
+        let raw_result = base_encoder.get_or_create_int("__result");
         solver.assert(raw_result.ge(&zero));
     }
 
     // #188: Refinement narrowing from feature_max declarations.
     for (narrowed_name, bound) in types.narrowings {
-        let var = encoder.get_or_create_int(narrowed_name);
+        let var = base_encoder.get_or_create_int(narrowed_name);
         let upper = ast::Int::from_i64(*bound);
         solver.assert(var.le(&upper));
     }
@@ -199,7 +233,7 @@ fn verify_clauses_with_types(
     for lemma_name in &apply_refs {
         if let Some(ensures_bodies) = lemma_defs.get(lemma_name) {
             for ensures_body in ensures_bodies {
-                let ens_val = encoder.encode_expr(ensures_body);
+                let ens_val = base_encoder.encode_expr(ensures_body);
                 let ens_bool = ens_val.as_bool();
                 solver.assert(&ens_bool);
             }
@@ -207,10 +241,10 @@ fn verify_clauses_with_types(
     }
 
     // Assert any background axioms from lemma encoding
-    for axiom in &encoder.background_axioms {
+    for axiom in &base_encoder.background_axioms {
         solver.assert(axiom);
     }
-    encoder.background_axioms.clear();
+    base_encoder.background_axioms.clear();
 
     // For each verifiable clause: push, encode, check, pop
     for clause in &verifiable {
@@ -243,92 +277,30 @@ fn verify_clauses_with_types(
             continue;
         }
 
-        solver.push(); // Save solver state
-
-        let mut encoder = Encoder::with_string_theory(types.use_string_theory);
-        encoder.init_adt_infrastructure();
-        encoder.init_bitvector_infrastructure();
-        for param in types.params {
-            if let Some((width, signed)) = Encoder::fixed_width_bits(&param.ty) {
-                encoder.register_fixed_width_param(&param.name, width, signed);
-            }
+        let use_push_pop = verifiable.len() > 1;
+        if use_push_pop {
+            solver.push(); // Save solver state
         }
 
-        // Bind named constants so Z3 uses concrete values, not free vars.
+        let mut clause_encoder = Encoder::with_string_theory(types.use_string_theory);
+        clause_encoder.share_encoding_state_from(&base_encoder);
+        clause_encoder.init_bitvector_infrastructure();
+        for param in types.params {
+            if let Some((width, signed)) = Encoder::fixed_width_bits(&param.ty) {
+                clause_encoder.register_fixed_width_param(&param.name, width, signed);
+            }
+        }
         for (name, value) in types.constants {
             let concrete = ast::Int::from_i64(*value);
-            encoder
+            clause_encoder
                 .vars
                 .insert(name.clone(), super::encoder::Z3Value::Int(concrete));
         }
-
-        // Register known function names for trigger inference
         for other_clause in clauses {
-            collect_function_names_for_triggers(&other_clause.body, &mut encoder.trigger_manager);
-        }
-
-        let param_names: Vec<String> = types.params.iter().map(|p| p.name.clone()).collect();
-        apply_havoc_assume_z3(
-            &mut encoder,
-            &requires,
-            &ensures_clauses,
-            types.return_ty,
-            &param_names,
-            types.ir_body,
-        );
-
-        // Assert all requires as tracked assumptions for unsat-core extraction
-        for (i, req) in requires.iter().enumerate() {
-            let req_val = encoder.encode_expr(&req.body);
-            let req_bool = req_val.as_bool();
-            let label = format!("req_{i}");
-            assert_tracked(&solver, &req_bool, &label);
-        }
-        // Assert background axioms from requires encoding (e.g., map
-        // read-over-write, string length axioms)
-        for axiom in &encoder.background_axioms {
-            solver.assert(axiom);
-        }
-        encoder.background_axioms.clear();
-
-        // Assert type-level constraints for parameters and return type.
-        // Nat params get `param >= 0`; Nat return type gets `result >= 0`.
-        for param in types.params {
-            if is_nat_type(&param.ty) {
-                let p = encoder.get_or_create_int(&param.name);
-                let zero = ast::Int::from_i64(0);
-                solver.assert(p.ge(&zero));
-            }
-        }
-        if is_nat_type(types.return_ty) {
-            // Constrain both "result" (AST Ident path) and "__result"
-            // (raw token path) so the type constraint applies regardless
-            // of which encoding path the clause body uses.
-            let result_var = encoder.get_or_create_int("result");
-            let zero = ast::Int::from_i64(0);
-            solver.assert(result_var.ge(&zero));
-            let raw_result = encoder.get_or_create_int("__result");
-            solver.assert(raw_result.ge(&zero));
-        }
-
-        // #188: Refinement narrowing from feature_max declarations.
-        // `feature_max max_X = V` narrows any variable named `X` with `X <= V`.
-        for (narrowed_name, bound) in types.narrowings {
-            let var = encoder.get_or_create_int(narrowed_name);
-            let upper = ast::Int::from_i64(*bound);
-            solver.assert(var.le(&upper));
-        }
-
-        // T044: Inject lemma ensures as assumptions for any `apply` refs
-        let apply_refs = collect_apply_refs(clauses);
-        for lemma_name in &apply_refs {
-            if let Some(ensures_bodies) = lemma_defs.get(lemma_name) {
-                for ensures_body in ensures_bodies {
-                    let ens_val = encoder.encode_expr(ensures_body);
-                    let ens_bool = ens_val.as_bool();
-                    solver.assert(&ens_bool);
-                }
-            }
+            collect_function_names_for_triggers(
+                &other_clause.body,
+                &mut clause_encoder.trigger_manager,
+            );
         }
 
         // T045: For ensures clauses with a modifies set, inject frame
@@ -337,23 +309,23 @@ fn verify_clauses_with_types(
         if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
             let frame_vars = frame_checker.frame_axiom_vars(&clause.body);
             for var_name in &frame_vars {
-                let current = encoder.get_or_create_int(var_name);
+                let current = clause_encoder.get_or_create_int(var_name);
                 let old_name = format!("{var_name}__old");
-                let old_var = encoder.get_or_create_int(&old_name);
+                let old_var = clause_encoder.get_or_create_int(&old_name);
                 let axiom = current.eq(&old_var);
                 solver.assert(&axiom);
             }
         }
 
         // Encode the clause body
-        let clause_val = encoder.encode_expr(&clause.body);
+        let clause_val = clause_encoder.encode_expr(&clause.body);
         let clause_bool = clause_val.as_bool();
 
         // Assert background axioms from this clause's encoding
-        for axiom in &encoder.background_axioms {
+        for axiom in &clause_encoder.background_axioms {
             solver.assert(axiom);
         }
-        encoder.background_axioms.clear();
+        clause_encoder.background_axioms.clear();
 
         let result_before = results.len();
         match clause.kind {
@@ -371,7 +343,7 @@ fn verify_clauses_with_types(
             }
             ClauseKind::Decreases => {
                 let zero = ast::Int::from_i64(0);
-                let measure = clause_val.as_int(&mut encoder.fresh_counter);
+                let measure = clause_val.as_int(&mut clause_encoder.fresh_counter);
                 let non_neg = measure.ge(&zero);
                 solver.assert(non_neg.not());
                 check_validity(&solver, desc, results);
@@ -390,7 +362,9 @@ fn verify_clauses_with_types(
             cache.insert(clause_hash, result_str.to_string(), 0);
         }
 
-        solver.pop(1); // Restore solver state
+        if use_push_pop {
+            solver.pop(1); // Restore solver state
+        }
     }
 }
 

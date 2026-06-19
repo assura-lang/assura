@@ -197,6 +197,14 @@ impl Encoder {
         }
     }
 
+    /// Copy shared Z3 variable state from a base encoder (#264).
+    pub(crate) fn share_encoding_state_from(&mut self, base: &Encoder) {
+        self.vars.clone_from(&base.vars);
+        self.adt_defs.clone_from(&base.adt_defs);
+        self.func_arities.clone_from(&base.func_arities);
+        self.canonical_lengths.clone_from(&base.canonical_lengths);
+    }
+
     /// Register baseline ADT infrastructure used by match-pattern encoding.
     pub(crate) fn init_adt_infrastructure(&mut self) {
         if !self.adt_defs.contains_key("Option") {
@@ -245,6 +253,16 @@ impl Encoder {
         let v = ast::Int::new_const(key.as_str());
         let zero = ast::Int::from_i64(0);
         self.background_axioms.push(v.ge(&zero));
+        // Link to `len` / `__field_len` UIFs so concat/array axioms agree with `.len` (#267).
+        let obj = self.get_or_create_int(name);
+        for uf_name in ["len", "__field_len"] {
+            let len_decl = self.make_func(uf_name, 1);
+            let uif_len = len_decl
+                .apply(&[&obj as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            self.background_axioms.push(uif_len.eq(&v));
+        }
         self.canonical_lengths.insert(name.to_string(), v.clone());
         v
     }
@@ -665,7 +683,8 @@ impl Encoder {
         // set(a, i, v) returns a new array where a[i] == v and
         // all other elements are unchanged.
         if func_name == "set" && arg_vals.len() == 3 {
-            let _arr = &arg_vals[0];
+            let arr_expr = &args[0];
+            let arr = &arg_vals[0];
             let idx = &arg_vals[1];
             let val = &arg_vals[2];
             let result = self.fresh_int();
@@ -676,13 +695,17 @@ impl Encoder {
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
             self.background_axioms.push(get_at_idx.eq(val));
-            // len(result) == len(original)
-            // Use "len" to match the function name users write in contracts
+            // len(result) == len(original); use canonical length for named arrays (#267).
+            let old_len = if let Expr::Ident(name) = arr_expr {
+                self.canonical_length(name)
+            } else {
+                let len_decl = self.make_func("len", 1);
+                len_decl
+                    .apply(&[arr as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int())
+            };
             let len_decl = self.make_func("len", 1);
-            let old_len = len_decl
-                .apply(&[_arr as &dyn z3::ast::Ast])
-                .as_int()
-                .unwrap_or_else(|| self.fresh_int());
             let new_len = len_decl
                 .apply(&[&result as &dyn z3::ast::Ast])
                 .as_int()

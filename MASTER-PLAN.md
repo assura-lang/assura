@@ -1734,6 +1734,15 @@ compiles" failure on taint-tracking.assura.
 - Only open issue: #45 (CodeQL, blocked on repo going public)
 - **Next session**: Phase 10 (SMT full parity), then multi-perspective improvement loop
 
+### Session 21 (2026-06-18): Phase 10 Round 5 complete (#262, #261, #264)
+
+- **10.16-10.18 done**: Typestate @ encoding, native string theory, incremental push/pop
+- **Z3 hang fix**: lazy ADT init (eager Option forall axioms caused SAT queries to hang)
+- **Incremental fix**: assert requires/havoc once; share encoder vars/ADT state per clause
+- **Length linking**: canonical `.len` vars linked to `len`/`__field_len` UIFs (#267 follow-up)
+- **Phase 10 complete** (all 22 tasks checked)
+- **Next session**: Run `/multi-perspective-improve` loop per Phase 10 continuation prompt
+
 ### Session 20 (2026-06-18): Phase 10 Round 6 complete (#263, #265, #266, #267)
 
 - **10.19-10.22 done**: ADT encoding, bitvector theory, unsat cores, havoc+assume
@@ -1742,8 +1751,7 @@ compiles" failure on taint-tracking.assura.
   - Z3: canonical `.length()` vars, IR body constraints, per-clause background axioms
   - CVC5: matching canonical length + havoc+assume in native incremental path
   - Acceptance: `result.length() <= raw.length()` verifies (test_sec.assura pattern)
-- **Phase 10 complete** (all 22 tasks checked)
-- **Next session**: Run `/multi-perspective-improve` loop per Phase 10 continuation prompt
+- **Next session**: Phase 10 Round 5 (#262, #261, #264)
 
 ---
 
@@ -1845,11 +1853,11 @@ compiles" failure on taint-tracking.assura.
 
 ### Round 5: Z3 advancement (#262, #261, #264) -- depends on: Round 4
 
-- [ ] **10.16** #262 Z3: Typestate state-machine encoding for @ annotations
+- [x] **10.16** #262 Z3: Typestate state-machine encoding for @ annotations
   - Remove unmodelable skip, encode states as enumerated/integer sort
-- [ ] **10.17** #261 Z3/CVC5: Native String theory (QF_S / QF_SLIA)
+- [x] **10.17** #261 Z3/CVC5: Native String theory (QF_S / QF_SLIA)
   - Replace integer encoding with Z3 ast::String, CVC5 string_sort()
-- [ ] **10.18** #264 Z3/CVC5: Incremental solving (push/pop)
+- [x] **10.18** #264 Z3/CVC5: Incremental solving (push/pop)
   - Assert requires once, push/pop for each clause
 - **Acceptance**:
   ```bash

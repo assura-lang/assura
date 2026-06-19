@@ -5777,11 +5777,10 @@ mod tests {
             ],
         };
         let smt = expr_to_smtlib(&expr).expect("should encode constructor match");
-        // Should produce nested ite with hash tags for Some and None
-        let some_hash = pattern_hash_smtlib("Some");
-        let none_hash = pattern_hash_smtlib("None");
-        assert!(smt.contains(&some_hash.to_string()));
-        assert!(smt.contains(&none_hash.to_string()));
+        // #263: Constructor patterns use ADT tag testers, not pattern hashes.
+        assert!(smt.contains("__adt_tag_Option"));
+        assert!(smt.contains("(= (__adt_tag_Option x) 0)")); // Some
+        assert!(smt.contains("(= (__adt_tag_Option x) 1)")); // None
         assert!(smt.contains("ite"));
     }
 
