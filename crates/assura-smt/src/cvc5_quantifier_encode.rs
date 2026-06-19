@@ -4,8 +4,7 @@ use assura_parser::ast::Expr;
 
 use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_raw_ops::{
-    domain_as_range, domain_contains_guard_smtlib, range_guard_smtlib,
-    wrap_ast_quantifier_smtlib,
+    domain_as_range, domain_contains_guard_smtlib, range_guard_smtlib, wrap_ast_quantifier_smtlib,
 };
 
 #[cfg(feature = "cvc5-verify")]

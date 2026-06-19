@@ -79,6 +79,7 @@ mod cvc5_adt;
 mod cvc5_backend;
 mod cvc5_binop_encode;
 mod cvc5_builtins;
+mod cvc5_call_encode;
 mod cvc5_common;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_encoder_state;
@@ -95,6 +96,8 @@ mod cvc5_native_binops;
 mod cvc5_native_builtins;
 mod cvc5_old_access;
 mod cvc5_quantifier_encode;
+#[cfg(feature = "cvc5-verify")]
+mod cvc5_raw_native;
 mod cvc5_raw_ops;
 mod cvc5_tuple_encode;
 

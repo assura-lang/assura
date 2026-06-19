@@ -1,6 +1,7 @@
 use super::*;
 use crate::cache::SessionCache;
 use crate::cvc5_binop_encode::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
+use crate::cvc5_call_encode::{encode_call_smtlib, encode_method_call_smtlib};
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
     expr_has_unmodelable_features_cvc5, float_literal_to_smtlib, is_internal_cvc5_var,
@@ -1690,21 +1691,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             let b = expr_to_smtlib(body)?;
             encode_ast_quantifier_smtlib(false, var, domain, &b, expr_to_smtlib)
         }
-        Expr::Call { func, args } => {
-            let f = match func.as_ref() {
-                Expr::Ident(name) => sanitize_smtlib_name(name),
-                _ => return None,
-            };
-            if args.is_empty() {
-                return Some(f);
-            }
-            let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
-            let arg_strs = arg_strs?;
-            if let Some(s) = crate::cvc5_builtins::known_builtin_to_smtlib(f.as_str(), &arg_strs) {
-                return Some(s);
-            }
-            Some(format!("({f} {})", arg_strs.join(" ")))
-        }
+        Expr::Call { func, args } => encode_call_smtlib(func, args, expr_to_smtlib),
         Expr::Old(inner) => encode_old_smtlib(inner.as_ref(), expr_to_smtlib),
         Expr::Paren(inner) => expr_to_smtlib(inner),
         Expr::Cast { expr: inner, .. } => expr_to_smtlib(inner),
@@ -1759,23 +1746,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             receiver,
             method,
             args,
-        } => {
-            let r = expr_to_smtlib(receiver)?;
-            let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
-            let arg_strs = arg_strs.unwrap_or_default();
-            let mut all_args = vec![r];
-            all_args.extend(arg_strs);
-            if let Some(s) =
-                crate::cvc5_builtins::known_builtin_to_smtlib(method.as_str(), &all_args)
-            {
-                return Some(s);
-            }
-            if all_args.len() == 1 {
-                Some(format!("({method} {})", all_args[0]))
-            } else {
-                Some(format!("({method} {})", all_args.join(" ")))
-            }
-        }
+        } => encode_method_call_smtlib(receiver, method, args, expr_to_smtlib),
         // List: use a fresh variable name
         Expr::List(_) => Some(encode_list_smtlib()),
         // Apply: return named bool
