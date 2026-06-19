@@ -127,6 +127,12 @@ mod cvc5_verify_native_solver;
 mod cvc5_verify_shared;
 #[cfg(not(feature = "cvc5-verify"))]
 mod cvc5_verify_shell;
+#[cfg(not(feature = "cvc5-verify"))]
+mod cvc5_verify_shell_clause;
+#[cfg(not(feature = "cvc5-verify"))]
+mod cvc5_verify_shell_runner;
+#[cfg(not(feature = "cvc5-verify"))]
+mod cvc5_verify_shell_script;
 mod cvc5_wrapper_encode;
 
 // ---------------------------------------------------------------------------
