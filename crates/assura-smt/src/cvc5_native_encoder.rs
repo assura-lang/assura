@@ -6,10 +6,7 @@ use std::collections::HashMap;
 
 use assura_parser::ast::{Clause, Expr, Literal};
 
-use crate::cvc5_atom_encode::{
-    encode_apply_cvc5, encode_ident_cvc5, encode_literal_cvc5, encode_raw_empty_cvc5,
-    encode_raw_single_token_cvc5,
-};
+use crate::cvc5_atom_encode::{encode_apply_cvc5, encode_ident_cvc5, encode_literal_cvc5};
 use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
 use crate::cvc5_call_encode::{encode_call_cvc5, encode_method_call_cvc5};
 use crate::cvc5_encoder_state::{canonical_length_cvc5, field_len_fn_cvc5};
@@ -22,7 +19,7 @@ use crate::cvc5_list_encode::encode_list_cvc5;
 use crate::cvc5_match_encode::encode_match_cvc5;
 use crate::cvc5_old_access::encode_old_cvc5;
 use crate::cvc5_quantifier_encode::encode_ast_quantifier_cvc5;
-use crate::cvc5_raw_native::encode_raw_tokens_cvc5;
+use crate::cvc5_raw_encode::encode_raw_expr_cvc5;
 
 pub(crate) use crate::cvc5_encoder_state::{Cvc5EncoderState, default_cvc5_encoder_state};
 
@@ -151,15 +148,7 @@ pub(crate) fn encode_expr_cvc5<'a>(
             encode_expr_cvc5(tm, e, v, s)
         }),
         // Raw tokens: basic parsing (single token bools/ints/idents)
-        Expr::Raw(tokens) => {
-            if tokens.is_empty() {
-                return Some(encode_raw_empty_cvc5(tm));
-            }
-            if tokens.len() == 1 {
-                return encode_raw_single_token_cvc5(tm, &tokens[0], vars);
-            }
-            encode_raw_tokens_cvc5(tm, tokens, vars, state)
-        }
+        Expr::Raw(tokens) => encode_raw_expr_cvc5(tm, tokens, vars, state),
         // Tuple: fresh Int with element-access axioms
         Expr::Tuple(elems) => {
             let elem_vals: Option<Vec<_>> = elems

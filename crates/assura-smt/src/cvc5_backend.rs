@@ -1,9 +1,6 @@
 use super::*;
 use crate::cache::SessionCache;
-use crate::cvc5_atom_encode::{
-    encode_apply_smtlib, encode_ident_smtlib, encode_literal_smtlib, encode_raw_empty_smtlib,
-    encode_raw_single_token_smtlib,
-};
+use crate::cvc5_atom_encode::{encode_apply_smtlib, encode_ident_smtlib, encode_literal_smtlib};
 use crate::cvc5_binop_encode::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 use crate::cvc5_call_encode::{encode_call_smtlib, encode_method_call_smtlib};
 use crate::cvc5_common::{
@@ -19,6 +16,7 @@ use crate::cvc5_list_encode::encode_list_smtlib;
 use crate::cvc5_match_encode::encode_match_smtlib;
 use crate::cvc5_old_access::encode_old_smtlib;
 use crate::cvc5_quantifier_encode::encode_ast_quantifier_smtlib;
+use crate::cvc5_raw_encode::encode_raw_expr_smtlib;
 use crate::cvc5_tuple_encode::encode_tuple_smtlib;
 use crate::cvc5_wrapper_encode::encode_wrapper_smtlib;
 
@@ -27,10 +25,7 @@ use crate::cvc5_common::{
     field_chain_depth_cvc5, flatten_field_chain_cvc5, has_deep_field_chain_cvc5,
     is_self_rooted_cvc5,
 };
-use crate::cvc5_raw_ops::{
-    comma_chunk_ranges, find_matching_delim, format_raw_binop_smtlib, format_raw_quantifier_smtlib,
-    is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
-};
+
 #[cfg(any(test, feature = "cvc5-verify"))]
 use assura_parser::ast::{BinOp, Literal, UnaryOp};
 use assura_parser::ast::{BlockKind, Clause, ClauseKind, Decl};
@@ -1707,16 +1702,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         }
         Expr::Block(body) => encode_block_smtlib(body, expr_to_smtlib),
         // Raw tokens: full precedence-climbing SMT-LIB2 encoding
-        Expr::Raw(tokens) => {
-            if tokens.is_empty() {
-                return Some(encode_raw_empty_smtlib());
-            }
-            if tokens.len() == 1 {
-                return encode_raw_single_token_smtlib(&tokens[0]);
-            }
-            let (val, _) = parse_raw_expr_smtlib(tokens, 0, 0)?;
-            Some(val)
-        }
+        Expr::Raw(tokens) => encode_raw_expr_smtlib(tokens),
         // Tuple: use a fresh variable name
         Expr::Tuple(_) => Some(encode_tuple_smtlib()),
         // MethodCall: prepend receiver as first arg to UF
@@ -1730,168 +1716,6 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         // Apply: return named bool
         Expr::Apply { lemma_name, .. } => Some(encode_apply_smtlib(lemma_name)),
     }
-}
-
-// -------------------------------------------------------------------------
-// SMT-LIB2 precedence-climbing parser for Expr::Raw tokens (shell-out path)
-// -------------------------------------------------------------------------
-
-/// Precedence-climbing expression parser for raw tokens producing SMT-LIB2 text.
-///
-/// Returns `(smtlib_string, next_position)`.
-fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<(String, usize)> {
-    let (mut lhs, mut pos) = parse_raw_atom_smtlib(tokens, pos)?;
-
-    while pos < tokens.len() {
-        let Some((op_prec, op_kind)) = raw_op_info(tokens[pos].as_str()) else {
-            break;
-        };
-        if op_prec < min_prec {
-            break;
-        }
-
-        pos += 1; // consume operator
-
-        let (rhs, next_pos) = parse_raw_expr_smtlib(tokens, pos, op_prec + 1)?;
-        pos = next_pos;
-
-        // Comparison chaining: `a < b < c` -> `(and (< a b) (< b c))`
-        if raw_op_is_comparison(op_kind)
-            && pos < tokens.len()
-            && let Some((next_prec, next_op)) = raw_op_info(tokens[pos].as_str())
-            && raw_op_is_comparison(next_op)
-            && next_prec >= min_prec
-        {
-            let left_cmp = format_raw_binop_smtlib(op_kind, &lhs, &rhs);
-            pos += 1; // consume next operator
-            let (rhs2, next_pos2) = parse_raw_expr_smtlib(tokens, pos, next_prec + 1)?;
-            pos = next_pos2;
-            let right_cmp = format_raw_binop_smtlib(next_op, &rhs, &rhs2);
-            lhs = format!("(and {left_cmp} {right_cmp})");
-            continue;
-        }
-
-        lhs = format_raw_binop_smtlib(op_kind, &lhs, &rhs);
-    }
-
-    Some((lhs, pos))
-}
-
-/// Parse a single atom from raw tokens into SMT-LIB2 text.
-fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usize)> {
-    if start >= tokens.len() {
-        return Some(("true".to_string(), start));
-    }
-
-    let tok = &tokens[start];
-
-    // --- Unary not ---
-    if tok == "not" || tok == "!" {
-        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1)?;
-        return Some((format!("(not {val})"), next));
-    }
-
-    // --- Unary minus ---
-    if tok == "-" {
-        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1)?;
-        return Some((format!("(- {val})"), next));
-    }
-
-    // --- Parenthesized expression ---
-    if tok == "(" {
-        let (val, end) = parse_raw_expr_smtlib(tokens, start + 1, 0)?;
-        let next = if end < tokens.len() && tokens[end] == ")" {
-            end + 1
-        } else {
-            end
-        };
-        return Some((val, next));
-    }
-
-    // --- Boolean literals ---
-    if tok == "true" || tok == "false" {
-        return Some((tok.clone(), start + 1));
-    }
-
-    // --- `result` keyword ---
-    if tok == "result" {
-        return Some(("__result".to_string(), start + 1));
-    }
-
-    // --- `old(expr)` ---
-    if tok == "old" && start + 1 < tokens.len() && tokens[start + 1] == "(" {
-        let p = find_matching_delim(tokens, start + 1, "(", ")")?;
-        let end = p + 1;
-        let inner = &tokens[start + 2..p];
-
-        if inner.len() == 1 {
-            let old_name = format!("{}__old", sanitize_smtlib_name(&inner[0]));
-            return Some((old_name, end));
-        }
-        // General old(expr): parse inner and suffix identifiers conceptually
-        if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0) {
-            return Some((val, end));
-        }
-        return Some(("__old_fresh".to_string(), end));
-    }
-
-    // --- `forall`/`exists` quantifiers ---
-    if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {
-        let var_name = sanitize_smtlib_name(&tokens[slice.var_token_idx]);
-        let body_tokens = &tokens[slice.body_start..slice.body_end];
-        if let Some((body_val, _)) = parse_raw_expr_smtlib(body_tokens, 0, 0) {
-            return Some((
-                format_raw_quantifier_smtlib(slice.is_forall, &var_name, &body_val),
-                slice.final_pos,
-            ));
-        }
-        return Some((
-            format_raw_quantifier_smtlib(slice.is_forall, &var_name, "true"),
-            slice.final_pos,
-        ));
-    }
-
-    // --- Integer literal ---
-    if tok.parse::<i64>().is_ok() {
-        return Some((tok.clone(), start + 1));
-    }
-
-    // --- Skip specification keywords ---
-    if is_raw_spec_skip_keyword(tok) {
-        return parse_raw_atom_smtlib(tokens, start + 1);
-    }
-
-    // --- Identifier with dot-separated field access ---
-    let mut name = sanitize_smtlib_name(tok);
-    let mut next = start + 1;
-    while next + 1 < tokens.len() && tokens[next] == "." {
-        name.push('_');
-        name.push_str(&sanitize_smtlib_name(&tokens[next + 1]));
-        next += 2;
-    }
-
-    // Function call: `name(args)` -> `(name arg1 arg2 ...)`
-    if next < tokens.len() && tokens[next] == "(" {
-        let p = find_matching_delim(tokens, next, "(", ")")?;
-        let arg_tokens = &tokens[next + 1..p];
-        let mut arg_strs: Vec<String> = Vec::new();
-        for (lo, hi) in comma_chunk_ranges(arg_tokens) {
-            let chunk = &arg_tokens[lo..hi];
-            if !chunk.is_empty()
-                && let Some((v, _)) = parse_raw_expr_smtlib(chunk, 0, 0)
-            {
-                arg_strs.push(v);
-            }
-        }
-        let end = p + 1;
-
-        if arg_strs.is_empty() {
-            return Some((name, end));
-        }
-        return Some((format!("({name} {})", arg_strs.join(" ")), end));
-    }
-
-    Some((name, next))
 }
 
 /// Collect all variable names referenced in an expression.

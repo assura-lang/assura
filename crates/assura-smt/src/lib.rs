@@ -98,9 +98,11 @@ mod cvc5_native_binops;
 mod cvc5_native_builtins;
 mod cvc5_old_access;
 mod cvc5_quantifier_encode;
+mod cvc5_raw_encode;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_raw_native;
 mod cvc5_raw_ops;
+mod cvc5_raw_smtlib;
 mod cvc5_tuple_encode;
 mod cvc5_wrapper_encode;
 

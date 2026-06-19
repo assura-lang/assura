@@ -1,6 +1,6 @@
 //! Shared raw-token operator table and quantifier helpers for CVC5 backends.
 //!
-//! Shell-out (`expr_to_smtlib` / `parse_raw_expr_smtlib`) and native
+//! Shell-out (`cvc5_raw_smtlib`) and native (`cvc5_raw_native`)
 //! (`encode_expr_cvc5` / `parse_raw_expr_cvc5`) share precedence, comparison
 //! chaining, quantifier wrapping, comma-splitting, and AST `BinOp` tables.
 
