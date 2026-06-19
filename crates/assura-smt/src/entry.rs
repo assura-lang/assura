@@ -703,10 +703,12 @@ fn verify_file_with_cvc5(
     let mut session_cache = SessionCache::new();
 
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
+    let ir_block_maps = extras.and_then(|e| e.ir_blocks);
 
     // Clause-level verification via CVC5
     for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
         let ir_body = ir_bodies.and_then(|m| m.get(&name));
+        let ir_blocks = ir_block_maps.and_then(|m| m.get(&name));
         results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
             &name,
             &clauses,
@@ -715,6 +717,7 @@ fn verify_file_with_cvc5(
             Some(&lemma_defs),
             &constants,
             ir_body,
+            ir_blocks,
             &mut session_cache,
         ));
     }
@@ -995,7 +998,6 @@ fn verify_contract_with_types_and_solver(
     ir_body: Option<&crate::ir::IrFunction>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
 ) -> Vec<VerificationResult> {
-    let _ = ir_blocks;
     match solver {
         SolverChoice::Z3 => {
             #[cfg(feature = "z3-verify")]
@@ -1026,6 +1028,7 @@ fn verify_contract_with_types_and_solver(
                 None,
                 constants,
                 ir_body,
+                ir_blocks,
                 &mut cache,
             )
         }

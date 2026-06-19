@@ -106,9 +106,14 @@ fn bench_smt_verify(c: &mut Criterion) {
         let file = file.expect("demo should parse");
         let resolved = assura_resolve::resolve(&file).expect("demo should resolve");
         let typed = assura_types::type_check(&resolved).expect("demo should typecheck");
-        group.bench_with_input(BenchmarkId::new("verify", demo.name), &typed, |b, typed| {
-            b.iter(|| assura_smt::verify(typed));
-        });
+        let demo_path = format!("demos/{}.assura", demo.name);
+        group.bench_with_input(
+            BenchmarkId::new("verify", demo.name),
+            &(typed, demo_path),
+            |b, (typed, path)| {
+                b.iter(|| assura_smt::verify_from_source(typed, Some(std::path::Path::new(path))));
+            },
+        );
     }
     group.finish();
 }
@@ -127,7 +132,11 @@ fn bench_full_pipeline(c: &mut Criterion) {
                     let resolved = assura_resolve::resolve(&file).expect("resolve");
                     let _hir = assura_hir::lower(&resolved);
                     let typed = assura_types::type_check(&resolved).expect("typecheck");
-                    let _results = assura_smt::verify(&typed);
+                    let demo_path = format!("demos/{}.assura", demo.name);
+                    let _results = assura_smt::verify_from_source(
+                        &typed,
+                        Some(std::path::Path::new(&demo_path)),
+                    );
                     let _project = assura_codegen::codegen(&typed);
                 });
             },

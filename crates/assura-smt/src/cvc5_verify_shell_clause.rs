@@ -32,6 +32,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     return_ty: &[String],
     param_names: &[String],
     ir_body: Option<&crate::ir::IrFunction>,
+    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
@@ -77,6 +78,7 @@ pub(crate) fn check_clause_cvc5_shellout(
         return_ty,
         param_names,
         ir_body,
+        ir_blocks,
     );
 
     append_cvc5_shellout_requires(&mut script, requires);

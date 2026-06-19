@@ -1753,6 +1753,20 @@ compiles" failure on taint-tracking.assura.
   - Acceptance: `result.length() <= raw.length()` verifies (test_sec.assura pattern)
 - **Next session**: Phase 10 Round 5 (#262, #261, #264)
 
+### Session 22 (2026-06-19): IR pipeline follow-ups (#278, #279) + CVC5 blocks + IR generation
+
+- **#278 merged**: MCP/audit IR wiring, Z3/CVC5 IR encoding depth, CLI e2e sidecar tests,
+  Z3 quantifier panic fix, stub IR on build
+- **#279 merged**: `verify_from_source`/`verify_parallel_from_source`, diff.rs path-aware
+  verify, richer stub IR (pre/post counts, block maps), shared `ir_encode.rs`
+- **CVC5 ir_blocks parity**: threaded block maps through native + shell havoc+assume paths;
+  `eval_ir_block_cvc5` / `eval_ir_block_smtlib` inline sibling `fn #N` bodies (matches Z3)
+- **Heuristic IR generation**: `ir_generate.rs` analyzes `ensures` for `result == param`,
+  literal, and arithmetic patterns; `build` emits generated IR when heuristics match
+- **Housekeeping**: `demos/generated/` gitignored; `assura-bench` uses `verify_from_source`
+- **Next session**: OSS launch (public repo → CodeQL #45, crates.io 6.03), deeper IR semantics
+  (HIR/type-aware Call/Field), AI template pipeline for complex contracts
+
 ---
 
 ## Phase 10: Full SMT Parity (CVC5 matches Z3, both go deeper)

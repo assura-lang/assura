@@ -38,6 +38,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
     constants: &[(String, i64)],
     ir_body: Option<&crate::ir::IrFunction>,
+    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
@@ -95,6 +96,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
                 return_ty,
                 &param_names,
                 ir_body,
+                ir_blocks,
                 constants,
                 &narrowings,
                 &frame_checker,
@@ -151,6 +153,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
             return_ty,
             &param_names,
             ir_body,
+            ir_blocks,
             constants,
             &narrowings,
             &frame_checker,
@@ -215,6 +218,7 @@ fn build_incremental_shell_script(
     return_ty: &[String],
     param_names: &[String],
     ir_body: Option<&crate::ir::IrFunction>,
+    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
     frame_checker: &assura_types::FrameChecker,
@@ -263,6 +267,7 @@ fn build_incremental_shell_script(
             return_ty,
             param_names,
             ir_body,
+            ir_blocks,
         );
 
         if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
@@ -359,6 +364,7 @@ mod tests {
             &[],
             &["Int".into()],
             &[],
+            None,
             None,
             &[],
             &[],

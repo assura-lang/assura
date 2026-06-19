@@ -1071,6 +1071,7 @@ mod frame_tests {
             Some(&lemma_defs),
             &[],
             None,
+            None,
             &mut cache,
         );
         assert!(
@@ -1123,6 +1124,7 @@ mod frame_tests {
             Some(&lemma_defs),
             &[],
             None,
+            None,
             &mut cache,
         );
         assert_eq!(results.len(), 1);
@@ -1153,6 +1155,7 @@ mod frame_tests {
             &[],
             None,
             &[],
+            None,
             None,
             &mut cache,
         );
@@ -1506,6 +1509,7 @@ mod frame_tests {
             None,
             &[],
             None,
+            None,
             &mut cache,
         );
         assert_eq!(results1.len(), 1);
@@ -1520,6 +1524,7 @@ mod frame_tests {
             &[],
             None,
             &[],
+            None,
             None,
             &mut cache,
         );
@@ -1584,6 +1589,7 @@ mod frame_tests {
             None,
             &[],
             None,
+            None,
             &mut cache,
         );
         assert_eq!(results_a.len(), 1);
@@ -1596,6 +1602,7 @@ mod frame_tests {
             &[],
             None,
             &[],
+            None,
             None,
             &mut cache,
         );

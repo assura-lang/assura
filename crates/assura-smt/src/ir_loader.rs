@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use assura_parser::ast::{ClauseKind, Decl, ServiceItem};
+use assura_parser::ast::{Decl, ServiceItem};
 
 use crate::VerifyFileExtras;
 use crate::ir::{IrFunction, IrInstr, IrModule, parse_ir_module};
@@ -166,17 +166,16 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
         } else {
             return_ty.join(" ")
         };
-        let requires_count = clauses
-            .iter()
-            .filter(|c| c.kind == ClauseKind::Requires)
-            .count();
-        let ensures_count = clauses
-            .iter()
-            .filter(|c| c.kind == ClauseKind::Ensures)
-            .count();
+        let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         out.insert(
             name.clone(),
-            crate::ir::stub_ir_sidecar_text(&name, &param_tys, &ret, requires_count, ensures_count),
+            crate::ir_generate::generate_ir_sidecar_text(
+                &name,
+                &param_tys,
+                &param_names,
+                &ret,
+                &clauses,
+            ),
         );
     }
     out

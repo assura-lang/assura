@@ -3,6 +3,7 @@
 *.swo
 .DS_Store
 /generated
+/demos/generated
 /fuzz/target
 /fuzz/corpus
 /fuzz/artifacts

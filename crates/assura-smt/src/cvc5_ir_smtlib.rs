@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_havoc_assume_smtlib::canonical_length_smtlib_name;
 use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
-use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, IrPredArg};
+use crate::ir::{
+    IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrPred, IrPredArg,
+};
 
 struct IrSmtlibEncoder {
     fresh_counter: usize,
@@ -54,10 +56,41 @@ fn slot_term(slots: &HashMap<usize, String>, slot: usize, enc: &mut IrSmtlibEnco
         .unwrap_or_else(|| enc.fresh_name())
 }
 
+fn eval_ir_block_smtlib(
+    block_id: usize,
+    slots: &HashMap<usize, String>,
+    enc: &mut IrSmtlibEncoder,
+    script: &mut String,
+    vars: &mut HashSet<String>,
+    ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
+) -> Option<String> {
+    use crate::havoc_assume::RESULT_SLOT;
+
+    let body = ir_blocks?.get(&block_id)?;
+    let mut local = slots.clone();
+    let mut last = None;
+    for instr in body {
+        if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
+            let name = format!("__ir_block{block_id}_slot_{}", instr.target);
+            declare_int_var(script, vars, &name);
+            local.insert(instr.target, sanitize_smtlib_name(&name));
+        }
+        let computed = encode_ir_expr_smtlib(&instr.expr, &local, enc, script, vars, ir_blocks);
+        if let Some(target) = local.get(&instr.target) {
+            script.push_str(&format!("(assert (= {computed} {target}))\n"));
+        }
+        last = local.get(&instr.target).cloned();
+    }
+    last
+}
+
 fn encode_ir_expr_smtlib(
     expr: &IrExprKind,
     slots: &HashMap<usize, String>,
     enc: &mut IrSmtlibEncoder,
+    script: &mut String,
+    vars: &mut HashSet<String>,
+    ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
 ) -> String {
     match expr {
         IrExprKind::Const(IrLiteral::Int(n)) => n.to_string(),
@@ -72,20 +105,33 @@ fn encode_ir_expr_smtlib(
         IrExprKind::Const(IrLiteral::Str(_)) => enc.fresh_name(),
         IrExprKind::Load(slot) => slot_term(slots, *slot, enc),
         IrExprKind::Arith { op, lhs, rhs } => {
-            let l = encode_ir_expr_smtlib(&IrExprKind::Load(*lhs), slots, enc);
-            let r = encode_ir_expr_smtlib(&IrExprKind::Load(*rhs), slots, enc);
+            let l =
+                encode_ir_expr_smtlib(&IrExprKind::Load(*lhs), slots, enc, script, vars, ir_blocks);
+            let r =
+                encode_ir_expr_smtlib(&IrExprKind::Load(*rhs), slots, enc, script, vars, ir_blocks);
             mk_ir_arith_smtlib(*op, &l, &r)
         }
         IrExprKind::Cmp { op, lhs, rhs } => {
-            let l = encode_ir_expr_smtlib(&IrExprKind::Load(*lhs), slots, enc);
-            let r = encode_ir_expr_smtlib(&IrExprKind::Load(*rhs), slots, enc);
+            let l =
+                encode_ir_expr_smtlib(&IrExprKind::Load(*lhs), slots, enc, script, vars, ir_blocks);
+            let r =
+                encode_ir_expr_smtlib(&IrExprKind::Load(*rhs), slots, enc, script, vars, ir_blocks);
             let b = mk_ir_cmp_bool_smtlib(*op, &l, &r);
             format!("(ite {b} 1 0)")
         }
         IrExprKind::Call { func, args } => {
             let arg_terms: Vec<String> = args
                 .iter()
-                .map(|a| encode_ir_expr_smtlib(&IrExprKind::Load(*a), slots, enc))
+                .map(|a| {
+                    encode_ir_expr_smtlib(
+                        &IrExprKind::Load(*a),
+                        slots,
+                        enc,
+                        script,
+                        vars,
+                        ir_blocks,
+                    )
+                })
                 .collect();
             if let Some(builtin) = crate::cvc5_builtins::known_builtin_to_smtlib(func, &arg_terms) {
                 return builtin;
@@ -94,29 +140,61 @@ fn encode_ir_expr_smtlib(
             format!("({fname} {})", arg_terms.join(" "))
         }
         IrExprKind::Field { slot, index } => {
-            let base = encode_ir_expr_smtlib(&IrExprKind::Load(*slot), slots, enc);
+            let base = encode_ir_expr_smtlib(
+                &IrExprKind::Load(*slot),
+                slots,
+                enc,
+                script,
+                vars,
+                ir_blocks,
+            );
             let fname = sanitize_smtlib_name(&format!("__ir_field_{index}"));
             format!("({fname} {base})")
         }
         IrExprKind::Construct { type_id, fields } => {
             let args: Vec<String> = fields
                 .iter()
-                .map(|(_, s)| encode_ir_expr_smtlib(&IrExprKind::Load(*s), slots, enc))
+                .map(|(_, s)| {
+                    encode_ir_expr_smtlib(
+                        &IrExprKind::Load(*s),
+                        slots,
+                        enc,
+                        script,
+                        vars,
+                        ir_blocks,
+                    )
+                })
                 .collect();
             let fname = sanitize_smtlib_name(&format!("__ir_construct_{type_id}"));
             format!("({fname} {})", args.join(" "))
         }
         IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => {
-            encode_ir_expr_smtlib(&IrExprKind::Load(*slot), slots, enc)
+            encode_ir_expr_smtlib(
+                &IrExprKind::Load(*slot),
+                slots,
+                enc,
+                script,
+                vars,
+                ir_blocks,
+            )
         }
         IrExprKind::If {
             cond,
             then_block,
             else_block,
         } => {
-            let c = encode_ir_expr_smtlib(&IrExprKind::Load(*cond), slots, enc);
-            let then_b = sanitize_smtlib_name(&format!("__ir_block_{then_block}"));
-            let else_b = sanitize_smtlib_name(&format!("__ir_block_{else_block}"));
+            let c = encode_ir_expr_smtlib(
+                &IrExprKind::Load(*cond),
+                slots,
+                enc,
+                script,
+                vars,
+                ir_blocks,
+            );
+            let then_b = eval_ir_block_smtlib(*then_block, slots, enc, script, vars, ir_blocks)
+                .unwrap_or_else(|| sanitize_smtlib_name(&format!("__ir_block_{then_block}")));
+            let else_b = eval_ir_block_smtlib(*else_block, slots, enc, script, vars, ir_blocks)
+                .unwrap_or_else(|| sanitize_smtlib_name(&format!("__ir_block_{else_block}")));
             format!("(ite (distinct {c} 0) ({then_b}) ({else_b}))")
         }
     }
@@ -186,6 +264,7 @@ pub(crate) fn append_ir_body_constraints_smtlib(
     vars: &mut HashSet<String>,
     func: &IrFunction,
     contract_param_names: &[String],
+    ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
 ) {
     let mut enc = IrSmtlibEncoder { fresh_counter: 0 };
     let mut slots: HashMap<usize, String> = HashMap::new();
@@ -208,7 +287,8 @@ pub(crate) fn append_ir_body_constraints_smtlib(
             declare_int_var(script, vars, &name);
             slots.insert(instr.target, sanitize_smtlib_name(&name));
         }
-        let computed = encode_ir_expr_smtlib(&instr.expr, &slots, &mut enc);
+        let computed =
+            encode_ir_expr_smtlib(&instr.expr, &slots, &mut enc, script, vars, ir_blocks);
         if let Some(target) = slots.get(&instr.target) {
             script.push_str(&format!("(assert (= {computed} {target}))\n"));
         }
@@ -250,7 +330,7 @@ module test {
         let func = parse_ir_module(ir_source).unwrap().functions[0].clone();
         let mut script = String::new();
         let mut vars = HashSet::new();
-        append_ir_body_constraints_smtlib(&mut script, &mut vars, &func, &["x".into()]);
+        append_ir_body_constraints_smtlib(&mut script, &mut vars, &func, &["x".into()], None);
         assert!(
             script.contains("__ir_call_is_valid"),
             "expected UF call in script, got:\n{script}"
@@ -270,7 +350,7 @@ module copy {
         let func = parse_ir_module(ir_source).unwrap().functions[0].clone();
         let mut script = String::new();
         let mut vars = HashSet::new();
-        append_ir_body_constraints_smtlib(&mut script, &mut vars, &func, &["raw".into()]);
+        append_ir_body_constraints_smtlib(&mut script, &mut vars, &func, &["raw".into()], None);
         assert!(
             script.contains("(assert (= __canonical_len_result __canonical_len_raw))"),
             "expected length identity from IR load, got:\n{script}"

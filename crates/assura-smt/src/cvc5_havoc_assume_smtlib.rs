@@ -15,6 +15,7 @@ pub(crate) fn canonical_length_smtlib_name(name: &str) -> String {
 }
 
 /// Declare canonical length vars and append havoc+assume background axioms.
+#[expect(clippy::too_many_arguments, reason = "mirrors apply_havoc_assume_cvc5 arity")]
 pub(crate) fn append_havoc_assume_smtlib(
     script: &mut String,
     vars: &mut HashSet<String>,
@@ -23,6 +24,7 @@ pub(crate) fn append_havoc_assume_smtlib(
     return_ty: &[String],
     param_names: &[String],
     ir: Option<&IrFunction>,
+    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
 ) {
     if is_collection_return(return_ty) {
         declare_canonical_len(script, vars, "result");
@@ -41,7 +43,7 @@ pub(crate) fn append_havoc_assume_smtlib(
     }
 
     if let Some(func) = ir {
-        append_ir_body_constraints_smtlib(script, vars, func, param_names);
+        append_ir_body_constraints_smtlib(script, vars, func, param_names, ir_blocks);
     }
 }
 
@@ -81,6 +83,7 @@ mod tests {
             &["Bytes".into()],
             &[],
             None,
+            None,
         );
         assert!(script.contains("(declare-const __canonical_len_result Int)"));
         assert!(script.contains("(assert (>= __canonical_len_result 0))"));
@@ -108,6 +111,7 @@ mod tests {
             &ensures.iter().collect::<Vec<_>>(),
             &["Bytes".into()],
             &["raw".into()],
+            None,
             None,
         );
         assert!(script.contains("(assert (<= __canonical_len_result __canonical_len_raw))"));
