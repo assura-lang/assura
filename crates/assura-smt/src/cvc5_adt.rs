@@ -96,6 +96,17 @@ pub(crate) fn define_adt_cvc5(
     (adt_def, assertions)
 }
 
+/// SMT-LIB2 declarations and axioms for baseline ADT infrastructure.
+pub(crate) fn cvc5_adt_prelude_lines() -> Vec<String> {
+    let (def, mut lines) = define_adt_cvc5("Option", &[("Some", &["value"]), ("None", &[])]);
+    lines.push(format!("; adt: {}", def.name));
+    let tester = adt_is_constructor_smt("Option", "Some", "x", &def);
+    let accessor = adt_accessor_smt("Option", "value", "x");
+    lines.push(format!("; adt tester: {tester}"));
+    lines.push(format!("; adt accessor: {accessor}"));
+    lines
+}
+
 /// Returns `(= (__adt_tag_<adt> <value>) <tag>)`.
 pub(crate) fn adt_is_constructor_smt(
     adt_name: &str,

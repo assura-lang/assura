@@ -81,9 +81,11 @@ mod cvc5_backend;
 mod cvc5_binop_encode;
 mod cvc5_builtins;
 mod cvc5_call_encode;
+mod cvc5_collect;
 mod cvc5_common;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_encoder_state;
+mod cvc5_feature_max;
 mod cvc5_field_access;
 mod cvc5_if_encode;
 mod cvc5_index_access;
@@ -92,10 +94,14 @@ mod cvc5_ir_native;
 mod cvc5_let_block_encode;
 mod cvc5_list_encode;
 mod cvc5_match_encode;
+mod cvc5_model;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_native_binops;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_native_builtins;
+#[cfg(feature = "cvc5-verify")]
+#[path = "cvc5_native_encoder.rs"]
+pub(crate) mod cvc5_native_encoder;
 mod cvc5_old_access;
 mod cvc5_quantifier_encode;
 mod cvc5_raw_encode;
@@ -104,6 +110,11 @@ mod cvc5_raw_native;
 mod cvc5_raw_ops;
 mod cvc5_raw_smtlib;
 mod cvc5_tuple_encode;
+#[cfg(feature = "cvc5-verify")]
+mod cvc5_verify_native;
+mod cvc5_verify_shared;
+#[cfg(not(feature = "cvc5-verify"))]
+mod cvc5_verify_shell;
 mod cvc5_wrapper_encode;
 
 // ---------------------------------------------------------------------------
