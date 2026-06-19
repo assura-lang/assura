@@ -981,7 +981,10 @@ pub fn verify_contract_with_solver(
 }
 
 /// Verify a contract with type-level constraints from params and return type.
-#[expect(clippy::too_many_arguments, reason = "per-job solver dispatch mirrors Z3 backend")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "per-job solver dispatch mirrors Z3 backend"
+)]
 fn verify_contract_with_types_and_solver(
     contract_name: &str,
     clauses: &[assura_parser::ast::Clause],
