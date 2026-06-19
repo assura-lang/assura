@@ -118,6 +118,10 @@ mod cvc5_verify_native_checks;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_verify_native_clause;
 #[cfg(feature = "cvc5-verify")]
+mod cvc5_verify_native_contract;
+#[cfg(feature = "cvc5-verify")]
+mod cvc5_verify_native_features;
+#[cfg(feature = "cvc5-verify")]
 mod cvc5_verify_native_solver;
 mod cvc5_verify_shared;
 #[cfg(not(feature = "cvc5-verify"))]

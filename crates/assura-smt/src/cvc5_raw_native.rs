@@ -314,3 +314,18 @@ fn parse_raw_atom_cvc5<'a>(
         .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
     Some((v, next))
 }
+
+#[cfg(all(test, feature = "cvc5-verify"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dotted_raw_token_chain_uses_single_underscore() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = crate::cvc5_encoder_state::default_cvc5_encoder_state();
+        let tokens = vec!["state".into(), ".".into(), "field".into()];
+        let term = encode_raw_tokens_cvc5(&tm, &tokens, &mut vars, &mut state).unwrap();
+        assert_eq!(term.to_string(), "state_field");
+    }
+}
