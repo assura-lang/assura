@@ -64,6 +64,11 @@ fn apply_ir_body_constraints(
         .collect();
 
     for instr in &func.body {
+        if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
+            let name = format!("__ir_slot_{}", instr.target);
+            let v = encoder.get_or_create_int(&name);
+            slots.insert(instr.target, v);
+        }
         let computed = encode_ir_expr_z3(encoder, &instr.expr, &slots);
         if let Some(target) = slots.get(&instr.target) {
             encoder.background_axioms.push(computed.eq(target));
@@ -92,6 +97,9 @@ fn encode_ir_expr_z3(
 ) -> ast::Int {
     match expr {
         IrExprKind::Const(IrLiteral::Int(n)) => ast::Int::from_i64(*n),
+        IrExprKind::Const(IrLiteral::Float(f)) => ast::Int::from_i64(*f as i64),
+        IrExprKind::Const(IrLiteral::Bool(b)) => ast::Int::from_i64(if *b { 1 } else { 0 }),
+        IrExprKind::Const(IrLiteral::Str(_)) => encoder.fresh_int(),
         IrExprKind::Load(slot) => slots
             .get(slot)
             .cloned()
@@ -120,7 +128,59 @@ fn encode_ir_expr_z3(
             };
             b.ite(&ast::Int::from_i64(1), &ast::Int::from_i64(0))
         }
-        _ => encoder.fresh_int(),
+        IrExprKind::Call { func, args } => {
+            let arg_ints: Vec<ast::Int> = args
+                .iter()
+                .map(|a| encode_ir_expr_z3(encoder, &IrExprKind::Load(*a), slots))
+                .collect();
+            let decl = encoder.make_func(&format!("__ir_call_{func}"), arg_ints.len());
+            let ast_args: Vec<&dyn z3::ast::Ast> =
+                arg_ints.iter().map(|i| i as &dyn z3::ast::Ast).collect();
+            decl.apply(&ast_args)
+                .as_int()
+                .unwrap_or_else(|| encoder.fresh_int())
+        }
+        IrExprKind::Field { slot, index } => {
+            let base = encode_ir_expr_z3(encoder, &IrExprKind::Load(*slot), slots);
+            let decl = encoder.make_func(&format!("__ir_field_{index}"), 1);
+            decl.apply(&[&base as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| encoder.fresh_int())
+        }
+        IrExprKind::Construct { type_id, fields } => {
+            let arg_ints: Vec<ast::Int> = fields
+                .iter()
+                .map(|(_, s)| encode_ir_expr_z3(encoder, &IrExprKind::Load(*s), slots))
+                .collect();
+            let decl = encoder.make_func(&format!("__ir_construct_{type_id}"), arg_ints.len());
+            let ast_args: Vec<&dyn z3::ast::Ast> =
+                arg_ints.iter().map(|i| i as &dyn z3::ast::Ast).collect();
+            decl.apply(&ast_args)
+                .as_int()
+                .unwrap_or_else(|| encoder.fresh_int())
+        }
+        IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => {
+            encode_ir_expr_z3(encoder, &IrExprKind::Load(*slot), slots)
+        }
+        IrExprKind::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let cond_val = encode_ir_expr_z3(encoder, &IrExprKind::Load(*cond), slots);
+            let cond_bool = cond_val.eq(ast::Int::from_i64(0)).not();
+            let then_decl = encoder.make_func(&format!("__ir_block_{then_block}"), 0);
+            let else_decl = encoder.make_func(&format!("__ir_block_{else_block}"), 0);
+            let then_val = then_decl
+                .apply(&[])
+                .as_int()
+                .unwrap_or_else(|| encoder.fresh_int());
+            let else_val = else_decl
+                .apply(&[])
+                .as_int()
+                .unwrap_or_else(|| encoder.fresh_int());
+            cond_bool.ite(&then_val, &else_val)
+        }
     }
 }
 
@@ -236,6 +296,43 @@ mod tests {
             assert!(
                 !encoder.background_axioms.is_empty(),
                 "havoc+assume should emit background axioms"
+            );
+        });
+    }
+
+    #[test]
+    fn test_z3_ir_call_uses_uninterpreted_function() {
+        use crate::ir::{IrFunction, parse_ir_module};
+
+        z3::with_z3_config(&z3::Config::new(), || {
+            let ir: IrFunction = parse_ir_module(
+                r#"
+module test {
+  fn #0 : ($0: Int) -> Bool ! pure
+  {
+    $1 = const 42 : Int
+    $2 = call is_valid ($0, $1) : Bool
+    $result = load $2 : Bool
+  }
+}
+"#,
+            )
+            .unwrap()
+            .functions[0]
+                .clone();
+
+            let mut encoder = Encoder::new();
+            apply_havoc_assume_z3(
+                &mut encoder,
+                &[],
+                &[],
+                &["Bool".into()],
+                &["x".into()],
+                Some(&ir),
+            );
+            assert!(
+                !encoder.background_axioms.is_empty(),
+                "IR call body should emit axioms"
             );
         });
     }

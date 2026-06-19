@@ -114,6 +114,37 @@ pub(crate) fn resolve_ir_sidecar(search_dirs: &[&Path], contract_name: &str) -> 
     None
 }
 
+/// Emit stub `.ir` sidecar text for every verification job in a typed file.
+pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for (name, _clauses, params, return_ty) in crate::entry::collect_verification_jobs(typed) {
+        let param_tys: Vec<(usize, String)> = params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                (
+                    i,
+                    if p.ty.is_empty() {
+                        "Int".into()
+                    } else {
+                        p.ty.join(" ")
+                    },
+                )
+            })
+            .collect();
+        let ret = if return_ty.is_empty() {
+            "Unit".into()
+        } else {
+            return_ty.join(" ")
+        };
+        out.insert(
+            name.clone(),
+            crate::ir::stub_ir_sidecar_text(&name, &param_tys, &ret),
+        );
+    }
+    out
+}
+
 fn load_ir_file(path: &Path) -> Option<IrFunction> {
     let source = std::fs::read_to_string(path).ok()?;
     let module = parse_ir_module(&source).ok()?;

@@ -61,6 +61,15 @@ fn encode_ir_expr_smtlib(
 ) -> String {
     match expr {
         IrExprKind::Const(IrLiteral::Int(n)) => n.to_string(),
+        IrExprKind::Const(IrLiteral::Float(f)) => format!("{}", *f as i64),
+        IrExprKind::Const(IrLiteral::Bool(b)) => {
+            if *b {
+                "1".into()
+            } else {
+                "0".into()
+            }
+        }
+        IrExprKind::Const(IrLiteral::Str(_)) => enc.fresh_name(),
         IrExprKind::Load(slot) => slot_term(slots, *slot, enc),
         IrExprKind::Arith { op, lhs, rhs } => {
             let l = encode_ir_expr_smtlib(&IrExprKind::Load(*lhs), slots, enc);
@@ -73,7 +82,40 @@ fn encode_ir_expr_smtlib(
             let b = mk_ir_cmp_bool_smtlib(*op, &l, &r);
             format!("(ite {b} 1 0)")
         }
-        _ => enc.fresh_name(),
+        IrExprKind::Call { func, args } => {
+            let arg_terms: Vec<String> = args
+                .iter()
+                .map(|a| encode_ir_expr_smtlib(&IrExprKind::Load(*a), slots, enc))
+                .collect();
+            let fname = sanitize_smtlib_name(&format!("__ir_call_{func}"));
+            format!("({fname} {})", arg_terms.join(" "))
+        }
+        IrExprKind::Field { slot, index } => {
+            let base = encode_ir_expr_smtlib(&IrExprKind::Load(*slot), slots, enc);
+            let fname = sanitize_smtlib_name(&format!("__ir_field_{index}"));
+            format!("({fname} {base})")
+        }
+        IrExprKind::Construct { type_id, fields } => {
+            let args: Vec<String> = fields
+                .iter()
+                .map(|(_, s)| encode_ir_expr_smtlib(&IrExprKind::Load(*s), slots, enc))
+                .collect();
+            let fname = sanitize_smtlib_name(&format!("__ir_construct_{type_id}"));
+            format!("({fname} {})", args.join(" "))
+        }
+        IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => {
+            encode_ir_expr_smtlib(&IrExprKind::Load(*slot), slots, enc)
+        }
+        IrExprKind::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let c = encode_ir_expr_smtlib(&IrExprKind::Load(*cond), slots, enc);
+            let then_b = sanitize_smtlib_name(&format!("__ir_block_{then_block}"));
+            let else_b = sanitize_smtlib_name(&format!("__ir_block_{else_block}"));
+            format!("(ite (distinct {c} 0) ({then_b}) ({else_b}))")
+        }
     }
 }
 
@@ -158,6 +200,11 @@ pub(crate) fn append_ir_body_constraints_smtlib(
         .collect();
 
     for instr in &func.body {
+        if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
+            let name = format!("__ir_slot_{}", instr.target);
+            declare_int_var(script, vars, &name);
+            slots.insert(instr.target, sanitize_smtlib_name(&name));
+        }
         let computed = encode_ir_expr_smtlib(&instr.expr, &slots, &mut enc);
         if let Some(target) = slots.get(&instr.target) {
             script.push_str(&format!("(assert (= {computed} {target}))\n"));
@@ -185,6 +232,27 @@ pub(crate) fn append_ir_body_constraints_smtlib(
 mod tests {
     use super::*;
     use crate::ir::parse_ir_module;
+
+    #[test]
+    fn ir_call_emits_uninterpreted_function_application() {
+        let ir_source = r#"
+module test {
+  fn #0 : ($0: Int) -> Bool ! pure
+  {
+    $1 = call is_valid ($0) : Bool
+    $result = load $1 : Bool
+  }
+}
+"#;
+        let func = parse_ir_module(ir_source).unwrap().functions[0].clone();
+        let mut script = String::new();
+        let mut vars = HashSet::new();
+        append_ir_body_constraints_smtlib(&mut script, &mut vars, &func, &["x".into()]);
+        assert!(
+            script.contains("__ir_call_is_valid"),
+            "expected UF call in script, got:\n{script}"
+        );
+    }
 
     #[test]
     fn ir_load_result_emits_length_identity_axiom() {

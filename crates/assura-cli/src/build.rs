@@ -233,6 +233,20 @@ pub(crate) fn run_build(
         println!("  wrote {}", cargo_path.display());
     }
 
+    // Write stub IR sidecars next to source ({parent}/generated/{Name}.ir)
+    let ir_dir = std::path::Path::new(filename)
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("generated");
+    if fs::create_dir_all(&ir_dir).is_ok() {
+        for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(&typed) {
+            let ir_path = ir_dir.join(format!("{name}.ir"));
+            if fs::write(&ir_path, ir_text).is_ok() && verbosity != Verbosity::Quiet {
+                println!("  wrote {}", ir_path.display());
+            }
+        }
+    }
+
     // Write source files
     for (rel_path, content) in &project.files {
         let full_path = out_dir.join(rel_path);

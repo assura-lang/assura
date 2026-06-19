@@ -296,8 +296,17 @@ fn convert_verification(r: &assura_smt::VerificationResult) -> VerificationEntry
 ///
 /// Returns a lightweight JSON-serializable summary. For full-fidelity results
 /// with intermediate artifacts, use `compile()` or `compile_full()` instead.
+///
+/// Uses `"<inline>"` as the source path (no IR sidecar discovery). Prefer
+/// [`run_at`] when verifying a file on disk.
 pub fn run(source: &str) -> PipelineResult {
-    let output = compile_full(source, "<inline>", &CompilerConfig::default());
+    run_at(source, "<inline>")
+}
+
+/// Like [`run`], but uses `filename` for IR sidecar discovery (`{dir}/{Name}.ir`,
+/// `{dir}/generated/{Name}.ir`).
+pub fn run_at(source: &str, filename: &str) -> PipelineResult {
+    let output = compile_full(source, filename, &CompilerConfig::default());
 
     let declarations: Vec<String> = output
         .file
