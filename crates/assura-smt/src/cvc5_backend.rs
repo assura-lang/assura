@@ -3,13 +3,12 @@ use crate::cache::SessionCache;
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
     expr_has_unmodelable_features_cvc5, float_literal_to_smtlib, is_internal_cvc5_var,
-    old_ident_smtlib_name, sanitize_smtlib_name, smtlib_result_name,
+    sanitize_smtlib_name, smtlib_result_name,
 };
-use crate::cvc5_field_access::{
-    FieldAccessPlan, old_flat_field_smtlib, plan_field_access, shallow_field_smtlib,
-};
+use crate::cvc5_field_access::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
 use crate::cvc5_index_access::index_access_smtlib;
 use crate::cvc5_match_encode::encode_match_smtlib;
+use crate::cvc5_old_access::encode_old_smtlib;
 
 #[cfg(test)]
 use crate::cvc5_common::{
@@ -2021,26 +2020,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             }
             Some(format!("({f} {})", arg_strs.join(" ")))
         }
-        Expr::Old(inner) => match inner.as_ref() {
-            // old(x) -> x__old
-            Expr::Ident(name) => Some(old_ident_smtlib_name(name)),
-            // old(obj.field) -> flatten deep chains, else UF
-            Expr::Field(obj, field) => match plan_field_access(obj.as_ref(), field) {
-                FieldAccessPlan::Flatten(flat) => Some(old_flat_field_smtlib(&flat)),
-                FieldAccessPlan::ShallowUf { field: f } => {
-                    let old_obj = expr_to_smtlib(&Expr::Old(obj.clone()))?;
-                    Some(shallow_field_smtlib(&f, &old_obj))
-                }
-            },
-            // old(obj.method(args)) -> (method (old obj))
-            Expr::MethodCall {
-                receiver, method, ..
-            } => {
-                let old_recv = expr_to_smtlib(&Expr::Old(receiver.clone()))?;
-                Some(format!("({method} {old_recv})"))
-            }
-            _ => expr_to_smtlib(inner),
-        },
+        Expr::Old(inner) => encode_old_smtlib(inner.as_ref(), expr_to_smtlib),
         Expr::Paren(inner) => expr_to_smtlib(inner),
         Expr::Cast { expr: inner, .. } => expr_to_smtlib(inner),
         Expr::Ghost(inner) => expr_to_smtlib(inner),

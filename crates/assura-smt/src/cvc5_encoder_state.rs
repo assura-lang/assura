@@ -21,6 +21,27 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
     }
 }
 
+/// Canonical length variable for a named binding (`__canonical_len_{name}`).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn canonical_length_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    let key = format!("__canonical_len_{name}");
+    if let Some(v) = vars.get(&key) {
+        return v.clone();
+    }
+    let v = tm.mk_const(tm.integer_sort(), &key);
+    let zero = tm.mk_integer(0);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+    vars.insert(key, v.clone());
+    v
+}
+
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn field_len_fn_cvc5<'a>(
     tm: &'a cvc5::TermManager,
