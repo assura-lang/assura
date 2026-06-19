@@ -7,6 +7,11 @@ use std::collections::HashMap;
 use assura_parser::ast::{BinOp, Clause, Expr, Literal, Pattern, UnaryOp};
 use assura_types::checkers::expr_references_var;
 
+use crate::cvc5_builtins::{
+    KnownBuiltin, classify_known_builtin, is_bool_field, is_bool_returning_uf, is_size_field,
+    pattern_hash_name,
+};
+
 use super::{
     flatten_field_chain_cvc5, has_deep_field_chain_cvc5, is_self_rooted_cvc5, sanitize_smtlib_name,
 };
@@ -322,15 +327,6 @@ fn encode_ir_pred_arg_cvc5<'a>(
         }
     }
 }
-fn pattern_hash_cvc5(name: &str) -> i64 {
-    let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
-    for byte in name.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3); // FNV prime
-    }
-    hash as i64
-}
-
 /// Bind pattern variables as fresh CVC5 integer constants so they are
 /// available when encoding the match arm body.
 ///
@@ -422,25 +418,26 @@ fn encode_known_builtin_cvc5<'a>(
     args: &[cvc5::Term<'a>],
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    match op {
-        "abs" if args.len() == 1 => {
+    let kind = classify_known_builtin(op, args.len())?;
+    match kind {
+        KnownBuiltin::Abs => {
             let x = &args[0];
             let zero = tm.mk_integer(0);
             let neg = tm.mk_term(cvc5::Kind::Neg, &[x.clone()]);
             let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, x.clone(), neg]))
         }
-        "min" if args.len() == 2 => {
+        KnownBuiltin::Min => {
             let (a, b) = (&args[0], &args[1]);
             let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
         }
-        "max" if args.len() == 2 => {
+        KnownBuiltin::Max => {
             let (a, b) = (&args[0], &args[1]);
             let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
         }
-        "substring" | "substr" if args.len() == 3 => {
+        KnownBuiltin::Substring => {
             let str_val = &args[0];
             let start = &args[1];
             let end = &args[2];
@@ -467,7 +464,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
             Some(result)
         }
-        "concat" if args.len() == 2 => {
+        KnownBuiltin::Concat => {
             let (l, r) = (&args[0], &args[1]);
             let result = fresh_int_cvc5(tm, state);
             let len_func = field_len_fn_cvc5(tm, state);
@@ -490,7 +487,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
             Some(result)
         }
-        "index_of" | "find" | "indexOf" if args.len() == 2 => {
+        KnownBuiltin::IndexOf => {
             let str_val = &args[0];
             let result = fresh_int_cvc5(tm, state);
             let neg_one = tm.mk_integer(-1);
@@ -503,7 +500,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Lt, &[result.clone(), str_len]));
             Some(result)
         }
-        "char_at" | "charAt" if args.len() == 2 => {
+        KnownBuiltin::CharAt => {
             let str_val = &args[0];
             let idx = &args[1];
             let zero = tm.mk_integer(0);
@@ -516,7 +513,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Lt, &[idx.clone(), str_len]));
             Some(fresh_int_cvc5(tm, state))
         }
-        "replace" if args.len() == 3 => {
+        KnownBuiltin::Replace => {
             let result = fresh_int_cvc5(tm, state);
             let res_len = field_len_of_cvc5(tm, state, &result);
             let zero = tm.mk_integer(0);
@@ -525,7 +522,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, zero]));
             Some(result)
         }
-        "split" if args.len() == 2 => {
+        KnownBuiltin::Split => {
             let result = fresh_int_cvc5(tm, state);
             let res_len = field_len_of_cvc5(tm, state, &result);
             let one = tm.mk_integer(1);
@@ -534,7 +531,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Geq, &[res_len, one]));
             Some(result)
         }
-        "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper" if args.len() == 1 => {
+        KnownBuiltin::Trim => {
             let str_val = &args[0];
             let result = fresh_int_cvc5(tm, state);
             let len_func = field_len_fn_cvc5(tm, state);
@@ -549,7 +546,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Leq, &[res_len, str_len]));
             Some(result)
         }
-        "set" if args.len() == 3 => {
+        KnownBuiltin::Set => {
             let arr = &args[0];
             let i = &args[1];
             let v = &args[2];
@@ -574,7 +571,7 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Geq, &[len_result, zero]));
             Some(result)
         }
-        "put" if args.len() == 3 => {
+        KnownBuiltin::Put => {
             let map = &args[0];
             let k = &args[1];
             let v = &args[2];
@@ -600,7 +597,6 @@ fn encode_known_builtin_cvc5<'a>(
                 .push(tm.mk_term(cvc5::Kind::Geq, &[size_result, zero]));
             Some(result)
         }
-        _ => None,
     }
 }
 
@@ -611,22 +607,7 @@ fn encode_uf_call_cvc5<'a>(
     encoded_args: &[cvc5::Term<'a>],
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    if matches!(
-        f_name,
-        "contains"
-            | "is_empty"
-            | "is_some"
-            | "is_none"
-            | "is_ok"
-            | "is_err"
-            | "any"
-            | "all"
-            | "contains_key"
-            | "starts_with"
-            | "ends_with"
-            | "is_subset"
-            | "is_superset"
-    ) {
+    if is_bool_returning_uf(f_name) {
         return Some(apply_int_uf_cvc5(tm, f_name, encoded_args, true));
     }
     if state.use_string_theory
@@ -965,7 +946,7 @@ pub(crate) fn encode_expr_cvc5<'a>(
                         let body = encode_expr_cvc5(tm, &arm.body, &mut local_vars, state)?;
                         // Uppercase-initial ident = constructor name -> hash match
                         if name.starts_with(|c: char| c.is_uppercase()) {
-                            let tag_hash = pattern_hash_cvc5(name);
+                            let tag_hash = pattern_hash_name(name);
                             let tag_val = tm.mk_integer(tag_hash);
                             let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), tag_val]);
                             if let Some(default) = result.as_ref() {
@@ -996,7 +977,7 @@ pub(crate) fn encode_expr_cvc5<'a>(
                     }
                     Pattern::Constructor { name, fields } => {
                         // Hash-based tag matching (same as Z3 backend)
-                        let tag_hash = pattern_hash_cvc5(name);
+                        let tag_hash = pattern_hash_name(name);
                         let tag_val = tm.mk_integer(tag_hash);
                         let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), tag_val]);
                         // Bind field variables as fresh integer constants
@@ -1035,17 +1016,11 @@ pub(crate) fn encode_expr_cvc5<'a>(
             if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
                 let flat_name = flatten_field_chain_cvc5(&full_expr);
                 // Boolean-valued fields at any depth
-                if matches!(
-                    field.as_str(),
-                    "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
-                ) {
+                if is_bool_field(field) {
                     return Some(tm.mk_const(tm.boolean_sort(), &flat_name));
                 }
                 // Size fields at any depth get non-negativity axiom
-                if matches!(
-                    field.as_str(),
-                    "len" | "length" | "size" | "capacity" | "count"
-                ) {
+                if is_size_field(field) {
                     let v = get_or_create_int_cvc5(tm, &flat_name, vars);
                     let zero = tm.mk_integer(0);
                     state
@@ -1074,19 +1049,13 @@ pub(crate) fn encode_expr_cvc5<'a>(
 
             let func_name = format!("__field_{field}");
             // Boolean fields return Bool sort
-            if matches!(
-                field.as_str(),
-                "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
-            ) {
+            if is_bool_field(field) {
                 let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.boolean_sort());
                 let func_const = tm.mk_const(func_sort, &func_name);
                 return Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]));
             }
             // Size fields get non-negativity axiom
-            if matches!(
-                field.as_str(),
-                "len" | "length" | "size" | "capacity" | "count"
-            ) {
+            if is_size_field(field) {
                 let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
                 let func_const = tm.mk_const(func_sort, &func_name);
                 let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
@@ -1816,7 +1785,7 @@ fn parse_raw_atom_cvc5<'a>(
             .entry(ts_var_name)
             .or_insert_with(|| tm.mk_const(tm.integer_sort(), &format!("__typestate_{name}")))
             .clone();
-        let state_val = tm.mk_integer(pattern_hash_cvc5(state_name));
+        let state_val = tm.mk_integer(pattern_hash_name(state_name));
         return Some((
             tm.mk_term(cvc5::Kind::Equal, &[ts_var, state_val]),
             next + 2,

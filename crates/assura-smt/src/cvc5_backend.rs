@@ -2301,56 +2301,10 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             }
             let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
             let arg_strs = arg_strs?;
-            // Built-in functions with known semantics
-            match f.as_str() {
-                "abs" if arg_strs.len() == 1 => {
-                    let x = &arg_strs[0];
-                    Some(format!("(ite (>= {x} 0) {x} (- {x}))"))
-                }
-                "min" if arg_strs.len() == 2 => {
-                    let (a, b) = (&arg_strs[0], &arg_strs[1]);
-                    Some(format!("(ite (<= {a} {b}) {a} {b})"))
-                }
-                "max" if arg_strs.len() == 2 => {
-                    let (a, b) = (&arg_strs[0], &arg_strs[1]);
-                    Some(format!("(ite (>= {a} {b}) {a} {b})"))
-                }
-                // String methods: encode as UF with comment-style axiom hints
-                "substring" | "substr" if arg_strs.len() == 3 => Some(format!(
-                    "(substring {} {} {})",
-                    arg_strs[0], arg_strs[1], arg_strs[2]
-                )),
-                "concat" if arg_strs.len() == 2 => {
-                    Some(format!("(__concat {} {})", arg_strs[0], arg_strs[1]))
-                }
-                "index_of" | "find" | "indexOf" if arg_strs.len() == 2 => {
-                    Some(format!("(index_of {} {})", arg_strs[0], arg_strs[1]))
-                }
-                "char_at" | "charAt" if arg_strs.len() == 2 => {
-                    Some(format!("(char_at {} {})", arg_strs[0], arg_strs[1]))
-                }
-                "replace" if arg_strs.len() == 3 => Some(format!(
-                    "(replace {} {} {})",
-                    arg_strs[0], arg_strs[1], arg_strs[2]
-                )),
-                "split" if arg_strs.len() == 2 => {
-                    Some(format!("(split {} {})", arg_strs[0], arg_strs[1]))
-                }
-                "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
-                    if arg_strs.len() == 1 =>
-                {
-                    Some(format!("({f} {})", arg_strs[0]))
-                }
-                "set" if arg_strs.len() == 3 => Some(format!(
-                    "(set {} {} {})",
-                    arg_strs[0], arg_strs[1], arg_strs[2]
-                )),
-                "put" if arg_strs.len() == 3 => Some(format!(
-                    "(put {} {} {})",
-                    arg_strs[0], arg_strs[1], arg_strs[2]
-                )),
-                _ => Some(format!("({f} {})", arg_strs.join(" "))),
+            if let Some(s) = crate::cvc5_builtins::known_builtin_to_smtlib(f.as_str(), &arg_strs) {
+                return Some(s);
             }
+            Some(format!("({f} {})", arg_strs.join(" ")))
         }
         Expr::Old(inner) => match inner.as_ref() {
             // old(x) -> x__old
@@ -2410,7 +2364,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
                     Pattern::Ident(name) => {
                         let body = expr_to_smtlib(&arm.body)?;
                         if name.starts_with(|c: char| c.is_uppercase()) {
-                            let tag = pattern_hash_smtlib(name);
+                            let tag = crate::cvc5_builtins::pattern_hash_name(name);
                             let default = result.as_ref()?;
                             result = Some(format!("(ite (= {s} {tag}) {body} {default})"));
                         } else {
@@ -2491,41 +2445,17 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             let r = expr_to_smtlib(receiver)?;
             let arg_strs: Option<Vec<String>> = args.iter().map(expr_to_smtlib).collect();
             let arg_strs = arg_strs.unwrap_or_default();
-            let total_arity = 1 + arg_strs.len(); // receiver + args
-            // String/array method axioms for shell-out path
-            match method.as_str() {
-                "substring" | "substr" if total_arity == 3 => {
-                    Some(format!("(substring {r} {} {})", arg_strs[0], arg_strs[1]))
-                }
-                "concat" if total_arity == 2 => Some(format!("(__concat {r} {})", arg_strs[0])),
-                "index_of" | "find" | "indexOf" if total_arity == 2 => {
-                    Some(format!("(index_of {r} {})", arg_strs[0]))
-                }
-                "char_at" | "charAt" if total_arity == 2 => {
-                    Some(format!("(char_at {r} {})", arg_strs[0]))
-                }
-                "replace" if total_arity == 3 => {
-                    Some(format!("(replace {r} {} {})", arg_strs[0], arg_strs[1]))
-                }
-                "split" if total_arity == 2 => Some(format!("(split {r} {})", arg_strs[0])),
-                "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
-                    if total_arity == 1 =>
-                {
-                    Some(format!("({method} {r})"))
-                }
-                "set" if total_arity == 3 => {
-                    Some(format!("(set {r} {} {})", arg_strs[0], arg_strs[1]))
-                }
-                "put" if total_arity == 3 => {
-                    Some(format!("(put {r} {} {})", arg_strs[0], arg_strs[1]))
-                }
-                _ => {
-                    if arg_strs.is_empty() {
-                        Some(format!("({method} {r})"))
-                    } else {
-                        Some(format!("({method} {r} {})", arg_strs.join(" ")))
-                    }
-                }
+            let mut all_args = vec![r];
+            all_args.extend(arg_strs);
+            if let Some(s) =
+                crate::cvc5_builtins::known_builtin_to_smtlib(method.as_str(), &all_args)
+            {
+                return Some(s);
+            }
+            if all_args.len() == 1 {
+                Some(format!("({method} {})", all_args[0]))
+            } else {
+                Some(format!("({method} {})", all_args.join(" ")))
             }
         }
         // List: use a fresh variable name
@@ -2533,18 +2463,6 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         // Apply: return named bool
         Expr::Apply { lemma_name, .. } => Some(format!("__apply_{lemma_name}")),
     }
-}
-
-/// Sanitize a name for SMT-LIB2 (replace dots with underscores).
-/// Hash a pattern name to a stable i64 for SMT-LIB match encoding
-/// (shell-out path). Same FNV-1a algorithm as `pattern_hash_cvc5`.
-fn pattern_hash_smtlib(name: &str) -> i64 {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in name.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash as i64
 }
 
 // -------------------------------------------------------------------------
@@ -3594,7 +3512,7 @@ mod tests {
             ],
         };
         let smt = expr_to_smtlib(&expr).expect("should encode ident-as-constructor match");
-        let none_hash = pattern_hash_smtlib("None");
+        let none_hash = crate::cvc5_builtins::pattern_hash_name("None");
         assert!(smt.contains(&none_hash.to_string()));
         assert!(smt.contains("ite"));
     }
