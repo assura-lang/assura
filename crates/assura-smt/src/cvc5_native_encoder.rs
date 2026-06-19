@@ -7,27 +7,27 @@ use std::collections::HashMap;
 use assura_parser::ast::{BinOp, Clause, Expr, Literal, Pattern, UnaryOp};
 use assura_types::checkers::expr_references_var;
 
+use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
 use crate::cvc5_builtins::{is_bool_field, is_size_field, pattern_hash_name};
 use crate::cvc5_common::{float_to_rational_parts, sanitize_smtlib_name, smtlib_result_name};
 use crate::cvc5_encoder_state::{canonical_length_cvc5, field_len_fn_cvc5};
 use crate::cvc5_field_access::{FieldAccessPlan, encode_shallow_field_cvc5, plan_field_access};
+use crate::cvc5_if_encode::encode_if_cvc5;
 use crate::cvc5_index_access::encode_index_access_cvc5;
 use crate::cvc5_ir_native::apply_ir_body_constraints_cvc5;
 use crate::cvc5_match_encode::encode_match_cvc5;
 use crate::cvc5_old_access::encode_old_cvc5;
 
 pub(crate) use crate::cvc5_encoder_state::{Cvc5EncoderState, default_cvc5_encoder_state};
-use crate::cvc5_native_binops::{
-    encode_concat_binop_cvc5, encode_contains_binop_cvc5, encode_range_binop_cvc5,
-};
 use crate::cvc5_native_builtins::{
     encode_known_builtin_cvc5, encode_uf_call_cvc5, field_len_of_receiver_cvc5,
 };
 use crate::cvc5_raw_ops::{
     apply_raw_op_cvc5, combine_quantifier_guard_cvc5, comma_chunk_ranges, domain_as_range,
     find_matching_delim, is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info,
-    raw_op_is_comparison, standard_ast_binop_cvc5_kind,
+    raw_op_is_comparison,
 };
+use crate::cvc5_tuple_encode::encode_tuple_cvc5;
 
 // -------------------------------------------------------------------------
 // Havoc+assume encoding (#267)
@@ -160,46 +160,11 @@ pub(crate) fn encode_expr_cvc5<'a>(
         Expr::BinOp { op, lhs, rhs } => {
             let l = encode_expr_cvc5(tm, lhs, vars, state)?;
             let r = encode_expr_cvc5(tm, rhs, vars, state)?;
-            match op {
-                BinOp::Neq => {
-                    let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]);
-                    Some(tm.mk_term(cvc5::Kind::Not, &[eq]))
-                }
-                BinOp::Range => Some(encode_range_binop_cvc5(
-                    tm,
-                    &mut state.axioms,
-                    &mut state.fresh_counter,
-                    l,
-                    r,
-                )),
-                BinOp::In => Some(encode_contains_binop_cvc5(tm, r, l)),
-                BinOp::NotIn => {
-                    let in_result = encode_contains_binop_cvc5(tm, r, l);
-                    Some(tm.mk_term(cvc5::Kind::Not, &[in_result]))
-                }
-                BinOp::Concat => {
-                    let len_func = field_len_fn_cvc5(tm, state);
-                    Some(encode_concat_binop_cvc5(
-                        tm,
-                        &mut state.axioms,
-                        &mut state.fresh_counter,
-                        &len_func,
-                        l,
-                        r,
-                    ))
-                }
-                _ => {
-                    let kind = standard_ast_binop_cvc5_kind(op)?;
-                    Some(tm.mk_term(kind, &[l, r]))
-                }
-            }
+            encode_ast_binop_cvc5(tm, op, l, r, state)
         }
         Expr::UnaryOp { op, expr: inner } => {
             let e = encode_expr_cvc5(tm, inner, vars, state)?;
-            match op {
-                UnaryOp::Not => Some(tm.mk_term(cvc5::Kind::Not, &[e])),
-                UnaryOp::Neg => Some(tm.mk_term(cvc5::Kind::Neg, &[e])),
-            }
+            Some(encode_ast_unary_cvc5(tm, op, e))
         }
         Expr::If {
             cond,
@@ -208,20 +173,10 @@ pub(crate) fn encode_expr_cvc5<'a>(
         } => {
             let c = encode_expr_cvc5(tm, cond, vars, state)?;
             let t = encode_expr_cvc5(tm, then_branch, vars, state)?;
-            if let Some(eb) = else_branch {
-                let e = encode_expr_cvc5(tm, eb, vars, state)?;
-                // Sort promotion: if one branch is Real and the other Integer, promote
-                let (t_final, e_final) = if t.sort().is_real() && e.sort().is_integer() {
-                    (t, tm.mk_term(cvc5::Kind::ToReal, &[e]))
-                } else if t.sort().is_integer() && e.sort().is_real() {
-                    (tm.mk_term(cvc5::Kind::ToReal, &[t]), e)
-                } else {
-                    (t, e)
-                };
-                Some(tm.mk_term(cvc5::Kind::Ite, &[c, t_final, e_final]))
-            } else {
-                Some(tm.mk_term(cvc5::Kind::Implies, &[c, t]))
-            }
+            let e = else_branch
+                .as_ref()
+                .and_then(|eb| encode_expr_cvc5(tm, eb, vars, state));
+            Some(encode_if_cvc5(tm, c, t, e))
         }
         Expr::Forall { var, domain, body } => {
             let v_name = sanitize_smtlib_name(var);
@@ -382,22 +337,17 @@ pub(crate) fn encode_expr_cvc5<'a>(
         }
         // Tuple: fresh Int with element-access axioms
         Expr::Tuple(elems) => {
-            let tuple_name = format!("__tuple_{}", state.fresh_counter);
-            state.fresh_counter += 1;
-            let tuple_val = tm.mk_const(tm.integer_sort(), &tuple_name);
-            let arity = elems.len();
-            for (i, elem) in elems.iter().enumerate() {
-                if let Some(elem_val) = encode_expr_cvc5(tm, elem, vars, state) {
-                    let accessor_name = format!("__tuple_{arity}_{i}");
-                    let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                    let acc_func = tm.mk_const(acc_sort, &accessor_name);
-                    let accessed = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_func, tuple_val.clone()]);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val]));
-                }
-            }
-            Some(tuple_val)
+            let elem_vals: Option<Vec<_>> = elems
+                .iter()
+                .map(|elem| encode_expr_cvc5(tm, elem, vars, state))
+                .collect();
+            let elem_vals = elem_vals?;
+            Some(encode_tuple_cvc5(
+                tm,
+                &elem_vals,
+                &mut state.axioms,
+                &mut state.fresh_counter,
+            ))
         }
         // MethodCall: prepend receiver, call UF
         Expr::MethodCall {

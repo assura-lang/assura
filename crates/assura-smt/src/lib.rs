@@ -77,11 +77,13 @@ mod no_z3;
 
 mod cvc5_adt;
 mod cvc5_backend;
+mod cvc5_binop_encode;
 mod cvc5_builtins;
 mod cvc5_common;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_encoder_state;
 mod cvc5_field_access;
+mod cvc5_if_encode;
 mod cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_ir_native;
@@ -92,6 +94,7 @@ mod cvc5_native_binops;
 mod cvc5_native_builtins;
 mod cvc5_old_access;
 mod cvc5_raw_ops;
+mod cvc5_tuple_encode;
 
 // ---------------------------------------------------------------------------
 // Z3 backend

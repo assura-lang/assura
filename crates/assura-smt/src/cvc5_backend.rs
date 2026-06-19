@@ -1,14 +1,17 @@
 use super::*;
 use crate::cache::SessionCache;
+use crate::cvc5_binop_encode::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
     expr_has_unmodelable_features_cvc5, float_literal_to_smtlib, is_internal_cvc5_var,
     sanitize_smtlib_name, smtlib_result_name,
 };
 use crate::cvc5_field_access::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
+use crate::cvc5_if_encode::encode_if_smtlib;
 use crate::cvc5_index_access::index_access_smtlib;
 use crate::cvc5_match_encode::encode_match_smtlib;
 use crate::cvc5_old_access::encode_old_smtlib;
+use crate::cvc5_tuple_encode::encode_tuple_smtlib;
 
 #[cfg(test)]
 use crate::cvc5_common::{
@@ -16,13 +19,14 @@ use crate::cvc5_common::{
     is_self_rooted_cvc5,
 };
 use crate::cvc5_raw_ops::{
-    comma_chunk_ranges, concat_binop_smtlib, domain_as_range, domain_contains_guard_smtlib,
-    find_matching_delim, format_neq_ast_binop_smtlib, format_raw_binop_smtlib,
-    format_raw_quantifier_smtlib, format_standard_ast_binop_smtlib, in_binop_smtlib,
-    is_raw_spec_skip_keyword, not_in_binop_smtlib, parse_raw_quantifier_slice, range_binop_smtlib,
-    range_guard_smtlib, raw_op_info, raw_op_is_comparison, wrap_ast_quantifier_smtlib,
+    comma_chunk_ranges, domain_as_range, domain_contains_guard_smtlib, find_matching_delim,
+    format_raw_binop_smtlib, format_raw_quantifier_smtlib, is_raw_spec_skip_keyword,
+    parse_raw_quantifier_slice, range_guard_smtlib, raw_op_info, raw_op_is_comparison,
+    wrap_ast_quantifier_smtlib,
 };
-use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Literal, UnaryOp};
+#[cfg(any(test, feature = "cvc5-verify"))]
+use assura_parser::ast::{BinOp, UnaryOp};
+use assura_parser::ast::{BlockKind, Clause, ClauseKind, Decl, Literal};
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
@@ -1662,21 +1666,11 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         Expr::BinOp { op, lhs, rhs } => {
             let l = expr_to_smtlib(lhs)?;
             let r = expr_to_smtlib(rhs)?;
-            match op {
-                BinOp::Neq => Some(format_neq_ast_binop_smtlib(&l, &r)),
-                BinOp::Range => Some(range_binop_smtlib(&l, &r)),
-                BinOp::In => Some(in_binop_smtlib(&l, &r)),
-                BinOp::NotIn => Some(not_in_binop_smtlib(&l, &r)),
-                BinOp::Concat => Some(concat_binop_smtlib(&l, &r)),
-                _ => format_standard_ast_binop_smtlib(op, &l, &r),
-            }
+            encode_ast_binop_smtlib(op, &l, &r)
         }
         Expr::UnaryOp { op, expr: inner } => {
             let e = expr_to_smtlib(inner)?;
-            match op {
-                UnaryOp::Not => Some(format!("(not {e})")),
-                UnaryOp::Neg => Some(format!("(- {e})")),
-            }
+            Some(encode_ast_unary_smtlib(op, &e))
         }
         Expr::If {
             cond,
@@ -1685,13 +1679,8 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         } => {
             let c = expr_to_smtlib(cond)?;
             let t = expr_to_smtlib(then_branch)?;
-            if let Some(e) = else_branch {
-                let e = expr_to_smtlib(e)?;
-                Some(format!("(ite {c} {t} {e})"))
-            } else {
-                // No else branch: treat as implication
-                Some(format!("(=> {c} {t})"))
-            }
+            let e = else_branch.as_ref().and_then(|eb| expr_to_smtlib(eb));
+            Some(encode_if_smtlib(&c, &t, e.as_deref()))
         }
         Expr::Forall { var, domain, body } => {
             let v = sanitize_smtlib_name(var);
@@ -1768,7 +1757,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
             Some(val)
         }
         // Tuple: use a fresh variable name
-        Expr::Tuple(_) => Some("__tuple_fresh".to_string()),
+        Expr::Tuple(_) => Some(encode_tuple_smtlib()),
         // MethodCall: prepend receiver as first arg to UF
         Expr::MethodCall {
             receiver,
