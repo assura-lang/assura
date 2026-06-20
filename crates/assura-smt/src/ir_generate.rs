@@ -218,7 +218,17 @@ fn plan_if_branch_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     })
 }
 
+/// Plans IR for `ensures { result == match x { p1 => e1, p2 => e2 } }`.
+///
 /// `ensures { result == match x { pat => e, ... } }` → one block per arm.
+///
+/// # Limitation (#307)
+///
+/// Pattern guards and scrutinee matching semantics are ignored. The first
+/// two match arms are mapped to `if $scrut then #1 else #2` without
+/// comparing the scrutinee against pattern literals. For example,
+/// `match x { 0 => 0, _ => x }` treats any non-zero `x` as the wildcard
+/// arm, but does not verify that `x == 0` selects the first arm.
 fn plan_match_arm_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let match_expr = if is_result_ident(lhs) {
@@ -251,7 +261,18 @@ fn plan_match_arm_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     })
 }
 
+/// Plans IR for `ensures { result == f(x) }` call chains.
+///
 /// `ensures { result == helper(x) }` with callee body as sibling `fn #1`.
+///
+/// # Limitation (#306)
+///
+/// Sibling `fn #N` blocks are always generated as identity stubs
+/// (`$result = load $0`), regardless of the callee's actual semantics.
+/// For example, `ensures { result == double(x) }` produces `fn #1`
+/// with `$result = load $0` instead of `$result = arith add $0 $0`.
+/// The verifier inlines this stub, so verification only confirms that
+/// the call plumbing works, not that the callee computes the right value.
 fn plan_multi_fn_call_chain(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let call = if is_result_ident(lhs) {

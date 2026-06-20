@@ -51,3 +51,4 @@ body:
         - label: "All acceptance checkboxes above are checked"
         - label: "CI `cvc5` job URL pasted in closing comment (if native not run locally)"
         - label: "No Z3-only evidence used to close a cvc5-parity issue"
+        - label: "Verified CI `cvc5` job green on closing commit (or pasted run URL)"

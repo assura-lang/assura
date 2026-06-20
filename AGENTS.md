@@ -682,6 +682,11 @@ If native tests cannot run locally, the issue may still close when CI
 close `cvc5-parity` issues before that CI job finishes on the closing
 commit (#304).
 
+**CI-before-close rule (#304):** Do not close `cvc5-parity` issues
+until the CI `cvc5` job is green on the closing commit. If closing
+immediately after push, comment "pending CI" and verify once the run
+completes. Use `scripts/wait-for-ci-cvc5.sh <sha>` when available.
+
 **`cargo test` filter:** One substring filter per invocation only
 (`cargo test -p assura-smt ir_parity` — not `ir_parity ir_lower`).
 
