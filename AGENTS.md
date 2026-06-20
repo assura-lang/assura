@@ -42,7 +42,9 @@ At the start of every session:
    writing any code. Know what "done" looks like before you start.
 6. Implement the task.
 7. Run every acceptance test command from the task. See each one pass.
-8. Run the pre-commit gate: `cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo clippy -p assura-smt --features cvc5-verify -- -D warnings && cargo test --workspace && cargo check --no-default-features -p assura-smt`
+8. Run the pre-commit gate: `bash scripts/pre-commit-gate.sh` (or
+   `bash scripts/pre-commit-scoped.sh` before each push; full gate before
+   session end — ~30–45 min)
 9. Mark the task `[x]` in `MASTER-PLAN.md`. Commit and push.
 10. Continue to the next task until the session ends or context runs out.
 11. Before the session ends, update the Progress Notes section with
@@ -393,10 +395,28 @@ were silently ignored until the method was wired in during #62.
 
 ## Pre-Commit Gate
 
-Run this exact command before every commit. No exceptions.
+**Before each push** (fast, ~1–4 min):
 
 ```bash
-cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo clippy -p assura-smt --features cvc5-verify -- -D warnings && cargo test --workspace && cargo check --no-default-features -p assura-smt
+bash scripts/pre-commit-scoped.sh          # infers crate from git diff
+bash scripts/pre-commit-scoped.sh assura-smt  # explicit crate
+```
+
+**Before session end or marking a MASTER-PLAN task `[x]`** (full gate,
+~30–45 min; do not block every push on this):
+
+```bash
+bash scripts/pre-commit-gate.sh
+```
+
+The script runs, in order:
+
+```bash
+cargo fmt --all
+cargo clippy --workspace -- -D warnings
+cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
+cargo test --workspace
+cargo check --no-default-features -p assura-smt
 ```
 
 The `cargo clippy -p assura-smt --features cvc5-verify` step mirrors the CI
