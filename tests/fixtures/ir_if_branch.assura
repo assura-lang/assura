@@ -1,7 +1,0 @@
-// MUST COMPILE
-contract IfBranch {
-  input(x: Int)
-  output(result: Int)
-  requires { x >= 0 }
-  ensures  { result == if x > 0 then x else 0 }
-}

@@ -101,10 +101,11 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
     }
 
     fn load_slot(&mut self, slots: &HashMap<usize, Self::Term>, slot: usize) -> Self::Term {
-        slots
-            .get(&slot)
-            .cloned()
-            .unwrap_or_else(|| self.enc.fresh_name())
+        slots.get(&slot).cloned().unwrap_or_else(|| {
+            let name = self.enc.fresh_name();
+            declare_int_var(self.script, self.vars, &name);
+            name
+        })
     }
 
     fn push_eq_axiom(&mut self, lhs: Self::Term, rhs: Self::Term) {
@@ -126,10 +127,11 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
         then_v: Self::Term,
         else_v: Self::Term,
     ) -> Self::Term {
-        format!("(ite (distinct {cond} 0) ({then_v}) ({else_v}))")
+        format!("(ite (distinct {cond} 0) {then_v} {else_v})")
     }
 
     fn nullary_uf(&mut self, name: &str) -> Self::Term {
+        declare_int_var(self.script, self.vars, name);
         sanitize_smtlib_name(name)
     }
 
@@ -144,7 +146,9 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
     }
 
     fn fresh_int(&mut self) -> Self::Term {
-        self.enc.fresh_name()
+        let name = self.enc.fresh_name();
+        declare_int_var(self.script, self.vars, &name);
+        name
     }
 
     fn enc_ctx(&self) -> IrEncodeContext<'_> {
@@ -367,11 +371,22 @@ pub(crate) fn append_ir_body_constraints_smtlib(
         {
             let len_result = canonical_length_smtlib_name("result");
             let len_param = canonical_length_smtlib_name(param);
-            declare_int_var(builder.script, builder.vars, "result");
-            declare_int_var(builder.script, builder.vars, param);
+            declare_canonical_len(builder.script, builder.vars, "result");
+            declare_canonical_len(builder.script, builder.vars, param);
             builder
                 .script
                 .push_str(&format!("(assert (= {len_result} {len_param}))\n"));
+        }
+        // Construct tag axiom: align with Z3 backend (#303)
+        if instr.target == RESULT_SLOT
+            && let IrExprKind::Construct { type_id, .. } = &instr.expr
+        {
+            let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
+            let tag_name = sanitize_smtlib_name(&format!("__ir_tag_{type_id}"));
+            declare_int_var(builder.script, builder.vars, &tag_name);
+            builder
+                .script
+                .push_str(&format!("(assert (= {tag_name} {tag}))\n"));
         }
     }
 
