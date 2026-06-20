@@ -97,20 +97,8 @@ pub(crate) fn expr_to_rust(expr: &Expr) -> String {
                 && is_numeric_expr(lhs)
                 && is_numeric_expr(rhs);
 
-            let op_s = match op {
-                BinOp::Add => "+",
-                BinOp::Sub => "-",
-                BinOp::Mul => "*",
-                BinOp::Div => "/",
-                BinOp::Mod => "%",
-                BinOp::Eq => "==",
-                BinOp::Neq => "!=",
-                BinOp::Lt => "<",
-                BinOp::Lte => "<=",
-                BinOp::Gt => ">",
-                BinOp::Gte => ">=",
-                BinOp::And => "&&",
-                BinOp::Or => "||",
+            // Handle operators with non-standard Rust translations first.
+            match op {
                 BinOp::Implies => {
                     return format!("(!{} || {})", expr_to_rust(lhs), expr_to_rust(rhs));
                 }
@@ -124,8 +112,9 @@ pub(crate) fn expr_to_rust(expr: &Expr) -> String {
                 BinOp::Concat => {
                     return format!("[{}, {}].concat()", expr_to_rust(lhs), expr_to_rust(rhs));
                 }
-                BinOp::Range => "..",
-            };
+                _ => {}
+            }
+            let op_s = op.as_rust_str();
             if is_numeric_cmp {
                 format!(
                     "(i128::from({}) {op_s} i128::from({}))",
@@ -500,27 +489,7 @@ pub(crate) fn old_var_name(expr: &Expr) -> String {
             Literal::Bool(b) => format!("lit_{b}"),
         },
         Expr::BinOp { lhs, op, rhs } => {
-            let op_name = match op {
-                BinOp::Add => "add",
-                BinOp::Sub => "sub",
-                BinOp::Mul => "mul",
-                BinOp::Div => "div",
-                BinOp::Mod => "mod",
-                BinOp::And => "and",
-                BinOp::Or => "or",
-                BinOp::Eq => "eq",
-                BinOp::Neq => "neq",
-                BinOp::Lt => "lt",
-                BinOp::Gt => "gt",
-                BinOp::Lte => "lte",
-                BinOp::Gte => "gte",
-                BinOp::Implies => "implies",
-                BinOp::In => "in",
-                BinOp::NotIn => "notin",
-                BinOp::Concat => "concat",
-                BinOp::Range => "range",
-            };
-            format!("{}_{op_name}_{}", old_var_name(lhs), old_var_name(rhs))
+            format!("{}_{}_{}",old_var_name(lhs), op.as_ident(), old_var_name(rhs))
         }
         Expr::UnaryOp { op, expr: e } => {
             let prefix = match op {

@@ -331,11 +331,7 @@ fn plan_result_equals(other: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
 
 fn plan_result_arith(op: BinOp, lhs: &Expr, rhs: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
     let ir_op = match op {
-        BinOp::Add => "add",
-        BinOp::Sub => "sub",
-        BinOp::Mul => "mul",
-        BinOp::Div => "div",
-        BinOp::Mod => "mod",
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => op.as_ident(),
         _ => return None,
     };
 

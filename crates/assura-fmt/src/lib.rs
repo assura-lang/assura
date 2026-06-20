@@ -696,25 +696,12 @@ pub(crate) fn join_raw_tokens(tokens: &[String]) -> String {
 }
 
 pub(crate) fn binop_str(op: &BinOp) -> &'static str {
+    // The formatter uses Rust-style operators for most, with overrides
+    // for Assura-specific operators that have no Rust equivalent.
     match op {
-        BinOp::Add => "+",
-        BinOp::Sub => "-",
-        BinOp::Mul => "*",
-        BinOp::Div => "/",
-        BinOp::Mod => "%",
-        BinOp::Eq => "==",
-        BinOp::Neq => "!=",
-        BinOp::Lt => "<",
-        BinOp::Lte => "<=",
-        BinOp::Gt => ">",
-        BinOp::Gte => ">=",
-        BinOp::And => "&&",
-        BinOp::Or => "||",
         BinOp::Implies => "==>",
-        BinOp::In => "in",
-        BinOp::NotIn => "not in",
-        BinOp::Concat => "++",
-        BinOp::Range => "..",
+        BinOp::In | BinOp::NotIn | BinOp::Concat | BinOp::Range => op.as_str(),
+        _ => op.as_rust_str(),
     }
 }
 

@@ -558,29 +558,10 @@ pub fn expr_to_rust_static(expr: &Expr) -> String {
         },
         Expr::Ident(s) => s.clone(),
         Expr::BinOp { lhs, op, rhs } => {
-            let op_s = match op {
-                BinOp::Add => "+",
-                BinOp::Sub => "-",
-                BinOp::Mul => "*",
-                BinOp::Div => "/",
-                BinOp::Mod => "%",
-                BinOp::And => "&&",
-                BinOp::Or => "||",
-                BinOp::Eq => "==",
-                BinOp::Neq => "!=",
-                BinOp::Lt => "<",
-                BinOp::Gt => ">",
-                BinOp::Lte => "<=",
-                BinOp::Gte => ">=",
-                BinOp::Implies => "/* implies */",
-                BinOp::In => "/* in */",
-                BinOp::NotIn => "/* not in */",
-                BinOp::Concat => "/* ++ */",
-                BinOp::Range => "..",
-            };
             format!(
-                "({} {op_s} {})",
+                "({} {} {})",
                 expr_to_rust_static(lhs),
+                op.as_rust_str(),
                 expr_to_rust_static(rhs)
             )
         }

@@ -393,6 +393,80 @@ pub enum BinOp {
     Range,
 }
 
+impl BinOp {
+    /// Returns the Assura source-level string for this operator.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BinOp::Add => "+",
+            BinOp::Sub => "-",
+            BinOp::Mul => "*",
+            BinOp::Div => "/",
+            BinOp::Mod => "mod",
+            BinOp::Eq => "==",
+            BinOp::Neq => "!=",
+            BinOp::Lt => "<",
+            BinOp::Lte => "<=",
+            BinOp::Gt => ">",
+            BinOp::Gte => ">=",
+            BinOp::And => "and",
+            BinOp::Or => "or",
+            BinOp::Implies => "=>",
+            BinOp::In => "in",
+            BinOp::NotIn => "not in",
+            BinOp::Concat => "++",
+            BinOp::Range => "..",
+        }
+    }
+
+    /// Returns an identifier-safe name for this operator (e.g., "add", "sub").
+    pub fn as_ident(&self) -> &'static str {
+        match self {
+            BinOp::Add => "add",
+            BinOp::Sub => "sub",
+            BinOp::Mul => "mul",
+            BinOp::Div => "div",
+            BinOp::Mod => "mod",
+            BinOp::Eq => "eq",
+            BinOp::Neq => "neq",
+            BinOp::Lt => "lt",
+            BinOp::Lte => "lte",
+            BinOp::Gt => "gt",
+            BinOp::Gte => "gte",
+            BinOp::And => "and",
+            BinOp::Or => "or",
+            BinOp::Implies => "implies",
+            BinOp::In => "in",
+            BinOp::NotIn => "notin",
+            BinOp::Concat => "concat",
+            BinOp::Range => "range",
+        }
+    }
+
+    /// Returns the Rust code-level string for this operator.
+    pub fn as_rust_str(&self) -> &'static str {
+        match self {
+            BinOp::Add => "+",
+            BinOp::Sub => "-",
+            BinOp::Mul => "*",
+            BinOp::Div => "/",
+            BinOp::Mod => "%",
+            BinOp::Eq => "==",
+            BinOp::Neq => "!=",
+            BinOp::Lt => "<",
+            BinOp::Lte => "<=",
+            BinOp::Gt => ">",
+            BinOp::Gte => ">=",
+            BinOp::And => "&&",
+            BinOp::Or => "||",
+            BinOp::Implies => "/* implies */",
+            BinOp::In => "/* in */",
+            BinOp::NotIn => "/* not in */",
+            BinOp::Concat => "/* ++ */",
+            BinOp::Range => "..",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
     Neg,
@@ -539,6 +613,75 @@ pub fn walk_expr(visitor: &mut (impl ExprVisitor + ?Sized), expr: &Expr) {
         Expr::Tuple(items) => visitor.visit_tuple(items),
         Expr::Raw(tokens) => visitor.visit_raw(tokens),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Expression folder trait (value-producing walker)
+// ---------------------------------------------------------------------------
+
+/// A value-producing walker over `Expr` trees. Unlike `ExprVisitor` (which is
+/// side-effecting), `ExprFolder` returns an `Output` for every expression node.
+///
+/// The default `fold_expr` dispatches to per-variant methods. Override any
+/// method to customize behavior; call `self.fold_expr(sub)` to recurse.
+pub trait ExprFolder {
+    type Output;
+
+    fn fold_expr(&mut self, expr: &Expr) -> Self::Output {
+        match expr {
+            Expr::Literal(lit) => self.fold_literal(lit),
+            Expr::Ident(s) => self.fold_ident(s),
+            Expr::Field(base, field) => self.fold_field(base, field),
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => self.fold_method_call(receiver, method, args),
+            Expr::Call { func, args } => self.fold_call(func, args),
+            Expr::Index { expr, index } => self.fold_index(expr, index),
+            Expr::BinOp { lhs, op, rhs } => self.fold_binop(lhs, op, rhs),
+            Expr::UnaryOp { op, expr } => self.fold_unary_op(op, expr),
+            Expr::Old(inner) => self.fold_old(inner),
+            Expr::Forall { var, domain, body } => self.fold_forall(var, domain, body),
+            Expr::Exists { var, domain, body } => self.fold_exists(var, domain, body),
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.fold_if(cond, then_branch, else_branch.as_deref()),
+            Expr::List(items) => self.fold_list(items),
+            Expr::Cast { expr, ty } => self.fold_cast(expr, ty),
+            Expr::Block(exprs) => self.fold_block(exprs),
+            Expr::Ghost(inner) => self.fold_ghost(inner),
+            Expr::Apply { lemma_name, args } => self.fold_apply(lemma_name, args),
+            Expr::Let { name, value, body } => self.fold_let(name, value, body),
+            Expr::Match { scrutinee, arms } => self.fold_match(scrutinee, arms),
+            Expr::Tuple(items) => self.fold_tuple(items),
+            Expr::Raw(tokens) => self.fold_raw(tokens),
+        }
+    }
+
+    fn fold_literal(&mut self, lit: &Literal) -> Self::Output;
+    fn fold_ident(&mut self, name: &str) -> Self::Output;
+    fn fold_field(&mut self, base: &Expr, field: &str) -> Self::Output;
+    fn fold_method_call(&mut self, receiver: &Expr, method: &str, args: &[Expr]) -> Self::Output;
+    fn fold_call(&mut self, func: &Expr, args: &[Expr]) -> Self::Output;
+    fn fold_index(&mut self, base: &Expr, index: &Expr) -> Self::Output;
+    fn fold_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> Self::Output;
+    fn fold_unary_op(&mut self, op: &UnaryOp, inner: &Expr) -> Self::Output;
+    fn fold_old(&mut self, inner: &Expr) -> Self::Output;
+    fn fold_forall(&mut self, var: &str, domain: &Expr, body: &Expr) -> Self::Output;
+    fn fold_exists(&mut self, var: &str, domain: &Expr, body: &Expr) -> Self::Output;
+    fn fold_if(&mut self, cond: &Expr, then_br: &Expr, else_br: Option<&Expr>) -> Self::Output;
+    fn fold_list(&mut self, items: &[Expr]) -> Self::Output;
+    fn fold_cast(&mut self, inner: &Expr, ty: &str) -> Self::Output;
+    fn fold_block(&mut self, exprs: &[Expr]) -> Self::Output;
+    fn fold_ghost(&mut self, inner: &Expr) -> Self::Output;
+    fn fold_apply(&mut self, name: &str, args: &[Expr]) -> Self::Output;
+    fn fold_let(&mut self, name: &str, value: &Expr, body: &Expr) -> Self::Output;
+    fn fold_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) -> Self::Output;
+    fn fold_tuple(&mut self, items: &[Expr]) -> Self::Output;
+    fn fold_raw(&mut self, tokens: &[String]) -> Self::Output;
 }
 
 // ---------------------------------------------------------------------------

@@ -235,181 +235,179 @@ pub(crate) fn print_decl(decl: &Decl, indent: usize) {
 
 /// Convert an `Expr` to a human-readable string representation.
 pub fn expr_to_string(expr: &Expr) -> String {
-    match expr {
-        Expr::Literal(lit) => match lit {
+    AssuraDisplayFolder.fold_expr(expr)
+}
+
+/// `ExprFolder` implementation that produces Assura source text.
+struct AssuraDisplayFolder;
+
+impl ExprFolder for AssuraDisplayFolder {
+    type Output = String;
+
+    fn fold_literal(&mut self, lit: &Literal) -> String {
+        match lit {
             Literal::Int(s) | Literal::Float(s) => s.clone(),
             Literal::Str(s) => format!("\"{s}\""),
             Literal::Bool(b) => b.to_string(),
-        },
-        Expr::Ident(s) => s.clone(),
-        Expr::Field(e, f) => format!("{}.{f}", expr_to_string(e)),
-        Expr::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            let args_s: Vec<String> = args.iter().map(expr_to_string).collect();
-            format!(
-                "{}.{method}({})",
-                expr_to_string(receiver),
-                args_s.join(", ")
-            )
         }
-        Expr::Call { func, args } => {
-            let args_s: Vec<String> = args.iter().map(expr_to_string).collect();
-            format!("{}({})", expr_to_string(func), args_s.join(", "))
-        }
-        Expr::Index { expr: e, index } => {
-            format!("{}[{}]", expr_to_string(e), expr_to_string(index))
-        }
-        Expr::BinOp { .. } => {
-            // Iteratively walk left-leaning BinOp chains to avoid stack
-            // overflow on deeply nested operator expressions.
-            let mut parts: Vec<String> = Vec::new();
-            let mut cur = expr;
-            loop {
-                match cur {
-                    Expr::BinOp { lhs, op, rhs } => {
-                        let op_s = binop_str(op);
-                        parts.push(format!(" {op_s} {}", expr_to_string(rhs)));
-                        cur = lhs;
-                    }
-                    _ => {
-                        parts.push(expr_to_string(cur));
-                        break;
-                    }
+    }
+
+    fn fold_ident(&mut self, name: &str) -> String {
+        name.to_string()
+    }
+
+    fn fold_field(&mut self, base: &Expr, field: &str) -> String {
+        format!("{}.{field}", self.fold_expr(base))
+    }
+
+    fn fold_method_call(&mut self, receiver: &Expr, method: &str, args: &[Expr]) -> String {
+        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
+        format!("{}.{method}({})", self.fold_expr(receiver), args_s.join(", "))
+    }
+
+    fn fold_call(&mut self, func: &Expr, args: &[Expr]) -> String {
+        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
+        format!("{}({})", self.fold_expr(func), args_s.join(", "))
+    }
+
+    fn fold_index(&mut self, base: &Expr, index: &Expr) -> String {
+        format!("{}[{}]", self.fold_expr(base), self.fold_expr(index))
+    }
+
+    fn fold_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> String {
+        // Iteratively walk left-leaning BinOp chains to avoid stack overflow.
+        let mut parts: Vec<String> = Vec::new();
+        let op_s = op.as_str();
+        parts.push(format!(" {op_s} {}", self.fold_expr(rhs)));
+        let mut cur = lhs;
+        loop {
+            match cur {
+                Expr::BinOp { lhs, op, rhs } => {
+                    let op_s = op.as_str();
+                    parts.push(format!(" {op_s} {}", self.fold_expr(rhs)));
+                    cur = lhs;
+                }
+                _ => {
+                    parts.push(self.fold_expr(cur));
+                    break;
                 }
             }
-            parts.reverse();
-            parts.concat()
         }
-        Expr::UnaryOp { op, expr: e } => {
-            let op_s = match op {
-                UnaryOp::Neg => "-",
-                UnaryOp::Not => "not",
-            };
-            format!("{op_s} {}", expr_to_string(e))
-        }
-        Expr::Old(e) => format!("old({})", expr_to_string(e)),
-        Expr::Forall { var, domain, body } => {
-            format!(
-                "forall {var} in {}: {}",
-                expr_to_string(domain),
-                expr_to_string(body)
-            )
-        }
-        Expr::Exists { var, domain, body } => {
-            format!(
-                "exists {var} in {}: {}",
-                expr_to_string(domain),
-                expr_to_string(body)
-            )
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => match else_branch {
+        parts.reverse();
+        parts.concat()
+    }
+
+    fn fold_unary_op(&mut self, op: &UnaryOp, inner: &Expr) -> String {
+        let op_s = match op {
+            UnaryOp::Neg => "-",
+            UnaryOp::Not => "not",
+        };
+        format!("{op_s} {}", self.fold_expr(inner))
+    }
+
+    fn fold_old(&mut self, inner: &Expr) -> String {
+        format!("old({})", self.fold_expr(inner))
+    }
+
+    fn fold_forall(&mut self, var: &str, domain: &Expr, body: &Expr) -> String {
+        format!(
+            "forall {var} in {}: {}",
+            self.fold_expr(domain),
+            self.fold_expr(body)
+        )
+    }
+
+    fn fold_exists(&mut self, var: &str, domain: &Expr, body: &Expr) -> String {
+        format!(
+            "exists {var} in {}: {}",
+            self.fold_expr(domain),
+            self.fold_expr(body)
+        )
+    }
+
+    fn fold_if(&mut self, cond: &Expr, then_br: &Expr, else_br: Option<&Expr>) -> String {
+        match else_br {
             Some(eb) => format!(
                 "if {} then {} else {}",
-                expr_to_string(cond),
-                expr_to_string(then_branch),
-                expr_to_string(eb)
+                self.fold_expr(cond),
+                self.fold_expr(then_br),
+                self.fold_expr(eb)
             ),
             None => format!(
                 "if {} then {}",
-                expr_to_string(cond),
-                expr_to_string(then_branch)
+                self.fold_expr(cond),
+                self.fold_expr(then_br)
             ),
-        },
-        Expr::List(elems) => {
-            let elems_s: Vec<String> = elems.iter().map(expr_to_string).collect();
-            format!("[{}]", elems_s.join(", "))
         }
-        Expr::Cast { expr: e, ty } => format!("{} as {ty}", expr_to_string(e)),
-        Expr::Block(exprs) => {
-            let strs: Vec<String> = exprs.iter().map(expr_to_string).collect();
-            strs.join(" ")
-        }
-        Expr::Ghost(inner) => format!("ghost {{ {} }}", expr_to_string(inner)),
-        Expr::Apply { lemma_name, args } => {
-            let args_s: Vec<String> = args.iter().map(expr_to_string).collect();
-            format!("apply {lemma_name}({})", args_s.join(", "))
-        }
-        Expr::Match { scrutinee, arms } => {
-            let scrut = expr_to_string(scrutinee);
-            let arms_s: Vec<String> = arms
-                .iter()
-                .map(|arm| {
-                    let pat = match &arm.pattern {
-                        Pattern::Ident(name) => name.clone(),
-                        Pattern::Wildcard => "_".into(),
-                        Pattern::Literal(lit) => format!("{lit:?}"),
-                        Pattern::Constructor { name, fields } => {
-                            let fs: Vec<String> = fields
-                                .iter()
-                                .map(|f| match f {
-                                    Pattern::Ident(n) => n.clone(),
-                                    Pattern::Wildcard => "_".into(),
-                                    other => format!("{other:?}"),
-                                })
-                                .collect();
-                            format!("{name}({})", fs.join(", "))
-                        }
-                        Pattern::Tuple(pats) => {
-                            let ps: Vec<String> = pats
-                                .iter()
-                                .map(|p| match p {
-                                    Pattern::Ident(n) => n.clone(),
-                                    Pattern::Wildcard => "_".into(),
-                                    other => format!("{other:?}"),
-                                })
-                                .collect();
-                            format!("({})", ps.join(", "))
-                        }
-                    };
-                    format!("{pat} => {}", expr_to_string(&arm.body))
-                })
-                .collect();
-            format!("match {scrut} {{ {} }}", arms_s.join(", "))
-        }
-        Expr::Let { name, value, body } => {
-            format!(
-                "let {} = {} in {}",
-                name,
-                expr_to_string(value),
-                expr_to_string(body)
-            )
-        }
-        Expr::Tuple(elems) => {
-            let items: Vec<String> = elems.iter().map(expr_to_string).collect();
-            format!("({})", items.join(", "))
-        }
-        Expr::Raw(tokens) => tokens.join(" "),
+    }
+
+    fn fold_list(&mut self, items: &[Expr]) -> String {
+        let elems_s: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
+        format!("[{}]", elems_s.join(", "))
+    }
+
+    fn fold_cast(&mut self, inner: &Expr, ty: &str) -> String {
+        format!("{} as {ty}", self.fold_expr(inner))
+    }
+
+    fn fold_block(&mut self, exprs: &[Expr]) -> String {
+        let strs: Vec<String> = exprs.iter().map(|e| self.fold_expr(e)).collect();
+        strs.join(" ")
+    }
+
+    fn fold_ghost(&mut self, inner: &Expr) -> String {
+        format!("ghost {{ {} }}", self.fold_expr(inner))
+    }
+
+    fn fold_apply(&mut self, name: &str, args: &[Expr]) -> String {
+        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
+        format!("apply {name}({})", args_s.join(", "))
+    }
+
+    fn fold_let(&mut self, name: &str, value: &Expr, body: &Expr) -> String {
+        format!(
+            "let {} = {} in {}",
+            name,
+            self.fold_expr(value),
+            self.fold_expr(body)
+        )
+    }
+
+    fn fold_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) -> String {
+        let scrut = self.fold_expr(scrutinee);
+        let arms_s: Vec<String> = arms
+            .iter()
+            .map(|arm| {
+                let pat = pattern_to_display(&arm.pattern);
+                format!("{pat} => {}", self.fold_expr(&arm.body))
+            })
+            .collect();
+        format!("match {scrut} {{ {} }}", arms_s.join(", "))
+    }
+
+    fn fold_tuple(&mut self, items: &[Expr]) -> String {
+        let elems: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
+        format!("({})", elems.join(", "))
+    }
+
+    fn fold_raw(&mut self, tokens: &[String]) -> String {
+        tokens.join(" ")
     }
 }
 
-/// Map a `BinOp` to its string representation.
-fn binop_str(op: &BinOp) -> &'static str {
-    match op {
-        BinOp::Add => "+",
-        BinOp::Sub => "-",
-        BinOp::Mul => "*",
-        BinOp::Div => "/",
-        BinOp::Mod => "mod",
-        BinOp::Eq => "==",
-        BinOp::Neq => "!=",
-        BinOp::Lt => "<",
-        BinOp::Lte => "<=",
-        BinOp::Gt => ">",
-        BinOp::Gte => ">=",
-        BinOp::And => "and",
-        BinOp::Or => "or",
-        BinOp::Implies => "=>",
-        BinOp::In => "in",
-        BinOp::NotIn => "not in",
-        BinOp::Concat => "++",
-        BinOp::Range => "..",
+fn pattern_to_display(pat: &Pattern) -> String {
+    match pat {
+        Pattern::Ident(name) => name.clone(),
+        Pattern::Wildcard => "_".into(),
+        Pattern::Literal(lit) => format!("{lit:?}"),
+        Pattern::Constructor { name, fields } => {
+            let fs: Vec<String> = fields.iter().map(pattern_to_display).collect();
+            format!("{name}({})", fs.join(", "))
+        }
+        Pattern::Tuple(pats) => {
+            let ps: Vec<String> = pats.iter().map(pattern_to_display).collect();
+            format!("({})", ps.join(", "))
+        }
     }
 }
 
@@ -769,30 +767,28 @@ mod tests {
         assert_eq!(expr_to_string(&e), "io . read");
     }
 
-    // ---- binop_str coverage ----
-
-    use super::binop_str;
+    // ---- BinOp::as_str() coverage ----
 
     #[test]
-    fn binop_str_all_operators() {
-        assert_eq!(binop_str(&BinOp::Add), "+");
-        assert_eq!(binop_str(&BinOp::Sub), "-");
-        assert_eq!(binop_str(&BinOp::Mul), "*");
-        assert_eq!(binop_str(&BinOp::Div), "/");
-        assert_eq!(binop_str(&BinOp::Mod), "mod");
-        assert_eq!(binop_str(&BinOp::Eq), "==");
-        assert_eq!(binop_str(&BinOp::Neq), "!=");
-        assert_eq!(binop_str(&BinOp::Lt), "<");
-        assert_eq!(binop_str(&BinOp::Lte), "<=");
-        assert_eq!(binop_str(&BinOp::Gt), ">");
-        assert_eq!(binop_str(&BinOp::Gte), ">=");
-        assert_eq!(binop_str(&BinOp::And), "and");
-        assert_eq!(binop_str(&BinOp::Or), "or");
-        assert_eq!(binop_str(&BinOp::Implies), "=>");
-        assert_eq!(binop_str(&BinOp::In), "in");
-        assert_eq!(binop_str(&BinOp::NotIn), "not in");
-        assert_eq!(binop_str(&BinOp::Concat), "++");
-        assert_eq!(binop_str(&BinOp::Range), "..");
+    fn binop_as_str_all_operators() {
+        assert_eq!(BinOp::Add.as_str(), "+");
+        assert_eq!(BinOp::Sub.as_str(), "-");
+        assert_eq!(BinOp::Mul.as_str(), "*");
+        assert_eq!(BinOp::Div.as_str(), "/");
+        assert_eq!(BinOp::Mod.as_str(), "mod");
+        assert_eq!(BinOp::Eq.as_str(), "==");
+        assert_eq!(BinOp::Neq.as_str(), "!=");
+        assert_eq!(BinOp::Lt.as_str(), "<");
+        assert_eq!(BinOp::Lte.as_str(), "<=");
+        assert_eq!(BinOp::Gt.as_str(), ">");
+        assert_eq!(BinOp::Gte.as_str(), ">=");
+        assert_eq!(BinOp::And.as_str(), "and");
+        assert_eq!(BinOp::Or.as_str(), "or");
+        assert_eq!(BinOp::Implies.as_str(), "=>");
+        assert_eq!(BinOp::In.as_str(), "in");
+        assert_eq!(BinOp::NotIn.as_str(), "not in");
+        assert_eq!(BinOp::Concat.as_str(), "++");
+        assert_eq!(BinOp::Range.as_str(), "..");
     }
 
     // ---- match pattern display edge cases ----

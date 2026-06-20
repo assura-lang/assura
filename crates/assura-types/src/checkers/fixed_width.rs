@@ -156,12 +156,7 @@ impl FixedWidthChecker {
         let result_range = Self::wider_range(left_range, right_range);
 
         if Self::can_overflow(op, left_range, right_range, result_range) {
-            let op_name = match op {
-                BinOp::Add => "+",
-                BinOp::Sub => "-",
-                BinOp::Mul => "*",
-                _ => "?",
-            };
+            let op_name = op.as_str();
             Some(FixedWidthError {
                 code: "A10101".into(),
                 message: format!(
