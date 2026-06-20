@@ -1824,6 +1824,27 @@ compiles" failure on taint-tracking.assura.
 - **Next**: #310 agent hygiene scripts (CVC5 env gate, audit, CI wait); #301 native build;
   #302–#305 quick test wins; full pre-commit gate before next large batch
 
+### Session 27 (2026-06-20): Architecture audit + Phase 11 Round 1
+
+- **Architecture audit**: 5 parallel agents analyzed 112K LOC. Found 15 issues
+  ranked by severity: HIR duplication, no DeclVisitor, 5 Expr walkers, dual
+  type representation, CVC5 module sprawl, verify API explosion, layering
+  violations, legacy shims. Full findings in conversation.
+- **AGENTS.md updated**: Session startup no longer blocks on `cargo test` for
+  read-only tasks (code review, analysis, questions).
+- **11.01 (`c579e01`)**: Deleted `legacy.rs`, removed `[project]` config compat,
+  removed unused `logos` dependency from CLI crate, made subcommand required.
+- **11.02 (`4986b84`)**: Removed `Expr::Paren` from AST (100+ match arms across
+  37 files). Parens now unwrapped during CST-to-AST lowering.
+- **11.03**: Already done in prior session (dual `ty: Vec<String>` eliminated).
+- **11.05**: Cancelled. Promoting `Decl::Block` sub-variants would ADD match
+  arms (opposite of simplification). Current design is more compact.
+- **11.06 (`5319a21`)**: Added `Decl` accessor methods (`name()`, `clauses()`,
+  `params()`, `return_ty()`, `is_ghost_or_lemma()`) instead of a visitor trait.
+  Simplified `frame_totality.rs` as demonstration.
+- **Next session**: Continue Phase 11 Round 4+ (verify API builder, type_check
+  API builder, HIR resolution, CVC5 module reorg, Expr spans).
+
 ---
 
 ## Phase 10: Full SMT Parity (CVC5 matches Z3, both go deeper)
@@ -2063,7 +2084,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 3: Restructure Decl enum -- depends on: Round 1
 
-- [ ] **11.05** Promote `Decl::Block` sub-variants to first-class Decl
+- [x] **11.05** ~~Promote `Decl::Block` sub-variants~~ -- cancelled: current design is more compact, promoting would add match arms everywhere
   - `Decl::Block` is a catch-all with `BlockKind` (11 sub-variants +
     `Other(String)`). This defeats exhaustive match checking.
   - Promote the 5 most common sub-variants to first-class: `FeatureMax`,
@@ -2080,7 +2101,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo clippy --workspace -- -D warnings
     ```
 
-- [ ] **11.06** Add `DeclVisitor` trait
+- [x] **11.06** Add Decl accessor methods (name, clauses, params, return_ty, is_ghost_or_lemma) -- implemented as methods instead of a visitor trait; simpler, more flexible
   - The `ExprVisitor` trait already exists and works well. Create an
     analogous `DeclVisitor` with default methods for each variant.
   - Convert the 14 domain checker files in `assura-types/src/checks/`
