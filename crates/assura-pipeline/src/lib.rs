@@ -4,7 +4,7 @@
 //! LSP, server) and `run()` for a lightweight JSON-serializable summary
 //! (used by MCP).
 //!
-//! Pipeline: parse -> resolve -> HIR lower -> type check -> verify
+//! Pipeline: parse -> resolve -> type check -> verify
 
 use std::time::Instant;
 
@@ -25,8 +25,6 @@ pub struct CompilationOutput {
     pub file: Option<assura_parser::ast::SourceFile>,
     /// Resolved file (`None` if resolution was not attempted or failed).
     pub resolved: Option<assura_resolve::ResolvedFile>,
-    /// HIR-lowered file (`None` if HIR lowering was not attempted).
-    pub hir: Option<assura_hir::HirFile>,
     /// Type-checked file (`None` if type checking was not attempted or failed).
     pub typed: Option<assura_types::TypedFile>,
     /// SMT verification results (empty if verification was not run).
@@ -48,8 +46,6 @@ pub struct PhaseTiming {
     pub parse_ms: f64,
     /// Time to resolve names (None if skipped).
     pub resolve_ms: Option<f64>,
-    /// Time to lower to HIR (None if skipped).
-    pub hir_ms: Option<f64>,
     /// Time to type-check (None if skipped).
     pub typecheck_ms: Option<f64>,
     /// Time to run SMT verification (None if skipped).
@@ -60,7 +56,7 @@ pub struct PhaseTiming {
     pub token_count: usize,
 }
 
-/// Run the full pipeline: lex -> parse -> resolve -> HIR lower -> type check.
+/// Run the full pipeline: lex -> parse -> resolve -> type check.
 ///
 /// Collects all diagnostics and intermediate artifacts. Does NOT run SMT
 /// verification (that is caller-controlled since it needs solver choice,
@@ -118,21 +114,12 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
         None
     };
 
-    // --- HIR lowering ---
-    let hir_start = Instant::now();
-    let hir = resolved.as_ref().map(assura_hir::lower);
-    let hir_ms = if resolved.is_some() {
-        Some(hir_start.elapsed().as_secs_f64() * 1000.0)
-    } else {
-        None
-    };
-
     // --- Type check ---
     let typecheck_start = Instant::now();
-    let typed = if let Some(ref hir_file) = hir {
+    let typed = if let Some(ref res) = resolved {
         match assura_types::TypeChecker::new()
             .config(config.type_check.clone())
-            .check_hir(hir_file)
+            .check(res)
         {
             Ok(t) => Some(t),
             Err(errs) => {
@@ -156,7 +143,6 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
     CompilationOutput {
         file,
         resolved,
-        hir,
         typed,
         verification: vec![],
         generated: None,
@@ -165,7 +151,6 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
         timing: PhaseTiming {
             parse_ms,
             resolve_ms,
-            hir_ms,
             typecheck_ms,
             verify_ms: None,
             codegen_ms: None,
@@ -174,7 +159,7 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
     }
 }
 
-/// Run the full pipeline: lex -> parse -> resolve -> HIR -> type check -> verify -> codegen.
+/// Run the full pipeline: lex -> parse -> resolve -> type check -> verify -> codegen.
 ///
 /// Unlike `compile()`, this also runs SMT verification and code generation.
 /// Verification is skipped if type checking failed.

@@ -1,6 +1,6 @@
 //! Type conversion functions.
 //!
-//! Converts between AST TypeExpr, HIR HirType, raw token sequences,
+//! Converts between AST TypeExpr, raw token sequences,
 //! and the type checkers Type enum.
 
 use crate::Type;
@@ -67,57 +67,6 @@ pub(crate) fn resolve_type_opt(type_expr: Option<&assura_parser::ast::TypeExpr>)
     match type_expr {
         Some(te) => type_from_expr(te),
         None => Type::Unit,
-    }
-}
-
-/// Convert an `HirType` to the type checker's `Type`.
-pub(crate) fn type_from_hir_type(hir_ty: &assura_hir::HirType) -> Type {
-    use assura_hir::HirType;
-    match hir_ty {
-        HirType::Unit => Type::Unit,
-        HirType::Named(name) => builtin_type(name).unwrap_or_else(|| Type::Named(name.clone())),
-        HirType::Generic(name, args) => {
-            let type_args: Vec<Type> = args.iter().map(type_from_hir_type).collect();
-            match name.as_str() {
-                "List" | "Vec" => Type::List(Box::new(
-                    type_args.into_iter().next().unwrap_or(Type::Unknown),
-                )),
-                "Sequence" => Type::Sequence(Box::new(
-                    type_args.into_iter().next().unwrap_or(Type::Unknown),
-                )),
-                "Set" => Type::Set(Box::new(
-                    type_args.into_iter().next().unwrap_or(Type::Unknown),
-                )),
-                "Option" => Type::Option(Box::new(
-                    type_args.into_iter().next().unwrap_or(Type::Unknown),
-                )),
-                "Map" => {
-                    let mut it = type_args.into_iter();
-                    Type::Map(
-                        Box::new(it.next().unwrap_or(Type::Unknown)),
-                        Box::new(it.next().unwrap_or(Type::Unknown)),
-                    )
-                }
-                "Result" => {
-                    let mut it = type_args.into_iter();
-                    Type::Result(
-                        Box::new(it.next().unwrap_or(Type::Unknown)),
-                        Box::new(it.next().unwrap_or(Type::Unknown)),
-                    )
-                }
-                _ => Type::Named(name.clone()),
-            }
-        }
-        HirType::Tuple(elems) => Type::Tuple(elems.iter().map(type_from_hir_type).collect()),
-        HirType::Fn { params, ret } => Type::Fn {
-            params: params.iter().map(type_from_hir_type).collect(),
-            ret: Box::new(type_from_hir_type(ret)),
-        },
-        HirType::Refined { base, predicate } => Type::Refined {
-            base: Box::new(type_from_hir_type(base)),
-            predicate: predicate.clone(),
-        },
-        HirType::Unresolved(tokens) => parse_type_tokens(tokens),
     }
 }
 

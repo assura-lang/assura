@@ -1316,8 +1316,7 @@ timeout = 2000
             Ok(r) => r,
             Err(_) => return (true, false),
         };
-        let hir = assura_hir::lower(&resolved);
-        let typed = match assura_types::TypeChecker::new().check_hir(&hir) {
+        let typed = match assura_types::TypeChecker::new().check(&resolved) {
             Ok(t) => t,
             Err(_) => return (true, false),
         };

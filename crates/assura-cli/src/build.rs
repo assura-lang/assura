@@ -98,7 +98,6 @@ pub(crate) fn run_build(
             }),
             verify_ms: None,
             show_total: false,
-            detailed_hir: false,
             show_phase_failures: false,
         },
     );

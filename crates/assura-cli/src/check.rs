@@ -403,14 +403,12 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
             }),
             verify_ms: None,
             show_total: false,
-            detailed_hir: false,
             show_phase_failures: true,
         },
     );
     let CompilationResult {
         file,
         resolved,
-        hir: _,
         typed,
         mut diagnostics,
         mut has_errors,
@@ -501,7 +499,6 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
             .count();
         let total_ms = timing.parse_ms
             + timing.resolve_ms.unwrap_or(0.0)
-            + timing.hir_ms.unwrap_or(0.0)
             + timing.typecheck_ms.unwrap_or(0.0)
             + verify_ms;
 
@@ -519,9 +516,6 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         );
         if let Some(ms) = timing.resolve_ms {
             eprintln!("  Resolve time:    {ms:.2}ms");
-        }
-        if let Some(ms) = timing.hir_ms {
-            eprintln!("  HIR lower time:  {ms:.2}ms");
         }
         if let Some(ms) = timing.typecheck_ms {
             eprintln!("  Type-check time: {ms:.2}ms");
@@ -842,14 +836,12 @@ pub(crate) fn check_file_once(
             config_line: None,
             verify_ms: None,
             show_total: false,
-            detailed_hir: true,
             show_phase_failures: true,
         },
     );
     let CompilationResult {
         file,
         resolved: _,
-        hir: _,
         typed,
         mut diagnostics,
         mut has_errors,

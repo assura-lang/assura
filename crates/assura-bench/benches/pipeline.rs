@@ -46,23 +46,6 @@ fn bench_resolve(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_hir_lower(c: &mut Criterion) {
-    let mut group = c.benchmark_group("hir_lower");
-    for demo in DEMOS {
-        let (file, _) = assura_parser::parse(demo.source);
-        let file = file.expect("demo should parse");
-        let resolved = assura_resolve::resolve(&file).expect("demo should resolve");
-        group.bench_with_input(
-            BenchmarkId::new("lower", demo.name),
-            &resolved,
-            |b, resolved| {
-                b.iter(|| assura_hir::lower(resolved));
-            },
-        );
-    }
-    group.finish();
-}
-
 fn bench_type_check(c: &mut Criterion) {
     let mut group = c.benchmark_group("type_check");
     for demo in DEMOS {
@@ -134,7 +117,6 @@ fn bench_full_pipeline(c: &mut Criterion) {
                     let (file, _) = assura_parser::parse(src);
                     let file = file.expect("parse");
                     let resolved = assura_resolve::resolve(&file).expect("resolve");
-                    let _hir = assura_hir::lower(&resolved);
                     let typed = assura_types::type_check(&resolved).expect("typecheck");
                     let demo_path = format!("demos/{}.assura", demo.name);
                     let _results = assura_smt::Verifier::new(&typed)
@@ -188,7 +170,6 @@ criterion_group!(
     benches,
     bench_parse,
     bench_resolve,
-    bench_hir_lower,
     bench_type_check,
     bench_codegen,
     bench_smt_verify,

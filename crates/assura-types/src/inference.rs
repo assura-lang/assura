@@ -9,24 +9,6 @@ use assura_parser::ast::{BinOp, Expr, Literal, Span, UnaryOp};
 use crate::clauses::bind_pattern_vars;
 use crate::{Type, TypeEnv, TypeError, parse_type_tokens};
 
-/// Infer the type of an `HirExpr` by converting to AST `Expr` first.
-/// This is a bridge during the HIR migration; eventually `infer_expr`
-/// will be rewritten to accept `HirExpr` natively.
-pub fn infer_hir_expr(hir_expr: &assura_hir::HirExpr, env: &TypeEnv) -> Result<Type, TypeError> {
-    let ast_expr = hir_expr.to_ast_expr();
-    infer_expr(&ast_expr, env)
-}
-
-/// Like `infer_hir_expr` but with a context span for error reporting.
-pub fn infer_hir_expr_spanned(
-    hir_expr: &assura_hir::HirExpr,
-    env: &TypeEnv,
-    span: Span,
-) -> Result<Type, TypeError> {
-    let ast_expr = hir_expr.to_ast_expr();
-    infer_expr_spanned(&ast_expr, env, span)
-}
-
 // ---------------------------------------------------------------------------
 // Expression type inference
 // ---------------------------------------------------------------------------

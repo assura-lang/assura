@@ -1,7 +1,7 @@
 //! Type checking pipeline entry points.
 //!
 //! Contains type_check(), type_check_with_modules(),
-//! type_check_hir(), and the unified run_all_checks dispatcher.
+//! and the unified run_all_checks dispatcher.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,11 +12,11 @@ use assura_resolve::{ImportStatus, ResolvedFile, SymbolTable};
 use crate::checkers::PendingDecreaseCheck;
 use crate::checks::*;
 use crate::clauses::{
-    check_clause_bodies, check_clause_bodies_hir, collect_input_param_types,
+    check_clause_bodies, collect_input_param_types,
     extract_output_type_from_body, register_input_clause_params,
 };
 use crate::convert::{parse_type_tokens, resolve_type_opt};
-use crate::env::{build_type_env, build_type_env_from_hir};
+use crate::env::build_type_env;
 use crate::generics::run_generic_instantiation_checks;
 use crate::{Type, TypeEnv, TypeError, TypedFile};
 
@@ -129,10 +129,9 @@ fn run_effect_checks_filtered(
 
 /// Run all domain and structural checkers on the source AST.
 ///
-/// This is the single dispatch point for all 50+ checkers. All three
-/// type-check entry points (`type_check_with_config`, `type_check_with_modules`,
-/// `type_check_hir_with_config`) call this after their specific clause-body
-/// checking and env-building.
+/// This is the single dispatch point for all 50+ checkers. Both
+/// type-check entry points (`type_check_with_config`, `type_check_with_modules`)
+/// call this after their specific clause-body checking and env-building.
 fn run_all_checks(
     source: &assura_parser::ast::SourceFile,
     type_env: &TypeEnv,
@@ -362,13 +361,6 @@ fn inject_imported_types(
 ///     .modules(dep_map)
 ///     .check(&resolved)
 /// ```
-///
-/// Or for HIR input:
-/// ```ignore
-/// TypeChecker::new()
-///     .config(my_config)
-///     .check_hir(&hir_file)
-/// ```
 pub struct TypeChecker {
     config: assura_config::TypeCheckConfig,
     modules: Option<HashMap<String, ResolvedFile>>,
@@ -427,35 +419,11 @@ impl TypeChecker {
             resolved: Arc::new(resolved.clone()),
             pending_decrease_checks,
             type_env,
-            hir: None,
             generated_tests,
         })
     }
 
-    /// Type-check from an HIR file.
-    pub fn check_hir(self, hir: &assura_hir::HirFile) -> Result<TypedFile, Vec<TypeError>> {
-        let resolved = hir.resolved();
-        let type_env = build_type_env_from_hir(hir);
 
-        let mut errors = check_clause_bodies_hir(hir, &type_env);
-        let (check_errors, pending_decrease_checks) =
-            run_all_checks(&resolved.source, &type_env, &resolved.symbols, &self.config);
-        errors.extend(check_errors);
-
-        if !errors.is_empty() {
-            return Err(errors);
-        }
-
-        let generated_tests = generate_tests_from_contracts(&resolved.source);
-
-        Ok(TypedFile {
-            resolved: Arc::clone(&hir.resolved),
-            pending_decrease_checks,
-            type_env,
-            hir: Some(hir.clone()),
-            generated_tests,
-        })
-    }
 }
 
 impl Default for TypeChecker {

@@ -1,6 +1,6 @@
 //! Type environment construction.
 //!
-//! Builds TypeEnv from symbol tables and AST/HIR declarations.
+//! Builds TypeEnv from symbol tables and AST declarations.
 
 use assura_parser::ast::{ClauseKind, Decl, ServiceItem};
 use assura_resolve::{SymbolKind, SymbolTable};
@@ -8,7 +8,7 @@ use assura_resolve::{SymbolKind, SymbolTable};
 use crate::clauses::{
     collect_input_param_types, extract_output_type_from_body, register_input_clause_params,
 };
-use crate::convert::{parse_type_tokens, resolve_type_opt, type_from_expr, type_from_hir_type};
+use crate::convert::{parse_type_tokens, resolve_type_opt, type_from_expr};
 use crate::domain::StdlibTypes;
 use crate::types::builtin_type;
 use crate::{Type, TypeEnv};
@@ -224,172 +224,7 @@ pub(crate) fn build_type_env(
     env
 }
 
-/// Build a type environment from an `HirFile`, using structured `HirType`
-/// values instead of raw token parsing for function/extern/field types.
-/// Contract and service clause handling still uses the AST via
-/// `hir.resolved()` since clause body parsing is not yet migrated.
-pub(crate) fn build_type_env_from_hir(hir: &assura_hir::HirFile) -> TypeEnv {
-    let resolved = hir.resolved();
-    let mut env = TypeEnv::new();
 
-    // Phase 1: seed from symbol table (builtins, type names, etc.)
-    for sym in &resolved.symbols.symbols {
-        let ty = match sym.kind {
-            SymbolKind::BuiltinType => builtin_type(&sym.name).unwrap_or(Type::Unknown),
-            SymbolKind::TypeDef
-            | SymbolKind::ContractDef
-            | SymbolKind::ServiceDef
-            | SymbolKind::EnumDef => Type::Named(sym.name.clone()),
-            SymbolKind::FnDef | SymbolKind::ExternFn | SymbolKind::BindFn => Type::Fn {
-                params: Vec::new(),
-                ret: Box::new(Type::Unknown),
-            },
-            SymbolKind::Operation | SymbolKind::Query => Type::Fn {
-                params: Vec::new(),
-                ret: Box::new(Type::Unknown),
-            },
-            SymbolKind::TypeParam => Type::TypeParam(sym.name.clone()),
-            SymbolKind::Parameter | SymbolKind::Field => Type::Unknown,
-            SymbolKind::EnumVariant => Type::Named(sym.name.clone()),
-            SymbolKind::Prophecy => Type::Unknown,
-            SymbolKind::CodecRegistry => Type::Named(sym.name.clone()),
-        };
-        env.insert(sym.name.clone(), ty);
-    }
-
-    // Phase 2: enrich from HIR declarations
-    use assura_hir::{HirDeclKind, HirServiceItem as HirSI};
-    for decl in &hir.decls {
-        match &decl.kind {
-            HirDeclKind::FnDef(f) => {
-                for p in &f.params {
-                    env.insert(p.name.clone(), type_from_hir_type(&p.ty));
-                }
-                let param_types: Vec<Type> =
-                    f.params.iter().map(|p| type_from_hir_type(&p.ty)).collect();
-                let ret = type_from_hir_type(&f.return_ty);
-                env.insert(
-                    f.name.clone(),
-                    Type::Fn {
-                        params: param_types,
-                        ret: Box::new(ret),
-                    },
-                );
-            }
-            HirDeclKind::Extern(e) => {
-                for p in &e.params {
-                    env.insert(p.name.clone(), type_from_hir_type(&p.ty));
-                }
-                let param_types: Vec<Type> =
-                    e.params.iter().map(|p| type_from_hir_type(&p.ty)).collect();
-                let ret = type_from_hir_type(&e.return_ty);
-                env.insert(
-                    e.name.clone(),
-                    Type::Fn {
-                        params: param_types,
-                        ret: Box::new(ret),
-                    },
-                );
-            }
-            HirDeclKind::Bind(b) => {
-                for p in &b.params {
-                    env.insert(p.name.clone(), type_from_hir_type(&p.ty));
-                }
-                let param_types: Vec<Type> =
-                    b.params.iter().map(|p| type_from_hir_type(&p.ty)).collect();
-                let ret = type_from_hir_type(&b.return_ty);
-                env.insert(
-                    b.name.clone(),
-                    Type::Fn {
-                        params: param_types,
-                        ret: Box::new(ret),
-                    },
-                );
-            }
-            HirDeclKind::Contract(c) => {
-                // Input clause param registration still uses AST
-                for clause in &c.clauses {
-                    if clause.kind == assura_hir::HirClauseKind::Input {
-                        let ast_clause = clause.to_ast_clause();
-                        register_input_clause_params(&ast_clause.body, &mut env);
-                    }
-                }
-            }
-            HirDeclKind::Service(s) => {
-                for item in &s.items {
-                    let (name, clauses) = match item {
-                        HirSI::Operation { name, clauses } => (name, clauses),
-                        HirSI::Query { name, clauses } => (name, clauses),
-                        _ => continue,
-                    };
-                    let mut param_types = Vec::new();
-                    let mut ret = Type::Unit;
-                    for clause in clauses {
-                        if clause.kind == assura_hir::HirClauseKind::Input {
-                            let ast_clause = clause.to_ast_clause();
-                            collect_input_param_types(&ast_clause.body, &mut param_types);
-                        }
-                        if clause.kind == assura_hir::HirClauseKind::Output {
-                            let ast_clause = clause.to_ast_clause();
-                            let ty = extract_output_type_from_body(&ast_clause.body);
-                            if !ty.is_indeterminate() {
-                                ret = ty;
-                            }
-                        }
-                    }
-                    env.insert(
-                        name.clone(),
-                        Type::Fn {
-                            params: param_types,
-                            ret: Box::new(ret),
-                        },
-                    );
-                }
-            }
-            HirDeclKind::TypeDef(td) => {
-                if let assura_hir::HirTypeBody::Struct(fields) = &td.body {
-                    let field_types: Vec<(String, Type)> = fields
-                        .iter()
-                        .map(|f| (f.name.clone(), type_from_hir_type(&f.ty)))
-                        .collect();
-                    env.struct_fields.insert(td.name.clone(), field_types);
-                }
-            }
-            HirDeclKind::EnumDef(e) => {
-                for variant in &e.variants {
-                    if !variant.fields.is_empty() {
-                        let field_types: Vec<Type> =
-                            variant.fields.iter().map(type_from_hir_type).collect();
-                        env.insert(
-                            variant.name.clone(),
-                            Type::Fn {
-                                params: field_types,
-                                ret: Box::new(Type::Named(e.name.clone())),
-                            },
-                        );
-                    }
-                }
-            }
-            // Prophecy variables are ghost; register their type in the env
-            // so ensures clauses can reference the prophecy name.
-            HirDeclKind::Prophecy(p) => {
-                let ty = type_from_hir_type(&p.ty);
-                env.insert(p.name.clone(), ty);
-            }
-            HirDeclKind::CodecRegistry(_) | HirDeclKind::Block(_) => {}
-        }
-    }
-
-    // T107: inject stdlib types
-    let stdlib = StdlibTypes::new();
-    for sdef in stdlib.all_types() {
-        if env.lookup(&sdef.name).is_none() {
-            env.insert(sdef.name.clone(), sdef.base_type.clone());
-        }
-    }
-
-    env
-}
 
 #[cfg(test)]
 mod tests {

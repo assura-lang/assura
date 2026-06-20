@@ -13,7 +13,7 @@ pub mod checkers;
 mod checks;
 /// Clause-body type checking (requires/ensures/invariant expressions).
 pub mod clauses;
-/// Type conversion functions (AST TypeExpr, HIR HirType, raw tokens -> Type).
+/// Type conversion functions (AST TypeExpr, raw tokens -> Type).
 pub(crate) mod convert;
 /// Domain-specific checkers (memory, concurrency, security, formatting, etc.).
 pub mod domain;
@@ -43,7 +43,6 @@ pub use domain::{GeneratedTest, TestGenerator, TestKind, TestableContract};
 
 // From convert module (pub(crate) items accessed within crate)
 pub(crate) use convert::parse_type_tokens;
-pub(crate) use convert::type_from_hir_type;
 
 // From inference module
 pub(crate) use inference::*;

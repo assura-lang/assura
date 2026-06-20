@@ -10,7 +10,6 @@ publish = false
 [dependencies]
 assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
-assura-hir = { path = "../assura-hir" }
 assura-types = { path = "../assura-types" }
 assura-smt = { path = "../assura-smt" }
 assura-codegen = { path = "../assura-codegen" }

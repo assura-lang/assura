@@ -18,8 +18,6 @@ pub struct TimingOptions<'a> {
     pub verify_ms: Option<f64>,
     /// Include total line (parse + resolve + typecheck + verify).
     pub show_total: bool,
-    /// Show HIR declaration count when available.
-    pub detailed_hir: bool,
     /// Show failure messages for skipped phases.
     pub show_phase_failures: bool,
 }
@@ -39,7 +37,7 @@ pub fn print_pipeline_timing(output: &CompilationOutput, opts: TimingOptions<'_>
     }
 
     eprintln!("Pipeline timing for {}:", opts.filename);
-    print_core_phases(output, opts.detailed_hir, opts.show_phase_failures);
+    print_core_phases(output, opts.show_phase_failures);
 
     if let Some(verify_ms) = opts.verify_ms {
         eprintln!(
@@ -61,7 +59,7 @@ pub fn print_pipeline_timing(output: &CompilationOutput, opts: TimingOptions<'_>
     eprintln!();
 }
 
-fn print_core_phases(output: &CompilationOutput, detailed_hir: bool, show_failures: bool) {
+fn print_core_phases(output: &CompilationOutput, show_failures: bool) {
     let timing = output.timing;
     if let Some(ref f) = output.file {
         eprintln!(
@@ -92,18 +90,6 @@ fn print_core_phases(output: &CompilationOutput, detailed_hir: bool, show_failur
         }
     }
 
-    if let Some(hir_ms) = timing.hir_ms {
-        if detailed_hir {
-            if let Some(ref h) = output.hir {
-                eprintln!("  hir:       {} decl(s) ({hir_ms:.2}ms)", h.decls.len());
-            } else if show_failures {
-                eprintln!("  hir:       skipped ({hir_ms:.2}ms)");
-            }
-        } else {
-            eprintln!("  hir:       ({hir_ms:.2}ms)");
-        }
-    }
-
     if let Some(typecheck_ms) = timing.typecheck_ms {
         if let Some(ref td) = output.typed {
             eprintln!(
@@ -119,7 +105,6 @@ fn print_core_phases(output: &CompilationOutput, detailed_hir: bool, show_failur
 fn total_ms(timing: &PhaseTiming, verify_ms: Option<f64>) -> f64 {
     timing.parse_ms
         + timing.resolve_ms.unwrap_or(0.0)
-        + timing.hir_ms.unwrap_or(0.0)
         + timing.typecheck_ms.unwrap_or(0.0)
         + verify_ms.unwrap_or(0.0)
 }

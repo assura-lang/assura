@@ -109,7 +109,6 @@ dependencies = [
  "assura-config",
  "assura-diagnostics",
  "assura-fmt",
- "assura-hir",
  "assura-lsp",
  "assura-mcp",
  "assura-parser",
@@ -135,7 +134,6 @@ name = "assura-bench"
 version = "0.1.0"
 dependencies = [
  "assura-codegen",
- "assura-hir",
  "assura-parser",
  "assura-resolve",
  "assura-smt",
@@ -176,14 +174,6 @@ name = "assura-fmt"
 version = "0.1.0"
 dependencies = [
  "assura-parser",
-]
-
-[[package]]
-name = "assura-hir"
-version = "0.1.0"
-dependencies = [
- "assura-parser",
- "assura-resolve",
 ]
 
 [[package]]
@@ -248,7 +238,6 @@ dependencies = [
  "assura-codegen",
  "assura-config",
  "assura-diagnostics",
- "assura-hir",
  "assura-parser",
  "assura-resolve",
  "assura-smt",
@@ -326,7 +315,6 @@ version = "0.1.0"
 dependencies = [
  "assura-config",
  "assura-diagnostics",
- "assura-hir",
  "assura-parser",
  "assura-resolve",
 ]

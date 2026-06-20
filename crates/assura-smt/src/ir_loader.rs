@@ -227,7 +227,6 @@ mod tests {
             resolved: Arc::new(resolved),
             type_env: TypeEnv::new(),
             pending_decrease_checks: vec![],
-            hir: None,
             generated_tests: vec![],
         }
     }
@@ -384,7 +383,6 @@ module copy {
             resolved: Arc::new(resolved),
             type_env: TypeEnv::new(),
             pending_decrease_checks: vec![],
-            hir: None,
             generated_tests: vec![],
         };
 

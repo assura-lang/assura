@@ -23,7 +23,6 @@ assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
 assura-codegen = { path = "../assura-codegen" }
 assura-smt = { path = "../assura-smt" }
-assura-hir = { path = "../assura-hir" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 assura-config = { path = "../assura-config" }
 assura-fmt = { path = "../assura-fmt" }
