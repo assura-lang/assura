@@ -1791,6 +1791,24 @@ compiles" failure on taint-tracking.assura.
 - **MCP**: `assura_ir_prompt` tool returns JSON with per-decl prompts
 - **Tests**: ir_templates, length-copy generation, CLI fixture, MCP inline contract
 
+### Session 25 (2026-06-19): IR audit fixes, CVC5 gate, ir_blocks parity tests
+
+- **Audit batch (#280–#289)**: Fixed 9/10 items in `6a50613` — IR fence regression,
+  CallChain auto-suggest, MCP `assura_ir_prompt` test, CVC5 IR call inlining tests,
+  CLI `--list`/`--decl`, `include_str!` templates, cvc5-verify clippy (`allow(dead_code)`
+  on Z3-primary fallback modules)
+- **#285 process**: CVC5 CI job already existed; added native clippy step,
+  `scripts/setup-cvc5.sh`, AGENTS.md CVC5 verification gate section; closed #285
+- **IR investigation (#290–#297)**: Filed shared lowering, parity harness,
+  `IrEncodeContext` unification, `LoadedIrContext` newtype, Transition/Construct
+  divergence, E2E branch sidecar, missing-block UF tests, **#297 soundness**
+  (if-branch inlining asserts both branches unconditionally)
+- **Quick wins (`37ed5e7`)**: `branch_if_else_ir_fixture()`, `assert_ir_blocks_inlined()`;
+  Z3 + CVC5 shell + native `ir_blocks` sibling-function tests
+- **Hygiene (this commit)**: unused CVC5 test imports; AGENTS pre-commit gate
+  includes `cvc5-verify` clippy; CVC5 parity issue template; filed #298–#300
+- **Next**: #297 soundness fix, #290 shared IR lowering, `ir_generate` if/match planners (#299)
+
 ---
 
 ## Phase 10: Full SMT Parity (CVC5 matches Z3, both go deeper)

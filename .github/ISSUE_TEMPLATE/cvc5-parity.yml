@@ -1,0 +1,53 @@
+name: CVC5 parity
+description: CVC5 backend parity gap or regression (label cvc5-parity)
+title: "smt: "
+labels: ["cvc5-parity", "smt"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when closing or implementing CVC5 parity work.
+        See AGENTS.md § "CVC5 verification gate" for required evidence.
+
+  - type: textarea
+    id: gap
+    attributes:
+      label: Parity gap
+      description: What Z3 does that CVC5 (shell or native) does not match?
+      placeholder: "e.g. ir_blocks sibling inlining falls back to __ir_block_* UF"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Contract snippet, IR sidecar, or test name that exposes the gap
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: shell_tests
+    attributes:
+      label: Shell-out parity (default build)
+      options:
+        - label: "`cargo test -p assura-smt -- cvc5_<feature>` passes locally"
+        - label: "New shell-out test added or existing test updated"
+
+  - type: checkboxes
+    id: native_tests
+    attributes:
+      label: Native parity (when encoding changed)
+      options:
+        - label: "`bash scripts/setup-cvc5.sh` exports applied (or CI cvc5 job green)"
+        - label: "`cargo test -p assura-smt --features cvc5-verify -- cvc5_<feature>` passes"
+        - label: "`cargo clippy -p assura-smt --features cvc5-verify -- -D warnings` passes"
+
+  - type: checkboxes
+    id: closure
+    attributes:
+      label: Before closing
+      options:
+        - label: "All acceptance checkboxes above are checked"
+        - label: "CI `cvc5` job URL pasted in closing comment (if native not run locally)"
+        - label: "No Z3-only evidence used to close a cvc5-parity issue"

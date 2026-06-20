@@ -25,7 +25,7 @@ pub(crate) use crate::cvc5_verify_native::{
     verify_with_measures_cvc5,
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cvc5-verify"))]
 pub(crate) use crate::cvc5_adt::{
     Cvc5AdtDef, adt_accessor_smt, adt_is_constructor_smt, define_adt_cvc5,
 };

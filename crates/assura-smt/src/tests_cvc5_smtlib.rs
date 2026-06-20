@@ -1,5 +1,4 @@
 use crate::VerificationResult;
-use crate::cache::SessionCache;
 use crate::cvc5_backend::{
     collect_vars, derive_narrowings_cvc5, expr_to_smtlib, parse_smtlib_model, verify_contract_cvc5,
 };
