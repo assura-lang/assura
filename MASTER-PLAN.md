@@ -1821,8 +1821,8 @@ compiles" failure on taint-tracking.assura.
   e2e, #303 Construct parity follow-up, #304 CI-before-close process, #305 `ir_if_branch`
   must_compile harness, #306 multi-fn identity stub, #307 match pattern guards, #308
   `ir_lower` LOC metric, #309 deep cvc5-parity audit script
-- **Next**: #301 (unblocks native parity), #302–#305 quick test wins; full pre-commit gate
-  before next large batch
+- **Next**: #310 agent hygiene scripts (CVC5 env gate, audit, CI wait); #301 native build;
+  #302–#305 quick test wins; full pre-commit gate before next large batch
 
 ---
 
