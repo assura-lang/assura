@@ -4,7 +4,7 @@
 //! Pattern detection reuses `ir_generate::classify_ensures_shape` — no duplicated
 //! clause analysis logic.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use assura_parser::ast::{Clause, ClauseKind, Param};
 use assura_parser::display::expr_to_string;
@@ -53,18 +53,6 @@ impl IrPromptPattern {
         }
     }
 
-    fn overlay_file(self) -> &'static str {
-        match self {
-            Self::Auto => "identity.md",
-            Self::Identity => "identity.md",
-            Self::Arithmetic => "arithmetic.md",
-            Self::LengthCopy => "length-copy.md",
-            Self::CallChain => "call-chain.md",
-            Self::BoundsCheck => "bounds-check.md",
-            Self::FieldAccess => "field-access.md",
-        }
-    }
-
     fn from_shape(shape: EnsuresShape) -> Self {
         match shape {
             EnsuresShape::Identity => Self::Identity,
@@ -72,6 +60,7 @@ impl IrPromptPattern {
             EnsuresShape::LengthCopy => Self::LengthCopy,
             EnsuresShape::BoundsCheck => Self::BoundsCheck,
             EnsuresShape::FieldAccess => Self::FieldAccess,
+            EnsuresShape::CallChain => Self::CallChain,
             EnsuresShape::Unknown => Self::Identity,
         }
     }
@@ -137,8 +126,8 @@ pub fn resolve_ir_pattern(ctx: &IrPromptContext, pattern: IrPromptPattern) -> Ir
 /// Render a complete AI prompt (base + pattern overlay + contract block).
 pub fn render_ir_prompt(ctx: &IrPromptContext, pattern: IrPromptPattern) -> String {
     let pattern = resolve_ir_pattern(ctx, pattern);
-    let base = load_template_file("base.md");
-    let overlay = load_template_file(&format!("patterns/{}", pattern.overlay_file()));
+    let base = BASE_TEMPLATE;
+    let overlay = load_pattern_overlay(pattern);
     let contract_block = format_contract_block(ctx);
     let heuristic_ir = crate::ir_generate::generate_ir_sidecar_text(
         &ctx.decl_name,
@@ -151,7 +140,7 @@ pub fn render_ir_prompt(ctx: &IrPromptContext, pattern: IrPromptPattern) -> Stri
     let pattern_section = format!(
         "---\n\n{overlay}\n\n## Heuristic starting point (optional)\n\n\
          The compiler generated this stub from ensures analysis. Refine or replace:\n\n\
-         ```\n{heuristic_ir}```"
+         {heuristic_ir}"
     );
 
     base.replace("{contract_block}", &contract_block)
@@ -208,14 +197,29 @@ fn param_slot_types(ctx: &IrPromptContext) -> Vec<(usize, String)> {
         .collect()
 }
 
-fn templates_ir_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../templates/ir")
-}
+const BASE_TEMPLATE: &str = include_str!("../../../templates/ir/base.md");
 
-fn load_template_file(relative: &str) -> String {
-    let path = templates_ir_root().join(relative);
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| format!("// TEMPLATE MISSING ({path:?}): {e}\n"))
+fn load_pattern_overlay(pattern: IrPromptPattern) -> &'static str {
+    match pattern {
+        IrPromptPattern::Identity | IrPromptPattern::Auto => {
+            include_str!("../../../templates/ir/patterns/identity.md")
+        }
+        IrPromptPattern::Arithmetic => {
+            include_str!("../../../templates/ir/patterns/arithmetic.md")
+        }
+        IrPromptPattern::LengthCopy => {
+            include_str!("../../../templates/ir/patterns/length-copy.md")
+        }
+        IrPromptPattern::CallChain => {
+            include_str!("../../../templates/ir/patterns/call-chain.md")
+        }
+        IrPromptPattern::BoundsCheck => {
+            include_str!("../../../templates/ir/patterns/bounds-check.md")
+        }
+        IrPromptPattern::FieldAccess => {
+            include_str!("../../../templates/ir/patterns/field-access.md")
+        }
+    }
 }
 
 fn sanitize_module_name(name: &str) -> String {
@@ -312,6 +316,33 @@ mod tests {
         assert!(prompt.contains("CopyBytes"));
         assert!(prompt.contains("result.length()"));
         assert!(!prompt.contains("{contract_block}"));
+    }
+
+    #[test]
+    fn suggest_call_chain_when_result_eq_helper_call() {
+        let ctx = IrPromptContext {
+            decl_name: "Main".into(),
+            params: vec![Param {
+                name: "x".into(),
+                ty: vec!["Int".into()],
+                parsed_type: None,
+            }],
+            return_ty: vec!["Int".into()],
+            clauses: vec![Clause {
+                kind: ClauseKind::Ensures,
+                body: Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: Box::new(Expr::Ident("result".into())),
+                    rhs: Box::new(Expr::Call {
+                        func: Box::new(Expr::Ident("double".into())),
+                        args: vec![Expr::Ident("x".into())],
+                    }),
+                },
+                effect_variables: vec![],
+            }],
+            source_file: None,
+        };
+        assert_eq!(suggest_ir_pattern(&ctx), IrPromptPattern::CallChain);
     }
 
     #[test]

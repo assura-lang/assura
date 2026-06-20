@@ -33,7 +33,7 @@ where
 
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_let_cvc5<'a, F>(
-    tm: &'a cvc5::TermManager,
+    _tm: &'a cvc5::TermManager,
     name: &str,
     value: &Expr,
     body: &Expr,

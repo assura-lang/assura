@@ -52,7 +52,9 @@ module {module_name} {
    (load, arith, length identity).
 5. **Cross-function `call`**: emit `call helper ($k)` only when a `{helper}.ir`
    sidecar exists or you generate both files in the same response.
-6. Output **only** the `.ir` text for `{decl_name}` (no markdown fences).
+6. Your response must be **only** the `.ir` text for `{decl_name}` — no markdown
+   fences, no commentary. (The heuristic starter below is plain text for your
+   reference; do not wrap your output the same way.)
 
 ## Verification loop
 

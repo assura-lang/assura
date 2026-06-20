@@ -1,4 +1,5 @@
 //! Standalone CVC5 native validity and satisfiability checks.
+#![cfg_attr(feature = "z3-verify", allow(dead_code))]
 
 use assura_parser::ast::Expr;
 

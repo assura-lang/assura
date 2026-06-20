@@ -7,7 +7,13 @@ use assura_smt::{IrPromptPattern, render_ir_prompt};
 use super::*;
 
 /// `assura ir-prompt <file.assura>` — emit an AI prompt to generate Implementation IR.
-pub(crate) fn run_ir_prompt(file: &str, decl: Option<&str>, pattern: &str, verbosity: Verbosity) {
+pub(crate) fn run_ir_prompt(
+    file: &str,
+    decl: Option<&str>,
+    list: bool,
+    pattern: &str,
+    verbosity: Verbosity,
+) {
     let source = fs::read_to_string(file).unwrap_or_else(|e| {
         eprintln!("Error: {file}: {e}");
         process::exit(2);
@@ -27,13 +33,36 @@ pub(crate) fn run_ir_prompt(file: &str, decl: Option<&str>, pattern: &str, verbo
     };
 
     let contexts = assura_smt::ir_prompt_contexts_for_typed(&typed, Some(Path::new(file)));
+
+    if list {
+        let names = list_ir_prompt_decls(file);
+        if names.is_empty() {
+            eprintln!("Error: no verifiable declarations in {file}");
+            process::exit(1);
+        }
+        for name in names {
+            println!("{name}");
+        }
+        return;
+    }
+
     let jobs: Vec<_> = if let Some(name) = decl {
         contexts
             .into_iter()
             .filter(|c| c.decl_name == name)
             .collect()
-    } else {
+    } else if contexts.len() == 1 {
         contexts
+    } else if contexts.is_empty() {
+        Vec::new()
+    } else {
+        let names: Vec<_> = contexts.iter().map(|c| c.decl_name.as_str()).collect();
+        eprintln!(
+            "Error: {file} has {} verifiable declarations; use --decl <name> or --list\n  {}",
+            names.len(),
+            names.join(", ")
+        );
+        process::exit(1);
     };
 
     if jobs.is_empty() {
@@ -43,15 +72,6 @@ pub(crate) fn run_ir_prompt(file: &str, decl: Option<&str>, pattern: &str, verbo
             eprintln!("Error: no verifiable declarations in {file}");
         }
         process::exit(1);
-    }
-
-    if jobs.len() > 1 && decl.is_none() && verbosity != Verbosity::Quiet {
-        let names: Vec<_> = jobs.iter().map(|j| j.decl_name.as_str()).collect();
-        eprintln!(
-            "Note: emitting prompts for {} declarations: {}",
-            names.len(),
-            names.join(", ")
-        );
     }
 
     for (i, ctx) in jobs.iter().enumerate() {
@@ -70,7 +90,6 @@ pub(crate) fn run_ir_prompt(file: &str, decl: Option<&str>, pattern: &str, verbo
 }
 
 /// List declaration names eligible for IR prompts (for tooling).
-#[cfg_attr(not(test), expect(dead_code, reason = "used by integration tests"))]
 pub(crate) fn list_ir_prompt_decls(file: &str) -> Vec<String> {
     let Ok(source) = fs::read_to_string(file) else {
         return Vec::new();
@@ -105,13 +124,16 @@ fn compile_typed(source: &str, file: &str) -> Result<assura_types::TypedFile, ()
 mod tests {
     use super::*;
 
-    #[test]
-    fn ir_prompt_lists_jobs_from_fixture() {
-        let path = concat!(
+    fn fixture_path() -> &'static str {
+        concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../tests/fixtures/test_basic.assura"
-        );
-        let names = list_ir_prompt_decls(path);
+        )
+    }
+
+    #[test]
+    fn ir_prompt_lists_jobs_from_fixture() {
+        let names = list_ir_prompt_decls(fixture_path());
         assert!(
             !names.is_empty(),
             "expected at least one job in test_basic.assura"

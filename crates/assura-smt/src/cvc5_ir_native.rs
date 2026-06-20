@@ -59,6 +59,10 @@ fn mk_ir_cmp_as_int_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "IR block eval threads encoding context"
+)]
 fn eval_ir_block_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     block_id: usize,
@@ -107,6 +111,10 @@ fn eval_ir_block_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "IR expr encoding threads encoding context"
+)]
 fn encode_ir_expr_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     expr: &crate::ir::IrExprKind,
@@ -353,6 +361,10 @@ fn ensure_struct_adt_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "typed construct encoding threads IR context"
+)]
 fn encode_ir_construct_typed_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     type_id: &str,
@@ -415,6 +427,10 @@ fn encode_ir_construct_typed_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "call inlining threads callee slot maps"
+)]
 fn eval_ir_call_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     func: &str,
@@ -507,6 +523,10 @@ fn eval_ir_call_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "call dispatch threads encoding context"
+)]
 fn mk_ir_call_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     func: &str,
@@ -796,6 +816,64 @@ mod tests {
             &types,
             None,
             IrEncodeContext::default(),
+        );
+    }
+
+    #[test]
+    fn cvc5_ir_call_inlines_callee_sidecar() {
+        use crate::ir::parse_ir_module;
+        use std::collections::HashMap;
+
+        let main_ir = parse_ir_module(
+            r#"
+module main {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = call double ($0) : Int
+    $result = load $1 : Int
+  }
+}
+"#,
+        )
+        .unwrap()
+        .functions[0]
+            .clone();
+
+        let helper_ir = parse_ir_module(
+            r#"
+module double {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = arith add $0 $0 : Int
+    $result = load $1 : Int
+  }
+}
+"#,
+        )
+        .unwrap()
+        .functions[0]
+            .clone();
+
+        let mut bodies = HashMap::new();
+        bodies.insert("double".into(), helper_ir);
+
+        let tm = cvc5::TermManager::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut vars = std::collections::HashMap::new();
+        apply_ir_body_constraints_cvc5(
+            &tm,
+            &main_ir,
+            &["x".into()],
+            &mut vars,
+            &mut state,
+            None,
+            IrEncodeContext::new(None, Some(&bodies), None),
+        );
+
+        assert!(
+            state.axioms.len() >= 3,
+            "inlined call should emit callee binding axioms, got {}",
+            state.axioms.len()
         );
     }
 

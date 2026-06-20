@@ -105,11 +105,13 @@ mod cvc5_encoder_state;
 mod cvc5_expr_smtlib;
 mod cvc5_feature_max;
 mod cvc5_field_access;
+#[cfg(not(feature = "cvc5-verify"))]
 mod cvc5_havoc_assume_smtlib;
 mod cvc5_if_encode;
 mod cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_ir_native;
+#[cfg(not(feature = "cvc5-verify"))]
 mod cvc5_ir_smtlib;
 mod cvc5_let_block_encode;
 mod cvc5_list_encode;

@@ -1194,6 +1194,144 @@ fn mcp_tools_list_returns_all_tools() {
         "missing assura_type_map"
     );
     assert!(names.contains(&"assura_infer"), "missing assura_infer");
+    assert!(
+        names.contains(&"assura_ir_prompt"),
+        "missing assura_ir_prompt"
+    );
+}
+
+#[test]
+fn ir_prompt_command_lists_decls() {
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/test_basic.assura"
+    );
+    let out = Command::new(assura_bin())
+        .args(["ir-prompt", fixture, "--list"])
+        .output()
+        .expect("spawn assura ir-prompt --list");
+    assert!(
+        out.status.success(),
+        "ir-prompt --list failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "expected at least one declaration name"
+    );
+}
+
+#[test]
+fn ir_prompt_command_requires_decl_when_multiple_jobs() {
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/test_basic.assura"
+    );
+    let list_out = Command::new(assura_bin())
+        .args(["ir-prompt", fixture, "--list"])
+        .output()
+        .expect("spawn assura ir-prompt --list");
+    let decl_count = String::from_utf8_lossy(&list_out.stdout)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count();
+    if decl_count <= 1 {
+        return;
+    }
+
+    let out = Command::new(assura_bin())
+        .args(["ir-prompt", fixture])
+        .output()
+        .expect("spawn assura ir-prompt without --decl");
+    assert!(
+        !out.status.success(),
+        "expected failure when multiple decls and no --decl"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--decl") || stderr.contains("--list"),
+        "stderr should mention --decl or --list, got: {stderr}"
+    );
+}
+
+#[test]
+fn ir_prompt_command_emits_prompt_for_named_decl() {
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/test_basic.assura"
+    );
+    let list_out = Command::new(assura_bin())
+        .args(["ir-prompt", fixture, "--list"])
+        .output()
+        .expect("spawn assura ir-prompt --list");
+    let first_decl = String::from_utf8_lossy(&list_out.stdout)
+        .lines()
+        .next()
+        .expect("fixture should have a decl")
+        .trim()
+        .to_string();
+
+    let out = Command::new(assura_bin())
+        .args(["ir-prompt", fixture, "--decl", &first_decl])
+        .output()
+        .expect("spawn assura ir-prompt --decl");
+    assert!(
+        out.status.success(),
+        "ir-prompt --decl failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Instruction reference"),
+        "prompt should include IR syntax reference"
+    );
+    assert!(
+        stdout.contains(&first_decl),
+        "prompt should mention declaration {first_decl}"
+    );
+    assert!(
+        !stdout.contains("```\n// Generated IR"),
+        "heuristic starter must not be wrapped in markdown fences"
+    );
+}
+
+#[test]
+fn mcp_ir_prompt_tool_returns_json() {
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/test_basic.assura"
+    );
+    let list_out = Command::new(assura_bin())
+        .args(["ir-prompt", fixture, "--list"])
+        .output()
+        .expect("spawn assura ir-prompt --list");
+    let first_decl = String::from_utf8_lossy(&list_out.stdout)
+        .lines()
+        .next()
+        .expect("fixture should have a decl")
+        .trim()
+        .to_string();
+
+    let call = format!(
+        r#"{{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{{"name":"assura_ir_prompt","arguments":{{"file":"{fixture}","decl":"{first_decl}"}}}}}}"#
+    );
+    let lines = mcp_call(&[&call]);
+    let response = lines.last().expect("should have response");
+    let parsed: serde_json::Value =
+        serde_json::from_str(response).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{response}"));
+    let text = parsed["result"]["content"][0]["text"]
+        .as_str()
+        .expect("should have text content");
+    let json: serde_json::Value =
+        serde_json::from_str(text).unwrap_or_else(|e| panic!("invalid tool JSON: {e}\n{text}"));
+    assert!(json["prompts"].is_array(), "expected prompts array");
+    assert!(
+        json["prompts"][0]["prompt"]
+            .as_str()
+            .is_some_and(|p| p.contains("Instruction reference")),
+        "prompt should include IR reference"
+    );
 }
 
 #[test]

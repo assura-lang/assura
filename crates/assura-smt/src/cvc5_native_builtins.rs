@@ -55,7 +55,7 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
         KnownBuiltin::Abs => {
             let x = &args[0];
             let zero = tm.mk_integer(0);
-            let neg = tm.mk_term(cvc5::Kind::Neg, &[x.clone()]);
+            let neg = tm.mk_term(cvc5::Kind::Neg, std::slice::from_ref(x));
             let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, x.clone(), neg]))
         }

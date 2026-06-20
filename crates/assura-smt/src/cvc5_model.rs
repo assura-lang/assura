@@ -7,7 +7,6 @@ use crate::cvc5_common::is_internal_cvc5_var;
 ///
 /// Filters out internal encoder variables and sorts the remaining
 /// user variables alphabetically (matching Z3 backend behavior).
-#[cfg_attr(feature = "cvc5-verify", expect(dead_code))]
 pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel> {
     let mut variables = Vec::new();
     for line in model_str.lines() {

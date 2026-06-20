@@ -60,7 +60,7 @@ pub struct IrPromptParams {
     /// Path to an .assura file. Provide either `source` or `file`.
     #[serde(default)]
     pub file: Option<String>,
-    /// Declaration name (omit for all verification jobs in the file).
+    /// Declaration name (required when the file has multiple verification jobs).
     #[serde(default)]
     pub decl: Option<String>,
     /// Pattern overlay: auto, identity, arithmetic, length-copy, call-chain, bounds-check, field-access
@@ -238,12 +238,31 @@ fn render_ir_prompt_tool(params: IrPromptParams) -> Result<String, String> {
         .ok_or_else(|| "type check produced no TypedFile".to_string())?;
 
     let path = std::path::Path::new(&filename);
-    let mut jobs: Vec<_> = assura_smt::ir_prompt_contexts_for_typed(&typed, Some(path));
-    if let Some(ref name) = params.decl {
-        jobs.retain(|c| &c.decl_name == name);
-        if jobs.is_empty() {
+    let contexts = assura_smt::ir_prompt_contexts_for_typed(&typed, Some(path));
+    let jobs: Vec<_> = if let Some(ref name) = params.decl {
+        let filtered: Vec<_> = contexts
+            .into_iter()
+            .filter(|c| &c.decl_name == name)
+            .collect();
+        if filtered.is_empty() {
             return Err(format!("no verification job named '{name}'"));
         }
+        filtered
+    } else if contexts.len() == 1 {
+        contexts
+    } else if contexts.is_empty() {
+        Vec::new()
+    } else {
+        let names: Vec<_> = contexts.iter().map(|c| c.decl_name.as_str()).collect();
+        return Err(format!(
+            "file has {} verifiable declarations; pass `decl` to select one: {}",
+            names.len(),
+            names.join(", ")
+        ));
+    };
+
+    if jobs.is_empty() {
+        return Err("no verifiable declarations in file".into());
     }
 
     let suggested = jobs

@@ -262,7 +262,7 @@ fn parse_raw_atom_cvc5<'a>(
             "abs" if arg_vals.len() == 1 => {
                 let x = arg_vals[0].clone();
                 let zero = tm.mk_integer(0);
-                let neg_x = tm.mk_term(cvc5::Kind::Neg, &[x.clone()]);
+                let neg_x = tm.mk_term(cvc5::Kind::Neg, std::slice::from_ref(&x));
                 let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
                 return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, x, neg_x]), end));
             }

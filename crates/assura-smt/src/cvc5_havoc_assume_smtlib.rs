@@ -6,15 +6,10 @@ use assura_parser::ast::Clause;
 
 use assura_types::TypeEnv;
 
-use crate::cvc5_common::sanitize_smtlib_name;
+use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
 use crate::havoc_assume::{infer_length_identity_links, is_collection_return};
 use crate::ir::IrFunction;
-
-/// Canonical length variable name for a named binding (`__canonical_len_{name}`).
-pub(crate) fn canonical_length_smtlib_name(name: &str) -> String {
-    format!("__canonical_len_{}", sanitize_smtlib_name(name))
-}
 
 /// Declare canonical length vars and append havoc+assume background axioms.
 #[expect(

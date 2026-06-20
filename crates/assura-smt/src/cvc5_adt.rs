@@ -96,7 +96,8 @@ pub(crate) fn define_adt_cvc5(
     (adt_def, assertions)
 }
 
-/// SMT-LIB2 declarations and axioms for baseline ADT infrastructure.
+/// SMT-LIB2 declarations and axioms for baseline ADT infrastructure (shell-out path).
+#[cfg(not(feature = "cvc5-verify"))]
 pub(crate) fn cvc5_adt_prelude_lines() -> Vec<String> {
     let (def, mut lines) = define_adt_cvc5("Option", &[("Some", &["value"]), ("None", &[])]);
     lines.push(format!("; adt: {}", def.name));
@@ -124,6 +125,10 @@ pub(crate) fn adt_is_constructor_smt(
 }
 
 /// Returns `(__adt_<adt>_<accessor> <value>)`.
+#[cfg_attr(
+    all(not(test), feature = "cvc5-verify"),
+    expect(dead_code, reason = "shell-out prelude only; native uses UF accessors")
+)]
 pub(crate) fn adt_accessor_smt(adt_name: &str, accessor: &str, value: &str) -> String {
     let acc_fn = format!("__adt_{adt_name}_{accessor}");
     format!("({acc_fn} {value})")
@@ -185,6 +190,7 @@ pub(crate) fn declare_struct_adt_ufs_cvc5_native<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[cfg_attr(not(test), expect(dead_code, reason = "cvc5 native ADT tests"))]
 pub(crate) fn define_adt_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
@@ -207,7 +213,7 @@ pub(crate) fn define_adt_cvc5_native<'a>(
     } else {
         tm.mk_term(cvc5::Kind::Or, &tag_eqs)
     };
-    let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[x.clone()]);
+    let bound_list = tm.mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&x));
     let forall_exhaustive = tm.mk_term(cvc5::Kind::Forall, &[bound_list, exhaustive]);
     solver.assert_formula(forall_exhaustive);
 
@@ -279,6 +285,7 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[cfg_attr(not(test), expect(dead_code, reason = "cvc5 native ADT tests"))]
 pub(crate) fn adt_is_constructor_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
     symbols: &Cvc5AdtNativeSymbols<'a>,
@@ -293,6 +300,7 @@ pub(crate) fn adt_is_constructor_cvc5_native<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
+#[cfg_attr(not(test), expect(dead_code, reason = "cvc5 native ADT tests"))]
 pub(crate) fn adt_accessor_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
     symbols: &Cvc5AdtNativeSymbols<'a>,

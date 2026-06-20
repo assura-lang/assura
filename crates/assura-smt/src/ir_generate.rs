@@ -24,6 +24,7 @@ pub enum EnsuresShape {
     LengthCopy,
     BoundsCheck,
     FieldAccess,
+    CallChain,
     Unknown,
 }
 
@@ -65,6 +66,9 @@ pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> Ens
             } else {
                 continue;
             };
+            if expr_suggests_call_chain(other) {
+                return EnsuresShape::CallChain;
+            }
             if matches!(other, Expr::Ident(_)) {
                 return EnsuresShape::Identity;
             }
@@ -332,6 +336,20 @@ fn is_result_ident(expr: &Expr) -> bool {
     matches!(expr, Expr::Ident(name) if name == "result")
 }
 
+/// `ensures { result == helper(x) }` — delegate via a cross-function `call`.
+fn expr_suggests_call_chain(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { func, .. } => {
+            matches!(func.as_ref(), Expr::Ident(name) if !is_builtin_call(name))
+        }
+        _ => false,
+    }
+}
+
+fn is_builtin_call(name: &str) -> bool {
+    matches!(name, "length" | "old" | "abs" | "min" | "max")
+}
+
 fn format_ir_module(
     name: &str,
     params: &[(usize, String)],
@@ -471,6 +489,26 @@ mod tests {
         );
         assert!(text.contains("$result = load $0 : Bytes"));
         assert!(text.contains("Generated IR"));
+    }
+
+    #[test]
+    fn classifies_call_chain_when_result_eq_helper_call() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: Box::new(Expr::Ident("result".into())),
+                rhs: Box::new(Expr::Call {
+                    func: Box::new(Expr::Ident("double".into())),
+                    args: vec![Expr::Ident("x".into())],
+                }),
+            },
+            effect_variables: vec![],
+        }];
+        assert_eq!(
+            classify_ensures_shape(&clauses, &["x".into()]),
+            EnsuresShape::CallChain
+        );
     }
 
     #[test]

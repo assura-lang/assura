@@ -124,7 +124,7 @@ pub(crate) fn collect_cvc5_var_names_from_clauses(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[expect(dead_code)]
+#[cfg_attr(feature = "z3-verify", allow(dead_code))]
 pub(crate) fn collect_cvc5_var_names_from_assumptions(
     assumptions: &[&Expr],
     body: &Expr,
@@ -139,7 +139,7 @@ pub(crate) fn collect_cvc5_var_names_from_assumptions(
 
 #[cfg(test)]
 mod tests {
-    use assura_parser::ast::{BinOp, Expr, Literal, Pattern};
+    use assura_parser::ast::Expr;
 
     use super::*;
 

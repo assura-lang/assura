@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cvc5_adt::define_adt_cvc5;
+use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_common::sanitize_smtlib_name;
-use crate::cvc5_havoc_assume_smtlib::canonical_length_smtlib_name;
 use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
 use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, IrPredArg};
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, is_length_ir_call, slot_type_map};
@@ -615,6 +615,59 @@ module test {
         assert!(
             script.contains("__ir_call_is_valid"),
             "expected UF call in script, got:\n{script}"
+        );
+    }
+
+    #[test]
+    fn ir_call_inlines_callee_sidecar() {
+        use crate::ir::parse_ir_module;
+        use std::collections::HashMap;
+
+        let main_ir = parse_ir_module(
+            r#"
+module main {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = call double ($0) : Int
+    $result = load $1 : Int
+  }
+}
+"#,
+        )
+        .unwrap()
+        .functions[0]
+            .clone();
+
+        let helper_ir = parse_ir_module(
+            r#"
+module double {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = arith add $0 $0 : Int
+    $result = load $1 : Int
+  }
+}
+"#,
+        )
+        .unwrap()
+        .functions[0]
+            .clone();
+
+        let mut bodies = HashMap::new();
+        bodies.insert("double".into(), helper_ir);
+
+        let mut script = String::new();
+        let mut vars = HashSet::new();
+        append_ir_body_constraints_smtlib(
+            &mut script,
+            &mut vars,
+            &main_ir,
+            &["x".into()],
+            IrEncodeContext::new(None, Some(&bodies), None),
+        );
+        assert!(
+            script.contains("__ir_call_double_"),
+            "call double should inline callee IR with prefixed slots, got:\n{script}"
         );
     }
 

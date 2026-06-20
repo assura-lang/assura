@@ -86,7 +86,7 @@ pub(crate) fn encode_string_literal_cvc5<'a>(
 ) -> cvc5::Term<'a> {
     if state.use_string_theory {
         let str_val = tm.mk_string(s, false);
-        let len = tm.mk_term(cvc5::Kind::StringLength, &[str_val.clone()]);
+        let len = tm.mk_term(cvc5::Kind::StringLength, std::slice::from_ref(&str_val));
         let expected_len = tm.mk_integer(s.len() as i64);
         let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len, expected_len]);
         state.axioms.push(len_eq);

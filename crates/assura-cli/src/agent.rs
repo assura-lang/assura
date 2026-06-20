@@ -186,8 +186,8 @@ assura infer src/lib.rs --function parse   # specific function
 assura infer src/lib.rs -o contracts.assura
 
 # Generate Implementation IR prompts for AI agents
-assura ir-prompt file.assura               # all declarations
-assura ir-prompt file.assura --decl Foo    # one declaration
+assura ir-prompt file.assura --list        # list eligible declarations
+assura ir-prompt file.assura --decl Foo    # prompt for one declaration
 assura ir-prompt file.assura --pattern length-copy
 
 # Scan a Rust project

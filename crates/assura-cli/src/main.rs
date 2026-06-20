@@ -317,9 +317,13 @@ enum Commands {
         /// Assura source file
         file: String,
 
-        /// Declaration name (default: all verification jobs in the file)
+        /// Declaration name (required when the file has multiple verification jobs)
         #[arg(long)]
         decl: Option<String>,
+
+        /// List declaration names eligible for IR prompts (one per line)
+        #[arg(long)]
+        list: bool,
 
         /// Pattern overlay: auto, identity, arithmetic, length-copy, call-chain, bounds-check, field-access
         #[arg(long, default_value = "auto")]
@@ -557,8 +561,9 @@ fn main() {
         Some(Commands::IrPrompt {
             file,
             decl,
+            list,
             pattern,
-        }) => ir_prompt_cmd::run_ir_prompt(&file, decl.as_deref(), &pattern, verbosity),
+        }) => ir_prompt_cmd::run_ir_prompt(&file, decl.as_deref(), list, &pattern, verbosity),
         Some(Commands::Ir {
             file,
             contract,

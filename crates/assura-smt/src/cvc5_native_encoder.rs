@@ -31,6 +31,7 @@ use crate::cvc5_wrapper_encode::encode_wrapper_cvc5;
 // -------------------------------------------------------------------------
 
 #[cfg(feature = "cvc5-verify")]
+#[expect(clippy::too_many_arguments, reason = "mirrors Z3 havoc+assume arity")]
 pub(crate) fn apply_havoc_assume_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     requires: &[&Clause],

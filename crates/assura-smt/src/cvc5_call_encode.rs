@@ -3,8 +3,8 @@
 use assura_parser::ast::Expr;
 
 use crate::cvc5_builtins::known_builtin_to_smtlib;
+use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_common::sanitize_smtlib_name;
-use crate::cvc5_havoc_assume_smtlib::canonical_length_smtlib_name;
 
 #[cfg(feature = "cvc5-verify")]
 use std::collections::HashMap;

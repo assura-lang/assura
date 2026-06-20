@@ -44,7 +44,7 @@ pub use crate::cvc5_expr_smtlib::expr_to_smtlib;
 #[path = "tests_cvc5_smtlib.rs"]
 mod tests_cvc5_smtlib;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "cvc5-verify")))]
 #[path = "tests_cvc5_shell.rs"]
 mod tests_cvc5_shell;
 

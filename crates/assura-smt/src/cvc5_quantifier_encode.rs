@@ -47,6 +47,10 @@ where
 
 /// Combine a domain guard with a quantifier body (native API).
 #[cfg(feature = "cvc5-verify")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "quantifier guard threads encode closure"
+)]
 pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
     tm: &'a cvc5::TermManager,
     domain: &Expr,
@@ -86,6 +90,10 @@ where
 
 /// Encode an AST `forall`/`exists` as a native CVC5 quantifier (with optional triggers).
 #[cfg(feature = "cvc5-verify")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "quantifier encoding threads encode closure"
+)]
 pub(crate) fn encode_ast_quantifier_cvc5<'a, E>(
     tm: &'a cvc5::TermManager,
     is_forall: bool,
@@ -118,7 +126,7 @@ where
         state,
         &mut encode,
     );
-    let bound_list = tm.mk_term(cvc5::Kind::VariableList, &[bound_var.clone()]);
+    let bound_list = tm.mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&bound_var));
     let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
     let kind = if is_forall {
         cvc5::Kind::Forall

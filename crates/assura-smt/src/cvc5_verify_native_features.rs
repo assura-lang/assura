@@ -1,5 +1,7 @@
 //! CVC5 native feature-specific verification entry points.
 
+#![cfg_attr(feature = "z3-verify", allow(dead_code))]
+
 use std::collections::HashMap;
 
 use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal};

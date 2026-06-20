@@ -1,5 +1,4 @@
 #![cfg(feature = "cvc5-verify")]
-#![expect(dead_code, reason = "pub(crate) API re-exported via cvc5_backend")]
 
 pub(crate) use crate::cvc5_verify_native_checks::{check_satisfiability_cvc5, check_validity_cvc5};
 pub(crate) use crate::cvc5_verify_native_contract::verify_contract_cvc5_native;

@@ -24,6 +24,11 @@ pub(crate) fn smtlib_result_name() -> &'static str {
     "__result"
 }
 
+/// Canonical length variable name for shell-out SMT-LIB (`__canonical_len_{name}`).
+pub(crate) fn canonical_length_smtlib_name(name: &str) -> String {
+    format!("__canonical_len_{}", sanitize_smtlib_name(name))
+}
+
 /// SMT-LIB name for an `old()` snapshot of an identifier.
 pub(crate) fn old_ident_smtlib_name(name: &str) -> String {
     if name == "result" {

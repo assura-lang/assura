@@ -1,5 +1,7 @@
 //! CVC5 native solver setup, assertion, and result helpers.
 
+#![cfg_attr(feature = "z3-verify", allow(dead_code))]
+
 use std::collections::{HashMap, HashSet};
 
 use assura_parser::ast::{ClauseKind, Expr};
