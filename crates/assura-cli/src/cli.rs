@@ -376,9 +376,7 @@ pub fn run() {
             dry_run,
             focus.as_deref(),
         ),
-        Commands::TestGen { file, output } => {
-            run_test_gen(&file, output.as_deref(), verbosity)
-        }
+        Commands::TestGen { file, output } => run_test_gen(&file, output.as_deref(), verbosity),
         Commands::AgentInstructions => run_agent_instructions(),
         Commands::Doctor => run_doctor(),
         Commands::Lsp => run_lsp(),
@@ -444,6 +442,5 @@ pub fn run() {
                 }
             });
         }
-
     }
 }

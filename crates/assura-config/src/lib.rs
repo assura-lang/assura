@@ -592,8 +592,6 @@ output = "out/gen"
         assert_eq!(config.profile.profile_type, "minimal");
     }
 
-
-
     #[test]
     fn verify_smt_solver_accepts_z3() {
         let toml_str = "[verify]\nsmt-solver = \"z3\"\n";

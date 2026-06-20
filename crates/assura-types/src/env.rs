@@ -8,7 +8,7 @@ use assura_resolve::{SymbolKind, SymbolTable};
 use crate::clauses::{
     collect_input_param_types, extract_output_type_from_body, register_input_clause_params,
 };
-use crate::convert::{parse_type_tokens, resolve_type, type_from_hir_type};
+use crate::convert::{parse_type_tokens, resolve_type_opt, type_from_expr, type_from_hir_type};
 use crate::domain::StdlibTypes;
 use crate::types::builtin_type;
 use crate::{Type, TypeEnv};
@@ -69,22 +69,18 @@ pub(crate) fn build_type_env(
     for decl in &source.decls {
         match &decl.node {
             Decl::FnDef(f) => {
-                // Insert parameter types (prefer parsed TypeExpr when available)
+                // Insert parameter types from structured TypeExpr
                 for p in &f.params {
-                    let ty = resolve_type(p.parsed_type.as_ref(), &p.ty);
+                    let ty = resolve_type_opt(p.ty.as_ref());
                     env.insert(p.name.clone(), ty);
                 }
                 // Build full function type
                 let param_types: Vec<Type> = f
                     .params
                     .iter()
-                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .map(|p| resolve_type_opt(p.ty.as_ref()))
                     .collect();
-                let ret = if f.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&f.return_ty)
-                };
+                let ret = resolve_type_opt(f.return_ty.as_ref());
                 env.insert(
                     f.name.clone(),
                     Type::Fn {
@@ -95,19 +91,15 @@ pub(crate) fn build_type_env(
             }
             Decl::Extern(e) => {
                 for p in &e.params {
-                    let ty = resolve_type(p.parsed_type.as_ref(), &p.ty);
+                    let ty = resolve_type_opt(p.ty.as_ref());
                     env.insert(p.name.clone(), ty);
                 }
                 let param_types: Vec<Type> = e
                     .params
                     .iter()
-                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .map(|p| resolve_type_opt(p.ty.as_ref()))
                     .collect();
-                let ret = if e.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&e.return_ty)
-                };
+                let ret = resolve_type_opt(e.return_ty.as_ref());
                 env.insert(
                     e.name.clone(),
                     Type::Fn {
@@ -166,7 +158,7 @@ pub(crate) fn build_type_env(
                 if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
                     let field_types: Vec<(String, Type)> = fields
                         .iter()
-                        .map(|f| (f.name.clone(), parse_type_tokens(&f.ty)))
+                        .map(|f| (f.name.clone(), resolve_type_opt(f.ty.as_ref())))
                         .collect();
                     env.struct_fields.insert(td.name.clone(), field_types);
                 }
@@ -192,26 +184,22 @@ pub(crate) fn build_type_env(
             }
             // Prophecy variables: register their type annotation in the env
             Decl::Prophecy(p) => {
-                if !p.ty_tokens.is_empty() {
-                    env.insert(p.name.clone(), parse_type_tokens(&p.ty_tokens));
+                if let Some(te) = &p.ty {
+                    env.insert(p.name.clone(), type_from_expr(te));
                 }
             }
             Decl::Bind(b) => {
                 // Register parameter types (same pattern as FnDef/Extern)
                 for p in &b.params {
-                    let ty = resolve_type(p.parsed_type.as_ref(), &p.ty);
+                    let ty = resolve_type_opt(p.ty.as_ref());
                     env.insert(p.name.clone(), ty);
                 }
                 let param_types: Vec<Type> = b
                     .params
                     .iter()
-                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .map(|p| resolve_type_opt(p.ty.as_ref()))
                     .collect();
-                let ret = if b.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&b.return_ty)
-                };
+                let ret = resolve_type_opt(b.return_ty.as_ref());
                 env.insert(
                     b.name.clone(),
                     Type::Fn {

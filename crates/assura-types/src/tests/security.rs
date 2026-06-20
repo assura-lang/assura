@@ -272,7 +272,10 @@ fn extract_taint_from_tokens() {
         ":".into(),
         "untrusted".into(),
     ];
-    assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Untrusted));
+    assert_eq!(
+        extract_taint_label_from_tokens(&tokens),
+        Some(TaintLabel::Untrusted)
+    );
 
     let tokens2 = vec![
         "ValidXlen".into(),
@@ -281,22 +284,34 @@ fn extract_taint_from_tokens() {
         ":".into(),
         "validated".into(),
     ];
-    assert_eq!(extract_taint_label(&tokens2), Some(TaintLabel::Validated));
+    assert_eq!(
+        extract_taint_label_from_tokens(&tokens2),
+        Some(TaintLabel::Validated)
+    );
 
     let no_taint = vec!["Int".into()];
-    assert_eq!(extract_taint_label(&no_taint), None);
+    assert_eq!(extract_taint_label_from_tokens(&no_taint), None);
 }
 
 #[test]
 fn extract_taint_short_form() {
     let tokens = vec!["Bytes".into(), "@".into(), "untrusted".into()];
-    assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Untrusted));
+    assert_eq!(
+        extract_taint_label_from_tokens(&tokens),
+        Some(TaintLabel::Untrusted)
+    );
 
     let tokens2 = vec!["Data".into(), "@".into(), "validated".into()];
-    assert_eq!(extract_taint_label(&tokens2), Some(TaintLabel::Validated));
+    assert_eq!(
+        extract_taint_label_from_tokens(&tokens2),
+        Some(TaintLabel::Validated)
+    );
 
     let tokens3 = vec!["Key".into(), "@".into(), "trusted".into()];
-    assert_eq!(extract_taint_label(&tokens3), Some(TaintLabel::Trusted));
+    assert_eq!(
+        extract_taint_label_from_tokens(&tokens3),
+        Some(TaintLabel::Trusted)
+    );
 }
 
 #[test]
@@ -1850,14 +1865,15 @@ fn make_fn_def(name: &str, params: Vec<(&str, &[&str])>, clauses: Vec<AstClause>
         is_lemma: false,
         params: params
             .into_iter()
-            .map(|(n, ty)| AstParam {
-                name: n.into(),
-                ty: ty.iter().map(|s| s.to_string()).collect(),
-                parsed_type: None,
+            .map(|(n, ty)| {
+                let tokens: Vec<String> = ty.iter().map(|s| s.to_string()).collect();
+                AstParam {
+                    name: n.into(),
+                    ty: assura_parser::ast::try_parse_type_tokens(&tokens),
+                }
             })
             .collect(),
-        return_ty: vec!["Int".into()],
-        return_type_expr: None,
+        return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
         clauses,
     }
 }

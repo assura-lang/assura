@@ -143,11 +143,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "conn",
-                            ty: [
-                                "&mut",
-                                "TlsConnection",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut TlsConnection",
                                 ),
@@ -155,23 +151,16 @@ SourceFile {
                         },
                         Param {
                             name: "max",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Bytes",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "Bytes @",
+                            "Bytes",
                         ),
                     ),
                     clauses: [
@@ -209,24 +198,16 @@ SourceFile {
                     params: [
                         Param {
                             name: "conn",
-                            ty: [
-                                "&mut",
-                                "TlsConnection",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut TlsConnection",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "U16",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "U16 @",
+                            "U16",
                         ),
                     ),
                     clauses: [
@@ -264,24 +245,16 @@ SourceFile {
                     params: [
                         Param {
                             name: "conn",
-                            ty: [
-                                "&mut",
-                                "TlsConnection",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut TlsConnection",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "U32",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "U32 @",
+                            "U32",
                         ),
                     ),
                     clauses: [
@@ -319,46 +292,28 @@ SourceFile {
                         [
                             FieldDef {
                                 name: "data",
-                                ty: [
-                                    "Bytes",
-                                    "@",
-                                    "taint",
-                                    ":",
-                                    "validated",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Named(
-                                        "Bytes @ taint : validated",
+                                        "Bytes",
                                     ),
                                 ),
                                 is_pub: false,
                             },
                             FieldDef {
                                 name: "length",
-                                ty: [
-                                    "{",
-                                    "v",
-                                    ":",
-                                    "Nat",
-                                    "|",
-                                    "v",
-                                    "<=",
-                                    "MAX_EC_POINT_SIZE",
-                                    "}",
-                                ],
-                                parsed_type: Some(
-                                    Named(
-                                        "{ v : Nat | v <= MAX_EC_POINT_SIZE }",
-                                    ),
+                                ty: Some(
+                                    Refined {
+                                        base: Named(
+                                            "Nat",
+                                        ),
+                                        predicate: "v <= MAX_EC_POINT_SIZE",
+                                    },
                                 ),
                                 is_pub: false,
                             },
                             FieldDef {
                                 name: "curve_id",
-                                ty: [
-                                    "CurveId",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Named(
                                         "CurveId",
                                     ),
@@ -380,53 +335,32 @@ SourceFile {
                     params: [
                         Param {
                             name: "raw_data",
-                            ty: [
-                                "Bytes",
-                                "@",
-                                "taint",
-                                ":",
-                                "untrusted",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "Bytes @ taint : untrusted",
+                                    "Bytes",
                                 ),
                             ),
                         },
                         Param {
                             name: "raw_length",
-                            ty: [
-                                "U16",
-                                "@",
-                                "taint",
-                                ":",
-                                "untrusted",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "U16 @ taint : untrusted",
+                                    "U16",
                                 ),
                             ),
                         },
                         Param {
                             name: "expected_curve",
-                            ty: [
-                                "CurveId",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "CurveId",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "ValidPeerKey",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "ValidPeerKey @",
+                            "ValidPeerKey",
                         ),
                     ),
                     clauses: [
@@ -464,13 +398,7 @@ SourceFile {
                         [
                             FieldDef {
                                 name: "peer_point",
-                                ty: [
-                                    "Region",
-                                    "<",
-                                    "MAX_EC_POINT_SIZE",
-                                    ">",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Generic(
                                         "Region",
                                         [
@@ -484,10 +412,7 @@ SourceFile {
                             },
                             FieldDef {
                                 name: "our_keypair",
-                                ty: [
-                                    "EcKeyPair",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Named(
                                         "EcKeyPair",
                                     ),
@@ -496,13 +421,7 @@ SourceFile {
                             },
                             FieldDef {
                                 name: "shared_secret",
-                                ty: [
-                                    "Region",
-                                    "<",
-                                    "MAX_EC_POINT_SIZE",
-                                    ">",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Generic(
                                         "Region",
                                         [
@@ -516,10 +435,7 @@ SourceFile {
                             },
                             FieldDef {
                                 name: "curve",
-                                ty: [
-                                    "CurveId",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Named(
                                         "CurveId",
                                     ),
@@ -541,36 +457,20 @@ SourceFile {
                     params: [
                         Param {
                             name: "raw_len",
-                            ty: [
-                                "U32",
-                                "@",
-                                "taint",
-                                ":",
-                                "untrusted",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "U32 @ taint : untrusted",
+                                    "U32",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "{",
-                        "v",
-                        ":",
-                        "Nat",
-                        "|",
-                        "v",
-                        "<=",
-                        "MAX_HANDSHAKE_LEN",
-                        "}",
-                        "@",
-                    ],
-                    return_type_expr: Some(
-                        Named(
-                            "{ v : Nat | v <= MAX_HANDSHAKE_LEN } @",
-                        ),
+                    return_ty: Some(
+                        Refined {
+                            base: Named(
+                                "Nat",
+                            ),
+                            predicate: "v <= MAX_HANDSHAKE_LEN",
+                        },
                     ),
                     clauses: [
                         Clause {
@@ -607,60 +507,34 @@ SourceFile {
                     params: [
                         Param {
                             name: "header_len",
-                            ty: [
-                                "{",
-                                "h",
-                                ":",
-                                "Nat",
-                                "|",
-                                "h",
-                                "<=",
-                                "MAX_HANDSHAKE_LEN",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ h : Nat | h <= MAX_HANDSHAKE_LEN }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "h <= MAX_HANDSHAKE_LEN",
+                                },
                             ),
                         },
                         Param {
                             name: "content_len",
-                            ty: [
-                                "{",
-                                "c",
-                                ":",
-                                "Nat",
-                                "|",
-                                "c",
-                                "<=",
-                                "MAX_HANDSHAKE_LEN",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ c : Nat | c <= MAX_HANDSHAKE_LEN }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "c <= MAX_HANDSHAKE_LEN",
+                                },
                             ),
                         },
                     ],
-                    return_ty: [
-                        "{",
-                        "v",
-                        ":",
-                        "Nat",
-                        "|",
-                        "v",
-                        "<=",
-                        "2",
-                        "*",
-                        "MAX_HANDSHAKE_LEN",
-                        "}",
-                    ],
-                    return_type_expr: Some(
-                        Named(
-                            "{ v : Nat | v <= 2 * MAX_HANDSHAKE_LEN }",
-                        ),
+                    return_ty: Some(
+                        Refined {
+                            base: Named(
+                                "Nat",
+                            ),
+                            predicate: "v <= 2 * MAX_HANDSHAKE_LEN",
+                        },
                     ),
                     clauses: [
                         Clause {
@@ -711,11 +585,7 @@ SourceFile {
                     fn_params: [
                         Param {
                             name: "ctx",
-                            ty: [
-                                "&mut",
-                                "EcdhContext",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut EcdhContext",
                                 ),
@@ -723,16 +593,9 @@ SourceFile {
                         },
                         Param {
                             name: "peer",
-                            ty: [
-                                "ValidPeerKey",
-                                "@",
-                                "taint",
-                                ":",
-                                "validated",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "ValidPeerKey @ taint : validated",
+                                    "ValidPeerKey",
                                 ),
                             ),
                         },
@@ -750,14 +613,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "our_private",
-                            ty: [
-                                "U256",
-                                "#",
-                                "[",
-                                "secret",
-                                "]",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "U256 # [ secret ]",
                                 ),
@@ -765,27 +621,14 @@ SourceFile {
                         },
                         Param {
                             name: "peer_public",
-                            ty: [
-                                "ValidPeerKey",
-                                "@",
-                                "taint",
-                                ":",
-                                "validated",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "ValidPeerKey @ taint : validated",
+                                    "ValidPeerKey",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Region",
-                        "<",
-                        "MAX_EC_POINT_SIZE",
-                        ">",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Generic(
                             "Region",
                             [
@@ -844,14 +687,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "private_key",
-                            ty: [
-                                "U256",
-                                "#",
-                                "[",
-                                "secret",
-                                "]",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "U256 # [ secret ]",
                                 ),
@@ -859,35 +695,22 @@ SourceFile {
                         },
                         Param {
                             name: "peer_point",
-                            ty: [
-                                "ValidPeerKey",
-                                "@",
-                                "taint",
-                                ":",
-                                "validated",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "ValidPeerKey @ taint : validated",
+                                    "ValidPeerKey",
                                 ),
                             ),
                         },
                         Param {
                             name: "curve",
-                            ty: [
-                                "CurveParams",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "CurveParams",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "SharedSecret",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "SharedSecret",
                         ),
@@ -950,11 +773,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "conn",
-                            ty: [
-                                "&mut",
-                                "TlsConnection",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut TlsConnection",
                                 ),
@@ -962,13 +781,7 @@ SourceFile {
                         },
                         Param {
                             name: "record_buf",
-                            ty: [
-                                "Region",
-                                "<",
-                                "MAX_CONTENT_LEN",
-                                ">",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Generic(
                                     "Region",
                                     [
@@ -980,10 +793,7 @@ SourceFile {
                             ),
                         },
                     ],
-                    return_ty: [
-                        "RecordResult",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "RecordResult",
                         ),

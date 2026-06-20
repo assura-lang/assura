@@ -33,7 +33,8 @@ pub(crate) fn run_linearity_checks(source: &assura_parser::ast::SourceFile) -> V
                 let tracker = UsageTracker::new();
                 let mut ctx = LinearContext::new(tracker);
                 for param in &f.params {
-                    let grade = infer_usage_grade(&param.ty);
+                    let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                    let grade = infer_usage_grade(&p_tokens);
                     if grade != UsageGrade::Unlimited {
                         ctx.declare(param.name.clone(), grade, decl.span.clone());
                     }
@@ -47,7 +48,8 @@ pub(crate) fn run_linearity_checks(source: &assura_parser::ast::SourceFile) -> V
                 let tracker = UsageTracker::new();
                 let mut ctx = LinearContext::new(tracker);
                 for param in &e.params {
-                    let grade = infer_usage_grade(&param.ty);
+                    let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                    let grade = infer_usage_grade(&p_tokens);
                     if grade != UsageGrade::Unlimited {
                         ctx.declare(param.name.clone(), grade, decl.span.clone());
                     }

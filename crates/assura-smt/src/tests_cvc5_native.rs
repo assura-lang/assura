@@ -37,8 +37,7 @@ mod native_tests {
         // This is the path used for `fn check_table_bounds(root_bits: Nat, ...)`
         let params = vec![Param {
             name: "n".into(),
-            ty: vec!["Nat".into()],
-            parsed_type: None,
+            ty: Some(assura_parser::ast::TypeExpr::Named("Nat".into())),
         }];
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,

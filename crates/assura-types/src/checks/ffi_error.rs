@@ -190,7 +190,12 @@ pub(crate) fn run_error_propagation_checks(
     for decl in &source.decls {
         if let Decl::FnDef(f) = &decl.node {
             // Check if return type is an error type
-            let returns_error = f.return_ty.iter().any(|t| t == "Result" || t == "Error");
+            let rt_tokens = f
+                .return_ty
+                .as_ref()
+                .map(|t| t.to_tokens())
+                .unwrap_or_default();
+            let returns_error = rt_tokens.iter().any(|t| t == "Result" || t == "Error");
             if returns_error {
                 for clause in &f.clauses {
                     if clause.kind == ClauseKind::Errors

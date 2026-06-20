@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{Decl, Expr, FnDef, ServiceItem, SourceFile, TypeBody};
+use assura_parser::ast::{Decl, Expr, FnDef, ServiceItem, SourceFile, TypeBody, TypeExpr};
 
 use crate::errors::ResolutionError;
 use crate::imports::{ImportStatus, ResolvedImport};
@@ -22,18 +22,18 @@ pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
             }
             Decl::Extern(ex) => {
                 for p in &ex.params {
-                    collect_type_token_names(&p.ty, &mut names);
+                    collect_type_expr_names(p.ty.as_ref(), &mut names);
                 }
-                collect_type_token_names(&ex.return_ty, &mut names);
+                collect_type_expr_names(ex.return_ty.as_ref(), &mut names);
                 for clause in &ex.clauses {
                     collect_expr_names(&clause.body, &mut names);
                 }
             }
             Decl::Bind(b) => {
                 for p in &b.params {
-                    collect_type_token_names(&p.ty, &mut names);
+                    collect_type_expr_names(p.ty.as_ref(), &mut names);
                 }
-                collect_type_token_names(&b.return_ty, &mut names);
+                collect_type_expr_names(b.return_ty.as_ref(), &mut names);
                 for clause in &b.clauses {
                     collect_expr_names(&clause.body, &mut names);
                 }
@@ -75,12 +75,8 @@ pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                 }
             }
             Decl::Prophecy(p) => {
-                // Prophecy type tokens may reference user-defined types
-                for tok in &p.ty_tokens {
-                    if tok.chars().next().is_some_and(|c| c.is_uppercase()) {
-                        names.insert(tok.clone());
-                    }
-                }
+                // Prophecy type may reference user-defined types
+                collect_type_expr_names(p.ty.as_ref(), &mut names);
             }
             Decl::CodecRegistry(cr) => {
                 // Output type tokens may reference user-defined types
@@ -109,7 +105,7 @@ fn collect_type_body_names(body: &TypeBody, names: &mut HashSet<String>) {
     match body {
         TypeBody::Struct(fields) => {
             for f in fields {
-                collect_type_token_names(&f.ty, names);
+                collect_type_expr_names(f.ty.as_ref(), names);
             }
         }
         TypeBody::Alias(tokens) | TypeBody::Refined(tokens) => {
@@ -121,9 +117,9 @@ fn collect_type_body_names(body: &TypeBody, names: &mut HashSet<String>) {
 
 fn collect_fn_names(f: &FnDef, names: &mut HashSet<String>) {
     for p in &f.params {
-        collect_type_token_names(&p.ty, names);
+        collect_type_expr_names(p.ty.as_ref(), names);
     }
-    collect_type_token_names(&f.return_ty, names);
+    collect_type_expr_names(f.return_ty.as_ref(), names);
     for clause in &f.clauses {
         collect_expr_names(&clause.body, names);
     }
@@ -136,6 +132,13 @@ fn collect_type_token_names(tokens: &[String], names: &mut HashSet<String>) {
         {
             names.insert(tok.clone());
         }
+    }
+}
+
+/// Collect referenced names from an `Option<TypeExpr>` by converting to tokens.
+fn collect_type_expr_names(te: Option<&TypeExpr>, names: &mut HashSet<String>) {
+    if let Some(te) = te {
+        collect_type_token_names(&te.to_tokens(), names);
     }
 }
 
@@ -152,9 +155,7 @@ fn collect_expr_names(expr: &Expr, names: &mut HashSet<String>) {
             collect_expr_names(lhs, names);
             collect_expr_names(rhs, names);
         }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner) => {
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
             collect_expr_names(inner, names);
         }
         Expr::Call { func, args } => {

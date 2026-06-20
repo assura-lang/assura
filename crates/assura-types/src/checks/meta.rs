@@ -458,7 +458,10 @@ pub(crate) fn run_structural_invariant_checks(
                 if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
                     let recursive_fields: Vec<String> = fields
                         .iter()
-                        .filter(|f| f.ty.iter().any(|t| t == &td.name))
+                        .filter(|f| {
+                            let tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                            tokens.iter().any(|t| t == &td.name)
+                        })
                         .map(|f| f.name.clone())
                         .collect();
 

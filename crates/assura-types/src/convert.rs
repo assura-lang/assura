@@ -62,15 +62,11 @@ pub(crate) fn type_from_expr(expr: &assura_parser::ast::TypeExpr) -> Type {
     }
 }
 
-/// Try to resolve a type from a parsed_type first, falling back to raw token parsing.
-pub(crate) fn resolve_type(
-    parsed_type: Option<&assura_parser::ast::TypeExpr>,
-    tokens: &[String],
-) -> Type {
-    if let Some(te) = parsed_type {
-        type_from_expr(te)
-    } else {
-        parse_type_tokens(tokens)
+/// Resolve a type from an `Option<TypeExpr>`, returning `Type::Unit` if `None`.
+pub(crate) fn resolve_type_opt(type_expr: Option<&assura_parser::ast::TypeExpr>) -> Type {
+    match type_expr {
+        Some(te) => type_from_expr(te),
+        None => Type::Unit,
     }
 }
 

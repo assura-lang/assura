@@ -38,7 +38,7 @@ impl std::fmt::Display for TaintLabel {
 /// `FnDef.return_ty`). Also handles `@untrusted` short form.
 ///
 /// Returns `Some(label)` if found, `None` if no taint annotation is present.
-pub(crate) fn extract_taint_label(type_tokens: &[String]) -> Option<TaintLabel> {
+pub(crate) fn extract_taint_label_from_tokens(type_tokens: &[String]) -> Option<TaintLabel> {
     // Look for pattern: "@" "taint" ":" <label>
     for window in type_tokens.windows(4) {
         if window[0] == "@" && window[1] == "taint" && window[2] == ":" {
@@ -62,6 +62,19 @@ pub(crate) fn extract_taint_label(type_tokens: &[String]) -> Option<TaintLabel> 
         }
     }
     None
+}
+
+/// Extract a taint label from a type expression.
+///
+/// Converts the `TypeExpr` to tokens and delegates to `extract_taint_label_from_tokens`.
+pub(crate) fn extract_taint_label(
+    type_expr: &Option<assura_parser::ast::TypeExpr>,
+) -> Option<TaintLabel> {
+    let tokens = type_expr
+        .as_ref()
+        .map(|t| t.to_tokens())
+        .unwrap_or_default();
+    extract_taint_label_from_tokens(&tokens)
 }
 
 /// Taint checker that tracks taint labels through data flow.
@@ -169,9 +182,7 @@ impl TaintChecker {
             Expr::Index { expr: base, index } => {
                 std::cmp::min(self.infer_taint(base), self.infer_taint(index))
             }
-            Expr::Old(inner) | Expr::Cast { expr: inner, .. } => {
-                self.infer_taint(inner)
-            }
+            Expr::Old(inner) | Expr::Cast { expr: inner, .. } => self.infer_taint(inner),
             Expr::If {
                 cond,
                 then_branch,
@@ -551,19 +562,25 @@ mod tests {
     #[test]
     fn extract_taint_long_form() {
         let tokens = vec!["@".into(), "taint".into(), ":".into(), "untrusted".into()];
-        assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Untrusted));
+        assert_eq!(
+            extract_taint_label_from_tokens(&tokens),
+            Some(TaintLabel::Untrusted)
+        );
     }
 
     #[test]
     fn extract_taint_short_form() {
         let tokens = vec!["@".into(), "validated".into()];
-        assert_eq!(extract_taint_label(&tokens), Some(TaintLabel::Validated));
+        assert_eq!(
+            extract_taint_label_from_tokens(&tokens),
+            Some(TaintLabel::Validated)
+        );
     }
 
     #[test]
     fn extract_taint_none() {
         let tokens: Vec<String> = vec!["Int".into()];
-        assert_eq!(extract_taint_label(&tokens), None);
+        assert_eq!(extract_taint_label_from_tokens(&tokens), None);
     }
 
     // ---- TaintChecker ----

@@ -1112,11 +1112,10 @@ fn lower_field_def(n: &SyntaxNode) -> FieldDef {
         .map(|t| t.text().to_string())
         .collect();
 
-    let parsed_type = crate::ast::try_parse_type_tokens(&ty);
+    let parsed = crate::ast::try_parse_type_tokens(&ty);
     FieldDef {
         name,
-        ty,
-        parsed_type,
+        ty: parsed,
         is_pub,
     }
 }
@@ -1202,12 +1201,11 @@ fn lower_extern(n: &SyntaxNode) -> ExternDecl {
         .map(|c| lower_clause(&c))
         .collect();
 
-    let return_type_expr = crate::ast::try_parse_type_tokens(&return_ty);
+    let return_ty = crate::ast::try_parse_type_tokens(&return_ty);
     ExternDecl {
         name,
         params,
         return_ty,
-        return_type_expr,
         clauses,
     }
 }
@@ -1233,7 +1231,13 @@ fn lower_prophecy(n: &SyntaxNode) -> ProphecyDecl {
             }
         }
     }
-    ProphecyDecl { name, ty_tokens }
+    // Only parse type if a colon was found (has type annotation)
+    let ty = if after_colon {
+        crate::ast::try_parse_type_tokens(&ty_tokens)
+    } else {
+        None
+    };
+    ProphecyDecl { name, ty }
 }
 
 fn lower_bind(n: &SyntaxNode) -> BindDecl {
@@ -1279,13 +1283,12 @@ fn lower_bind(n: &SyntaxNode) -> BindDecl {
         .filter(|c| c.kind != ClauseKind::Input && c.kind != ClauseKind::Output)
         .collect();
 
-    let return_type_expr = crate::ast::try_parse_type_tokens(&return_ty);
+    let return_ty = crate::ast::try_parse_type_tokens(&return_ty);
     BindDecl {
         name,
         target_path,
         params,
         return_ty,
-        return_type_expr,
         clauses,
     }
 }
@@ -1490,18 +1493,16 @@ fn extract_params_from_clause_body(body: &Expr) -> Vec<Param> {
                 ty.push(tokens[i].clone());
                 i += 1;
             }
-            let parsed_type = crate::ast::try_parse_type_tokens(&ty);
+            let parsed = crate::ast::try_parse_type_tokens(&ty);
             params.push(Param {
                 name: param_name,
-                ty,
-                parsed_type,
+                ty: parsed,
             });
         } else {
             // Untyped param
             params.push(Param {
                 name: param_name,
-                ty: Vec::new(),
-                parsed_type: None,
+                ty: None,
             });
         }
     }
@@ -1564,14 +1565,13 @@ fn lower_fn_def(n: &SyntaxNode) -> FnDef {
         .map(|c| lower_clause(&c))
         .collect();
 
-    let return_type_expr = crate::ast::try_parse_type_tokens(&return_ty);
+    let return_ty = crate::ast::try_parse_type_tokens(&return_ty);
     FnDef {
         name,
         is_ghost,
         is_lemma,
         params,
         return_ty,
-        return_type_expr,
         clauses,
     }
 }
@@ -1774,12 +1774,13 @@ fn lower_param(n: &SyntaxNode) -> Param {
         }
     }
 
-    let parsed_type = crate::ast::try_parse_type_tokens(&ty);
-    Param {
-        name,
-        ty,
-        parsed_type,
-    }
+    // Only parse type if a colon was found (has type annotation)
+    let parsed = if saw_colon {
+        crate::ast::try_parse_type_tokens(&ty)
+    } else {
+        None
+    };
+    Param { name, ty: parsed }
 }
 
 fn collect_return_type_tokens(n: &SyntaxNode) -> Vec<String> {
@@ -1930,8 +1931,11 @@ mod tests {
             assert_eq!(f.name, "factorial");
             assert_eq!(f.params.len(), 1);
             assert_eq!(f.params[0].name, "n");
-            assert_eq!(f.params[0].ty, vec!["Nat"]);
-            assert_eq!(f.return_ty, vec!["Nat"]);
+            assert_eq!(
+                f.params[0].ty,
+                Some(crate::ast::TypeExpr::Named("Nat".into()))
+            );
+            assert_eq!(f.return_ty, Some(crate::ast::TypeExpr::Named("Nat".into())));
             assert_eq!(f.clauses.len(), 3);
         } else {
             panic!("expected FnDef");
@@ -2036,7 +2040,7 @@ mod tests {
             assert_eq!(b.params.len(), 2);
             assert_eq!(b.params[0].name, "a");
             assert_eq!(b.params[1].name, "b");
-            assert!(!b.return_ty.is_empty());
+            assert!(b.return_ty.is_some());
             assert_eq!(
                 b.clauses.len(),
                 2,
@@ -2090,7 +2094,7 @@ mod tests {
         assert_eq!(file.decls.len(), 1);
         if let Decl::Prophecy(p) = &file.decls[0].node {
             assert_eq!(p.name, "future_value");
-            assert_eq!(p.ty_tokens, vec!["Int"]);
+            assert_eq!(p.ty, Some(crate::ast::TypeExpr::Named("Int".into())));
         } else {
             panic!("expected Decl::Prophecy, got {:?}", file.decls[0].node);
         }
@@ -2105,7 +2109,7 @@ mod tests {
         assert_eq!(file.decls.len(), 1);
         if let Decl::Prophecy(p) = &file.decls[0].node {
             assert_eq!(p.name, "x");
-            assert!(p.ty_tokens.is_empty());
+            assert!(p.ty.is_none());
         } else {
             panic!("expected Decl::Prophecy, got {:?}", file.decls[0].node);
         }

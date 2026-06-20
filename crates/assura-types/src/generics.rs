@@ -203,7 +203,7 @@ pub(crate) fn run_generic_instantiation_checks(
         errors: &mut Vec<TypeError>,
     ) {
         for p in params {
-            if let Some(te) = &p.parsed_type {
+            if let Some(te) = &p.ty {
                 check_type_expr(te, span, source, errors);
             }
         }
@@ -216,7 +216,7 @@ pub(crate) fn run_generic_instantiation_checks(
         errors: &mut Vec<TypeError>,
     ) {
         for f in fields {
-            if let Some(te) = &f.parsed_type {
+            if let Some(te) = &f.ty {
                 check_type_expr(te, span, source, errors);
             }
         }
@@ -239,13 +239,13 @@ pub(crate) fn run_generic_instantiation_checks(
             }
             Decl::FnDef(f) => {
                 check_params(&f.params, span, source, &mut errors);
-                if let Some(te) = &f.return_type_expr {
+                if let Some(te) = &f.return_ty {
                     check_type_expr(te, span, source, &mut errors);
                 }
             }
             Decl::Extern(e) => {
                 check_params(&e.params, span, source, &mut errors);
-                if let Some(te) = &e.return_type_expr {
+                if let Some(te) = &e.return_ty {
                     check_type_expr(te, span, source, &mut errors);
                 }
             }

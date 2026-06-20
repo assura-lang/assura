@@ -218,7 +218,8 @@ pub(crate) fn generate_type_def(t: &TypeDef, code: &mut String) {
             ));
             for f in fields {
                 let vis = if f.is_pub { "pub " } else { "" };
-                let ty = map_type_tokens(&f.ty);
+                let ty_tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                let ty = map_type_tokens(&ty_tokens);
                 code.push_str(&format!("    {vis}{}: {ty},\n", f.name));
             }
             code.push_str("}\n\n");
@@ -1053,14 +1054,12 @@ mod tests {
             body: TypeBody::Struct(vec![
                 assura_parser::ast::FieldDef {
                     name: "x".into(),
-                    ty: vec!["Int".into()],
-                    parsed_type: None,
+                    ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
                     is_pub: true,
                 },
                 assura_parser::ast::FieldDef {
                     name: "y".into(),
-                    ty: vec!["Int".into()],
-                    parsed_type: None,
+                    ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
                     is_pub: true,
                 },
             ]),

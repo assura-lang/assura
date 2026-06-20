@@ -220,14 +220,16 @@ fn check_fields(
     errors: &mut Vec<ResolutionError>,
 ) {
     for f in fields {
-        check_type_tokens(&f.ty, table, scope_id, span, lenient, errors);
+        if let Some(te) = &f.ty {
+            check_type_tokens(&te.to_tokens(), table, scope_id, span, lenient, errors);
+        }
     }
 }
 
 /// Check type references in function/extern parameters and return type.
 fn check_fn_signature(
     params: &[Param],
-    return_ty: &[String],
+    return_ty: Option<&assura_parser::ast::TypeExpr>,
     table: &SymbolTable,
     scope_id: usize,
     span: &Span,
@@ -235,10 +237,12 @@ fn check_fn_signature(
     errors: &mut Vec<ResolutionError>,
 ) {
     for p in params {
-        check_type_tokens(&p.ty, table, scope_id, span, lenient, errors);
+        if let Some(te) = &p.ty {
+            check_type_tokens(&te.to_tokens(), table, scope_id, span, lenient, errors);
+        }
     }
-    if !return_ty.is_empty() {
-        check_type_tokens(return_ty, table, scope_id, span, lenient, errors);
+    if let Some(ret) = return_ty {
+        check_type_tokens(&ret.to_tokens(), table, scope_id, span, lenient, errors);
     }
 }
 
@@ -291,7 +295,7 @@ pub(crate) fn resolve_type_refs(
                 // Bind has the same param/return structure as extern
                 resolve_extern_refs_generic(
                     &b.params,
-                    &b.return_ty,
+                    b.return_ty.as_ref(),
                     table,
                     &decl.span,
                     module_scope,
@@ -377,7 +381,15 @@ fn resolve_fndef_refs(
     errors: &mut Vec<ResolutionError>,
 ) {
     let scope = find_scope_for(table, &f.name, parent_scope).unwrap_or(parent_scope);
-    check_fn_signature(&f.params, &f.return_ty, table, scope, span, lenient, errors);
+    check_fn_signature(
+        &f.params,
+        f.return_ty.as_ref(),
+        table,
+        scope,
+        span,
+        lenient,
+        errors,
+    );
 }
 
 /// Resolve type references in an extern function declaration.
@@ -392,7 +404,7 @@ fn resolve_extern_refs(
     let scope = find_scope_for(table, &ex.name, parent_scope).unwrap_or(parent_scope);
     check_fn_signature(
         &ex.params,
-        &ex.return_ty,
+        ex.return_ty.as_ref(),
         table,
         scope,
         span,
@@ -403,7 +415,7 @@ fn resolve_extern_refs(
 
 fn resolve_extern_refs_generic(
     params: &[Param],
-    return_ty: &[String],
+    return_ty: Option<&assura_parser::ast::TypeExpr>,
     table: &SymbolTable,
     span: &Span,
     parent_scope: usize,

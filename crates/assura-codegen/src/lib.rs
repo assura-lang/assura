@@ -36,6 +36,14 @@ use assura_parser::ast::{
 };
 use assura_types::TypedFile;
 
+/// Convert an `Option<TypeExpr>` to a `Vec<String>` of type tokens.
+///
+/// Bridge helper used during codegen to pass structured types to functions
+/// that still work on raw token slices (e.g., `map_type_tokens`, `collect_type_refs_from_tokens`).
+fn type_expr_to_token_vec(te: Option<&assura_parser::ast::TypeExpr>) -> Vec<String> {
+    te.map(|t| t.to_tokens()).unwrap_or_default()
+}
+
 #[cfg(test)]
 #[path = "codegen_tests.rs"]
 mod tests;
@@ -204,21 +212,36 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     for decl in &source.decls {
         match &decl.node {
             Decl::FnDef(f) => {
-                collect_type_refs_from_tokens(&f.return_ty, &mut referenced_types);
+                collect_type_refs_from_tokens(
+                    &type_expr_to_token_vec(f.return_ty.as_ref()),
+                    &mut referenced_types,
+                );
                 for p in &f.params {
-                    collect_type_refs_from_tokens(&p.ty, &mut referenced_types);
+                    collect_type_refs_from_tokens(
+                        &type_expr_to_token_vec(p.ty.as_ref()),
+                        &mut referenced_types,
+                    );
                 }
             }
             Decl::Extern(ex) => {
-                collect_type_refs_from_tokens(&ex.return_ty, &mut referenced_types);
+                collect_type_refs_from_tokens(
+                    &type_expr_to_token_vec(ex.return_ty.as_ref()),
+                    &mut referenced_types,
+                );
                 for p in &ex.params {
-                    collect_type_refs_from_tokens(&p.ty, &mut referenced_types);
+                    collect_type_refs_from_tokens(
+                        &type_expr_to_token_vec(p.ty.as_ref()),
+                        &mut referenced_types,
+                    );
                 }
             }
             Decl::TypeDef(t) => {
                 if let TypeBody::Struct(fields) = &t.body {
                     for f in fields {
-                        collect_type_refs_from_tokens(&f.ty, &mut referenced_types);
+                        collect_type_refs_from_tokens(
+                            &type_expr_to_token_vec(f.ty.as_ref()),
+                            &mut referenced_types,
+                        );
                     }
                 }
             }
@@ -242,8 +265,6 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                                 collect_type_refs_from_expr(&clause.body, &mut referenced_types);
                             }
                         }
-                        // States, Invariant, and Other don't contribute
-                        // type references for stub generation.
                         ServiceItem::States(_)
                         | ServiceItem::Invariant(_)
                         | ServiceItem::Other { .. } => {}
@@ -251,13 +272,17 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 }
             }
             Decl::Bind(b) => {
-                collect_type_refs_from_tokens(&b.return_ty, &mut referenced_types);
+                collect_type_refs_from_tokens(
+                    &type_expr_to_token_vec(b.return_ty.as_ref()),
+                    &mut referenced_types,
+                );
                 for p in &b.params {
-                    collect_type_refs_from_tokens(&p.ty, &mut referenced_types);
+                    collect_type_refs_from_tokens(
+                        &type_expr_to_token_vec(p.ty.as_ref()),
+                        &mut referenced_types,
+                    );
                 }
             }
-            // EnumDef, Prophecy, and Block don't contribute type references
-            // that need stub generation.
             Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::Block { .. } => {}
         }
     }
@@ -270,28 +295,26 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             feature_max_consts.iter().map(|(n, _)| n.as_str()).collect();
         let mut result = std::collections::HashSet::new();
         for decl in &source.decls {
-            let mut token_lists: Vec<&[String]> = Vec::new();
+            let mut token_lists: Vec<Vec<String>> = Vec::new();
             match &decl.node {
                 Decl::FnDef(f) => {
-                    token_lists.push(f.return_ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(f.return_ty.as_ref()));
                     for p in &f.params {
-                        token_lists.push(p.ty.as_slice());
+                        token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                     }
                 }
                 Decl::Extern(ex) => {
-                    token_lists.push(ex.return_ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(ex.return_ty.as_ref()));
                     for p in &ex.params {
-                        token_lists.push(p.ty.as_slice());
+                        token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                     }
                 }
                 Decl::Bind(b) => {
-                    token_lists.push(b.return_ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(b.return_ty.as_ref()));
                     for p in &b.params {
-                        token_lists.push(p.ty.as_slice());
+                        token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                     }
                 }
-                // Contract, Service, TypeDef, EnumDef, Prophecy, and Block
-                // don't have typed param/return tokens.
                 Decl::Contract(_)
                 | Decl::Service(_)
                 | Decl::TypeDef(_)
@@ -338,35 +361,33 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         std::collections::HashMap::new();
     let mut const_generic_names = std::collections::HashSet::new();
     for decl in &source.decls {
-        let mut token_lists: Vec<&[String]> = Vec::new();
+        let mut token_lists: Vec<Vec<String>> = Vec::new();
         match &decl.node {
             Decl::FnDef(f) => {
-                token_lists.push(f.return_ty.as_slice());
+                token_lists.push(type_expr_to_token_vec(f.return_ty.as_ref()));
                 for p in &f.params {
-                    token_lists.push(p.ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                 }
             }
             Decl::Extern(ex) => {
-                token_lists.push(ex.return_ty.as_slice());
+                token_lists.push(type_expr_to_token_vec(ex.return_ty.as_ref()));
                 for p in &ex.params {
-                    token_lists.push(p.ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                 }
             }
             Decl::TypeDef(t) => {
                 if let TypeBody::Struct(fields) = &t.body {
                     for f in fields {
-                        token_lists.push(f.ty.as_slice());
+                        token_lists.push(type_expr_to_token_vec(f.ty.as_ref()));
                     }
                 }
             }
             Decl::Bind(b) => {
-                token_lists.push(b.return_ty.as_slice());
+                token_lists.push(type_expr_to_token_vec(b.return_ty.as_ref()));
                 for p in &b.params {
-                    token_lists.push(p.ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                 }
             }
-            // Contract, Service, EnumDef, Prophecy, and Block don't have
-            // typed token sequences relevant for generic arity detection.
             Decl::Contract(_)
             | Decl::Service(_)
             | Decl::EnumDef(_)
@@ -374,7 +395,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::CodecRegistry(_)
             | Decl::Block { .. } => {}
         }
-        for tokens in token_lists {
+        for tokens in &token_lists {
             detect_generic_arity(tokens, &mut type_generic_params, &mut const_generic_names);
         }
     }
@@ -391,24 +412,24 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     let feature_max_set: std::collections::HashSet<String> =
         feature_max_consts.iter().map(|(n, _)| n.clone()).collect();
     for decl in &source.decls {
-        let mut token_lists: Vec<&[String]> = Vec::new();
+        let mut token_lists: Vec<Vec<String>> = Vec::new();
         match &decl.node {
             Decl::FnDef(f) => {
-                token_lists.push(f.return_ty.as_slice());
+                token_lists.push(type_expr_to_token_vec(f.return_ty.as_ref()));
                 for p in &f.params {
-                    token_lists.push(p.ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                 }
             }
             Decl::Extern(ex) => {
-                token_lists.push(ex.return_ty.as_slice());
+                token_lists.push(type_expr_to_token_vec(ex.return_ty.as_ref()));
                 for p in &ex.params {
-                    token_lists.push(p.ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                 }
             }
             Decl::Bind(b) => {
-                token_lists.push(b.return_ty.as_slice());
+                token_lists.push(type_expr_to_token_vec(b.return_ty.as_ref()));
                 for p in &b.params {
-                    token_lists.push(p.ty.as_slice());
+                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
                 }
             }
             Decl::Contract(_)
@@ -419,7 +440,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             | Decl::CodecRegistry(_)
             | Decl::Block { .. } => {}
         }
-        for tokens in token_lists {
+        for tokens in &token_lists {
             let mut in_angle = 0i32;
             for tok in tokens {
                 match tok.as_str() {

@@ -35,13 +35,7 @@ SourceFile {
                         [
                             FieldDef {
                                 name: "data",
-                                ty: [
-                                    "Region",
-                                    "<",
-                                    "MaxLen",
-                                    ">",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Generic(
                                         "Region",
                                         [
@@ -55,21 +49,13 @@ SourceFile {
                             },
                             FieldDef {
                                 name: "extra_max",
-                                ty: [
-                                    "{",
-                                    "v",
-                                    ":",
-                                    "Nat",
-                                    "|",
-                                    "v",
-                                    "==",
-                                    "MaxLen",
-                                    "}",
-                                ],
-                                parsed_type: Some(
-                                    Named(
-                                        "{ v : Nat | v == MaxLen }",
-                                    ),
+                                ty: Some(
+                                    Refined {
+                                        base: Named(
+                                            "Nat",
+                                        ),
+                                        predicate: "v == MaxLen",
+                                    },
                                 ),
                                 is_pub: false,
                             },
@@ -88,13 +74,7 @@ SourceFile {
                         [
                             FieldDef {
                                 name: "extra",
-                                ty: [
-                                    "GzipExtraBuffer",
-                                    "<",
-                                    "EXTRA_MAX",
-                                    ">",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Generic(
                                         "GzipExtraBuffer",
                                         [
@@ -108,13 +88,7 @@ SourceFile {
                             },
                             FieldDef {
                                 name: "name",
-                                ty: [
-                                    "Option",
-                                    "<",
-                                    "String",
-                                    ">",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Generic(
                                         "Option",
                                         [
@@ -128,13 +102,7 @@ SourceFile {
                             },
                             FieldDef {
                                 name: "comment",
-                                ty: [
-                                    "Option",
-                                    "<",
-                                    "String",
-                                    ">",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Generic(
                                         "Option",
                                         [
@@ -148,10 +116,7 @@ SourceFile {
                             },
                             FieldDef {
                                 name: "done",
-                                ty: [
-                                    "Bool",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Named(
                                         "Bool",
                                     ),
@@ -173,24 +138,16 @@ SourceFile {
                     params: [
                         Param {
                             name: "stream",
-                            ty: [
-                                "&mut",
-                                "InflateStream",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut InflateStream",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "U16",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "U16 @",
+                            "U16",
                         ),
                     ),
                     clauses: [
@@ -228,37 +185,22 @@ SourceFile {
                         [
                             FieldDef {
                                 name: "value",
-                                ty: [
-                                    "U16",
-                                    "@",
-                                    "taint",
-                                    ":",
-                                    "validated",
-                                ],
-                                parsed_type: Some(
+                                ty: Some(
                                     Named(
-                                        "U16 @ taint : validated",
+                                        "U16",
                                     ),
                                 ),
                                 is_pub: false,
                             },
                             FieldDef {
                                 name: "capped_len",
-                                ty: [
-                                    "{",
-                                    "v",
-                                    ":",
-                                    "Nat",
-                                    "|",
-                                    "v",
-                                    "<=",
-                                    "EXTRA_MAX",
-                                    "}",
-                                ],
-                                parsed_type: Some(
-                                    Named(
-                                        "{ v : Nat | v <= EXTRA_MAX }",
-                                    ),
+                                ty: Some(
+                                    Refined {
+                                        base: Named(
+                                            "Nat",
+                                        ),
+                                        predicate: "v <= EXTRA_MAX",
+                                    },
                                 ),
                                 is_pub: false,
                             },
@@ -277,38 +219,24 @@ SourceFile {
                     params: [
                         Param {
                             name: "raw_xlen",
-                            ty: [
-                                "U16",
-                                "@",
-                                "taint",
-                                ":",
-                                "untrusted",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "U16 @ taint : untrusted",
+                                    "U16",
                                 ),
                             ),
                         },
                         Param {
                             name: "extra_max",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "ValidXlen",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "ValidXlen @",
+                            "ValidXlen",
                         ),
                     ),
                     clauses: [
@@ -342,11 +270,7 @@ SourceFile {
                     fn_params: [
                         Param {
                             name: "head",
-                            ty: [
-                                "&mut",
-                                "GzipHeader",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut GzipHeader",
                                 ),
@@ -354,11 +278,7 @@ SourceFile {
                         },
                         Param {
                             name: "stream",
-                            ty: [
-                                "&",
-                                "InflateStream",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "& InflateStream",
                                 ),
@@ -366,25 +286,15 @@ SourceFile {
                         },
                         Param {
                             name: "xlen",
-                            ty: [
-                                "ValidXlen",
-                                "@",
-                                "taint",
-                                ":",
-                                "validated",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "ValidXlen @ taint : validated",
+                                    "ValidXlen",
                                 ),
                             ),
                         },
                         Param {
                             name: "available",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -404,13 +314,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "dst",
-                            ty: [
-                                "Region",
-                                "<",
-                                "DstSize",
-                                ">",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Generic(
                                     "Region",
                                     [
@@ -423,32 +327,18 @@ SourceFile {
                         },
                         Param {
                             name: "dst_offset",
-                            ty: [
-                                "{",
-                                "off",
-                                ":",
-                                "Nat",
-                                "|",
-                                "off",
-                                "<=",
-                                "DstSize",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ off : Nat | off <= DstSize }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "off <= DstSize",
+                                },
                             ),
                         },
                         Param {
                             name: "src",
-                            ty: [
-                                "&",
-                                "[",
-                                "U8",
-                                "]",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "& [ U8 ]",
                                 ),
@@ -456,41 +346,17 @@ SourceFile {
                         },
                         Param {
                             name: "len",
-                            ty: [
-                                "{",
-                                "n",
-                                ":",
-                                "Nat",
-                                "|",
-                                "dst_offset",
-                                "+",
-                                "n",
-                                "<=",
-                                "DstSize",
-                                "and",
-                                "n",
-                                "<=",
-                                "src",
-                                ".",
-                                "len",
-                                "(",
-                                ")",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ n : Nat | dst_offset + n <= DstSize and n <= src . len ( ) }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "dst_offset + n <= DstSize and n <= src . len ( )",
+                                },
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Region",
-                        "<",
-                        "DstSize",
-                        ">",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Generic(
                             "Region",
                             [
@@ -538,11 +404,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "state",
-                            ty: [
-                                "&mut",
-                                "InflateDecoder",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut InflateDecoder",
                                 ),
@@ -550,23 +412,14 @@ SourceFile {
                         },
                         Param {
                             name: "input",
-                            ty: [
-                                "&",
-                                "[",
-                                "U8",
-                                "]",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "& [ U8 ]",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "InflateStepResult",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "InflateStepResult",
                         ),

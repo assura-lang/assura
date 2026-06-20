@@ -37,20 +37,14 @@ SourceFile {
                     params: [
                         Param {
                             name: "x",
-                            ty: [
-                                "Int",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Int",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Int",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "Int",
                         ),
@@ -85,20 +79,14 @@ SourceFile {
                     params: [
                         Param {
                             name: "x",
-                            ty: [
-                                "Int",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Int",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Int",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "Int",
                         ),

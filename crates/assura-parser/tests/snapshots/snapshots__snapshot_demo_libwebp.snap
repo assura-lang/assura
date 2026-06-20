@@ -81,10 +81,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "alphabet_size",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -92,10 +89,7 @@ SourceFile {
                         },
                         Param {
                             name: "root_bits",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -103,13 +97,7 @@ SourceFile {
                         },
                         Param {
                             name: "code_lengths",
-                            ty: [
-                                "Sequence",
-                                "<",
-                                "Nat",
-                                ">",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Generic(
                                     "Sequence",
                                     [
@@ -121,10 +109,7 @@ SourceFile {
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Nat",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "Nat",
                         ),
@@ -143,20 +128,14 @@ SourceFile {
                     params: [
                         Param {
                             name: "alphabet_size",
-                            ty: [
-                                "U16",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "U16",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "U32",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "U32",
                         ),
@@ -276,11 +255,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "br",
-                            ty: [
-                                "&mut",
-                                "BitReader",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut BitReader",
                                 ),
@@ -288,31 +263,19 @@ SourceFile {
                         },
                         Param {
                             name: "n_bits",
-                            ty: [
-                                "{",
-                                "b",
-                                ":",
-                                "Nat",
-                                "|",
-                                "b",
-                                "<=",
-                                "24",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ b : Nat | b <= 24 }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "b <= 24",
+                                },
                             ),
                         },
                     ],
-                    return_ty: [
-                        "U32",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "U32 @",
+                            "U32",
                         ),
                     ),
                     clauses: [
@@ -350,11 +313,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "br",
-                            ty: [
-                                "&mut",
-                                "BitReader",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut BitReader",
                                 ),
@@ -362,34 +321,24 @@ SourceFile {
                         },
                         Param {
                             name: "alphabet_size",
-                            ty: [
-                                "{",
-                                "a",
-                                ":",
-                                "Nat",
-                                "|",
-                                "a",
-                                "<=",
-                                "MAX_ALPHABET_SIZE",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ a : Nat | a <= MAX_ALPHABET_SIZE }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "a <= MAX_ALPHABET_SIZE",
+                                },
                             ),
                         },
                     ],
-                    return_ty: [
-                        "List",
-                        "<",
-                        "U16",
-                        ">",
-                        "@",
-                    ],
-                    return_type_expr: Some(
-                        Named(
-                            "List < U16 > @",
+                    return_ty: Some(
+                        Generic(
+                            "List",
+                            [
+                                Named(
+                                    "U16",
+                                ),
+                            ],
                         ),
                     ),
                     clauses: [
@@ -427,49 +376,32 @@ SourceFile {
                     params: [
                         Param {
                             name: "raw_lengths",
-                            ty: [
-                                "List",
-                                "<",
-                                "U16",
-                                ">",
-                                "@",
-                                "taint",
-                                ":",
-                                "untrusted",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "List < U16 > @ taint : untrusted",
+                            ty: Some(
+                                Generic(
+                                    "List",
+                                    [
+                                        Named(
+                                            "U16",
+                                        ),
+                                    ],
                                 ),
                             ),
                         },
                         Param {
                             name: "alphabet_size",
-                            ty: [
-                                "{",
-                                "a",
-                                ":",
-                                "Nat",
-                                "|",
-                                "a",
-                                "<=",
-                                "MAX_ALPHABET_SIZE",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ a : Nat | a <= MAX_ALPHABET_SIZE }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "a <= MAX_ALPHABET_SIZE",
+                                },
                             ),
                         },
                     ],
-                    return_ty: [
-                        "ValidCodeLengths",
-                        "@",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
-                            "ValidCodeLengths @",
+                            "ValidCodeLengths",
                         ),
                     ),
                     clauses: [
@@ -507,10 +439,7 @@ SourceFile {
                     fn_params: [
                         Param {
                             name: "table",
-                            ty: [
-                                "HuffmanTableBuffer",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "HuffmanTableBuffer",
                                 ),
@@ -518,35 +447,20 @@ SourceFile {
                         },
                         Param {
                             name: "root_bits",
-                            ty: [
-                                "{",
-                                "r",
-                                ":",
-                                "Nat",
-                                "|",
-                                "r",
-                                "<=",
-                                "MAX_CODE_LENGTH",
-                                "}",
-                            ],
-                            parsed_type: Some(
-                                Named(
-                                    "{ r : Nat | r <= MAX_CODE_LENGTH }",
-                                ),
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "r <= MAX_CODE_LENGTH",
+                                },
                             ),
                         },
                         Param {
                             name: "code_lengths",
-                            ty: [
-                                "ValidCodeLengths",
-                                "@",
-                                "taint",
-                                ":",
-                                "validated",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
-                                    "ValidCodeLengths @ taint : validated",
+                                    "ValidCodeLengths",
                                 ),
                             ),
                         },
@@ -564,10 +478,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "size",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -575,18 +486,14 @@ SourceFile {
                         },
                         Param {
                             name: "max_len",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Unit,
                     ),
                     clauses: [
@@ -692,10 +599,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "root_bits",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -703,10 +607,7 @@ SourceFile {
                         },
                         Param {
                             name: "alphabet_size",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -714,18 +615,14 @@ SourceFile {
                         },
                         Param {
                             name: "table_size",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Unit,
                     ),
                     clauses: [
@@ -825,10 +722,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "code_len",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -836,10 +730,7 @@ SourceFile {
                         },
                         Param {
                             name: "max_code_len",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
@@ -847,18 +738,14 @@ SourceFile {
                         },
                         Param {
                             name: "root_bits",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Unit,
                     ),
                     clauses: [
@@ -954,11 +841,7 @@ SourceFile {
                     params: [
                         Param {
                             name: "br",
-                            ty: [
-                                "&mut",
-                                "BitReader",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "&mut BitReader",
                                 ),
@@ -966,13 +849,7 @@ SourceFile {
                         },
                         Param {
                             name: "table_buf",
-                            ty: [
-                                "Region",
-                                "<",
-                                "TOTAL_TABLE_SIZE",
-                                ">",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Generic(
                                     "Region",
                                     [
@@ -984,12 +861,7 @@ SourceFile {
                             ),
                         },
                     ],
-                    return_ty: [
-                        "HuffmanGroup",
-                        "|",
-                        "DecodeError",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "HuffmanGroup | DecodeError",
                         ),

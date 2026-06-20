@@ -1353,10 +1353,7 @@ fn test_flatten_field_chain_cvc5_deep() {
 #[test]
 fn test_flatten_field_chain_cvc5_ident() {
     // a.b -> "a__b"
-    let expr = Expr::Field(
-        Box::new(Expr::Ident("a".into())),
-        "b".into(),
-    );
+    let expr = Expr::Field(Box::new(Expr::Ident("a".into())), "b".into());
     assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
 }
 

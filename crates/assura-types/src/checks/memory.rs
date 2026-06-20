@@ -50,7 +50,7 @@ pub(crate) fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<
         let mut has_buffers = false;
 
         for param in params {
-            let ty_str = param.ty.join(" ");
+            let ty_str = param.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
             if let Some(cap) = extract_capacity_annotation(&ty_str) {
                 checker.register_buffer(param.name.clone(), cap);
                 has_buffers = true;

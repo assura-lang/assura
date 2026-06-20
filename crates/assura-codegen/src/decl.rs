@@ -15,14 +15,16 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
     let params_s: String = b
         .params
         .iter()
-        .map(|p| format!("{}: {}", p.name, map_type_tokens(&p.ty)))
+        .map(|p| {
+            let ty_tokens = p.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            format!("{}: {}", p.name, map_type_tokens(&ty_tokens))
+        })
         .collect::<Vec<_>>()
         .join(", ");
 
-    let ret = if b.return_ty.is_empty() {
-        "()".to_string()
-    } else {
-        map_type_tokens(&b.return_ty)
+    let ret = match &b.return_ty {
+        None => "()".to_string(),
+        Some(te) => map_type_tokens(&te.to_tokens()),
     };
 
     let args_s: String = b
@@ -80,14 +82,16 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
     let params_s: String = ex
         .params
         .iter()
-        .map(|p| format!("{}: {}", p.name, map_type_tokens(&p.ty)))
+        .map(|p| {
+            let ty_tokens = p.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            format!("{}: {}", p.name, map_type_tokens(&ty_tokens))
+        })
         .collect::<Vec<_>>()
         .join(", ");
 
-    let ret = if ex.return_ty.is_empty() {
-        "()".to_string()
-    } else {
-        map_type_tokens(&ex.return_ty)
+    let ret = match &ex.return_ty {
+        None => "()".to_string(),
+        Some(te) => map_type_tokens(&te.to_tokens()),
     };
 
     // SEC.2 compile-time enforcement: determine trust boundary from clauses
@@ -171,14 +175,16 @@ pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
     let params_s: String = f
         .params
         .iter()
-        .map(|p| format!("{}: {}", p.name, map_type_tokens(&p.ty)))
+        .map(|p| {
+            let ty_tokens = p.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            format!("{}: {}", p.name, map_type_tokens(&ty_tokens))
+        })
         .collect::<Vec<_>>()
         .join(", ");
 
-    let ret_ty = if f.return_ty.is_empty() {
-        "()".to_string()
-    } else {
-        map_type_tokens(&f.return_ty)
+    let ret_ty = match &f.return_ty {
+        None => "()".to_string(),
+        Some(te) => map_type_tokens(&te.to_tokens()),
     };
 
     // Generate error enum if errors clause is present
@@ -197,7 +203,7 @@ pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
         ret_ty.clone()
     };
 
-    let ret_sig = if f.return_ty.is_empty() && error_enum_name.is_none() {
+    let ret_sig = if f.return_ty.is_none() && error_enum_name.is_none() {
         String::new()
     } else {
         format!(" -> {return_type}")
@@ -260,8 +266,7 @@ mod tests {
     fn mk_param(name: &str, ty: &str) -> assura_parser::ast::Param {
         assura_parser::ast::Param {
             name: name.into(),
-            ty: vec![ty.into()],
-            parsed_type: None,
+            ty: assura_parser::ast::try_parse_type_tokens(&[ty.to_string()]),
         }
     }
 
@@ -281,8 +286,7 @@ mod tests {
             name: "my_fn".into(),
             target_path: "std::fs::read".into(),
             params: vec![mk_param("path", "String")],
-            return_ty: vec!["Bytes".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Bytes".to_string()]),
             clauses: vec![],
         };
         let mut code = String::new();
@@ -298,8 +302,7 @@ mod tests {
             name: "safe_div".into(),
             target_path: "math::divide".into(),
             params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
-            return_ty: vec!["Int".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Requires,
                 Expr::BinOp {
@@ -320,8 +323,7 @@ mod tests {
             name: "abs".into(),
             target_path: "math::abs".into(),
             params: vec![mk_param("x", "Int")],
-            return_ty: vec!["Int".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Ensures,
                 Expr::BinOp {
@@ -343,8 +345,7 @@ mod tests {
             name: "log".into(),
             target_path: "logger::log".into(),
             params: vec![],
-            return_ty: vec![],
-            return_type_expr: None,
+            return_ty: None,
             clauses: vec![],
         };
         let mut code = String::new();
@@ -359,8 +360,7 @@ mod tests {
         let ex = ExternDecl {
             name: "crypto_hash".into(),
             params: vec![mk_param("data", "Bytes")],
-            return_ty: vec!["Bytes".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Bytes".to_string()]),
             clauses: vec![],
         };
         let mut code = String::new();
@@ -374,8 +374,7 @@ mod tests {
         let ex = ExternDecl {
             name: "ffi_call".into(),
             params: vec![],
-            return_ty: vec!["Int".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Other("trust".into()),
                 Expr::Ident("untrusted".into()),
@@ -392,8 +391,7 @@ mod tests {
         let ex = ExternDecl {
             name: "ffi_call".into(),
             params: vec![mk_param("x", "Int")],
-            return_ty: vec!["Int".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![
                 mk_clause(
                     ClauseKind::Other("trust".into()),
@@ -424,8 +422,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![],
-            return_ty: vec![],
-            return_type_expr: None,
+            return_ty: None,
             clauses: vec![],
         };
         let mut code = String::new();
@@ -442,8 +439,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
-            return_ty: vec!["Int".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![],
         };
         let mut code = String::new();
@@ -458,8 +454,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
-            return_ty: vec!["Int".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![
                 mk_clause(
                     ClauseKind::Requires,
@@ -497,8 +492,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![mk_param("x", "Int")],
-            return_ty: vec!["Int".into()],
-            return_type_expr: None,
+            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Ensures,
                 Expr::BinOp {

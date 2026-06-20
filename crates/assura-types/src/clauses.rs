@@ -27,12 +27,12 @@ use crate::{
 pub(crate) fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
     use assura_parser::ast::extract_clause_params;
     for param in extract_clause_params(body) {
-        if param.ty.is_empty() {
+        if param.ty.is_none() {
             if env.lookup(&param.name).is_none() {
                 env.insert(param.name, Type::Unknown);
             }
         } else {
-            let parsed = parse_type_tokens(&param.ty);
+            let parsed = crate::convert::resolve_type_opt(param.ty.as_ref());
             env.insert(param.name, parsed);
         }
     }
@@ -48,10 +48,10 @@ pub(crate) fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
 pub(crate) fn collect_input_param_types(body: &Expr, out: &mut Vec<Type>) {
     use assura_parser::ast::extract_clause_params;
     for param in extract_clause_params(body) {
-        if param.ty.is_empty() {
+        if param.ty.is_none() {
             out.push(Type::Unknown);
         } else {
-            out.push(parse_type_tokens(&param.ty));
+            out.push(crate::convert::resolve_type_opt(param.ty.as_ref()));
         }
     }
 }
@@ -197,8 +197,8 @@ pub(crate) fn check_clause_bodies(
                 }
                 // Register inline fn params with their declared types
                 for p in &c.fn_params {
-                    if !p.ty.is_empty() {
-                        contract_env.insert(p.name.clone(), parse_type_tokens(&p.ty));
+                    if let Some(te) = &p.ty {
+                        contract_env.insert(p.name.clone(), crate::convert::type_from_expr(te));
                     }
                 }
                 let ensures_env = env_with_result(&contract_env, &output_ty);
@@ -222,11 +222,7 @@ pub(crate) fn check_clause_bodies(
                 }
                 // Build a scoped env with `result` bound to the return type
                 // so ensures clauses can type-check `result` correctly.
-                let ret_ty = if f.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&f.return_ty)
-                };
+                let ret_ty = crate::convert::resolve_type_opt(f.return_ty.as_ref());
                 let fn_env = env_with_result(env, &ret_ty);
                 for clause in &f.clauses {
                     let clause_env = if clause.kind == ClauseKind::Ensures {
@@ -238,11 +234,7 @@ pub(crate) fn check_clause_bodies(
                 }
             }
             Decl::Extern(ex) => {
-                let ret_ty = if ex.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&ex.return_ty)
-                };
+                let ret_ty = crate::convert::resolve_type_opt(ex.return_ty.as_ref());
                 let ext_env = env_with_result(env, &ret_ty);
                 for clause in &ex.clauses {
                     let clause_env = if clause.kind == ClauseKind::Ensures {
@@ -254,11 +246,7 @@ pub(crate) fn check_clause_bodies(
                 }
             }
             Decl::Bind(b) => {
-                let ret_ty = if b.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&b.return_ty)
-                };
+                let ret_ty = crate::convert::resolve_type_opt(b.return_ty.as_ref());
                 let bind_env = env_with_result(env, &ret_ty);
                 for clause in &b.clauses {
                     let clause_env = if clause.kind == ClauseKind::Ensures {
@@ -371,8 +359,8 @@ pub(crate) fn check_clause_bodies_hir(hir: &assura_hir::HirFile, env: &TypeEnv) 
                         }
                     }
                     for p in &ast_contract.fn_params {
-                        if !p.ty.is_empty() {
-                            contract_env.insert(p.name.clone(), parse_type_tokens(&p.ty));
+                        if let Some(te) = &p.ty {
+                            contract_env.insert(p.name.clone(), crate::convert::type_from_expr(te));
                         }
                     }
                 }

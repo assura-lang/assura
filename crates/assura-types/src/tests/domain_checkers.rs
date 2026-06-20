@@ -2562,11 +2562,10 @@ fn totality_new_default() {
     let f = AstFnDef {
         name: "foo".into(),
         params: vec![],
-        return_ty: vec![],
+        return_ty: None,
         clauses: vec![],
         is_ghost: false,
         is_lemma: false,
-        return_type_expr: None,
     };
     let (errors, pending) = checker.check_function_totality(&f, &(0..1));
     assert!(errors.is_empty());
@@ -2582,10 +2581,9 @@ fn totality_partial_fn_skipped() {
         name: "loop_forever".into(),
         params: vec![AstParam {
             name: "n".into(),
-            ty: vec!["Int".into()],
-            parsed_type: None,
+            ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
         }],
-        return_ty: vec![],
+        return_ty: None,
         clauses: vec![AstClause {
             kind: ClauseKind::Ensures,
             body: AstExpr::Call {
@@ -2596,7 +2594,6 @@ fn totality_partial_fn_skipped() {
         }],
         is_ghost: false,
         is_lemma: false,
-        return_type_expr: None,
     };
     let (errors, pending) = checker.check_function_totality(&f, &(0..1));
     assert!(errors.is_empty());
@@ -2610,10 +2607,9 @@ fn totality_recursive_no_decreases_a09001() {
         name: "rec".into(),
         params: vec![AstParam {
             name: "n".into(),
-            ty: vec!["Int".into()],
-            parsed_type: None,
+            ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
         }],
-        return_ty: vec![],
+        return_ty: None,
         clauses: vec![AstClause {
             kind: ClauseKind::Ensures,
             body: AstExpr::Call {
@@ -2628,7 +2624,6 @@ fn totality_recursive_no_decreases_a09001() {
         }],
         is_ghost: false,
         is_lemma: false,
-        return_type_expr: None,
     };
     let (errors, _) = checker.check_function_totality(&f, &(0..1));
     assert!(!errors.is_empty());
@@ -2641,7 +2636,7 @@ fn totality_non_recursive_is_total() {
     let f = AstFnDef {
         name: "add".into(),
         params: vec![],
-        return_ty: vec![],
+        return_ty: None,
         clauses: vec![AstClause {
             kind: ClauseKind::Ensures,
             body: AstExpr::BinOp {
@@ -2653,7 +2648,6 @@ fn totality_non_recursive_is_total() {
         }],
         is_ghost: false,
         is_lemma: false,
-        return_type_expr: None,
     };
     let (errors, pending) = checker.check_function_totality(&f, &(0..1));
     assert!(errors.is_empty());
@@ -2667,10 +2661,9 @@ fn totality_decreases_with_nat_param() {
         name: "count".into(),
         params: vec![AstParam {
             name: "n".into(),
-            ty: vec!["Nat".into()],
-            parsed_type: None,
+            ty: assura_parser::ast::try_parse_type_tokens(&["Nat".to_string()]),
         }],
-        return_ty: vec![],
+        return_ty: None,
         clauses: vec![
             AstClause {
                 kind: ClauseKind::Decreases,
@@ -2692,7 +2685,6 @@ fn totality_decreases_with_nat_param() {
         ],
         is_ghost: false,
         is_lemma: false,
-        return_type_expr: None,
     };
     let (errors, pending) = checker.check_function_totality(&f, &(0..1));
     // With Nat param, well-foundedness is automatically satisfied
@@ -2706,7 +2698,7 @@ fn totality_is_partial_from_clause() {
     let f = AstFnDef {
         name: "diverge".into(),
         params: vec![],
-        return_ty: vec![],
+        return_ty: None,
         clauses: vec![AstClause {
             kind: ClauseKind::Other("partial".into()),
             body: AstExpr::Literal(AstLit::Bool(true)),
@@ -2714,7 +2706,6 @@ fn totality_is_partial_from_clause() {
         }],
         is_ghost: false,
         is_lemma: false,
-        return_type_expr: None,
     };
     assert!(checker.is_partial(&f));
 }

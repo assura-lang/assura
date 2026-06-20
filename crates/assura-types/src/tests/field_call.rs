@@ -208,15 +208,17 @@ fn infer_method_list_get() {
 fn field_resolution_from_ast() {
     let src = r#"
 type Point {
-  x: Int
+  x: Int,
   y: Float
 }
 "#;
     let resolved = resolve_ok(src);
     let typed = type_check(&resolved).expect("type_check should succeed");
-    // NOTE: without field separators (comma/semicolon), the parser groups
-    // all tokens after the first colon into one field. Use commas.
     assert_eq!(typed.type_env.lookup_field("Point", "x"), Some(&Type::Int));
+    assert_eq!(
+        typed.type_env.lookup_field("Point", "y"),
+        Some(&Type::Float)
+    );
 }
 
 #[test]
@@ -644,7 +646,12 @@ fn refinement_predicate_roundtrip_through_clause_params() {
     assert_eq!(params[0].name, "x");
 
     // Now parse the type tokens -- should produce Refined
-    let ty = parse_type_tokens(&params[0].ty);
+    let ty_tokens = params[0]
+        .ty
+        .as_ref()
+        .map(|t| t.to_tokens())
+        .unwrap_or_default();
+    let ty = parse_type_tokens(&ty_tokens);
     assert_eq!(
         ty,
         Type::Refined {
@@ -669,7 +676,12 @@ fn refinement_predicate_with_less_than_in_multi_param() {
     let params = extract_clause_params(&body);
     assert_eq!(params.len(), 2);
 
-    let ty_a = parse_type_tokens(&params[0].ty);
+    let ty_a_tokens = params[0]
+        .ty
+        .as_ref()
+        .map(|t| t.to_tokens())
+        .unwrap_or_default();
+    let ty_a = parse_type_tokens(&ty_a_tokens);
     assert_eq!(
         ty_a,
         Type::Refined {
@@ -678,7 +690,12 @@ fn refinement_predicate_with_less_than_in_multi_param() {
         }
     );
 
-    let ty_b = parse_type_tokens(&params[1].ty);
+    let ty_b_tokens = params[1]
+        .ty
+        .as_ref()
+        .map(|t| t.to_tokens())
+        .unwrap_or_default();
+    let ty_b = parse_type_tokens(&ty_b_tokens);
     assert_eq!(ty_b, Type::Bool);
 }
 

@@ -600,9 +600,7 @@ impl InfoFlowChecker {
                 std::cmp::max(self.infer_label(base), self.infer_label(index))
             }
 
-            Expr::Old(inner) | Expr::Cast { expr: inner, .. } => {
-                self.infer_label(inner)
-            }
+            Expr::Old(inner) | Expr::Cast { expr: inner, .. } => self.infer_label(inner),
 
             Expr::If {
                 cond,

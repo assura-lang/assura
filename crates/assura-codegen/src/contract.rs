@@ -578,12 +578,12 @@ pub(crate) fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mu
 pub(crate) fn extract_input_params(body: &Expr, params: &mut Vec<(String, String)>) {
     use assura_parser::ast::extract_clause_params;
     for param in extract_clause_params(body) {
-        let rust_ty = if param.ty.is_empty() {
+        let rust_ty = if param.ty.is_none() {
             "i64".to_string()
         } else {
-            // Filter out "linear" modifier from type tokens
-            let filtered: Vec<String> = param
-                .ty
+            // Convert TypeExpr to tokens and filter out "linear" modifier
+            let tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            let filtered: Vec<String> = tokens
                 .into_iter()
                 .filter(|t| t.as_str() != "linear")
                 .collect();

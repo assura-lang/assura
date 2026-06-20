@@ -361,20 +361,14 @@ SourceFile {
                     params: [
                         Param {
                             name: "size",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Bytes",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "Bytes",
                         ),
@@ -441,10 +435,7 @@ SourceFile {
                                     [
                                         FieldDef {
                                             name: "id",
-                                            ty: [
-                                                "UserId",
-                                            ],
-                                            parsed_type: Some(
+                                            ty: Some(
                                                 Named(
                                                     "UserId",
                                                 ),
@@ -453,10 +444,7 @@ SourceFile {
                                         },
                                         FieldDef {
                                             name: "name",
-                                            ty: [
-                                                "String",
-                                            ],
-                                            parsed_type: Some(
+                                            ty: Some(
                                                 Named(
                                                     "String",
                                                 ),
@@ -465,10 +453,7 @@ SourceFile {
                                         },
                                         FieldDef {
                                             name: "active",
-                                            ty: [
-                                                "Bool",
-                                            ],
-                                            parsed_type: Some(
+                                            ty: Some(
                                                 Named(
                                                     "Bool",
                                                 ),
@@ -637,20 +622,14 @@ SourceFile {
                     params: [
                         Param {
                             name: "c",
-                            ty: [
-                                "Color",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Color",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Int",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "Int",
                         ),
@@ -746,20 +725,14 @@ SourceFile {
                     params: [
                         Param {
                             name: "n",
-                            ty: [
-                                "Nat",
-                            ],
-                            parsed_type: Some(
+                            ty: Some(
                                 Named(
                                     "Nat",
                                 ),
                             ),
                         },
                     ],
-                    return_ty: [
-                        "Nat",
-                    ],
-                    return_type_expr: Some(
+                    return_ty: Some(
                         Named(
                             "Nat",
                         ),

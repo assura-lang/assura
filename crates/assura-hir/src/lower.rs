@@ -13,7 +13,7 @@ use crate::{
     DefId, HirBind, HirBlock, HirClause, HirClauseKind, HirCodecEntry, HirCodecRegistry,
     HirContract, HirDecl, HirDeclKind, HirEnumDef, HirEnumVariant, HirExpr, HirExtern, HirFieldDef,
     HirFile, HirFnDef, HirMatchArm, HirParam, HirProphecy, HirService, HirServiceItem, HirType,
-    HirTypeBody, HirTypeDef, parse_type_tokens, resolve_hir_type,
+    HirTypeBody, HirTypeDef, parse_type_tokens, resolve_hir_type_opt,
 };
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ impl LowerCtx<'_> {
     fn lower_field(&self, f: &ast::FieldDef) -> HirFieldDef {
         HirFieldDef {
             name: f.name.clone(),
-            ty: resolve_hir_type(f.parsed_type.as_ref(), &f.ty),
+            ty: resolve_hir_type_opt(f.ty.as_ref()),
             is_pub: f.is_pub,
         }
     }
@@ -208,7 +208,7 @@ impl LowerCtx<'_> {
             id: self.resolver.resolve(&e.name),
             name: e.name.clone(),
             params: e.params.iter().map(|p| self.lower_param(p)).collect(),
-            return_ty: resolve_hir_type(e.return_type_expr.as_ref(), &e.return_ty),
+            return_ty: resolve_hir_type_opt(e.return_ty.as_ref()),
             clauses: e.clauses.iter().map(|c| self.lower_clause(c)).collect(),
         }
     }
@@ -219,7 +219,7 @@ impl LowerCtx<'_> {
             name: b.name.clone(),
             target_path: b.target_path.clone(),
             params: b.params.iter().map(|p| self.lower_param(p)).collect(),
-            return_ty: resolve_hir_type(b.return_type_expr.as_ref(), &b.return_ty),
+            return_ty: resolve_hir_type_opt(b.return_ty.as_ref()),
             clauses: b.clauses.iter().map(|c| self.lower_clause(c)).collect(),
         }
     }
@@ -231,7 +231,7 @@ impl LowerCtx<'_> {
             is_ghost: f.is_ghost,
             is_lemma: f.is_lemma,
             params: f.params.iter().map(|p| self.lower_param(p)).collect(),
-            return_ty: resolve_hir_type(f.return_type_expr.as_ref(), &f.return_ty),
+            return_ty: resolve_hir_type_opt(f.return_ty.as_ref()),
             clauses: f.clauses.iter().map(|c| self.lower_clause(c)).collect(),
         }
     }
@@ -239,16 +239,12 @@ impl LowerCtx<'_> {
     fn lower_param(&self, p: &ast::Param) -> HirParam {
         HirParam {
             name: p.name.clone(),
-            ty: resolve_hir_type(p.parsed_type.as_ref(), &p.ty),
+            ty: resolve_hir_type_opt(p.ty.as_ref()),
         }
     }
 
     fn lower_prophecy(&self, p: &ast::ProphecyDecl) -> HirProphecy {
-        let ty = if p.ty_tokens.is_empty() {
-            HirType::Unit
-        } else {
-            parse_type_tokens(&p.ty_tokens)
-        };
+        let ty = resolve_hir_type_opt(p.ty.as_ref());
         HirProphecy {
             id: self.resolver.resolve(&p.name),
             name: p.name.clone(),
@@ -474,11 +470,9 @@ mod tests {
                     is_lemma: false,
                     params: vec![Param {
                         name: "n".into(),
-                        ty: vec!["Int".into()],
-                        parsed_type: None,
+                        ty: Some(TypeExpr::Named("Int".into())),
                     }],
-                    return_ty: vec!["Bool".into()],
-                    return_type_expr: None,
+                    return_ty: Some(TypeExpr::Named("Bool".into())),
                     clauses: vec![],
                 }),
                 span: 0..20,
@@ -511,14 +505,12 @@ mod tests {
                     body: TypeBody::Struct(vec![
                         FieldDef {
                             name: "x".into(),
-                            ty: vec!["Int".into()],
-                            parsed_type: None,
+                            ty: Some(TypeExpr::Named("Int".into())),
                             is_pub: true,
                         },
                         FieldDef {
                             name: "y".into(),
-                            ty: vec!["Int".into()],
-                            parsed_type: None,
+                            ty: Some(TypeExpr::Named("Int".into())),
                             is_pub: true,
                         },
                     ]),
@@ -621,11 +613,9 @@ contract SafeDivision {
                     name: "malloc".into(),
                     params: vec![Param {
                         name: "size".into(),
-                        ty: vec!["Nat".into()],
-                        parsed_type: None,
+                        ty: Some(TypeExpr::Named("Nat".into())),
                     }],
-                    return_ty: vec!["Bytes".into()],
-                    return_type_expr: None,
+                    return_ty: Some(TypeExpr::Named("Bytes".into())),
                     clauses: vec![],
                 }),
                 span: 0..20,

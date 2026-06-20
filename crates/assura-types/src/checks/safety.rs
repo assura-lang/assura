@@ -36,7 +36,8 @@ pub(crate) fn run_constant_time_checks(source: &assura_parser::ast::SourceFile) 
         // Build checker: mark parameters with #[secret] or "secret" in type tokens
         let mut checker = ConstantTimeChecker::new();
         for param in params {
-            let is_secret = param.ty.iter().any(|t| t == "secret" || t == "#[secret]");
+            let tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            let is_secret = tokens.iter().any(|t| t == "secret" || t == "#[secret]");
             if is_secret {
                 checker.mark_secret(param.name.clone());
             }
@@ -240,8 +241,8 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
         for param in params {
             // Only `sensitive`/`#[sensitive]` triggers secure erasure.
             // `secret`/`#[secret]` is for constant-time checking (T059).
-            let is_sensitive = param
-                .ty
+            let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            let is_sensitive = p_tokens
                 .iter()
                 .any(|t| t == "sensitive" || t == "#[sensitive]");
             if is_sensitive {
@@ -268,8 +269,8 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
             _ => continue,
         };
         for param in params {
-            if param
-                .ty
+            let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            if p_tokens
                 .iter()
                 .any(|t| t == "sensitive" || t == "#[sensitive]")
             {
@@ -281,9 +282,21 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
     }
     for name in &sensitive_names {
         for decl in &source.decls {
-            let (clauses, return_ty) = match &decl.node {
-                Decl::FnDef(f) => (f.clauses.as_slice(), f.return_ty.as_slice()),
-                Decl::Extern(e) => (e.clauses.as_slice(), e.return_ty.as_slice()),
+            let (clauses, return_ty_tokens) = match &decl.node {
+                Decl::FnDef(f) => (
+                    f.clauses.as_slice(),
+                    f.return_ty
+                        .as_ref()
+                        .map(|t| t.to_tokens())
+                        .unwrap_or_default(),
+                ),
+                Decl::Extern(e) => (
+                    e.clauses.as_slice(),
+                    e.return_ty
+                        .as_ref()
+                        .map(|t| t.to_tokens())
+                        .unwrap_or_default(),
+                ),
                 _ => continue,
             };
 
@@ -317,7 +330,7 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
             }
 
             // Check if sensitive data is returned without @sensitive annotation
-            let fn_return_is_sensitive = return_ty
+            let fn_return_is_sensitive = return_ty_tokens
                 .iter()
                 .any(|t| t == "sensitive" || t == "#[sensitive]");
             for err in checker.check_return(name, fn_return_is_sensitive, &decl.span) {

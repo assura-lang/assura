@@ -314,7 +314,8 @@ fn check_fn_info_flow(fn_def: &assura_parser::ast::FnDef, span: &Range<usize>) -
 
     // Also check function params for label annotations in type names
     for param in &fn_def.params {
-        let label = infer_label_from_type_tokens(&param.ty);
+        let tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+        let label = infer_label_from_type_tokens(&tokens);
         if label > SecurityLabel::Public {
             checker.declare(param.name.clone(), label);
         }

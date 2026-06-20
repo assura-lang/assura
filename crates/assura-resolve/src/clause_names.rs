@@ -252,9 +252,7 @@ fn check_expr_idents(
             check_expr_idents(lhs, table, scope_id, span, lenient, locals, errors);
             check_expr_idents(rhs, table, scope_id, span, lenient, locals, errors);
         }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner) => {
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
             check_expr_idents(inner, table, scope_id, span, lenient, locals, errors);
         }
         Expr::If {

@@ -49,6 +49,11 @@ fn is_nat_type(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
 }
 
+/// Convert a Param's `Option<TypeExpr>` to token vec for SMT type checking.
+fn param_ty_tokens(param: &assura_parser::ast::Param) -> Vec<String> {
+    crate::entry::type_expr_to_token_vec(param.ty.as_ref())
+}
+
 // Re-use extract_output_return_type and extract_input_params from entry.rs
 // (single source of truth, avoids divergence between parallel and non-parallel paths).
 pub(crate) use crate::entry::{extract_input_params, extract_output_return_type};
@@ -162,7 +167,8 @@ fn verify_clauses_with_types(
     // during encoding when a match/constructor pattern needs them (#262).
     base_encoder.init_bitvector_infrastructure();
     for param in types.params {
-        if let Some((width, signed)) = Encoder::fixed_width_bits(&param.ty) {
+        let pt = param_ty_tokens(param);
+        if let Some((width, signed)) = Encoder::fixed_width_bits(&pt) {
             base_encoder.register_fixed_width_param(&param.name, width, signed);
         }
     }
@@ -219,7 +225,7 @@ fn verify_clauses_with_types(
 
     // Assert type-level constraints for parameters and return type.
     for param in types.params {
-        if is_nat_type(&param.ty) {
+        if is_nat_type(&param_ty_tokens(param)) {
             let p = base_encoder.get_or_create_int(&param.name);
             let zero = ast::Int::from_i64(0);
             solver.assert(p.ge(&zero));
@@ -298,7 +304,8 @@ fn verify_clauses_with_types(
         clause_encoder.share_encoding_state_from(&base_encoder);
         clause_encoder.init_bitvector_infrastructure();
         for param in types.params {
-            if let Some((width, signed)) = Encoder::fixed_width_bits(&param.ty) {
+            let pt = param_ty_tokens(param);
+            if let Some((width, signed)) = Encoder::fixed_width_bits(&pt) {
                 clause_encoder.register_fixed_width_param(&param.name, width, signed);
             }
         }
@@ -662,9 +669,10 @@ pub(crate) fn verify_impl_with_timeout(
             Decl::FnDef(f) => {
                 let ir_body = ir_bodies.and_then(|m| m.get(&f.name));
                 let ir_blocks = ir_block_maps.and_then(|m| m.get(&f.name));
+                let f_return_ty = crate::entry::type_expr_to_token_vec(f.return_ty.as_ref());
                 let types = TypeConstraints {
                     params: &f.params,
-                    return_ty: &f.return_ty,
+                    return_ty: &f_return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
                     ir_body,
@@ -685,9 +693,10 @@ pub(crate) fn verify_impl_with_timeout(
             Decl::Extern(e) => {
                 let ir_body = ir_bodies.and_then(|m| m.get(&e.name));
                 let ir_blocks = ir_block_maps.and_then(|m| m.get(&e.name));
+                let e_return_ty = crate::entry::type_expr_to_token_vec(e.return_ty.as_ref());
                 let types = TypeConstraints {
                     params: &e.params,
-                    return_ty: &e.return_ty,
+                    return_ty: &e_return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
                     ir_body,
@@ -782,9 +791,10 @@ pub(crate) fn verify_impl_with_timeout(
             Decl::Bind(b) => {
                 let ir_body = ir_bodies.and_then(|m| m.get(&b.name));
                 let ir_blocks = ir_block_maps.and_then(|m| m.get(&b.name));
+                let b_return_ty = crate::entry::type_expr_to_token_vec(b.return_ty.as_ref());
                 let types = TypeConstraints {
                     params: &b.params,
-                    return_ty: &b.return_ty,
+                    return_ty: &b_return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
                     ir_body,
@@ -921,7 +931,10 @@ mod tests {
         let params = extract_input_params(&clauses);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "raw_data");
-        assert_eq!(params[0].ty, vec!["Bytes"]);
+        assert_eq!(
+            params[0].ty,
+            Some(assura_parser::ast::TypeExpr::Named("Bytes".into()))
+        );
     }
 
     #[test]

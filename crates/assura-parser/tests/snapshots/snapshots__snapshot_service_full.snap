@@ -20,10 +20,7 @@ SourceFile {
                                     [
                                         FieldDef {
                                             name: "id",
-                                            ty: [
-                                                "Nat",
-                                            ],
-                                            parsed_type: Some(
+                                            ty: Some(
                                                 Named(
                                                     "Nat",
                                                 ),
@@ -32,10 +29,7 @@ SourceFile {
                                         },
                                         FieldDef {
                                             name: "amount",
-                                            ty: [
-                                                "Int",
-                                            ],
-                                            parsed_type: Some(
+                                            ty: Some(
                                                 Named(
                                                     "Int",
                                                 ),
@@ -44,10 +38,7 @@ SourceFile {
                                         },
                                         FieldDef {
                                             name: "status",
-                                            ty: [
-                                                "String",
-                                            ],
-                                            parsed_type: Some(
+                                            ty: Some(
                                                 Named(
                                                     "String",
                                                 ),

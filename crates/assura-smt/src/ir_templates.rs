@@ -99,11 +99,10 @@ impl IrPromptContext {
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let ty = if p.ty.is_empty() {
-                    "Int".to_string()
-                } else {
-                    p.ty.join(" ")
-                };
+                let ty =
+                    p.ty.as_ref()
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "Int".into());
                 format!("${i}: {ty}")
             })
             .collect::<Vec<_>>()
@@ -162,7 +161,13 @@ fn format_contract_block(ctx: &IrPromptContext) -> String {
         let params: Vec<String> = ctx
             .params
             .iter()
-            .map(|p| format!("{}: {}", p.name, p.ty.join(" ")))
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    p.name,
+                    p.ty.as_ref().map(|t| t.to_string()).unwrap_or_default()
+                )
+            })
             .collect();
         lines.push(format!("input({})", params.join(", ")));
     }
@@ -188,11 +193,9 @@ fn param_slot_types(ctx: &IrPromptContext) -> Vec<(usize, String)> {
         .map(|(i, p)| {
             (
                 i,
-                if p.ty.is_empty() {
-                    "Int".into()
-                } else {
-                    p.ty.join(" ")
-                },
+                p.ty.as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "Int".into()),
             )
         })
         .collect()
@@ -262,8 +265,7 @@ mod tests {
             decl_name: "CopyBytes".into(),
             params: vec![Param {
                 name: "raw".into(),
-                ty: vec!["Bytes".into()],
-                parsed_type: None,
+                ty: Some(assura_parser::ast::TypeExpr::Named("Bytes".into())),
             }],
             return_ty: vec!["Bytes".into()],
             clauses: vec![
@@ -325,8 +327,7 @@ mod tests {
             decl_name: "Main".into(),
             params: vec![Param {
                 name: "x".into(),
-                ty: vec!["Int".into()],
-                parsed_type: None,
+                ty: Some(assura_parser::ast::TypeExpr::Named("Int".into())),
             }],
             return_ty: vec!["Int".into()],
             clauses: vec![Clause {

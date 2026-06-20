@@ -154,11 +154,9 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
             .map(|(i, p)| {
                 (
                     i,
-                    if p.ty.is_empty() {
-                        "Int".into()
-                    } else {
-                        p.ty.join(" ")
-                    },
+                    p.ty.as_ref()
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "Int".into()),
                 )
             })
             .collect();

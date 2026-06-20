@@ -80,7 +80,8 @@ pub(crate) fn print_decl(decl: &Decl, indent: usize) {
                     println!("{pad}Type: {}{tps}", t.name);
                     for f in fields {
                         let pub_str = if f.is_pub { "pub " } else { "" };
-                        println!("{pad}  {pub_str}{}: {}", f.name, f.ty.join(" "));
+                        let ty_s = f.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                        println!("{pad}  {pub_str}{}: {ty_s}", f.name);
                     }
                 }
                 TypeBody::Empty => println!("{pad}Type: {}{tps}", t.name),
@@ -105,14 +106,18 @@ pub(crate) fn print_decl(decl: &Decl, indent: usize) {
             let params = ex
                 .params
                 .iter()
-                .map(|p| format!("{}: {}", p.name, p.ty.join(" ")))
+                .map(|p| {
+                    let ty_s = p.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                    format!("{}: {ty_s}", p.name)
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
-            println!(
-                "{pad}Extern: fn {}({params}) -> {}",
-                ex.name,
-                ex.return_ty.join(" ")
-            );
+            let ret_s = ex
+                .return_ty
+                .as_ref()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
+            println!("{pad}Extern: fn {}({params}) -> {ret_s}", ex.name,);
             for cl in &ex.clauses {
                 println!(
                     "{pad}  {:?}: {}",
@@ -125,14 +130,20 @@ pub(crate) fn print_decl(decl: &Decl, indent: usize) {
             let params = b
                 .params
                 .iter()
-                .map(|p| format!("{}: {}", p.name, p.ty.join(" ")))
+                .map(|p| {
+                    let ty_s = p.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                    format!("{}: {ty_s}", p.name)
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
+            let ret_s = b
+                .return_ty
+                .as_ref()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
             println!(
-                "{pad}Bind: \"{}\" as {}({params}) -> {}",
-                b.target_path,
-                b.name,
-                b.return_ty.join(" ")
+                "{pad}Bind: \"{}\" as {}({params}) -> {ret_s}",
+                b.target_path, b.name,
             );
             for cl in &b.clauses {
                 println!(
@@ -143,19 +154,22 @@ pub(crate) fn print_decl(decl: &Decl, indent: usize) {
             }
         }
         Decl::Prophecy(p) => {
-            println!("{pad}GhostProphecy: {}: {}", p.name, p.ty_tokens.join(" "));
+            let ty_s = p.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
+            println!("{pad}GhostProphecy: {}: {ty_s}", p.name);
         }
         Decl::FnDef(f) => {
             let params = f
                 .params
                 .iter()
-                .map(|p| format!("{}: {}", p.name, p.ty.join(" ")))
+                .map(|p| {
+                    let ty_s = p.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                    format!("{}: {ty_s}", p.name)
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
-            let ret = if f.return_ty.is_empty() {
-                String::new()
-            } else {
-                format!(" -> {}", f.return_ty.join(" "))
+            let ret = match &f.return_ty {
+                Some(te) => format!(" -> {te}"),
+                None => String::new(),
             };
             println!("{pad}Fn: {}({params}){ret}", f.name);
             for cl in &f.clauses {

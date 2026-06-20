@@ -173,7 +173,8 @@ pub(crate) fn format_typedef(t: &TypeDef, out: &mut String) {
             out.push_str(" {\n");
             for f in fields {
                 let vis = if f.is_pub { "pub " } else { "" };
-                out.push_str(&format!("    {vis}{}: {};\n", f.name, f.ty.join(" ")));
+                let ty_s = f.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                out.push_str(&format!("    {vis}{}: {ty_s};\n", f.name));
             }
             out.push_str("}\n");
         }
@@ -211,18 +212,15 @@ pub(crate) fn format_extern(e: &ExternDecl, out: &mut String) {
     let params: Vec<String> = e
         .params
         .iter()
-        .map(|p| {
-            if p.ty.is_empty() {
-                p.name.clone()
-            } else {
-                format!("{}: {}", p.name, p.ty.join(" "))
-            }
+        .map(|p| match &p.ty {
+            None => p.name.clone(),
+            Some(te) => format!("{}: {te}", p.name),
         })
         .collect();
     out.push_str(&params.join(", "));
     out.push(')');
-    if !e.return_ty.is_empty() {
-        out.push_str(&format!(" -> {}", e.return_ty.join(" ")));
+    if let Some(ret) = &e.return_ty {
+        out.push_str(&format!(" -> {ret}"));
     }
     out.push('\n');
     for clause in &e.clauses {
@@ -239,19 +237,16 @@ pub(crate) fn format_bind(b: &BindDecl, out: &mut String) {
         let params: Vec<String> = b
             .params
             .iter()
-            .map(|p| {
-                if p.ty.is_empty() {
-                    p.name.clone()
-                } else {
-                    format!("{}: {}", p.name, p.ty.join(" "))
-                }
+            .map(|p| match &p.ty {
+                None => p.name.clone(),
+                Some(te) => format!("{}: {te}", p.name),
             })
             .collect();
         out.push_str(&params.join(", "));
         out.push_str(")\n");
     }
-    if !b.return_ty.is_empty() {
-        out.push_str(&format!("    output(result: {})\n", b.return_ty.join(" ")));
+    if let Some(ret) = &b.return_ty {
+        out.push_str(&format!("    output(result: {ret})\n"));
     }
     for clause in &b.clauses {
         out.push_str("    ");
@@ -264,9 +259,9 @@ pub(crate) fn format_bind(b: &BindDecl, out: &mut String) {
 pub(crate) fn format_prophecy(p: &ProphecyDecl, out: &mut String) {
     out.push_str("ghost prophecy ");
     out.push_str(&p.name);
-    if !p.ty_tokens.is_empty() {
+    if let Some(te) = &p.ty {
         out.push_str(": ");
-        out.push_str(&p.ty_tokens.join(" "));
+        out.push_str(&te.to_string());
     }
     out.push('\n');
 }
@@ -342,18 +337,15 @@ pub(crate) fn format_fndef(f: &FnDef, out: &mut String) {
     let params: Vec<String> = f
         .params
         .iter()
-        .map(|p| {
-            if p.ty.is_empty() {
-                p.name.clone()
-            } else {
-                format!("{}: {}", p.name, p.ty.join(" "))
-            }
+        .map(|p| match &p.ty {
+            None => p.name.clone(),
+            Some(te) => format!("{}: {te}", p.name),
         })
         .collect();
     out.push_str(&params.join(", "));
     out.push(')');
-    if !f.return_ty.is_empty() {
-        out.push_str(&format!(" -> {}", f.return_ty.join(" ")));
+    if let Some(ret) = &f.return_ty {
+        out.push_str(&format!(" -> {ret}"));
     }
     out.push('\n');
     for clause in &f.clauses {
@@ -432,9 +424,9 @@ pub fn format_clause(clause: &Clause, out: &mut String) {
                     out.push_str(", ");
                 }
                 out.push_str(&p.name);
-                if !p.ty.is_empty() {
+                if let Some(te) = &p.ty {
                     out.push_str(": ");
-                    out.push_str(&p.ty.join(" "));
+                    out.push_str(&te.to_string());
                 }
             }
             out.push(')');
@@ -1525,8 +1517,7 @@ contract SafeDivide {
             is_ghost: false,
             is_lemma: true,
             params: vec![],
-            return_ty: vec!["Bool".to_string()],
-            return_type_expr: None,
+            return_ty: Some(assura_parser::ast::TypeExpr::Named("Bool".into())),
             clauses: vec![],
         };
         let mut out = String::new();

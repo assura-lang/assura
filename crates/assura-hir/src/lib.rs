@@ -783,13 +783,11 @@ pub(crate) fn hir_type_from_expr(expr: &ast::TypeExpr) -> HirType {
     }
 }
 
-/// Try to resolve a type from a `parsed_type` first, falling back to raw
-/// token parsing. This is the same pattern used in `assura-types`.
-pub(crate) fn resolve_hir_type(parsed_type: Option<&ast::TypeExpr>, tokens: &[String]) -> HirType {
-    if let Some(te) = parsed_type {
-        hir_type_from_expr(te)
-    } else {
-        parse_type_tokens(tokens)
+/// Resolve a type from an `Option<TypeExpr>`. Returns `HirType::Unit` if `None`.
+pub(crate) fn resolve_hir_type_opt(type_expr: Option<&ast::TypeExpr>) -> HirType {
+    match type_expr {
+        Some(te) => hir_type_from_expr(te),
+        None => HirType::Unit,
     }
 }
 
@@ -950,22 +948,17 @@ mod tests {
     }
 
     #[test]
-    fn resolve_hir_type_prefers_parsed() {
+    fn resolve_hir_type_opt_with_some() {
         let te = ast::TypeExpr::Named("Bool".into());
-        let tokens: Vec<String> = vec!["Int".into()];
         assert_eq!(
-            resolve_hir_type(Some(&te), &tokens),
+            resolve_hir_type_opt(Some(&te)),
             HirType::Named("Bool".into())
         );
     }
 
     #[test]
-    fn resolve_hir_type_falls_back() {
-        let tokens: Vec<String> = vec!["Int".into()];
-        assert_eq!(
-            resolve_hir_type(None, &tokens),
-            HirType::Named("Int".into())
-        );
+    fn resolve_hir_type_opt_with_none() {
+        assert_eq!(resolve_hir_type_opt(None), HirType::Unit);
     }
 
     // ---- HirExpr round-trip tests ----

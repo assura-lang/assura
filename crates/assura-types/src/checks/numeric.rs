@@ -28,7 +28,7 @@ pub(crate) fn run_fixed_width_checks(
         // Build a per-decl checker with declared fixed-width bindings
         let mut fw_checker = FixedWidthChecker::new();
         for param in params {
-            let ty_str = param.ty.join(" ");
+            let ty_str = param.ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
             if let Some(fw_ty) = token_to_fixed_width_type(&ty_str) {
                 fw_checker.declare(param.name.clone(), fw_ty);
             }
@@ -112,9 +112,7 @@ fn check_expr_fixed_width_full(
                 });
             }
         }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner) => {
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
             check_expr_fixed_width_full(inner, type_env, fw_checker, span, errors);
         }
         Expr::If {

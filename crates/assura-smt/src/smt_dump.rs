@@ -201,10 +201,7 @@ fn collect_unbounded_quantifiers(
             collect_unbounded_quantifiers(lhs, context, warnings);
             collect_unbounded_quantifiers(rhs, context, warnings);
         }
-        Expr::UnaryOp { expr: e, .. }
-        | Expr::Old(e)
-        | Expr::Ghost(e)
-        | Expr::Field(e, _) => {
+        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Ghost(e) | Expr::Field(e, _) => {
             collect_unbounded_quantifiers(e, context, warnings);
         }
         Expr::Call { func, args } => {

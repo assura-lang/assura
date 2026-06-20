@@ -31,7 +31,8 @@ pub(crate) fn collect_cvc5_type_constraints(
 ) -> Vec<Cvc5TypeConstraint> {
     let mut out = Vec::new();
     for param in params {
-        if param.ty.len() == 1 && param.ty[0] == "Nat" {
+        let pt = crate::entry::type_expr_to_token_vec(param.ty.as_ref());
+        if pt.len() == 1 && pt[0] == "Nat" {
             let name = sanitize_smtlib_name(&param.name);
             if vars.contains(&name) {
                 out.push(Cvc5TypeConstraint::NatNonNegative(name));
@@ -322,8 +323,7 @@ mod tests {
         vars.insert("size".into());
         let params = vec![assura_parser::ast::Param {
             name: "n".into(),
-            ty: vec!["Nat".into()],
-            parsed_type: None,
+            ty: Some(assura_parser::ast::TypeExpr::Named("Nat".into())),
         }];
         let constraints = collect_cvc5_type_constraints(
             &vars,

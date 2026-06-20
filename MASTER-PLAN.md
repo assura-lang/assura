@@ -2141,7 +2141,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.08** Consolidate verify API (16 -> 1 builder) -- #313
+- [x] **11.08** Consolidate verify API (16 -> 1 builder) -- #313
   - Replace 16 `verify*` functions in `assura-smt/src/entry.rs` with
     a builder: `Verifier::new(source).parallel().solver(Solver::Z3).verify()`
   - Keep the old functions as deprecated thin wrappers initially,
@@ -2156,7 +2156,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.09** Consolidate type_check API (5 -> 1 builder) -- #314
+- [x] **11.09** Consolidate type_check API (5 -> 1 builder) -- #314
   - Replace `type_check`, `type_check_with_modules`,
     `type_check_hir`, `type_check_hir_with_config`,
     `type_check_with_config` with a builder:

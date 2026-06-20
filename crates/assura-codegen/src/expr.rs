@@ -581,9 +581,7 @@ pub(crate) fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String
             collect_old_exprs_inner(lhs, out);
             collect_old_exprs_inner(rhs, out);
         }
-        Expr::UnaryOp { expr: e, .. }
-        | Expr::Field(e, _)
-        | Expr::Cast { expr: e, .. } => {
+        Expr::UnaryOp { expr: e, .. } | Expr::Field(e, _) | Expr::Cast { expr: e, .. } => {
             collect_old_exprs_inner(e, out);
         }
         Expr::Call { func, args } => {

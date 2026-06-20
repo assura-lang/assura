@@ -369,14 +369,15 @@ impl TotalityChecker {
                 for param in &fn_def.params {
                     if param.name == *name {
                         // Nat is always >= 0
-                        if param.ty.iter().any(|t| t == "Nat") {
+                        let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                        if p_tokens.iter().any(|t| t == "Nat") {
                             return true;
                         }
                         // Structural/named types (List, Tree, etc.) are
                         // well-founded by structural induction. Any type
                         // that is not a raw numeric type (Int, Float, etc.)
                         // is considered structural.
-                        let is_numeric_type = param.ty.iter().any(|t| {
+                        let is_numeric_type = p_tokens.iter().any(|t| {
                             matches!(
                                 t.as_str(),
                                 "Int" | "Float" | "F32" | "F64" | "I8" | "I16" | "I32" | "I64"
@@ -756,10 +757,10 @@ mod tests {
     }
 
     fn make_param(name: &str, ty: &[&str]) -> Param {
+        let tokens: Vec<String> = ty.iter().map(|s| s.to_string()).collect();
         Param {
             name: name.to_string(),
-            ty: ty.iter().map(|s| s.to_string()).collect(),
-            parsed_type: None,
+            ty: assura_parser::ast::try_parse_type_tokens(&tokens),
         }
     }
 
@@ -769,8 +770,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params,
-            return_ty: vec![],
-            return_type_expr: None,
+            return_ty: None,
             clauses,
         }
     }

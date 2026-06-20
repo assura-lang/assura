@@ -113,8 +113,7 @@ module copy {
     ];
     let params = vec![Param {
         name: "raw".into(),
-        ty: vec!["Bytes".into()],
-        parsed_type: None,
+        ty: Some(assura_parser::ast::TypeExpr::Named("Bytes".into())),
     }];
 
     let ctx = crate::verify_context::ContractVerifyContext {

@@ -122,7 +122,7 @@ pub fn expr_structurally_eq(a: &Expr, b: &Expr) -> bool {
                 rhs: rb,
             },
         ) => oa == ob && expr_structurally_eq(la, lb) && expr_structurally_eq(ra, rb),
-        
+
         (
             Expr::MethodCall {
                 receiver: ra,
