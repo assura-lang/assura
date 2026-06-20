@@ -2234,7 +2234,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 7: Final cleanup -- depends on: Round 6
 
-- [ ] **11.13** Split remaining monolith files -- #318
+- [x] **11.13** Split remaining monolith files -- #318
   - `assura-diagnostics/src/lib.rs` (3,861 lines) -- split into
     `registry.rs`, `catalog.rs`, `render.rs`
   - `assura-resolve/src/lib.rs` (2,290 lines) -- split into
