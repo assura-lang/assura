@@ -1712,6 +1712,73 @@ module branch {
 }
 
 #[test]
+fn ir_branch_sidecar_broken_else_yields_counterexample() {
+    let tmp = std::env::temp_dir().join(format!("assura_ir_branch_neg_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("BranchMax.assura");
+    std::fs::write(
+        &assura_path,
+        r#"
+contract BranchMax {
+  input(x: Int)
+  output(result: Int)
+  requires { x >= 0 }
+  ensures  { result >= 0 }
+}
+"#,
+    )
+    .unwrap();
+    // Broken #2 body: sets result to -1, violating ensures { result >= 0 }
+    std::fs::write(
+        tmp.join("BranchMax.ir"),
+        r#"
+module branch {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = if $0 then #1 else #2 : Int
+    $result = load $1 : Int
+  }
+  fn #1 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+  fn #2 : ($0: Int) -> Int ! pure
+  {
+    $result = const -1 : Int
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .arg("check")
+        .arg(assura_path.to_str().unwrap())
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura check");
+
+    assert!(
+        !out.status.success(),
+        "check with broken branch IR should fail: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        combined.contains("counterexample") || combined.contains("Counterexample"),
+        "expected counterexample from broken else branch, got: {combined}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn build_writes_stub_ir_sidecars_to_generated() {
     let tmp = std::env::temp_dir().join(format!("assura_ir_build_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
