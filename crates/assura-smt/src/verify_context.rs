@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use assura_parser::ast::{Clause, ClauseKind, Expr, Param};
 use assura_types::TypeEnv;
 
+use crate::VerifyFileExtras;
 use crate::cache::SessionCache;
 use crate::cvc5_verify_shared::Cvc5ContractPrepared;
 use crate::havoc_assume::HavocAssumeInput;
 use crate::ir::{IrFunction, IrInstr};
 use crate::ir_encode::IrEncodeContext;
 use crate::ir_type_ctx::IrTypeContext;
-use crate::VerifyFileExtras;
 
 /// Per-contract loaded IR context for havoc+assume encoding.
 #[must_use]

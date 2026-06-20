@@ -166,6 +166,9 @@ fn eval_ir_block_smtlib(
 
     let body = enc_ctx.ir_blocks?.get(&block_id)?;
     let mut local = frame.slots.clone();
+    let block_result_name = format!("__ir_block{block_id}_result");
+    declare_int_var(frame.script, frame.vars, &block_result_name);
+    local.insert(RESULT_SLOT, sanitize_smtlib_name(&block_result_name));
     let mut last = None;
     for instr in body {
         if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {

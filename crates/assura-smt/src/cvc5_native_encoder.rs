@@ -57,14 +57,7 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
     }
 
     if let Some(func) = input.ir {
-        apply_ir_body_constraints_cvc5(
-            tm,
-            func,
-            input.param_names,
-            vars,
-            state,
-            input.enc_ctx,
-        );
+        apply_ir_body_constraints_cvc5(tm, func, input.param_names, vars, state, input.enc_ctx);
     }
 }
 

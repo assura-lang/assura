@@ -95,6 +95,27 @@ module branch {
     (func, blocks)
 }
 
+/// Assert if-branch sibling bodies use block-local result slots (#297).
+#[cfg(test)]
+pub(crate) fn assert_ir_branch_results_scoped(output: &str) {
+    assert!(
+        output.contains("__ir_block1_result"),
+        "then-branch should use block-local result, got:\n{output}"
+    );
+    assert!(
+        output.contains("__ir_block2_result"),
+        "else-branch should use block-local result, got:\n{output}"
+    );
+    let binds_x_to_main_result =
+        output.contains("(= x result)") || output.contains("(= |x| |result|)");
+    let binds_zero_to_main_result =
+        output.contains("(= 0 result)") || output.contains("(= |0| |result|)");
+    assert!(
+        !(binds_x_to_main_result && binds_zero_to_main_result),
+        "must not bind both x and 0 to main result unconditionally, got:\n{output}"
+    );
+}
+
 /// Assert sibling `fn #N` bodies were inlined (not opaque `__ir_block_N` UFs).
 #[cfg(test)]
 pub(crate) fn assert_ir_blocks_inlined(output: &str, axiom_count: usize) {
@@ -110,6 +131,7 @@ pub(crate) fn assert_ir_blocks_inlined(output: &str, axiom_count: usize) {
         !output.contains("__ir_block_1") && !output.contains("__ir_block_2"),
         "inlined blocks must not use opaque __ir_block_N UFs, got:\n{output}"
     );
+    assert_ir_branch_results_scoped(output);
 }
 
 #[cfg(test)]

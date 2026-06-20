@@ -78,6 +78,14 @@ fn eval_ir_block_cvc5<'a>(
 
     let body = enc_ctx.ir_blocks?.get(&block_id)?;
     let mut local = frame.slots.clone();
+    let block_result_name = format!("__ir_block{block_id}_result");
+    let block_result_key = sanitize_smtlib_name(&block_result_name);
+    let block_result = frame
+        .vars
+        .entry(block_result_key.clone())
+        .or_insert_with(|| tm.mk_const(tm.integer_sort(), &block_result_key))
+        .clone();
+    local.insert(RESULT_SLOT, block_result);
     let mut last = None;
     for instr in body {
         if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
@@ -142,9 +150,7 @@ fn encode_ir_expr_cvc5<'a>(
             let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), frame, enc_ctx);
             mk_ir_cmp_as_int_cvc5(tm, *op, l, r)
         }
-        IrExprKind::Call { func, args } => {
-            mk_ir_call_cvc5(tm, func, args, frame, enc_ctx)
-        }
+        IrExprKind::Call { func, args } => mk_ir_call_cvc5(tm, func, args, frame, enc_ctx),
         IrExprKind::Field { slot, index } => {
             if *index == 0
                 && let Some(ty) = frame.slot_types.get(slot)
@@ -185,9 +191,7 @@ fn encode_ir_expr_cvc5<'a>(
             }
             let args: Vec<cvc5::Term<'a>> = fields
                 .iter()
-                .map(|(_, s)| {
-                    encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, enc_ctx)
-                })
+                .map(|(_, s)| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, enc_ctx))
                 .collect();
             mk_ir_nary_uf_cvc5(
                 tm,
@@ -208,24 +212,22 @@ fn encode_ir_expr_cvc5<'a>(
             let cond_val = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*cond), frame, enc_ctx);
             let zero = tm.mk_integer(0);
             let cond_bool = tm.mk_term(cvc5::Kind::Distinct, &[cond_val, zero]);
-            let then_v = eval_ir_block_cvc5(tm, *then_block, frame, enc_ctx)
-                .unwrap_or_else(|| {
-                    mk_ir_nullary_uf_cvc5(
-                        tm,
-                        &format!("__ir_block_{then_block}"),
-                        frame.vars,
-                        frame.state,
-                    )
-                });
-            let else_v = eval_ir_block_cvc5(tm, *else_block, frame, enc_ctx)
-                .unwrap_or_else(|| {
-                    mk_ir_nullary_uf_cvc5(
-                        tm,
-                        &format!("__ir_block_{else_block}"),
-                        frame.vars,
-                        frame.state,
-                    )
-                });
+            let then_v = eval_ir_block_cvc5(tm, *then_block, frame, enc_ctx).unwrap_or_else(|| {
+                mk_ir_nullary_uf_cvc5(
+                    tm,
+                    &format!("__ir_block_{then_block}"),
+                    frame.vars,
+                    frame.state,
+                )
+            });
+            let else_v = eval_ir_block_cvc5(tm, *else_block, frame, enc_ctx).unwrap_or_else(|| {
+                mk_ir_nullary_uf_cvc5(
+                    tm,
+                    &format!("__ir_block_{else_block}"),
+                    frame.vars,
+                    frame.state,
+                )
+            });
             tm.mk_term(cvc5::Kind::Ite, &[cond_bool, then_v, else_v])
         }
     }
@@ -705,14 +707,7 @@ module double {
         let tm = cvc5::TermManager::new();
         let mut state = default_cvc5_encoder_state();
         let mut vars = std::collections::HashMap::new();
-        apply_ir_body_constraints_cvc5(
-            &tm,
-            &func,
-            &["x".into()],
-            &mut vars,
-            &mut state,
-            enc_ctx,
-        );
+        apply_ir_body_constraints_cvc5(&tm, &func, &["x".into()], &mut vars, &mut state, enc_ctx);
 
         let text: String = state
             .axioms

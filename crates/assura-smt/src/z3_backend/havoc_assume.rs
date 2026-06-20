@@ -169,6 +169,10 @@ fn eval_ir_block_z3(
 ) -> Option<ast::Int> {
     let body = ctx.enc.ir_blocks?.get(&block_id)?;
     let mut local = slots.clone();
+    // Block-local result: do not inherit parent RESULT_SLOT or sibling branches
+    // would push unconditional (= x result) and (= 0 result) into global axioms.
+    let block_result = encoder.get_or_create_int(&format!("__ir_block{block_id}_result"));
+    local.insert(RESULT_SLOT, block_result);
     let mut last: Option<ast::Int> = None;
     for instr in body {
         if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
