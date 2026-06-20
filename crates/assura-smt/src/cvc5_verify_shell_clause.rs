@@ -2,10 +2,9 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{Clause, ClauseKind, Expr};
+use assura_parser::ast::ClauseKind;
 
 use crate::VerificationResult;
-use crate::cache::SessionCache;
 use crate::cvc5_adt::cvc5_adt_prelude_lines;
 use crate::cvc5_collect::collect_vars;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
@@ -19,30 +18,21 @@ use crate::cvc5_verify_shell_script::{
     append_cvc5_shellout_frame_axioms, append_cvc5_shellout_lemma_assumptions,
     append_cvc5_shellout_requires,
 };
+use crate::havoc_assume::HavocAssumeSmtlibTarget;
+use crate::verify_context::{Cvc5ClauseVerifyInput, Cvc5ContractVerifySession};
 
-#[expect(clippy::too_many_arguments)]
 pub(crate) fn check_clause_cvc5_shellout(
-    desc: &str,
-    requires: &[&Expr],
-    requires_clauses: &[&Clause],
-    ensures_clauses: &[&Clause],
-    ensures_body: &Expr,
-    kind: ClauseKind,
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
-    param_names: &[String],
-    ir_body: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
-    constants: &[(String, i64)],
-    narrowings: &[(String, i64)],
-    frame_checker: &assura_types::FrameChecker,
-    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
-    cache: &mut SessionCache,
+    input: &Cvc5ClauseVerifyInput<'_>,
+    session: &mut Cvc5ContractVerifySession<'_>,
 ) -> VerificationResult {
+    let desc = input.desc;
+    let ensures_body = input.body;
+    let kind = input.kind.clone();
+    let prepared = &session.prepared;
+    let contract = session.contract;
+
     let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
-    if let Some(result) = cvc5_lookup_cached_clause(cache, &cache_key, desc) {
+    if let Some(result) = cvc5_lookup_cached_clause(session.cache, &cache_key, desc) {
         return result;
     }
 
@@ -51,7 +41,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     }
 
     let mut vars = HashSet::new();
-    for req in requires {
+    for req in &prepared.requires_exprs {
         collect_vars(req, &mut vars);
     }
     collect_vars(ensures_body, &mut vars);
@@ -70,29 +60,30 @@ pub(crate) fn check_clause_cvc5_shellout(
         script.push_str(&format!("(declare-const {var} Int)\n"));
     }
 
-    append_cvc5_shellout_constraints(&mut script, &vars, params, return_ty, constants, narrowings);
-
-    append_havoc_assume_smtlib(
+    append_cvc5_shellout_constraints(
         &mut script,
-        &mut vars,
-        requires_clauses,
-        ensures_clauses,
-        return_ty,
-        param_names,
-        ir_body,
-        ir_blocks,
-        ir_bodies,
-        type_env,
+        &vars,
+        contract.params,
+        contract.return_ty,
+        contract.constants,
+        &prepared.narrowings,
     );
 
-    append_cvc5_shellout_requires(&mut script, requires);
+    let havoc_input = session.havoc_assume_input();
+    let mut havoc_target = HavocAssumeSmtlibTarget {
+        script: &mut script,
+        vars: &mut vars,
+    };
+    append_havoc_assume_smtlib(&mut havoc_target, &havoc_input);
 
-    if let Some(defs) = lemma_defs {
+    append_cvc5_shellout_requires(&mut script, &prepared.requires_exprs);
+
+    if let Some(defs) = session.lemma_defs {
         append_cvc5_shellout_lemma_assumptions(&mut script, ensures_body, defs);
     }
 
-    if kind == ClauseKind::Ensures && frame_checker.has_modifies() {
-        let frame_vars = frame_checker.frame_axiom_vars(ensures_body);
+    if kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
+        let frame_vars = prepared.frame_checker.frame_axiom_vars(ensures_body);
         append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
     }
 
@@ -110,7 +101,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     let result =
         cvc5_shell_query_to_verification_result(desc, kind.clone(), run_cvc5_binary(&script));
 
-    store_cvc5_clause_cache(cache, cache_key, &result);
+    store_cvc5_clause_cache(session.cache, cache_key, &result);
 
     result
 }

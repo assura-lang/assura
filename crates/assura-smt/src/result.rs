@@ -50,6 +50,135 @@ impl VerificationResult {
             },
         }
     }
+
+    /// Human-readable clause description from any result variant.
+    pub fn clause_desc(&self) -> &str {
+        match self {
+            Self::Verified { clause_desc, .. }
+            | Self::Counterexample { clause_desc, .. }
+            | Self::Timeout { clause_desc }
+            | Self::Unknown { clause_desc, .. } => clause_desc,
+        }
+    }
+
+    /// Contract/declaration name prefix (`"Foo::ensures"` → `"Foo"`).
+    pub fn contract_name(&self) -> &str {
+        self.clause_desc().split("::").next().unwrap_or("")
+    }
+
+    /// Rich JSON for CLI `--json` output (includes unsat cores and structured CEX).
+    pub fn to_json_value(&self) -> serde_json::Value {
+        match self {
+            Self::Verified {
+                clause_desc,
+                unsat_core,
+            } => {
+                let mut val = serde_json::json!({
+                    "status": "verified",
+                    "clause": clause_desc,
+                });
+                if let Some(core) = unsat_core {
+                    val["unsat_core"] = serde_json::json!(core);
+                }
+                val
+            }
+            Self::Counterexample {
+                clause_desc,
+                model,
+                counter_model,
+            } => {
+                let mut val = serde_json::json!({
+                    "status": "counterexample",
+                    "clause": clause_desc,
+                    "model": model,
+                });
+                if let Some(cm) = counter_model {
+                    let vars: serde_json::Map<String, serde_json::Value> = cm
+                        .variables
+                        .iter()
+                        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                        .collect();
+                    val["variables"] = serde_json::Value::Object(vars);
+                }
+                val
+            }
+            Self::Timeout { clause_desc } => serde_json::json!({
+                "status": "timeout",
+                "clause": clause_desc,
+            }),
+            Self::Unknown {
+                clause_desc,
+                reason,
+            } => serde_json::json!({
+                "status": "unknown",
+                "clause": clause_desc,
+                "reason": reason,
+            }),
+        }
+    }
+
+    /// Status string for gRPC responses.
+    pub fn grpc_status(&self) -> String {
+        match self {
+            Self::Verified { .. } => "verified".into(),
+            Self::Counterexample { .. } => "counterexample".into(),
+            Self::Timeout { .. } => "timeout".into(),
+            Self::Unknown { reason, .. } => format!("unknown: {reason}"),
+        }
+    }
+
+    /// Counterexample model text for gRPC responses.
+    pub fn grpc_counterexample(&self) -> String {
+        match self {
+            Self::Counterexample { model, .. } => model.clone(),
+            _ => String::new(),
+        }
+    }
+}
+
+/// JSON-serializable summary of a verification result (MCP, server, pipeline).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VerificationSummary {
+    pub status: String,
+    pub clause: String,
+    pub model: Option<String>,
+    pub reason: Option<String>,
+}
+
+impl From<&VerificationResult> for VerificationSummary {
+    fn from(r: &VerificationResult) -> Self {
+        match r {
+            VerificationResult::Verified { clause_desc, .. } => Self {
+                status: "verified".into(),
+                clause: clause_desc.clone(),
+                model: None,
+                reason: None,
+            },
+            VerificationResult::Counterexample {
+                clause_desc, model, ..
+            } => Self {
+                status: "counterexample".into(),
+                clause: clause_desc.clone(),
+                model: Some(model.clone()),
+                reason: None,
+            },
+            VerificationResult::Timeout { clause_desc } => Self {
+                status: "timeout".into(),
+                clause: clause_desc.clone(),
+                model: None,
+                reason: None,
+            },
+            VerificationResult::Unknown {
+                clause_desc,
+                reason,
+            } => Self {
+                status: "unknown".into(),
+                clause: clause_desc.clone(),
+                model: None,
+                reason: Some(reason.clone()),
+            },
+        }
+    }
 }
 
 /// The result of verifying a single contract clause.

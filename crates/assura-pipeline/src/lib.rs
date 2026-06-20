@@ -183,12 +183,16 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
         return output;
     }
 
-    // --- SMT verification ---
+    // --- SMT verification (same path as CLI: parallel + disk cache) ---
     let verify_start = Instant::now();
-    if let Some(ref typed) = output.typed {
-        let loaded_ir = assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
-        output.verification =
-            assura_smt::verify_with_options(typed, &config.verify, loaded_ir.extras().as_ref());
+    if config.verify.layer >= 1
+        && let Some(ref typed) = output.typed
+    {
+        output.verification = assura_smt::verify_typed_file_at(
+            std::path::Path::new(filename),
+            typed,
+            config.verify.solver,
+        );
     }
     output.timing.verify_ms = Some(verify_start.elapsed().as_secs_f64() * 1000.0);
 
@@ -213,14 +217,8 @@ pub struct PipelineDiagnostic {
     pub message: String,
 }
 
-/// A verification result entry.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct VerificationEntry {
-    pub status: String,
-    pub clause: String,
-    pub model: Option<String>,
-    pub reason: Option<String>,
-}
+/// A verification result entry (alias for [`assura_smt::VerificationSummary`]).
+pub type VerificationEntry = assura_smt::VerificationSummary;
 
 /// The result of running the full compiler pipeline on a source string.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -255,40 +253,6 @@ fn decl_summary(decl: &Decl) -> String {
         Decl::Prophecy(p) => format!("prophecy {}", p.name),
         Decl::CodecRegistry(c) => format!("codec_registry {}", c.name),
         Decl::Block { kind, name, .. } => format!("{kind} {name}"),
-    }
-}
-
-fn convert_verification(r: &assura_smt::VerificationResult) -> VerificationEntry {
-    match r {
-        assura_smt::VerificationResult::Verified { clause_desc, .. } => VerificationEntry {
-            status: "verified".into(),
-            clause: clause_desc.clone(),
-            model: None,
-            reason: None,
-        },
-        assura_smt::VerificationResult::Counterexample {
-            clause_desc, model, ..
-        } => VerificationEntry {
-            status: "counterexample".into(),
-            clause: clause_desc.clone(),
-            model: Some(model.clone()),
-            reason: None,
-        },
-        assura_smt::VerificationResult::Timeout { clause_desc } => VerificationEntry {
-            status: "timeout".into(),
-            clause: clause_desc.clone(),
-            model: None,
-            reason: None,
-        },
-        assura_smt::VerificationResult::Unknown {
-            clause_desc,
-            reason,
-        } => VerificationEntry {
-            status: "unknown".into(),
-            clause: clause_desc.clone(),
-            model: None,
-            reason: Some(reason.clone()),
-        },
     }
 }
 
@@ -346,7 +310,7 @@ pub fn run_at(source: &str, filename: &str) -> PipelineResult {
     let verification: Vec<VerificationEntry> = output
         .verification
         .iter()
-        .map(convert_verification)
+        .map(assura_smt::VerificationSummary::from)
         .collect();
 
     let success = !output.verification.iter().any(|r| {

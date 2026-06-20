@@ -34,6 +34,101 @@ pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> 
     type_check_with_config(resolved, &assura_config::TypeCheckConfig::default())
 }
 
+type SourceChecker = fn(&assura_parser::ast::SourceFile) -> Vec<TypeError>;
+type SymbolChecker = fn(&assura_parser::ast::SourceFile, &SymbolTable) -> Vec<TypeError>;
+type EnvChecker = fn(&assura_parser::ast::SourceFile, &TypeEnv) -> Vec<TypeError>;
+type EnvSymbolChecker =
+    fn(&assura_parser::ast::SourceFile, &TypeEnv, &SymbolTable) -> Vec<TypeError>;
+
+enum CheckerDispatch {
+    Source(SourceChecker),
+    Symbols(SymbolChecker),
+    Env(EnvChecker),
+    EnvSymbols(EnvSymbolChecker),
+    Effects,
+    Totality,
+}
+
+/// Ordered checker registry (order matches original `run_all_checks` wiring).
+const CHECKER_PIPELINE: &[CheckerDispatch] = &[
+    CheckerDispatch::Symbols(run_axiomatic_checks),
+    CheckerDispatch::Source(run_liveness_checks),
+    CheckerDispatch::Source(run_crud_auth_checks),
+    CheckerDispatch::Source(run_linearity_checks),
+    CheckerDispatch::Source(run_typestate_checks),
+    CheckerDispatch::Effects,
+    CheckerDispatch::Source(run_taint_checks),
+    CheckerDispatch::Source(run_info_flow_checks),
+    CheckerDispatch::Source(run_ffi_checks),
+    CheckerDispatch::Source(run_error_propagation_checks),
+    CheckerDispatch::EnvSymbols(run_frame_checks),
+    CheckerDispatch::Totality,
+    CheckerDispatch::Env(run_fixed_width_checks),
+    CheckerDispatch::Source(run_collection_contract_checks),
+    CheckerDispatch::Symbols(run_match_exhaustiveness_checks),
+    CheckerDispatch::Source(run_constant_time_checks),
+    CheckerDispatch::Source(run_determinism_checks),
+    CheckerDispatch::Source(run_memory_checks),
+    CheckerDispatch::Source(run_secure_erasure_checks),
+    CheckerDispatch::Source(run_interface_checks),
+    CheckerDispatch::Source(run_structural_invariant_checks),
+    CheckerDispatch::Source(run_shared_mem_checks),
+    CheckerDispatch::Source(run_lock_order_checks),
+    CheckerDispatch::Source(run_weak_memory_checks),
+    CheckerDispatch::Source(run_allocator_checks),
+    CheckerDispatch::Source(run_circular_buffer_checks),
+    CheckerDispatch::Source(run_callback_reentrancy_checks),
+    CheckerDispatch::Source(run_temporal_deadline_checks),
+    CheckerDispatch::Source(run_binary_format_checks),
+    CheckerDispatch::Source(run_bit_level_checks),
+    CheckerDispatch::Source(run_string_encoding_checks),
+    CheckerDispatch::Source(run_checksum_checks),
+    CheckerDispatch::Source(run_protocol_grammar_checks),
+    CheckerDispatch::Source(run_opaque_function_checks),
+    CheckerDispatch::Source(run_crash_recovery_checks),
+    CheckerDispatch::Source(run_page_cache_checks),
+    CheckerDispatch::Source(run_mvcc_checks),
+    CheckerDispatch::Source(run_rollback_checks),
+    CheckerDispatch::Source(run_monotonic_state_checks),
+    CheckerDispatch::Source(run_storage_failure_checks),
+    CheckerDispatch::Source(run_numerical_precision_checks),
+    CheckerDispatch::Source(run_precomputed_table_checks),
+    CheckerDispatch::Source(run_platform_abstraction_checks),
+    CheckerDispatch::Source(run_feature_flag_checks),
+    CheckerDispatch::Source(run_resource_limit_checks),
+    CheckerDispatch::Source(run_unsafe_escape_checks),
+    CheckerDispatch::Source(run_complexity_bound_checks),
+    CheckerDispatch::Source(run_behavioral_equivalence_checks),
+    CheckerDispatch::Source(run_multi_pass_refinement_checks),
+    CheckerDispatch::Source(run_incremental_contract_checks),
+    CheckerDispatch::Source(run_scoped_invariant_checks),
+    CheckerDispatch::Source(run_contract_composition_checks),
+    CheckerDispatch::Source(run_contract_library_checks),
+    CheckerDispatch::Source(run_crypto_conformance_checks),
+    CheckerDispatch::Source(run_codec_registry_checks),
+    CheckerDispatch::Source(run_generic_instantiation_checks),
+    CheckerDispatch::Source(run_quantifier_trigger_checks),
+    CheckerDispatch::Source(run_prophecy_resolution_checks),
+];
+
+fn run_effect_checks_filtered(
+    source: &assura_parser::ast::SourceFile,
+    config: &assura_config::TypeCheckConfig,
+) -> Vec<TypeError> {
+    let mut effect_errors = run_effect_checks(source);
+    if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
+        effect_errors.retain(|e| !config.allowed_effects.iter().any(|a| e.message.contains(a)));
+    }
+    if config.strict_effects {
+        effect_errors
+    } else {
+        effect_errors
+            .into_iter()
+            .filter(|e| e.code != "A07003")
+            .collect()
+    }
+}
+
 /// Run all domain and structural checkers on the source AST.
 ///
 /// This is the single dispatch point for all 50+ checkers. All three
@@ -47,77 +142,24 @@ fn run_all_checks(
     config: &assura_config::TypeCheckConfig,
 ) -> (Vec<TypeError>, Vec<PendingDecreaseCheck>) {
     let mut errors = Vec::new();
+    let mut pending_decrease_checks = Vec::new();
 
-    errors.extend(run_axiomatic_checks(source, symbols));
-    errors.extend(run_liveness_checks(source));
-    errors.extend(run_crud_auth_checks(source));
-    errors.extend(run_linearity_checks(source));
-    errors.extend(run_typestate_checks(source));
-
-    // Effect checking with config-driven filtering
-    let mut effect_errors = run_effect_checks(source);
-    if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
-        effect_errors.retain(|e| !config.allowed_effects.iter().any(|a| e.message.contains(a)));
+    for dispatch in CHECKER_PIPELINE {
+        match dispatch {
+            CheckerDispatch::Source(f) => errors.extend(f(source)),
+            CheckerDispatch::Symbols(f) => errors.extend(f(source, symbols)),
+            CheckerDispatch::Env(f) => errors.extend(f(source, type_env)),
+            CheckerDispatch::EnvSymbols(f) => errors.extend(f(source, type_env, symbols)),
+            CheckerDispatch::Effects => {
+                errors.extend(run_effect_checks_filtered(source, config));
+            }
+            CheckerDispatch::Totality => {
+                let (totality_errors, pending) = run_totality_checks(source);
+                errors.extend(totality_errors);
+                pending_decrease_checks = pending;
+            }
+        }
     }
-    if config.strict_effects {
-        errors.extend(effect_errors);
-    } else {
-        errors.extend(effect_errors.into_iter().filter(|e| e.code != "A07003"));
-    }
-
-    errors.extend(run_taint_checks(source));
-    errors.extend(run_info_flow_checks(source));
-    errors.extend(run_ffi_checks(source));
-    errors.extend(run_error_propagation_checks(source));
-    errors.extend(run_frame_checks(source, type_env, symbols));
-    let (totality_errors, pending_decrease_checks) = run_totality_checks(source);
-    errors.extend(totality_errors);
-    errors.extend(run_fixed_width_checks(source, type_env));
-    errors.extend(run_collection_contract_checks(source));
-    errors.extend(run_match_exhaustiveness_checks(source, symbols));
-    errors.extend(run_constant_time_checks(source));
-    errors.extend(run_determinism_checks(source));
-    errors.extend(run_memory_checks(source));
-    errors.extend(run_secure_erasure_checks(source));
-    errors.extend(run_interface_checks(source));
-    errors.extend(run_structural_invariant_checks(source));
-    errors.extend(run_shared_mem_checks(source));
-    errors.extend(run_lock_order_checks(source));
-    errors.extend(run_weak_memory_checks(source));
-    errors.extend(run_allocator_checks(source));
-    errors.extend(run_circular_buffer_checks(source));
-    errors.extend(run_callback_reentrancy_checks(source));
-    errors.extend(run_temporal_deadline_checks(source));
-    errors.extend(run_binary_format_checks(source));
-    errors.extend(run_bit_level_checks(source));
-    errors.extend(run_string_encoding_checks(source));
-    errors.extend(run_checksum_checks(source));
-    errors.extend(run_protocol_grammar_checks(source));
-    errors.extend(run_opaque_function_checks(source));
-    errors.extend(run_crash_recovery_checks(source));
-    errors.extend(run_page_cache_checks(source));
-    errors.extend(run_mvcc_checks(source));
-    errors.extend(run_rollback_checks(source));
-    errors.extend(run_monotonic_state_checks(source));
-    errors.extend(run_storage_failure_checks(source));
-    errors.extend(run_numerical_precision_checks(source));
-    errors.extend(run_precomputed_table_checks(source));
-    errors.extend(run_platform_abstraction_checks(source));
-    errors.extend(run_feature_flag_checks(source));
-    errors.extend(run_resource_limit_checks(source));
-    errors.extend(run_unsafe_escape_checks(source));
-    errors.extend(run_complexity_bound_checks(source));
-    errors.extend(run_behavioral_equivalence_checks(source));
-    errors.extend(run_multi_pass_refinement_checks(source));
-    errors.extend(run_incremental_contract_checks(source));
-    errors.extend(run_scoped_invariant_checks(source));
-    errors.extend(run_contract_composition_checks(source));
-    errors.extend(run_contract_library_checks(source));
-    errors.extend(run_crypto_conformance_checks(source));
-    errors.extend(run_codec_registry_checks(source));
-    errors.extend(run_generic_instantiation_checks(source));
-    errors.extend(run_quantifier_trigger_checks(source));
-    errors.extend(run_prophecy_resolution_checks(source));
 
     (errors, pending_decrease_checks)
 }

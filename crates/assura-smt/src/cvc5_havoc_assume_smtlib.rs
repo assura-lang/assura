@@ -1,64 +1,55 @@
 //! Havoc+assume SMT-LIB2 encoding for the CVC5 shell-out path (#267).
 
-use std::collections::HashSet;
-
-use assura_parser::ast::Clause;
-
-use assura_types::TypeEnv;
-
 use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
-use crate::havoc_assume::{infer_length_identity_links, is_collection_return};
-use crate::ir::IrFunction;
+use crate::havoc_assume::{
+    HavocAssumeInput, HavocAssumeSmtlibTarget, infer_length_identity_links, is_collection_return,
+};
 
 /// Declare canonical length vars and append havoc+assume background axioms.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors apply_havoc_assume_cvc5 arity"
-)]
 pub(crate) fn append_havoc_assume_smtlib(
-    script: &mut String,
-    vars: &mut HashSet<String>,
-    requires: &[&Clause],
-    ensures: &[&Clause],
-    return_ty: &[String],
-    param_names: &[String],
-    ir: Option<&IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, IrFunction>>,
-    type_env: Option<&TypeEnv>,
+    target: &mut HavocAssumeSmtlibTarget<'_>,
+    input: &HavocAssumeInput<'_>,
 ) {
-    if is_collection_return(return_ty) {
-        declare_canonical_len(script, vars, "result");
+    if is_collection_return(input.return_ty) {
+        declare_canonical_len(target, "result");
         let name = canonical_length_smtlib_name("result");
-        script.push_str(&format!("(assert (>= {name} 0))\n"));
+        target.script.push_str(&format!("(assert (>= {name} 0))\n"));
     }
 
-    for (result, input) in infer_length_identity_links(requires, ensures) {
-        declare_canonical_len(script, vars, &result);
-        declare_canonical_len(script, vars, &input);
+    for (result, input_name) in infer_length_identity_links(input.requires, input.ensures) {
+        declare_canonical_len(target, &result);
+        declare_canonical_len(target, &input_name);
         let len_result = canonical_length_smtlib_name(&result);
-        let len_input = canonical_length_smtlib_name(&input);
-        script.push_str(&format!("(assert (>= {len_result} 0))\n"));
-        script.push_str(&format!("(assert (>= {len_input} 0))\n"));
-        script.push_str(&format!("(assert (<= {len_result} {len_input}))\n"));
+        let len_input = canonical_length_smtlib_name(&input_name);
+        target
+            .script
+            .push_str(&format!("(assert (>= {len_result} 0))\n"));
+        target
+            .script
+            .push_str(&format!("(assert (>= {len_input} 0))\n"));
+        target
+            .script
+            .push_str(&format!("(assert (<= {len_result} {len_input}))\n"));
     }
 
-    if let Some(func) = ir {
+    if let Some(func) = input.ir {
         append_ir_body_constraints_smtlib(
-            script,
-            vars,
+            target.script,
+            target.vars,
             func,
-            param_names,
-            crate::ir_encode::IrEncodeContext::new(type_env, ir_bodies, ir_blocks),
+            input.param_names,
+            input.enc_ctx,
         );
     }
 }
 
-fn declare_canonical_len(script: &mut String, vars: &mut HashSet<String>, name: &str) {
+fn declare_canonical_len(target: &mut HavocAssumeSmtlibTarget<'_>, name: &str) {
     let key = canonical_length_smtlib_name(name);
-    if vars.insert(key.clone()) {
-        script.push_str(&format!("(declare-const {key} Int)\n"));
+    if target.vars.insert(key.clone()) {
+        target
+            .script
+            .push_str(&format!("(declare-const {key} Int)\n"));
     }
 }
 
@@ -66,6 +57,7 @@ fn declare_canonical_len(script: &mut String, vars: &mut HashSet<String>, name: 
 mod tests {
     use super::*;
     use assura_parser::ast::{BinOp, ClauseKind, Expr, Literal};
+    use std::collections::HashSet;
 
     fn len_le(obj: &str, bound: Expr) -> Expr {
         Expr::BinOp {
@@ -83,18 +75,19 @@ mod tests {
     fn havoc_assume_smtlib_collection_return_emits_nonneg() {
         let mut script = String::new();
         let mut vars = HashSet::new();
-        append_havoc_assume_smtlib(
-            &mut script,
-            &mut vars,
-            &[],
-            &[],
-            &["Bytes".into()],
-            &[],
-            None,
-            None,
-            None,
-            None,
-        );
+        let mut target = HavocAssumeSmtlibTarget {
+            script: &mut script,
+            vars: &mut vars,
+        };
+        let input = HavocAssumeInput {
+            requires: &[],
+            ensures: &[],
+            return_ty: &["Bytes".into()],
+            param_names: &[],
+            ir: None,
+            enc_ctx: crate::ir_encode::IrEncodeContext::default(),
+        };
+        append_havoc_assume_smtlib(&mut target, &input);
         assert!(script.contains("(declare-const __canonical_len_result Int)"));
         assert!(script.contains("(assert (>= __canonical_len_result 0))"));
     }
@@ -102,30 +95,33 @@ mod tests {
     #[test]
     fn havoc_assume_smtlib_cross_clause_length_link() {
         let n = Expr::Literal(Literal::Int("100".into()));
-        let requires = vec![Clause {
+        let requires = vec![assura_parser::ast::Clause {
             kind: ClauseKind::Requires,
             body: len_le("raw", n.clone()),
             effect_variables: vec![],
         }];
-        let ensures = vec![Clause {
+        let ensures = vec![assura_parser::ast::Clause {
             kind: ClauseKind::Ensures,
             body: len_le("result", n),
             effect_variables: vec![],
         }];
         let mut script = String::new();
         let mut vars = HashSet::new();
-        append_havoc_assume_smtlib(
-            &mut script,
-            &mut vars,
-            &requires.iter().collect::<Vec<_>>(),
-            &ensures.iter().collect::<Vec<_>>(),
-            &["Bytes".into()],
-            &["raw".into()],
-            None,
-            None,
-            None,
-            None,
-        );
+        let mut target = HavocAssumeSmtlibTarget {
+            script: &mut script,
+            vars: &mut vars,
+        };
+        let req_refs: Vec<_> = requires.iter().collect();
+        let ens_refs: Vec<_> = ensures.iter().collect();
+        let input = HavocAssumeInput {
+            requires: &req_refs,
+            ensures: &ens_refs,
+            return_ty: &["Bytes".into()],
+            param_names: &["raw".into()],
+            ir: None,
+            enc_ctx: crate::ir_encode::IrEncodeContext::default(),
+        };
+        append_havoc_assume_smtlib(&mut target, &input);
         assert!(script.contains("(assert (<= __canonical_len_result __canonical_len_raw))"));
     }
 }

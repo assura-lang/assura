@@ -11,6 +11,15 @@ use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, is_length_ir_call
 use crate::ir_type_ctx::base_type_name;
 
 #[cfg(feature = "cvc5-verify")]
+struct Cvc5IrEncodeFrame<'a> {
+    slots: &'a std::collections::HashMap<usize, cvc5::Term<'a>>,
+    vars: &'a mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    state: &'a mut Cvc5EncoderState<'a>,
+    slot_to_name: &'a std::collections::HashMap<usize, String>,
+    slot_types: &'a std::collections::HashMap<usize, String>,
+}
+
+#[cfg(feature = "cvc5-verify")]
 fn mk_ir_arith_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     op: crate::ir::IrArithOp,
@@ -59,49 +68,40 @@ fn mk_ir_cmp_as_int_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "IR block eval threads encoding context"
-)]
 fn eval_ir_block_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     block_id: usize,
-    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-    slot_to_name: &std::collections::HashMap<usize, String>,
-    slot_types: &std::collections::HashMap<usize, String>,
+    frame: &mut Cvc5IrEncodeFrame<'a>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> Option<cvc5::Term<'a>> {
     use crate::havoc_assume::RESULT_SLOT;
 
     let body = ir_blocks?.get(&block_id)?;
-    let mut local = slots.clone();
+    let mut local = frame.slots.clone();
     let mut last = None;
     for instr in body {
         if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
             let name = format!("__ir_block{block_id}_slot_{}", instr.target);
             let key = sanitize_smtlib_name(&name);
-            let v = vars
+            let v = frame
+                .vars
                 .entry(key.clone())
                 .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
                 .clone();
             local.insert(instr.target, v);
         }
-        let computed = encode_ir_expr_cvc5(
-            tm,
-            &instr.expr,
-            &local,
-            vars,
-            state,
-            slot_to_name,
-            slot_types,
-            ir_blocks,
-            enc_ctx,
-        );
+        let mut local_frame = Cvc5IrEncodeFrame {
+            slots: &local,
+            vars: frame.vars,
+            state: frame.state,
+            slot_to_name: frame.slot_to_name,
+            slot_types: frame.slot_types,
+        };
+        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut local_frame, ir_blocks, enc_ctx);
         if let Some(target) = local.get(&instr.target) {
-            state
+            frame
+                .state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[computed, target.clone()]));
         }
@@ -111,18 +111,10 @@ fn eval_ir_block_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "IR expr encoding threads encoding context"
-)]
 fn encode_ir_expr_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     expr: &crate::ir::IrExprKind,
-    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-    slot_to_name: &std::collections::HashMap<usize, String>,
-    slot_types: &std::collections::HashMap<usize, String>,
+    frame: &mut Cvc5IrEncodeFrame<'a>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> cvc5::Term<'a> {
@@ -133,97 +125,38 @@ fn encode_ir_expr_cvc5<'a>(
         IrExprKind::Const(IrLiteral::Float(f)) => tm.mk_integer(*f as i64),
         IrExprKind::Const(IrLiteral::Bool(b)) => tm.mk_integer(if *b { 1 } else { 0 }),
         IrExprKind::Const(IrLiteral::Str(_)) => {
-            let name = format!("__fresh_{}", state.fresh_counter);
-            state.fresh_counter += 1;
+            let name = format!("__fresh_{}", frame.state.fresh_counter);
+            frame.state.fresh_counter += 1;
             tm.mk_const(tm.integer_sort(), &name)
         }
-        IrExprKind::Load(slot) => slots.get(slot).cloned().unwrap_or_else(|| {
-            let name = format!("__fresh_{}", state.fresh_counter);
-            state.fresh_counter += 1;
+        IrExprKind::Load(slot) => frame.slots.get(slot).cloned().unwrap_or_else(|| {
+            let name = format!("__fresh_{}", frame.state.fresh_counter);
+            frame.state.fresh_counter += 1;
             tm.mk_const(tm.integer_sort(), &name)
         }),
         IrExprKind::Arith { op, lhs, rhs } => {
-            let l = encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*lhs),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            );
-            let r = encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*rhs),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            );
+            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), frame, ir_blocks, enc_ctx);
+            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), frame, ir_blocks, enc_ctx);
             mk_ir_arith_cvc5(tm, *op, l, r)
         }
         IrExprKind::Cmp { op, lhs, rhs } => {
-            let l = encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*lhs),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            );
-            let r = encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*rhs),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            );
+            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), frame, ir_blocks, enc_ctx);
+            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), frame, ir_blocks, enc_ctx);
             mk_ir_cmp_as_int_cvc5(tm, *op, l, r)
         }
-        IrExprKind::Call { func, args } => mk_ir_call_cvc5(
-            tm,
-            func,
-            args,
-            slots,
-            vars,
-            state,
-            slot_to_name,
-            slot_types,
-            ir_blocks,
-            enc_ctx,
-        ),
+        IrExprKind::Call { func, args } => {
+            mk_ir_call_cvc5(tm, func, args, frame, ir_blocks, enc_ctx)
+        }
         IrExprKind::Field { slot, index } => {
             if *index == 0
-                && let Some(ty) = slot_types.get(slot)
+                && let Some(ty) = frame.slot_types.get(slot)
                 && is_collection_ir_type(ty)
-                && let Some(name) = slot_to_name.get(slot)
+                && let Some(name) = frame.slot_to_name.get(slot)
             {
-                return canonical_length_cvc5(tm, name, vars, state);
+                return canonical_length_cvc5(tm, name, frame.vars, frame.state);
             }
-            let base = encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*slot),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            );
-            if let Some(ir_ty) = slot_types.get(slot)
+            let base = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), frame, ir_blocks, enc_ctx);
+            if let Some(ir_ty) = frame.slot_types.get(slot)
                 && let Some(field_name) = enc_ctx.type_ctx.field_name_at(ir_ty, *index)
             {
                 let type_name = base_type_name(ir_ty);
@@ -231,11 +164,12 @@ fn encode_ir_expr_cvc5<'a>(
                     tm,
                     &format!("__adt_{type_name}_{field_name}"),
                     base,
-                    vars,
-                    state,
+                    frame.vars,
+                    frame.state,
                 );
             }
-            let ty_suffix = slot_types
+            let ty_suffix = frame
+                .slot_types
                 .get(slot)
                 .map(|t| t.replace('<', "_").replace('>', ""))
                 .unwrap_or_else(|| "val".into());
@@ -243,100 +177,60 @@ fn encode_ir_expr_cvc5<'a>(
                 tm,
                 &format!("__ir_field_{ty_suffix}_{index}"),
                 base,
-                vars,
-                state,
+                frame.vars,
+                frame.state,
             )
         }
         IrExprKind::Construct { type_id, fields } => {
             if enc_ctx.type_ctx.has_struct_layout(type_id) {
                 return encode_ir_construct_typed_cvc5(
-                    tm,
-                    type_id,
-                    fields,
-                    slots,
-                    vars,
-                    state,
-                    slot_to_name,
-                    slot_types,
-                    ir_blocks,
-                    enc_ctx,
+                    tm, type_id, fields, frame, ir_blocks, enc_ctx,
                 );
             }
             let args: Vec<cvc5::Term<'a>> = fields
                 .iter()
                 .map(|(_, s)| {
-                    encode_ir_expr_cvc5(
-                        tm,
-                        &IrExprKind::Load(*s),
-                        slots,
-                        vars,
-                        state,
-                        slot_to_name,
-                        slot_types,
-                        ir_blocks,
-                        enc_ctx,
-                    )
+                    encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, ir_blocks, enc_ctx)
                 })
                 .collect();
-            mk_ir_nary_uf_cvc5(tm, &format!("__ir_construct_{type_id}"), &args, vars, state)
+            mk_ir_nary_uf_cvc5(
+                tm,
+                &format!("__ir_construct_{type_id}"),
+                &args,
+                frame.vars,
+                frame.state,
+            )
         }
-        IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => encode_ir_expr_cvc5(
-            tm,
-            &IrExprKind::Load(*slot),
-            slots,
-            vars,
-            state,
-            slot_to_name,
-            slot_types,
-            ir_blocks,
-            enc_ctx,
-        ),
+        IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => {
+            encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), frame, ir_blocks, enc_ctx)
+        }
         IrExprKind::If {
             cond,
             then_block,
             else_block,
         } => {
-            let cond_val = encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*cond),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            );
+            let cond_val =
+                encode_ir_expr_cvc5(tm, &IrExprKind::Load(*cond), frame, ir_blocks, enc_ctx);
             let zero = tm.mk_integer(0);
             let cond_bool = tm.mk_term(cvc5::Kind::Distinct, &[cond_val, zero]);
-            let then_v = eval_ir_block_cvc5(
-                tm,
-                *then_block,
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            )
-            .unwrap_or_else(|| {
-                mk_ir_nullary_uf_cvc5(tm, &format!("__ir_block_{then_block}"), vars, state)
-            });
-            let else_v = eval_ir_block_cvc5(
-                tm,
-                *else_block,
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            )
-            .unwrap_or_else(|| {
-                mk_ir_nullary_uf_cvc5(tm, &format!("__ir_block_{else_block}"), vars, state)
-            });
+            let then_v = eval_ir_block_cvc5(tm, *then_block, frame, ir_blocks, enc_ctx)
+                .unwrap_or_else(|| {
+                    mk_ir_nullary_uf_cvc5(
+                        tm,
+                        &format!("__ir_block_{then_block}"),
+                        frame.vars,
+                        frame.state,
+                    )
+                });
+            let else_v = eval_ir_block_cvc5(tm, *else_block, frame, ir_blocks, enc_ctx)
+                .unwrap_or_else(|| {
+                    mk_ir_nullary_uf_cvc5(
+                        tm,
+                        &format!("__ir_block_{else_block}"),
+                        frame.vars,
+                        frame.state,
+                    )
+                });
             tm.mk_term(cvc5::Kind::Ite, &[cond_bool, then_v, else_v])
         }
     }
@@ -361,19 +255,11 @@ fn ensure_struct_adt_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "typed construct encoding threads IR context"
-)]
 fn encode_ir_construct_typed_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     type_id: &str,
     fields: &[(usize, usize)],
-    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-    slot_to_name: &std::collections::HashMap<usize, String>,
-    slot_types: &std::collections::HashMap<usize, String>,
+    frame: &mut Cvc5IrEncodeFrame<'a>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> cvc5::Term<'a> {
@@ -384,34 +270,24 @@ fn encode_ir_construct_typed_cvc5<'a>(
         .type_ctx
         .field_names_for(type_id)
         .unwrap_or_default();
-    ensure_struct_adt_cvc5(tm, state, type_id, &field_names);
+    ensure_struct_adt_cvc5(tm, frame.state, type_id, &field_names);
 
     let mut ordered = fields.to_vec();
     ordered.sort_by_key(|(idx, _)| *idx);
     let arg_terms: Vec<cvc5::Term<'a>> = ordered
         .iter()
-        .map(|(_, s)| {
-            encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*s),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            )
-        })
+        .map(|(_, s)| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, ir_blocks, enc_ctx))
         .collect();
 
-    let ctor = state
+    let ctor = frame
+        .state
         .struct_adt_defs
         .get(type_id)
         .and_then(|d| d.constructors.first())
         .expect("struct ADT has one constructor")
         .clone();
-    let symbols = state
+    let symbols = frame
+        .state
         .struct_adt_symbols
         .get(type_id)
         .expect("struct ADT symbols");
@@ -421,25 +297,17 @@ fn encode_ir_construct_typed_cvc5<'a>(
         symbols,
         &ctor,
         &arg_terms,
-        &mut state.axioms,
-        &mut state.fresh_counter,
+        &mut frame.state.axioms,
+        &mut frame.state.fresh_counter,
     )
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "call inlining threads callee slot maps"
-)]
 fn eval_ir_call_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     func: &str,
     args: &[usize],
-    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-    slot_to_name: &std::collections::HashMap<usize, String>,
-    slot_types: &std::collections::HashMap<usize, String>,
+    frame: &mut Cvc5IrEncodeFrame<'a>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> Option<cvc5::Term<'a>> {
@@ -456,30 +324,24 @@ fn eval_ir_call_cvc5<'a>(
         std::collections::HashMap::new();
 
     for (i, param) in callee.params.iter().enumerate() {
-        let arg_val = encode_ir_expr_cvc5(
-            tm,
-            &IrExprKind::Load(args[i]),
-            slots,
-            vars,
-            state,
-            slot_to_name,
-            slot_types,
-            ir_blocks,
-            enc_ctx,
-        );
+        let arg_val =
+            encode_ir_expr_cvc5(tm, &IrExprKind::Load(args[i]), frame, ir_blocks, enc_ctx);
         let key = sanitize_smtlib_name(&format!("{prefix}param_{}", param.slot));
-        let slot_var = vars
+        let slot_var = frame
+            .vars
             .entry(key.clone())
             .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
             .clone();
-        state
+        frame
+            .state
             .axioms
             .push(tm.mk_term(cvc5::Kind::Equal, &[arg_val, slot_var.clone()]));
         local.insert(param.slot, slot_var);
     }
 
     let result_key = sanitize_smtlib_name(&format!("{prefix}result"));
-    let result_var = vars
+    let result_var = frame
+        .vars
         .entry(result_key.clone())
         .or_insert_with(|| tm.mk_const(tm.integer_sort(), &result_key))
         .clone();
@@ -495,25 +357,24 @@ fn eval_ir_call_cvc5<'a>(
     for instr in &callee.body {
         if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
             let key = sanitize_smtlib_name(&format!("{prefix}slot_{}", instr.target));
-            let v = vars
+            let v = frame
+                .vars
                 .entry(key.clone())
                 .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
                 .clone();
             local.insert(instr.target, v);
         }
-        let computed = encode_ir_expr_cvc5(
-            tm,
-            &instr.expr,
-            &local,
-            vars,
-            state,
-            &callee_names,
-            &callee_slot_types,
-            ir_blocks,
-            enc_ctx,
-        );
+        let mut local_frame = Cvc5IrEncodeFrame {
+            slots: &local,
+            vars: frame.vars,
+            state: frame.state,
+            slot_to_name: &callee_names,
+            slot_types: &callee_slot_types,
+        };
+        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut local_frame, ir_blocks, enc_ctx);
         if let Some(target) = local.get(&instr.target) {
-            state
+            frame
+                .state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[computed, target.clone()]));
         }
@@ -523,19 +384,11 @@ fn eval_ir_call_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "call dispatch threads encoding context"
-)]
 fn mk_ir_call_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     func: &str,
     args: &[usize],
-    slots: &std::collections::HashMap<usize, cvc5::Term<'a>>,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-    slot_to_name: &std::collections::HashMap<usize, String>,
-    slot_types: &std::collections::HashMap<usize, String>,
+    frame: &mut Cvc5IrEncodeFrame<'a>,
     ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> cvc5::Term<'a> {
@@ -543,46 +396,29 @@ fn mk_ir_call_cvc5<'a>(
 
     if is_length_ir_call(func, args.len())
         && let Some(slot) = args.first()
-        && let Some(name) = slot_to_name.get(slot)
+        && let Some(name) = frame.slot_to_name.get(slot)
     {
-        return canonical_length_cvc5(tm, name, vars, state);
+        return canonical_length_cvc5(tm, name, frame.vars, frame.state);
     }
 
-    if let Some(inlined) = eval_ir_call_cvc5(
-        tm,
-        func,
-        args,
-        slots,
-        vars,
-        state,
-        slot_to_name,
-        slot_types,
-        ir_blocks,
-        enc_ctx,
-    ) {
+    if let Some(inlined) = eval_ir_call_cvc5(tm, func, args, frame, ir_blocks, enc_ctx) {
         return inlined;
     }
 
     let arg_terms: Vec<cvc5::Term<'a>> = args
         .iter()
-        .map(|a| {
-            encode_ir_expr_cvc5(
-                tm,
-                &IrExprKind::Load(*a),
-                slots,
-                vars,
-                state,
-                slot_to_name,
-                slot_types,
-                ir_blocks,
-                enc_ctx,
-            )
-        })
+        .map(|a| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*a), frame, ir_blocks, enc_ctx))
         .collect();
-    if let Some(term) = encode_known_builtin_cvc5(tm, func, &arg_terms, state) {
+    if let Some(term) = encode_known_builtin_cvc5(tm, func, &arg_terms, frame.state) {
         return term;
     }
-    mk_ir_nary_uf_cvc5(tm, &format!("__ir_call_{func}"), &arg_terms, vars, state)
+    mk_ir_nary_uf_cvc5(
+        tm,
+        &format!("__ir_call_{func}"),
+        &arg_terms,
+        frame.vars,
+        frame.state,
+    )
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -743,6 +579,14 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
             .collect();
     let slot_types = slot_type_map(func);
 
+    let mut frame = Cvc5IrEncodeFrame {
+        slots: &slots,
+        vars,
+        state,
+        slot_to_name: &slot_to_name,
+        slot_types: &slot_types,
+    };
+
     for instr in &func.body {
         if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
             let key = sanitize_smtlib_name(&format!("__ir_slot_{}", instr.target));
@@ -752,17 +596,7 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
                 .clone();
             slots.insert(instr.target, v);
         }
-        let computed = encode_ir_expr_cvc5(
-            tm,
-            &instr.expr,
-            &slots,
-            vars,
-            state,
-            &slot_to_name,
-            &slot_types,
-            ir_blocks,
-            enc_ctx,
-        );
+        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut frame, ir_blocks, enc_ctx);
         if let Some(target) = slots.get(&instr.target) {
             state
                 .axioms
@@ -806,17 +640,14 @@ mod tests {
         };
         let names = std::collections::HashMap::new();
         let types = std::collections::HashMap::new();
-        let _ = encode_ir_expr_cvc5(
-            &tm,
-            &expr,
-            &slots,
-            &mut vars,
-            &mut state,
-            &names,
-            &types,
-            None,
-            IrEncodeContext::default(),
-        );
+        let mut frame = Cvc5IrEncodeFrame {
+            slots: &slots,
+            vars: &mut vars,
+            state: &mut state,
+            slot_to_name: &names,
+            slot_types: &types,
+        };
+        let _ = encode_ir_expr_cvc5(&tm, &expr, &mut frame, None, IrEncodeContext::default());
     }
 
     #[test]

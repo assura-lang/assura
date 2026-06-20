@@ -50,6 +50,14 @@ pub(crate) fn canonical_length_cvc5<'a>(
     v
 }
 
+/// Native CVC5 quantifier encoding session (term manager + var map + state).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) struct Cvc5QuantifierEncodeCtx<'a> {
+    pub tm: &'a cvc5::TermManager,
+    pub vars: &'a mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    pub state: &'a mut Cvc5EncoderState<'a>,
+}
+
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn field_len_fn_cvc5<'a>(
     tm: &'a cvc5::TermManager,

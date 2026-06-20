@@ -173,36 +173,17 @@ fn run_check(
         })
         .collect();
 
-    let mut verifications = Vec::new();
-    for vr in &output.verification {
-        let (clause, status, cex) = match vr {
-            assura_smt::VerificationResult::Verified { clause_desc, .. } => {
-                (clause_desc.clone(), "verified".into(), String::new())
-            }
-            assura_smt::VerificationResult::Counterexample {
-                clause_desc, model, ..
-            } => (clause_desc.clone(), "counterexample".into(), model.clone()),
-            assura_smt::VerificationResult::Timeout { clause_desc } => {
-                (clause_desc.clone(), "timeout".into(), String::new())
-            }
-            assura_smt::VerificationResult::Unknown {
-                clause_desc,
-                reason,
-            } => (
-                clause_desc.clone(),
-                format!("unknown: {reason}"),
-                String::new(),
-            ),
-        };
-        let contract_name = clause.split("::").next().unwrap_or("").to_string();
-        verifications.push(VerificationResult {
-            contract_name,
-            clause,
-            status,
-            counterexample: cex,
+    let verifications: Vec<VerificationResult> = output
+        .verification
+        .iter()
+        .map(|vr| VerificationResult {
+            contract_name: vr.contract_name().to_string(),
+            clause: vr.clause_desc().to_string(),
+            status: vr.grpc_status(),
+            counterexample: vr.grpc_counterexample(),
             time_ms: 0,
-        });
-    }
+        })
+        .collect();
 
     (diagnostics, verifications)
 }

@@ -16,7 +16,6 @@ cvc5-verify = ["dep:cvc5"]
 
 [dependencies]
 assura-parser = { path = "../assura-parser" }
-assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
 assura-config = { path = "../assura-config" }
 z3 = { version = "0.20", optional = true }
@@ -27,4 +26,5 @@ rayon = "1"
 sha2 = "0.11"
 
 [dev-dependencies]
+assura-resolve = { path = "../assura-resolve" }
 tempfile = "3"

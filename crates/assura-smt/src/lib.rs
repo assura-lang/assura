@@ -39,13 +39,14 @@ pub use measures::{
 
 /// Verification result types: `VerificationResult` and `CounterexampleModel`.
 pub mod result;
-pub use result::{CounterexampleModel, VerificationResult};
+pub use result::{CounterexampleModel, VerificationResult, VerificationSummary};
 
 /// Shared IR expression encoding helpers.
 mod ir_encode;
 mod ir_generate;
 mod ir_templates;
 mod ir_type_ctx;
+mod verify_context;
 
 /// Public entry point functions for SMT verification.
 mod entry;
@@ -56,8 +57,9 @@ pub use entry::{
     verify_contract, verify_contract_with_solver, verify_decrease, verify_evolution,
     verify_file_evolution, verify_from_source, verify_parallel, verify_parallel_from_source,
     verify_parallel_with_solver, verify_region_containment, verify_taint_safety,
-    verify_with_measures, verify_with_options,
+    verify_typed_file_at, verify_with_measures, verify_with_options,
 };
+pub use feature_max::{collect_feature_max_constants, derive_narrowings};
 pub use ir_generate::{EnsuresShape, classify_ensures_shape, generate_ir_sidecar_text};
 pub use ir_loader::{
     LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source,
@@ -67,6 +69,7 @@ pub use ir_templates::{
     IrPromptContext, IrPromptPattern, ir_prompt_contexts_for_typed, render_ir_prompt,
     resolve_ir_pattern, suggest_ir_pattern,
 };
+pub use verify_context::ContractVerifyContext;
 
 /// SMT-LIB2 dump and quantifier bound validation.
 pub mod smt_dump;
@@ -103,7 +106,6 @@ mod cvc5_common;
 #[cfg(feature = "cvc5-verify")]
 mod cvc5_encoder_state;
 mod cvc5_expr_smtlib;
-mod cvc5_feature_max;
 mod cvc5_field_access;
 #[cfg(not(feature = "cvc5-verify"))]
 mod cvc5_havoc_assume_smtlib;
@@ -157,6 +159,7 @@ mod cvc5_verify_shell_runner;
 #[cfg(not(feature = "cvc5-verify"))]
 mod cvc5_verify_shell_script;
 mod cvc5_wrapper_encode;
+mod feature_max;
 
 // ---------------------------------------------------------------------------
 // Z3 backend

@@ -1,9 +1,8 @@
 //! Per-clause CVC5 native verification (non-incremental path).
 
-use assura_parser::ast::{Clause, ClauseKind, Expr};
+use assura_parser::ast::ClauseKind;
 
 use crate::VerificationResult;
-use crate::cache::SessionCache;
 use crate::cvc5_collect::collect_cvc5_var_names;
 use crate::cvc5_native_encoder::{
     apply_havoc_assume_cvc5, default_cvc5_encoder_state, encode_expr_cvc5,
@@ -17,30 +16,20 @@ use crate::cvc5_verify_shared::{
     cvc5_encode_failure, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
     store_cvc5_clause_cache,
 };
+use crate::verify_context::{Cvc5ClauseVerifyInput, Cvc5ContractVerifySession};
 
-#[expect(clippy::too_many_arguments)]
 pub(crate) fn check_clause_cvc5_native(
-    desc: &str,
-    requires: &[&Expr],
-    requires_clauses: &[&Clause],
-    ensures_clauses: &[&Clause],
-    ensures_body: &Expr,
-    kind: ClauseKind,
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
-    param_names: &[String],
-    ir_body: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
-    constants: &[(String, i64)],
-    narrowings: &[(String, i64)],
-    frame_checker: &assura_types::FrameChecker,
-    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
-    cache: &mut SessionCache,
+    input: &Cvc5ClauseVerifyInput<'_>,
+    session: &mut Cvc5ContractVerifySession<'_>,
 ) -> VerificationResult {
+    let desc = input.desc;
+    let ensures_body = input.body;
+    let kind = input.kind.clone();
+    let prepared = &session.prepared;
+    let contract = session.contract;
+
     let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
-    if let Some(result) = cvc5_lookup_cached_clause(cache, &cache_key, desc) {
+    if let Some(result) = cvc5_lookup_cached_clause(session.cache, &cache_key, desc) {
         return result;
     }
 
@@ -51,37 +40,31 @@ pub(crate) fn check_clause_cvc5_native(
     let tm = cvc5::TermManager::new();
     let mut solver = new_cvc5_solver(&tm, Cvc5SolverOpts::default());
 
-    let var_names = collect_cvc5_var_names(requires, ensures_body);
-    let mut var_map = build_cvc5_var_map(&tm, &var_names, constants);
+    let var_names = collect_cvc5_var_names(&prepared.requires_exprs, ensures_body);
+    let mut var_map = build_cvc5_var_map(&tm, &var_names, contract.constants);
     assert_cvc5_solver_prelude(
         &tm,
         &mut solver,
         &var_map,
-        params,
-        return_ty,
+        contract.params,
+        contract.return_ty,
         &[],
-        narrowings,
+        &prepared.narrowings,
     );
 
     let mut enc_state = default_cvc5_encoder_state();
+    let havoc_input = session.havoc_assume_input();
+    apply_havoc_assume_cvc5(&tm, &havoc_input, &mut var_map, &mut enc_state);
 
-    apply_havoc_assume_cvc5(
+    assert_cvc5_requires(
         &tm,
-        requires_clauses,
-        ensures_clauses,
-        return_ty,
-        param_names,
-        ir_body,
-        ir_blocks,
-        ir_bodies,
-        type_env,
+        &mut solver,
+        &prepared.requires_exprs,
         &mut var_map,
         &mut enc_state,
     );
 
-    assert_cvc5_requires(&tm, &mut solver, requires, &mut var_map, &mut enc_state);
-
-    if let Some(defs) = lemma_defs {
+    if let Some(defs) = session.lemma_defs {
         inject_cvc5_lemma_assumptions(
             &tm,
             &mut solver,
@@ -99,15 +82,15 @@ pub(crate) fn check_clause_cvc5_native(
 
     assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
-    if kind == ClauseKind::Ensures && frame_checker.has_modifies() {
-        let frame_vars = frame_checker.frame_axiom_vars(ensures_body);
+    if kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
+        let frame_vars = prepared.frame_checker.frame_axiom_vars(ensures_body);
         assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
     }
 
     assert_cvc5_clause_check(&tm, &mut solver, kind.clone(), body_term);
 
     let result = finish_cvc5_clause_check(desc, kind, &mut solver, &var_map);
-    store_cvc5_clause_cache(cache, cache_key, &result);
+    store_cvc5_clause_cache(session.cache, cache_key, &result);
 
     result
 }

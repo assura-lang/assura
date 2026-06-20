@@ -3,10 +3,6 @@
 #[allow(unused_imports)]
 pub use crate::cvc5_collect::collect_vars;
 #[allow(unused_imports)]
-pub(crate) use crate::cvc5_feature_max::{
-    collect_feature_max_constants_cvc5, derive_narrowings_cvc5,
-};
-#[allow(unused_imports)]
 pub(crate) use crate::cvc5_model::parse_smtlib_model;
 #[allow(unused_imports)]
 pub(crate) use crate::cvc5_verify_dispatch::{
@@ -14,6 +10,8 @@ pub(crate) use crate::cvc5_verify_dispatch::{
     verify_contract_cvc5_with_types,
 };
 pub(crate) use crate::cvc5_verify_shared::collect_lemma_defs_for_cvc5;
+#[allow(unused_imports)]
+pub(crate) use crate::feature_max::{collect_feature_max_constants, derive_narrowings};
 
 #[cfg(feature = "cvc5-verify")]
 #[allow(unused_imports)]

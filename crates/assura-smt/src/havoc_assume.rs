@@ -5,8 +5,27 @@
 //! axioms and cross-clause length inference. When IR is available,
 //! instruction constraints tie `$result` to the encoded body.
 
+use std::collections::HashSet;
+
 use crate::ir::{IrExprKind, IrFunction};
+use crate::ir_encode::IrEncodeContext;
 use assura_parser::ast::{BinOp, Clause, Expr};
+
+/// Shared havoc+assume clause and IR context for Z3 and CVC5 backends.
+pub(crate) struct HavocAssumeInput<'a> {
+    pub requires: &'a [&'a Clause],
+    pub ensures: &'a [&'a Clause],
+    pub return_ty: &'a [String],
+    pub param_names: &'a [String],
+    pub ir: Option<&'a IrFunction>,
+    pub enc_ctx: IrEncodeContext<'a>,
+}
+
+/// SMT-LIB2 output target for havoc+assume encoding (shell-out path).
+pub(crate) struct HavocAssumeSmtlibTarget<'a> {
+    pub script: &'a mut String,
+    pub vars: &'a mut HashSet<String>,
+}
 
 /// Sentinel slot for `$result` in the IR (matches `parse_slot("$result")`).
 pub const RESULT_SLOT: usize = usize::MAX;

@@ -8,7 +8,31 @@ use std::collections::HashSet;
 #[cfg(feature = "cvc5-verify")]
 mod native_tests {
     use super::*;
-    use assura_parser::ast::Param;
+    use crate::verify_context::ContractVerifyContext;
+    use assura_parser::ast::{Expr, Param};
+
+    fn verify_lemmas_test(
+        contract_name: &str,
+        clauses: &[Clause],
+        params: &[Param],
+        return_ty: &[String],
+        lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+        ir_body: Option<&crate::ir::IrFunction>,
+        cache: &mut SessionCache,
+    ) -> Vec<VerificationResult> {
+        let ctx = ContractVerifyContext {
+            contract_name,
+            clauses,
+            params,
+            return_ty,
+            constants: &[],
+            ir_body,
+            ir_blocks: None,
+            ir_bodies: None,
+            type_env: None,
+        };
+        verify_contract_cvc5_with_lemmas(&ctx, lemma_defs, cache)
+    }
 
     #[test]
     fn cvc5_with_types_fn_params_nat() {
@@ -1063,16 +1087,12 @@ mod frame_tests {
             },
         ];
         let mut cache = SessionCache::new();
-        let results = verify_contract_cvc5_with_lemmas(
+        let results = verify_lemmas_test(
             "ApplyPostcondTest",
             &clauses,
             &[],
             &[],
             Some(&lemma_defs),
-            &[],
-            None,
-            None,
-            None,
             None,
             &mut cache,
         );
@@ -1118,16 +1138,12 @@ mod frame_tests {
             },
         ];
         let mut cache = SessionCache::new();
-        let results = verify_contract_cvc5_with_lemmas(
+        let results = verify_lemmas_test(
             "LemmaVerifTest",
             &clauses,
             &[],
             &[],
             Some(&lemma_defs),
-            &[],
-            None,
-            None,
-            None,
             None,
             &mut cache,
         );
@@ -1152,19 +1168,7 @@ mod frame_tests {
             effect_variables: vec![],
         }];
         let mut cache = SessionCache::new();
-        let results = verify_contract_cvc5_with_lemmas(
-            "NoLemmaDefs",
-            &clauses,
-            &[],
-            &[],
-            None,
-            &[],
-            None,
-            None,
-            None,
-            None,
-            &mut cache,
-        );
+        let results = verify_lemmas_test("NoLemmaDefs", &clauses, &[], &[], None, None, &mut cache);
         assert!(
             !results.is_empty(),
             "should produce results even without lemma defs"
@@ -1507,37 +1511,13 @@ mod frame_tests {
         let mut cache = SessionCache::new();
 
         // First call: cache miss, runs CVC5
-        let results1 = verify_contract_cvc5_with_lemmas(
-            "CacheTest",
-            &clauses,
-            &[],
-            &[],
-            None,
-            &[],
-            None,
-            None,
-            None,
-            None,
-            &mut cache,
-        );
+        let results1 = verify_lemmas_test("CacheTest", &clauses, &[], &[], None, None, &mut cache);
         assert_eq!(results1.len(), 1);
         assert!(matches!(&results1[0], VerificationResult::Verified { .. }));
         assert_eq!(cache.entry_count(), 1);
 
         // Second call: cache hit, should not invoke CVC5
-        let results2 = verify_contract_cvc5_with_lemmas(
-            "CacheTest",
-            &clauses,
-            &[],
-            &[],
-            None,
-            &[],
-            None,
-            None,
-            None,
-            None,
-            &mut cache,
-        );
+        let results2 = verify_lemmas_test("CacheTest", &clauses, &[], &[], None, None, &mut cache);
         assert_eq!(results2.len(), 1);
         assert!(matches!(&results2[0], VerificationResult::Verified { .. }));
         // Cache should still have 1 entry (same key), with 1 hit
@@ -1591,35 +1571,11 @@ mod frame_tests {
 
         let mut cache = SessionCache::new();
 
-        let results_a = verify_contract_cvc5_with_lemmas(
-            "CacheA",
-            &clauses_a,
-            &[],
-            &[],
-            None,
-            &[],
-            None,
-            None,
-            None,
-            None,
-            &mut cache,
-        );
+        let results_a = verify_lemmas_test("CacheA", &clauses_a, &[], &[], None, None, &mut cache);
         assert_eq!(results_a.len(), 1);
         assert_eq!(cache.entry_count(), 1);
 
-        let results_b = verify_contract_cvc5_with_lemmas(
-            "CacheB",
-            &clauses_b,
-            &[],
-            &[],
-            None,
-            &[],
-            None,
-            None,
-            None,
-            None,
-            &mut cache,
-        );
+        let results_b = verify_lemmas_test("CacheB", &clauses_b, &[], &[], None, None, &mut cache);
         assert_eq!(results_b.len(), 1);
         // Both should be cache misses, so 2 entries
         assert_eq!(cache.entry_count(), 2);

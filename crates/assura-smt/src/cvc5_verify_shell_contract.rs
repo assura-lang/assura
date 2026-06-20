@@ -1,15 +1,14 @@
 //! CVC5 shell-out contract verification (incremental and per-clause paths).
 
-use assura_parser::ast::{Clause, ClauseKind, Expr};
+use assura_parser::ast::{ClauseKind, Expr};
 
 use crate::VerificationResult;
-use crate::cache::SessionCache;
 use crate::cvc5_adt::cvc5_adt_prelude_lines;
 use crate::cvc5_collect::collect_cvc5_var_names_from_clauses;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{
-    cvc5_contract_shared_setup, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
+    Cvc5ContractPrepared, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
     store_cvc5_clause_cache,
 };
 use crate::cvc5_verify_shell_clause::check_clause_cvc5_shellout;
@@ -21,6 +20,10 @@ use crate::cvc5_verify_shell_script::{
     append_cvc5_shellout_frame_axioms, append_cvc5_shellout_lemma_assumptions,
     append_cvc5_shellout_requires,
 };
+use crate::havoc_assume::HavocAssumeSmtlibTarget;
+use crate::verify_context::{
+    ContractVerifyContext, Cvc5ClauseVerifyInput, Cvc5ContractVerifySession,
+};
 
 struct PendingShellClause {
     index: usize,
@@ -29,96 +32,51 @@ struct PendingShellClause {
     cache_key: String,
 }
 
-#[expect(clippy::too_many_arguments)]
+struct IncrementalShellScriptInput<'a> {
+    prepared: &'a Cvc5ContractPrepared<'a>,
+    contract: &'a ContractVerifyContext<'a>,
+    lemma_defs: Option<&'a std::collections::HashMap<String, Vec<&'a Expr>>>,
+    pending: &'a [PendingShellClause],
+}
+
 pub(crate) fn verify_contract_cvc5_shellout(
-    contract_name: &str,
-    clauses: &[Clause],
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
-    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
-    constants: &[(String, i64)],
-    ir_body: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
-    cache: &mut SessionCache,
+    session: &mut Cvc5ContractVerifySession<'_>,
 ) -> Vec<VerificationResult> {
+    let contract_name = session.contract.contract_name;
+    let verifiable = session.prepared.verifiable.clone();
     let mut results = Vec::new();
-
-    let (narrowings, requires_exprs, frame_checker) =
-        cvc5_contract_shared_setup(clauses, constants);
-
-    let verifiable: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| {
-            matches!(
-                c.kind,
-                ClauseKind::Ensures
-                    | ClauseKind::Invariant
-                    | ClauseKind::Rule
-                    | ClauseKind::MustNot
-                    | ClauseKind::Decreases
-            )
-        })
-        .collect();
-
-    for clause in clauses {
-        if let ClauseKind::Other(kind) = &clause.kind {
-            let feature_results = crate::smt_features::verify_feature_clause(
-                kind,
-                contract_name,
-                &clause.body,
-                clauses,
-            );
-            results.extend(feature_results);
-        }
-    }
-
-    let requires_clauses: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Requires)
-        .collect();
-    let ensures_clauses: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Ensures)
-        .collect();
-    let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
 
     if verifiable.len() <= 1 {
         for clause in &verifiable {
             let desc = format!("{contract_name}::{:?}", clause.kind);
-            results.push(check_clause_cvc5_shellout(
-                &desc,
-                &requires_exprs,
-                &requires_clauses,
-                &ensures_clauses,
-                &clause.body,
-                clause.kind.clone(),
-                params,
-                return_ty,
-                &param_names,
-                ir_body,
-                ir_blocks,
-                ir_bodies,
-                type_env,
-                constants,
-                &narrowings,
-                &frame_checker,
-                lemma_defs,
-                cache,
-            ));
+            let input = Cvc5ClauseVerifyInput {
+                desc: &desc,
+                body: &clause.body,
+                kind: clause.kind.clone(),
+            };
+            results.push(check_clause_cvc5_shellout(&input, session));
         }
         return results;
     }
 
+    results.extend(verify_contract_cvc5_shellout_incremental(session));
+    results
+}
+
+fn verify_contract_cvc5_shellout_incremental(
+    session: &mut Cvc5ContractVerifySession<'_>,
+) -> Vec<VerificationResult> {
+    let contract_name = session.contract.contract_name;
+    let prepared = &session.prepared;
+    let mut results = Vec::new();
     let mut resolved: Vec<(usize, VerificationResult)> = Vec::new();
     let mut pending: Vec<PendingShellClause> = Vec::new();
 
-    for (index, clause) in verifiable.iter().enumerate() {
+    for (index, clause) in prepared.verifiable.iter().enumerate() {
         let desc = format!("{contract_name}::{:?}", clause.kind);
         let cache_key = format!("{desc}::{:?}:{:?}", clause.kind, clause.body);
 
-        if let Some(cached) = cvc5_lookup_cached_clause(cache, &cache_key, &desc) {
+        if let Some(cached) = cvc5_lookup_cached_clause(session.cache, &cache_key, &desc) {
             resolved.push((index, cached));
             continue;
         }
@@ -147,24 +105,13 @@ pub(crate) fn verify_contract_cvc5_shellout(
 
     if !pending.is_empty() {
         let pending_count = pending.len();
-        let script = build_incremental_shell_script(
-            &requires_exprs,
-            &requires_clauses,
-            &ensures_clauses,
-            &verifiable,
-            &pending,
-            params,
-            return_ty,
-            &param_names,
-            ir_body,
-            ir_blocks,
-            ir_bodies,
-            type_env,
-            constants,
-            &narrowings,
-            &frame_checker,
-            lemma_defs,
-        );
+        let script_input = IncrementalShellScriptInput {
+            prepared,
+            contract: session.contract,
+            lemma_defs: session.lemma_defs,
+            pending: &pending,
+        };
+        let script = build_incremental_shell_script(&script_input, session.havoc_assume_input());
 
         match run_cvc5_binary_queries(&script) {
             Ok(query_results) if query_results.len() == pending_count => {
@@ -174,7 +121,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
                         pending_clause.kind,
                         query,
                     );
-                    store_cvc5_clause_cache(cache, pending_clause.cache_key, &result);
+                    store_cvc5_clause_cache(session.cache, pending_clause.cache_key, &result);
                     resolved.push((pending_clause.index, result));
                 }
             }
@@ -213,24 +160,9 @@ pub(crate) fn verify_contract_cvc5_shellout(
     results
 }
 
-#[expect(clippy::too_many_arguments)]
 fn build_incremental_shell_script(
-    requires_exprs: &[&Expr],
-    requires_clauses: &[&Clause],
-    ensures_clauses: &[&Clause],
-    verifiable: &[&Clause],
-    pending: &[PendingShellClause],
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
-    param_names: &[String],
-    ir_body: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
-    constants: &[(String, i64)],
-    narrowings: &[(String, i64)],
-    frame_checker: &assura_types::FrameChecker,
-    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
+    input: &IncrementalShellScriptInput<'_>,
+    havoc_input: crate::havoc_assume::HavocAssumeInput<'_>,
 ) -> String {
     let mut script = String::new();
     script.push_str("(set-logic ALL)\n");
@@ -244,44 +176,47 @@ fn build_incremental_shell_script(
         }
     }
 
-    let mut vars = collect_cvc5_var_names_from_clauses(requires_exprs, verifiable);
+    let mut vars = collect_cvc5_var_names_from_clauses(
+        &input.prepared.requires_exprs,
+        &input.prepared.verifiable,
+    );
     for var in &vars {
         script.push_str(&format!("(declare-const {var} Int)\n"));
     }
 
-    append_cvc5_shellout_constraints(&mut script, &vars, params, return_ty, constants, narrowings);
-    append_cvc5_shellout_requires(&mut script, requires_exprs);
+    append_cvc5_shellout_constraints(
+        &mut script,
+        &vars,
+        input.contract.params,
+        input.contract.return_ty,
+        input.contract.constants,
+        &input.prepared.narrowings,
+    );
+    append_cvc5_shellout_requires(&mut script, &input.prepared.requires_exprs);
 
-    if let Some(defs) = lemma_defs {
-        for clause in verifiable {
+    if let Some(defs) = input.lemma_defs {
+        for clause in &input.prepared.verifiable {
             append_cvc5_shellout_lemma_assumptions(&mut script, &clause.body, defs);
         }
     }
 
     let pending_indices: std::collections::HashSet<usize> =
-        pending.iter().map(|p| p.index).collect();
+        input.pending.iter().map(|p| p.index).collect();
 
-    for (index, clause) in verifiable.iter().enumerate() {
+    for (index, clause) in input.prepared.verifiable.iter().enumerate() {
         if !pending_indices.contains(&index) {
             continue;
         }
 
         script.push_str("(push 1)\n");
-        append_havoc_assume_smtlib(
-            &mut script,
-            &mut vars,
-            requires_clauses,
-            ensures_clauses,
-            return_ty,
-            param_names,
-            ir_body,
-            ir_blocks,
-            ir_bodies,
-            type_env,
-        );
+        let mut havoc_target = HavocAssumeSmtlibTarget {
+            script: &mut script,
+            vars: &mut vars,
+        };
+        append_havoc_assume_smtlib(&mut havoc_target, &havoc_input);
 
-        if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
-            let frame_vars = frame_checker.frame_axiom_vars(&clause.body);
+        if clause.kind == ClauseKind::Ensures && input.prepared.frame_checker.has_modifies() {
+            let frame_vars = input.prepared.frame_checker.frame_axiom_vars(&clause.body);
             append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
         }
 
@@ -299,7 +234,8 @@ fn build_incremental_shell_script(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Literal};
+    use crate::cvc5_verify_shared::prepare_cvc5_contract_verification;
+    use assura_parser::ast::{BinOp, Clause, Literal};
 
     #[test]
     fn non_ident_call_is_unencodable_but_not_unmodelable() {
@@ -342,15 +278,9 @@ mod tests {
                 effect_variables: vec![],
             },
         ];
-        let verifiable: Vec<&Clause> = clauses
-            .iter()
-            .filter(|c| c.kind == ClauseKind::Ensures)
-            .collect();
-        let requires_exprs: Vec<&Expr> = clauses
-            .iter()
-            .filter(|c| c.kind == ClauseKind::Requires)
-            .map(|c| &c.body)
-            .collect();
+        let (feature_results, prepared) =
+            prepare_cvc5_contract_verification("T", &clauses, &[], &[]);
+        assert!(feature_results.is_empty());
         let pending = vec![
             PendingShellClause {
                 index: 0,
@@ -365,24 +295,32 @@ mod tests {
                 cache_key: "k2".into(),
             },
         ];
-        let script = build_incremental_shell_script(
-            &requires_exprs,
-            &[],
-            &verifiable,
-            &verifiable,
-            &pending,
-            &[],
-            &["Int".into()],
-            &[],
-            None,
-            None,
-            None,
-            None,
-            &[],
-            &[],
-            &assura_types::FrameChecker::empty(),
-            None,
-        );
+        let ctx = ContractVerifyContext {
+            contract_name: "T",
+            clauses: &clauses,
+            params: &[],
+            return_ty: &["Int".into()],
+            constants: &[],
+            ir_body: None,
+            ir_blocks: None,
+            ir_bodies: None,
+            type_env: None,
+        };
+        let input = IncrementalShellScriptInput {
+            prepared: &prepared,
+            contract: &ctx,
+            lemma_defs: None,
+            pending: &pending,
+        };
+        let havoc_input = crate::havoc_assume::HavocAssumeInput {
+            requires: &prepared.requires_clauses,
+            ensures: &prepared.ensures_clauses,
+            return_ty: &["Int".into()],
+            param_names: &prepared.param_names,
+            ir: None,
+            enc_ctx: crate::ir_encode::IrEncodeContext::default(),
+        };
+        let script = build_incremental_shell_script(&input, havoc_input);
         let check_count = script.matches("(check-sat)").count();
         assert_eq!(check_count, 2, "expected one check-sat per pending clause");
         assert_eq!(script.matches("(push 1)").count(), 2);

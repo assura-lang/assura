@@ -47,97 +47,85 @@ where
 
 /// Combine a domain guard with a quantifier body (native API).
 #[cfg(feature = "cvc5-verify")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "quantifier guard threads encode closure"
-)]
 pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
-    tm: &'a cvc5::TermManager,
+    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     domain: &Expr,
     bound_var: &cvc5::Term<'a>,
     body: cvc5::Term<'a>,
     is_forall: bool,
-    outer_vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     mut encode: E,
 ) -> cvc5::Term<'a>
 where
     E: FnMut(
         &Expr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
     let guard = if let Some((lo, hi)) = domain_as_range(domain) {
-        let lo_val = encode(lo, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
-        let hi_val = encode(hi, outer_vars, state).unwrap_or_else(|| tm.mk_integer(0));
-        let ge_lo = tm.mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
-        let lt_hi = tm.mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val]);
-        tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
+        let lo_val = encode(lo, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
+        let hi_val = encode(hi, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
+        let ge_lo = ctx
+            .tm
+            .mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
+        let lt_hi = ctx.tm.mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val]);
+        ctx.tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
     } else {
-        let domain_val = encode(domain, outer_vars, state)
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), "__domain_unknown"));
-        let contains_sort =
-            tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
-        let contains_fn = tm.mk_const(contains_sort, "__domain_contains");
-        tm.mk_term(
+        let domain_val = encode(domain, ctx)
+            .unwrap_or_else(|| ctx.tm.mk_const(ctx.tm.integer_sort(), "__domain_unknown"));
+        let contains_sort = ctx.tm.mk_fun_sort(
+            &[ctx.tm.integer_sort(), ctx.tm.integer_sort()],
+            ctx.tm.boolean_sort(),
+        );
+        let contains_fn = ctx.tm.mk_const(contains_sort, "__domain_contains");
+        ctx.tm.mk_term(
             cvc5::Kind::ApplyUf,
             &[contains_fn, domain_val, bound_var.clone()],
         )
     };
-    crate::cvc5_raw_ops::combine_quantifier_guard_cvc5(tm, is_forall, guard, body)
+    crate::cvc5_raw_ops::combine_quantifier_guard_cvc5(ctx.tm, is_forall, guard, body)
 }
 
 /// Encode an AST `forall`/`exists` as a native CVC5 quantifier (with optional triggers).
 #[cfg(feature = "cvc5-verify")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "quantifier encoding threads encode closure"
-)]
 pub(crate) fn encode_ast_quantifier_cvc5<'a, E>(
-    tm: &'a cvc5::TermManager,
+    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     is_forall: bool,
     var: &str,
     domain: &Expr,
     body: &Expr,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     mut encode: E,
 ) -> Option<cvc5::Term<'a>>
 where
     E: FnMut(
         &Expr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
     let v_name = sanitize_smtlib_name(var);
-    let bound_var = tm.mk_var(tm.integer_sort(), &v_name);
-    let mut local_vars = vars.clone();
+    let bound_var = ctx.tm.mk_var(ctx.tm.integer_sort(), &v_name);
+    let mut local_vars = ctx.vars.clone();
     local_vars.insert(v_name.clone(), bound_var.clone());
-    let b = encode(body, &mut local_vars, state)?;
-    let guarded = guard_quantifier_body_cvc5(
-        tm,
-        domain,
-        &bound_var,
-        b,
-        is_forall,
-        vars,
-        state,
-        &mut encode,
-    );
-    let bound_list = tm.mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&bound_var));
-    let trigger_terms = infer_quantifier_patterns_cvc5(tm, body, &v_name, &bound_var);
+    let mut local_ctx = crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx {
+        tm: ctx.tm,
+        vars: &mut local_vars,
+        state: ctx.state,
+    };
+    let b = encode(body, &mut local_ctx)?;
+    let guarded = guard_quantifier_body_cvc5(ctx, domain, &bound_var, b, is_forall, &mut encode);
+    let bound_list = ctx
+        .tm
+        .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&bound_var));
+    let trigger_terms = infer_quantifier_patterns_cvc5(ctx.tm, body, &v_name, &bound_var);
     let kind = if is_forall {
         cvc5::Kind::Forall
     } else {
         cvc5::Kind::Exists
     };
     if trigger_terms.is_empty() {
-        Some(tm.mk_term(kind, &[bound_list, guarded]))
+        Some(ctx.tm.mk_term(kind, &[bound_list, guarded]))
     } else {
-        let inst_pattern = tm.mk_term(cvc5::Kind::InstPattern, &trigger_terms);
-        Some(tm.mk_term(kind, &[bound_list, guarded, inst_pattern]))
+        let inst_pattern = ctx.tm.mk_term(cvc5::Kind::InstPattern, &trigger_terms);
+        Some(ctx.tm.mk_term(kind, &[bound_list, guarded, inst_pattern]))
     }
 }
 

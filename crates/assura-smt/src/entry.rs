@@ -16,6 +16,7 @@ use crate::advanced::{
 use crate::cache::{SessionCache, VerificationCache};
 use crate::measures::MeasureDefinition;
 use crate::result::VerificationResult;
+use crate::verify_context::ContractVerifyContext;
 
 /// Extract the return type from `output(result: Nat)` clauses in a contract.
 ///
@@ -716,7 +717,7 @@ fn verify_file_with_cvc5(
 
     // #257: collect feature_max constants so the CVC5 encoder binds them
     // to concrete values instead of creating free solver variables.
-    let constants = crate::cvc5_backend::collect_feature_max_constants_cvc5(typed);
+    let constants = crate::feature_max::collect_feature_max_constants(typed);
 
     // #253: per-file session cache for CVC5 clause deduplication
     let mut session_cache = SessionCache::new();
@@ -729,17 +730,20 @@ fn verify_file_with_cvc5(
     for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
         let ir_body = ir_bodies.and_then(|m| m.get(&name));
         let ir_blocks = ir_block_maps.and_then(|m| m.get(&name));
-        results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
-            &name,
-            &clauses,
-            &params,
-            &return_ty,
-            Some(&lemma_defs),
-            &constants,
+        let ctx = ContractVerifyContext {
+            contract_name: &name,
+            clauses: &clauses,
+            params: &params,
+            return_ty: &return_ty,
+            constants: &constants,
             ir_body,
             ir_blocks,
             ir_bodies,
             type_env,
+        };
+        results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
+            &ctx,
+            Some(&lemma_defs),
             &mut session_cache,
         ));
     }
@@ -835,6 +839,20 @@ fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> Ver
     if z3_pri >= cvc5_pri { z3r } else { cvc5r }
 }
 
+/// Verify a type-checked file on disk with cache, IR sidecars, and decrease checks.
+pub fn verify_typed_file_at(
+    path: &std::path::Path,
+    typed: &TypedFile,
+    solver: SolverChoice,
+) -> Vec<VerificationResult> {
+    let cache_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let cache = VerificationCache::new(cache_dir);
+    let loaded = crate::ir_loader::LoadedVerifyExtras::load(path, typed);
+    let mut results = verify_parallel_with_solver(typed, &cache, solver, loaded.extras().as_ref());
+    results.extend(crate::display::dispatch_decrease_checks(typed));
+    results
+}
+
 /// Verify all declarations in parallel using rayon.
 ///
 /// Each contract/function gets its own Z3 context (Z3 contexts are not
@@ -899,12 +917,7 @@ pub fn verify_parallel_with_solver(
 ) -> Vec<VerificationResult> {
     use rayon::prelude::*;
 
-    // #180: collect feature_max constants so the encoder binds them
-    // to concrete values instead of creating free Z3 variables.
-    #[cfg(feature = "z3-verify")]
-    let constants = crate::z3_backend::collect_feature_max_constants(typed);
-    #[cfg(not(feature = "z3-verify"))]
-    let constants: Vec<(String, i64)> = Vec::new();
+    let constants = crate::feature_max::collect_feature_max_constants(typed);
 
     // Collect verification jobs (#213: shared with CVC5 and Z3 paths)
     let jobs = collect_verification_jobs(typed);
@@ -921,13 +934,18 @@ pub fn verify_parallel_with_solver(
             if let Some(cached) = cache.get(name, clauses) {
                 return cached;
             }
-            let ir_body = ir_bodies.and_then(|m| m.get(name));
-            let ir_blocks = ir_block_maps.and_then(|m| m.get(name));
-            // Cache miss: run solver with type constraints
-            let results = verify_contract_with_types_and_solver(
-                name, clauses, params, return_ty, &constants, solver, ir_body, ir_blocks,
-                ir_bodies, type_env,
-            );
+            let ctx = ContractVerifyContext {
+                contract_name: name,
+                clauses,
+                params,
+                return_ty,
+                constants: &constants,
+                ir_body: ir_bodies.and_then(|m| m.get(name)),
+                ir_blocks: ir_block_maps.and_then(|m| m.get(name)),
+                ir_bodies,
+                type_env,
+            };
+            let results = verify_contract_with_types_and_solver(&ctx, solver);
             cache.put(name, clauses, &results);
             results
         })
@@ -1008,59 +1026,25 @@ pub fn verify_contract_with_solver(
 }
 
 /// Verify a contract with type-level constraints from params and return type.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "per-job solver dispatch mirrors Z3 backend"
-)]
 fn verify_contract_with_types_and_solver(
-    contract_name: &str,
-    clauses: &[assura_parser::ast::Clause],
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
-    constants: &[(String, i64)],
+    ctx: &ContractVerifyContext<'_>,
     solver: SolverChoice,
-    ir_body: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
 ) -> Vec<VerificationResult> {
     match solver {
         SolverChoice::Z3 => {
             #[cfg(feature = "z3-verify")]
             {
-                crate::z3_backend::verify_contract_impl_with_types_and_ir(
-                    contract_name,
-                    clauses,
-                    params,
-                    return_ty,
-                    constants,
-                    ir_body,
-                    ir_blocks,
-                    ir_bodies,
-                    type_env,
-                )
+                crate::z3_backend::verify_contract_impl_with_types_and_ir(ctx)
             }
             #[cfg(not(feature = "z3-verify"))]
             {
-                let _ = (constants, ir_body);
-                verify_contract_with_solver(contract_name, clauses, solver)
+                let _ = (ctx.constants, ctx.ir_body);
+                verify_contract_with_solver(ctx.contract_name, ctx.clauses, solver)
             }
         }
         SolverChoice::Cvc5 | SolverChoice::Portfolio => {
             let mut cache = SessionCache::new();
-            crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
-                contract_name,
-                clauses,
-                params,
-                return_ty,
-                None,
-                constants,
-                ir_body,
-                ir_blocks,
-                ir_bodies,
-                type_env,
-                &mut cache,
-            )
+            crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache)
         }
     }
 }

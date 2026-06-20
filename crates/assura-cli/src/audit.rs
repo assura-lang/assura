@@ -3,6 +3,17 @@ use super::*;
 // `assura audit [path]` -- scan and verify a Rust project
 // ---------------------------------------------------------------------------
 
+/// Configuration for the `assura audit` command.
+pub(crate) struct AuditOptions<'a> {
+    pub(crate) path: &'a str,
+    pub(crate) depth: &'a str,
+    pub(crate) format: &'a str,
+    pub(crate) focus: Option<&'a str>,
+    pub(crate) max_functions: Option<usize>,
+    pub(crate) timeout_ms: u64,
+    pub(crate) unsafe_only: bool,
+}
+
 pub(crate) fn run_audit(opts: AuditOptions<'_>) {
     let AuditOptions {
         path,
@@ -167,84 +178,66 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
     let mut verified_count = 0u32;
     let mut error_count = 0u32;
 
-    if let Some(file) = parsed {
-        // Run resolve + type check + verify
-        match assura_resolve::resolve(&file) {
-            Ok(resolved) => match assura_types::type_check(&resolved) {
-                Ok(typed) => {
-                    if !is_json {
-                        eprintln!("Verifying ...");
-                    }
-                    let audit_dir =
-                        std::env::temp_dir().join(format!("assura-audit-{}", std::process::id()));
-                    let _ = fs::create_dir_all(&audit_dir);
-                    let audit_path = audit_dir.join("audit_generated.assura");
-                    let _ = fs::write(&audit_path, &assura_source);
-                    let loaded_ir = assura_smt::LoadedVerifyExtras::load(&audit_path, &typed);
-                    let verify_cache = assura_smt::VerificationCache::new(&audit_dir);
-                    let results = assura_smt::verify_parallel_with_solver(
-                        &typed,
-                        &verify_cache,
-                        assura_smt::SolverChoice::Z3,
-                        loaded_ir.extras().as_ref(),
-                    );
-                    let _ = fs::remove_dir_all(&audit_dir);
-                    for r in &results {
-                        match r {
-                            assura_smt::VerificationResult::Verified { .. } => {
-                                verified_count += 1;
-                            }
-                            assura_smt::VerificationResult::Counterexample {
-                                clause_desc,
-                                model,
-                                ..
-                            } => {
-                                findings.push(AuditFinding {
-                                    function: clause_desc.clone(),
-                                    clause: "counterexample".to_string(),
-                                    severity: "warning".to_string(),
-                                    message: "Counterexample found".to_string(),
-                                    counterexample: Some(model.clone()),
-                                });
-                            }
-                            assura_smt::VerificationResult::Timeout { clause_desc } => {
-                                findings.push(AuditFinding {
-                                    function: clause_desc.clone(),
-                                    clause: "timeout".to_string(),
-                                    severity: "info".to_string(),
-                                    message:
-                                        "Z3 timed out (needs deeper contract or longer timeout)"
-                                            .to_string(),
-                                    counterexample: None,
-                                });
-                            }
-                            assura_smt::VerificationResult::Unknown {
-                                clause_desc,
-                                reason,
-                            } => {
-                                findings.push(AuditFinding {
-                                    function: clause_desc.clone(),
-                                    clause: "unknown".to_string(),
-                                    severity: "info".to_string(),
-                                    message: format!("Z3 result unknown: {reason}"),
-                                    counterexample: None,
-                                });
-                            }
-                        }
-                    }
+    if parsed.is_some() {
+        if !is_json {
+            eprintln!("Verifying ...");
+        }
+        let audit_dir = std::env::temp_dir().join(format!("assura-audit-{}", std::process::id()));
+        let _ = fs::create_dir_all(&audit_dir);
+        let audit_path = audit_dir.join("audit_generated.assura");
+        let _ = fs::write(&audit_path, &assura_source);
+        let path_str = audit_path
+            .to_str()
+            .expect("audit temp path must be valid UTF-8");
+
+        let output =
+            assura_pipeline::compile_full(&assura_source, path_str, &CompilerConfig::default());
+        let _ = fs::remove_dir_all(&audit_dir);
+
+        if output.has_errors {
+            error_count += output
+                .diagnostics
+                .iter()
+                .filter(|d| d.severity == assura_diagnostics::Severity::Error)
+                .count() as u32;
+            if !is_json && error_count > 0 {
+                eprintln!("Pipeline reported {error_count} error(s) in generated contracts");
+            }
+        }
+
+        for r in &output.verification {
+            match r {
+                assura_smt::VerificationResult::Verified { .. } => {
+                    verified_count += 1;
                 }
-                Err(e) => {
-                    if !is_json {
-                        eprintln!("Type check error: {e:?}");
-                    }
-                    error_count += 1;
+                assura_smt::VerificationResult::Counterexample { model, .. } => {
+                    findings.push(AuditFinding {
+                        function: r.clause_desc().to_string(),
+                        clause: "counterexample".to_string(),
+                        severity: "warning".to_string(),
+                        message: "Counterexample found".to_string(),
+                        counterexample: Some(model.clone()),
+                    });
                 }
-            },
-            Err(e) => {
-                if !is_json {
-                    eprintln!("Resolve error: {e:?}");
+                assura_smt::VerificationResult::Timeout { .. } => {
+                    findings.push(AuditFinding {
+                        function: r.clause_desc().to_string(),
+                        clause: "timeout".to_string(),
+                        severity: "info".to_string(),
+                        message: "Solver timed out (needs deeper contract or longer timeout)"
+                            .to_string(),
+                        counterexample: None,
+                    });
                 }
-                error_count += 1;
+                assura_smt::VerificationResult::Unknown { reason, .. } => {
+                    findings.push(AuditFinding {
+                        function: r.clause_desc().to_string(),
+                        clause: "unknown".to_string(),
+                        severity: "info".to_string(),
+                        message: format!("Solver result unknown: {reason}"),
+                        counterexample: None,
+                    });
+                }
             }
         }
     }

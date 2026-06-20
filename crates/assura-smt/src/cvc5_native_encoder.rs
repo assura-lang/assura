@@ -4,12 +4,14 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::{Clause, Expr};
+use assura_parser::ast::Expr;
 
 use crate::cvc5_atom_encode::{encode_apply_cvc5, encode_ident_cvc5, encode_literal_cvc5};
 use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
 use crate::cvc5_call_encode::{encode_call_cvc5, encode_method_call_cvc5};
-use crate::cvc5_encoder_state::{canonical_length_cvc5, field_len_fn_cvc5};
+use crate::cvc5_encoder_state::{
+    Cvc5QuantifierEncodeCtx, canonical_length_cvc5, field_len_fn_cvc5,
+};
 use crate::cvc5_field_access::encode_field_cvc5;
 use crate::cvc5_if_encode::encode_if_cvc5;
 use crate::cvc5_index_access::encode_index_access_cvc5;
@@ -20,6 +22,7 @@ use crate::cvc5_match_encode::encode_match_cvc5;
 use crate::cvc5_old_access::encode_old_cvc5;
 use crate::cvc5_quantifier_encode::encode_ast_quantifier_cvc5;
 use crate::cvc5_raw_encode::encode_raw_expr_cvc5;
+use crate::havoc_assume::HavocAssumeInput;
 
 pub(crate) use crate::cvc5_encoder_state::{Cvc5EncoderState, default_cvc5_encoder_state};
 
@@ -31,45 +34,37 @@ use crate::cvc5_wrapper_encode::encode_wrapper_cvc5;
 // -------------------------------------------------------------------------
 
 #[cfg(feature = "cvc5-verify")]
-#[expect(clippy::too_many_arguments, reason = "mirrors Z3 havoc+assume arity")]
 pub(crate) fn apply_havoc_assume_cvc5<'a>(
     tm: &'a cvc5::TermManager,
-    requires: &[&Clause],
-    ensures: &[&Clause],
-    return_ty: &[String],
-    param_names: &[String],
-    ir: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&'a std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&'a std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&'a assura_types::TypeEnv>,
+    input: &HavocAssumeInput<'a>,
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) {
     use crate::havoc_assume::{infer_length_identity_links, is_collection_return};
 
-    if is_collection_return(return_ty) {
+    if is_collection_return(input.return_ty) {
         let len = canonical_length_cvc5(tm, "result", vars, state);
         let zero = tm.mk_integer(0);
         state.axioms.push(tm.mk_term(cvc5::Kind::Geq, &[len, zero]));
     }
 
-    for (result, input) in infer_length_identity_links(requires, ensures) {
+    for (result, input_name) in infer_length_identity_links(input.requires, input.ensures) {
         let len_result = canonical_length_cvc5(tm, &result, vars, state);
-        let len_input = canonical_length_cvc5(tm, &input, vars, state);
+        let len_input = canonical_length_cvc5(tm, &input_name, vars, state);
         state
             .axioms
             .push(tm.mk_term(cvc5::Kind::Leq, &[len_result, len_input]));
     }
 
-    if let Some(func) = ir {
+    if let Some(func) = input.ir {
         apply_ir_body_constraints_cvc5(
             tm,
             func,
-            param_names,
+            input.param_names,
             vars,
             state,
-            ir_blocks,
-            crate::ir_encode::IrEncodeContext::new(type_env, ir_bodies, ir_blocks),
+            input.enc_ctx.ir_blocks,
+            input.enc_ctx,
         );
     }
 }
@@ -110,13 +105,15 @@ pub(crate) fn encode_expr_cvc5<'a>(
             Some(encode_if_cvc5(tm, c, t, e))
         }
         Expr::Forall { var, domain, body } => {
-            encode_ast_quantifier_cvc5(tm, true, var, domain, body, vars, state, |e, v, s| {
-                encode_expr_cvc5(tm, e, v, s)
+            let mut qctx = Cvc5QuantifierEncodeCtx { tm, vars, state };
+            encode_ast_quantifier_cvc5(&mut qctx, true, var, domain, body, |e, q| {
+                encode_expr_cvc5(q.tm, e, q.vars, q.state)
             })
         }
         Expr::Exists { var, domain, body } => {
-            encode_ast_quantifier_cvc5(tm, false, var, domain, body, vars, state, |e, v, s| {
-                encode_expr_cvc5(tm, e, v, s)
+            let mut qctx = Cvc5QuantifierEncodeCtx { tm, vars, state };
+            encode_ast_quantifier_cvc5(&mut qctx, false, var, domain, body, |e, q| {
+                encode_expr_cvc5(q.tm, e, q.vars, q.state)
             })
         }
         Expr::Call { func, args } => encode_call_cvc5(tm, func, args, vars, state, |e, v, s| {

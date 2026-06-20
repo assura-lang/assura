@@ -6,6 +6,8 @@
 //! point. Actual expression-level type checking (T014-T018) builds on this.
 
 /// Structural checkers: linearity, typestate, effects, info-flow, generics, etc.
+///
+/// See `CHECKER-LAYERS.md` for how `checkers/`, `checks/`, and `domain/` differ.
 pub mod checkers;
 /// Wiring functions that run domain and structural checkers.
 mod checks;

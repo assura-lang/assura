@@ -117,17 +117,18 @@ module copy {
         parsed_type: None,
     }];
 
-    let results = verify_contract_impl_with_types_and_ir(
-        "CopyBytes",
-        &clauses,
-        &params,
-        &["Bytes".into()],
-        &[],
-        Some(&ir),
-        None,
-        None,
-        None,
-    );
+    let ctx = crate::verify_context::ContractVerifyContext {
+        contract_name: "CopyBytes",
+        clauses: &clauses,
+        params: &params,
+        return_ty: &["Bytes".into()],
+        constants: &[],
+        ir_body: Some(&ir),
+        ir_blocks: None,
+        ir_bodies: None,
+        type_env: None,
+    };
+    let results = verify_contract_impl_with_types_and_ir(&ctx);
     assert!(!results.is_empty(), "expected verification results");
     assert!(
         matches!(&results[0], VerificationResult::Verified { .. }),

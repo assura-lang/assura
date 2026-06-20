@@ -7,6 +7,8 @@ use crate::cvc5_backend::verify_contract_cvc5_with_lemmas;
 use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
+use crate::havoc_assume::{HavocAssumeInput, HavocAssumeSmtlibTarget};
+use crate::verify_context::ContractVerifyContext;
 use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param};
 use std::collections::HashSet;
 use std::process::Command;
@@ -82,18 +84,21 @@ fn shell_havoc_assume_script_emits_length_link_axiom() {
     }];
     let mut script = String::new();
     let mut vars = HashSet::new();
-    append_havoc_assume_smtlib(
-        &mut script,
-        &mut vars,
-        &requires.iter().collect::<Vec<_>>(),
-        &ensures.iter().collect::<Vec<_>>(),
-        &["Bytes".into()],
-        &["buf".into()],
-        None,
-        None,
-        None,
-        None,
-    );
+    let mut target = HavocAssumeSmtlibTarget {
+        script: &mut script,
+        vars: &mut vars,
+    };
+    let req_refs: Vec<_> = requires.iter().collect();
+    let ens_refs: Vec<_> = ensures.iter().collect();
+    let input = HavocAssumeInput {
+        requires: &req_refs,
+        ensures: &ens_refs,
+        return_ty: &["Bytes".into()],
+        param_names: &["buf".into()],
+        ir: None,
+        enc_ctx: crate::ir_encode::IrEncodeContext::default(),
+    };
+    append_havoc_assume_smtlib(&mut target, &input);
     assert!(script.contains("(assert (<= __canonical_len_result __canonical_len_buf))"));
 }
 
@@ -112,18 +117,19 @@ module copy {
     let func = parse_ir_module(ir_source).unwrap().functions[0].clone();
     let mut script = String::new();
     let mut vars = HashSet::new();
-    append_havoc_assume_smtlib(
-        &mut script,
-        &mut vars,
-        &[],
-        &[],
-        &["Bytes".into()],
-        &["raw".into()],
-        Some(&func),
-        None,
-        None,
-        None,
-    );
+    let mut target = HavocAssumeSmtlibTarget {
+        script: &mut script,
+        vars: &mut vars,
+    };
+    let input = HavocAssumeInput {
+        requires: &[],
+        ensures: &[],
+        return_ty: &["Bytes".into()],
+        param_names: &["raw".into()],
+        ir: Some(&func),
+        enc_ctx: crate::ir_encode::IrEncodeContext::default(),
+    };
+    append_havoc_assume_smtlib(&mut target, &input);
     assert!(
         script.contains("(assert (= __canonical_len_result __canonical_len_raw))"),
         "IR load should tie result length to input, got:\n{script}"
@@ -190,19 +196,18 @@ module copy {
     }];
 
     let mut cache = SessionCache::new();
-    let results = verify_contract_cvc5_with_lemmas(
-        "CopyBytes",
-        &clauses,
-        &params,
-        &["Bytes".into()],
-        None,
-        &[],
-        Some(&ir),
-        None,
-        None,
-        None,
-        &mut cache,
-    );
+    let ctx = ContractVerifyContext {
+        contract_name: "CopyBytes",
+        clauses: &clauses,
+        params: &params,
+        return_ty: &["Bytes".into()],
+        constants: &[],
+        ir_body: Some(&ir),
+        ir_blocks: None,
+        ir_bodies: None,
+        type_env: None,
+    };
+    let results = verify_contract_cvc5_with_lemmas(&ctx, None, &mut cache);
 
     assert_eq!(results.len(), 1);
     assert!(

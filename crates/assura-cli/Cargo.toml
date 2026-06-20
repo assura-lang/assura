@@ -9,6 +9,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[lib]
+name = "assura"
+path = "src/lib.rs"
+
 [[bin]]
 name = "assura"
 path = "src/main.rs"

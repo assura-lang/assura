@@ -17,6 +17,6 @@ pub(crate) use features::{
     verify_taint_safety_impl, verify_with_measures_impl,
 };
 pub(crate) use verify::{
-    collect_feature_max_constants, verify_contract_impl, verify_contract_impl_with_types_and_ir,
-    verify_impl_with_timeout, verify_quantified_impl,
+    verify_contract_impl, verify_contract_impl_with_types_and_ir, verify_impl_with_timeout,
+    verify_quantified_impl,
 };

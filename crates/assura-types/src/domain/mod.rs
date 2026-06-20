@@ -3,6 +3,9 @@
 //! Each checker validates contracts against a specific domain (memory,
 //! concurrency, formatting, security, etc.). They are self-contained
 //! structs that operate on AST nodes and produce `Vec<TypeError>`.
+//!
+//! See [`CHECKER-LAYERS.md`](../CHECKER-LAYERS.md) for how `domain/`,
+//! `checkers/`, and `checks/` relate.
 
 mod concurrency;
 mod core;

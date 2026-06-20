@@ -1,6 +1,6 @@
 use crate::VerificationResult;
 use crate::cvc5_backend::{
-    collect_vars, derive_narrowings_cvc5, expr_to_smtlib, parse_smtlib_model, verify_contract_cvc5,
+    collect_vars, derive_narrowings, expr_to_smtlib, parse_smtlib_model, verify_contract_cvc5,
 };
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
@@ -13,39 +13,39 @@ use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, Unar
 use std::collections::HashSet;
 
 // -------------------------------------------------------------------
-// derive_narrowings_cvc5 tests (#257)
+// derive_narrowings tests (#257)
 // -------------------------------------------------------------------
 
 #[test]
-fn test_derive_narrowings_cvc5_basic() {
-    let narrowings = derive_narrowings_cvc5(&[("max_size".into(), 100)]);
+fn test_derive_narrowings_basic() {
+    let narrowings = derive_narrowings(&[("max_size".into(), 100)]);
     assert_eq!(narrowings.len(), 1);
     assert_eq!(narrowings[0], ("size".into(), 100));
 }
 
 #[test]
-fn test_derive_narrowings_cvc5_empty() {
-    let narrowings = derive_narrowings_cvc5(&[]);
+fn test_derive_narrowings_empty() {
+    let narrowings = derive_narrowings(&[]);
     assert!(narrowings.is_empty());
 }
 
 #[test]
-fn test_derive_narrowings_cvc5_no_prefix() {
-    let narrowings = derive_narrowings_cvc5(&[("size".into(), 50)]);
+fn test_derive_narrowings_no_prefix() {
+    let narrowings = derive_narrowings(&[("size".into(), 50)]);
     assert!(narrowings.is_empty());
 }
 
 #[test]
-fn test_derive_narrowings_cvc5_uppercase_prefix() {
-    let narrowings = derive_narrowings_cvc5(&[("MAX_BUFFER".into(), 1024)]);
+fn test_derive_narrowings_uppercase_prefix() {
+    let narrowings = derive_narrowings(&[("MAX_BUFFER".into(), 1024)]);
     assert_eq!(narrowings.len(), 2);
     assert_eq!(narrowings[0], ("BUFFER".into(), 1024));
     assert_eq!(narrowings[1], ("buffer".into(), 1024));
 }
 
 #[test]
-fn test_derive_narrowings_cvc5_multiple() {
-    let narrowings = derive_narrowings_cvc5(&[
+fn test_derive_narrowings_multiple() {
+    let narrowings = derive_narrowings(&[
         ("max_size".into(), 100),
         ("max_count".into(), 50),
         ("threshold".into(), 10),

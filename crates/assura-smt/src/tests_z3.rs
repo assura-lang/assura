@@ -2144,7 +2144,7 @@ fn check_buffer(buffer: Nat) -> Int
 #[test]
 fn test_feature_max_narrowing_derives_pairs() {
     // Unit test for the derive_narrowings function itself
-    use crate::z3_backend::verify::derive_narrowings;
+    use crate::feature_max::derive_narrowings;
 
     let constants = vec![
         ("max_page_size".to_string(), 4096),

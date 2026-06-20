@@ -4,6 +4,8 @@ use assura_parser::ast::Clause;
 
 use crate::VerificationResult;
 use crate::cache::SessionCache;
+use crate::cvc5_verify_shared::prepare_cvc5_contract_verification;
+use crate::verify_context::{ContractVerifyContext, Cvc5ContractVerifySession};
 
 /// Verify a single contract's clauses using CVC5.
 ///
@@ -44,66 +46,46 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
     constants: &[(String, i64)],
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
-    verify_contract_cvc5_with_lemmas(
+    let ctx = ContractVerifyContext {
         contract_name,
         clauses,
         params,
         return_ty,
-        None,
         constants,
-        None,
-        None,
-        None,
-        None,
-        cache,
-    )
+        ir_body: None,
+        ir_blocks: None,
+        ir_bodies: None,
+        type_env: None,
+    };
+    verify_contract_cvc5_with_lemmas(&ctx, None, cache)
 }
 
 /// Verify a single contract's clauses using CVC5, with optional lemma defs.
-#[expect(clippy::too_many_arguments)]
 pub(crate) fn verify_contract_cvc5_with_lemmas(
-    contract_name: &str,
-    clauses: &[Clause],
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
+    ctx: &ContractVerifyContext<'_>,
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_parser::ast::Expr>>>,
-    constants: &[(String, i64)],
-    ir_body: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
+    let (mut results, prepared) = prepare_cvc5_contract_verification(
+        ctx.contract_name,
+        ctx.clauses,
+        ctx.params,
+        ctx.constants,
+    );
+    let mut session = Cvc5ContractVerifySession::new(ctx, prepared, lemma_defs, cache);
+
     #[cfg(feature = "cvc5-verify")]
     {
-        crate::cvc5_verify_native::verify_contract_cvc5_native(
-            contract_name,
-            clauses,
-            params,
-            return_ty,
-            lemma_defs,
-            constants,
-            ir_body,
-            ir_blocks,
-            ir_bodies,
-            type_env,
-            cache,
-        )
+        results.extend(crate::cvc5_verify_native::verify_contract_cvc5_native(
+            &mut session,
+        ));
     }
     #[cfg(not(feature = "cvc5-verify"))]
     {
-        crate::cvc5_verify_shell::verify_contract_cvc5_shellout(
-            contract_name,
-            clauses,
-            params,
-            return_ty,
-            lemma_defs,
-            constants,
-            ir_body,
-            ir_blocks,
-            ir_bodies,
-            type_env,
-            cache,
-        )
+        results.extend(crate::cvc5_verify_shell::verify_contract_cvc5_shellout(
+            &mut session,
+        ));
     }
+
+    results
 }

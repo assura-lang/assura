@@ -1,6 +1,8 @@
 //! Wiring functions that run domain and structural checkers on AST source.
 //!
 //! Each submodule groups related `run_*_checks` functions by category.
+//! See [`CHECKER-LAYERS.md`](../CHECKER-LAYERS.md) for how `checks/`,
+//! `checkers/`, and `domain/` relate.
 
 mod concurrency;
 mod core;

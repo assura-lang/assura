@@ -9,9 +9,10 @@ use super::solver::{
     assert_tracked, check_satisfiability, check_validity, clause_desc, enable_unsat_cores,
 };
 use crate::cache::SessionCache;
+use crate::feature_max::{collect_feature_max_constants, derive_narrowings};
 use crate::ir::{IrFunction, IrInstr};
 use crate::*;
-use assura_parser::ast::{BlockKind, Clause};
+use assura_parser::ast::Clause;
 use z3::{SatResult, Solver, ast};
 
 // -----------------------------------------------------------------------
@@ -180,17 +181,19 @@ fn verify_clauses_with_types(
     }
 
     let param_names: Vec<String> = types.params.iter().map(|p| p.name.clone()).collect();
-    apply_havoc_assume_z3(
-        &mut base_encoder,
-        &requires,
-        &ensures_clauses,
-        types.return_ty,
-        &param_names,
-        types.ir_body,
-        types.ir_blocks,
-        types.ir_bodies,
-        types.type_env,
-    );
+    let havoc_input = crate::havoc_assume::HavocAssumeInput {
+        requires: &requires,
+        ensures: &ensures_clauses,
+        return_ty: types.return_ty,
+        param_names: &param_names,
+        ir: types.ir_body,
+        enc_ctx: crate::ir_encode::IrEncodeContext::new(
+            types.type_env,
+            types.ir_bodies,
+            types.ir_blocks,
+        ),
+    };
+    apply_havoc_assume_z3(&mut base_encoder, &havoc_input);
     for axiom in &base_encoder.background_axioms {
         solver.assert(axiom);
     }
@@ -393,63 +396,6 @@ fn verify_invariant_expr(parent_name: &str, expr: &Expr, results: &mut Vec<Verif
 // Entry point
 // -----------------------------------------------------------------------
 
-/// Collect `feature_max` constants from the source AST.
-///
-/// Returns a vec of (name, value) pairs. Only declarations with a
-/// parseable integer value are included; non-integer or missing values
-/// are silently skipped (they remain free Z3 variables).
-pub(crate) fn collect_feature_max_constants(typed: &TypedFile) -> Vec<(String, i64)> {
-    let mut constants = Vec::new();
-    for decl in &typed.resolved.source.decls {
-        // Value tokens include type annotation: [":", "Nat", "=", "65536"]
-        // Find the token after "=" for the actual integer value.
-        if let Decl::Block {
-            kind,
-            name,
-            value: Some(tokens),
-            ..
-        } = &decl.node
-            && *kind == BlockKind::FeatureMax
-            && let Some(eq_pos) = tokens.iter().position(|t| t == "=")
-            && let Some(val_str) = tokens.get(eq_pos + 1)
-            && let Ok(v) = val_str.parse::<i64>()
-        {
-            constants.push((name.clone(), v));
-        }
-    }
-    constants
-}
-
-/// Derive refinement narrowing pairs from `feature_max` constant names.
-///
-/// Per spec Section 14 (PLAT.2): `feature_max max_page_size = 4096` narrows
-/// all variables named `page_size` with `page_size <= 4096`. The rule strips
-/// the `max_` prefix (case-insensitive) from the constant name to produce the
-/// narrowed variable name.
-///
-/// Also handles `MAX_` all-caps prefix (e.g., `MAX_CONTENT_LEN` -> `content_len`
-/// lowercased won't match, but `CONTENT_LEN` -> narrowing for `CONTENT_LEN`).
-/// The narrowing matches both the stripped suffix as-is and its lowercase form.
-pub(crate) fn derive_narrowings(constants: &[(String, i64)]) -> Vec<(String, i64)> {
-    let mut narrowings = Vec::new();
-    for (name, value) in constants {
-        // Strip `max_` or `MAX_` prefix to get the narrowed variable name
-        let narrowed = name
-            .strip_prefix("max_")
-            .or_else(|| name.strip_prefix("MAX_"));
-        if let Some(narrowed) = narrowed.filter(|s| !s.is_empty()) {
-            // Add the suffix as-is (preserving case)
-            narrowings.push((narrowed.to_string(), *value));
-            // Also add lowercase variant if different
-            let lower = narrowed.to_lowercase();
-            if lower != narrowed {
-                narrowings.push((lower, *value));
-            }
-        }
-    }
-    narrowings
-}
-
 /// Collect all lemma definitions from the source AST.
 ///
 /// Returns a map from lemma name to its ensures clause bodies.
@@ -620,52 +566,41 @@ pub(crate) fn verify_contract_impl_with_types(
     return_ty: &[String],
     constants: &[(String, i64)],
 ) -> Vec<VerificationResult> {
-    verify_contract_impl_with_types_and_ir(
+    let ctx = crate::verify_context::ContractVerifyContext {
         contract_name,
         clauses,
         params,
         return_ty,
         constants,
-        None,
-        None,
-        None,
-        None,
-    )
+        ir_body: None,
+        ir_blocks: None,
+        ir_bodies: None,
+        type_env: None,
+    };
+    verify_contract_impl_with_types_and_ir(&ctx)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "IR + type_env context mirrors CVC5 entry"
-)]
 pub(crate) fn verify_contract_impl_with_types_and_ir(
-    contract_name: &str,
-    clauses: &[Clause],
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
-    constants: &[(String, i64)],
-    ir_body: Option<&IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
+    ctx: &crate::verify_context::ContractVerifyContext<'_>,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let lemma_defs = std::collections::HashMap::new();
-    let narrowings = derive_narrowings(constants);
+    let narrowings = derive_narrowings(ctx.constants);
     let types = TypeConstraints {
-        params,
-        return_ty,
-        constants,
+        params: ctx.params,
+        return_ty: ctx.return_ty,
+        constants: ctx.constants,
         narrowings: &narrowings,
-        ir_body,
-        ir_blocks,
-        ir_bodies,
-        type_env,
+        ir_body: ctx.ir_body,
+        ir_blocks: ctx.ir_blocks,
+        ir_bodies: ctx.ir_bodies,
+        type_env: ctx.type_env,
         ..Default::default()
     };
     verify_clauses_with_types(
-        contract_name,
-        clauses,
+        ctx.contract_name,
+        ctx.clauses,
         &lemma_defs,
         &mut cache,
         &mut results,

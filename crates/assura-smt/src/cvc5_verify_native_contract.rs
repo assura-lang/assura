@@ -1,9 +1,8 @@
 //! CVC5 native contract verification (incremental and per-clause paths).
 
-use assura_parser::ast::{Clause, ClauseKind, Expr};
+use assura_parser::ast::ClauseKind;
 
 use crate::VerificationResult;
-use crate::cache::SessionCache;
 use crate::cvc5_collect::collect_cvc5_var_names_from_clauses;
 use crate::cvc5_native_encoder::{
     apply_havoc_assume_cvc5, default_cvc5_encoder_state, encode_expr_cvc5,
@@ -15,101 +14,42 @@ use crate::cvc5_verify_native_solver::{
     finish_cvc5_clause_check, inject_cvc5_lemma_assumptions_for_bodies, new_cvc5_solver,
 };
 use crate::cvc5_verify_shared::{
-    cvc5_contract_shared_setup, cvc5_encode_failure, cvc5_lookup_cached_clause,
-    cvc5_unmodelable_precheck, store_cvc5_clause_cache,
+    cvc5_encode_failure, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
+    store_cvc5_clause_cache,
 };
+use crate::verify_context::{Cvc5ClauseVerifyInput, Cvc5ContractVerifySession};
 
-#[expect(clippy::too_many_arguments)]
 pub(crate) fn verify_contract_cvc5_native(
-    contract_name: &str,
-    clauses: &[Clause],
-    params: &[assura_parser::ast::Param],
-    return_ty: &[String],
-    lemma_defs: Option<&std::collections::HashMap<String, Vec<&Expr>>>,
-    constants: &[(String, i64)],
-    ir_body: Option<&crate::ir::IrFunction>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
-    ir_bodies: Option<&std::collections::HashMap<String, crate::ir::IrFunction>>,
-    type_env: Option<&assura_types::TypeEnv>,
-    cache: &mut SessionCache,
+    session: &mut Cvc5ContractVerifySession<'_>,
 ) -> Vec<VerificationResult> {
+    let contract_name = session.contract.contract_name;
+    let verifiable = session.prepared.verifiable.clone();
     let mut results = Vec::new();
 
-    let (narrowings, requires_exprs, frame_checker) =
-        cvc5_contract_shared_setup(clauses, constants);
-
-    // Collect verifiable clauses
-    let verifiable: Vec<&assura_parser::ast::Clause> = clauses
-        .iter()
-        .filter(|c| {
-            matches!(
-                c.kind,
-                ClauseKind::Ensures
-                    | ClauseKind::Invariant
-                    | ClauseKind::Rule
-                    | ClauseKind::MustNot
-                    | ClauseKind::Decreases
-            )
-        })
-        .collect();
-
-    // Process feature-specific Other clauses
-    for clause in clauses {
-        if let ClauseKind::Other(kind) = &clause.kind {
-            let feature_results = crate::smt_features::verify_feature_clause(
-                kind,
-                contract_name,
-                &clause.body,
-                clauses,
-            );
-            results.extend(feature_results);
-        }
-    }
-
-    let requires_clauses: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Requires)
-        .collect();
-    let ensures_clauses: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Ensures)
-        .collect();
-    let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-
-    // For 0 or 1 verifiable clauses, fall back to per-clause solver
-    // (incremental push/pop has no benefit with a single query).
     if verifiable.len() <= 1 {
         for clause in &verifiable {
             let desc = format!("{contract_name}::{:?}", clause.kind);
-            let result = check_clause_cvc5_native(
-                &desc,
-                &requires_exprs,
-                &requires_clauses,
-                &ensures_clauses,
-                &clause.body,
-                clause.kind.clone(),
-                params,
-                return_ty,
-                &param_names,
-                ir_body,
-                ir_blocks,
-                ir_bodies,
-                type_env,
-                constants,
-                &narrowings,
-                &frame_checker,
-                lemma_defs,
-                cache,
-            );
-            results.push(result);
+            let input = Cvc5ClauseVerifyInput {
+                desc: &desc,
+                body: &clause.body,
+                kind: clause.kind.clone(),
+            };
+            results.push(check_clause_cvc5_native(&input, session));
         }
         return results;
     }
 
-    // ---------------------------------------------------------------
-    // Incremental solving: create ONE solver, assert shared requires
-    // ONCE, then use push/pop for each clause (#264).
-    // ---------------------------------------------------------------
+    results.extend(verify_contract_cvc5_native_incremental(session));
+    results
+}
+
+fn verify_contract_cvc5_native_incremental(
+    session: &mut Cvc5ContractVerifySession<'_>,
+) -> Vec<VerificationResult> {
+    let contract_name = session.contract.contract_name;
+    let prepared = &session.prepared;
+    let contract = session.contract;
+    let mut results = Vec::new();
 
     let tm = cvc5::TermManager::new();
     let mut solver = new_cvc5_solver(
@@ -120,16 +60,17 @@ pub(crate) fn verify_contract_cvc5_native(
         },
     );
 
-    let var_names = collect_cvc5_var_names_from_clauses(&requires_exprs, &verifiable);
-    let mut var_map = build_cvc5_var_map(&tm, &var_names, constants);
+    let var_names =
+        collect_cvc5_var_names_from_clauses(&prepared.requires_exprs, &prepared.verifiable);
+    let mut var_map = build_cvc5_var_map(&tm, &var_names, contract.constants);
     assert_cvc5_solver_prelude(
         &tm,
         &mut solver,
         &var_map,
-        params,
-        return_ty,
+        contract.params,
+        contract.return_ty,
         &[],
-        &narrowings,
+        &prepared.narrowings,
     );
 
     let mut enc_state = default_cvc5_encoder_state();
@@ -137,7 +78,7 @@ pub(crate) fn verify_contract_cvc5_native(
     assert_cvc5_requires(
         &tm,
         &mut solver,
-        &requires_exprs,
+        &prepared.requires_exprs,
         &mut var_map,
         &mut enc_state,
     );
@@ -145,11 +86,11 @@ pub(crate) fn verify_contract_cvc5_native(
     assert_cvc5_axioms(&mut solver, &enc_state.axioms);
     let requires_axiom_count = enc_state.axioms.len();
 
-    if let Some(defs) = lemma_defs {
+    if let Some(defs) = session.lemma_defs {
         inject_cvc5_lemma_assumptions_for_bodies(
             &tm,
             &mut solver,
-            verifiable.iter().map(|c| &c.body),
+            prepared.verifiable.iter().map(|c| &c.body),
             defs,
             &mut var_map,
             &mut enc_state,
@@ -157,12 +98,13 @@ pub(crate) fn verify_contract_cvc5_native(
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, requires_axiom_count);
     }
 
-    // For each verifiable clause: push, encode, check, pop
-    for clause in &verifiable {
+    let havoc_input = session.havoc_assume_input();
+
+    for clause in &prepared.verifiable {
         let desc = format!("{contract_name}::{:?}", clause.kind);
 
         let cache_key = format!("{desc}::{:?}:{:?}", clause.kind, clause.body);
-        if let Some(cached_result) = cvc5_lookup_cached_clause(cache, &cache_key, &desc) {
+        if let Some(cached_result) = cvc5_lookup_cached_clause(session.cache, &cache_key, &desc) {
             results.push(cached_result);
             continue;
         }
@@ -172,24 +114,11 @@ pub(crate) fn verify_contract_cvc5_native(
             continue;
         }
 
-        solver.push(1); // Save solver state
+        solver.push(1);
 
-        // Track axiom count before havoc+assume and clause encoding
         let axiom_base = enc_state.axioms.len();
 
-        apply_havoc_assume_cvc5(
-            &tm,
-            &requires_clauses,
-            &ensures_clauses,
-            return_ty,
-            &param_names,
-            ir_body,
-            ir_blocks,
-            ir_bodies,
-            type_env,
-            &mut var_map,
-            &mut enc_state,
-        );
+        apply_havoc_assume_cvc5(&tm, &havoc_input, &mut var_map, &mut enc_state);
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, axiom_base);
         let havoc_axiom_end = enc_state.axioms.len();
 
@@ -205,22 +134,19 @@ pub(crate) fn verify_contract_cvc5_native(
 
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, havoc_axiom_end);
 
-        if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
-            let frame_vars = frame_checker.frame_axiom_vars(&clause.body);
+        if clause.kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
+            let frame_vars = prepared.frame_checker.frame_axiom_vars(&clause.body);
             assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
         }
 
         assert_cvc5_clause_check(&tm, &mut solver, clause.kind.clone(), body_term);
 
         let result = finish_cvc5_clause_check(&desc, clause.kind.clone(), &mut solver, &var_map);
-        store_cvc5_clause_cache(cache, cache_key, &result);
+        store_cvc5_clause_cache(session.cache, cache_key, &result);
 
         results.push(result);
 
-        solver.pop(1); // Restore solver state
-
-        // Truncate havoc+assume and clause-specific axioms (removed from
-        // the solver by pop).
+        solver.pop(1);
         enc_state.axioms.truncate(axiom_base);
     }
 

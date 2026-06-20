@@ -2,6 +2,9 @@
 // as the corresponding tasks are implemented.
 
 //! Analysis pass checker structs.
+//!
+//! See [`CHECKER-LAYERS.md`](../CHECKER-LAYERS.md) for how `checkers/`,
+//! `checks/`, and `domain/` relate.
 
 use std::collections::HashMap;
 use std::ops::Range;

@@ -4,15 +4,13 @@
 use super::encoder::Encoder;
 use crate::cvc5_builtins::{KnownBuiltin, classify_known_builtin, pattern_hash_name};
 use crate::havoc_assume::{
-    RESULT_SLOT, infer_length_identity_links, ir_param_names, is_collection_return,
+    HavocAssumeInput, RESULT_SLOT, infer_length_identity_links, ir_param_names,
+    is_collection_return,
 };
-use crate::ir::{
-    IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrPred, IrPredArg,
-};
+use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, IrPredArg};
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, is_length_ir_call, slot_type_map};
 use crate::ir_type_ctx::base_type_name;
 use assura_parser::ast::Clause;
-use assura_types::TypeEnv;
 use std::collections::HashMap;
 use z3::ast;
 
@@ -23,27 +21,11 @@ struct IrEncodeCtx<'a> {
 }
 
 /// Apply havoc+assume axioms before verifying ensures clauses.
-#[expect(clippy::too_many_arguments, reason = "mirrors CVC5 havoc+assume arity")]
-pub(crate) fn apply_havoc_assume_z3(
-    encoder: &mut Encoder,
-    requires: &[&Clause],
-    ensures: &[&Clause],
-    return_ty: &[String],
-    param_names: &[String],
-    ir: Option<&IrFunction>,
-    ir_blocks: Option<&HashMap<usize, Vec<IrInstr>>>,
-    ir_bodies: Option<&HashMap<String, IrFunction>>,
-    type_env: Option<&TypeEnv>,
-) {
-    apply_structural_result_axioms(encoder, return_ty);
-    apply_length_identity_axioms(encoder, requires, ensures);
-    if let Some(func) = ir {
-        apply_ir_body_constraints(
-            encoder,
-            func,
-            param_names,
-            IrEncodeContext::new(type_env, ir_bodies, ir_blocks),
-        );
+pub(crate) fn apply_havoc_assume_z3(encoder: &mut Encoder, input: &HavocAssumeInput<'_>) {
+    apply_structural_result_axioms(encoder, input.return_ty);
+    apply_length_identity_axioms(encoder, input.requires, input.ensures);
+    if let Some(func) = input.ir {
+        apply_ir_body_constraints(encoder, func, input.param_names, input.enc_ctx);
     }
 }
 
@@ -451,7 +433,30 @@ fn encode_ir_pred_arg(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::IrInstr;
     use assura_parser::ast::{BinOp, ClauseKind, Expr, Literal};
+    use assura_types::TypeEnv;
+    use std::collections::HashMap;
+
+    fn havoc_input<'a>(
+        requires: &'a [&'a Clause],
+        ensures: &'a [&'a Clause],
+        return_ty: &'a [String],
+        param_names: &'a [String],
+        ir: Option<&'a IrFunction>,
+        ir_blocks: Option<&'a HashMap<usize, Vec<IrInstr>>>,
+        ir_bodies: Option<&'a HashMap<String, IrFunction>>,
+        type_env: Option<&'a TypeEnv>,
+    ) -> HavocAssumeInput<'a> {
+        HavocAssumeInput {
+            requires,
+            ensures,
+            return_ty,
+            param_names,
+            ir,
+            enc_ctx: IrEncodeContext::new(type_env, ir_bodies, ir_blocks),
+        }
+    }
 
     #[test]
     fn test_z3_havoc_assume_encoding() {
@@ -483,16 +488,20 @@ mod tests {
                 },
                 effect_variables: vec![],
             }];
+            let req_refs: Vec<_> = requires.iter().collect();
+            let ens_refs: Vec<_> = ensures.iter().collect();
             apply_havoc_assume_z3(
                 &mut encoder,
-                &requires.iter().collect::<Vec<_>>(),
-                &ensures.iter().collect::<Vec<_>>(),
-                &["Bytes".into()],
-                &["raw".into()],
-                None,
-                None,
-                None,
-                None,
+                &havoc_input(
+                    &req_refs,
+                    &ens_refs,
+                    &["Bytes".into()],
+                    &["raw".into()],
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
             );
             assert!(
                 !encoder.background_axioms.is_empty(),
@@ -525,14 +534,16 @@ module test {
             let mut encoder = Encoder::new();
             apply_havoc_assume_z3(
                 &mut encoder,
-                &[],
-                &[],
-                &["Bool".into()],
-                &["x".into()],
-                Some(&ir),
-                None,
-                None,
-                None,
+                &havoc_input(
+                    &[],
+                    &[],
+                    &["Bool".into()],
+                    &["x".into()],
+                    Some(&ir),
+                    None,
+                    None,
+                    None,
+                ),
             );
             assert!(
                 !encoder.background_axioms.is_empty(),
@@ -571,14 +582,16 @@ module test {
             let mut encoder = Encoder::new();
             apply_havoc_assume_z3(
                 &mut encoder,
-                &[],
-                &[],
-                &["Point".into()],
-                &["a".into(), "b".into()],
-                Some(&ir),
-                None,
-                None,
-                Some(&env),
+                &havoc_input(
+                    &[],
+                    &[],
+                    &["Point".into()],
+                    &["a".into(), "b".into()],
+                    Some(&ir),
+                    None,
+                    None,
+                    Some(&env),
+                ),
             );
             assert!(
                 encoder.adt_defs.contains_key("Point"),
@@ -614,14 +627,16 @@ module test {
             let mut encoder = Encoder::new();
             apply_havoc_assume_z3(
                 &mut encoder,
-                &[],
-                &[],
-                &["Nat".into()],
-                &["raw".into()],
-                Some(&ir),
-                None,
-                None,
-                None,
+                &havoc_input(
+                    &[],
+                    &[],
+                    &["Nat".into()],
+                    &["raw".into()],
+                    Some(&ir),
+                    None,
+                    None,
+                    None,
+                ),
             );
             assert!(
                 !encoder.background_axioms.is_empty(),
@@ -671,14 +686,16 @@ module double {
             let mut encoder = Encoder::new();
             apply_havoc_assume_z3(
                 &mut encoder,
-                &[],
-                &[],
-                &["Int".into()],
-                &["x".into()],
-                Some(&main_ir),
-                None,
-                Some(&bodies),
-                None,
+                &havoc_input(
+                    &[],
+                    &[],
+                    &["Int".into()],
+                    &["x".into()],
+                    Some(&main_ir),
+                    None,
+                    Some(&bodies),
+                    None,
+                ),
             );
             assert!(
                 encoder
@@ -698,14 +715,16 @@ module double {
             let mut encoder = Encoder::new();
             apply_havoc_assume_z3(
                 &mut encoder,
-                &[],
-                &[],
-                &["Int".into()],
-                &["x".into()],
-                Some(&func),
-                Some(&blocks),
-                None,
-                None,
+                &havoc_input(
+                    &[],
+                    &[],
+                    &["Int".into()],
+                    &["x".into()],
+                    Some(&func),
+                    Some(&blocks),
+                    None,
+                    None,
+                ),
             );
 
             let axiom_text: String = encoder

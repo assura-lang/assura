@@ -76,69 +76,40 @@ pub(crate) fn run_build(
     });
 
     // --- Run shared pipeline ---
+    let output = compile_with_config(&source, filename, &compiler_config);
+    crate::timing::print_pipeline_timing(
+        &output,
+        crate::timing::TimingOptions {
+            filename,
+            output_mode: OutputMode::Human,
+            verbosity,
+            project: config.as_ref().map(|(cfg, root)| {
+                (
+                    cfg.package.name.as_str(),
+                    cfg.package.version.as_str(),
+                    root.as_path(),
+                )
+            }),
+            config_line: config.as_ref().map(|(cfg, _)| {
+                format!(
+                    "config: output={}, target={}, solver={}, timeout={}ms",
+                    cfg.build.output, cfg.build.target, cfg.verify.smt_solver, cfg.verify.timeout
+                )
+            }),
+            verify_ms: None,
+            show_total: false,
+            detailed_hir: false,
+            show_phase_failures: false,
+        },
+    );
     let CompilationResult {
         diagnostics,
         has_errors,
         typed,
-        timing,
+        timing: phase_timing,
         file: parsed_file,
-        resolved,
-        hir: _hir,
         ..
-    } = compile_with_config(&source, filename, &compiler_config);
-
-    if verbosity == Verbosity::Verbose {
-        if let Some((ref cfg, ref root)) = config {
-            eprintln!(
-                "Project: {} v{} ({})",
-                cfg.package.name,
-                cfg.package.version,
-                root.display()
-            );
-            eprintln!(
-                "  config: output={}, target={}, solver={}, timeout={}ms",
-                cfg.build.output, cfg.build.target, cfg.verify.smt_solver, cfg.verify.timeout
-            );
-            eprintln!();
-        }
-        eprintln!("Pipeline timing for {filename}:");
-        if let Some(ref f) = parsed_file {
-            eprintln!(
-                "  parse:     {} tokens, {} declaration(s), {} import(s) ({:.2}ms)",
-                timing.token_count,
-                f.decls.len(),
-                f.imports.len(),
-                timing.parse_ms
-            );
-        } else {
-            eprintln!(
-                "  parse:     {} tokens, failed ({:.2}ms)",
-                timing.token_count, timing.parse_ms
-            );
-        }
-        if let Some(resolve_ms) = timing.resolve_ms
-            && let Some(ref r) = resolved
-        {
-            let user_symbols = r
-                .symbols
-                .symbols
-                .iter()
-                .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
-                .count();
-            eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
-        }
-        if let Some(hir_ms) = timing.hir_ms {
-            eprintln!("  hir:       ({hir_ms:.2}ms)");
-        }
-        if let Some(typecheck_ms) = timing.typecheck_ms
-            && let Some(ref td) = typed
-        {
-            eprintln!(
-                "  typecheck: {} binding(s) ({typecheck_ms:.2}ms)",
-                td.type_env.len()
-            );
-        }
-    }
+    } = output;
 
     // Report errors in human mode
     if has_errors {
@@ -162,18 +133,8 @@ pub(crate) fn run_build(
 
     // --- Verify ---
     let verify_start = Instant::now();
-    let build_cache_dir = std::path::Path::new(filename)
-        .parent()
-        .unwrap_or(std::path::Path::new("."));
-    let build_verify_cache = assura_smt::VerificationCache::new(build_cache_dir);
-    let loaded_ir = assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), &typed);
-    let mut verification_results = assura_smt::verify_parallel_with_solver(
-        &typed,
-        &build_verify_cache,
-        build_solver,
-        loaded_ir.extras().as_ref(),
-    );
-    verification_results.extend(assura_smt::display::dispatch_decrease_checks(&typed));
+    let verification_results =
+        assura_smt::verify_typed_file_at(std::path::Path::new(filename), &typed, build_solver);
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
     if verbosity == Verbosity::Verbose {
@@ -214,9 +175,9 @@ pub(crate) fn run_build(
             "  codegen:   {} file(s) ({codegen_ms:.2}ms)",
             project.files.len()
         );
-        let total = timing.parse_ms
-            + timing.resolve_ms.unwrap_or(0.0)
-            + timing.typecheck_ms.unwrap_or(0.0)
+        let total = phase_timing.parse_ms
+            + phase_timing.resolve_ms.unwrap_or(0.0)
+            + phase_timing.typecheck_ms.unwrap_or(0.0)
             + verify_ms
             + codegen_ms;
         eprintln!("  total:     {total:.2}ms");

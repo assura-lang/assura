@@ -271,6 +271,38 @@ pub(crate) fn clause_to_json(
 }
 
 // ---------------------------------------------------------------------------
+// Parameter structs (replace too_many_arguments)
+// ---------------------------------------------------------------------------
+
+/// Configuration for the `assura check` command.
+pub(crate) struct CheckOptions<'a> {
+    pub(crate) filename: &'a str,
+    pub(crate) output_mode: OutputMode,
+    pub(crate) verbosity: Verbosity,
+    pub(crate) layer: u8,
+    pub(crate) solver: Option<assura_smt::SolverChoice>,
+    pub(crate) watch: bool,
+    pub(crate) stats: bool,
+    pub(crate) dump_smt: Option<&'a str>,
+    pub(crate) show_cores: bool,
+}
+
+/// Context for verification + diagnostic reporting.
+pub(crate) struct VerifyContext<'a> {
+    pub(crate) filename: &'a str,
+    pub(crate) source: &'a str,
+    pub(crate) typed: &'a Option<assura_types::TypedFile>,
+    pub(crate) file: &'a Option<assura_parser::ast::SourceFile>,
+    pub(crate) diagnostics: &'a mut Vec<assura_diagnostics::Diagnostic>,
+    pub(crate) has_errors: &'a mut bool,
+    pub(crate) output_mode: OutputMode,
+    pub(crate) verbosity: Verbosity,
+    pub(crate) layer: u8,
+    pub(crate) solver: assura_smt::SolverChoice,
+    pub(crate) show_cores: bool,
+}
+
+// ---------------------------------------------------------------------------
 // `assura check <file> [--json|--human] [--layer 0|1]`
 // ---------------------------------------------------------------------------
 
@@ -349,6 +381,32 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
     });
 
     // --- Run shared pipeline ---
+    let output = compile_with_config(&source, filename, &compiler_config);
+    crate::timing::print_pipeline_timing(
+        &output,
+        crate::timing::TimingOptions {
+            filename,
+            output_mode,
+            verbosity,
+            project: config.as_ref().map(|(cfg, root)| {
+                (
+                    cfg.package.name.as_str(),
+                    cfg.package.version.as_str(),
+                    root.as_path(),
+                )
+            }),
+            config_line: config.as_ref().map(|(cfg, _)| {
+                format!(
+                    "config: layer={}, solver={}, timeout={}ms, output={}",
+                    cfg.verify.layer, cfg.verify.smt_solver, cfg.verify.timeout, cfg.build.output
+                )
+            }),
+            verify_ms: None,
+            show_total: false,
+            detailed_hir: false,
+            show_phase_failures: true,
+        },
+    );
     let CompilationResult {
         file,
         resolved,
@@ -358,65 +416,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         mut has_errors,
         timing,
         ..
-    } = compile_with_config(&source, filename, &compiler_config);
-
-    if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-        if let Some((ref cfg, ref root)) = config {
-            eprintln!(
-                "Project: {} v{} ({})",
-                cfg.package.name,
-                cfg.package.version,
-                root.display()
-            );
-            eprintln!(
-                "  config: layer={}, solver={}, timeout={}ms, output={}",
-                cfg.verify.layer, cfg.verify.smt_solver, cfg.verify.timeout, cfg.build.output
-            );
-            eprintln!();
-        }
-        eprintln!("Pipeline timing for {filename}:");
-        if let Some(ref f) = file {
-            eprintln!(
-                "  parse:     {} tokens, {} declaration(s), {} import(s) ({:.2}ms)",
-                timing.token_count,
-                f.decls.len(),
-                f.imports.len(),
-                timing.parse_ms
-            );
-        } else {
-            eprintln!(
-                "  parse:     {} tokens, failed ({:.2}ms)",
-                timing.token_count, timing.parse_ms
-            );
-        }
-        if let Some(resolve_ms) = timing.resolve_ms {
-            if let Some(ref r) = resolved {
-                let user_symbols = r
-                    .symbols
-                    .symbols
-                    .iter()
-                    .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
-                    .count();
-                eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
-            } else {
-                eprintln!("  resolve:   failed ({resolve_ms:.2}ms)");
-            }
-        }
-        if let Some(hir_ms) = timing.hir_ms {
-            eprintln!("  hir:       ({hir_ms:.2}ms)");
-        }
-        if let Some(typecheck_ms) = timing.typecheck_ms {
-            if let Some(ref td) = typed {
-                eprintln!(
-                    "  typecheck: {} binding(s) ({typecheck_ms:.2}ms)",
-                    td.type_env.len()
-                );
-            } else {
-                eprintln!("  typecheck: failed ({typecheck_ms:.2}ms)");
-            }
-        }
-        eprintln!();
-    }
+    } = output;
 
     // --- Verify + report ---
     let verify_start = Instant::now();
@@ -536,57 +536,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
             // Build verification summary for JSON output
             let verification_json: Vec<serde_json::Value> = verification_results
                 .iter()
-                .map(|vr| match vr {
-                    assura_smt::VerificationResult::Verified {
-                        clause_desc,
-                        unsat_core,
-                    } => {
-                        let mut val = serde_json::json!({
-                            "status": "verified",
-                            "clause": clause_desc,
-                        });
-                        if let Some(core) = unsat_core {
-                            val["unsat_core"] = serde_json::json!(core);
-                        }
-                        val
-                    }
-                    assura_smt::VerificationResult::Counterexample {
-                        clause_desc,
-                        model,
-                        counter_model,
-                    } => {
-                        let mut val = serde_json::json!({
-                            "status": "counterexample",
-                            "clause": clause_desc,
-                            "model": model,
-                        });
-                        if let Some(cm) = counter_model {
-                            let vars: serde_json::Map<String, serde_json::Value> = cm
-                                .variables
-                                .iter()
-                                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-                                .collect();
-                            val["variables"] = serde_json::Value::Object(vars);
-                        }
-                        val
-                    }
-                    assura_smt::VerificationResult::Timeout { clause_desc } => {
-                        serde_json::json!({
-                            "status": "timeout",
-                            "clause": clause_desc,
-                        })
-                    }
-                    assura_smt::VerificationResult::Unknown {
-                        clause_desc,
-                        reason,
-                    } => {
-                        serde_json::json!({
-                            "status": "unknown",
-                            "clause": clause_desc,
-                            "reason": reason,
-                        })
-                    }
-                })
+                .map(assura_smt::VerificationResult::to_json_value)
                 .collect();
 
             // Build file metadata
@@ -718,30 +668,13 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         .as_ref()
         .is_some_and(assura_smt::has_verifiable_clauses);
 
-    let mut verification_results = if layer >= 1 && has_clauses {
-        if let Some(typed) = typed {
-            let cache_dir = std::path::Path::new(filename)
-                .parent()
-                .unwrap_or(std::path::Path::new("."));
-            let verify_cache = assura_smt::VerificationCache::new(cache_dir);
-            let loaded_ir =
-                assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
-            assura_smt::verify_parallel_with_solver(
-                typed,
-                &verify_cache,
-                solver,
-                loaded_ir.extras().as_ref(),
-            )
-        } else {
-            Vec::new()
-        }
+    let verification_results = if layer >= 1 && has_clauses {
+        typed.as_ref().map_or_else(Vec::new, |typed| {
+            assura_smt::verify_typed_file_at(std::path::Path::new(filename), typed, solver)
+        })
     } else {
         Vec::new()
     };
-
-    if let Some(typed) = typed {
-        verification_results.extend(assura_smt::display::dispatch_decrease_checks(typed));
-    }
 
     // Build a lookup from contract/decl name to source span so SMT
     // diagnostics point to the originating declaration, not 0..0.
@@ -893,71 +826,30 @@ pub(crate) fn check_file_once(
         }
     };
 
+    let output = compile(&source, filename);
+    crate::timing::print_pipeline_timing(
+        &output,
+        crate::timing::TimingOptions {
+            filename,
+            output_mode,
+            verbosity,
+            project: None,
+            config_line: None,
+            verify_ms: None,
+            show_total: false,
+            detailed_hir: true,
+            show_phase_failures: true,
+        },
+    );
     let CompilationResult {
         file,
-        resolved,
-        hir,
+        resolved: _,
+        hir: _,
         typed,
         mut diagnostics,
         mut has_errors,
-        timing,
         ..
-    } = compile(&source, filename);
-
-    if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-        eprintln!("Pipeline timing for {filename}:");
-        if let Some(ref f) = file {
-            eprintln!(
-                "  parse:     {} tokens, {} declaration(s), {} import(s) ({:.2}ms)",
-                timing.token_count,
-                f.decls.len(),
-                f.imports.len(),
-                timing.parse_ms
-            );
-        } else {
-            eprintln!(
-                "  parse:     {} tokens, failed ({:.2}ms)",
-                timing.token_count, timing.parse_ms
-            );
-        }
-        if let Some(resolve_ms) = timing.resolve_ms {
-            if let Some(ref r) = resolved {
-                let user_symbols = r
-                    .symbols
-                    .symbols
-                    .iter()
-                    .filter(|s| s.kind != assura_resolve::SymbolKind::BuiltinType)
-                    .count();
-                eprintln!("  resolve:   {user_symbols} symbol(s) ({resolve_ms:.2}ms)");
-            } else {
-                eprintln!("  resolve:   failed ({resolve_ms:.2}ms)");
-            }
-        }
-        if let Some(hir_ms) = timing.hir_ms {
-            if let Some(ref h) = hir {
-                eprintln!("  hir:       {} decl(s) ({hir_ms:.2}ms)", h.decls.len());
-            } else {
-                eprintln!("  hir:       skipped ({hir_ms:.2}ms)");
-            }
-        }
-        if let Some(typecheck_ms) = timing.typecheck_ms {
-            if let Some(ref td) = typed {
-                eprintln!(
-                    "  typecheck: {} binding(s) ({typecheck_ms:.2}ms)",
-                    td.type_env.len()
-                );
-            } else {
-                eprintln!("  typecheck: failed ({typecheck_ms:.2}ms)");
-            }
-        }
-        eprintln!();
-    }
-
-    // These variables are used conditionally in verbose mode above.
-    // Explicitly mark as intentionally unused after that point.
-    let _resolved = resolved;
-    let _hir = hir;
-    let _timing = timing;
+    } = output;
 
     verify_and_report(VerifyContext {
         filename,
