@@ -672,6 +672,23 @@ module double {
     }
 
     #[test]
+    fn ir_blocks_inlines_sibling_functions() {
+        let (func, blocks) = crate::ir_encode::branch_if_else_ir_fixture();
+
+        let mut script = String::new();
+        let mut vars = HashSet::new();
+        append_ir_body_constraints_smtlib(
+            &mut script,
+            &mut vars,
+            &func,
+            &["x".into()],
+            IrEncodeContext::new(None, None, Some(&blocks)),
+        );
+        let axiom_lines = script.lines().filter(|l| l.contains("(assert")).count();
+        crate::ir_encode::assert_ir_blocks_inlined(&script, axiom_lines);
+    }
+
+    #[test]
     fn ir_load_result_emits_length_identity_axiom() {
         let ir_source = r#"
 module copy {

@@ -879,28 +879,8 @@ module double {
 
     #[test]
     fn cvc5_ir_blocks_inlines_sibling_functions() {
-        use crate::ir::parse_ir_module;
-
-        let ir_source = r#"
-module branch {
-  fn #0 : ($0: Int) -> Int ! pure
-  {
-    $1 = if $0 then #1 else #2 : Int
-    $result = load $1 : Int
-  }
-  fn #1 : ($0: Int) -> Int ! pure
-  {
-    $result = load $0 : Int
-  }
-  fn #2 : ($0: Int) -> Int ! pure
-  {
-    $result = const 0 : Int
-  }
-}
-"#;
-        let module = parse_ir_module(ir_source).unwrap();
-        let func = module.functions[0].clone();
-        let blocks = crate::ir_encode::block_map_from_module(&module);
+        let (func, blocks) = crate::ir_encode::branch_if_else_ir_fixture();
+        let enc_ctx = IrEncodeContext::new(None, None, Some(&blocks));
 
         let tm = cvc5::TermManager::new();
         let mut state = default_cvc5_encoder_state();
@@ -911,14 +891,16 @@ module branch {
             &["x".into()],
             &mut vars,
             &mut state,
-            Some(&blocks),
-            IrEncodeContext::default(),
+            enc_ctx.ir_blocks,
+            enc_ctx,
         );
 
-        assert!(
-            state.axioms.len() >= 4,
-            "expected inlined block axioms, got {}",
-            state.axioms.len()
-        );
+        let text: String = state
+            .axioms
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        crate::ir_encode::assert_ir_blocks_inlined(&text, state.axioms.len());
     }
 }

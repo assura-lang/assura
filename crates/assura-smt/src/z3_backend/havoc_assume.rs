@@ -689,4 +689,35 @@ module double {
             );
         });
     }
+
+    #[test]
+    fn test_z3_ir_blocks_inlines_sibling_functions() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let (func, blocks) = crate::ir_encode::branch_if_else_ir_fixture();
+
+            let mut encoder = Encoder::new();
+            apply_havoc_assume_z3(
+                &mut encoder,
+                &[],
+                &[],
+                &["Int".into()],
+                &["x".into()],
+                Some(&func),
+                Some(&blocks),
+                None,
+                None,
+            );
+
+            let axiom_text: String = encoder
+                .background_axioms
+                .iter()
+                .map(|a| a.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            crate::ir_encode::assert_ir_blocks_inlined(
+                &axiom_text,
+                encoder.background_axioms.len(),
+            );
+        });
+    }
 }

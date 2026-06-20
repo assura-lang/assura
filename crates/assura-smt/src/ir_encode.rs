@@ -65,10 +65,65 @@ pub fn slot_type_map(func: &IrFunction) -> HashMap<usize, String> {
     func.params.iter().map(|p| (p.slot, p.ty.clone())).collect()
 }
 
+/// Shared fixture: `fn #0` with `if` branching to sibling `fn #1` / `fn #2`.
+///
+/// Used by Z3, CVC5 shell, and CVC5 native `ir_blocks` inlining parity tests.
+#[cfg(test)]
+pub(crate) fn branch_if_else_ir_fixture() -> (IrFunction, HashMap<usize, Vec<IrInstr>>) {
+    use crate::ir::parse_ir_module;
+
+    const SOURCE: &str = r#"
+module branch {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = if $0 then #1 else #2 : Int
+    $result = load $1 : Int
+  }
+  fn #1 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+  fn #2 : ($0: Int) -> Int ! pure
+  {
+    $result = const 0 : Int
+  }
+}
+"#;
+    let module = parse_ir_module(SOURCE).unwrap();
+    let func = module.functions[0].clone();
+    let blocks = block_map_from_module(&module);
+    (func, blocks)
+}
+
+/// Assert sibling `fn #N` bodies were inlined (not opaque `__ir_block_N` UFs).
+#[cfg(test)]
+pub(crate) fn assert_ir_blocks_inlined(output: &str, axiom_count: usize) {
+    assert!(
+        axiom_count >= 3,
+        "expected multiple IR block axioms, got {axiom_count}"
+    );
+    assert!(
+        output.contains("ite"),
+        "expected if-expr lowering, got:\n{output}"
+    );
+    assert!(
+        !output.contains("__ir_block_1") && !output.contains("__ir_block_2"),
+        "inlined blocks must not use opaque __ir_block_N UFs, got:\n{output}"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ir::parse_ir_module;
+
+    #[test]
+    fn branch_if_else_fixture_has_three_blocks() {
+        let (_, blocks) = branch_if_else_ir_fixture();
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks.contains_key(&1));
+        assert!(blocks.contains_key(&2));
+    }
 
     #[test]
     fn block_map_collects_sibling_functions() {
