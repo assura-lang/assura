@@ -1988,7 +1988,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 1: Quick wins (no deps, low risk) -- parallel
 
-- [ ] **11.01** Delete legacy shims
+- [x] **11.01** Delete legacy shims
   - Delete `crates/assura-cli/src/legacy.rs` entirely
   - Remove legacy dispatch from `main.rs` (the `assura <file>` path)
   - Remove `[project]` compat from `assura-config` (keep only `[package]`)
@@ -2006,7 +2006,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo clippy --workspace -- -D warnings
     ```
 
-- [ ] **11.02** Remove `Expr::Paren` from AST
+- [x] **11.02** Remove `Expr::Paren` from AST
   - `Paren` is syntactic (CST concern), not semantic. Every consumer
     just recurses into the inner expression.
   - In `lower.rs`, unwrap `PAREN_EXPR` to the inner `Expr` directly
@@ -2022,7 +2022,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.03** Remove dual type representation (`ty: Vec<String>`)
+- [x] **11.03** Remove dual type representation (`ty: Vec<String>`) -- already done in prior session
   - `Param`, `FieldDef`, `ExternDecl`, `BindDecl`, `FnDef`,
     `ProphecyDecl` carry both `ty: Vec<String>` (raw tokens) and
     `parsed_type: Option<TypeExpr>` (structured).
