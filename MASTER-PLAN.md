@@ -2123,7 +2123,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 4: Extract generic traversal + consolidate APIs -- depends on: Rounds 2, 3
 
-- [ ] **11.07** Extract `ExprFolder` trait (5 walkers become 1)
+- [ ] **11.07** Extract `ExprFolder` trait (5 walkers become 1) -- #312
   - Create a generic `ExprFolder<Output>` trait with one method per
     `Expr` variant, default recursion, and a `fold()` driver.
   - Reimplement `expr_to_string`, `format_expr`, `expr_to_rust`,
@@ -2141,7 +2141,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.08** Consolidate verify API (16 -> 1 builder)
+- [ ] **11.08** Consolidate verify API (16 -> 1 builder) -- #313
   - Replace 16 `verify*` functions in `assura-smt/src/entry.rs` with
     a builder: `Verifier::new(source).parallel().solver(Solver::Z3).verify()`
   - Keep the old functions as deprecated thin wrappers initially,
@@ -2156,7 +2156,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.09** Consolidate type_check API (5 -> 1 builder)
+- [ ] **11.09** Consolidate type_check API (5 -> 1 builder) -- #314
   - Replace `type_check`, `type_check_with_modules`,
     `type_check_hir`, `type_check_hir_with_config`,
     `type_check_with_config` with a builder:
@@ -2170,7 +2170,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 5: HIR resolution + module reorganization -- depends on: Round 4
 
-- [ ] **11.10** Resolve HIR: commit or kill
+- [ ] **11.10** Resolve HIR: commit or kill -- #315
   - The type checker currently converts HIR back to AST via
     `to_ast_expr()` before processing. This defeats the purpose
     of having a separate HIR.
@@ -2191,7 +2191,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.11** Reorganize CVC5 modules (44 files -> subdirectory)
+- [ ] **11.11** Reorganize CVC5 modules (44 files -> subdirectory) -- #319
   - Move all `cvc5_*.rs` files from `assura-smt/src/` into
     `assura-smt/src/cvc5_backend/` subdirectory.
   - Organize into ~8-10 thematic modules: `arithmetic.rs`,
@@ -2214,7 +2214,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 6: Break layering violations -- depends on: Round 5
 
-- [ ] **11.12** Break parser dependency from codegen and smt
+- [ ] **11.12** Break parser dependency from codegen and smt -- #316
   - `assura-codegen` (5 files) and `assura-smt` (45 files) import
     `assura_parser::ast` directly. They should operate on typed
     representations only.
@@ -2234,7 +2234,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 7: Final cleanup -- depends on: Round 6
 
-- [ ] **11.13** Split remaining monolith files
+- [ ] **11.13** Split remaining monolith files -- #318
   - `assura-diagnostics/src/lib.rs` (3,861 lines) -- split into
     `registry.rs`, `catalog.rs`, `render.rs`
   - `assura-resolve/src/lib.rs` (2,290 lines) -- split into
@@ -2249,7 +2249,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.14** Final verification and cleanup
+- [ ] **11.14** Final verification and cleanup -- #317
   - Run full pre-commit gate
   - Verify all demos parse and verify
   - Update AGENTS.md crate version table and repository structure

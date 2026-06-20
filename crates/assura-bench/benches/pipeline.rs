@@ -111,7 +111,11 @@ fn bench_smt_verify(c: &mut Criterion) {
             BenchmarkId::new("verify", demo.name),
             &(typed, demo_path),
             |b, (typed, path)| {
-                b.iter(|| assura_smt::verify_from_source(typed, Some(std::path::Path::new(path))));
+                b.iter(|| {
+                    assura_smt::Verifier::new(typed)
+                        .source(std::path::Path::new(path))
+                        .verify()
+                });
             },
         );
     }
@@ -133,10 +137,9 @@ fn bench_full_pipeline(c: &mut Criterion) {
                     let _hir = assura_hir::lower(&resolved);
                     let typed = assura_types::type_check(&resolved).expect("typecheck");
                     let demo_path = format!("demos/{}.assura", demo.name);
-                    let _results = assura_smt::verify_from_source(
-                        &typed,
-                        Some(std::path::Path::new(&demo_path)),
-                    );
+                    let _results = assura_smt::Verifier::new(&typed)
+                        .source(std::path::Path::new(&demo_path))
+                        .verify();
                     let _project = assura_codegen::codegen(&typed);
                 });
             },

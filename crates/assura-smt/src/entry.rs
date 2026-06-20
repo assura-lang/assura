@@ -4,7 +4,9 @@
 //! and all standalone verification functions (refinement, buffer bounds,
 //! taint safety, measures, termination).
 
-use assura_parser::ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, Param, ServiceItem};
+use assura_parser::ast::{
+    BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, Param, ServiceItem, TypeExpr,
+};
 use assura_types::TypedFile;
 use assura_types::checkers::expr_references_var;
 
@@ -53,28 +55,40 @@ pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
                 i += 1;
                 if i < tokens.len() && tokens[i] == ":" {
                     i += 1;
-                    let mut ty = Vec::new();
+                    let mut ty_tokens = Vec::new();
                     while i < tokens.len() && tokens[i] != "," {
-                        ty.push(tokens[i].clone());
+                        ty_tokens.push(tokens[i].clone());
                         i += 1;
                     }
                     params.push(Param {
                         name,
-                        ty,
-                        parsed_type: None,
+                        ty: simple_type_from_tokens(&ty_tokens),
                     });
                 } else {
-                    params.push(Param {
-                        name,
-                        ty: Vec::new(),
-                        parsed_type: None,
-                    });
+                    params.push(Param { name, ty: None });
                 }
             }
             return params;
         }
     }
     Vec::new()
+}
+
+/// Convert raw type tokens to a `TypeExpr` (simplified parser for SMT-internal use).
+fn simple_type_from_tokens(tokens: &[String]) -> Option<TypeExpr> {
+    if tokens.is_empty() {
+        return None;
+    }
+    if tokens.len() == 1 {
+        return Some(TypeExpr::Named(tokens[0].clone()));
+    }
+    // Multi-token: join as a named type for SMT purposes
+    Some(TypeExpr::Named(tokens.join(" ")))
+}
+
+/// Convert `Option<TypeExpr>` to `Vec<String>` tokens (bridge for SMT internals).
+pub(crate) fn type_expr_to_token_vec(te: Option<&TypeExpr>) -> Vec<String> {
+    te.map(|t| t.to_tokens()).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -108,40 +122,132 @@ pub(crate) fn build_verify_extras<'a>(
     }
 }
 
-/// Verify all contract clauses in a type-checked file.
+// ---------------------------------------------------------------------------
+// Builder API (consolidates file-level verify entry points)
+// ---------------------------------------------------------------------------
+
+/// Builder for SMT verification. Consolidates 7 file-level `verify*` functions
+/// into a single composable API:
 ///
-/// Returns a `VerificationResult` for each verifiable clause (ensures,
-/// invariant). Requires clauses are collected as assumptions but not
-/// independently verified (they constrain the context for ensures).
+/// ```ignore
+/// Verifier::new(&typed)
+///     .source(path)            // auto-load IR sidecars
+///     .solver(SolverChoice::Z3)
+///     .cache(&cache)           // enable result caching
+///     .parallel()              // enable rayon parallelism
+///     .verify()
+/// ```
+pub struct Verifier<'a> {
+    typed: &'a TypedFile,
+    source: Option<&'a std::path::Path>,
+    options: assura_config::VerifyOptions,
+    cache: Option<&'a VerificationCache>,
+    parallel: bool,
+    include_decrease_checks: bool,
+}
+
+impl<'a> Verifier<'a> {
+    /// Create a new verifier for a type-checked file.
+    pub fn new(typed: &'a TypedFile) -> Self {
+        Self {
+            typed,
+            source: None,
+            options: assura_config::VerifyOptions::default(),
+            cache: None,
+            parallel: false,
+            include_decrease_checks: false,
+        }
+    }
+
+    /// Set the source file path (auto-loads IR sidecars).
+    pub fn source(mut self, path: &'a std::path::Path) -> Self {
+        self.source = Some(path);
+        self
+    }
+
+    /// Set verification options (solver, timeout, layer).
+    pub fn options(mut self, options: assura_config::VerifyOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    /// Set the solver backend.
+    pub fn solver(mut self, solver: SolverChoice) -> Self {
+        self.options.solver = solver;
+        self
+    }
+
+    /// Set the per-query solver timeout in milliseconds.
+    pub fn timeout_ms(mut self, ms: u64) -> Self {
+        self.options.timeout_ms = ms;
+        self
+    }
+
+    /// Enable result caching.
+    pub fn cache(mut self, cache: &'a VerificationCache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// Enable parallel verification using rayon.
+    pub fn parallel(mut self) -> Self {
+        self.parallel = true;
+        self
+    }
+
+    /// Include pending decrease (termination) checks from the type checker.
+    pub fn with_decrease_checks(mut self) -> Self {
+        self.include_decrease_checks = true;
+        self
+    }
+
+    /// Run verification and return results.
+    pub fn verify(self) -> Vec<VerificationResult> {
+        let loaded_storage = self
+            .source
+            .map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, self.typed));
+        let extras = build_verify_extras(self.typed, loaded_storage.as_ref());
+
+        let mut results = if self.parallel {
+            let default_cache;
+            let cache = match self.cache {
+                Some(c) => c,
+                None => {
+                    let dir = self
+                        .source
+                        .and_then(|p| p.parent())
+                        .unwrap_or_else(|| std::path::Path::new("."));
+                    default_cache = VerificationCache::new(dir);
+                    &default_cache
+                }
+            };
+            verify_parallel_with_solver(
+                self.typed,
+                cache,
+                self.options.solver,
+                Some(&extras),
+            )
+        } else {
+            verify_with_options_impl(self.typed, &self.options, Some(&extras))
+        };
+
+        if self.include_decrease_checks {
+            results.extend(crate::display::dispatch_decrease_checks(self.typed));
+        }
+
+        results
+    }
+}
+
+/// Verify all contract clauses in a type-checked file (convenience function).
+///
+/// For custom options, use [`Verifier`] builder instead.
 pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
-    let extras = build_verify_extras(typed, None);
-    verify_with_options(
-        typed,
-        &assura_config::VerifyOptions::default(),
-        Some(&extras),
-    )
+    Verifier::new(typed).verify()
 }
 
-/// Verify a type-checked file, auto-loading `{Name}.ir` sidecars when `source` is set.
-pub fn verify_from_source(
-    typed: &TypedFile,
-    source: Option<&std::path::Path>,
-) -> Vec<VerificationResult> {
-    let loaded_storage = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
-    let extras = build_verify_extras(typed, loaded_storage.as_ref());
-    verify_with_options(
-        typed,
-        &assura_config::VerifyOptions::default(),
-        Some(&extras),
-    )
-}
-
-/// Verify all contract clauses using the given verification options.
-///
-/// `options.solver` selects the SMT backend ("z3", "cvc5", "portfolio").
-/// `options.timeout_ms` limits per-query solver time.
-/// `options.layer` controls verification depth (0 = structural, 1+ = SMT).
-pub fn verify_with_options(
+/// Internal: verify with options (non-parallel path).
+fn verify_with_options_impl(
     typed: &TypedFile,
     options: &assura_config::VerifyOptions,
     extras: Option<&VerifyFileExtras<'_>>,
@@ -200,7 +306,7 @@ pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJo
                     f.name.clone(),
                     f.clauses.clone(),
                     f.params.clone(),
-                    f.return_ty.clone(),
+                    type_expr_to_token_vec(f.return_ty.as_ref()),
                 ));
             }
             Decl::Extern(e) => {
@@ -208,7 +314,7 @@ pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJo
                     e.name.clone(),
                     e.clauses.clone(),
                     e.params.clone(),
-                    e.return_ty.clone(),
+                    type_expr_to_token_vec(e.return_ty.as_ref()),
                 ));
             }
             Decl::Service(s) => {
@@ -255,7 +361,7 @@ pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJo
                     b.name.clone(),
                     b.clauses.clone(),
                     b.params.clone(),
-                    b.return_ty.clone(),
+                    type_expr_to_token_vec(b.return_ty.as_ref()),
                 ));
             }
             Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
@@ -834,44 +940,7 @@ fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> Ver
     if z3_pri >= cvc5_pri { z3r } else { cvc5r }
 }
 
-/// Verify a type-checked file on disk with cache, IR sidecars, and decrease checks.
-pub fn verify_typed_file_at(
-    path: &std::path::Path,
-    typed: &TypedFile,
-    solver: SolverChoice,
-) -> Vec<VerificationResult> {
-    let cache_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let cache = VerificationCache::new(cache_dir);
-    let loaded = crate::ir_loader::LoadedVerifyExtras::load(path, typed);
-    let mut results = verify_parallel_with_solver(typed, &cache, solver, loaded.extras().as_ref());
-    results.extend(crate::display::dispatch_decrease_checks(typed));
-    results
-}
 
-/// Verify all declarations in parallel using rayon.
-///
-/// Each contract/function gets its own Z3 context (Z3 contexts are not
-/// `Sync`). Independent declarations are verified concurrently using
-/// rayon's work-stealing thread pool, achieving linear speedup on
-/// multi-core machines for projects with many contracts.
-///
-/// Also uses the filesystem cache: cache hits are returned immediately,
-/// only cache misses go to Z3 (potentially in parallel).
-pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<VerificationResult> {
-    let extras = build_verify_extras(typed, None);
-    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, Some(&extras))
-}
-
-/// Parallel verification with automatic IR sidecar loading from `source`.
-pub fn verify_parallel_from_source(
-    typed: &TypedFile,
-    cache: &VerificationCache,
-    source: Option<&std::path::Path>,
-) -> Vec<VerificationResult> {
-    let loaded_storage = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
-    let extras = build_verify_extras(typed, loaded_storage.as_ref());
-    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, Some(&extras))
-}
 
 /// Check whether any declaration in the source file has verifiable clauses
 /// (requires, ensures, invariant).  Returns false if there is nothing to
@@ -905,7 +974,7 @@ pub fn has_verifiable_clauses(source: &assura_parser::ast::SourceFile) -> bool {
 }
 
 /// Verify all declarations in parallel using the specified solver.
-pub fn verify_parallel_with_solver(
+pub(crate) fn verify_parallel_with_solver(
     typed: &TypedFile,
     cache: &VerificationCache,
     solver: SolverChoice,
@@ -1574,8 +1643,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![],
-            return_ty: vec![],
-            return_type_expr: None,
+            return_ty: None,
             clauses: vec![make_clause(ClauseKind::Requires)],
         })]);
         assert!(has_verifiable_clauses(&source));
@@ -1586,8 +1654,7 @@ mod tests {
         let source = make_source(vec![Decl::Extern(ExternDecl {
             name: "e".into(),
             params: vec![],
-            return_ty: vec![],
-            return_type_expr: None,
+            return_ty: None,
             clauses: vec![make_clause(ClauseKind::Invariant)],
         })]);
         assert!(has_verifiable_clauses(&source));
@@ -1643,8 +1710,7 @@ mod tests {
             name: "bd".into(),
             target_path: "path".into(),
             params: vec![],
-            return_ty: vec![],
-            return_type_expr: None,
+            return_ty: None,
             clauses: vec![make_clause(ClauseKind::Requires)],
         })]);
         assert!(has_verifiable_clauses(&source));
@@ -1665,7 +1731,7 @@ mod tests {
             }),
             Decl::Prophecy(ProphecyDecl {
                 name: "p".into(),
-                ty_tokens: vec![],
+                ty: None,
             }),
         ]);
         assert!(!has_verifiable_clauses(&source));
@@ -1843,7 +1909,7 @@ mod tests {
         let params = extract_input_params(&clauses);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "raw_data");
-        assert_eq!(params[0].ty, vec!["Bytes"]);
+        assert_eq!(params[0].ty, Some(TypeExpr::Named("Bytes".into())));
     }
 
     #[test]
@@ -1864,9 +1930,9 @@ mod tests {
         let params = extract_input_params(&clauses);
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "x");
-        assert_eq!(params[0].ty, vec!["Int"]);
+        assert_eq!(params[0].ty, Some(TypeExpr::Named("Int".into())));
         assert_eq!(params[1].name, "y");
-        assert_eq!(params[1].ty, vec!["Nat"]);
+        assert_eq!(params[1].ty, Some(TypeExpr::Named("Nat".into())));
     }
 
     #[test]
@@ -1880,7 +1946,7 @@ mod tests {
         let params = extract_input_params(&clauses);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "x");
-        assert!(params[0].ty.is_empty());
+        assert!(params[0].ty.is_none());
     }
 
     #[test]

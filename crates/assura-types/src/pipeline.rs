@@ -15,7 +15,7 @@ use crate::clauses::{
     check_clause_bodies, check_clause_bodies_hir, collect_input_param_types,
     extract_output_type_from_body, register_input_clause_params,
 };
-use crate::convert::{parse_type_tokens, resolve_type};
+use crate::convert::{parse_type_tokens, resolve_type_opt};
 use crate::env::{build_type_env, build_type_env_from_hir};
 use crate::generics::run_generic_instantiation_checks;
 use crate::{Type, TypeEnv, TypeError, TypedFile};
@@ -24,14 +24,12 @@ use crate::{Type, TypeEnv, TypeError, TypedFile};
 // Entry point
 // ---------------------------------------------------------------------------
 
-/// Type-check a resolved file.
+/// Type-check a resolved file with default configuration.
 ///
-/// Builds a type environment from the symbol table. For T013 this always
-/// succeeds (no expression-level checking yet). Returns a `TypedFile`
-/// containing the resolved file and its type environment, or a list of
-/// `TypeError`s.
+/// Convenience wrapper around [`TypeChecker`]. For custom configuration
+/// or cross-module type checking, use the builder directly.
 pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
-    type_check_with_config(resolved, &assura_config::TypeCheckConfig::default())
+    TypeChecker::new().check(resolved)
 }
 
 type SourceChecker = fn(&assura_parser::ast::SourceFile) -> Vec<TypeError>;
@@ -186,11 +184,7 @@ fn generate_tests_from_contracts(
                 match clause.kind {
                     ClauseKind::Input => {
                         for p in extract_clause_params(&clause.body) {
-                            let ty = if p.ty.is_empty() {
-                                Type::Unknown
-                            } else {
-                                crate::convert::parse_type_tokens(&p.ty)
-                            };
+                            let ty = resolve_type_opt(p.ty.as_ref());
                             params.push((p.name, ty));
                         }
                     }
@@ -219,49 +213,7 @@ fn generate_tests_from_contracts(
     tgen.generate_all()
 }
 
-/// Type-check a resolved file with cross-module type information.
-///
-/// Unlike [`type_check_with_config`], this populates the `TypeEnv` with
-/// type information from imported modules so that cross-file references
-/// (contract input/output types, struct fields, enum variants) resolve
-/// to concrete types instead of `Type::Unknown`.
-pub fn type_check_with_modules(
-    resolved: &ResolvedFile,
-    modules: &HashMap<String, ResolvedFile>,
-    config: &assura_config::TypeCheckConfig,
-) -> Result<TypedFile, Vec<TypeError>> {
-    let mut type_env = build_type_env(&resolved.symbols, &resolved.source);
 
-    // Inject type information from imported modules
-    for imp in &resolved.imports {
-        if imp.status != ImportStatus::Resolved {
-            continue;
-        }
-        let module_key = imp.path.join(".");
-        if let Some(imported_resolved) = modules.get(&module_key) {
-            inject_imported_types(&mut type_env, imp, &imported_resolved.source);
-        }
-    }
-
-    let mut errors = check_clause_bodies(&resolved.source, &type_env);
-    let (check_errors, pending_decrease_checks) =
-        run_all_checks(&resolved.source, &type_env, &resolved.symbols, config);
-    errors.extend(check_errors);
-
-    if !errors.is_empty() {
-        return Err(errors);
-    }
-
-    let generated_tests = generate_tests_from_contracts(&resolved.source);
-
-    Ok(TypedFile {
-        resolved: Arc::new(resolved.clone()),
-        pending_decrease_checks,
-        type_env,
-        hir: None,
-        generated_tests,
-    })
-}
 
 /// Inject type information from an imported module's AST into the type
 /// environment. Adds concrete types for imported contracts, services,
@@ -336,7 +288,7 @@ fn inject_imported_types(
                 if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
                     let field_types: Vec<(String, Type)> = fields
                         .iter()
-                        .map(|f| (f.name.clone(), parse_type_tokens(&f.ty)))
+                        .map(|f| (f.name.clone(), resolve_type_opt(f.ty.as_ref())))
                         .collect();
                     env.struct_fields.insert(td.name.clone(), field_types);
                 }
@@ -364,13 +316,9 @@ fn inject_imported_types(
                 let param_types: Vec<Type> = f
                     .params
                     .iter()
-                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .map(|p| resolve_type_opt(p.ty.as_ref()))
                     .collect();
-                let ret = if f.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&f.return_ty)
-                };
+                let ret = resolve_type_opt(f.return_ty.as_ref());
                 env.insert(
                     f.name.clone(),
                     Type::Fn {
@@ -383,13 +331,9 @@ fn inject_imported_types(
                 let param_types: Vec<Type> = e
                     .params
                     .iter()
-                    .map(|p| resolve_type(p.parsed_type.as_ref(), &p.ty))
+                    .map(|p| resolve_type_opt(p.ty.as_ref()))
                     .collect();
-                let ret = if e.return_ty.is_empty() {
-                    Type::Unit
-                } else {
-                    parse_type_tokens(&e.return_ty)
-                };
+                let ret = resolve_type_opt(e.return_ty.as_ref());
                 env.insert(
                     e.name.clone(),
                     Type::Fn {
@@ -403,71 +347,121 @@ fn inject_imported_types(
     }
 }
 
-/// Type-check from an HIR file. This is the preferred entry point when the
-/// HIR lowering pass has already been run.
-pub fn type_check_hir(hir: &assura_hir::HirFile) -> Result<TypedFile, Vec<TypeError>> {
-    type_check_hir_with_config(hir, &assura_config::TypeCheckConfig::default())
+
+
+// ---------------------------------------------------------------------------
+// Builder API (consolidates all 5 type_check entry points)
+// ---------------------------------------------------------------------------
+
+/// Builder for type-checking. Replaces the 5 standalone `type_check*` functions
+/// with a single composable API:
+///
+/// ```ignore
+/// TypeChecker::new()
+///     .config(my_config)
+///     .modules(dep_map)
+///     .check(&resolved)
+/// ```
+///
+/// Or for HIR input:
+/// ```ignore
+/// TypeChecker::new()
+///     .config(my_config)
+///     .check_hir(&hir_file)
+/// ```
+pub struct TypeChecker {
+    config: assura_config::TypeCheckConfig,
+    modules: Option<HashMap<String, ResolvedFile>>,
 }
 
-/// Type-check from an HIR file using the given configuration.
-///
-/// Uses `build_type_env_from_hir` to construct the type environment from
-/// structured HIR types instead of raw token parsing.
-pub fn type_check_hir_with_config(
-    hir: &assura_hir::HirFile,
-    config: &assura_config::TypeCheckConfig,
-) -> Result<TypedFile, Vec<TypeError>> {
-    let resolved = hir.resolved();
-    let type_env = build_type_env_from_hir(hir);
-
-    let mut errors = check_clause_bodies_hir(hir, &type_env);
-    let (check_errors, pending_decrease_checks) =
-        run_all_checks(&resolved.source, &type_env, &resolved.symbols, config);
-    errors.extend(check_errors);
-
-    if !errors.is_empty() {
-        return Err(errors);
+impl TypeChecker {
+    /// Create a new type checker with default configuration.
+    pub fn new() -> Self {
+        Self {
+            config: assura_config::TypeCheckConfig::default(),
+            modules: None,
+        }
     }
 
-    let generated_tests = generate_tests_from_contracts(&resolved.source);
+    /// Set the type-checking configuration.
+    pub fn config(mut self, config: assura_config::TypeCheckConfig) -> Self {
+        self.config = config;
+        self
+    }
 
-    Ok(TypedFile {
-        resolved: Arc::clone(&hir.resolved),
-        pending_decrease_checks,
-        type_env,
-        hir: Some(hir.clone()),
-        generated_tests,
-    })
+    /// Provide cross-module type information for import resolution.
+    pub fn modules(mut self, modules: HashMap<String, ResolvedFile>) -> Self {
+        self.modules = Some(modules);
+        self
+    }
+
+    /// Type-check from a resolved AST file.
+    pub fn check(self, resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
+        let mut type_env = build_type_env(&resolved.symbols, &resolved.source);
+
+        // Inject type information from imported modules if provided
+        if let Some(modules) = &self.modules {
+            for imp in &resolved.imports {
+                if imp.status != ImportStatus::Resolved {
+                    continue;
+                }
+                let module_key = imp.path.join(".");
+                if let Some(imported_resolved) = modules.get(&module_key) {
+                    inject_imported_types(&mut type_env, imp, &imported_resolved.source);
+                }
+            }
+        }
+
+        let mut errors = check_clause_bodies(&resolved.source, &type_env);
+        let (check_errors, pending_decrease_checks) =
+            run_all_checks(&resolved.source, &type_env, &resolved.symbols, &self.config);
+        errors.extend(check_errors);
+
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
+        let generated_tests = generate_tests_from_contracts(&resolved.source);
+
+        Ok(TypedFile {
+            resolved: Arc::new(resolved.clone()),
+            pending_decrease_checks,
+            type_env,
+            hir: None,
+            generated_tests,
+        })
+    }
+
+    /// Type-check from an HIR file.
+    pub fn check_hir(self, hir: &assura_hir::HirFile) -> Result<TypedFile, Vec<TypeError>> {
+        let resolved = hir.resolved();
+        let type_env = build_type_env_from_hir(hir);
+
+        let mut errors = check_clause_bodies_hir(hir, &type_env);
+        let (check_errors, pending_decrease_checks) =
+            run_all_checks(&resolved.source, &type_env, &resolved.symbols, &self.config);
+        errors.extend(check_errors);
+
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
+        let generated_tests = generate_tests_from_contracts(&resolved.source);
+
+        Ok(TypedFile {
+            resolved: Arc::clone(&hir.resolved),
+            pending_decrease_checks,
+            type_env,
+            hir: Some(hir.clone()),
+            generated_tests,
+        })
+    }
 }
 
-/// Type-check a resolved file using the given configuration.
-///
-/// `config.strict_effects` controls whether the effect checker runs.
-/// `config.warn_unused_imports` is reserved for future import analysis.
-pub fn type_check_with_config(
-    resolved: &ResolvedFile,
-    config: &assura_config::TypeCheckConfig,
-) -> Result<TypedFile, Vec<TypeError>> {
-    let type_env = build_type_env(&resolved.symbols, &resolved.source);
-
-    let mut errors = check_clause_bodies(&resolved.source, &type_env);
-    let (check_errors, pending_decrease_checks) =
-        run_all_checks(&resolved.source, &type_env, &resolved.symbols, config);
-    errors.extend(check_errors);
-
-    if !errors.is_empty() {
-        return Err(errors);
+impl Default for TypeChecker {
+    fn default() -> Self {
+        Self::new()
     }
-
-    let generated_tests = generate_tests_from_contracts(&resolved.source);
-
-    Ok(TypedFile {
-        resolved: Arc::new(resolved.clone()),
-        pending_decrease_checks,
-        type_env,
-        hir: None,
-        generated_tests,
-    })
 }
 
 #[cfg(test)]
@@ -537,7 +531,7 @@ mod tests {
             allowed_effects: vec!["database".to_string()],
             ..Default::default()
         };
-        let strict_result = type_check_with_config(&resolved, &strict_config);
+        let strict_result = TypeChecker::new().config(strict_config).check(&resolved);
         match strict_result {
             Err(errors) => {
                 assert!(

@@ -590,7 +590,9 @@ contract Typed {
                         // Type check passed; try SMT verification for
                         // error codes in the A05xxx range (prophecy,
                         // verification failures).
-                        let vr = assura_smt::verify_from_source(&typed, Some(&path));
+                        let vr = assura_smt::Verifier::new(&typed)
+                            .source(&path)
+                            .verify();
                         let found = vr.iter().any(|r| match r {
                             assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
                                 clause_desc.contains(&code)
@@ -1213,8 +1215,6 @@ name = "test"
         assert_eq!(config.verify.layer, 1);
     }
 
-
-
     #[test]
     fn load_config_from_disk() {
         let dir = std::env::temp_dir().join("assura-config-test");
@@ -1317,14 +1317,18 @@ timeout = 2000
             Err(_) => return (true, false),
         };
         let hir = assura_hir::lower(&resolved);
-        let typed = match assura_types::type_check_hir(&hir) {
+        let typed = match assura_types::TypeChecker::new().check_hir(&hir) {
             Ok(t) => t,
             Err(_) => return (true, false),
         };
         let cache_dir = std::env::temp_dir().join("assura_e2e_cache");
         let _ = std::fs::create_dir_all(&cache_dir);
         let cache = assura_smt::VerificationCache::new(&cache_dir);
-        let results = assura_smt::verify_parallel_from_source(&typed, &cache, Some(source_path));
+        let results = assura_smt::Verifier::new(&typed)
+            .source(source_path)
+            .cache(&cache)
+            .parallel()
+            .verify();
         let has_counterexample = results
             .iter()
             .any(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }));

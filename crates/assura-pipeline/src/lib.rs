@@ -130,7 +130,10 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
     // --- Type check ---
     let typecheck_start = Instant::now();
     let typed = if let Some(ref hir_file) = hir {
-        match assura_types::type_check_hir_with_config(hir_file, &config.type_check) {
+        match assura_types::TypeChecker::new()
+            .config(config.type_check.clone())
+            .check_hir(hir_file)
+        {
             Ok(t) => Some(t),
             Err(errs) => {
                 has_errors = true;
@@ -188,11 +191,12 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
     if config.verify.layer >= 1
         && let Some(ref typed) = output.typed
     {
-        output.verification = assura_smt::verify_typed_file_at(
-            std::path::Path::new(filename),
-            typed,
-            config.verify.solver,
-        );
+        output.verification = assura_smt::Verifier::new(typed)
+            .source(std::path::Path::new(filename))
+            .solver(config.verify.solver)
+            .parallel()
+            .with_decrease_checks()
+            .verify();
     }
     output.timing.verify_ms = Some(verify_start.elapsed().as_secs_f64() * 1000.0);
 

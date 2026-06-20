@@ -1571,11 +1571,9 @@ fn cross_file_import_resolves_contract_type() {
     let mut modules = std::collections::HashMap::new();
     modules.insert("math".to_string(), math_resolved.clone());
 
-    let result = crate::type_check_with_modules(
-        &main_resolved,
-        &modules,
-        &assura_config::TypeCheckConfig::default(),
-    );
+    let result = crate::TypeChecker::new()
+        .modules(modules)
+        .check(&main_resolved);
     // Should succeed: imported Add is known, main's own types are valid
     assert!(result.is_ok(), "cross-file type check should succeed");
 
@@ -1622,11 +1620,9 @@ fn cross_file_import_resolves_type_def() {
     let mut modules = std::collections::HashMap::new();
     modules.insert("geom".to_string(), geom_resolved.clone());
 
-    let result = crate::type_check_with_modules(
-        &main_resolved,
-        &modules,
-        &assura_config::TypeCheckConfig::default(),
-    );
+    let result = crate::TypeChecker::new()
+        .modules(modules)
+        .check(&main_resolved);
     assert!(result.is_ok(), "cross-file type check should succeed");
 
     let typed = result.unwrap();
@@ -1647,11 +1643,9 @@ fn cross_file_without_modules_still_works() {
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
     let modules = std::collections::HashMap::new();
 
-    let result = crate::type_check_with_modules(
-        &resolved,
-        &modules,
-        &assura_config::TypeCheckConfig::default(),
-    );
+    let result = crate::TypeChecker::new()
+        .modules(modules)
+        .check(&resolved);
     assert!(
         result.is_ok(),
         "type checking with empty modules map should still work"
@@ -1667,11 +1661,9 @@ fn cross_file_unresolved_import_is_ignored() {
     let main_resolved = assura_resolve::resolve(&main_file).expect("resolve failed");
     let modules = std::collections::HashMap::new();
 
-    let result = crate::type_check_with_modules(
-        &main_resolved,
-        &modules,
-        &assura_config::TypeCheckConfig::default(),
-    );
+    let result = crate::TypeChecker::new()
+        .modules(modules)
+        .check(&main_resolved);
     // Should succeed; unresolved imports are just Unknown types (no crash)
     assert!(
         result.is_ok(),

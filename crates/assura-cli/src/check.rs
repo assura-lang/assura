@@ -670,7 +670,12 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
 
     let verification_results = if layer >= 1 && has_clauses {
         typed.as_ref().map_or_else(Vec::new, |typed| {
-            assura_smt::verify_typed_file_at(std::path::Path::new(filename), typed, solver)
+            assura_smt::Verifier::new(typed)
+                .source(std::path::Path::new(filename))
+                .solver(solver)
+                .parallel()
+                .with_decrease_checks()
+                .verify()
         })
     } else {
         Vec::new()
@@ -1021,7 +1026,11 @@ pub(crate) fn run_check_project(
     // Type-check each resolved file with cross-module type information
     for (module_path, resolved) in &resolved_files {
         total_modules += 1;
-        match assura_types::type_check_with_modules(resolved, &resolved_files, &config.type_check) {
+        match assura_types::TypeChecker::new()
+            .config(config.type_check.clone())
+            .modules(resolved_files.clone())
+            .check(resolved)
+        {
             Ok(typed) => {
                 let bindings = typed.type_env.len();
                 total_bindings += bindings;

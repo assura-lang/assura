@@ -56,10 +56,7 @@ pub(crate) use generics::{check_generic_instantiation, instantiate_builtin_gener
 pub(crate) use ghost_effects::{check_ghost_fn_effects, check_lemma_fn_effects};
 
 // From pipeline module
-pub use pipeline::{
-    type_check, type_check_hir, type_check_hir_with_config, type_check_with_config,
-    type_check_with_modules,
-};
+pub use pipeline::{type_check, TypeChecker};
 
 // Test-only re-exports: make checker types, domain types, and internal
 // functions visible to the tests/ module via `use super::*;`.

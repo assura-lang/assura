@@ -55,12 +55,10 @@ mod verify_context;
 mod entry;
 mod ir_loader;
 pub use entry::{
-    EvolutionResult, VerifyFileExtras, check_refinement_subtype,
+    EvolutionResult, Verifier, VerifyFileExtras, check_refinement_subtype,
     check_refinement_subtype_with_context, has_verifiable_clauses, verify, verify_buffer_bounds,
     verify_contract, verify_contract_with_solver, verify_decrease, verify_evolution,
-    verify_file_evolution, verify_from_source, verify_parallel, verify_parallel_from_source,
-    verify_parallel_with_solver, verify_region_containment, verify_taint_safety,
-    verify_typed_file_at, verify_with_measures, verify_with_options,
+    verify_file_evolution, verify_region_containment, verify_taint_safety, verify_with_measures,
 };
 pub use feature_max::{collect_feature_max_constants, derive_narrowings};
 pub use ir_generate::{EnsuresShape, classify_ensures_shape, generate_ir_sidecar_text};
