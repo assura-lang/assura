@@ -572,10 +572,7 @@ pub(crate) fn verify_contract_impl_with_types(
         params,
         return_ty,
         constants,
-        ir_body: None,
-        ir_blocks: None,
-        ir_bodies: None,
-        type_env: None,
+        ir: None,
     };
     verify_contract_impl_with_types_and_ir(&ctx)
 }
@@ -592,10 +589,10 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         return_ty: ctx.return_ty,
         constants: ctx.constants,
         narrowings: &narrowings,
-        ir_body: ctx.ir_body,
-        ir_blocks: ctx.ir_blocks,
-        ir_bodies: ctx.ir_bodies,
-        type_env: ctx.type_env,
+        ir_body: ctx.ir_body(),
+        ir_blocks: ctx.ir_blocks(),
+        ir_bodies: ctx.ir_bodies(),
+        type_env: ctx.type_env(),
         ..Default::default()
     };
     verify_clauses_with_types(

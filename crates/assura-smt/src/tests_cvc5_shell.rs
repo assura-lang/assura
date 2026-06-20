@@ -8,7 +8,7 @@ use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
 use crate::havoc_assume::{HavocAssumeInput, HavocAssumeSmtlibTarget};
-use crate::verify_context::ContractVerifyContext;
+use crate::verify_context::{ContractVerifyContext, LoadedIrContext};
 use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param};
 use std::collections::HashSet;
 use std::process::Command;
@@ -202,10 +202,7 @@ module copy {
         params: &params,
         return_ty: &["Bytes".into()],
         constants: &[],
-        ir_body: Some(&ir),
-        ir_blocks: None,
-        ir_bodies: None,
-        type_env: None,
+        ir: Some(LoadedIrContext::with_body(&ir)),
     };
     let results = verify_contract_cvc5_with_lemmas(&ctx, None, &mut cache);
 

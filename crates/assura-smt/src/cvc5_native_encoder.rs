@@ -63,7 +63,6 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
             input.param_names,
             vars,
             state,
-            input.enc_ctx.ir_blocks,
             input.enc_ctx,
         );
     }

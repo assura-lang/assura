@@ -722,24 +722,19 @@ fn verify_file_with_cvc5(
     // #253: per-file session cache for CVC5 clause deduplication
     let mut session_cache = SessionCache::new();
 
-    let ir_bodies = extras.and_then(|e| e.ir_bodies);
-    let ir_block_maps = extras.and_then(|e| e.ir_blocks);
-    let type_env = extras.and_then(|e| e.type_env).or(Some(&typed.type_env));
-
     // Clause-level verification via CVC5
     for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
-        let ir_body = ir_bodies.and_then(|m| m.get(&name));
-        let ir_blocks = ir_block_maps.and_then(|m| m.get(&name));
         let ctx = ContractVerifyContext {
             contract_name: &name,
             clauses: &clauses,
             params: &params,
             return_ty: &return_ty,
             constants: &constants,
-            ir_body,
-            ir_blocks,
-            ir_bodies,
-            type_env,
+            ir: crate::verify_context::LoadedIrContext::for_contract(
+                &name,
+                extras,
+                Some(&typed.type_env),
+            ),
         };
         results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
             &ctx,
@@ -863,7 +858,8 @@ pub fn verify_typed_file_at(
 /// Also uses the filesystem cache: cache hits are returned immediately,
 /// only cache misses go to Z3 (potentially in parallel).
 pub fn verify_parallel(typed: &TypedFile, cache: &VerificationCache) -> Vec<VerificationResult> {
-    verify_parallel_from_source(typed, cache, None)
+    let extras = build_verify_extras(typed, None);
+    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, Some(&extras))
 }
 
 /// Parallel verification with automatic IR sidecar loading from `source`.
@@ -872,9 +868,9 @@ pub fn verify_parallel_from_source(
     cache: &VerificationCache,
     source: Option<&std::path::Path>,
 ) -> Vec<VerificationResult> {
-    let loaded = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
-    let extras = loaded.as_ref().and_then(|l| l.extras());
-    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, extras.as_ref())
+    let loaded_storage = source.map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, typed));
+    let extras = build_verify_extras(typed, loaded_storage.as_ref());
+    verify_parallel_with_solver(typed, cache, SolverChoice::Z3, Some(&extras))
 }
 
 /// Check whether any declaration in the source file has verifiable clauses
@@ -922,10 +918,6 @@ pub fn verify_parallel_with_solver(
     // Collect verification jobs (#213: shared with CVC5 and Z3 paths)
     let jobs = collect_verification_jobs(typed);
 
-    let ir_bodies = extras.and_then(|e| e.ir_bodies);
-    let ir_block_maps = extras.and_then(|e| e.ir_blocks);
-    let type_env = extras.and_then(|e| e.type_env).or(Some(&typed.type_env));
-
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
         .par_iter()
@@ -940,10 +932,11 @@ pub fn verify_parallel_with_solver(
                 params,
                 return_ty,
                 constants: &constants,
-                ir_body: ir_bodies.and_then(|m| m.get(name)),
-                ir_blocks: ir_block_maps.and_then(|m| m.get(name)),
-                ir_bodies,
-                type_env,
+                ir: crate::verify_context::LoadedIrContext::for_contract(
+                    name,
+                    extras,
+                    Some(&typed.type_env),
+                ),
             };
             let results = verify_contract_with_types_and_solver(&ctx, solver);
             cache.put(name, clauses, &results);
@@ -1038,7 +1031,7 @@ fn verify_contract_with_types_and_solver(
             }
             #[cfg(not(feature = "z3-verify"))]
             {
-                let _ = (ctx.constants, ctx.ir_body);
+                let _ = (ctx.constants, ctx.ir_body());
                 verify_contract_with_solver(ctx.contract_name, ctx.clauses, solver)
             }
         }

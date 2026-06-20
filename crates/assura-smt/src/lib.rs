@@ -69,7 +69,7 @@ pub use ir_templates::{
     IrPromptContext, IrPromptPattern, ir_prompt_contexts_for_typed, render_ir_prompt,
     resolve_ir_pattern, suggest_ir_pattern,
 };
-pub use verify_context::ContractVerifyContext;
+pub use verify_context::{ContractVerifyContext, LoadedIrContext};
 
 /// SMT-LIB2 dump and quantifier bound validation.
 pub mod smt_dump;

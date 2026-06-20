@@ -123,10 +123,7 @@ module copy {
         params: &params,
         return_ty: &["Bytes".into()],
         constants: &[],
-        ir_body: Some(&ir),
-        ir_blocks: None,
-        ir_bodies: None,
-        type_env: None,
+        ir: Some(crate::verify_context::LoadedIrContext::with_body(&ir)),
     };
     let results = verify_contract_impl_with_types_and_ir(&ctx);
     assert!(!results.is_empty(), "expected verification results");

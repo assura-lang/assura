@@ -52,10 +52,7 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
         params,
         return_ty,
         constants,
-        ir_body: None,
-        ir_blocks: None,
-        ir_bodies: None,
-        type_env: None,
+        ir: None,
     };
     verify_contract_cvc5_with_lemmas(&ctx, None, cache)
 }

@@ -189,6 +189,63 @@ jobs:
       - name: Test (nextest)
         run: cargo nextest run --workspace
 
+  # ── Pipeline benchmarks (compile + smoke run; no timing thresholds) ─────
+  benchmark:
+    name: Pipeline benchmarks
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    env:
+      CARGO_TARGET_DIR: target/ci-bench
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup self-hosted Rust environment
+        if: ${{ vars.RUNNER }}
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          sccache --stop-server 2>/dev/null || true
+          sccache --start-server 2>/dev/null || true
+
+      - name: Setup Rust toolchain
+        if: ${{ !vars.RUNNER }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        if: ${{ !vars.RUNNER }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-bench
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y protobuf-compiler libz3-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Set Linux Z3 paths
+        if: runner.os == 'Linux'
+        run: |
+          echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
+          echo "CPATH=/usr/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Run pipeline benchmarks
+        run: cargo bench -p assura-bench -- --sample-size 10
+
+      - name: Upload benchmark output
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: assura-bench-${{ github.sha }}
+          path: target/ci-bench/criterion/**
+          if-no-files-found: ignore
+
   # ── Generated code compiles (runner 3, parallel with clippy + test) ─────
   codegen-validation:
     name: Generated code compiles

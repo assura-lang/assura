@@ -301,10 +301,7 @@ mod tests {
             params: &[],
             return_ty: &["Int".into()],
             constants: &[],
-            ir_body: None,
-            ir_blocks: None,
-            ir_bodies: None,
-            type_env: None,
+            ir: None,
         };
         let input = IncrementalShellScriptInput {
             prepared: &prepared,

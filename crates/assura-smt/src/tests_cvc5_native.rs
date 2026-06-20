@@ -8,7 +8,7 @@ use std::collections::HashSet;
 #[cfg(feature = "cvc5-verify")]
 mod native_tests {
     use super::*;
-    use crate::verify_context::ContractVerifyContext;
+    use crate::verify_context::{ContractVerifyContext, LoadedIrContext};
     use assura_parser::ast::{Expr, Param};
 
     fn verify_lemmas_test(
@@ -26,10 +26,7 @@ mod native_tests {
             params,
             return_ty,
             constants: &[],
-            ir_body,
-            ir_blocks: None,
-            ir_bodies: None,
-            type_env: None,
+            ir: ir_body.map(LoadedIrContext::with_body),
         };
         verify_contract_cvc5_with_lemmas(&ctx, lemma_defs, cache)
     }

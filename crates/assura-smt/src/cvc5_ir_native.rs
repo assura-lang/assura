@@ -72,12 +72,11 @@ fn eval_ir_block_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     block_id: usize,
     frame: &mut Cvc5IrEncodeFrame<'a>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> Option<cvc5::Term<'a>> {
     use crate::havoc_assume::RESULT_SLOT;
 
-    let body = ir_blocks?.get(&block_id)?;
+    let body = enc_ctx.ir_blocks?.get(&block_id)?;
     let mut local = frame.slots.clone();
     let mut last = None;
     for instr in body {
@@ -98,7 +97,7 @@ fn eval_ir_block_cvc5<'a>(
             slot_to_name: frame.slot_to_name,
             slot_types: frame.slot_types,
         };
-        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut local_frame, ir_blocks, enc_ctx);
+        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut local_frame, enc_ctx);
         if let Some(target) = local.get(&instr.target) {
             frame
                 .state
@@ -115,7 +114,6 @@ fn encode_ir_expr_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     expr: &crate::ir::IrExprKind,
     frame: &mut Cvc5IrEncodeFrame<'a>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> cvc5::Term<'a> {
     use crate::ir::{IrExprKind, IrLiteral};
@@ -135,17 +133,17 @@ fn encode_ir_expr_cvc5<'a>(
             tm.mk_const(tm.integer_sort(), &name)
         }),
         IrExprKind::Arith { op, lhs, rhs } => {
-            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), frame, ir_blocks, enc_ctx);
-            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), frame, ir_blocks, enc_ctx);
+            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), frame, enc_ctx);
+            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), frame, enc_ctx);
             mk_ir_arith_cvc5(tm, *op, l, r)
         }
         IrExprKind::Cmp { op, lhs, rhs } => {
-            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), frame, ir_blocks, enc_ctx);
-            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), frame, ir_blocks, enc_ctx);
+            let l = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*lhs), frame, enc_ctx);
+            let r = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*rhs), frame, enc_ctx);
             mk_ir_cmp_as_int_cvc5(tm, *op, l, r)
         }
         IrExprKind::Call { func, args } => {
-            mk_ir_call_cvc5(tm, func, args, frame, ir_blocks, enc_ctx)
+            mk_ir_call_cvc5(tm, func, args, frame, enc_ctx)
         }
         IrExprKind::Field { slot, index } => {
             if *index == 0
@@ -155,7 +153,7 @@ fn encode_ir_expr_cvc5<'a>(
             {
                 return canonical_length_cvc5(tm, name, frame.vars, frame.state);
             }
-            let base = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), frame, ir_blocks, enc_ctx);
+            let base = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), frame, enc_ctx);
             if let Some(ir_ty) = frame.slot_types.get(slot)
                 && let Some(field_name) = enc_ctx.type_ctx.field_name_at(ir_ty, *index)
             {
@@ -183,14 +181,12 @@ fn encode_ir_expr_cvc5<'a>(
         }
         IrExprKind::Construct { type_id, fields } => {
             if enc_ctx.type_ctx.has_struct_layout(type_id) {
-                return encode_ir_construct_typed_cvc5(
-                    tm, type_id, fields, frame, ir_blocks, enc_ctx,
-                );
+                return encode_ir_construct_typed_cvc5(tm, type_id, fields, frame, enc_ctx);
             }
             let args: Vec<cvc5::Term<'a>> = fields
                 .iter()
                 .map(|(_, s)| {
-                    encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, ir_blocks, enc_ctx)
+                    encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, enc_ctx)
                 })
                 .collect();
             mk_ir_nary_uf_cvc5(
@@ -202,18 +198,17 @@ fn encode_ir_expr_cvc5<'a>(
             )
         }
         IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => {
-            encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), frame, ir_blocks, enc_ctx)
+            encode_ir_expr_cvc5(tm, &IrExprKind::Load(*slot), frame, enc_ctx)
         }
         IrExprKind::If {
             cond,
             then_block,
             else_block,
         } => {
-            let cond_val =
-                encode_ir_expr_cvc5(tm, &IrExprKind::Load(*cond), frame, ir_blocks, enc_ctx);
+            let cond_val = encode_ir_expr_cvc5(tm, &IrExprKind::Load(*cond), frame, enc_ctx);
             let zero = tm.mk_integer(0);
             let cond_bool = tm.mk_term(cvc5::Kind::Distinct, &[cond_val, zero]);
-            let then_v = eval_ir_block_cvc5(tm, *then_block, frame, ir_blocks, enc_ctx)
+            let then_v = eval_ir_block_cvc5(tm, *then_block, frame, enc_ctx)
                 .unwrap_or_else(|| {
                     mk_ir_nullary_uf_cvc5(
                         tm,
@@ -222,7 +217,7 @@ fn encode_ir_expr_cvc5<'a>(
                         frame.state,
                     )
                 });
-            let else_v = eval_ir_block_cvc5(tm, *else_block, frame, ir_blocks, enc_ctx)
+            let else_v = eval_ir_block_cvc5(tm, *else_block, frame, enc_ctx)
                 .unwrap_or_else(|| {
                     mk_ir_nullary_uf_cvc5(
                         tm,
@@ -260,7 +255,6 @@ fn encode_ir_construct_typed_cvc5<'a>(
     type_id: &str,
     fields: &[(usize, usize)],
     frame: &mut Cvc5IrEncodeFrame<'a>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> cvc5::Term<'a> {
     use crate::cvc5_adt::adt_constructor_cvc5_native;
@@ -276,7 +270,7 @@ fn encode_ir_construct_typed_cvc5<'a>(
     ordered.sort_by_key(|(idx, _)| *idx);
     let arg_terms: Vec<cvc5::Term<'a>> = ordered
         .iter()
-        .map(|(_, s)| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, ir_blocks, enc_ctx))
+        .map(|(_, s)| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*s), frame, enc_ctx))
         .collect();
 
     let ctor = frame
@@ -308,7 +302,6 @@ fn eval_ir_call_cvc5<'a>(
     func: &str,
     args: &[usize],
     frame: &mut Cvc5IrEncodeFrame<'a>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> Option<cvc5::Term<'a>> {
     use crate::havoc_assume::RESULT_SLOT;
@@ -324,8 +317,7 @@ fn eval_ir_call_cvc5<'a>(
         std::collections::HashMap::new();
 
     for (i, param) in callee.params.iter().enumerate() {
-        let arg_val =
-            encode_ir_expr_cvc5(tm, &IrExprKind::Load(args[i]), frame, ir_blocks, enc_ctx);
+        let arg_val = encode_ir_expr_cvc5(tm, &IrExprKind::Load(args[i]), frame, enc_ctx);
         let key = sanitize_smtlib_name(&format!("{prefix}param_{}", param.slot));
         let slot_var = frame
             .vars
@@ -371,7 +363,7 @@ fn eval_ir_call_cvc5<'a>(
             slot_to_name: &callee_names,
             slot_types: &callee_slot_types,
         };
-        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut local_frame, ir_blocks, enc_ctx);
+        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut local_frame, enc_ctx);
         if let Some(target) = local.get(&instr.target) {
             frame
                 .state
@@ -389,7 +381,6 @@ fn mk_ir_call_cvc5<'a>(
     func: &str,
     args: &[usize],
     frame: &mut Cvc5IrEncodeFrame<'a>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) -> cvc5::Term<'a> {
     use crate::ir::IrExprKind;
@@ -401,13 +392,13 @@ fn mk_ir_call_cvc5<'a>(
         return canonical_length_cvc5(tm, name, frame.vars, frame.state);
     }
 
-    if let Some(inlined) = eval_ir_call_cvc5(tm, func, args, frame, ir_blocks, enc_ctx) {
+    if let Some(inlined) = eval_ir_call_cvc5(tm, func, args, frame, enc_ctx) {
         return inlined;
     }
 
     let arg_terms: Vec<cvc5::Term<'a>> = args
         .iter()
-        .map(|a| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*a), frame, ir_blocks, enc_ctx))
+        .map(|a| encode_ir_expr_cvc5(tm, &IrExprKind::Load(*a), frame, enc_ctx))
         .collect();
     if let Some(term) = encode_known_builtin_cvc5(tm, func, &arg_terms, frame.state) {
         return term;
@@ -548,7 +539,6 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
     contract_param_names: &[String],
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
-    ir_blocks: Option<&std::collections::HashMap<usize, Vec<crate::ir::IrInstr>>>,
     enc_ctx: IrEncodeContext<'a>,
 ) {
     use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
@@ -596,7 +586,7 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
                 .clone();
             slots.insert(instr.target, v);
         }
-        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut frame, ir_blocks, enc_ctx);
+        let computed = encode_ir_expr_cvc5(tm, &instr.expr, &mut frame, enc_ctx);
         if let Some(target) = slots.get(&instr.target) {
             state
                 .axioms
@@ -647,7 +637,7 @@ mod tests {
             slot_to_name: &names,
             slot_types: &types,
         };
-        let _ = encode_ir_expr_cvc5(&tm, &expr, &mut frame, None, IrEncodeContext::default());
+        let _ = encode_ir_expr_cvc5(&tm, &expr, &mut frame, IrEncodeContext::default());
     }
 
     #[test]
@@ -697,7 +687,6 @@ module double {
             &["x".into()],
             &mut vars,
             &mut state,
-            None,
             IrEncodeContext::new(None, Some(&bodies), None),
         );
 
@@ -722,7 +711,6 @@ module double {
             &["x".into()],
             &mut vars,
             &mut state,
-            enc_ctx.ir_blocks,
             enc_ctx,
         );
 
