@@ -341,7 +341,11 @@ jobs:
             echo "CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/include" >> "$GITHUB_ENV"
           fi
 
+      - name: Clippy with CVC5 native
+        run: cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
+
       - name: Test assura-smt with CVC5 native
+        if: ${{ !cancelled() }}
         run: cargo test -p assura-smt --features cvc5-verify
 
       - name: Verify portfolio solver with CVC5

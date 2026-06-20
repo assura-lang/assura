@@ -625,6 +625,34 @@ shell-out fallback behind `#[cfg(not(feature = "cvc5-verify"))]`.
 Build with CVC5: `cargo build --features cvc5-verify`. Test:
 `cargo test -p assura-smt --features cvc5-verify`.
 
+### CVC5 verification gate (issues labelled `cvc5-parity`)
+
+Do not close `cvc5-parity` issues from Z3-only evidence. "CVC5 native
+blocked on cvc5-sys build" is not equivalent to "CVC5 parity verified."
+
+**Minimum evidence before closing:**
+
+| Layer | Command | When required |
+|-------|---------|---------------|
+| Shell parity | `cargo test -p assura-smt -- cvc5_` | Always (default build) |
+| Native parity | `cargo test -p assura-smt --features cvc5-verify -- cvc5_` | When native encoding changed |
+| Native clippy | `cargo clippy -p assura-smt --features cvc5-verify -- -D warnings` | When touching `cvc5_*` modules |
+
+**CI enforcement:** `.github/workflows/ci.yml` job `cvc5` runs native
+clippy + tests with prebuilt static libs (same URLs as below).
+
+**Local native build fails?** Use prebuilt libs instead of compiling from
+source:
+
+```bash
+bash scripts/setup-cvc5.sh
+# paste the printed export CVC5_LIB_DIR / CVC5_INCLUDE_DIR lines
+cargo test -p assura-smt --features cvc5-verify -- cvc5_
+```
+
+If native tests cannot run locally, the issue may still close when CI
+`cvc5` job is green on `main` — comment the run URL as evidence.
+
 ## Spec Navigation Guide
 
 The spec (`docs/SPECIFICATION.md`) is 11,800 lines. Do NOT read it
