@@ -1646,6 +1646,72 @@ module copy {
 }
 
 #[test]
+fn ir_branch_sidecar_changes_verification_outcome() {
+    let tmp = std::env::temp_dir().join(format!("assura_ir_branch_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("BranchMax.assura");
+    std::fs::write(
+        &assura_path,
+        r#"
+contract BranchMax {
+  input(x: Int)
+  output(result: Int)
+  requires { x >= 0 }
+  ensures  { result >= 0 }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("BranchMax.ir"),
+        r#"
+module branch {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = if $0 then #1 else #2 : Int
+    $result = load $1 : Int
+  }
+  fn #1 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+  fn #2 : ($0: Int) -> Int ! pure
+  {
+    $result = const 0 : Int
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .arg("check")
+        .arg(assura_path.to_str().unwrap())
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura check");
+
+    assert!(
+        out.status.success(),
+        "check with branch IR sidecar should verify ensures: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        combined.contains("verified") || combined.contains("Verified"),
+        "expected verified ensures with branch IR, got: {combined}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn build_writes_stub_ir_sidecars_to_generated() {
     let tmp = std::env::temp_dir().join(format!("assura_ir_build_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);

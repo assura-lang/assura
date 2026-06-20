@@ -25,6 +25,8 @@ pub enum EnsuresShape {
     BoundsCheck,
     FieldAccess,
     CallChain,
+    IfBranch,
+    MatchArm,
     Unknown,
 }
 
@@ -34,9 +36,22 @@ struct IrGenBody {
     lines: Vec<String>,
 }
 
-type IrPlannerFn = fn(&Expr, &PlanCtx<'_>) -> Option<IrGenBody>;
+/// Main `fn #0` body plus optional sibling `fn #N` blocks in one module.
+#[derive(Debug, Clone, PartialEq)]
+struct IrGenPlan {
+    main: IrGenBody,
+    siblings: Vec<(usize, IrGenBody)>,
+}
 
-const ENSURES_PLANNERS: &[IrPlannerFn] = &[plan_identity_equality, plan_length_copy_ensures];
+type IrPlannerFn = fn(&Expr, &PlanCtx<'_>) -> Option<IrGenPlan>;
+
+const ENSURES_PLANNERS: &[IrPlannerFn] = &[
+    plan_if_branch_ensures,
+    plan_match_arm_ensures,
+    plan_multi_fn_call_chain,
+    plan_identity_equality,
+    plan_length_copy_ensures,
+];
 
 /// Classify the best-matching ensures shape for template selection.
 pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> EnsuresShape {
@@ -68,6 +83,12 @@ pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> Ens
             };
             if expr_suggests_call_chain(other) {
                 return EnsuresShape::CallChain;
+            }
+            if matches!(other, Expr::If { .. }) {
+                return EnsuresShape::IfBranch;
+            }
+            if matches!(other, Expr::Match { .. }) {
+                return EnsuresShape::MatchArm;
             }
             if matches!(other, Expr::Ident(_)) {
                 return EnsuresShape::Identity;
@@ -113,14 +134,14 @@ pub fn generate_ir_sidecar_text(
     };
 
     for clause in clauses.iter().filter(|c| c.kind == ClauseKind::Ensures) {
-        if let Some(body) = plan_from_ensures(&clause.body, &ctx) {
-            return format_ir_module(
+        if let Some(plan) = plan_from_ensures(&clause.body, &ctx) {
+            return format_ir_module_plan(
                 name,
                 params,
                 return_ty,
                 requires_count,
                 ensures_count,
-                &body,
+                &plan,
             );
         }
     }
@@ -128,29 +149,145 @@ pub fn generate_ir_sidecar_text(
     stub_ir_sidecar_text(name, params, return_ty, requires_count, ensures_count)
 }
 
-fn plan_from_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+fn plan_from_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     for planner in ENSURES_PLANNERS {
-        if let Some(body) = planner(expr, ctx) {
-            return Some(body);
+        if let Some(plan) = planner(expr, ctx) {
+            return Some(plan);
         }
     }
     None
 }
 
-fn plan_identity_equality(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+fn single_fn_plan(body: IrGenBody) -> IrGenPlan {
+    IrGenPlan {
+        main: body,
+        siblings: Vec::new(),
+    }
+}
+
+fn plan_identity_equality(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     if is_result_ident(lhs) {
-        return plan_result_equals(rhs, ctx);
+        return plan_result_equals(rhs, ctx).map(single_fn_plan);
     }
     if is_result_ident(rhs) {
-        return plan_result_equals(lhs, ctx);
+        return plan_result_equals(lhs, ctx).map(single_fn_plan);
     }
     None
 }
 
-fn plan_length_copy_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+fn plan_length_copy_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let slot = length_relation_ensures(expr, &ctx.name_to_slot)?;
-    Some(single_load(slot, ctx.return_ty))
+    Some(single_fn_plan(single_load(slot, ctx.return_ty)))
+}
+
+/// `ensures { result == if cond then a else b }` → branch blocks `#1` / `#2`.
+fn plan_if_branch_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let if_expr = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    let Expr::If {
+        cond,
+        then_branch,
+        else_branch,
+    } = if_expr
+    else {
+        return None;
+    };
+    let else_branch = else_branch.as_deref()?;
+    let then_body = plan_branch_result(then_branch, ctx)?;
+    let else_body = plan_branch_result(else_branch, ctx)?;
+    let cond_slot = expr_to_param_slot(cond, &ctx.name_to_slot).unwrap_or(0);
+    let out_slot = next_temp_slot(&[cond_slot]);
+    Some(IrGenPlan {
+        main: IrGenBody {
+            lines: vec![
+                format!(
+                    "    ${out_slot} = if ${cond_slot} then #1 else #2 : {}",
+                    ctx.return_ty
+                ),
+                format!("    $result = load ${out_slot} : {}", ctx.return_ty),
+            ],
+        },
+        siblings: vec![(1, then_body), (2, else_body)],
+    })
+}
+
+/// `ensures { result == match x { pat => e, ... } }` → one block per arm.
+fn plan_match_arm_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let match_expr = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    let Expr::Match { scrutinee, arms } = match_expr else {
+        return None;
+    };
+    if arms.len() < 2 {
+        return None;
+    }
+    let scrut_slot = expr_to_param_slot(scrutinee, &ctx.name_to_slot)?;
+    let then_body = plan_branch_result(&arms[0].body, ctx)?;
+    let else_body = plan_branch_result(&arms[1].body, ctx)?;
+    Some(IrGenPlan {
+        main: IrGenBody {
+            lines: vec![
+                format!(
+                    "    $1 = if ${scrut_slot} then #1 else #2 : {}",
+                    ctx.return_ty
+                ),
+                format!("    $result = load $1 : {}", ctx.return_ty),
+            ],
+        },
+        siblings: vec![(1, then_body), (2, else_body)],
+    })
+}
+
+/// `ensures { result == helper(x) }` with callee body as sibling `fn #1`.
+fn plan_multi_fn_call_chain(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let call = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    let Expr::Call { func, args } = call else {
+        return None;
+    };
+    let Expr::Ident(helper) = func.as_ref() else {
+        return None;
+    };
+    if is_builtin_call(helper) || args.len() != 1 {
+        return None;
+    }
+    let arg_slot = expr_to_param_slot(&args[0], &ctx.name_to_slot)?;
+    let temp = next_temp_slot(&[arg_slot]);
+    Some(IrGenPlan {
+        main: IrGenBody {
+            lines: vec![
+                format!(
+                    "    ${temp} = call {helper} (${arg_slot}) : {}",
+                    ctx.return_ty
+                ),
+                format!("    $result = load ${temp} : {}", ctx.return_ty),
+            ],
+        },
+        siblings: vec![(1, single_load(0, ctx.return_ty))],
+    })
+}
+
+fn plan_branch_result(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+    plan_result_equals(expr, ctx)
 }
 
 fn plan_result_equals(other: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
@@ -350,13 +487,13 @@ fn is_builtin_call(name: &str) -> bool {
     matches!(name, "length" | "old" | "abs" | "min" | "max")
 }
 
-fn format_ir_module(
+fn format_ir_module_plan(
     name: &str,
     params: &[(usize, String)],
     return_ty: &str,
     requires_count: usize,
     ensures_count: usize,
-    body: &IrGenBody,
+    plan: &IrGenPlan,
 ) -> String {
     let module = sanitize_module_name(name);
     let param_list = params
@@ -364,18 +501,29 @@ fn format_ir_module(
         .map(|(slot, ty)| format!("${slot}: {ty}"))
         .collect::<Vec<_>>()
         .join(", ");
-    let body_text = body.lines.join("\n");
-    format!(
+    let main_body = plan.main.lines.join("\n");
+    let mut out = format!(
         "// Generated IR for {name} from ensures heuristics\n\
          // Contract: {requires_count} requires, {ensures_count} ensures\n\
          module {module} {{\n\
            fn #0 : ({param_list}) -> {return_ty} ! pure\n\
            pre: true\n\
            {{\n\
-         {body_text}\n\
-           }}\n\
-         }}\n"
-    )
+         {main_body}\n\
+           }}\n"
+    );
+    for (block_id, sibling) in &plan.siblings {
+        let sib_body = sibling.lines.join("\n");
+        out.push_str(&format!(
+            "  fn #{block_id} : ($0: Int) -> {return_ty} ! pure\n\
+             pre: true\n\
+             {{\n\
+         {sib_body}\n\
+           }}\n"
+        ));
+    }
+    out.push_str("}\n");
+    out
 }
 
 fn sanitize_module_name(name: &str) -> String {
@@ -522,6 +670,99 @@ mod tests {
             classify_ensures_shape(&clauses, &["raw".into()]),
             EnsuresShape::LengthCopy
         );
+    }
+
+    #[test]
+    fn test_ir_generate_if_branch() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: Box::new(Expr::Ident("result".into())),
+                rhs: Box::new(Expr::If {
+                    cond: Box::new(Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: Box::new(Expr::Ident("x".into())),
+                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    }),
+                    then_branch: Box::new(Expr::Ident("x".into())),
+                    else_branch: Some(Box::new(Expr::Literal(Literal::Int("0".into())))),
+                }),
+            },
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "IfBranch",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(text.contains("if $0 then #1 else #2"));
+        assert!(text.contains("fn #1"));
+        assert!(text.contains("fn #2"));
+    }
+
+    #[test]
+    fn test_ir_generate_match_arm() {
+        use assura_parser::ast::{MatchArm, Pattern};
+
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: Box::new(Expr::Ident("result".into())),
+                rhs: Box::new(Expr::Match {
+                    scrutinee: Box::new(Expr::Ident("x".into())),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::Literal(Literal::Int("0".into())),
+                            body: Expr::Literal(Literal::Int("0".into())),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Ident("_".into()),
+                            body: Expr::Ident("x".into()),
+                        },
+                    ],
+                }),
+            },
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "MatchArm",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(text.contains("if $0 then #1 else #2"));
+        assert!(text.contains("fn #1"));
+        assert!(text.contains("fn #2"));
+    }
+
+    #[test]
+    fn test_ir_generate_multi_fn_call_chain() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: Box::new(Expr::Ident("result".into())),
+                rhs: Box::new(Expr::Call {
+                    func: Box::new(Expr::Ident("double".into())),
+                    args: vec![Expr::Ident("x".into())],
+                }),
+            },
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "Double",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(text.contains("call double ($0)"));
+        assert!(text.contains("fn #1"));
     }
 
     #[test]

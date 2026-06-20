@@ -7,21 +7,23 @@ use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_common::sanitize_smtlib_name;
 use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
 use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, IrPredArg};
-use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, is_length_ir_call, slot_type_map};
+use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
+use crate::ir_lower::{IrSlotContext, IrTermBuilder, encode_ir_expr};
 use crate::ir_type_ctx::base_type_name;
 
 struct IrSmtlibEncoder {
     fresh_counter: usize,
-    declared_adts: std::collections::HashSet<String>,
+    declared_adts: HashSet<String>,
 }
 
-struct IrSmtlibEncodeFrame<'a> {
-    slots: &'a HashMap<usize, String>,
-    slot_to_name: &'a HashMap<usize, String>,
-    slot_types: &'a HashMap<usize, String>,
+struct SmtlibIrBuilder<'a, 'b> {
     enc: &'a mut IrSmtlibEncoder,
     script: &'a mut String,
     vars: &'a mut HashSet<String>,
+    slot_to_name: &'b HashMap<usize, String>,
+    #[allow(dead_code)]
+    slot_types: &'b HashMap<usize, String>,
+    enc_ctx: IrEncodeContext<'b>,
 }
 
 impl IrSmtlibEncoder {
@@ -50,9 +52,9 @@ fn mk_ir_arith_smtlib(op: IrArithOp, l: &str, r: &str) -> String {
     match op {
         IrArithOp::Add => format!("(+ {l} {r})"),
         IrArithOp::Sub => format!("(- {l} {r})"),
+        IrArithOp::Mod => format!("(mod {l} {r})"),
         IrArithOp::Mul => format!("(* {l} {r})"),
         IrArithOp::Div => format!("(div {l} {r})"),
-        IrArithOp::Mod => format!("(mod {l} {r})"),
     }
 }
 
@@ -65,77 +67,6 @@ fn mk_ir_cmp_bool_smtlib(op: IrCmpOp, l: &str, r: &str) -> String {
         IrCmpOp::Gt => format!("(> {l} {r})"),
         IrCmpOp::Ge => format!("(>= {l} {r})"),
     }
-}
-
-fn eval_ir_call_smtlib(
-    func: &str,
-    args: &[usize],
-    frame: &mut IrSmtlibEncodeFrame<'_>,
-    enc_ctx: IrEncodeContext<'_>,
-) -> Option<String> {
-    use crate::ir::IrExprKind;
-
-    let callee = enc_ctx.callee_ir(func)?;
-    if callee.params.len() != args.len() {
-        return None;
-    }
-
-    let prefix = format!("__ir_call_{func}_");
-    let mut local: HashMap<usize, String> = HashMap::new();
-
-    for (i, param) in callee.params.iter().enumerate() {
-        let arg_val = encode_ir_expr_smtlib(&IrExprKind::Load(args[i]), frame, enc_ctx);
-        let name = format!("{prefix}param_{}", param.slot);
-        declare_int_var(frame.script, frame.vars, &name);
-        let key = sanitize_smtlib_name(&name);
-        frame
-            .script
-            .push_str(&format!("(assert (= {arg_val} {key}))\n"));
-        local.insert(param.slot, key);
-    }
-
-    let result_name = format!("{prefix}result");
-    declare_int_var(frame.script, frame.vars, &result_name);
-    let result_key = sanitize_smtlib_name(&result_name);
-    local.insert(RESULT_SLOT, result_key.clone());
-
-    let callee_slot_types = slot_type_map(callee);
-    let callee_names: HashMap<usize, String> = callee
-        .params
-        .iter()
-        .map(|p| (p.slot, format!("{prefix}param_{}", p.slot)))
-        .collect();
-
-    for instr in &callee.body {
-        if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
-            let name = format!("{prefix}slot_{}", instr.target);
-            declare_int_var(frame.script, frame.vars, &name);
-            local.insert(instr.target, sanitize_smtlib_name(&name));
-        }
-        let mut local_frame = IrSmtlibEncodeFrame {
-            slots: &local,
-            slot_to_name: &callee_names,
-            slot_types: &callee_slot_types,
-            enc: frame.enc,
-            script: frame.script,
-            vars: frame.vars,
-        };
-        let computed = encode_ir_expr_smtlib(&instr.expr, &mut local_frame, enc_ctx);
-        if let Some(target) = local.get(&instr.target) {
-            frame
-                .script
-                .push_str(&format!("(assert (= {computed} {target}))\n"));
-        }
-    }
-
-    local.get(&RESULT_SLOT).cloned()
-}
-
-fn slot_term(slots: &HashMap<usize, String>, slot: usize, enc: &mut IrSmtlibEncoder) -> String {
-    slots
-        .get(&slot)
-        .cloned()
-        .unwrap_or_else(|| enc.fresh_name())
 }
 
 fn ensure_struct_adt_smtlib(
@@ -157,170 +88,166 @@ fn ensure_struct_adt_smtlib(
     }
 }
 
-fn eval_ir_block_smtlib(
-    block_id: usize,
-    frame: &mut IrSmtlibEncodeFrame<'_>,
-    enc_ctx: IrEncodeContext<'_>,
-) -> Option<String> {
-    use crate::havoc_assume::RESULT_SLOT;
+impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
+    type Term = String;
 
-    let body = enc_ctx.ir_blocks?.get(&block_id)?;
-    let mut local = frame.slots.clone();
-    let block_result_name = format!("__ir_block{block_id}_result");
-    declare_int_var(frame.script, frame.vars, &block_result_name);
-    local.insert(RESULT_SLOT, sanitize_smtlib_name(&block_result_name));
-    let mut last = None;
-    for instr in body {
-        if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
-            let name = format!("__ir_block{block_id}_slot_{}", instr.target);
-            declare_int_var(frame.script, frame.vars, &name);
-            local.insert(instr.target, sanitize_smtlib_name(&name));
-        }
-        let mut local_frame = IrSmtlibEncodeFrame {
-            slots: &local,
-            slot_to_name: frame.slot_to_name,
-            slot_types: frame.slot_types,
-            enc: frame.enc,
-            script: frame.script,
-            vars: frame.vars,
-        };
-        let computed = encode_ir_expr_smtlib(&instr.expr, &mut local_frame, enc_ctx);
-        if let Some(target) = local.get(&instr.target) {
-            frame
-                .script
-                .push_str(&format!("(assert (= {computed} {target}))\n"));
-        }
-        last = local.get(&instr.target).cloned();
+    fn int_const(&mut self, n: i64) -> Self::Term {
+        n.to_string()
     }
-    last
-}
 
-fn encode_ir_expr_smtlib(
-    expr: &IrExprKind,
-    frame: &mut IrSmtlibEncodeFrame<'_>,
-    enc_ctx: IrEncodeContext<'_>,
-) -> String {
-    match expr {
-        IrExprKind::Const(IrLiteral::Int(n)) => n.to_string(),
-        IrExprKind::Const(IrLiteral::Float(f)) => format!("{}", *f as i64),
-        IrExprKind::Const(IrLiteral::Bool(b)) => {
-            if *b {
-                "1".into()
-            } else {
-                "0".into()
+    fn get_or_create_named(&mut self, name: &str) -> Self::Term {
+        declare_int_var(self.script, self.vars, name);
+        sanitize_smtlib_name(name)
+    }
+
+    fn load_slot(&mut self, slots: &HashMap<usize, Self::Term>, slot: usize) -> Self::Term {
+        slots
+            .get(&slot)
+            .cloned()
+            .unwrap_or_else(|| self.enc.fresh_name())
+    }
+
+    fn push_eq_axiom(&mut self, lhs: Self::Term, rhs: Self::Term) {
+        self.script.push_str(&format!("(assert (= {lhs} {rhs}))\n"));
+    }
+
+    fn arith(&mut self, op: IrArithOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
+        mk_ir_arith_smtlib(op, &lhs, &rhs)
+    }
+
+    fn cmp_as_int(&mut self, op: IrCmpOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
+        let b = mk_ir_cmp_bool_smtlib(op, &lhs, &rhs);
+        format!("(ite {b} 1 0)")
+    }
+
+    fn ite_nonzero(
+        &mut self,
+        cond: Self::Term,
+        then_v: Self::Term,
+        else_v: Self::Term,
+    ) -> Self::Term {
+        format!("(ite (distinct {cond} 0) ({then_v}) ({else_v}))")
+    }
+
+    fn nullary_uf(&mut self, name: &str) -> Self::Term {
+        sanitize_smtlib_name(name)
+    }
+
+    fn unary_uf(&mut self, name: &str, arg: Self::Term) -> Self::Term {
+        let fname = sanitize_smtlib_name(name);
+        format!("({fname} {arg})")
+    }
+
+    fn nary_uf(&mut self, name: &str, args: &[Self::Term]) -> Self::Term {
+        let fname = sanitize_smtlib_name(name);
+        format!("({fname} {})", args.join(" "))
+    }
+
+    fn fresh_int(&mut self) -> Self::Term {
+        self.enc.fresh_name()
+    }
+
+    fn enc_ctx(&self) -> IrEncodeContext<'_> {
+        self.enc_ctx
+    }
+
+    fn slot_to_name(&self) -> &HashMap<usize, String> {
+        self.slot_to_name
+    }
+
+    fn slot_types(&self) -> &HashMap<usize, String> {
+        self.slot_types
+    }
+
+    fn canonical_length_for_name(&mut self, name: &str) -> Self::Term {
+        declare_canonical_len(self.script, self.vars, name);
+        canonical_length_smtlib_name(name)
+    }
+
+    fn try_known_builtin(&mut self, func: &str, args: &[Self::Term]) -> Option<Self::Term> {
+        crate::cvc5_builtins::known_builtin_to_smtlib(func, args)
+    }
+
+    fn encode_field(
+        &mut self,
+        slot: usize,
+        index: usize,
+        slots: &HashMap<usize, Self::Term>,
+        ctx: IrSlotContext<'_>,
+    ) -> Self::Term {
+        if index == 0
+            && let Some(ty) = ctx.slot_types.get(&slot)
+            && is_collection_ir_type(ty)
+            && let Some(name) = ctx.slot_to_name.get(&slot).cloned()
+        {
+            return self.canonical_length_for_name(&name);
+        }
+        let base = self.load_slot(slots, slot);
+        if let Some(ir_ty) = ctx.slot_types.get(&slot)
+            && let Some(field_name) = self.enc_ctx.type_ctx.field_name_at(ir_ty, index)
+        {
+            let type_name = base_type_name(ir_ty);
+            if let Some(names) = self.enc_ctx.type_ctx.field_names_for(type_name) {
+                let field_name_refs: Vec<&str> = names.to_vec();
+                ensure_struct_adt_smtlib(self.enc, self.script, type_name, &field_name_refs);
+                let fname = sanitize_smtlib_name(&format!("__adt_{type_name}_{field_name}"));
+                return format!("({fname} {base})");
             }
         }
-        IrExprKind::Const(IrLiteral::Str(_)) => frame.enc.fresh_name(),
-        IrExprKind::Load(slot) => slot_term(frame.slots, *slot, frame.enc),
-        IrExprKind::Arith { op, lhs, rhs } => {
-            let l = encode_ir_expr_smtlib(&IrExprKind::Load(*lhs), frame, enc_ctx);
-            let r = encode_ir_expr_smtlib(&IrExprKind::Load(*rhs), frame, enc_ctx);
-            mk_ir_arith_smtlib(*op, &l, &r)
-        }
-        IrExprKind::Cmp { op, lhs, rhs } => {
-            let l = encode_ir_expr_smtlib(&IrExprKind::Load(*lhs), frame, enc_ctx);
-            let r = encode_ir_expr_smtlib(&IrExprKind::Load(*rhs), frame, enc_ctx);
-            let b = mk_ir_cmp_bool_smtlib(*op, &l, &r);
-            format!("(ite {b} 1 0)")
-        }
-        IrExprKind::Call { func, args } => {
-            if is_length_ir_call(func, args.len())
-                && let Some(slot) = args.first()
-                && let Some(name) = frame.slot_to_name.get(slot)
-            {
-                declare_canonical_len(frame.script, frame.vars, name);
-                return canonical_length_smtlib_name(name);
-            }
-            let arg_terms: Vec<String> = args
+        let ty_suffix = ctx
+            .slot_types
+            .get(&slot)
+            .map(|t| t.replace('<', "_").replace('>', ""))
+            .unwrap_or_else(|| "val".into());
+        let fname = sanitize_smtlib_name(&format!("__ir_field_{ty_suffix}_{index}"));
+        format!("({fname} {base})")
+    }
+
+    fn encode_construct(
+        &mut self,
+        type_id: &str,
+        fields: &[(usize, usize)],
+        slots: &HashMap<usize, Self::Term>,
+        _ctx: IrSlotContext<'_>,
+    ) -> Self::Term {
+        let has_layout = self.enc_ctx.type_ctx.has_struct_layout(type_id);
+        let typed_field_names: Option<Vec<String>> = if has_layout {
+            self.enc_ctx
+                .type_ctx
+                .field_names_for(type_id)
+                .map(|names| names.into_iter().map(str::to_string).collect())
+        } else {
+            None
+        };
+        if let Some(field_names) = typed_field_names {
+            let field_name_refs: Vec<&str> = field_names.iter().map(|s| s.as_str()).collect();
+            ensure_struct_adt_smtlib(self.enc, self.script, type_id, &field_name_refs);
+            let mut ordered = fields.to_vec();
+            ordered.sort_by_key(|(idx, _)| *idx);
+            let args: Vec<String> = ordered
                 .iter()
-                .map(|a| encode_ir_expr_smtlib(&IrExprKind::Load(*a), frame, enc_ctx))
+                .map(|(_, s)| self.load_slot(slots, *s))
                 .collect();
-            if let Some(builtin) = crate::cvc5_builtins::known_builtin_to_smtlib(func, &arg_terms) {
-                return builtin;
-            }
-            if let Some(inlined) = eval_ir_call_smtlib(func, args, frame, enc_ctx) {
-                return inlined;
-            }
-            let fname = sanitize_smtlib_name(&format!("__ir_call_{func}"));
-            format!("({fname} {})", arg_terms.join(" "))
-        }
-        IrExprKind::Field { slot, index } => {
-            if *index == 0
-                && let Some(ty) = frame.slot_types.get(slot)
-                && is_collection_ir_type(ty)
-                && let Some(name) = frame.slot_to_name.get(slot)
-            {
-                declare_canonical_len(frame.script, frame.vars, name);
-                return canonical_length_smtlib_name(name);
-            }
-            let base = encode_ir_expr_smtlib(&IrExprKind::Load(*slot), frame, enc_ctx);
-            if let Some(ir_ty) = frame.slot_types.get(slot)
-                && let Some(field_name) = enc_ctx.type_ctx.field_name_at(ir_ty, *index)
-            {
-                let type_name = base_type_name(ir_ty);
-                if let Some(names) = enc_ctx.type_ctx.field_names_for(type_name) {
-                    ensure_struct_adt_smtlib(frame.enc, frame.script, type_name, &names);
-                    let fname = sanitize_smtlib_name(&format!("__adt_{type_name}_{field_name}"));
-                    return format!("({fname} {base})");
+            let val = self.enc.fresh_name();
+            declare_int_var(self.script, self.vars, &val);
+            let tag_fn = sanitize_smtlib_name(&format!("__adt_tag_{type_id}"));
+            self.script
+                .push_str(&format!("(assert (= ({tag_fn} {val}) 0))\n"));
+            for (i, accessor) in field_names.iter().enumerate() {
+                if let Some(arg) = args.get(i) {
+                    let acc_fn = sanitize_smtlib_name(&format!("__adt_{type_id}_{accessor}"));
+                    self.script
+                        .push_str(&format!("(assert (= ({acc_fn} {val}) {arg}))\n"));
                 }
             }
-            let ty_suffix = frame
-                .slot_types
-                .get(slot)
-                .map(|t| t.replace('<', "_").replace('>', ""))
-                .unwrap_or_else(|| "val".into());
-            let fname = sanitize_smtlib_name(&format!("__ir_field_{ty_suffix}_{index}"));
-            format!("({fname} {base})")
+            return val;
         }
-        IrExprKind::Construct { type_id, fields } => {
-            if enc_ctx.type_ctx.has_struct_layout(type_id)
-                && let Some(field_names) = enc_ctx.type_ctx.field_names_for(type_id)
-            {
-                ensure_struct_adt_smtlib(frame.enc, frame.script, type_id, &field_names);
-                let mut ordered = fields.clone();
-                ordered.sort_by_key(|(idx, _)| *idx);
-                let args: Vec<String> = ordered
-                    .iter()
-                    .map(|(_, s)| encode_ir_expr_smtlib(&IrExprKind::Load(*s), frame, enc_ctx))
-                    .collect();
-                let val = frame.enc.fresh_name();
-                declare_int_var(frame.script, frame.vars, &val);
-                let tag_fn = sanitize_smtlib_name(&format!("__adt_tag_{type_id}"));
-                frame
-                    .script
-                    .push_str(&format!("(assert (= ({tag_fn} {val}) 0))\n"));
-                for (i, accessor) in field_names.iter().enumerate() {
-                    if let Some(arg) = args.get(i) {
-                        let acc_fn = sanitize_smtlib_name(&format!("__adt_{type_id}_{accessor}"));
-                        frame
-                            .script
-                            .push_str(&format!("(assert (= ({acc_fn} {val}) {arg}))\n"));
-                    }
-                }
-                return val;
-            }
-            let args: Vec<String> = fields
-                .iter()
-                .map(|(_, s)| encode_ir_expr_smtlib(&IrExprKind::Load(*s), frame, enc_ctx))
-                .collect();
-            let fname = sanitize_smtlib_name(&format!("__ir_construct_{type_id}"));
-            format!("({fname} {})", args.join(" "))
-        }
-        IrExprKind::Cast { slot, .. } | IrExprKind::Transition { slot, .. } => {
-            encode_ir_expr_smtlib(&IrExprKind::Load(*slot), frame, enc_ctx)
-        }
-        IrExprKind::If {
-            cond,
-            then_block,
-            else_block,
-        } => {
-            let c = encode_ir_expr_smtlib(&IrExprKind::Load(*cond), frame, enc_ctx);
-            let then_b = eval_ir_block_smtlib(*then_block, frame, enc_ctx)
-                .unwrap_or_else(|| sanitize_smtlib_name(&format!("__ir_block_{then_block}")));
-            let else_b = eval_ir_block_smtlib(*else_block, frame, enc_ctx)
-                .unwrap_or_else(|| sanitize_smtlib_name(&format!("__ir_block_{else_block}")));
-            format!("(ite (distinct {c} 0) ({then_b}) ({else_b}))")
-        }
+        let args: Vec<String> = fields
+            .iter()
+            .map(|(_, s)| self.load_slot(slots, *s))
+            .collect();
+        let fname = sanitize_smtlib_name(&format!("__ir_construct_{type_id}"));
+        format!("({fname} {})", args.join(" "))
     }
 }
 
@@ -330,7 +257,7 @@ fn encode_ir_pred_arg_smtlib(
     enc: &mut IrSmtlibEncoder,
 ) -> String {
     match arg {
-        IrPredArg::Slot(n) => slot_term(slots, *n, enc),
+        IrPredArg::Slot(n) => slots.get(n).cloned().unwrap_or_else(|| enc.fresh_name()),
         IrPredArg::SlotResult => slots
             .get(&RESULT_SLOT)
             .cloned()
@@ -392,7 +319,7 @@ pub(crate) fn append_ir_body_constraints_smtlib(
 ) {
     let mut enc = IrSmtlibEncoder {
         fresh_counter: 0,
-        declared_adts: std::collections::HashSet::new(),
+        declared_adts: HashSet::new(),
     };
     let mut slots: HashMap<usize, String> = HashMap::new();
 
@@ -409,42 +336,49 @@ pub(crate) fn append_ir_body_constraints_smtlib(
         .collect();
     let slot_types = slot_type_map(func);
 
+    let ctx = IrSlotContext {
+        slot_to_name: &slot_to_name,
+        slot_types: &slot_types,
+    };
+    let mut builder = SmtlibIrBuilder {
+        enc: &mut enc,
+        script,
+        vars,
+        slot_to_name: &slot_to_name,
+        slot_types: &slot_types,
+        enc_ctx,
+    };
+
     for instr in &func.body {
         if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
             let name = format!("__ir_slot_{}", instr.target);
-            declare_int_var(script, vars, &name);
+            declare_int_var(builder.script, builder.vars, &name);
             slots.insert(instr.target, sanitize_smtlib_name(&name));
         }
-        let computed = {
-            let mut frame = IrSmtlibEncodeFrame {
-                slots: &slots,
-                slot_to_name: &slot_to_name,
-                slot_types: &slot_types,
-                enc: &mut enc,
-                script,
-                vars,
-            };
-            encode_ir_expr_smtlib(&instr.expr, &mut frame, enc_ctx)
-        };
+        let computed = encode_ir_expr(&mut builder, &instr.expr, &slots, ctx);
         if let Some(target) = slots.get(&instr.target) {
-            script.push_str(&format!("(assert (= {computed} {target}))\n"));
+            builder
+                .script
+                .push_str(&format!("(assert (= {computed} {target}))\n"));
         }
         if instr.target == RESULT_SLOT
             && let IrExprKind::Load(src) = &instr.expr
-            && let Some(param) = slot_to_name.get(src)
+            && let Some(param) = builder.slot_to_name.get(src)
         {
             let len_result = canonical_length_smtlib_name("result");
             let len_param = canonical_length_smtlib_name(param);
-            declare_int_var(script, vars, "result");
-            declare_int_var(script, vars, param);
-            script.push_str(&format!("(assert (= {len_result} {len_param}))\n"));
+            declare_int_var(builder.script, builder.vars, "result");
+            declare_int_var(builder.script, builder.vars, param);
+            builder
+                .script
+                .push_str(&format!("(assert (= {len_result} {len_param}))\n"));
         }
     }
 
     if let Some(post) = &func.post
-        && let Some(pred) = encode_ir_pred_smtlib(post, &slots, &mut enc)
+        && let Some(pred) = encode_ir_pred_smtlib(post, &slots, builder.enc)
     {
-        script.push_str(&format!("(assert {pred})\n"));
+        builder.script.push_str(&format!("(assert {pred})\n"));
     }
 }
 
@@ -483,7 +417,6 @@ module test {
     #[test]
     fn ir_call_inlines_callee_sidecar() {
         use crate::ir::parse_ir_module;
-        use std::collections::HashMap;
 
         let main_ir = parse_ir_module(
             r#"

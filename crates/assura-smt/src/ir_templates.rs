@@ -61,6 +61,7 @@ impl IrPromptPattern {
             EnsuresShape::BoundsCheck => Self::BoundsCheck,
             EnsuresShape::FieldAccess => Self::FieldAccess,
             EnsuresShape::CallChain => Self::CallChain,
+            EnsuresShape::IfBranch | EnsuresShape::MatchArm => Self::CallChain,
             EnsuresShape::Unknown => Self::Identity,
         }
     }

@@ -8,16 +8,201 @@ use crate::havoc_assume::{
     is_collection_return,
 };
 use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, IrPredArg};
-use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, is_length_ir_call, slot_type_map};
+use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
+use crate::ir_lower::{IrSlotContext, IrTermBuilder, encode_ir_expr};
 use crate::ir_type_ctx::base_type_name;
 use assura_parser::ast::Clause;
 use std::collections::HashMap;
 use z3::ast;
 
-struct IrEncodeCtx<'a> {
-    slot_to_name: HashMap<usize, String>,
-    slot_types: HashMap<usize, String>,
-    enc: IrEncodeContext<'a>,
+struct Z3IrBuilder<'a, 'b> {
+    encoder: &'a mut Encoder,
+    #[allow(dead_code)]
+    slot_to_name: &'b HashMap<usize, String>,
+    #[allow(dead_code)]
+    slot_types: &'b HashMap<usize, String>,
+    enc_ctx: IrEncodeContext<'b>,
+}
+
+impl IrTermBuilder for Z3IrBuilder<'_, '_> {
+    type Term = ast::Int;
+
+    fn int_const(&mut self, n: i64) -> Self::Term {
+        ast::Int::from_i64(n)
+    }
+
+    fn get_or_create_named(&mut self, name: &str) -> Self::Term {
+        self.encoder.get_or_create_int(name)
+    }
+
+    fn load_slot(&mut self, slots: &HashMap<usize, Self::Term>, slot: usize) -> Self::Term {
+        slots
+            .get(&slot)
+            .cloned()
+            .unwrap_or_else(|| self.fresh_int())
+    }
+
+    fn push_eq_axiom(&mut self, lhs: Self::Term, rhs: Self::Term) {
+        self.encoder.background_axioms.push(lhs.eq(&rhs));
+    }
+
+    fn arith(&mut self, op: IrArithOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
+        match op {
+            IrArithOp::Add => ast::Int::add(&[&lhs, &rhs]),
+            IrArithOp::Sub => ast::Int::sub(&[&lhs, &rhs]),
+            IrArithOp::Mul => ast::Int::mul(&[&lhs, &rhs]),
+            IrArithOp::Div => lhs.div(&rhs),
+            IrArithOp::Mod => lhs.modulo(&rhs),
+        }
+    }
+
+    fn cmp_as_int(&mut self, op: IrCmpOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
+        let b = match op {
+            IrCmpOp::Eq => lhs.eq(&rhs),
+            IrCmpOp::Ne => lhs.eq(&rhs).not(),
+            IrCmpOp::Lt => lhs.lt(&rhs),
+            IrCmpOp::Le => lhs.le(&rhs),
+            IrCmpOp::Gt => lhs.gt(&rhs),
+            IrCmpOp::Ge => lhs.ge(&rhs),
+        };
+        b.ite(&ast::Int::from_i64(1), &ast::Int::from_i64(0))
+    }
+
+    fn ite_nonzero(
+        &mut self,
+        cond: Self::Term,
+        then_v: Self::Term,
+        else_v: Self::Term,
+    ) -> Self::Term {
+        let cond_bool = cond.eq(ast::Int::from_i64(0)).not();
+        cond_bool.ite(&then_v, &else_v)
+    }
+
+    fn nullary_uf(&mut self, name: &str) -> Self::Term {
+        self.nary_uf(name, &[])
+    }
+
+    fn unary_uf(&mut self, name: &str, arg: Self::Term) -> Self::Term {
+        self.nary_uf(name, &[arg])
+    }
+
+    fn nary_uf(&mut self, name: &str, args: &[Self::Term]) -> Self::Term {
+        let decl = self.encoder.make_func(name, args.len());
+        let ast_args: Vec<&dyn z3::ast::Ast> =
+            args.iter().map(|i| i as &dyn z3::ast::Ast).collect();
+        decl.apply(&ast_args)
+            .as_int()
+            .unwrap_or_else(|| self.fresh_int())
+    }
+
+    fn fresh_int(&mut self) -> Self::Term {
+        self.encoder.fresh_int()
+    }
+
+    fn enc_ctx(&self) -> IrEncodeContext<'_> {
+        self.enc_ctx
+    }
+
+    fn slot_to_name(&self) -> &HashMap<usize, String> {
+        self.slot_to_name
+    }
+
+    fn slot_types(&self) -> &HashMap<usize, String> {
+        self.slot_types
+    }
+
+    fn canonical_length_for_name(&mut self, name: &str) -> Self::Term {
+        self.encoder.canonical_length(name)
+    }
+
+    fn try_known_builtin(&mut self, func: &str, args: &[Self::Term]) -> Option<Self::Term> {
+        let kind = classify_known_builtin(func, args.len())?;
+        let zero = ast::Int::from_i64(0);
+        Some(match kind {
+            KnownBuiltin::Abs => {
+                let x = &args[0];
+                let neg = ast::Int::sub(&[zero.clone(), x.clone()]);
+                x.ge(&zero).ite(x, &neg)
+            }
+            KnownBuiltin::Min => {
+                let (a, b) = (&args[0], &args[1]);
+                a.le(b).ite(a, b)
+            }
+            KnownBuiltin::Max => {
+                let (a, b) = (&args[0], &args[1]);
+                a.ge(b).ite(a, b)
+            }
+            KnownBuiltin::Concat => ast::Int::add(&[&args[0], &args[1]]),
+            _ => return None,
+        })
+    }
+
+    fn encode_field(
+        &mut self,
+        slot: usize,
+        index: usize,
+        slots: &HashMap<usize, Self::Term>,
+        ctx: IrSlotContext<'_>,
+    ) -> Self::Term {
+        if index == 0
+            && let Some(ty) = ctx.slot_types.get(&slot)
+            && is_collection_ir_type(ty)
+            && let Some(name) = ctx.slot_to_name.get(&slot)
+        {
+            return self.encoder.canonical_length(name);
+        }
+        let base = self.load_slot(slots, slot);
+        if let Some(ir_ty) = ctx.slot_types.get(&slot)
+            && let Some(field_name) = self.enc_ctx.type_ctx.field_name_at(ir_ty, index)
+        {
+            let type_name = base_type_name(ir_ty);
+            if let Some(names) = self.enc_ctx.type_ctx.field_names_for(type_name) {
+                self.encoder.ensure_struct_adt(
+                    type_name,
+                    &names.into_iter().map(str::to_string).collect::<Vec<_>>(),
+                );
+                return self.encoder.adt_accessor(type_name, field_name, &base);
+            }
+        }
+        let ty_suffix = ctx
+            .slot_types
+            .get(&slot)
+            .map(|t| t.replace('<', "_").replace('>', ""))
+            .unwrap_or_else(|| "val".into());
+        self.unary_uf(&format!("__ir_field_{ty_suffix}_{index}"), base)
+    }
+
+    fn encode_construct(
+        &mut self,
+        type_id: &str,
+        fields: &[(usize, usize)],
+        slots: &HashMap<usize, Self::Term>,
+        _ctx: IrSlotContext<'_>,
+    ) -> Self::Term {
+        if self.enc_ctx.type_ctx.has_struct_layout(type_id)
+            && let Some(field_names) = self.enc_ctx.type_ctx.field_names_for(type_id)
+        {
+            self.encoder.ensure_struct_adt(
+                type_id,
+                &field_names
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            let mut ordered = fields.to_vec();
+            ordered.sort_by_key(|(idx, _)| *idx);
+            let arg_ints: Vec<ast::Int> = ordered
+                .iter()
+                .map(|(_, s)| self.load_slot(slots, *s))
+                .collect();
+            return self.encoder.adt_constructor(type_id, type_id, &arg_ints);
+        }
+        let arg_ints: Vec<ast::Int> = fields
+            .iter()
+            .map(|(_, s)| self.load_slot(slots, *s))
+            .collect();
+        self.nary_uf(&format!("__ir_construct_{type_id}"), &arg_ints)
+    }
 }
 
 /// Apply havoc+assume axioms before verifying ensures clauses.
@@ -65,310 +250,58 @@ fn apply_ir_body_constraints(
     let slot_to_name: HashMap<usize, String> = ir_param_names(func, contract_param_names)
         .into_iter()
         .collect();
-    let ctx = IrEncodeCtx {
-        slot_to_name,
-        slot_types: slot_type_map(func),
-        enc: enc_ctx,
+    let slot_types = slot_type_map(func);
+    let mut builder = Z3IrBuilder {
+        encoder,
+        slot_to_name: &slot_to_name,
+        slot_types: &slot_types,
+        enc_ctx,
     };
 
+    let ctx = IrSlotContext {
+        slot_to_name: &slot_to_name,
+        slot_types: &slot_types,
+    };
     for instr in &func.body {
         if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
             let name = format!("__ir_slot_{}", instr.target);
-            let v = encoder.get_or_create_int(&name);
+            let v = builder.get_or_create_named(&name);
             slots.insert(instr.target, v);
         }
-        let computed = encode_ir_expr_z3(encoder, &instr.expr, &slots, &ctx);
+        let computed = encode_ir_expr(&mut builder, &instr.expr, &slots, ctx);
         if let Some(target) = slots.get(&instr.target) {
-            encoder.background_axioms.push(computed.eq(target));
+            builder.push_eq_axiom(computed, target.clone());
         }
         if instr.target == RESULT_SLOT
             && let IrExprKind::Load(src) = &instr.expr
-            && let Some(param) = ctx.slot_to_name.get(src)
+            && let Some(param) = slot_to_name.get(src)
         {
-            let len_result = encoder.canonical_length("result");
-            let len_param = encoder.canonical_length(param);
-            encoder.background_axioms.push(len_result.eq(&len_param));
+            let len_result = builder.encoder.canonical_length("result");
+            let len_param = builder.encoder.canonical_length(param);
+            builder
+                .encoder
+                .background_axioms
+                .push(len_result.eq(&len_param));
         }
         if instr.target == RESULT_SLOT
             && let IrExprKind::Construct { type_id, .. } = &instr.expr
         {
             let tag = pattern_hash_name(type_id);
-            let tag_val = encoder.get_or_create_int(&format!("__ir_tag_{type_id}"));
-            encoder
+            let tag_val = builder
+                .encoder
+                .get_or_create_int(&format!("__ir_tag_{type_id}"));
+            builder
+                .encoder
                 .background_axioms
                 .push(tag_val.eq(ast::Int::from_i64(tag)));
         }
     }
 
     if let Some(post) = &func.post
-        && let Some(pred) = encode_ir_pred_z3(encoder, post, &slots)
+        && let Some(pred) = encode_ir_pred_z3(builder.encoder, post, &slots)
     {
-        encoder.background_axioms.push(pred);
+        builder.encoder.background_axioms.push(pred);
     }
-}
-
-fn eval_ir_call_z3(
-    encoder: &mut Encoder,
-    func: &str,
-    args: &[usize],
-    slots: &HashMap<usize, ast::Int>,
-    ctx: &IrEncodeCtx<'_>,
-) -> Option<ast::Int> {
-    let callee = ctx.enc.callee_ir(func)?;
-    if callee.params.len() != args.len() {
-        return None;
-    }
-
-    let prefix = format!("__ir_call_{func}_");
-    let mut local: HashMap<usize, ast::Int> = HashMap::new();
-
-    for (i, param) in callee.params.iter().enumerate() {
-        let arg_val = encode_ir_expr_z3(encoder, &IrExprKind::Load(args[i]), slots, ctx);
-        let name = format!("{prefix}param_{}", param.slot);
-        let slot_var = encoder.get_or_create_int(&name);
-        encoder.background_axioms.push(arg_val.eq(&slot_var));
-        local.insert(param.slot, slot_var);
-    }
-
-    let result_name = format!("{prefix}result");
-    let result_var = encoder.get_or_create_int(&result_name);
-    local.insert(RESULT_SLOT, result_var);
-
-    let callee_slot_types = slot_type_map(callee);
-    let callee_names: HashMap<usize, String> = callee
-        .params
-        .iter()
-        .map(|p| (p.slot, format!("{prefix}param_{}", p.slot)))
-        .collect();
-    let callee_ctx = IrEncodeCtx {
-        slot_to_name: callee_names,
-        slot_types: callee_slot_types,
-        enc: ctx.enc,
-    };
-
-    for instr in &callee.body {
-        if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
-            let name = format!("{prefix}slot_{}", instr.target);
-            let v = encoder.get_or_create_int(&name);
-            local.insert(instr.target, v);
-        }
-        let computed = encode_ir_expr_z3(encoder, &instr.expr, &local, &callee_ctx);
-        if let Some(target) = local.get(&instr.target) {
-            encoder.background_axioms.push(computed.eq(target));
-        }
-    }
-
-    local.get(&RESULT_SLOT).cloned()
-}
-
-fn eval_ir_block_z3(
-    encoder: &mut Encoder,
-    block_id: usize,
-    slots: &HashMap<usize, ast::Int>,
-    ctx: &IrEncodeCtx<'_>,
-) -> Option<ast::Int> {
-    let body = ctx.enc.ir_blocks?.get(&block_id)?;
-    let mut local = slots.clone();
-    // Block-local result: do not inherit parent RESULT_SLOT or sibling branches
-    // would push unconditional (= x result) and (= 0 result) into global axioms.
-    let block_result = encoder.get_or_create_int(&format!("__ir_block{block_id}_result"));
-    local.insert(RESULT_SLOT, block_result);
-    let mut last: Option<ast::Int> = None;
-    for instr in body {
-        if instr.target != RESULT_SLOT && !local.contains_key(&instr.target) {
-            let name = format!("__ir_block{block_id}_slot_{}", instr.target);
-            local.insert(instr.target, encoder.get_or_create_int(&name));
-        }
-        let computed = encode_ir_expr_z3(encoder, &instr.expr, &local, ctx);
-        if let Some(target) = local.get(&instr.target) {
-            encoder.background_axioms.push(computed.eq(target));
-        }
-        last = local.get(&instr.target).cloned();
-    }
-    last
-}
-
-fn encode_ir_expr_z3(
-    encoder: &mut Encoder,
-    expr: &IrExprKind,
-    slots: &HashMap<usize, ast::Int>,
-    ctx: &IrEncodeCtx<'_>,
-) -> ast::Int {
-    match expr {
-        IrExprKind::Const(IrLiteral::Int(n)) => ast::Int::from_i64(*n),
-        IrExprKind::Const(IrLiteral::Float(f)) => ast::Int::from_i64(*f as i64),
-        IrExprKind::Const(IrLiteral::Bool(b)) => ast::Int::from_i64(if *b { 1 } else { 0 }),
-        IrExprKind::Const(IrLiteral::Str(_)) => encoder.fresh_int(),
-        IrExprKind::Load(slot) => slots
-            .get(slot)
-            .cloned()
-            .unwrap_or_else(|| encoder.fresh_int()),
-        IrExprKind::Arith { op, lhs, rhs } => {
-            let l = encode_ir_expr_z3(encoder, &IrExprKind::Load(*lhs), slots, ctx);
-            let r = encode_ir_expr_z3(encoder, &IrExprKind::Load(*rhs), slots, ctx);
-            match op {
-                IrArithOp::Add => ast::Int::add(&[&l, &r]),
-                IrArithOp::Sub => ast::Int::sub(&[&l, &r]),
-                IrArithOp::Mul => ast::Int::mul(&[&l, &r]),
-                IrArithOp::Div => l.div(&r),
-                IrArithOp::Mod => l.modulo(&r),
-            }
-        }
-        IrExprKind::Cmp { op, lhs, rhs } => {
-            let l = encode_ir_expr_z3(encoder, &IrExprKind::Load(*lhs), slots, ctx);
-            let r = encode_ir_expr_z3(encoder, &IrExprKind::Load(*rhs), slots, ctx);
-            let b = match op {
-                IrCmpOp::Eq => l.eq(&r),
-                IrCmpOp::Ne => l.eq(&r).not(),
-                IrCmpOp::Lt => l.lt(&r),
-                IrCmpOp::Le => l.le(&r),
-                IrCmpOp::Gt => l.gt(&r),
-                IrCmpOp::Ge => l.ge(&r),
-            };
-            b.ite(&ast::Int::from_i64(1), &ast::Int::from_i64(0))
-        }
-        IrExprKind::Call { func, args } => {
-            if is_length_ir_call(func, args.len())
-                && let Some(slot) = args.first()
-                && let Some(name) = ctx.slot_to_name.get(slot)
-            {
-                return encoder.canonical_length(name);
-            }
-            if let Some(inlined) = eval_ir_call_z3(encoder, func, args, slots, ctx) {
-                return inlined;
-            }
-            let arg_ints: Vec<ast::Int> = args
-                .iter()
-                .map(|a| encode_ir_expr_z3(encoder, &IrExprKind::Load(*a), slots, ctx))
-                .collect();
-            if let Some(kind) = classify_known_builtin(func, args.len()) {
-                let zero = ast::Int::from_i64(0);
-                return match kind {
-                    KnownBuiltin::Abs => {
-                        let x = &arg_ints[0];
-                        let neg = ast::Int::sub(&[zero.clone(), x.clone()]);
-                        x.ge(&zero).ite(x, &neg)
-                    }
-                    KnownBuiltin::Min => {
-                        let (a, b) = (&arg_ints[0], &arg_ints[1]);
-                        a.le(b).ite(a, b)
-                    }
-                    KnownBuiltin::Max => {
-                        let (a, b) = (&arg_ints[0], &arg_ints[1]);
-                        a.ge(b).ite(a, b)
-                    }
-                    KnownBuiltin::Concat => ast::Int::add(&[&arg_ints[0], &arg_ints[1]]),
-                    _ => encode_ir_call_uf(encoder, func, &arg_ints),
-                };
-            }
-            encode_ir_call_uf(encoder, func, &arg_ints)
-        }
-        IrExprKind::Field { slot, index } => {
-            if *index == 0
-                && let Some(ty) = ctx.slot_types.get(slot)
-                && is_collection_ir_type(ty)
-                && let Some(name) = ctx.slot_to_name.get(slot)
-            {
-                return encoder.canonical_length(name);
-            }
-            let base = encode_ir_expr_z3(encoder, &IrExprKind::Load(*slot), slots, ctx);
-            if let Some(ir_ty) = ctx.slot_types.get(slot)
-                && let Some(field_name) = ctx.enc.type_ctx.field_name_at(ir_ty, *index)
-            {
-                let type_name = base_type_name(ir_ty);
-                if let Some(names) = ctx.enc.type_ctx.field_names_for(type_name) {
-                    encoder.ensure_struct_adt(
-                        type_name,
-                        &names.into_iter().map(str::to_string).collect::<Vec<_>>(),
-                    );
-                    return encoder.adt_accessor(type_name, field_name, &base);
-                }
-            }
-            let ty_suffix = ctx
-                .slot_types
-                .get(slot)
-                .map(|t| t.replace('<', "_").replace('>', ""))
-                .unwrap_or_else(|| "val".into());
-            let decl = encoder.make_func(&format!("__ir_field_{ty_suffix}_{index}"), 1);
-            decl.apply(&[&base as &dyn z3::ast::Ast])
-                .as_int()
-                .unwrap_or_else(|| encoder.fresh_int())
-        }
-        IrExprKind::Construct { type_id, fields } => {
-            if ctx.enc.type_ctx.has_struct_layout(type_id)
-                && let Some(field_names) = ctx.enc.type_ctx.field_names_for(type_id)
-            {
-                encoder.ensure_struct_adt(
-                    type_id,
-                    &field_names
-                        .into_iter()
-                        .map(str::to_string)
-                        .collect::<Vec<_>>(),
-                );
-                let mut ordered = fields.clone();
-                ordered.sort_by_key(|(idx, _)| *idx);
-                let arg_ints: Vec<ast::Int> = ordered
-                    .iter()
-                    .map(|(_, s)| encode_ir_expr_z3(encoder, &IrExprKind::Load(*s), slots, ctx))
-                    .collect();
-                return encoder.adt_constructor(type_id, type_id, &arg_ints);
-            }
-            let arg_ints: Vec<ast::Int> = fields
-                .iter()
-                .map(|(_, s)| encode_ir_expr_z3(encoder, &IrExprKind::Load(*s), slots, ctx))
-                .collect();
-            let decl = encoder.make_func(&format!("__ir_construct_{type_id}"), arg_ints.len());
-            let ast_args: Vec<&dyn z3::ast::Ast> =
-                arg_ints.iter().map(|i| i as &dyn z3::ast::Ast).collect();
-            decl.apply(&ast_args)
-                .as_int()
-                .unwrap_or_else(|| encoder.fresh_int())
-        }
-        IrExprKind::Cast { slot, .. } => {
-            encode_ir_expr_z3(encoder, &IrExprKind::Load(*slot), slots, ctx)
-        }
-        IrExprKind::Transition { slot, state } => {
-            let val = encode_ir_expr_z3(encoder, &IrExprKind::Load(*slot), slots, ctx);
-            let decl = encoder.make_func(&format!("__ir_state_{state}"), 1);
-            decl.apply(&[&val as &dyn z3::ast::Ast])
-                .as_int()
-                .unwrap_or(val)
-        }
-        IrExprKind::If {
-            cond,
-            then_block,
-            else_block,
-        } => {
-            let cond_val = encode_ir_expr_z3(encoder, &IrExprKind::Load(*cond), slots, ctx);
-            let cond_bool = cond_val.eq(ast::Int::from_i64(0)).not();
-            let then_val =
-                eval_ir_block_z3(encoder, *then_block, slots, ctx).unwrap_or_else(|| {
-                    let then_decl = encoder.make_func(&format!("__ir_block_{then_block}"), 0);
-                    then_decl
-                        .apply(&[])
-                        .as_int()
-                        .unwrap_or_else(|| encoder.fresh_int())
-                });
-            let else_val =
-                eval_ir_block_z3(encoder, *else_block, slots, ctx).unwrap_or_else(|| {
-                    let else_decl = encoder.make_func(&format!("__ir_block_{else_block}"), 0);
-                    else_decl
-                        .apply(&[])
-                        .as_int()
-                        .unwrap_or_else(|| encoder.fresh_int())
-                });
-            cond_bool.ite(&then_val, &else_val)
-        }
-    }
-}
-
-fn encode_ir_call_uf(encoder: &mut Encoder, func: &str, arg_ints: &[ast::Int]) -> ast::Int {
-    let decl = encoder.make_func(&format!("__ir_call_{func}"), arg_ints.len());
-    let ast_args: Vec<&dyn z3::ast::Ast> =
-        arg_ints.iter().map(|i| i as &dyn z3::ast::Ast).collect();
-    decl.apply(&ast_args)
-        .as_int()
-        .unwrap_or_else(|| encoder.fresh_int())
 }
 
 fn encode_ir_pred_z3(

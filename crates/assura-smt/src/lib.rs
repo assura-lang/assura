@@ -44,6 +44,9 @@ pub use result::{CounterexampleModel, VerificationResult, VerificationSummary};
 /// Shared IR expression encoding helpers.
 mod ir_encode;
 mod ir_generate;
+mod ir_lower;
+#[cfg(test)]
+mod ir_parity;
 mod ir_templates;
 mod ir_type_ctx;
 mod verify_context;

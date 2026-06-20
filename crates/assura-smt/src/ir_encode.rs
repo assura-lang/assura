@@ -95,6 +95,36 @@ module branch {
     (func, blocks)
 }
 
+/// Fixture: `fn #0` with `if #99 else #100` but no block map (UF fallback path).
+#[cfg(test)]
+pub(crate) fn branch_if_else_missing_blocks_fixture() -> IrFunction {
+    use crate::ir::parse_ir_module;
+
+    const SOURCE: &str = r#"
+module branch_missing {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = if $0 then #99 else #100 : Int
+    $result = load $1 : Int
+  }
+}
+"#;
+    parse_ir_module(SOURCE).unwrap().functions[0].clone()
+}
+
+/// Assert missing block ids fall back to opaque `__ir_block_{N}` UFs (#296).
+#[cfg(test)]
+pub(crate) fn assert_ir_blocks_missing_uf_fallback(output: &str) {
+    assert!(
+        output.contains("__ir_block_99"),
+        "missing then-block should use UF fallback, got:\n{output}"
+    );
+    assert!(
+        output.contains("__ir_block_100"),
+        "missing else-block should use UF fallback, got:\n{output}"
+    );
+}
+
 /// Assert if-branch sibling bodies use block-local result slots (#297).
 #[cfg(test)]
 pub(crate) fn assert_ir_branch_results_scoped(output: &str) {
