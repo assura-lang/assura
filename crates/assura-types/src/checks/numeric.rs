@@ -114,7 +114,6 @@ fn check_expr_fixed_width_full(
         }
         Expr::UnaryOp { expr: inner, .. }
         | Expr::Old(inner)
-        | Expr::Paren(inner)
         | Expr::Ghost(inner) => {
             check_expr_fixed_width_full(inner, type_env, fw_checker, span, errors);
         }
@@ -245,7 +244,7 @@ fn expr_mentions_len(expr: &Expr) -> bool {
         Expr::Ident(name) => name == "len",
         Expr::BinOp { lhs, rhs, .. } => expr_mentions_len(lhs) || expr_mentions_len(rhs),
         Expr::UnaryOp { expr, .. } => expr_mentions_len(expr),
-        Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => expr_mentions_len(e),
+        Expr::Old(e) | Expr::Ghost(e) => expr_mentions_len(e),
         Expr::Field(e, _) => expr_mentions_len(e),
         Expr::Block(exprs) | Expr::List(exprs) => exprs.iter().any(expr_mentions_len),
         Expr::If {
@@ -422,7 +421,6 @@ fn extract_cast_target_bits(expr: &Expr, var_name: &str) -> u32 {
         Expr::BinOp { lhs, rhs, .. } => {
             extract_cast_target_bits(lhs, var_name).min(extract_cast_target_bits(rhs, var_name))
         }
-        Expr::Paren(inner) => extract_cast_target_bits(inner, var_name),
         _ => 32,
     }
 }
@@ -451,7 +449,6 @@ fn clause_contains_cast(expr: &Expr, var_name: &str) -> bool {
         Expr::BinOp { lhs, rhs, .. } => {
             clause_contains_cast(lhs, var_name) || clause_contains_cast(rhs, var_name)
         }
-        Expr::Paren(inner) => clause_contains_cast(inner, var_name),
         _ => false,
     }
 }

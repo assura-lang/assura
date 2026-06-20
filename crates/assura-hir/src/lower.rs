@@ -358,7 +358,6 @@ impl LowerCtx<'_> {
                 then_branch: Box::new(self.lower_expr(then_branch)),
                 else_branch: else_branch.as_ref().map(|e| Box::new(self.lower_expr(e))),
             },
-            Expr::Paren(e) => HirExpr::Paren(Box::new(self.lower_expr(e))),
             Expr::List(items) => HirExpr::List(items.iter().map(|i| self.lower_expr(i)).collect()),
             Expr::Cast { expr, ty } => HirExpr::Cast {
                 expr: Box::new(self.lower_expr(expr)),

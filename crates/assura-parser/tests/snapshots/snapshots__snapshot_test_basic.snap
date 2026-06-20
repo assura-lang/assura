@@ -87,17 +87,15 @@ SourceFile {
                                         ),
                                     },
                                     op: Add,
-                                    rhs: Paren(
-                                        BinOp {
-                                            lhs: Ident(
-                                                "a",
-                                            ),
-                                            op: Mod,
-                                            rhs: Ident(
-                                                "b",
-                                            ),
-                                        },
-                                    ),
+                                    rhs: BinOp {
+                                        lhs: Ident(
+                                            "a",
+                                        ),
+                                        op: Mod,
+                                        rhs: Ident(
+                                            "b",
+                                        ),
+                                    },
                                 },
                                 op: Eq,
                                 rhs: Ident(

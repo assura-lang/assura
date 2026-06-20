@@ -254,7 +254,6 @@ impl MemoryChecker {
                     _ => false,
                 }
             }
-            Expr::Paren(inner) => self.expr_has_bounds_check(inner, buffer_name),
             _ => false,
         }
     }
@@ -286,7 +285,6 @@ impl MemoryChecker {
                 self.references_buffer_capacity(lhs, buffer_name)
                     || self.references_buffer_capacity(rhs, buffer_name)
             }
-            Expr::Paren(inner) => self.references_buffer_capacity(inner, buffer_name),
             _ => false,
         }
     }

@@ -115,7 +115,7 @@ pub(crate) fn encode_expr_cvc5<'a>(
         Expr::Old(inner) => encode_old_cvc5(tm, inner.as_ref(), vars, state, |e, v, s| {
             encode_expr_cvc5(tm, e, v, s)
         }),
-        Expr::Paren(inner) | Expr::Ghost(inner) => {
+        Expr::Ghost(inner) => {
             encode_wrapper_cvc5(inner, vars, state, |e, v, s| encode_expr_cvc5(tm, e, v, s))
         }
         Expr::Cast { expr: inner, .. } => {

@@ -312,7 +312,7 @@ fn resolve_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
             resolve_prophecy_vars(lhs, fn_name, pm);
             resolve_prophecy_vars(rhs, fn_name, pm);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
             resolve_prophecy_vars(expr, fn_name, pm)
         }
         Expr::Block(exprs) | Expr::List(exprs) => {
@@ -352,7 +352,7 @@ fn constrain_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager)
             constrain_prophecy_vars(lhs, fn_name, pm);
             constrain_prophecy_vars(rhs, fn_name, pm);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
             constrain_prophecy_vars(expr, fn_name, pm)
         }
         Expr::Block(exprs) | Expr::List(exprs) => {
@@ -382,7 +382,7 @@ fn collect_prophecy_refs(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
             collect_prophecy_refs(lhs, fn_name, pm);
             collect_prophecy_refs(rhs, fn_name, pm);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
             collect_prophecy_refs(expr, fn_name, pm)
         }
         _ => {}

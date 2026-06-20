@@ -440,7 +440,6 @@ fn collect_apply_refs_expr(expr: &Expr, refs: &mut Vec<String>) {
             collect_apply_refs_expr(rhs, refs);
         }
         Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
         | Expr::Old(inner)
         | Expr::Ghost(inner)
         | Expr::Field(inner, _)
@@ -842,7 +841,7 @@ fn collect_function_names_for_triggers(expr: &Expr, tm: &mut crate::advanced::Tr
             collect_function_names_for_triggers(lhs, tm);
             collect_function_names_for_triggers(rhs, tm);
         }
-        Expr::UnaryOp { expr: e, .. } | Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
+        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Ghost(e) => {
             collect_function_names_for_triggers(e, tm);
         }
         Expr::If {

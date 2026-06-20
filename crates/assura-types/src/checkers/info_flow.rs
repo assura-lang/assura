@@ -257,7 +257,6 @@ impl DependentTypeChecker {
                 op: UnaryOp::Neg,
                 expr,
             } => self.is_nat_expr(expr),
-            Expr::Paren(inner) => self.is_nat_expr(inner),
             _ => false,
         }
     }
@@ -601,7 +600,7 @@ impl InfoFlowChecker {
                 std::cmp::max(self.infer_label(base), self.infer_label(index))
             }
 
-            Expr::Old(inner) | Expr::Paren(inner) | Expr::Cast { expr: inner, .. } => {
+            Expr::Old(inner) | Expr::Cast { expr: inner, .. } => {
                 self.infer_label(inner)
             }
 
@@ -725,7 +724,6 @@ impl InfoFlowChecker {
             }
             Expr::UnaryOp { expr: inner, .. }
             | Expr::Old(inner)
-            | Expr::Paren(inner)
             | Expr::Cast { expr: inner, .. }
             | Expr::Ghost(inner) => {
                 self.check_expr_inner(inner, span, pc_label, errors);

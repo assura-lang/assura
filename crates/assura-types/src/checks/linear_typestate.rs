@@ -110,7 +110,6 @@ fn infer_usage_grade(ty_tokens: &[String]) -> UsageGrade {
 /// - `Expr::Call`: `input(x as linear Int)` produces Call with Cast args
 /// - `Expr::Cast`: single param `x as linear Int`
 /// - `Expr::Block`/`Expr::Tuple`: sequences containing linear-annotated items
-/// - `Expr::Paren`: unwrap and recurse
 pub(crate) fn declare_linear_params_from_expr(
     expr: &Expr,
     tracker: &mut UsageTracker,
@@ -135,7 +134,6 @@ pub(crate) fn declare_linear_params_from_expr(
         Expr::Ident(_) => {
             // Single untyped param, no linear annotation possible
         }
-        Expr::Paren(inner) => declare_linear_params_from_expr(inner, tracker, span),
         Expr::Tuple(items) | Expr::Block(items) => {
             for item in items {
                 declare_linear_single_param(item, tracker, span);
@@ -159,7 +157,6 @@ fn declare_linear_single_param(
                 tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
             }
         }
-        Expr::Paren(inner) => declare_linear_single_param(inner, tracker, span),
         Expr::Raw(tokens) => {
             declare_linear_params_from_raw(tokens, tracker, span);
         }

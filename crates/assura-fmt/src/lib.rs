@@ -571,11 +571,6 @@ pub(crate) fn format_expr(expr: &Expr, out: &mut String) {
                 format_expr(else_b, out);
             }
         }
-        Expr::Paren(e) => {
-            out.push('(');
-            format_expr(e, out);
-            out.push(')');
-        }
         Expr::List(items) => {
             out.push('[');
             format_expr_list(items, out);
@@ -1238,14 +1233,6 @@ fn add(a: Int, b: Int) -> Int
         };
         format_expr(&expr, &mut out);
         assert_eq!(out, "!flag");
-    }
-
-    #[test]
-    fn test_format_paren_expr() {
-        let mut out = String::new();
-        let expr = Expr::Paren(Box::new(Expr::Ident("x".to_string())));
-        format_expr(&expr, &mut out);
-        assert_eq!(out, "(x)");
     }
 
     #[test]

@@ -203,7 +203,6 @@ fn collect_unbounded_quantifiers(
         }
         Expr::UnaryOp { expr: e, .. }
         | Expr::Old(e)
-        | Expr::Paren(e)
         | Expr::Ghost(e)
         | Expr::Field(e, _) => {
             collect_unbounded_quantifiers(e, context, warnings);

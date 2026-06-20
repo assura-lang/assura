@@ -396,9 +396,6 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
             let merge_errors = ctx.merge(&ctx_then, &ctx_else);
             errors.extend(merge_errors);
         }
-        Expr::Paren(inner) => {
-            check_expr_linearity_inner(inner, ctx, errors);
-        }
         Expr::List(items) => {
             for item in items {
                 check_expr_linearity_inner(item, ctx, errors);

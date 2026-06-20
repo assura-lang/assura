@@ -44,9 +44,6 @@ fn collect_modifies_targets(expr: &Expr, targets: &mut Vec<String>) {
                 collect_modifies_targets(item, targets);
             }
         }
-        Expr::Paren(inner) => {
-            collect_modifies_targets(inner, targets);
-        }
         Expr::Raw(tokens) => {
             // Parse comma-separated identifiers from raw tokens
             for tok in tokens {

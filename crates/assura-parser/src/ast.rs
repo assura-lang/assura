@@ -260,8 +260,6 @@ pub enum Expr {
         then_branch: Box<Expr>,
         else_branch: Option<Box<Expr>>,
     },
-    /// Parenthesized expression
-    Paren(Box<Expr>),
     /// List literal: `[a, b, c]`
     List(Vec<Expr>),
     /// Type cast: `expr as Type`
@@ -404,9 +402,6 @@ pub trait ExprVisitor {
             self.visit_expr(e);
         }
     }
-    fn visit_paren(&mut self, inner: &Expr) {
-        self.visit_expr(inner);
-    }
     fn visit_list(&mut self, items: &[Expr]) {
         for item in items {
             self.visit_expr(item);
@@ -470,7 +465,6 @@ pub fn walk_expr(visitor: &mut (impl ExprVisitor + ?Sized), expr: &Expr) {
             then_branch,
             else_branch,
         } => visitor.visit_if(cond, then_branch, else_branch.as_deref()),
-        Expr::Paren(inner) => visitor.visit_paren(inner),
         Expr::List(items) => visitor.visit_list(items),
         Expr::Cast { expr, ty } => visitor.visit_cast(expr, ty),
         Expr::Block(exprs) => visitor.visit_block(exprs),
@@ -628,7 +622,6 @@ fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
                 parsed_type: None,
             });
         }
-        Expr::Paren(inner) => extract_clause_params_inner(inner, params),
         Expr::Tuple(items) | Expr::Block(items) => {
             for item in items {
                 extract_single_param(item, params);
@@ -659,7 +652,6 @@ fn extract_single_param(expr: &Expr, params: &mut Vec<ParsedParam>) {
                 parsed_type: None,
             });
         }
-        Expr::Paren(inner) => extract_single_param(inner, params),
         _ => {}
     }
 }

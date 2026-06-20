@@ -475,7 +475,7 @@ fn contains_result_ref(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(name) => name == "result",
         Expr::BinOp { lhs, rhs, .. } => contains_result_ref(lhs) || contains_result_ref(rhs),
-        Expr::Field(inner, _) | Expr::Old(inner) | Expr::Paren(inner) => contains_result_ref(inner),
+        Expr::Field(inner, _) | Expr::Old(inner) => contains_result_ref(inner),
         Expr::Call { func, args } => {
             contains_result_ref(func) || args.iter().any(contains_result_ref)
         }

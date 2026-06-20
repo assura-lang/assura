@@ -152,7 +152,6 @@ impl TotalityChecker {
             }
             Expr::UnaryOp { expr: inner, .. }
             | Expr::Old(inner)
-            | Expr::Paren(inner)
             | Expr::Cast { expr: inner, .. }
             | Expr::Ghost(inner) => self.expr_contains_recursive_call(inner, fn_name),
             Expr::Field(receiver, _) => self.expr_contains_recursive_call(receiver, fn_name),
@@ -232,7 +231,6 @@ impl TotalityChecker {
             }
             Expr::UnaryOp { expr: inner, .. }
             | Expr::Old(inner)
-            | Expr::Paren(inner)
             | Expr::Cast { expr: inner, .. }
             | Expr::Ghost(inner) => {
                 self.collect_recursive_call_args(inner, fn_name, out);
@@ -434,7 +432,6 @@ impl TotalityChecker {
                     _ => false,
                 }
             }
-            Expr::Paren(inner) => Self::expr_constrains_non_negative(inner, var_name),
             _ => false,
         }
     }

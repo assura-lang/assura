@@ -153,7 +153,6 @@ fn collect_expr_names(expr: &Expr, names: &mut HashSet<String>) {
             collect_expr_names(rhs, names);
         }
         Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
         | Expr::Old(inner)
         | Expr::Ghost(inner) => {
             collect_expr_names(inner, names);

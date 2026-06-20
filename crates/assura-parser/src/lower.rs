@@ -484,7 +484,7 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
                     None
                 }
             });
-            Expr::Paren(Box::new(inner.unwrap_or(Expr::Raw(vec![]))))
+            inner.unwrap_or(Expr::Raw(vec![]))
         }
         SyntaxKind::TUPLE_EXPR => {
             let items: Vec<Expr> = n

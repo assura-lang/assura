@@ -37,7 +37,6 @@ pub(crate) fn is_literal_zero(expr: &Expr) -> bool {
     match expr {
         Expr::Literal(Literal::Int(s)) => s == "0",
         Expr::Literal(Literal::Float(s)) => s == "0.0" || s == "0",
-        Expr::Paren(inner) => is_literal_zero(inner),
         _ => false,
     }
 }
@@ -207,9 +206,6 @@ pub fn infer_expr_spanned(expr: &Expr, env: &TypeEnv, span: Span) -> Result<Type
 
         // --- old(expr) ---
         Expr::Old(inner) => infer_expr_spanned(inner, env, span.clone()),
-
-        // --- Parenthesized ---
-        Expr::Paren(inner) => infer_expr_spanned(inner, env, span.clone()),
 
         // --- List literal ---
         Expr::List(items) => {
@@ -1197,8 +1193,8 @@ mod tests {
     // --- Paren ---
 
     #[test]
-    fn paren_preserves_type() {
-        let expr = Expr::Paren(Box::new(mk_int("1")));
+    fn int_literal_type() {
+        let expr = mk_int("1");
         assert_eq!(infer_expr(&expr, &TypeEnv::new()).unwrap(), Type::Int);
     }
 
@@ -1229,11 +1225,6 @@ mod tests {
     #[test]
     fn is_literal_zero_float_zero() {
         assert!(is_literal_zero(&mk_float("0.0")));
-    }
-
-    #[test]
-    fn is_literal_zero_paren_zero() {
-        assert!(is_literal_zero(&Expr::Paren(Box::new(mk_int("0")))));
     }
 
     #[test]

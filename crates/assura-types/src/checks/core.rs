@@ -254,7 +254,7 @@ fn collect_quantifiers(
             collect_quantifiers(lhs, checker, fallback_span);
             collect_quantifiers(rhs, checker, fallback_span);
         }
-        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Paren(e) => {
+        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) => {
             collect_quantifiers(e, checker, fallback_span);
         }
         Expr::If {
@@ -391,7 +391,7 @@ fn collect_ident_refs(
             collect_ident_refs(lhs, prophecy_names, found);
             collect_ident_refs(rhs, prophecy_names, found);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
             collect_ident_refs(expr, prophecy_names, found);
         }
         Expr::Block(es) | Expr::List(es) => {
@@ -431,7 +431,7 @@ fn collect_resolve_calls(expr: &Expr, names: &mut std::collections::HashSet<Stri
             collect_resolve_calls(lhs, names);
             collect_resolve_calls(rhs, names);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) | Expr::Ghost(expr) => {
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
             collect_resolve_calls(expr, names);
         }
         Expr::Block(es) | Expr::List(es) => {

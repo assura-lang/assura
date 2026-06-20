@@ -608,7 +608,6 @@ pub(crate) fn extract_output_type(body: &Expr) -> String {
                 match arg {
                     Expr::Cast { ty, .. } => return map_type_token(ty).to_string(),
                     Expr::Ident(name) => return map_type_token(name).to_string(),
-                    Expr::Paren(inner) => return extract_output_type(inner),
                     other => {
                         let ty = extract_output_type(other);
                         if ty != "()" {
@@ -621,7 +620,6 @@ pub(crate) fn extract_output_type(body: &Expr) -> String {
         }
         Expr::Cast { ty, .. } => map_type_token(ty).to_string(),
         Expr::Ident(name) => map_type_token(name).to_string(),
-        Expr::Paren(inner) => extract_output_type(inner),
         Expr::Tuple(items) | Expr::Block(items) => {
             // First typed element wins (e.g., (result: Int) parsed as tuple)
             for item in items {
@@ -697,7 +695,6 @@ pub(crate) fn extract_output_name(body: &Expr) -> Option<String> {
             }
             None
         }
-        Expr::Paren(inner) => extract_output_name(inner),
         Expr::Tuple(items) | Expr::Block(items) => {
             for item in items {
                 if let Some(name) = extract_output_name(item) {
@@ -746,7 +743,7 @@ pub(crate) fn extract_error_variants(body: &Expr) -> Vec<String> {
             })
             .cloned()
             .collect(),
-        Expr::Paren(inner) | Expr::Ghost(inner) | Expr::Old(inner) => extract_error_variants(inner),
+        Expr::Ghost(inner) | Expr::Old(inner) => extract_error_variants(inner),
         Expr::Call { args, .. } => args.iter().flat_map(extract_error_variants).collect(),
         // These expression forms cannot meaningfully contain error variant names
         Expr::Literal(_)
@@ -1045,8 +1042,8 @@ mod tests {
     }
 
     #[test]
-    fn output_type_from_paren() {
-        let body = Expr::Paren(Box::new(Expr::Ident("Float".into())));
+    fn output_type_from_float_ident() {
+        let body = Expr::Ident("Float".into());
         assert_eq!(extract_output_type(&body), "f64");
     }
 
@@ -1088,8 +1085,8 @@ mod tests {
     }
 
     #[test]
-    fn error_variants_nested_paren() {
-        let body = Expr::Paren(Box::new(Expr::Ident("Err".into())));
+    fn error_variants_ident() {
+        let body = Expr::Ident("Err".into());
         assert_eq!(extract_error_variants(&body), vec!["Err"]);
     }
 

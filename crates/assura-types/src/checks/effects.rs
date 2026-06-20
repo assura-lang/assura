@@ -222,7 +222,6 @@ fn collect_call_effects(
             collect_call_effects(domain, effect_map, effects);
         }
         Expr::Old(inner)
-        | Expr::Paren(inner)
         | Expr::Ghost(inner)
         | Expr::Field(inner, _)
         | Expr::Cast { expr: inner, .. } => {
@@ -472,7 +471,7 @@ fn infer_effects_from_expr(expr: &Expr, effects: &mut EffectSet) {
             infer_effects_from_expr(lhs, effects);
             infer_effects_from_expr(rhs, effects);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Paren(expr) | Expr::Old(expr) => {
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) => {
             infer_effects_from_expr(expr, effects);
         }
         Expr::If {

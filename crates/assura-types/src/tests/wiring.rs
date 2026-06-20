@@ -1069,7 +1069,7 @@ fn input_clause_paren_wraps_call() {
             ty: "Int".into(),
         }],
     };
-    let body = Expr::Paren(Box::new(inner_call));
+    let body = inner_call;
     register_input_clause_params(&body, &mut env);
     assert_eq!(env.lookup("a"), Some(&Type::Int));
 }
@@ -1245,19 +1245,18 @@ fn linear_from_raw_with_as() {
 }
 
 #[test]
-fn linear_from_paren_wrapped() {
-    // Paren-wrapped Cast
+fn linear_from_cast_direct() {
+    // Direct Cast
     let mut tracker = UsageTracker::new();
-    let inner = Expr::Cast {
+    let body = Expr::Cast {
         expr: Box::new(Expr::Ident("buf".into())),
         ty: "linear Buffer".into(),
     };
-    let body = Expr::Paren(Box::new(inner));
     declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
     assert_eq!(
         tracker.get_count("buf"),
         Some(0),
-        "buf should be declared as linear via Paren unwrap"
+        "buf should be declared as linear via Cast"
     );
 }
 

@@ -169,7 +169,7 @@ impl TaintChecker {
             Expr::Index { expr: base, index } => {
                 std::cmp::min(self.infer_taint(base), self.infer_taint(index))
             }
-            Expr::Old(inner) | Expr::Paren(inner) | Expr::Cast { expr: inner, .. } => {
+            Expr::Old(inner) | Expr::Cast { expr: inner, .. } => {
                 self.infer_taint(inner)
             }
             Expr::If {
@@ -294,7 +294,6 @@ impl TaintChecker {
             }
             Expr::UnaryOp { expr: inner, .. }
             | Expr::Old(inner)
-            | Expr::Paren(inner)
             | Expr::Cast { expr: inner, .. }
             | Expr::Ghost(inner) => {
                 self.check_expr_inner(inner, span, errors);

@@ -1438,8 +1438,8 @@ fn extract_input_params_raw_bare_idents() {
 }
 
 #[test]
-fn extract_output_type_paren() {
-    let body = Expr::Paren(Box::new(Expr::Ident("Int".into())));
+fn extract_output_type_ident() {
+    let body = Expr::Ident("Int".into());
     let ty = extract_output_type(&body);
     assert_eq!(ty, "i64");
 }
@@ -2528,13 +2528,6 @@ fn extract_error_variants_from_list() {
 }
 
 #[test]
-fn extract_error_variants_from_paren() {
-    let body = Expr::Paren(Box::new(Expr::Ident("Wrapped".into())));
-    let variants = extract_error_variants(&body);
-    assert_eq!(variants, vec!["Wrapped"]);
-}
-
-#[test]
 fn extract_error_variants_non_ident_returns_empty() {
     // BinOp cannot contain error variant names
     let body = Expr::BinOp {
@@ -2849,13 +2842,6 @@ fn is_numeric_not_false() {
 }
 
 #[test]
-fn is_numeric_paren_delegates() {
-    assert!(is_numeric_expr(&Expr::Paren(Box::new(Expr::Ident(
-        "x".into()
-    )))));
-}
-
-#[test]
 fn is_numeric_old_delegates() {
     assert!(is_numeric_expr(&Expr::Old(Box::new(Expr::Ident(
         "x".into()
@@ -3131,12 +3117,6 @@ fn expr_to_rust_if_no_else() {
 }
 
 #[test]
-fn expr_to_rust_paren() {
-    let e = Expr::Paren(Box::new(Expr::Ident("x".into())));
-    assert_eq!(expr_to_rust(&e), "(x)");
-}
-
-#[test]
 fn expr_to_rust_list() {
     let e = Expr::List(vec![
         Expr::Literal(Literal::Int("1".into())),
@@ -3253,12 +3233,6 @@ fn old_var_name_literal() {
         old_var_name(&Expr::Literal(Literal::Bool(true))),
         "lit_true"
     );
-}
-
-#[test]
-fn old_var_name_paren_delegates() {
-    let e = Expr::Paren(Box::new(Expr::Ident("y".into())));
-    assert_eq!(old_var_name(&e), "y");
 }
 
 #[test]

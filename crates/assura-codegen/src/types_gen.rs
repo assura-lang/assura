@@ -453,7 +453,6 @@ pub(crate) fn collect_type_refs_from_expr(
         }
         Expr::UnaryOp { expr: e, .. }
         | Expr::Old(e)
-        | Expr::Paren(e)
         | Expr::Cast { expr: e, .. }
         | Expr::Ghost(e) => {
             collect_type_refs_from_expr(e, out);
@@ -584,7 +583,6 @@ pub fn expr_to_rust_static(expr: &Expr) -> String {
                 expr_to_rust_static(rhs)
             )
         }
-        Expr::Paren(inner) => expr_to_rust_static(inner),
         Expr::UnaryOp {
             op: UnaryOp::Neg,
             expr: e,

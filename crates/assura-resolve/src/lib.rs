@@ -1902,17 +1902,6 @@ import crypto.hash_utils;
     }
 
     #[test]
-    fn extract_input_params_paren() {
-        use assura_parser::ast::Expr;
-        let body = Expr::Paren(Box::new(Expr::Cast {
-            expr: Box::new(Expr::Ident("val".to_string())),
-            ty: "Nat".to_string(),
-        }));
-        let names = extract_input_param_names(&body);
-        assert_eq!(names, vec!["val"]);
-    }
-
-    #[test]
     fn extract_input_params_tuple() {
         use assura_parser::ast::Expr;
         let body = Expr::Tuple(vec![

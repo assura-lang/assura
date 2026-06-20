@@ -59,7 +59,6 @@ pub(crate) fn is_self_rooted_cvc5(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(name) => name == "self",
         Expr::Field(obj, _) => is_self_rooted_cvc5(obj),
-        Expr::Paren(inner) => is_self_rooted_cvc5(inner),
         _ => false,
     }
 }
@@ -67,7 +66,6 @@ pub(crate) fn is_self_rooted_cvc5(expr: &Expr) -> bool {
 pub(crate) fn field_chain_depth_cvc5(expr: &Expr) -> usize {
     match expr {
         Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(obj),
-        Expr::Paren(inner) => field_chain_depth_cvc5(inner),
         _ => 0,
     }
 }
@@ -84,7 +82,6 @@ pub(crate) fn flatten_field_chain_cvc5(expr: &Expr) -> String {
             format!("{prefix}__{field}")
         }
         Expr::Ident(name) => name.clone(),
-        Expr::Paren(inner) => flatten_field_chain_cvc5(inner),
         _ => format!("__obj_{:p}", expr as *const _),
     }
 }
@@ -109,7 +106,6 @@ pub(crate) fn expr_has_unmodelable_features_cvc5(expr: &Expr) -> bool {
             expr_has_unmodelable_features_cvc5(lhs) || expr_has_unmodelable_features_cvc5(rhs)
         }
         Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
         | Expr::Old(inner)
         | Expr::Ghost(inner)
         | Expr::Cast { expr: inner, .. } => expr_has_unmodelable_features_cvc5(inner),
@@ -201,7 +197,6 @@ fn collect_apply_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
             collect_apply_refs_inner(rhs, refs);
         }
         Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
         | Expr::Old(inner)
         | Expr::Ghost(inner)
         | Expr::Field(inner, _)

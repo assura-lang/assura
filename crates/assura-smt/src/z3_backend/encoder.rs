@@ -420,7 +420,7 @@ impl Encoder {
                 self.collect_trigger_calls(lhs, bound_var, bound_z3, patterns);
                 self.collect_trigger_calls(rhs, bound_var, bound_z3, patterns);
             }
-            Expr::UnaryOp { expr: e, .. } | Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
+            Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Ghost(e) => {
                 self.collect_trigger_calls(e, bound_var, bound_z3, patterns);
             }
             Expr::If {
@@ -1480,9 +1480,6 @@ impl Encoder {
                 }
             }
 
-            // --- Parenthesized ---
-            Expr::Paren(inner) => self.encode_expr(inner),
-
             // --- Raw token sequence: parse operator expression ---
             Expr::Raw(tokens) => self.encode_raw_tokens(tokens),
 
@@ -2455,7 +2452,6 @@ pub(crate) fn expr_has_unmodelable_features(expr: &Expr) -> bool {
             expr_has_unmodelable_features(lhs) || expr_has_unmodelable_features(rhs)
         }
         Expr::UnaryOp { expr: inner, .. }
-        | Expr::Paren(inner)
         | Expr::Old(inner)
         | Expr::Ghost(inner)
         | Expr::Cast { expr: inner, .. } => expr_has_unmodelable_features(inner),
@@ -2498,7 +2494,6 @@ fn is_self_rooted(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(name) => name == "self",
         Expr::Field(obj, _) => is_self_rooted(obj),
-        Expr::Paren(inner) => is_self_rooted(inner),
         _ => false,
     }
 }
@@ -2514,7 +2509,6 @@ fn has_deep_field_chain(expr: &Expr) -> bool {
 fn field_chain_depth(expr: &Expr) -> usize {
     match expr {
         Expr::Field(obj, _) => 1 + field_chain_depth(obj),
-        Expr::Paren(inner) => field_chain_depth(inner),
         _ => 0,
     }
 }
@@ -2529,7 +2523,6 @@ fn flatten_field_chain(expr: &Expr) -> String {
             format!("{prefix}__{field}")
         }
         Expr::Ident(name) => name.clone(),
-        Expr::Paren(inner) => flatten_field_chain(inner),
         _ => format!("__obj_{:p}", expr as *const _),
     }
 }

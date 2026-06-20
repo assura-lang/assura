@@ -825,7 +825,6 @@ pub(crate) fn generate_trait_method(body: &Expr, code: &mut String) {
         | Expr::Forall { .. }
         | Expr::Exists { .. }
         | Expr::If { .. }
-        | Expr::Paren(_)
         | Expr::List(_)
         | Expr::Cast { .. }
         | Expr::Block(_)

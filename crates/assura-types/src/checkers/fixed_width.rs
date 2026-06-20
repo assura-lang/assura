@@ -333,7 +333,6 @@ impl FixedWidthChecker {
     fn is_literal_zero(expr: &Expr) -> bool {
         match expr {
             Expr::Literal(Literal::Int(s)) => s == "0",
-            Expr::Paren(inner) => Self::is_literal_zero(inner),
             _ => false,
         }
     }

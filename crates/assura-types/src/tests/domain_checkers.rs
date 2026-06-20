@@ -3028,8 +3028,8 @@ fn frame_dc_extract_modifies_list() {
 }
 
 #[test]
-fn frame_dc_extract_modifies_paren() {
-    let expr = AstExpr::Paren(Box::new(AstExpr::Ident("z".into())));
+fn frame_dc_extract_modifies_ident() {
+    let expr = AstExpr::Ident("z".into());
     let targets = extract_modifies_targets(&expr);
     assert_eq!(targets, vec!["z"]);
 }

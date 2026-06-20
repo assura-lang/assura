@@ -254,9 +254,9 @@ fn infer_old_preserves_type() {
 }
 
 #[test]
-fn infer_paren_preserves_type() {
+fn infer_float_literal_type() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Paren(Box::new(AstExpr::Literal(AstLit::Float("1.5".into()))));
+    let expr = AstExpr::Literal(AstLit::Float("1.5".into()));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
 }
 

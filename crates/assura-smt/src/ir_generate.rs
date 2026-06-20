@@ -427,7 +427,7 @@ fn clause_mentions_index_bounds(expr: &Expr) -> bool {
             "offset" | "index" | "start" | "end" | "capacity" | "buf_size"
         ),
         Expr::MethodCall { receiver, .. } => clause_mentions_index_bounds(receiver),
-        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Paren(inner) => {
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) => {
             clause_mentions_index_bounds(inner)
         }
         _ => false,

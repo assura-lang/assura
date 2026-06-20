@@ -310,11 +310,11 @@ fn expr_usages_old_counts_inner() {
 }
 
 #[test]
-fn expr_usages_paren_counts_inner() {
+fn expr_usages_ident_counts() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
-    // (x) => 1 use of x
-    let expr = AstExpr::Paren(Box::new(AstExpr::Ident("x".into())));
+    // x => 1 use of x
+    let expr = AstExpr::Ident("x".into());
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }

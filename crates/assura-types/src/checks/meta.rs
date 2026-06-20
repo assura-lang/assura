@@ -196,7 +196,6 @@ fn check_match_exhaustiveness_expr(
         }
         Expr::UnaryOp { expr: e, .. }
         | Expr::Old(e)
-        | Expr::Paren(e)
         | Expr::Ghost(e)
         | Expr::Field(e, _)
         | Expr::Cast { expr: e, .. } => {

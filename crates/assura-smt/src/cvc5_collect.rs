@@ -47,7 +47,7 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
                 collect_vars(arg, vars);
             }
         }
-        Expr::Old(inner) | Expr::Paren(inner) | Expr::Ghost(inner) => {
+        Expr::Old(inner) | Expr::Ghost(inner) => {
             collect_vars(inner, vars);
         }
         Expr::Cast { expr: inner, .. } => collect_vars(inner, vars),

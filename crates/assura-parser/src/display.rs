@@ -308,7 +308,6 @@ pub fn expr_to_string(expr: &Expr) -> String {
                 expr_to_string(then_branch)
             ),
         },
-        Expr::Paren(e) => format!("({})", expr_to_string(e)),
         Expr::List(elems) => {
             let elems_s: Vec<String> = elems.iter().map(expr_to_string).collect();
             format!("[{}]", elems_s.join(", "))
@@ -636,12 +635,6 @@ mod tests {
             else_branch: None,
         };
         assert_eq!(expr_to_string(&e), "if cond then true");
-    }
-
-    #[test]
-    fn expr_to_string_paren() {
-        let e = Expr::Paren(Box::new(Expr::Ident("x".into())));
-        assert_eq!(expr_to_string(&e), "(x)");
     }
 
     #[test]

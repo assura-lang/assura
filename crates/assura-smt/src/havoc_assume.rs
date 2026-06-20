@@ -63,7 +63,7 @@ fn collect_length_bounds(expr: &Expr, out: &mut Vec<LengthBound>) {
             }
             _ => {}
         },
-        Expr::Paren(inner) | Expr::Ghost(inner) => collect_length_bounds(inner, out),
+        Expr::Ghost(inner) => collect_length_bounds(inner, out),
         Expr::If {
             cond,
             then_branch,
@@ -122,10 +122,7 @@ pub fn expr_structurally_eq(a: &Expr, b: &Expr) -> bool {
                 rhs: rb,
             },
         ) => oa == ob && expr_structurally_eq(la, lb) && expr_structurally_eq(ra, rb),
-        (Expr::Paren(ia), Expr::Paren(ib)) => expr_structurally_eq(ia, ib),
-        (Expr::Paren(inner), other) | (other, Expr::Paren(inner)) => {
-            expr_structurally_eq(inner, other)
-        }
+        
         (
             Expr::MethodCall {
                 receiver: ra,

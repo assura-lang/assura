@@ -120,7 +120,6 @@ dependencies = [
  "assura-types",
  "clap",
  "clap_complete",
- "logos",
  "notify",
  "quote",
  "serde_json",

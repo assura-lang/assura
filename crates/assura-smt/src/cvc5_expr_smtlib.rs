@@ -63,7 +63,7 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         }
         Expr::Call { func, args } => encode_call_smtlib(func, args, expr_to_smtlib),
         Expr::Old(inner) => encode_old_smtlib(inner.as_ref(), expr_to_smtlib),
-        Expr::Paren(inner) | Expr::Ghost(inner) => encode_wrapper_smtlib(inner, expr_to_smtlib),
+        Expr::Ghost(inner) => encode_wrapper_smtlib(inner, expr_to_smtlib),
         Expr::Cast { expr: inner, .. } => encode_wrapper_smtlib(inner, expr_to_smtlib),
         Expr::Let {
             name, value, body, ..

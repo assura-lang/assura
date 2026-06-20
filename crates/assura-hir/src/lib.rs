@@ -450,8 +450,6 @@ pub enum HirExpr {
         then_branch: Box<HirExpr>,
         else_branch: Option<Box<HirExpr>>,
     },
-    /// Parenthesized expression
-    Paren(Box<HirExpr>),
     /// List literal: `[a, b, c]`
     List(Vec<HirExpr>),
     /// Type cast: `expr as Type`
@@ -550,7 +548,6 @@ impl HirExpr {
                 then_branch: Box::new(then_branch.to_ast_expr()),
                 else_branch: else_branch.as_ref().map(|e| Box::new(e.to_ast_expr())),
             },
-            HirExpr::Paren(e) => ast::Expr::Paren(Box::new(e.to_ast_expr())),
             HirExpr::List(items) => {
                 ast::Expr::List(items.iter().map(|i| i.to_ast_expr()).collect())
             }
@@ -1392,13 +1389,6 @@ mod tests {
                 ..
             }
         ));
-    }
-
-    #[test]
-    fn hir_expr_to_ast_paren() {
-        let hir = HirExpr::Paren(Box::new(HirExpr::Literal(Literal::Int("42".into()))));
-        let ast_expr = hir.to_ast_expr();
-        assert!(matches!(ast_expr, ast::Expr::Paren(_)));
     }
 
     #[test]

@@ -369,8 +369,8 @@ fn test_smtlib_old_adds_suffix() {
 }
 
 #[test]
-fn test_smtlib_paren_transparent() {
-    let expr = Expr::Paren(Box::new(Expr::Literal(Literal::Int("5".into()))));
+fn test_smtlib_literal_int() {
+    let expr = Expr::Literal(Literal::Int("5".into()));
     assert_eq!(expr_to_smtlib(&expr), Some("5".into()));
 }
 
@@ -1351,10 +1351,10 @@ fn test_flatten_field_chain_cvc5_deep() {
 }
 
 #[test]
-fn test_flatten_field_chain_cvc5_paren() {
-    // (a).b -> "a__b"
+fn test_flatten_field_chain_cvc5_ident() {
+    // a.b -> "a__b"
     let expr = Expr::Field(
-        Box::new(Expr::Paren(Box::new(Expr::Ident("a".into())))),
+        Box::new(Expr::Ident("a".into())),
         "b".into(),
     );
     assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");

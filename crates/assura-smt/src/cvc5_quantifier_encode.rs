@@ -201,7 +201,7 @@ fn collect_trigger_calls_cvc5<'a>(
             collect_trigger_calls_cvc5(tm, lhs, bound_var, bound_cvc5, patterns);
             collect_trigger_calls_cvc5(tm, rhs, bound_var, bound_cvc5, patterns);
         }
-        Expr::UnaryOp { expr: e, .. } | Expr::Paren(e) | Expr::Old(e) | Expr::Ghost(e) => {
+        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Ghost(e) => {
             collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
         }
         Expr::If {

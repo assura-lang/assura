@@ -18,7 +18,7 @@ pub(crate) fn is_numeric_expr(expr: &Expr) -> bool {
         Expr::UnaryOp {
             op: UnaryOp::Neg, ..
         } => true,
-        Expr::Paren(e) | Expr::Old(e) | Expr::Cast { expr: e, .. } => is_numeric_expr(e),
+        Expr::Old(e) | Expr::Cast { expr: e, .. } => is_numeric_expr(e),
         Expr::Call { .. } | Expr::MethodCall { .. } | Expr::Index { .. } => true,
         Expr::Let { body, .. } => is_numeric_expr(body),
         Expr::If { then_branch, .. } => is_numeric_expr(then_branch),
@@ -179,7 +179,6 @@ pub(crate) fn expr_to_rust(expr: &Expr) -> String {
                 expr_to_rust(then_branch)
             ),
         },
-        Expr::Paren(e) => format!("({})", expr_to_rust(e)),
         Expr::List(items) => {
             let elems: Vec<String> = items.iter().map(expr_to_rust).collect();
             format!("vec![{}]", elems.join(", "))
@@ -531,7 +530,6 @@ pub(crate) fn old_var_name(expr: &Expr) -> String {
             format!("{prefix}_{}", old_var_name(e))
         }
         Expr::Old(inner) => old_var_name(inner),
-        Expr::Paren(inner) => old_var_name(inner),
         Expr::Cast { expr: e, .. } => old_var_name(e),
         Expr::Ghost(inner) => format!("ghost_{}", old_var_name(inner)),
         Expr::Forall { var, .. } => format!("forall_{var}"),
@@ -584,7 +582,6 @@ pub(crate) fn collect_old_exprs_inner(expr: &Expr, out: &mut Vec<(String, String
             collect_old_exprs_inner(rhs, out);
         }
         Expr::UnaryOp { expr: e, .. }
-        | Expr::Paren(e)
         | Expr::Field(e, _)
         | Expr::Cast { expr: e, .. } => {
             collect_old_exprs_inner(e, out);
@@ -727,12 +724,6 @@ mod tests {
             expr: Box::new(Expr::Literal(Literal::Bool(true))),
         };
         assert!(!is_numeric_expr(&e));
-    }
-
-    #[test]
-    fn is_numeric_paren() {
-        let e = Expr::Paren(Box::new(Expr::Ident("x".into())));
-        assert!(is_numeric_expr(&e));
     }
 
     #[test]
@@ -962,12 +953,6 @@ mod tests {
             else_branch: None,
         };
         assert_eq!(expr_to_rust(&e), "if c { 1 }");
-    }
-
-    #[test]
-    fn expr_to_rust_paren() {
-        let e = Expr::Paren(Box::new(Expr::Ident("x".into())));
-        assert_eq!(expr_to_rust(&e), "(x)");
     }
 
     #[test]
