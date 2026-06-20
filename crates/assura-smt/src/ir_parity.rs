@@ -177,4 +177,53 @@ module adt {
             "untyped Construct should use opaque UF, got:\n{shell}"
         );
     }
+
+    /// Verify Construct tag axiom is present in all backends (#303).
+    #[test]
+    fn construct_ir_result_tag_axiom_parity() {
+        use crate::ir::parse_ir_module;
+
+        let func = parse_ir_module(
+            r#"
+module adt {
+  fn #0 : ($0: Int) -> MyStruct ! pure
+  {
+    $result = construct MyStruct { .0 = $0 } : MyStruct
+  }
+}
+"#,
+        )
+        .unwrap()
+        .functions[0]
+            .clone();
+
+        let enc_ctx = IrEncodeContext::default();
+
+        // Shell backend should emit tag axiom
+        let shell = shell_ir_output(&func, enc_ctx);
+        assert!(
+            shell.contains("__ir_tag_MyStruct"),
+            "shell backend should emit __ir_tag_MyStruct axiom, got:\n{shell}"
+        );
+
+        // Z3 backend should emit tag axiom
+        #[cfg(feature = "z3-verify")]
+        {
+            let out = z3_ir_output(&func, enc_ctx);
+            assert!(
+                out.contains("__ir_tag_MyStruct"),
+                "Z3 backend should emit __ir_tag_MyStruct axiom, got:\n{out}"
+            );
+        }
+
+        // CVC5 native backend should emit tag axiom
+        #[cfg(feature = "cvc5-verify")]
+        {
+            let out = native_ir_output(&func, enc_ctx);
+            assert!(
+                out.contains("__ir_tag_MyStruct"),
+                "CVC5 native backend should emit __ir_tag_MyStruct axiom, got:\n{out}"
+            );
+        }
+    }
 }

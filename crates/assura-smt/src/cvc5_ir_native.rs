@@ -459,6 +459,23 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[len_result, len_param]));
         }
+        // Construct tag axiom: align with Z3 backend (#303)
+        if instr.target == RESULT_SLOT
+            && let IrExprKind::Construct { type_id, .. } = &instr.expr
+        {
+            let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
+            let tag_key = sanitize_smtlib_name(&format!("__ir_tag_{type_id}"));
+            let tag_var = builder
+                .vars
+                .entry(tag_key.clone())
+                .or_insert_with(|| tm.mk_const(tm.integer_sort(), &tag_key))
+                .clone();
+            let tag_lit = tm.mk_integer(tag);
+            builder
+                .state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[tag_var, tag_lit]));
+        }
     }
 
     if let Some(post) = &func.post
