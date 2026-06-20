@@ -239,7 +239,9 @@ Output modes:
 - **Error tests**: .assura files with `// MUST REJECT Axxxxx` annotations
   that must produce the specified error code.
 - **Pass tests**: .assura files with `// MUST COMPILE` that must parse
-  and type-check without errors.
+  and type-check without errors. The CLI harness only scans
+  `tests/fixtures/must_compile/` (`test_must_compile_fixtures` in
+  `assura-cli/src/diff.rs`) — not arbitrary paths under `tests/fixtures/`.
 - **Integration tests**: Each type interaction test case from Section 13
   of the spec.
 - **Demo tests**: All files in `demos/` must parse and (eventually)
@@ -665,8 +667,9 @@ blocked on cvc5-sys build" is not equivalent to "CVC5 parity verified."
 **CI enforcement:** `.github/workflows/ci.yml` job `cvc5` runs native
 clippy + tests with prebuilt static libs (same URLs as below).
 
-**Local native build fails?** Use prebuilt libs instead of compiling from
-source:
+**macOS ARM developers:** `cvc5-sys` source builds often fail on AppleClang
+(Poly-EP / `gmpxx.h` `-Werror`). Run prebuilt setup **before**
+`pre-commit-scoped.sh assura-smt`, not only after a failure:
 
 ```bash
 bash scripts/setup-cvc5.sh
@@ -675,7 +678,12 @@ cargo test -p assura-smt --features cvc5-verify -- cvc5_
 ```
 
 If native tests cannot run locally, the issue may still close when CI
-`cvc5` job is green on `main` — comment the run URL as evidence.
+`cvc5` job is green on `main` — comment the run URL as evidence. Do not
+close `cvc5-parity` issues before that CI job finishes on the closing
+commit (#304).
+
+**`cargo test` filter:** One substring filter per invocation only
+(`cargo test -p assura-smt ir_parity` — not `ir_parity ir_lower`).
 
 ## Spec Navigation Guide
 
