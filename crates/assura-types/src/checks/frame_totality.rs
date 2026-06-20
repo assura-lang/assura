@@ -24,12 +24,10 @@ pub(crate) fn run_frame_checks(
 ) -> Vec<TypeError> {
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Extern(e) => &e.clauses,
-            _ => continue,
-        };
+        let clauses = decl.node.clauses();
+        if clauses.is_empty() {
+            continue;
+        }
         let modifies_bodies: Vec<&Expr> = clauses
             .iter()
             .filter(|c| c.kind == ClauseKind::Modifies)

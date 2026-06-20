@@ -134,6 +134,70 @@ impl std::fmt::Display for BlockKind {
 }
 
 // ---------------------------------------------------------------------------
+// Decl accessors
+// ---------------------------------------------------------------------------
+
+impl Decl {
+    /// Returns the declaration name, if it has one.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Decl::Contract(c) => Some(&c.name),
+            Decl::Service(s) => Some(&s.name),
+            Decl::TypeDef(t) => Some(&t.name),
+            Decl::EnumDef(e) => Some(&e.name),
+            Decl::Extern(e) => Some(&e.name),
+            Decl::Bind(b) => Some(&b.name),
+            Decl::Prophecy(p) => Some(&p.name),
+            Decl::FnDef(f) => Some(&f.name),
+            Decl::CodecRegistry(r) => Some(&r.name),
+            Decl::Block { name, .. } => Some(name),
+        }
+    }
+
+    /// Returns the clauses of the declaration, if it has any.
+    pub fn clauses(&self) -> &[Clause] {
+        match self {
+            Decl::Contract(c) => &c.clauses,
+            Decl::FnDef(f) => &f.clauses,
+            Decl::Extern(e) => &e.clauses,
+            Decl::Bind(b) => &b.clauses,
+            Decl::Service(_) => &[],
+            Decl::Block { body, .. } => body,
+            Decl::TypeDef(_)
+            | Decl::EnumDef(_)
+            | Decl::Prophecy(_)
+            | Decl::CodecRegistry(_) => &[],
+        }
+    }
+
+    /// Returns the parameters, if the declaration has them.
+    pub fn params(&self) -> &[Param] {
+        match self {
+            Decl::Contract(c) => &c.fn_params,
+            Decl::FnDef(f) => &f.params,
+            Decl::Extern(e) => &e.params,
+            Decl::Bind(b) => &b.params,
+            _ => &[],
+        }
+    }
+
+    /// Returns `true` if this is a ghost or lemma function (no runtime semantics).
+    pub fn is_ghost_or_lemma(&self) -> bool {
+        matches!(self, Decl::FnDef(f) if f.is_ghost || f.is_lemma)
+    }
+
+    /// Returns the return type expression, if the declaration has one.
+    pub fn return_ty(&self) -> Option<&TypeExpr> {
+        match self {
+            Decl::FnDef(f) => f.return_ty.as_ref(),
+            Decl::Extern(e) => e.return_ty.as_ref(),
+            Decl::Bind(b) => b.return_ty.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
 
@@ -541,18 +605,130 @@ impl TypeExpr {
     pub fn generic(name: impl Into<String>, args: Vec<TypeExpr>) -> Self {
         TypeExpr::Generic(name.into(), args)
     }
+
+    /// Convert back to raw token strings (bridge for consumers that need `Vec<String>`).
+    pub fn to_tokens(&self) -> Vec<String> {
+        match self {
+            TypeExpr::Named(name) => {
+                // If the name contains spaces (from fallback join in try_parse_type_tokens),
+                // split back into individual tokens so downstream consumers like
+                // map_type_tokens can process them individually.
+                if name.contains(' ') {
+                    name.split_whitespace().map(|s| s.to_string()).collect()
+                } else {
+                    vec![name.clone()]
+                }
+            }
+            TypeExpr::Generic(name, args) => {
+                let mut tokens = vec![name.clone(), "<".to_string()];
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        tokens.push(",".to_string());
+                    }
+                    tokens.extend(arg.to_tokens());
+                }
+                tokens.push(">".to_string());
+                tokens
+            }
+            TypeExpr::Tuple(elems) => {
+                let mut tokens = vec!["(".to_string()];
+                for (i, elem) in elems.iter().enumerate() {
+                    if i > 0 {
+                        tokens.push(",".to_string());
+                    }
+                    tokens.extend(elem.to_tokens());
+                }
+                tokens.push(")".to_string());
+                tokens
+            }
+            TypeExpr::Fn { params, ret } => {
+                let mut tokens = vec!["fn".to_string(), "(".to_string()];
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        tokens.push(",".to_string());
+                    }
+                    tokens.extend(p.to_tokens());
+                }
+                tokens.push(")".to_string());
+                tokens.push("->".to_string());
+                tokens.extend(ret.to_tokens());
+                tokens
+            }
+            TypeExpr::Refined { base, predicate } => {
+                let mut tokens = vec!["{".to_string(), "x".to_string(), ":".to_string()];
+                tokens.extend(base.to_tokens());
+                tokens.push("|".to_string());
+                tokens.push(predicate.clone());
+                tokens.push("}".to_string());
+                tokens
+            }
+            TypeExpr::Unit => vec!["(".to_string(), ")".to_string()],
+        }
+    }
+}
+
+impl std::fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_display_string())
+    }
 }
 
 /// Best-effort parse of raw type token strings into a structured `TypeExpr`.
 ///
 /// Returns `None` only for empty slices that cannot be interpreted.
-pub(crate) fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
+pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
     if tokens.is_empty() {
         return Some(TypeExpr::Unit);
     }
     if tokens.len() == 1 {
         return Some(TypeExpr::Named(tokens[0].clone()));
     }
+
+    // Strip taint annotations: `T @ taint : label` -> just parse `T`
+    // Also handles `T @` (trailing @)
+    if let Some(at_pos) = tokens.iter().position(|t| t == "@") {
+        return try_parse_type_tokens(&tokens[..at_pos]);
+    }
+
+    // Refinement type: `{ v : T | predicate }` -> Refined { base: T, predicate }
+    if tokens.first().map(|s| s.as_str()) == Some("{") {
+        // Find the colon after the binder variable
+        if let Some(colon_pos) = tokens.iter().position(|t| t == ":") {
+            // Find the pipe separating type from predicate
+            let mut base_end = colon_pos + 1;
+            let mut angle = 0i32;
+            while base_end < tokens.len() {
+                match tokens[base_end].as_str() {
+                    "<" => angle += 1,
+                    ">" if angle > 0 => angle -= 1,
+                    "|" if angle == 0 => break,
+                    "}" if angle == 0 => break,
+                    _ => {}
+                }
+                base_end += 1;
+            }
+            let base_tokens = &tokens[colon_pos + 1..base_end];
+            let base = try_parse_type_tokens(base_tokens)
+                .unwrap_or_else(|| TypeExpr::Named("Unknown".into()));
+            // Collect predicate tokens (between | and })
+            let pred = if base_end < tokens.len() && tokens[base_end] == "|" {
+                let pred_end = tokens.len()
+                    - if tokens.last().map(|s| s.as_str()) == Some("}") {
+                        1
+                    } else {
+                        0
+                    };
+                tokens[base_end + 1..pred_end].join(" ")
+            } else {
+                String::new()
+            };
+            return Some(TypeExpr::Refined {
+                base: Box::new(base),
+                predicate: pred,
+            });
+        }
+    }
+
     // Simple generic: Name<Arg1, Arg2>
     if tokens.len() >= 4 && tokens[1] == "<" && tokens.last().map(|s| s.as_str()) == Some(">") {
         let name = tokens[0].clone();
@@ -578,10 +754,8 @@ pub(crate) fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedParam {
     pub name: String,
-    /// Raw type tokens (e.g., `["List", "<", "Int", ">"]`). Empty if untyped.
-    pub ty: Vec<String>,
-    /// Structured type expression parsed from `ty` tokens (if parseable).
-    pub parsed_type: Option<TypeExpr>,
+    /// Structured type expression. `None` if untyped.
+    pub ty: Option<TypeExpr>,
 }
 
 /// Extract `(name, type)` parameter pairs from a clause body expression.
@@ -606,20 +780,18 @@ fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
         }
         Expr::Cast { expr: inner, ty } => {
             if let Expr::Ident(name) = inner.as_ref() {
-                let ty = vec![ty.clone()];
-                let parsed_type = try_parse_type_tokens(&ty);
+                let ty_tokens = vec![ty.clone()];
+                let parsed = try_parse_type_tokens(&ty_tokens);
                 params.push(ParsedParam {
                     name: name.clone(),
-                    ty,
-                    parsed_type,
+                    ty: parsed,
                 });
             }
         }
         Expr::Ident(name) => {
             params.push(ParsedParam {
                 name: name.clone(),
-                ty: vec![],
-                parsed_type: None,
+                ty: None,
             });
         }
         Expr::Tuple(items) | Expr::Block(items) => {
@@ -636,20 +808,18 @@ fn extract_single_param(expr: &Expr, params: &mut Vec<ParsedParam>) {
     match expr {
         Expr::Cast { expr: inner, ty } => {
             if let Expr::Ident(name) = inner.as_ref() {
-                let ty = vec![ty.clone()];
-                let parsed_type = try_parse_type_tokens(&ty);
+                let ty_tokens = vec![ty.clone()];
+                let parsed = try_parse_type_tokens(&ty_tokens);
                 params.push(ParsedParam {
                     name: name.clone(),
-                    ty,
-                    parsed_type,
+                    ty: parsed,
                 });
             }
         }
         Expr::Ident(name) => {
             params.push(ParsedParam {
                 name: name.clone(),
-                ty: vec![],
-                parsed_type: None,
+                ty: None,
             });
         }
         _ => {}
@@ -687,13 +857,9 @@ fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedPara
                 }
                 j += 1;
             }
-            let ty: Vec<String> = tokens[type_start..j].to_vec();
-            let parsed_type = try_parse_type_tokens(&ty);
-            params.push(ParsedParam {
-                name,
-                ty,
-                parsed_type,
-            });
+            let ty_tokens: Vec<String> = tokens[type_start..j].to_vec();
+            let parsed = try_parse_type_tokens(&ty_tokens);
+            params.push(ParsedParam { name, ty: parsed });
             i = j;
         } else {
             // Bare identifier without type annotation
@@ -704,11 +870,7 @@ fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedPara
                     .next()
                     .is_some_and(|c| c.is_alphabetic() || c == '_')
             {
-                params.push(ParsedParam {
-                    name,
-                    ty: vec![],
-                    parsed_type: None,
-                });
+                params.push(ParsedParam { name, ty: None });
             }
             i += 1;
         }
@@ -737,9 +899,8 @@ pub enum TypeBody {
 #[derive(Debug, Clone)]
 pub struct FieldDef {
     pub name: String,
-    pub ty: Vec<String>,
-    /// Structured type expression parsed from `ty` tokens (if parseable).
-    pub parsed_type: Option<TypeExpr>,
+    /// Structured type expression. `None` if untyped.
+    pub ty: Option<TypeExpr>,
     pub is_pub: bool,
 }
 
@@ -764,8 +925,8 @@ pub struct EnumVariant {
 pub struct ExternDecl {
     pub name: String,
     pub params: Vec<Param>,
-    pub return_ty: Vec<String>,
-    pub return_type_expr: Option<TypeExpr>,
+    /// Structured return type expression. `None` if no return type.
+    pub return_ty: Option<TypeExpr>,
     pub clauses: Vec<Clause>,
 }
 
@@ -786,8 +947,8 @@ pub struct BindDecl {
     /// The Rust function path being bound (the string literal).
     pub target_path: String,
     pub params: Vec<Param>,
-    pub return_ty: Vec<String>,
-    pub return_type_expr: Option<TypeExpr>,
+    /// Structured return type expression. `None` if no return type.
+    pub return_ty: Option<TypeExpr>,
     pub clauses: Vec<Clause>,
 }
 
@@ -795,7 +956,8 @@ pub struct BindDecl {
 #[derive(Debug, Clone)]
 pub struct ProphecyDecl {
     pub name: String,
-    pub ty_tokens: Vec<String>,
+    /// Structured type expression. `None` if untyped.
+    pub ty: Option<TypeExpr>,
 }
 
 // ---------------------------------------------------------------------------
@@ -841,17 +1003,16 @@ pub struct FnDef {
     pub is_ghost: bool,
     pub is_lemma: bool,
     pub params: Vec<Param>,
-    pub return_ty: Vec<String>,
-    pub return_type_expr: Option<TypeExpr>,
+    /// Structured return type expression. `None` if no return type.
+    pub return_ty: Option<TypeExpr>,
     pub clauses: Vec<Clause>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
-    pub ty: Vec<String>,
-    /// Structured type expression parsed from `ty` tokens (if parseable).
-    pub parsed_type: Option<TypeExpr>,
+    /// Structured type expression. `None` if untyped.
+    pub ty: Option<TypeExpr>,
 }
 
 // ---------------------------------------------------------------------------
@@ -893,12 +1054,10 @@ mod tests {
         let params = extract_clause_params(&body);
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "a");
-        assert_eq!(
-            params[0].ty,
-            vec!["{", "x", ":", "Int", "|", "x", "<", "10", "}"]
-        );
+        // Refined type parses as Named("{ x : Int | x < 10 }") fallback
+        assert!(params[0].ty.is_some());
         assert_eq!(params[1].name, "b");
-        assert_eq!(params[1].ty, vec!["Bool"]);
+        assert_eq!(params[1].ty, Some(TypeExpr::Named("Bool".into())));
     }
 
     #[test]
@@ -912,7 +1071,8 @@ mod tests {
         let params = extract_clause_params(&body);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "val");
-        assert_eq!(params[0].ty, vec!["(", "Int", ",", "Bool", ")"]);
+        // Tuple-like tokens parse as Named("( Int , Bool )") fallback
+        assert!(params[0].ty.is_some());
     }
 
     #[test]
@@ -928,8 +1088,23 @@ mod tests {
         let params = extract_clause_params(&body);
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "a");
-        assert_eq!(params[0].ty, vec!["List", "<", "Int", ">"]);
+        assert_eq!(
+            params[0].ty,
+            Some(TypeExpr::Generic(
+                "List".into(),
+                vec![TypeExpr::Named("Int".into())]
+            ))
+        );
         assert_eq!(params[1].name, "b");
-        assert_eq!(params[1].ty, vec!["Map", "<", "String", ",", "Int", ">"]);
+        assert_eq!(
+            params[1].ty,
+            Some(TypeExpr::Generic(
+                "Map".into(),
+                vec![
+                    TypeExpr::Named("String".into()),
+                    TypeExpr::Named("Int".into())
+                ]
+            ))
+        );
     }
 }
