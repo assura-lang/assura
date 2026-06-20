@@ -1970,3 +1970,304 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 ```
 
 ---
+
+## Phase 11: Architecture Refactoring (zero users, break anything)
+
+> Full audit (2026-06-20) found 15 architecture issues accumulated from
+> organic growth. Since there are zero users, every API can break. This
+> phase eliminates duplication, removes historical artifacts, and makes
+> the codebase look like it was designed from scratch.
+>
+> **Key numbers from audit**: 645 Decl match arms across 56 files,
+> 5 near-identical Expr walkers, dual type representation on 5 node
+> types, HIR back-converting to AST, 16 verify entry points, 44 CVC5
+> modules, legacy CLI shim, empty bench crate.
+>
+> **Execution**: Rounds are ordered by dependency. Within a round,
+> tasks are independent and can run in parallel subagents.
+
+### Round 1: Quick wins (no deps, low risk) -- parallel
+
+- [ ] **11.01** Delete legacy shims
+  - Delete `crates/assura-cli/src/legacy.rs` entirely
+  - Remove legacy dispatch from `main.rs` (the `assura <file>` path)
+  - Remove `[project]` compat from `assura-config` (keep only `[package]`)
+  - Keep `assura-bench` (has 195 lines of real pipeline benchmarks,
+    not actually empty)
+  - **Acceptance**:
+    ```bash
+    test ! -f crates/assura-cli/src/legacy.rs
+    grep -rn "legacy" crates/assura-cli/src/ | grep -v test | wc -l
+    # Must be 0
+    grep -c '\[project\]' crates/assura-config/src/lib.rs
+    # Must be 0
+    # assura-bench kept (has real benchmarks)
+    cargo test --workspace
+    cargo clippy --workspace -- -D warnings
+    ```
+
+- [ ] **11.02** Remove `Expr::Paren` from AST
+  - `Paren` is syntactic (CST concern), not semantic. Every consumer
+    just recurses into the inner expression.
+  - In `lower.rs`, unwrap `PAREN_EXPR` to the inner `Expr` directly
+    instead of producing `Expr::Paren(Box<Expr>)`.
+  - Remove `Paren` variant from `Expr` enum in `ast.rs`.
+  - Fix all match arms (display.rs, fmt, codegen, smt, types).
+  - **Acceptance**:
+    ```bash
+    grep -rn "Expr::Paren\|Paren(" crates/*/src/*.rs crates/*/src/**/*.rs | grep -v test | wc -l
+    # Must be 0 (variant deleted)
+    # Verify paren expressions still parse and round-trip correctly:
+    cargo test -p assura-parser paren
+    cargo test --workspace
+    ```
+
+- [ ] **11.03** Remove dual type representation (`ty: Vec<String>`)
+  - `Param`, `FieldDef`, `ExternDecl`, `BindDecl`, `FnDef`,
+    `ProphecyDecl` carry both `ty: Vec<String>` (raw tokens) and
+    `parsed_type: Option<TypeExpr>` (structured).
+  - Make `parsed_type` non-optional (`TypeExpr` always present).
+  - Parse types during CST-to-AST lowering (in `lower.rs`),
+    not lazily downstream.
+  - Remove `ty: Vec<String>` from all 6 structs.
+  - Update all consumers to use `parsed_type` (now just `ty: TypeExpr`).
+  - **Acceptance**:
+    ```bash
+    grep -rn "ty: Vec<String>" crates/assura-parser/src/ast.rs
+    # Must return 0
+    grep -rn "parsed_type" crates/assura-parser/src/ast.rs
+    # Must return 0 (field renamed to just `ty`)
+    cargo test --workspace
+    cargo clippy --workspace -- -D warnings
+    ```
+
+### Round 2: Add Expr spans -- depends on: Round 1
+
+- [ ] **11.04** Add spans to `Expr` nodes
+  - Currently only `Decl` is wrapped in `Spanned<T>`. `Expr` nodes
+    carry no source location, forcing span reconstruction from CST.
+  - Add `span: Span` field to `Expr` (or wrap in `Spanned<Expr>`
+    throughout -- choose based on what produces less churn).
+  - Update `lower.rs` to capture byte offset ranges for every `Expr`.
+  - Update error reporting in `assura-types` to use expr spans
+    instead of falling back to the parent decl span.
+  - **Acceptance**:
+    ```bash
+    # Every Expr construction in lower.rs must set a span
+    grep -c "span:" crates/assura-parser/src/lower.rs | head -1
+    # Should be >= 20 (one per expr variant)
+    # Type errors on expressions should have precise spans:
+    cargo test -p assura-types expr_span
+    cargo test --workspace
+    ```
+
+### Round 3: Restructure Decl enum -- depends on: Round 1
+
+- [ ] **11.05** Promote `Decl::Block` sub-variants to first-class Decl
+  - `Decl::Block` is a catch-all with `BlockKind` (11 sub-variants +
+    `Other(String)`). This defeats exhaustive match checking.
+  - Promote the 5 most common sub-variants to first-class: `FeatureMax`,
+    `Axiomatic`, `Interface`, `Table`, `Prophecy` (if not already).
+  - Keep `Block` only for truly ad-hoc/unknown block declarations.
+  - Update all match sites (use cargo build to find them all).
+  - **Acceptance**:
+    ```bash
+    # BlockKind should have <= 6 remaining variants (down from 11+)
+    grep -c "BlockKind::" crates/assura-parser/src/ast.rs
+    # Feature-max, axiomatic, interface should be in Decl enum directly
+    grep "FeatureMax\|Axiomatic\|Interface" crates/assura-parser/src/ast.rs | head -5
+    cargo test --workspace
+    cargo clippy --workspace -- -D warnings
+    ```
+
+- [ ] **11.06** Add `DeclVisitor` trait
+  - The `ExprVisitor` trait already exists and works well. Create an
+    analogous `DeclVisitor` with default methods for each variant.
+  - Convert the 14 domain checker files in `assura-types/src/checks/`
+    to use DeclVisitor instead of hand-written match arms.
+  - This should eliminate ~60% of the boilerplate in those checkers.
+  - **Acceptance**:
+    ```bash
+    # DeclVisitor trait exists
+    grep -n "trait DeclVisitor" crates/assura-parser/src/ast.rs
+    # At least 5 domain checkers use it
+    grep -rl "DeclVisitor" crates/assura-types/src/checks/ | wc -l
+    # Must be >= 5
+    # Decl match arm count reduced
+    grep -rn "Decl::Contract\|Decl::Service\|Decl::Extern" \
+      crates/assura-types/src/checks/ | wc -l
+    # Should be significantly lower than before (target: <50% of current)
+    cargo test --workspace
+    ```
+
+### Round 4: Extract generic traversal + consolidate APIs -- depends on: Rounds 2, 3
+
+- [ ] **11.07** Extract `ExprFolder` trait (5 walkers become 1)
+  - Create a generic `ExprFolder<Output>` trait with one method per
+    `Expr` variant, default recursion, and a `fold()` driver.
+  - Reimplement `expr_to_string`, `format_expr`, `expr_to_rust`,
+    `expr_to_rust_static`, `expr_to_smtlib` as implementors.
+  - The `BinOp`-to-string mapping (duplicated in 7 files) should be
+    a method on `BinOp` itself (`fn as_str(&self) -> &str`).
+  - **Acceptance**:
+    ```bash
+    # ExprFolder trait exists
+    grep -n "trait ExprFolder" crates/assura-parser/src/
+    # Duplicate BinOp match blocks eliminated
+    grep -rn "BinOp::Add =>" crates/ | wc -l
+    # Should be <= 3 (one canonical, one Rust, one SMT)
+    # Old standalone functions removed or are thin wrappers
+    cargo test --workspace
+    ```
+
+- [ ] **11.08** Consolidate verify API (16 -> 1 builder)
+  - Replace 16 `verify*` functions in `assura-smt/src/entry.rs` with
+    a builder: `Verifier::new(source).parallel().solver(Solver::Z3).verify()`
+  - Keep the old functions as deprecated thin wrappers initially,
+    then remove after updating all call sites.
+  - **Acceptance**:
+    ```bash
+    # Builder struct exists
+    grep -n "struct Verifier" crates/assura-smt/src/
+    # Old entry points removed (no more verify_parallel_from_source etc.)
+    grep -c "pub fn verify" crates/assura-smt/src/entry.rs
+    # Must be <= 3 (verify builder + verify method + maybe verify_contract)
+    cargo test --workspace
+    ```
+
+- [ ] **11.09** Consolidate type_check API (5 -> 1 builder)
+  - Replace `type_check`, `type_check_with_modules`,
+    `type_check_hir`, `type_check_hir_with_config`,
+    `type_check_with_config` with a builder:
+    `TypeChecker::new(config).modules(deps).check(input)`
+  - **Acceptance**:
+    ```bash
+    grep -c "pub fn type_check" crates/assura-types/src/lib.rs
+    # Must be <= 2 (the builder's check method + maybe one convenience)
+    cargo test --workspace
+    ```
+
+### Round 5: HIR resolution + module reorganization -- depends on: Round 4
+
+- [ ] **11.10** Resolve HIR: commit or kill
+  - The type checker currently converts HIR back to AST via
+    `to_ast_expr()` before processing. This defeats the purpose
+    of having a separate HIR.
+  - **Option A (commit)**: Make `assura-types` operate on HIR natively.
+    Remove `to_ast_expr()` and `to_source_file()`. The type checker
+    should never import `assura_parser::ast` directly.
+  - **Option B (kill)**: Delete `assura-hir`. Decorate the AST with
+    DefId and resolved types inline (wrapper structs or side-tables).
+  - Choose based on which produces less total churn.
+  - **Acceptance**:
+    ```bash
+    # No HIR-to-AST back-conversion
+    grep -rn "to_ast_expr\|to_source_file" crates/ | wc -l
+    # Must be 0
+    # Type checker does not import parser AST (if Option A)
+    grep "use assura_parser::ast" crates/assura-types/src/*.rs | wc -l
+    # Must be 0 (or the crate is deleted if Option B)
+    cargo test --workspace
+    ```
+
+- [ ] **11.11** Reorganize CVC5 modules (44 files -> subdirectory)
+  - Move all `cvc5_*.rs` files from `assura-smt/src/` into
+    `assura-smt/src/cvc5_backend/` subdirectory.
+  - Organize into ~8-10 thematic modules: `arithmetic.rs`,
+    `arrays.rs`, `bitvectors.rs`, `quantifiers.rs`, `strings.rs`,
+    `encoding.rs`, `raw_ops.rs`, `backend.rs`.
+  - Update `lib.rs` to have a single `mod cvc5_backend;` instead
+    of 44 `mod cvc5_*;` lines.
+  - **Acceptance**:
+    ```bash
+    ls crates/assura-smt/src/cvc5_*.rs 2>/dev/null | wc -l
+    # Must be 0 (all moved to subdirectory)
+    ls crates/assura-smt/src/cvc5_backend/*.rs | wc -l
+    # Should be 8-12 (consolidated from 44)
+    grep -c "mod cvc5" crates/assura-smt/src/lib.rs
+    # Must be 1 (single module declaration)
+    cargo test --workspace
+    cargo test -p assura-smt --features cvc5-verify
+    cargo clippy --workspace -- -D warnings
+    ```
+
+### Round 6: Break layering violations -- depends on: Round 5
+
+- [ ] **11.12** Break parser dependency from codegen and smt
+  - `assura-codegen` (5 files) and `assura-smt` (45 files) import
+    `assura_parser::ast` directly. They should operate on typed
+    representations only.
+  - After HIR resolution (11.10), route codegen and smt through
+    the chosen intermediate representation instead of raw AST.
+  - Remove `assura-parser` from the `[dependencies]` of both crates.
+  - **Acceptance**:
+    ```bash
+    grep "assura-parser" crates/assura-codegen/Cargo.toml
+    # Must not appear in [dependencies]
+    grep "assura-parser" crates/assura-smt/Cargo.toml
+    # Must not appear in [dependencies]
+    grep -rn "use assura_parser" crates/assura-codegen/src/ crates/assura-smt/src/ | wc -l
+    # Must be 0
+    cargo test --workspace
+    ```
+
+### Round 7: Final cleanup -- depends on: Round 6
+
+- [ ] **11.13** Split remaining monolith files
+  - `assura-diagnostics/src/lib.rs` (3,861 lines) -- split into
+    `registry.rs`, `catalog.rs`, `render.rs`
+  - `assura-resolve/src/lib.rs` (2,290 lines) -- split into
+    `scope.rs`, `symbols.rs`, `imports.rs`
+  - `assura-rust-analyzer/src/lib.rs` (2,065 lines) -- split into
+    `adapter.rs`, `extractor.rs`, `python.rs`
+  - **Acceptance**:
+    ```bash
+    find crates -name "*.rs" -path "*/src/*" ! -path "*/tests/*" \
+      -exec wc -l {} + | sort -n | tail -5
+    # No non-test file should exceed 2,000 lines
+    cargo test --workspace
+    ```
+
+- [ ] **11.14** Final verification and cleanup
+  - Run full pre-commit gate
+  - Verify all demos parse and verify
+  - Update AGENTS.md crate version table and repository structure
+  - Update `docs/INTERNALS.md` to reflect new architecture
+  - **Acceptance**:
+    ```bash
+    bash scripts/pre-commit-gate.sh
+    cargo run --bin assura -- check demos/libwebp-huffman.assura
+    cargo run --bin assura -- check demos/zlib-inflate.assura
+    cargo run --bin assura -- check demos/mbedtls-x509.assura
+    cargo run --bin assura -- check demos/taint-tracking.assura
+    cargo run --bin assura -- check demos/heartbleed.assura
+    ```
+
+### Phase 11 Dependency Graph
+
+```
+Round 1 (11.01, 11.02, 11.03) -- parallel, no deps
+  |
+  +-> Round 2 (11.04) -- Expr spans
+  |
+  +-> Round 3 (11.05, 11.06) -- Decl restructure + visitor
+  |
+  +-----> Round 4 (11.07, 11.08, 11.09) -- ExprFolder + API consolidation
+              |
+              +-> Round 5 (11.10, 11.11) -- HIR + CVC5 reorg
+                      |
+                      +-> Round 6 (11.12) -- break parser dep
+                              |
+                              +-> Round 7 (11.13, 11.14) -- final cleanup
+```
+
+### Continuation prompt (for next session)
+
+```
+Continue implementing Phase 11 of MASTER-PLAN.md (Architecture Refactoring).
+Read MASTER-PLAN.md to find the next unchecked round (11.xx tasks).
+This is a zero-users project; any API can break.
+Pick up where the last session left off.
+```
+
+---

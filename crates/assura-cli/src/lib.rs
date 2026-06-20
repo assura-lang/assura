@@ -10,7 +10,7 @@ mod infer;
 mod init;
 mod ir_cmd;
 mod ir_prompt_cmd;
-mod legacy;
+
 mod lsp_doctor;
 mod repl;
 mod shared;
@@ -21,8 +21,7 @@ mod timing;
 use assura_config::ProjectConfig;
 use assura_config::{CompilerConfig, OutputMode, Verbosity};
 use assura_parser::ast::*;
-use assura_parser::lexer::Token;
-use logos::Logos;
+
 use std::fs;
 use std::path::Path;
 use std::process;
@@ -39,7 +38,7 @@ pub(crate) use fmt_cmd::*;
 pub(crate) use infer::*;
 pub(crate) use init::*;
 pub(crate) use ir_cmd::*;
-pub(crate) use legacy::*;
+
 pub(crate) use lsp_doctor::*;
 pub(crate) use repl::*;
 pub(crate) use shared::*;

@@ -423,14 +423,7 @@ pub fn load_project_config(
     let config_path = project_root.join("assura.toml");
     let content = fs::read_to_string(&config_path).ok()?;
 
-    // Support both [package] and legacy [project] section names.
-    let parse_content = if content.contains("[project]") && !content.contains("[package]") {
-        content.replace("[project]", "[package]")
-    } else {
-        content
-    };
-
-    match toml::from_str::<ProjectConfig>(&parse_content) {
+    match toml::from_str::<ProjectConfig>(&content) {
         Ok(config) => Some((config, project_root)),
         Err(e) => {
             eprintln!("warning: failed to parse {}: {e}", config_path.display());
@@ -599,23 +592,7 @@ output = "out/gen"
         assert_eq!(config.profile.profile_type, "minimal");
     }
 
-    #[test]
-    fn parse_legacy_project_section() {
-        let legacy_toml = r#"
-[project]
-name = "legacy-app"
-version = "0.5.0"
-"#;
-        let parse_content =
-            if legacy_toml.contains("[project]") && !legacy_toml.contains("[package]") {
-                legacy_toml.replace("[project]", "[package]")
-            } else {
-                legacy_toml.to_string()
-            };
-        let config: ProjectConfig = toml::from_str(&parse_content).unwrap();
-        assert_eq!(config.package.name, "legacy-app");
-        assert_eq!(config.package.version, "0.5.0");
-    }
+
 
     #[test]
     fn verify_smt_solver_accepts_z3() {

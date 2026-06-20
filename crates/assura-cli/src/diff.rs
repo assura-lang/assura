@@ -1213,21 +1213,7 @@ name = "test"
         assert_eq!(config.verify.layer, 1);
     }
 
-    #[test]
-    fn parse_legacy_project_section() {
-        // The legacy [project] section should be handled by
-        // load_project_config via string replacement.
-        let toml_str = r#"
-[project]
-name = "legacy-project"
-version = "0.2.0"
-"#;
-        // Simulate the replacement that load_project_config does
-        let parse_content = toml_str.replace("[project]", "[package]");
-        let config: super::ProjectConfig = toml::from_str(&parse_content).unwrap();
-        assert_eq!(config.package.name, "legacy-project");
-        assert_eq!(config.package.version, "0.2.0");
-    }
+
 
     #[test]
     fn load_config_from_disk() {

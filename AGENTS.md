@@ -32,9 +32,12 @@ compiles the generated Rust to native or WASM binaries.
 
 At the start of every session:
 
-1. Run `cargo test --workspace` to verify the project compiles and
-   all tests pass before making any changes. (Do NOT run `cargo build`
-   separately first; `cargo test` already compiles everything.)
+1. **If the session involves code changes**: Run `cargo test --workspace`
+   in the background while reading the task. Do not block on it; start
+   working and check the result before committing.
+   **If the session is read-only** (code review, analysis, questions):
+   Skip the test suite entirely. Reading code does not require a green
+   build first.
 2. Read `MASTER-PLAN.md` to find the next uncompleted task.
 3. Check which tasks are marked `[x]` (done) vs `[ ]` (pending).
 4. Pick the next task whose dependencies are all `[x]`.

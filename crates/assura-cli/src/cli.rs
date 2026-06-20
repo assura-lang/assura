@@ -12,25 +12,13 @@ use super::*;
 
 #[derive(clap::Parser)]
 #[command(name = "assura", version, about = "The Assura contract compiler")]
-#[command(subcommand_required = false)]
+#[command(subcommand_required = true)]
 struct Cli {
     #[command(flatten)]
     global: GlobalOpts,
 
     #[command(subcommand)]
-    command: Option<Commands>,
-
-    /// Source file to parse and check (legacy mode)
-    #[arg(global = false)]
-    file: Option<String>,
-
-    /// Dump the AST (legacy mode)
-    #[arg(long)]
-    ast: bool,
-
-    /// Dump the token stream (legacy mode)
-    #[arg(long)]
-    tokens: bool,
+    command: Commands,
 }
 
 #[derive(Args, Clone)]
@@ -333,7 +321,7 @@ pub fn run() {
     let verbosity = cli.global.verbosity();
 
     match cli.command {
-        Some(Commands::Check {
+        Commands::Check {
             file,
             layer,
             solver,
@@ -341,7 +329,7 @@ pub fn run() {
             stats,
             dump_smt,
             show_cores,
-        }) => run_check(CheckOptions {
+        } => run_check(CheckOptions {
             filename: &file,
             output_mode,
             verbosity,
@@ -352,18 +340,18 @@ pub fn run() {
             dump_smt: dump_smt.as_deref(),
             show_cores,
         }),
-        Some(Commands::CheckRust {
+        Commands::CheckRust {
             path,
             layer,
             solver,
-        }) => run_check_rust(&path, output_mode, verbosity, layer, solver),
-        Some(Commands::Build {
+        } => run_check_rust(&path, output_mode, verbosity, layer, solver),
+        Commands::Build {
             file,
             output,
             target,
             no_check,
             solver,
-        }) => run_build(
+        } => run_build(
             &file,
             output_mode,
             verbosity,
@@ -372,38 +360,38 @@ pub fn run() {
             no_check,
             solver,
         ),
-        Some(Commands::Init { name }) => run_init(&name),
-        Some(Commands::Explain { code }) => run_explain(&code),
-        Some(Commands::Fmt { file, check }) => run_fmt(&file, check),
-        Some(Commands::Infer {
+        Commands::Init { name } => run_init(&name),
+        Commands::Explain { code } => run_explain(&code),
+        Commands::Fmt { file, check } => run_fmt(&file, check),
+        Commands::Infer {
             file,
             function,
             output,
             dry_run,
             focus,
-        }) => run_infer(
+        } => run_infer(
             &file,
             function.as_deref(),
             output.as_deref(),
             dry_run,
             focus.as_deref(),
         ),
-        Some(Commands::TestGen { file, output }) => {
+        Commands::TestGen { file, output } => {
             run_test_gen(&file, output.as_deref(), verbosity)
         }
-        Some(Commands::AgentInstructions) => run_agent_instructions(),
-        Some(Commands::Doctor) => run_doctor(),
-        Some(Commands::Lsp) => run_lsp(),
-        Some(Commands::Completions { shell }) => {
+        Commands::AgentInstructions => run_agent_instructions(),
+        Commands::Doctor => run_doctor(),
+        Commands::Lsp => run_lsp(),
+        Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "assura", &mut std::io::stdout());
         }
-        Some(Commands::Coverage {
+        Commands::Coverage {
             path,
             contracts_dir,
             format,
             min_coverage,
-        }) => run_coverage(&path, &contracts_dir, &format, min_coverage),
-        Some(Commands::Audit {
+        } => run_coverage(&path, &contracts_dir, &format, min_coverage),
+        Commands::Audit {
             path,
             depth,
             format,
@@ -411,7 +399,7 @@ pub fn run() {
             max_functions,
             timeout,
             unsafe_only,
-        }) => run_audit(AuditOptions {
+        } => run_audit(AuditOptions {
             path: &path,
             depth: &depth,
             format: &format,
@@ -420,13 +408,13 @@ pub fn run() {
             timeout_ms: timeout,
             unsafe_only,
         }),
-        Some(Commands::Repl) => run_repl(),
-        Some(Commands::Diff {
+        Commands::Repl => run_repl(),
+        Commands::Diff {
             old,
             new,
             format,
             verify,
-        }) => {
+        } => {
             let has_diff = run_diff(&old, &new, &format);
             if verify {
                 run_diff_verify(&old, &new, &format);
@@ -436,18 +424,18 @@ pub fn run() {
                 process::exit(1);
             }
         }
-        Some(Commands::IrPrompt {
+        Commands::IrPrompt {
             file,
             decl,
             list,
             pattern,
-        }) => ir_prompt_cmd::run_ir_prompt(&file, decl.as_deref(), list, &pattern, verbosity),
-        Some(Commands::Ir {
+        } => ir_prompt_cmd::run_ir_prompt(&file, decl.as_deref(), list, &pattern, verbosity),
+        Commands::Ir {
             file,
             contract,
             output,
-        }) => run_ir(&file, contract.as_deref(), output.as_deref(), verbosity),
-        Some(Commands::Mcp) => {
+        } => run_ir(&file, contract.as_deref(), output.as_deref(), verbosity),
+        Commands::Mcp => {
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             rt.block_on(async {
                 if let Err(e) = assura_mcp::run_mcp_server().await {
@@ -456,18 +444,6 @@ pub fn run() {
                 }
             });
         }
-        None => {
-            // Legacy mode: `assura [--ast|--tokens] <file>`
-            if let Some(file) = cli.file {
-                run_legacy(&file, verbosity, cli.ast, cli.tokens);
-            } else {
-                // No subcommand and no file: show help
-                <Cli as clap::CommandFactory>::command()
-                    .print_help()
-                    .unwrap();
-                println!();
-                process::exit(2);
-            }
-        }
+
     }
 }
