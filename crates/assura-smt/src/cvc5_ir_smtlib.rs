@@ -155,14 +155,6 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
         self.enc_ctx
     }
 
-    fn slot_to_name(&self) -> &HashMap<usize, String> {
-        self.slot_to_name
-    }
-
-    fn slot_types(&self) -> &HashMap<usize, String> {
-        self.slot_types
-    }
-
     fn canonical_length_for_name(&mut self, name: &str) -> Self::Term {
         declare_canonical_len(self.script, self.vars, name);
         canonical_length_smtlib_name(name)

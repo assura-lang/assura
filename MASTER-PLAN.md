@@ -1734,15 +1734,6 @@ compiles" failure on taint-tracking.assura.
 - Only open issue: #45 (CodeQL, blocked on repo going public)
 - **Next session**: Phase 10 (SMT full parity), then multi-perspective improvement loop
 
-### Session 21 (2026-06-18): Phase 10 Round 5 complete (#262, #261, #264)
-
-- **10.16-10.18 done**: Typestate @ encoding, native string theory, incremental push/pop
-- **Z3 hang fix**: lazy ADT init (eager Option forall axioms caused SAT queries to hang)
-- **Incremental fix**: assert requires/havoc once; share encoder vars/ADT state per clause
-- **Length linking**: canonical `.len` vars linked to `len`/`__field_len` UIFs (#267 follow-up)
-- **Phase 10 complete** (all 22 tasks checked)
-- **Next session**: Run `/multi-perspective-improve` loop per Phase 10 continuation prompt
-
 ### Session 20 (2026-06-18): Phase 10 Round 6 complete (#263, #265, #266, #267)
 
 - **10.19-10.22 done**: ADT encoding, bitvector theory, unsat cores, havoc+assume
@@ -1752,6 +1743,15 @@ compiles" failure on taint-tracking.assura.
   - CVC5: matching canonical length + havoc+assume in native incremental path
   - Acceptance: `result.length() <= raw.length()` verifies (test_sec.assura pattern)
 - **Next session**: Phase 10 Round 5 (#262, #261, #264)
+
+### Session 21 (2026-06-18): Phase 10 Round 5 complete (#262, #261, #264)
+
+- **10.16-10.18 done**: Typestate @ encoding, native string theory, incremental push/pop
+- **Z3 hang fix**: lazy ADT init (eager Option forall axioms caused SAT queries to hang)
+- **Incremental fix**: assert requires/havoc once; share encoder vars/ADT state per clause
+- **Length linking**: canonical `.len` vars linked to `len`/`__field_len` UIFs (#267 follow-up)
+- **Phase 10 complete** (all 22 tasks checked)
+- **Next session**: Run `/multi-perspective-improve` loop per Phase 10 continuation prompt
 
 ### Session 22 (2026-06-19): IR pipeline follow-ups (#278, #279) + CVC5 blocks + IR generation
 

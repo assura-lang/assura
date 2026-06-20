@@ -55,10 +55,6 @@ pub trait IrTermBuilder {
     fn fresh_int(&mut self) -> Self::Term;
 
     fn enc_ctx(&self) -> IrEncodeContext<'_>;
-    #[allow(dead_code)]
-    fn slot_to_name(&self) -> &HashMap<usize, String>;
-    #[allow(dead_code)]
-    fn slot_types(&self) -> &HashMap<usize, String>;
 
     fn canonical_length_for_name(&mut self, name: &str) -> Self::Term;
 
@@ -333,14 +329,6 @@ mod tests {
 
         fn enc_ctx(&self) -> IrEncodeContext<'_> {
             self.enc_ctx
-        }
-
-        fn slot_to_name(&self) -> &HashMap<usize, String> {
-            &self.slot_to_name
-        }
-
-        fn slot_types(&self) -> &HashMap<usize, String> {
-            &self.slot_types
         }
 
         fn canonical_length_for_name(&mut self, name: &str) -> Self::Term {

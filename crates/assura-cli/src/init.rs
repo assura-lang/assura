@@ -1,9 +1,7 @@
 // `assura init <project-name>` -- scaffold a new Assura project
 // ---------------------------------------------------------------------------
 
-use std::fs;
-use std::path::Path;
-use std::process;
+use super::*;
 
 pub(crate) fn run_init(project_name: &str) {
     let project_dir = Path::new(project_name);

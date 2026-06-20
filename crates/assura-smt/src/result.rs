@@ -30,6 +30,40 @@ impl CounterexampleModel {
     }
 }
 
+/// The result of verifying a single contract clause.
+#[derive(Debug, Clone)]
+pub enum VerificationResult {
+    /// The clause was proven valid.
+    Verified {
+        /// Human-readable description of what was verified.
+        clause_desc: String,
+        /// Labels of tracked assumptions in the unsat core (requires clauses
+        /// that were necessary to prove validity), when available.
+        unsat_core: Option<Vec<String>>,
+    },
+    /// A counterexample was found (the clause does not hold).
+    Counterexample {
+        /// Human-readable description of the clause.
+        clause_desc: String,
+        /// Z3 model showing the counterexample (raw string).
+        model: String,
+        /// Structured counterexample with parsed variable values.
+        counter_model: Option<CounterexampleModel>,
+    },
+    /// The solver timed out before reaching a conclusion.
+    Timeout {
+        /// Human-readable description of the clause.
+        clause_desc: String,
+    },
+    /// The solver returned Unknown (e.g., non-linear arithmetic).
+    Unknown {
+        /// Human-readable description of the clause.
+        clause_desc: String,
+        /// Reason the solver could not decide.
+        reason: String,
+    },
+}
+
 impl VerificationResult {
     /// Build a verified result without an unsat core.
     pub fn verified(clause_desc: impl Into<String>) -> Self {
@@ -179,40 +213,6 @@ impl From<&VerificationResult> for VerificationSummary {
             },
         }
     }
-}
-
-/// The result of verifying a single contract clause.
-#[derive(Debug, Clone)]
-pub enum VerificationResult {
-    /// The clause was proven valid.
-    Verified {
-        /// Human-readable description of what was verified.
-        clause_desc: String,
-        /// Labels of tracked assumptions in the unsat core (requires clauses
-        /// that were necessary to prove validity), when available.
-        unsat_core: Option<Vec<String>>,
-    },
-    /// A counterexample was found (the clause does not hold).
-    Counterexample {
-        /// Human-readable description of the clause.
-        clause_desc: String,
-        /// Z3 model showing the counterexample (raw string).
-        model: String,
-        /// Structured counterexample with parsed variable values.
-        counter_model: Option<CounterexampleModel>,
-    },
-    /// The solver timed out before reaching a conclusion.
-    Timeout {
-        /// Human-readable description of the clause.
-        clause_desc: String,
-    },
-    /// The solver returned Unknown (e.g., non-linear arithmetic).
-    Unknown {
-        /// Human-readable description of the clause.
-        clause_desc: String,
-        /// Reason the solver could not decide.
-        reason: String,
-    },
 }
 
 #[cfg(test)]

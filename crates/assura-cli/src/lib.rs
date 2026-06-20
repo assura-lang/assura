@@ -17,9 +17,9 @@ mod shared;
 mod test_gen;
 mod timing;
 
-use assura_config::{CompilerConfig, OutputMode, Verbosity};
 #[cfg(test)]
 use assura_config::ProjectConfig;
+use assura_config::{CompilerConfig, OutputMode, Verbosity};
 use assura_parser::ast::*;
 use assura_parser::lexer::Token;
 use logos::Logos;
