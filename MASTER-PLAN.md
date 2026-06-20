@@ -39,7 +39,6 @@
 |-------|-----|-------|--------|
 | assura-parser | 7,880 | 137 | Solid. All demos parse. |
 | assura-resolve | 3,841 | 84 | Working scope analysis, import resolution. |
-| assura-hir | 1,769 | 31 | CST-to-HIR lowering. |
 | assura-types | 29,470 | 960 | ~30 REAL checkers, 14 STRUCTURAL, 12 PARTIAL. |
 | assura-codegen | 7,027 | 156 | Generates `cargo check`-passing Rust. |
 | assura-smt | 12,753 | 338 | Z3 + CVC5 backends. Layer 2 structural. |
@@ -2170,7 +2169,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 5: HIR resolution + module reorganization -- depends on: Round 4
 
-- [ ] **11.10** Resolve HIR: commit or kill -- #315
+- [x] **11.10** Resolve HIR: commit or kill -- #315
   - The type checker currently converts HIR back to AST via
     `to_ast_expr()` before processing. This defeats the purpose
     of having a separate HIR.
@@ -2191,7 +2190,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo test --workspace
     ```
 
-- [ ] **11.11** Reorganize CVC5 modules (44 files -> subdirectory) -- #319
+- [x] **11.11** Reorganize CVC5 modules (44 files -> subdirectory) -- #319
   - Move all `cvc5_*.rs` files from `assura-smt/src/` into
     `assura-smt/src/cvc5_backend/` subdirectory.
   - Organize into ~8-10 thematic modules: `arithmetic.rs`,

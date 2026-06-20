@@ -25,9 +25,6 @@ CST -> AST Lowering          crates/assura-parser/src/lower.rs
 Name Resolution              crates/assura-resolve/src/lib.rs
   | produces ResolvedFile + SymbolTable
   v
-HIR Lowering                 crates/assura-hir/src/lower.rs
-  | produces HirFile (desugared, name-resolved)
-  v
 Type Checking                crates/assura-types/src/lib.rs
   | produces TypedFile + Vec<TypeError>
   v
@@ -50,7 +47,6 @@ optionally invokes `cargo check` on the generated Rust project.
 |-------|-----|-------|---------|
 | `assura-parser` | 8,100 | 149 | Lexer (logos 0.16), CST (rowan 0.16), recursive descent parser, Pratt expressions, CST-to-AST lowering |
 | `assura-resolve` | 4,300 | 91 | Name resolution, scope analysis, symbol table |
-| `assura-hir` | 1,800 | 31 | High-level IR, AST-to-HIR lowering |
 | `assura-types` | 33,800 | 1,081 | Type checking, 50+ domain-specific checkers |
 | `assura-smt` | 13,800 | 397 | Z3/CVC5 SMT solver integration, verification |
 | `assura-codegen` | 7,200 | 159 | Rust code generation via prettyplease |
@@ -135,27 +131,6 @@ Builds a symbol table and resolves all name references.
 
 **Multi-file support:** `resolve_with_modules()` accepts a `ModuleMap`
 for cross-file resolution.
-
-### assura-hir
-
-**Entry point:** `assura_hir::lower(resolved: &ResolvedFile) -> HirFile`
-
-Lowers the AST into a High-level IR with:
-1. Names resolved to `DefId` (index into the symbol table or unresolved)
-2. Raw token type sequences converted to structured `HirType`
-3. Expressions preserved as `HirExpr` (mirrors `ast::Expr` with `DefId`)
-4. Normalized clause representations
-
-**Key types:**
-- `HirFile`: File with `Vec<HirDecl>` and reference to `ResolvedFile`
-- `DefId`: `Resolved(usize)` (symbol table index) or `Unresolved(String)`
-- `HirType`: Structured type (Named, Generic, Tuple, Fn, Refined, Unit)
-- `HirExpr`: Expression with `DefId`-based name resolution
-
-**Backward compatibility:** `HirExpr::to_ast_expr()` and
-`HirClause::to_ast_clause()` convert back to AST types, allowing the
-type checker to continue operating on the original representations
-during migration.
 
 ### assura-types
 

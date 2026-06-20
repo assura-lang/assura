@@ -306,7 +306,7 @@ module branch {
         use crate::SolverChoice;
         use crate::VerificationCache;
         use crate::VerificationResult;
-        use crate::verify_parallel_with_solver;
+        use crate::entry::verify_parallel_with_solver;
         use assura_parser::ast::{BinOp, Clause, ClauseKind, ContractDecl, Expr, Literal};
 
         let dir = std::env::temp_dir().join(format!("assura-ir-pipeline-{}", std::process::id()));

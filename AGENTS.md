@@ -897,11 +897,9 @@ match on `Decl` becomes non-exhaustive. Use this checklist:
 | assura-parser | `display.rs` | Add `Decl::Variant` display arm |
 | assura-fmt | `lib.rs` | Add `format_variant()` and import the struct |
 | assura-resolve | `lib.rs` | Add to `SymbolKind`, register in symbol table, handle in 4+ match sites |
-| assura-hir | `lib.rs` | Add `HirVariant` struct and `HirDeclKind::Variant` |
-| assura-hir | `lower.rs` | Add lowering from AST to HIR |
-| assura-types | `lib.rs` | Add to `build_type_env` (both AST and HIR paths) |
+| assura-types | `lib.rs` | Add to `build_type_env` |
 | assura-types | `checkers.rs` | Add match arm in taint checking |
-| assura-types | `clauses.rs` | Add match arms in clause body checking (both AST and HIR paths) |
+| assura-types | `clauses.rs` | Add match arms in clause body checking |
 | assura-codegen | `lib.rs` | Add to 9+ match sites (type collection, generic arity, codegen dispatch) |
 | assura-smt | `display.rs` | Add to `collect_contract_names()` and stats counting |
 | assura-smt | `z3_backend.rs` | Add to verification dispatch loop |
