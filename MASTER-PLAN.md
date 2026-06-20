@@ -1809,6 +1809,21 @@ compiles" failure on taint-tracking.assura.
   includes `cvc5-verify` clippy; CVC5 parity issue template; filed #298–#300
 - **Next**: #297 soundness fix, #290 shared IR lowering, `ir_generate` if/match planners (#299)
 
+### Session 26 (2026-06-20): IR soundness + shared lowering batch (#290–#299)
+
+- **#297 (`32ff73a`)**: `eval_ir_block_*` uses block-local `__ir_block{N}_result`;
+  `assert_ir_branch_results_scoped()` regression guard
+- **#290–#299 (`3a87812`)**: `ir_lower.rs` + `IrTermBuilder` thin adapters (Z3/CVC5/shell);
+  `ir_parity.rs` cross-backend harness; CVC5 `Transition` UF alignment; branch IR e2e CLI test;
+  `ir_generate` if/match/multi-fn planners; `tests/fixtures/ir_if_branch.assura`
+- **#298**: Retroactive CVC5 parity audit — shell tests green; native deferred to CI
+- **Gaps filed as new issues**: #301 local `cvc5-verify` macOS build, #302 branch IR negative
+  e2e, #303 Construct parity follow-up, #304 CI-before-close process, #305 `ir_if_branch`
+  must_compile harness, #306 multi-fn identity stub, #307 match pattern guards, #308
+  `ir_lower` LOC metric, #309 deep cvc5-parity audit script
+- **Next**: #301 (unblocks native parity), #302–#305 quick test wins; full pre-commit gate
+  before next large batch
+
 ---
 
 ## Phase 10: Full SMT Parity (CVC5 matches Z3, both go deeper)
