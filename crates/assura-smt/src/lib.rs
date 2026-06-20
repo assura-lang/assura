@@ -93,73 +93,76 @@ pub mod display;
 mod no_z3;
 
 // ---------------------------------------------------------------------------
-// CVC5 backend (shell out to cvc5 binary via SMT-LIB2)
+// CVC5 backend (organized in cvc5_backend/ subdirectory)
 // ---------------------------------------------------------------------------
 
-mod cvc5_adt;
-mod cvc5_atom_encode;
-mod cvc5_backend;
-mod cvc5_binop_encode;
-mod cvc5_builtins;
-mod cvc5_call_encode;
-mod cvc5_collect;
-mod cvc5_common;
+pub(crate) mod cvc5_backend;
+
+// Re-export CVC5 sub-modules at crate root so existing `use crate::cvc5_*`
+// paths throughout the crate continue to resolve without changes.
+pub(crate) use cvc5_backend::cvc5_adt;
+pub(crate) use cvc5_backend::cvc5_atom_encode;
+pub(crate) use cvc5_backend::cvc5_binop_encode;
+pub(crate) use cvc5_backend::cvc5_builtins;
+pub(crate) use cvc5_backend::cvc5_call_encode;
+pub(crate) use cvc5_backend::cvc5_collect;
+pub(crate) use cvc5_backend::cvc5_common;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_encoder_state;
-mod cvc5_expr_smtlib;
-mod cvc5_field_access;
+pub(crate) use cvc5_backend::cvc5_encoder_state;
+pub(crate) use cvc5_backend::cvc5_expr_smtlib;
+pub(crate) use cvc5_backend::cvc5_field_access;
 #[cfg(not(feature = "cvc5-verify"))]
-mod cvc5_havoc_assume_smtlib;
-mod cvc5_if_encode;
-mod cvc5_index_access;
+pub(crate) use cvc5_backend::cvc5_havoc_assume_smtlib;
+pub(crate) use cvc5_backend::cvc5_if_encode;
+pub(crate) use cvc5_backend::cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_ir_native;
+pub(crate) use cvc5_backend::cvc5_ir_native;
 #[cfg(not(feature = "cvc5-verify"))]
-mod cvc5_ir_smtlib;
-mod cvc5_let_block_encode;
-mod cvc5_list_encode;
-mod cvc5_match_encode;
-mod cvc5_model;
+pub(crate) use cvc5_backend::cvc5_ir_smtlib;
+pub(crate) use cvc5_backend::cvc5_let_block_encode;
+pub(crate) use cvc5_backend::cvc5_list_encode;
+pub(crate) use cvc5_backend::cvc5_match_encode;
+pub(crate) use cvc5_backend::cvc5_model;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_native_binops;
+pub(crate) use cvc5_backend::cvc5_native_binops;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_native_builtins;
+pub(crate) use cvc5_backend::cvc5_native_builtins;
 #[cfg(feature = "cvc5-verify")]
-#[path = "cvc5_native_encoder.rs"]
-pub(crate) mod cvc5_native_encoder;
-mod cvc5_old_access;
-mod cvc5_quantifier_encode;
-mod cvc5_raw_encode;
+pub(crate) use cvc5_backend::cvc5_native_encoder;
+pub(crate) use cvc5_backend::cvc5_old_access;
+pub(crate) use cvc5_backend::cvc5_quantifier_encode;
+pub(crate) use cvc5_backend::cvc5_raw_encode;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_raw_native;
-mod cvc5_raw_ops;
-mod cvc5_raw_smtlib;
-mod cvc5_tuple_encode;
-mod cvc5_verify_dispatch;
+pub(crate) use cvc5_backend::cvc5_raw_native;
+pub(crate) use cvc5_backend::cvc5_raw_ops;
+pub(crate) use cvc5_backend::cvc5_raw_smtlib;
+pub(crate) use cvc5_backend::cvc5_tuple_encode;
+#[allow(unused_imports)]
+pub(crate) use cvc5_backend::cvc5_verify_dispatch;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_verify_native;
+pub(crate) use cvc5_backend::cvc5_verify_native;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_verify_native_checks;
+pub(crate) use cvc5_backend::cvc5_verify_native_checks;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_verify_native_clause;
+pub(crate) use cvc5_backend::cvc5_verify_native_clause;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_verify_native_contract;
+pub(crate) use cvc5_backend::cvc5_verify_native_contract;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_verify_native_features;
+pub(crate) use cvc5_backend::cvc5_verify_native_features;
 #[cfg(feature = "cvc5-verify")]
-mod cvc5_verify_native_solver;
-mod cvc5_verify_shared;
+pub(crate) use cvc5_backend::cvc5_verify_native_solver;
+pub(crate) use cvc5_backend::cvc5_verify_shared;
 #[cfg(not(feature = "cvc5-verify"))]
-mod cvc5_verify_shell;
+pub(crate) use cvc5_backend::cvc5_verify_shell;
 #[cfg(not(feature = "cvc5-verify"))]
-mod cvc5_verify_shell_clause;
+pub(crate) use cvc5_backend::cvc5_verify_shell_clause;
 #[cfg(not(feature = "cvc5-verify"))]
-mod cvc5_verify_shell_contract;
+pub(crate) use cvc5_backend::cvc5_verify_shell_contract;
 #[cfg(not(feature = "cvc5-verify"))]
-mod cvc5_verify_shell_runner;
+pub(crate) use cvc5_backend::cvc5_verify_shell_runner;
 #[cfg(not(feature = "cvc5-verify"))]
-mod cvc5_verify_shell_script;
-mod cvc5_wrapper_encode;
+pub(crate) use cvc5_backend::cvc5_verify_shell_script;
+pub(crate) use cvc5_backend::cvc5_wrapper_encode;
 mod feature_max;
 
 // ---------------------------------------------------------------------------
