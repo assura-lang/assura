@@ -17,13 +17,26 @@ fn workspace_root() -> String {
     env!("CARGO_MANIFEST_DIR").replace("/crates/assura-cli", "")
 }
 
+/// Unique temp dir (using tempfile for strong uniqueness across parallel tests).
+/// The TempDir guard is leaked so the directory persists for the duration of the
+/// test (and is cleaned up by explicit remove_dir_all at end of each test or OS).
+fn unique_temp(prefix: &str) -> std::path::PathBuf {
+    let d = tempfile::Builder::new()
+        .prefix(&format!("{}_", prefix))
+        .tempdir()
+        .expect("failed to create unique temp dir");
+    let p = d.path().to_path_buf();
+    std::mem::forget(d);
+    p
+}
+
 // =======================================================================
 // R007: Build CLI integration tests
 // =======================================================================
 
 #[test]
 fn build_cli_output_creates_custom_dir() {
-    let tmp = std::env::temp_dir().join("assura_r007_custom_output");
+    let tmp = unique_temp("assura_r007_custom_output");
     let _ = std::fs::remove_dir_all(&tmp);
     let out = Command::new(assura_bin())
         .args([
@@ -193,7 +206,7 @@ fn quiet_short_flag_works() {
 
 #[test]
 fn verbose_build_shows_codegen_timing() {
-    let tmp = std::env::temp_dir().join("assura_p001_verbose_build");
+    let tmp = unique_temp("assura_p001_verbose_build");
     let _ = std::fs::remove_dir_all(&tmp);
     let out = Command::new(assura_bin())
         .args([
@@ -220,7 +233,7 @@ fn verbose_build_shows_codegen_timing() {
 
 #[test]
 fn quiet_build_suppresses_file_listing() {
-    let tmp = std::env::temp_dir().join("assura_p001_quiet_build");
+    let tmp = unique_temp("assura_p001_quiet_build");
     let _ = std::fs::remove_dir_all(&tmp);
     let out = Command::new(assura_bin())
         .args([
@@ -261,7 +274,7 @@ fn quiet_build_suppresses_file_listing() {
 
 #[test]
 fn build_cli_wasm_target_generates_config() {
-    let tmp = std::env::temp_dir().join("assura_i003_wasm");
+    let tmp = unique_temp("assura_i003_wasm");
     let _ = std::fs::remove_dir_all(&tmp);
     let out = Command::new(assura_bin())
         .args([
@@ -301,7 +314,7 @@ fn build_cli_wasm_target_generates_config() {
 
 #[test]
 fn build_cli_native_target_no_cargo_config() {
-    let tmp = std::env::temp_dir().join("assura_i003_native");
+    let tmp = unique_temp("assura_i003_native");
     let _ = std::fs::remove_dir_all(&tmp);
     let out = Command::new(assura_bin())
         .args([
@@ -348,7 +361,7 @@ fn create_test_crate(dir: &std::path::Path) {
 
 #[test]
 fn audit_human_output_shows_summary() {
-    let tmp = std::env::temp_dir().join("assura_audit_human");
+    let tmp = unique_temp("assura_audit_human");
     let _ = std::fs::remove_dir_all(&tmp);
     create_test_crate(&tmp);
 
@@ -368,7 +381,7 @@ fn audit_human_output_shows_summary() {
 
 #[test]
 fn audit_json_output_is_valid() {
-    let tmp = std::env::temp_dir().join("assura_audit_json");
+    let tmp = unique_temp("assura_audit_json");
     let _ = std::fs::remove_dir_all(&tmp);
     create_test_crate(&tmp);
 
@@ -404,7 +417,7 @@ fn audit_json_output_is_valid() {
 
 #[test]
 fn audit_no_cargo_toml_fails() {
-    let tmp = std::env::temp_dir().join("assura_audit_no_cargo");
+    let tmp = unique_temp("assura_audit_no_cargo");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
@@ -426,7 +439,7 @@ fn audit_no_cargo_toml_fails() {
 
 #[test]
 fn audit_empty_src_fails() {
-    let tmp = std::env::temp_dir().join("assura_audit_empty_src");
+    let tmp = unique_temp("assura_audit_empty_src");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
     std::fs::write(
@@ -446,7 +459,7 @@ fn audit_empty_src_fails() {
 
 #[test]
 fn audit_max_functions_limits_output() {
-    let tmp = std::env::temp_dir().join("assura_audit_max_fn");
+    let tmp = unique_temp("assura_audit_max_fn");
     let _ = std::fs::remove_dir_all(&tmp);
     create_test_crate(&tmp);
     // Add more functions
@@ -482,7 +495,7 @@ fn audit_max_functions_limits_output() {
 
 #[test]
 fn audit_medium_depth_adds_heuristics() {
-    let tmp = std::env::temp_dir().join("assura_audit_medium");
+    let tmp = unique_temp("assura_audit_medium");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
     std::fs::write(
@@ -590,7 +603,7 @@ fn create_coverage_test_crate(dir: &std::path::Path) {
 
 #[test]
 fn coverage_human_output() {
-    let tmp = std::env::temp_dir().join("assura_cov_human");
+    let tmp = unique_temp("assura_cov_human");
     let _ = std::fs::remove_dir_all(&tmp);
     create_coverage_test_crate(&tmp);
 
@@ -617,7 +630,7 @@ fn coverage_human_output() {
 
 #[test]
 fn coverage_json_output_structure() {
-    let tmp = std::env::temp_dir().join("assura_cov_json");
+    let tmp = unique_temp("assura_cov_json");
     let _ = std::fs::remove_dir_all(&tmp);
     create_coverage_test_crate(&tmp);
 
@@ -658,7 +671,7 @@ fn coverage_json_output_structure() {
 
 #[test]
 fn coverage_min_coverage_fails_when_below() {
-    let tmp = std::env::temp_dir().join("assura_cov_min_fail");
+    let tmp = unique_temp("assura_cov_min_fail");
     let _ = std::fs::remove_dir_all(&tmp);
     create_coverage_test_crate(&tmp);
 
@@ -676,7 +689,7 @@ fn coverage_min_coverage_fails_when_below() {
 
 #[test]
 fn coverage_min_coverage_passes_when_above() {
-    let tmp = std::env::temp_dir().join("assura_cov_min_pass");
+    let tmp = unique_temp("assura_cov_min_pass");
     let _ = std::fs::remove_dir_all(&tmp);
     create_coverage_test_crate(&tmp);
 
@@ -695,7 +708,7 @@ fn coverage_min_coverage_passes_when_above() {
 
 #[test]
 fn coverage_no_src_dir_fails() {
-    let tmp = std::env::temp_dir().join("assura_cov_no_src");
+    let tmp = unique_temp("assura_cov_no_src");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
@@ -1374,7 +1387,7 @@ fn mcp_explain_tool_returns_error_info() {
 
 #[test]
 fn check_rust_finds_annotations() {
-    let tmp = std::env::temp_dir().join("assura_check_rust_test");
+    let tmp = unique_temp("assura_check_rust_test");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
     std::fs::write(
@@ -1406,7 +1419,7 @@ fn positive(x: i32) -> i32 {
 
 #[test]
 fn check_rust_json_output() {
-    let tmp = std::env::temp_dir().join("assura_check_rust_json");
+    let tmp = unique_temp("assura_check_rust_json");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
@@ -1438,7 +1451,7 @@ fn only_positive(a: i32) -> i32 {
 
 #[test]
 fn check_rust_no_annotations() {
-    let tmp = std::env::temp_dir().join("assura_check_rust_none");
+    let tmp = unique_temp("assura_check_rust_none");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
@@ -1465,7 +1478,7 @@ fn regular(x: i32) -> i32 {
 
 #[test]
 fn check_rust_directory_scan() {
-    let tmp = std::env::temp_dir().join("assura_check_rust_dir");
+    let tmp = unique_temp("assura_check_rust_dir");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
     std::fs::write(
@@ -1502,7 +1515,7 @@ struct Foo { x: i32 }
 
 #[test]
 fn infer_rust_detects_division() {
-    let tmp = std::env::temp_dir().join("assura_infer_div");
+    let tmp = unique_temp("assura_infer_div");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
@@ -1524,7 +1537,7 @@ fn infer_rust_detects_division() {
 
 #[test]
 fn infer_rust_focus_filter() {
-    let tmp = std::env::temp_dir().join("assura_infer_focus");
+    let tmp = unique_temp("assura_infer_focus");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
@@ -1560,7 +1573,7 @@ fn get(items: &[i32], idx: usize) -> i32 { items[idx] }
 
 #[test]
 fn infer_rust_detects_unwrap() {
-    let tmp = std::env::temp_dir().join("assura_infer_unwrap");
+    let tmp = unique_temp("assura_infer_unwrap");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
@@ -1590,7 +1603,7 @@ fn infer_rust_detects_unwrap() {
 
 #[test]
 fn check_loads_ir_sidecar_and_verifies_ensures() {
-    let tmp = std::env::temp_dir().join(format!("assura_ir_e2e_{}", std::process::id()));
+    let tmp = unique_temp("assura_ir_e2e");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
@@ -1647,7 +1660,7 @@ module copy {
 
 #[test]
 fn ir_branch_sidecar_changes_verification_outcome() {
-    let tmp = std::env::temp_dir().join(format!("assura_ir_branch_{}", std::process::id()));
+    let tmp = unique_temp("assura_ir_branch");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
@@ -1713,7 +1726,7 @@ module branch {
 
 #[test]
 fn ir_branch_sidecar_broken_else_yields_counterexample() {
-    let tmp = std::env::temp_dir().join(format!("assura_ir_branch_neg_{}", std::process::id()));
+    let tmp = unique_temp("assura_ir_branch_neg");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
@@ -1780,7 +1793,7 @@ module branch {
 
 #[test]
 fn build_writes_stub_ir_sidecars_to_generated() {
-    let tmp = std::env::temp_dir().join(format!("assura_ir_build_{}", std::process::id()));
+    let tmp = unique_temp("assura_ir_build");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
