@@ -244,8 +244,8 @@ jobs:
 
       - name: Run pipeline benchmarks (smoke + compile check only)
         # Run only full_pipeline bench in CI (smoke to ensure it compiles/runs).
-        # Small sample + quiet + no plots for speed. No thresholds.
-        run: cargo bench -p assura-bench --bench pipeline full_pipeline -- --sample-size 5 --quiet --noplot
+        # Minimum valid Criterion sample-size is 10. Use quiet + noplot for speed. No thresholds.
+        run: cargo bench -p assura-bench --bench pipeline full_pipeline -- --sample-size 10 --quiet --noplot
 
       - name: Upload benchmark output
         if: ${{ !cancelled() }}
