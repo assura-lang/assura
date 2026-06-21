@@ -1,6 +1,6 @@
 //! Per-clause CVC5 native verification (non-incremental path).
 
-use assura_parser::ast::ClauseKind;
+use assura_ast::ClauseKind;
 
 use crate::VerificationResult;
 use crate::cvc5_collect::collect_cvc5_var_names;

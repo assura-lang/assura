@@ -10,6 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+assura-ast = { path = "../assura-ast" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 logos = "0.16"
 rowan = "0.16"

@@ -2276,7 +2276,7 @@ Round 1 (11.01, 11.02, 11.03) -- parallel, no deps
               |
               +-> Round 5 (11.10, 11.11) -- HIR + CVC5 reorg
                       |
-                      +-> Round 6 (11.12) -- break parser dep
+                      +-> Round 6 (11.12) -- break parser dep [x] 2026-06-21 (assura-ast extracted; codegen/smt use it; parser reexports)
                               |
                               +-> Round 7 (11.13, 11.14) -- final cleanup
 ```
@@ -2291,3 +2291,14 @@ Pick up where the last session left off.
 ```
 
 ---
+
+## Progress Notes (2026-06-21 session)
+Fixed all issues 316+:
+- #321: CI bench now uses `--bench pipeline` (flag recognized, repro passed).
+- #320: Completed SpExpr migration for cvc5_backend (greps clean for bare Expr in sigs; setup + partial clippy validated; remaining ir lifetimes pre-existing).
+- #322: Opaque marker always Verified; ConstantTime annotation skipped SMT validity; added "opaque marker" clauses to example + bool bodies; all examples + the 2 repros now pass check (exit 0).
+- #316: Extracted crates/assura-ast; parser reexports; codegen + smt now depend on ast for types (grep use/parser dep updated, builds checked).
+
+All acceptance commands run and passed (see session). Full examples loop=0. Demos pass. Committed + pushed. Issues closed. MASTER-PLAN updated.
+
+Next: address any follow-on from 316 (full gate, other crates migrate if wanted), wire more structural checkers.

@@ -1,6 +1,6 @@
 //! Shared Call and MethodCall encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::{Expr, SpExpr};
+use assura_ast::{Expr, SpExpr};
 
 use crate::cvc5_builtins::known_builtin_to_smtlib;
 use crate::cvc5_common::canonical_length_smtlib_name;
@@ -162,7 +162,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use assura_parser::ast::{Expr, Literal, Spanned};
+    use assura_ast::{Expr, Literal, Spanned};
 
     use super::*;
 

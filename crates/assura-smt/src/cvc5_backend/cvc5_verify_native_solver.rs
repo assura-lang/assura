@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use assura_parser::ast::{ClauseKind, Expr};
+use assura_ast::{ClauseKind, SpExpr};
 
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, is_internal_cvc5_var, sanitize_smtlib_name,
@@ -36,7 +36,7 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
     var_map: &HashMap<String, cvc5::Term<'a>>,
-    params: &[assura_parser::ast::Param],
+    params: &[assura_ast::Param],
     return_ty: &[String],
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
@@ -197,8 +197,8 @@ pub(crate) fn finish_cvc5_clause_check<'a>(
 pub(crate) fn inject_cvc5_lemma_assumptions<'a>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
-    body: &'a Expr,
-    defs: &std::collections::HashMap<String, Vec<&Expr>>,
+    body: &'a SpExpr,
+    defs: &std::collections::HashMap<String, Vec<&SpExpr>>,
     var_map: &mut HashMap<String, cvc5::Term<'a>>,
     enc_state: &mut Cvc5EncoderState<'a>,
 ) {
@@ -216,11 +216,11 @@ pub(crate) fn inject_cvc5_lemma_assumptions_for_bodies<'a, I>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
     bodies: I,
-    defs: &std::collections::HashMap<String, Vec<&Expr>>,
+    defs: &std::collections::HashMap<String, Vec<&SpExpr>>,
     var_map: &mut HashMap<String, cvc5::Term<'a>>,
     enc_state: &mut Cvc5EncoderState<'a>,
 ) where
-    I: IntoIterator<Item = &'a Expr>,
+    I: IntoIterator<Item = &'a SpExpr>,
 {
     for body in bodies {
         let apply_refs = collect_apply_refs_from_expr(body);
@@ -273,7 +273,7 @@ pub(crate) fn cvc5_term_label(term: &cvc5::Term) -> String {
 pub(crate) fn assert_cvc5_requires<'a>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
-    requires: &[&Expr],
+    requires: &[&SpExpr],
     var_map: &mut HashMap<String, cvc5::Term<'a>>,
     enc_state: &mut Cvc5EncoderState<'a>,
 ) {

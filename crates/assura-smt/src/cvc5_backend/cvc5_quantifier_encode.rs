@@ -1,6 +1,6 @@
 //! Shared quantifier encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::{SpExpr, Spanned};
+use assura_ast::SpExpr;
 
 use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_raw_ops::{
@@ -19,11 +19,9 @@ pub(crate) fn encode_quantifier_domain_guard_smtlib<F>(
 where
     F: FnMut(&SpExpr) -> Option<String>,
 {
-    if let Some((lo, hi)) = domain_as_range(&domain.node) {
-        let lo_sp = Spanned::no_span(lo.clone());
-        let hi_sp = Spanned::no_span(hi.clone());
-        let lo_s = encode(&lo_sp)?;
-        let hi_s = encode(&hi_sp)?;
+    if let Some((lo, hi)) = domain_as_range(domain) {
+        let lo_s = encode(lo)?;
+        let hi_s = encode(hi)?;
         Some(range_guard_smtlib(var, &lo_s, &hi_s))
     } else {
         let d = encode(domain).unwrap_or_else(|| var.to_string());
@@ -63,11 +61,9 @@ where
         &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    let guard = if let Some((lo, hi)) = domain_as_range(&domain.node) {
-        let lo_sp = Spanned::no_span(lo.clone());
-        let hi_sp = Spanned::no_span(hi.clone());
-        let lo_val = encode(&lo_sp, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
-        let hi_val = encode(&hi_sp, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
+    let guard = if let Some((lo, hi)) = domain_as_range(domain) {
+        let lo_val = encode(lo, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
+        let hi_val = encode(hi, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
         let ge_lo = ctx
             .tm
             .mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
@@ -158,7 +154,7 @@ pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     }
 
     if patterns.is_empty() {
-        collect_trigger_calls_cvc5(tm, &body.node, bound_var_name, bound_cvc5, &mut patterns);
+        collect_trigger_calls_cvc5(tm, body, bound_var_name, bound_cvc5, &mut patterns);
     }
 
     patterns
@@ -167,12 +163,12 @@ pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
 #[cfg(feature = "cvc5-verify")]
 fn collect_trigger_calls_cvc5<'a>(
     tm: &'a cvc5::TermManager,
-    expr: &Expr,
+    expr: &SpExpr,
     bound_var: &str,
     bound_cvc5: &cvc5::Term<'a>,
     patterns: &mut Vec<cvc5::Term<'a>>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Call { func, args } => {
             let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
             if refs_bound && let Expr::Ident(fname) = &func.as_ref().node {
@@ -196,7 +192,7 @@ fn collect_trigger_calls_cvc5<'a>(
             }
         }
         Expr::MethodCall { receiver, args, .. } => {
-            collect_trigger_calls_cvc5(tm, &receiver.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, receiver, bound_var, bound_cvc5, patterns);
             for a in args {
                 collect_trigger_calls_cvc5(tm, &a.node, bound_var, bound_cvc5, patterns);
             }
@@ -230,7 +226,7 @@ fn collect_trigger_calls_cvc5<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Expr, Literal};
+    use assura_ast::{BinOp, Expr, Literal};
 
     #[test]
     fn range_domain_guard_smtlib() {

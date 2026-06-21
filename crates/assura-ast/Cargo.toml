@@ -1,0 +1,13 @@
+[package]
+name = "assura-ast"
+description = "Assura AST types (Spanned, Expr, Decl, etc.) - the compiler IR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# pure data types; no heavy deps

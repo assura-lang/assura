@@ -1,6 +1,6 @@
 //! Transparent wrapper expressions (paren, ghost, cast) for both backends.
 
-use assura_parser::ast::SpExpr;
+use assura_ast::SpExpr;
 
 /// Encode through a wrapper by recursing on the inner expression (SMT-LIB2).
 pub(crate) fn encode_wrapper_smtlib<F>(inner: &SpExpr, mut encode: F) -> Option<String>

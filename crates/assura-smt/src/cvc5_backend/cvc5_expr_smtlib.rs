@@ -1,4 +1,4 @@
-use assura_parser::ast::{Expr, SpExpr};
+use assura_ast::{Expr, SpExpr};
 use std::sync::OnceLock;
 
 use crate::cvc5_adt::{Cvc5AdtDef, adt_is_constructor_smt, define_adt_cvc5};
@@ -79,7 +79,7 @@ pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
             {
                 return Some(canonical_length_smtlib_name(name));
             }
-            match plan_field_access(&obj.as_ref().node, field) {
+            match plan_field_access(obj, field) {
                 FieldAccessPlan::Flatten(name) => Some(name),
                 FieldAccessPlan::ShallowUf { field: f } => {
                     let o = expr_to_smtlib(obj)?;

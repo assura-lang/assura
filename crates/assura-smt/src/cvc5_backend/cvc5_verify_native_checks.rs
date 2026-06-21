@@ -1,7 +1,7 @@
 //! Standalone CVC5 native validity and satisfiability checks.
 #![cfg_attr(feature = "z3-verify", allow(dead_code))]
 
-use assura_parser::ast::SpExpr;
+use assura_ast::SpExpr;
 
 use crate::VerificationResult;
 use crate::cvc5_collect::collect_cvc5_var_names_from_assumptions;
@@ -17,7 +17,7 @@ pub(crate) fn check_validity_cvc5(
     assumptions: &[&SpExpr],
     body: &SpExpr,
 ) -> VerificationResult {
-    if let Some(result) = cvc5_unmodelable_precheck(desc, &body.node) {
+    if let Some(result) = cvc5_unmodelable_precheck(desc, body) {
         return result;
     }
 
@@ -40,7 +40,7 @@ pub(crate) fn check_validity_cvc5(
 
     // Track assumptions with labels for unsat-core extraction (#266).
     for (i, a) in assumptions.iter().enumerate() {
-        if let Some(term) = encode_expr_cvc5(&tm, &a.node, &mut var_map, &mut enc_state) {
+        if let Some(term) = encode_expr_cvc5(&tm, a, &mut var_map, &mut enc_state) {
             let label = format!("req_{i}");
             let track = tm.mk_const(bool_sort.clone(), &label);
             tracked_assumptions.push(track.clone());
@@ -88,8 +88,8 @@ pub(crate) fn check_validity_cvc5(
 /// SAT = invariant is satisfiable (Verified), UNSAT = unsatisfiable (Counterexample).
 pub(crate) fn check_satisfiability_cvc5(
     desc: &str,
-    assumptions: &[&Expr],
-    body: &Expr,
+    assumptions: &[&SpExpr],
+    body: &SpExpr,
 ) -> VerificationResult {
     if let Some(result) = cvc5_unmodelable_precheck(desc, body) {
         return result;

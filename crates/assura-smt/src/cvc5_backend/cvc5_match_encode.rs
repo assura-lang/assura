@@ -1,6 +1,6 @@
 //! Shared match-expression encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::{Literal, MatchArm, Pattern, SpExpr};
+use assura_ast::{Literal, MatchArm, Pattern, SpExpr};
 
 use crate::cvc5_builtins::pattern_hash_name;
 use crate::cvc5_common::float_literal_to_smtlib;

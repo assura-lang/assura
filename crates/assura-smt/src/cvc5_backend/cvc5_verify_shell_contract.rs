@@ -1,6 +1,6 @@
 //! CVC5 shell-out contract verification (incremental and per-clause paths).
 
-use assura_parser::ast::{ClauseKind, SpExpr};
+use assura_ast::{ClauseKind, SpExpr};
 
 use crate::VerificationResult;
 use crate::cvc5_adt::cvc5_adt_prelude_lines;
@@ -235,7 +235,7 @@ fn build_incremental_shell_script(
 mod tests {
     use super::*;
     use crate::cvc5_verify_shared::prepare_cvc5_contract_verification;
-    use assura_parser::ast::{BinOp, Clause, Expr, Literal, Spanned};
+    use assura_ast::{BinOp, Clause, Expr, Literal, Spanned};
 
     #[test]
     fn non_ident_call_is_unencodable_but_not_unmodelable() {

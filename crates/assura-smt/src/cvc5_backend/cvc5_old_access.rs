@@ -1,6 +1,6 @@
 //! Shared old() encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::{Expr, SpExpr, Spanned};
+use assura_ast::{Expr, SpExpr, Spanned};
 
 use crate::cvc5_common::old_ident_smtlib_name;
 use crate::cvc5_field_access::{
@@ -23,10 +23,10 @@ pub(crate) enum OldAccessPlan {
     Other,
 }
 
-pub(crate) fn plan_old_access(inner: &Expr) -> OldAccessPlan {
-    match inner {
+pub(crate) fn plan_old_access(inner: &SpExpr) -> OldAccessPlan {
+    match &inner.node {
         Expr::Ident(name) => OldAccessPlan::Ident(name.clone()),
-        Expr::Field(obj, field) => match plan_field_access(&obj.as_ref().node, field) {
+        Expr::Field(obj, field) => match plan_field_access(obj, field) {
             FieldAccessPlan::Flatten(flat) => OldAccessPlan::FlatField(flat),
             FieldAccessPlan::ShallowUf { field: f } => OldAccessPlan::ShallowField {
                 obj: obj.clone(),
@@ -48,7 +48,7 @@ pub(crate) fn encode_old_smtlib<F>(inner: &SpExpr, mut encode: F) -> Option<Stri
 where
     F: FnMut(&SpExpr) -> Option<String>,
 {
-    match plan_old_access(&inner.node) {
+    match plan_old_access(inner) {
         OldAccessPlan::Ident(name) => Some(old_ident_smtlib_name(&name)),
         OldAccessPlan::FlatField(flat) => Some(old_flat_field_smtlib(&flat)),
         OldAccessPlan::ShallowField { obj, field } => {
@@ -83,9 +83,9 @@ where
 {
     use crate::cvc5_common::sanitize_smtlib_name;
     use crate::cvc5_field_access::encode_shallow_field_cvc5;
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
 
-    match plan_old_access(&inner.node) {
+    match plan_old_access(inner) {
         OldAccessPlan::Ident(name) => {
             let key = sanitize_smtlib_name(&old_ident_smtlib_name(&name));
             Some(
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn old_ident_plan() {
         assert!(matches!(
-            plan_old_access(&Expr::Ident("x".into())),
+            plan_old_access(&Spanned::no_span(Expr::Ident("x".into()))),
             OldAccessPlan::Ident(name) if name == "x"
         ));
     }

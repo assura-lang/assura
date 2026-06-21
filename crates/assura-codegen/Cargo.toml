@@ -10,8 +10,13 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+assura-ast = { path = "../assura-ast" }
 assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
 assura-types = { path = "../assura-types" }
 prettyplease = "0.2"
 syn = "2"
+
+[dev-dependencies]
+assura-parser = { path = "../assura-parser" }
+assura-resolve = { path = "../assura-resolve" }

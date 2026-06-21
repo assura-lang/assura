@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{Clause, ClauseKind, Decl, SpExpr};
+use assura_ast::{Clause, ClauseKind, Decl, SpExpr};
 
 use crate::CounterexampleModel;
 use crate::VerificationResult;
@@ -24,7 +24,7 @@ pub(crate) enum Cvc5TypeConstraint {
 /// Collect Nat, constant, and feature_max narrowing constraints for declared vars.
 pub(crate) fn collect_cvc5_type_constraints(
     vars: &HashSet<String>,
-    params: &[assura_parser::ast::Param],
+    params: &[assura_ast::Param],
     return_ty: &[String],
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
@@ -174,7 +174,7 @@ pub(crate) struct Cvc5ContractPrepared<'a> {
 pub(crate) fn prepare_cvc5_contract_verification<'a>(
     contract_name: &str,
     clauses: &'a [Clause],
-    params: &[assura_parser::ast::Param],
+    params: &[assura_ast::Param],
     constants: &[(String, i64)],
 ) -> (Vec<VerificationResult>, Cvc5ContractPrepared<'a>) {
     let mut results = Vec::new();
@@ -313,7 +313,7 @@ pub(crate) fn cvc5_encode_failure(desc: &str) -> VerificationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::ClauseKind;
+    use assura_ast::ClauseKind;
     use std::collections::HashSet;
 
     #[test]
@@ -321,9 +321,9 @@ mod tests {
         let mut vars = HashSet::new();
         vars.insert("n".into());
         vars.insert("size".into());
-        let params = vec![assura_parser::ast::Param {
+        let params = vec![assura_ast::Param {
             name: "n".into(),
-            ty: Some(assura_parser::ast::TypeExpr::Named("Nat".into())),
+            ty: Some(assura_ast::TypeExpr::Named("Nat".into())),
         }];
         let constraints = collect_cvc5_type_constraints(
             &vars,

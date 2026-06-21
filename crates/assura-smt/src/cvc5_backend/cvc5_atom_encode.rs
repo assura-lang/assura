@@ -1,13 +1,11 @@
 //! Shared atom-level encoding: literals, idents, raw single tokens, and apply.
 
-use assura_parser::ast::Literal;
+use assura_ast::{Literal, SpExpr};
 
 use crate::cvc5_common::{float_literal_to_smtlib, sanitize_smtlib_name, smtlib_result_name};
 
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_common::float_to_rational_parts;
-#[cfg(feature = "cvc5-verify")]
-use assura_parser::ast::Expr;
 
 /// Render an integer literal as SMT-LIB2 (negatives use `(- n)` form).
 pub(crate) fn encode_int_literal_smtlib(n: &str) -> String {
@@ -158,14 +156,14 @@ pub(crate) fn encode_raw_single_token_cvc5<'a>(
 pub(crate) fn encode_apply_cvc5<'a, F>(
     tm: &'a cvc5::TermManager,
     lemma_name: &str,
-    args: &[Expr],
+    args: &[SpExpr],
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     mut encode: F,
 ) -> Option<cvc5::Term<'a>>
 where
     F: FnMut(
-        &Expr,
+        &SpExpr,
         &mut std::collections::HashMap<String, cvc5::Term<'a>>,
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,

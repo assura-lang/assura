@@ -15,6 +15,7 @@ z3-verify = ["dep:z3"]
 cvc5-verify = ["dep:cvc5"]
 
 [dependencies]
+assura-ast = { path = "../assura-ast" }
 assura-parser = { path = "../assura-parser" }
 assura-types = { path = "../assura-types" }
 assura-config = { path = "../assura-config" }

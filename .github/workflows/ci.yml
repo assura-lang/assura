@@ -235,7 +235,7 @@ jobs:
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
       - name: Run pipeline benchmarks
-        run: cargo bench -p assura-bench -- --sample-size 10
+        run: cargo bench -p assura-bench --bench pipeline -- --sample-size 10
 
       - name: Upload benchmark output
         if: ${{ !cancelled() }}

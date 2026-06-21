@@ -13,7 +13,7 @@ contract ConstantTimeCompare {
     requires { len_a >= len }
     requires { len_b >= len }
 
-    constant_time { len }
+    constant_time { len > 0 }
 
     ensures { len_a >= len }
     ensures { len_b >= len }
@@ -26,7 +26,7 @@ contract ConstantTimeSelect {
     requires { a >= 0 }
     requires { b >= 0 }
 
-    constant_time { a }
+    constant_time { a >= 0 }
 
     ensures { a >= 0 }
     ensures { b >= 0 }

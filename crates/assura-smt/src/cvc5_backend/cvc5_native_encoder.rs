@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::Expr;
+use assura_ast::{Expr, SpExpr};
 
 use crate::cvc5_atom_encode::{encode_apply_cvc5, encode_ident_cvc5, encode_literal_cvc5};
 use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
@@ -68,11 +68,11 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_expr_cvc5<'a>(
     tm: &'a cvc5::TermManager,
-    expr: &Expr,
+    expr: &SpExpr,
     vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    match expr {
+    match &expr.node {
         Expr::Literal(lit) => encode_literal_cvc5(tm, lit, state),
         Expr::Ident(name) => Some(encode_ident_cvc5(tm, name, vars)),
         Expr::BinOp { op, lhs, rhs } => {

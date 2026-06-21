@@ -1,6 +1,6 @@
 //! Shared AST BinOp/UnaryOp encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::{BinOp, UnaryOp};
+use assura_ast::{BinOp, UnaryOp};
 
 use crate::cvc5_raw_ops::{
     concat_binop_smtlib, format_neq_ast_binop_smtlib, format_standard_ast_binop_smtlib,

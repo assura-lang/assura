@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr, Spanned};
+use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr, Spanned};
 
 use crate::VerificationResult;
 use crate::cvc5_verify_native_checks::check_validity_cvc5;
@@ -167,20 +167,20 @@ pub(crate) fn verify_taint_safety_cvc5(
 pub(crate) fn verify_feature_body_cvc5(
     parent_name: &str,
     feature_label: &str,
-    body: &Expr,
+    body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> VerificationResult {
     let desc = format!("{parent_name}: {feature_label}");
 
     // Skip declarative feature clauses (bare uppercase ident)
-    if matches!(body, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
         return VerificationResult::Unknown {
             clause_desc: desc,
             reason: format!("{feature_label} not yet encoded in SMT"),
         };
     }
 
-    let requires: Vec<&Expr> = sibling_clauses
+    let requires: Vec<&SpExpr> = sibling_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Requires)
         .map(|c| &c.body)
@@ -192,13 +192,13 @@ pub(crate) fn verify_feature_body_cvc5(
 /// CVC5 implementation of structural invariant inductive checking.
 pub(crate) fn verify_structural_invariant_inductive_cvc5(
     parent_name: &str,
-    body: &Expr,
+    body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
 
     // Skip bare uppercase ident
-    if matches!(body, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
         results.push(VerificationResult::Unknown {
             clause_desc: format!("{parent_name}: structural_invariant"),
             reason: "structural_invariant not yet encoded in SMT".into(),
@@ -207,7 +207,7 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
     }
 
     // Step 1: Establishment (requires => invariant)
-    let requires: Vec<&Expr> = sibling_clauses
+    let requires: Vec<&SpExpr> = sibling_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Requires)
         .map(|c| &c.body)
@@ -216,8 +216,8 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
     results.push(check_validity_cvc5(&desc1, &requires, body));
 
     // Step 2: Preservation (requires + ensures => invariant)
-    let mut assumptions: Vec<&Expr> = requires;
-    let ensures: Vec<&Expr> = sibling_clauses
+    let mut assumptions: Vec<&SpExpr> = requires;
+    let ensures: Vec<&SpExpr> = sibling_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Ensures)
         .map(|c| &c.body)

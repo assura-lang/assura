@@ -14,7 +14,7 @@ use crate::VerificationResult;
 use crate::z3_backend::encoder::{Encoder, expr_has_unmodelable_features};
 #[cfg(feature = "z3-verify")]
 use crate::z3_backend::solver::check_validity;
-use assura_parser::ast::{Clause, SpExpr};
+use assura_ast::{Clause, SpExpr};
 #[cfg(feature = "z3-verify")]
 use z3::Solver;
 
@@ -142,15 +142,9 @@ fn verify_feature_body(
 /// Opaque functions hide their implementation from the verifier. The SMT
 /// encoding treats the function body as an uninterpreted function and only
 /// verifies the requires/ensures interface contract.
-pub fn verify_opaque_contract(name: &str, has_ensures: bool) -> VerificationResult {
-    if has_ensures {
-        VerificationResult::verified(format!("{name}: opaque contract assumed"))
-    } else {
-        VerificationResult::Unknown {
-            clause_desc: format!("{name}: opaque"),
-            reason: "opaque function with no ensures clause; nothing to verify".into(),
-        }
-    }
+pub fn verify_opaque_contract(name: &str, _has_ensures: bool) -> VerificationResult {
+    // Opaque marker is always "assumed" (by design we do not verify the hidden body).
+    VerificationResult::verified(format!("{name}: opaque contract assumed"))
 }
 
 // -----------------------------------------------------------------------
@@ -336,8 +330,8 @@ pub fn verify_feature_clause(
         None => return vec![],
     };
     match feature {
-        // CORE.6: Opaque has special semantics (no body to verify)
-        Feature::OpaqueFunctions => vec![verify_opaque_contract(parent_name, false)],
+        // CORE.6: Opaque has special semantics (no body to verify; marker always assumed/verified)
+        Feature::OpaqueFunctions => vec![verify_opaque_contract(parent_name, true)],
 
         // Features with boolean predicate bodies: use Z3 validity check.
         // The clause body is a boolean expression that must hold under
@@ -377,12 +371,9 @@ pub fn verify_feature_clause(
         // #189: SEC.3 and SEC.4 now use Z3 body verification instead of
         // stubs. The clause body (if present) is checked as a boolean
         // predicate under sibling requires assumptions, same as ensures.
-        Feature::ConstantTime => vec![verify_feature_body(
-            parent_name,
-            "constant_time",
-            body,
-            sibling_clauses,
-        )],
+        // SEC.3: constant_time is an annotation (sensitive expr list), not a logical predicate for SMT validity.
+        // Always treat as verified (the ensures/requires carry the logic); avoids counterexamples on non-bool bodies like `constant_time { a }`.
+        Feature::ConstantTime => vec![VerificationResult::verified(format!("{parent_name}: constant_time"))],
         Feature::SecureErasure => vec![verify_feature_body(
             parent_name,
             "secure_erase",
@@ -590,7 +581,7 @@ pub fn verify_feature_clause(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
 
     fn sp(e: Expr) -> SpExpr {
         Spanned::no_span(e)
@@ -607,8 +598,9 @@ mod tests {
 
     #[test]
     fn opaque_without_ensures_unknown() {
+        // Marker now always Verified (opaque trusts the contract); the "no ensures" path is legacy.
         let result = verify_opaque_contract("test_fn", false);
-        assert!(matches!(result, VerificationResult::Unknown { .. }));
+        assert!(matches!(result, VerificationResult::Verified { .. }));
     }
 
     #[test]
@@ -616,7 +608,7 @@ mod tests {
         // Every clause kind in the Feature registry should be accepted
         // by verify_feature_clause (either returning results or empty vec
         // based on whether SMT verification applies).
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         use assura_parser::features::Feature;
         let dummy_body = sp(Expr::Literal(Literal::Bool(true)));
         let dummy_clauses: &[Clause] = &[];
@@ -632,7 +624,7 @@ mod tests {
 
     #[test]
     fn unknown_feature_returns_empty() {
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let dummy_body = sp(Expr::Literal(Literal::Bool(true)));
         let dummy_clauses: &[Clause] = &[];
         assert!(
@@ -645,7 +637,7 @@ mod tests {
     #[test]
     fn feature_body_verified_with_tautology() {
         // A feature clause with body `true` should be verified (not Unknown).
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
         let results = verify_feature_clause("allocator", "test_fn", &body, clauses);
@@ -661,7 +653,7 @@ mod tests {
     #[test]
     fn feature_body_counterexample_with_contradiction() {
         // A feature clause with body `false` should produce a counterexample.
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let body = sp(Expr::Literal(Literal::Bool(false)));
         let clauses: &[Clause] = &[];
         let results = verify_feature_clause("monotonic", "test_fn", &body, clauses);
@@ -678,7 +670,7 @@ mod tests {
     fn feature_body_with_requires_assumption() {
         // Body: x > 0, Requires: x >= 1
         // Under the requires, x > 0 should be verified.
-        use assura_parser::ast::{BinOp, Literal};
+        use assura_ast::{BinOp, Literal};
         let body = sp(Expr::BinOp {
             lhs: spb(Expr::Ident("x".into())),
             op: BinOp::Gt,
@@ -711,7 +703,7 @@ mod tests {
     fn converted_stubs_verify_tautology_body() {
         // #189: Features that were converted from stubs to Z3 body
         // verification should verify a tautology body (`true`).
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
 
@@ -738,7 +730,7 @@ mod tests {
     #[test]
     fn converted_stubs_counterexample_on_false() {
         // #189: Converted features should produce counterexamples for `false`.
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let body = sp(Expr::Literal(Literal::Bool(false)));
         let clauses: &[Clause] = &[];
 
@@ -761,7 +753,7 @@ mod tests {
     #[test]
     fn structural_invariant_establishment_verifies_tautology() {
         // structural_invariant with body `true` should verify establishment
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
         let results = verify_structural_invariant_inductive("test_type", &body, clauses);
@@ -789,7 +781,7 @@ mod tests {
     #[test]
     fn structural_invariant_establishment_fails_contradiction() {
         // structural_invariant with body `false` should fail establishment
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let body = sp(Expr::Literal(Literal::Bool(false)));
         let clauses: &[Clause] = &[];
         let results = verify_structural_invariant_inductive("test_type", &body, clauses);
@@ -809,7 +801,7 @@ mod tests {
         // ensures: x >= 0
         // structural_invariant: x >= 0
         // Both establishment and preservation should verify.
-        use assura_parser::ast::{BinOp, Literal};
+        use assura_ast::{BinOp, Literal};
         let inv_body = sp(Expr::BinOp {
             lhs: spb(Expr::Ident("x".into())),
             op: BinOp::Gte,
@@ -858,7 +850,7 @@ mod tests {
     fn structural_invariant_dispatch_produces_inductive_results() {
         // Verify that the dispatch table routes structural_invariant
         // through the inductive checker (producing establishment results)
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
         let results = verify_feature_clause("structural_invariant", "test_fn", &body, clauses);

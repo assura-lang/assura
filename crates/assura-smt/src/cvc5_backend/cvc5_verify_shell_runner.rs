@@ -1,6 +1,6 @@
 //! CVC5 binary invocation for shell-out verification.
 
-use assura_parser::ast::ClauseKind;
+use assura_ast::ClauseKind;
 
 use crate::VerificationResult;
 use crate::cvc5_verify_shared::{
@@ -146,7 +146,7 @@ fn parse_cvc5_stdout_all(stdout: &str) -> Result<Vec<Cvc5Result>, String> {
 mod tests {
     use super::*;
     use crate::VerificationResult;
-    use assura_parser::ast::ClauseKind;
+    use assura_ast::ClauseKind;
 
     #[test]
     fn shell_query_helper_maps_unsat_to_verified_ensures() {

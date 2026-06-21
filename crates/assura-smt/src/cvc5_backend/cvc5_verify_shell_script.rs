@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{ClauseKind, SpExpr};
+use assura_ast::{ClauseKind, SpExpr};
 
 use crate::cvc5_common::{collect_apply_refs_from_expr, sanitize_smtlib_name};
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
@@ -62,7 +62,7 @@ pub(crate) fn append_cvc5_shellout_clause_check(script: &mut String, kind: Claus
 pub(crate) fn append_cvc5_shellout_constraints(
     script: &mut String,
     vars: &HashSet<String>,
-    params: &[assura_parser::ast::Param],
+    params: &[assura_ast::Param],
     return_ty: &[String],
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],

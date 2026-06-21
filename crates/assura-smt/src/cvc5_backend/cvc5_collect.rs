@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{Expr, SpExpr};
+use assura_ast::{Expr, SpExpr};
 
 use crate::cvc5_common::{sanitize_smtlib_name, smtlib_result_name};
 
@@ -111,7 +111,7 @@ pub(crate) fn collect_cvc5_var_names(requires: &[&SpExpr], body: &SpExpr) -> Has
 
 pub(crate) fn collect_cvc5_var_names_from_clauses(
     requires: &[&SpExpr],
-    clauses: &[&assura_parser::ast::Clause],
+    clauses: &[&assura_ast::Clause],
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for req in requires {
@@ -139,7 +139,7 @@ pub(crate) fn collect_cvc5_var_names_from_assumptions(
 
 #[cfg(test)]
 mod tests {
-    use assura_parser::ast::{Expr, Spanned};
+    use assura_ast::{Expr, Spanned};
 
     use super::*;
 

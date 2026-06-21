@@ -1,6 +1,6 @@
 //! Shared CVC5 utilities used by shell-out and native backends.
 
-use assura_parser::ast::{Expr, SpExpr};
+use assura_ast::{Expr, SpExpr};
 
 /// Rational denominator for Float literal encoding (matches Z3/CVC5 native).
 pub(crate) const FLOAT_RATIONAL_DENOM: i64 = 1_000_000;
@@ -55,30 +55,30 @@ pub(crate) fn float_to_rational_parts(f: &str) -> (i64, i64) {
 // Deep field-chain flattening (#250)
 // -------------------------------------------------------------------------
 
-pub(crate) fn is_self_rooted_cvc5(expr: &Expr) -> bool {
-    match expr {
+pub(crate) fn is_self_rooted_cvc5(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Ident(name) => name == "self",
-        Expr::Field(obj, _) => is_self_rooted_cvc5(&obj.node),
+        Expr::Field(obj, _) => is_self_rooted_cvc5(obj),
         _ => false,
     }
 }
 
-pub(crate) fn field_chain_depth_cvc5(expr: &Expr) -> usize {
-    match expr {
-        Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(&obj.node),
+pub(crate) fn field_chain_depth_cvc5(expr: &SpExpr) -> usize {
+    match &expr.node {
+        Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(obj),
         _ => 0,
     }
 }
 
-pub(crate) fn has_deep_field_chain_cvc5(expr: &Expr) -> bool {
+pub(crate) fn has_deep_field_chain_cvc5(expr: &SpExpr) -> bool {
     field_chain_depth_cvc5(expr) >= 2
 }
 
 /// Flatten a field chain like `a.b.c` into `"a__b__c"`.
-pub(crate) fn flatten_field_chain_cvc5(expr: &Expr) -> String {
-    match expr {
+pub(crate) fn flatten_field_chain_cvc5(expr: &SpExpr) -> String {
+    match &expr.node {
         Expr::Field(obj, field) => {
-            let prefix = flatten_field_chain_cvc5(&obj.node);
+            let prefix = flatten_field_chain_cvc5(obj);
             format!("{prefix}__{field}")
         }
         Expr::Ident(name) => name.clone(),
@@ -256,7 +256,7 @@ fn collect_apply_refs_inner(expr: &SpExpr, refs: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{Expr, Spanned};
+    use assura_ast::{Expr, Spanned};
 
     fn spb(e: Expr) -> Box<SpExpr> {
         Box::new(Spanned::no_span(e))

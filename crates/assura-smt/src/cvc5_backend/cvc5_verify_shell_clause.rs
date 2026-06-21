@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::ClauseKind;
+use assura_ast::ClauseKind;
 
 use crate::VerificationResult;
 use crate::cvc5_adt::cvc5_adt_prelude_lines;

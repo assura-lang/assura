@@ -7,17 +7,20 @@ module examples.core.opaque_functions;
 
 // Opaque hash: callers see the precondition but not the algorithm
 opaque fn hash_value(modulus: Nat) -> Nat
+    opaque marker
     requires { modulus > 0 }
     ensures { modulus > 0 }
 
 // Opaque comparison: callers know it takes two values
 opaque fn compare(a: Int, b: Int) -> Int
+    opaque marker
     requires { a >= 0 }
     requires { b >= 0 }
     ensures { a >= 0 }
 
 // Pure opaque function with clamping semantics
 pure opaque fn clamp(x: Int, lo: Int, hi: Int) -> Int
+    opaque marker
     requires { lo <= hi }
     ensures { lo <= hi }
 

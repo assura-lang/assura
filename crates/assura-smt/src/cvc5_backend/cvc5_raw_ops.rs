@@ -4,7 +4,7 @@
 //! (`encode_expr_cvc5` / `parse_raw_expr_cvc5`) share precedence, comparison
 //! chaining, quantifier wrapping, comma-splitting, and AST `BinOp` tables.
 
-use assura_parser::ast::{BinOp, Expr};
+use assura_ast::{BinOp, Expr, SpExpr};
 
 /// Binary operators recognized by the raw-token Pratt parsers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,13 +244,13 @@ pub(crate) fn format_raw_quantifier_smtlib(is_forall: bool, var: &str, body: &st
 // -------------------------------------------------------------------------
 
 /// Extract `(lo, hi)` when a quantifier domain is a range expression.
-pub(crate) fn domain_as_range(domain: &Expr) -> Option<(&Expr, &Expr)> {
-    match domain {
+pub(crate) fn domain_as_range(domain: &SpExpr) -> Option<(&SpExpr, &SpExpr)> {
+    match &domain.node {
         Expr::BinOp {
             op: BinOp::Range,
             lhs,
             rhs,
-        } => Some((&lhs.as_ref().node, &rhs.as_ref().node)),
+        } => Some((lhs, rhs)),
         _ => None,
     }
 }

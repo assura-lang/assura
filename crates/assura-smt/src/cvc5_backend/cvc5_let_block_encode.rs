@@ -1,6 +1,6 @@
 //! Shared Let and Block encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::SpExpr;
+use assura_ast::SpExpr;
 
 use crate::cvc5_common::sanitize_smtlib_name;
 
@@ -82,7 +82,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use assura_parser::ast::{Expr, Literal, Spanned};
+    use assura_ast::{Expr, Literal, Spanned};
 
     use super::*;
 

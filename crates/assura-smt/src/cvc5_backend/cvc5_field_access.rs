@@ -1,6 +1,6 @@
 //! Shared field-access strategy for CVC5 shell-out and native backends.
 
-use assura_parser::ast::{Expr, Spanned};
+use assura_ast::{Expr, SpExpr, Spanned};
 
 use crate::cvc5_common::{
     flatten_field_chain_cvc5, has_deep_field_chain_cvc5, is_self_rooted_cvc5,
@@ -16,9 +16,9 @@ pub(crate) enum FieldAccessPlan {
 }
 
 /// Decide flatten-vs-UF encoding for `obj.field`.
-pub(crate) fn plan_field_access(obj: &Expr, field: &str) -> FieldAccessPlan {
-    let full_expr = Expr::Field(Box::new(Spanned::no_span(obj.clone())), field.to_string());
-    if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
+pub(crate) fn plan_field_access(obj: &SpExpr, field: &str) -> FieldAccessPlan {
+    let full_expr = Spanned::no_span(Expr::Field(Box::new(obj.clone()), field.to_string()));
+    if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(&full_expr) {
         FieldAccessPlan::Flatten(flatten_field_chain_cvc5(&full_expr))
     } else {
         FieldAccessPlan::ShallowUf {
@@ -56,7 +56,7 @@ fn get_or_create_int_cvc5<'a>(
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_field_cvc5<'a, E>(
     tm: &'a cvc5::TermManager,
-    obj: &Expr,
+    obj: &SpExpr,
     field: &str,
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
@@ -64,7 +64,7 @@ pub(crate) fn encode_field_cvc5<'a, E>(
 ) -> Option<cvc5::Term<'a>>
 where
     E: FnMut(
-        &Expr,
+        &SpExpr,
         &mut std::collections::HashMap<String, cvc5::Term<'a>>,
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
@@ -73,7 +73,7 @@ where
     use crate::cvc5_encoder_state::canonical_length_cvc5;
 
     if matches!(field, "len" | "length")
-        && let Expr::Ident(name) = obj
+        && let Expr::Ident(name) = &obj.node
     {
         return Some(canonical_length_cvc5(tm, name, vars, state));
     }
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn shallow_field_for_simple_access() {
-        let obj = Expr::Ident("x".into());
+        let obj = Spanned::no_span(Expr::Ident("x".into()));
         assert_eq!(
             plan_field_access(&obj, "y"),
             FieldAccessPlan::ShallowUf { field: "y".into() }
@@ -157,15 +157,15 @@ mod tests {
 
     #[test]
     fn flatten_deep_chain() {
-        let _obj = Expr::Field(
+        let _obj = Spanned::no_span(Expr::Field(
             Box::new(Spanned::no_span(Expr::Field(
                 Box::new(Spanned::no_span(Expr::Ident("a".into()))),
                 "b".into(),
             ))),
             "c".into(),
-        );
+        ));
         // plan on obj.field would be wrong - use parent
-        let parent = Expr::Ident("state".into());
+        let parent = Spanned::no_span(Expr::Ident("state".into()));
         assert!(matches!(
             plan_field_access(&parent, "head"),
             FieldAccessPlan::ShallowUf { .. }

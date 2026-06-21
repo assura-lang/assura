@@ -1,6 +1,6 @@
 //! CVC5 verify entry-point dispatch (native vs shell-out).
 
-use assura_parser::ast::Clause;
+use assura_ast::Clause;
 
 use crate::VerificationResult;
 use crate::cache::SessionCache;
@@ -30,7 +30,7 @@ pub(crate) fn verify_contract_cvc5(
 pub(crate) fn verify_contract_cvc5_with_types(
     contract_name: &str,
     clauses: &[Clause],
-    params: &[assura_parser::ast::Param],
+    params: &[assura_ast::Param],
     return_ty: &[String],
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
@@ -41,7 +41,7 @@ pub(crate) fn verify_contract_cvc5_with_types(
 pub(crate) fn verify_contract_cvc5_with_full_context(
     contract_name: &str,
     clauses: &[Clause],
-    params: &[assura_parser::ast::Param],
+    params: &[assura_ast::Param],
     return_ty: &[String],
     constants: &[(String, i64)],
     cache: &mut SessionCache,
@@ -60,7 +60,7 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
 /// Verify a single contract's clauses using CVC5, with optional lemma defs.
 pub(crate) fn verify_contract_cvc5_with_lemmas(
     ctx: &ContractVerifyContext<'_>,
-    lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_parser::ast::SpExpr>>>,
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_ast::SpExpr>>>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let (mut results, prepared) = prepare_cvc5_contract_verification(
