@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '0 3 * * *'  # daily at 03:00 UTC to exercise full test matrix (SMT/Z3/CVC5)
   workflow_dispatch:
 
 concurrency:
@@ -13,6 +15,9 @@ concurrency:
 # ---------------------------------------------------------------------------
 # Path filter: determine which groups of files changed so jobs can skip
 # themselves when their inputs are untouched.
+#
+# A daily schedule trigger ensures the full test matrix (incl. SMT/Z3/CVC5
+# native jobs) runs regularly even without pushes/PRs.
 #
 # Architecture: 3 self-hosted macOS ARM64 runners (assura-mac-1/2/3).
 # The 3 heavy Rust jobs (clippy, test, codegen-validation) run in parallel,
@@ -90,7 +95,7 @@ jobs:
   # check takes <1s.
   clippy:
     needs: changes
-    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
@@ -144,7 +149,7 @@ jobs:
   # ── Tests (runner 2, parallel with clippy) ───────────────────────────────
   test:
     needs: changes
-    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
@@ -200,7 +205,7 @@ jobs:
     needs: changes
     # Only run on codegen/tooling changes (incl. assura-bench) or manual dispatch.
     # Avoids running on every Rust change (e.g. pure parser tweaks).
-    if: ${{ needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
@@ -259,7 +264,7 @@ jobs:
   codegen-validation:
     name: Generated code compiles
     needs: changes
-    if: ${{ needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
@@ -325,7 +330,7 @@ jobs:
   # ── No-Z3 fallback check (~30s on ubuntu) ───────────────────────────────
   no-z3:
     needs: changes
-    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -350,7 +355,7 @@ jobs:
   cvc5:
     name: CVC5 native tests
     needs: changes
-    if: ${{ needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
@@ -424,7 +429,7 @@ jobs:
   tree-sitter:
     name: Tree-sitter grammar tests
     needs: changes
-    if: ${{ needs.changes.outputs.editors-ts == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.editors-ts == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -432,25 +437,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install tree-sitter CLI
-        run: |
-          if ! command -v tree-sitter >/dev/null 2>&1 || [ "$(uname)" = "Darwin" ]; then
-            npm install -g tree-sitter-cli --force
-          fi
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: editors/tree-sitter-assura
+        run: npm install
 
       - name: Generate parser
         working-directory: editors/tree-sitter-assura
-        run: tree-sitter generate
+        run: npx tree-sitter generate
 
       - name: Run tree-sitter tests
         working-directory: editors/tree-sitter-assura
-        run: tree-sitter test
+        run: npx tree-sitter test
 
   # ── VS Code extension compiles ──────────────────────────────────────────
   vscode-extension:
     name: VS Code extension compiles
     needs: changes
-    if: ${{ needs.changes.outputs.editors-vscode == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.editors-vscode == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
