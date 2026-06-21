@@ -110,7 +110,7 @@ SourceFile {
                                                         span: 123..124,
                                                     },
                                                 },
-                                                span: 0..0,
+                                                span: 116..124,
                                             },
                                             op: Add,
                                             rhs: Spanned {
@@ -132,7 +132,7 @@ SourceFile {
                                                 span: 125..132,
                                             },
                                         },
-                                        span: 0..0,
+                                        span: 116..132,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
@@ -272,7 +272,7 @@ SourceFile {
                                                 span: 269..272,
                                             },
                                         },
-                                        span: 0..0,
+                                        span: 262..272,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -354,7 +354,7 @@ SourceFile {
                                                 span: 345..346,
                                             },
                                         },
-                                        span: 0..0,
+                                        span: 337..346,
                                     },
                                     op: And,
                                     rhs: Spanned {

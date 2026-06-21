@@ -687,11 +687,15 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
             // Can't parse operator; return raw and apply any collected chain.
             let mut result = Spanned::no_span(Expr::Raw(tokens));
             for (chain_op, chain_rhs) in chain.into_iter().rev() {
-                result = Spanned::no_span(Expr::BinOp {
-                    lhs: Box::new(result),
-                    op: chain_op,
-                    rhs: Box::new(chain_rhs),
-                });
+                let combined_span = result.span.start..chain_rhs.span.end;
+                result = Spanned {
+                    node: Expr::BinOp {
+                        lhs: Box::new(result),
+                        op: chain_op,
+                        rhs: Box::new(chain_rhs),
+                    },
+                    span: combined_span,
+                };
             }
             return result.node;
         };
@@ -715,11 +719,15 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
                     .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
                 let mut result = base;
                 for (chain_op, chain_rhs) in chain.into_iter().rev() {
-                    result = Spanned::no_span(Expr::BinOp {
-                        lhs: Box::new(result),
-                        op: chain_op,
-                        rhs: Box::new(chain_rhs),
-                    });
+                    let combined_span = result.span.start..chain_rhs.span.end;
+                    result = Spanned {
+                        node: Expr::BinOp {
+                            lhs: Box::new(result),
+                            op: chain_op,
+                            rhs: Box::new(chain_rhs),
+                        },
+                        span: combined_span,
+                    };
                 }
                 return result.node;
             }
@@ -2032,6 +2040,49 @@ mod tests {
             match &c.clauses[0].body.node {
                 Expr::BinOp { op, .. } => assert_eq!(*op, BinOp::Gt),
                 other => panic!("expected BinOp, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn lower_expr_binary_chain_spans() {
+        // For `a + b + c`, the inner `a + b` should have a span covering
+        // both `a` and `b`, not 0..0.
+        let src = r#"
+            contract Foo {
+                requires a + b + c > 0
+            }
+        "#;
+        let (sf, errors) = parse_and_lower(src);
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        if let Decl::Contract(c) = &sf.decls[0].node {
+            // Top-level: BinOp(>, lhs=BinOp(+, ..., c), rhs=0)
+            let body = &c.clauses[0].body;
+            assert!(
+                body.span != (0..0),
+                "top-level body span should not be 0..0"
+            );
+            if let Expr::BinOp { lhs, .. } = &body.node {
+                // lhs is `a + b + c` addition chain
+                assert!(lhs.span != (0..0), "addition chain span should not be 0..0");
+                if let Expr::BinOp {
+                    lhs: inner_lhs,
+                    rhs: inner_rhs,
+                    ..
+                } = &lhs.node
+                {
+                    // inner_lhs is `a + b`, inner_rhs is `c`
+                    assert!(
+                        inner_lhs.span != (0..0),
+                        "inner `a + b` span should not be 0..0, got {:?}",
+                        inner_lhs.span
+                    );
+                    assert!(
+                        inner_rhs.span != (0..0),
+                        "inner `c` span should not be 0..0, got {:?}",
+                        inner_rhs.span
+                    );
+                }
             }
         }
     }

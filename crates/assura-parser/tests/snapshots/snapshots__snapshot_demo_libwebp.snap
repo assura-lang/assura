@@ -601,7 +601,7 @@ SourceFile {
                                                 span: 2666..2673,
                                             },
                                         },
-                                        span: 0..0,
+                                        span: 2661..2673,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
