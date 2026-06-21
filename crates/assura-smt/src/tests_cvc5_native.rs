@@ -1801,8 +1801,7 @@ mod frame_tests {
         let req1 = cmp("x", BinOp::Lt, "100");
         let ensures = cmp("x", BinOp::Gt, "10");
 
-        let result =
-            check_validity_cvc5("unsat_core_test", &[&req0, &req1], &ensures);
+        let result = check_validity_cvc5("unsat_core_test", &[&req0, &req1], &ensures);
         match result {
             VerificationResult::Verified { unsat_core, .. } => {
                 let core = unsat_core
