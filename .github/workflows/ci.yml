@@ -429,7 +429,10 @@ jobs:
           persist-credentials: false
 
       - name: Install tree-sitter CLI
-        run: npm install -g tree-sitter-cli
+        run: |
+          if ! command -v tree-sitter >/dev/null 2>&1 || [ "$(uname)" = "Darwin" ]; then
+            npm install -g tree-sitter-cli --force
+          fi
 
       - name: Generate parser
         working-directory: editors/tree-sitter-assura
