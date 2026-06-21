@@ -418,10 +418,10 @@ pub(crate) fn collect_type_refs_from_tokens(
 
 /// Collect type names referenced in expressions (e.g., constructor calls).
 pub(crate) fn collect_type_refs_from_expr(
-    expr: &Expr,
+    expr: &SpExpr,
     out: &mut std::collections::HashSet<String>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Ident(name) => {
             if is_user_type_name(name) {
                 out.insert(name.clone());
@@ -549,8 +549,8 @@ pub(crate) fn find_feature_max_value(
 }
 
 /// Convert an Expr to a Rust expression for use in const context.
-pub fn expr_to_rust_static(expr: &Expr) -> String {
-    match expr {
+pub fn expr_to_rust_static(expr: &SpExpr) -> String {
+    match &expr.node {
         Expr::Literal(lit) => match lit {
             Literal::Int(s) | Literal::Float(s) => s.clone(),
             Literal::Str(s) => format!("\"{s}\""),
@@ -738,6 +738,7 @@ pub(crate) fn extract_base_type_from_refined(tokens: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
     // ---- map_type_token ----
 
@@ -925,24 +926,24 @@ mod tests {
     #[test]
     fn collect_refs_from_ident() {
         let mut out = std::collections::HashSet::new();
-        collect_type_refs_from_expr(&Expr::Ident("MyType".into()), &mut out);
+        collect_type_refs_from_expr(&Spanned::no_span(Expr::Ident("MyType".into())), &mut out);
         assert!(out.contains("MyType"));
     }
 
     #[test]
     fn collect_refs_from_ident_lowercase() {
         let mut out = std::collections::HashSet::new();
-        collect_type_refs_from_expr(&Expr::Ident("x".into()), &mut out);
+        collect_type_refs_from_expr(&Spanned::no_span(Expr::Ident("x".into())), &mut out);
         assert!(out.is_empty());
     }
 
     #[test]
     fn collect_refs_nested() {
         let mut out = std::collections::HashSet::new();
-        let e = Expr::Call {
-            func: Box::new(Expr::Ident("Create".into())),
-            args: vec![Expr::Ident("Config".into())],
-        };
+        let e = Spanned::no_span(Expr::Call {
+            func: Box::new(Spanned::no_span(Expr::Ident("Create".into()))),
+            args: vec![Spanned::no_span(Expr::Ident("Config".into()))],
+        });
         collect_type_refs_from_expr(&e, &mut out);
         assert!(out.contains("Create"));
         assert!(out.contains("Config"));
@@ -1118,24 +1119,26 @@ mod tests {
     #[test]
     fn static_int_literal() {
         assert_eq!(
-            expr_to_rust_static(&Expr::Literal(Literal::Int("42".into()))),
+            expr_to_rust_static(&Spanned::no_span(Expr::Literal(Literal::Int("42".into())))),
             "42"
         );
     }
 
     #[test]
     fn static_binop() {
-        let e = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("a".into())),
+        let e = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
             op: BinOp::Add,
-            rhs: Box::new(Expr::Ident("b".into())),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+        });
         assert_eq!(expr_to_rust_static(&e), "(a + b)");
     }
 
     #[test]
     fn static_ghost_erased() {
-        let e = Expr::Ghost(Box::new(Expr::Ident("x".into())));
+        let e = Spanned::no_span(Expr::Ghost(Box::new(Spanned::no_span(Expr::Ident(
+            "x".into(),
+        )))));
         let result = expr_to_rust_static(&e);
         assert!(result.contains("ghost:"));
         assert!(result.ends_with("()"));
@@ -1143,11 +1146,11 @@ mod tests {
 
     #[test]
     fn static_forall_comment() {
-        let e = Expr::Forall {
+        let e = Spanned::no_span(Expr::Forall {
             var: "i".into(),
-            domain: Box::new(Expr::Ident("items".into())),
-            body: Box::new(Expr::Literal(Literal::Bool(true))),
-        };
+            domain: Box::new(Spanned::no_span(Expr::Ident("items".into()))),
+            body: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+        });
         let result = expr_to_rust_static(&e);
         assert!(result.contains("forall"));
         assert!(result.ends_with("true"));
@@ -1155,13 +1158,13 @@ mod tests {
 
     #[test]
     fn static_raw_single_token() {
-        let e = Expr::Raw(vec!["42".into()]);
+        let e = Spanned::no_span(Expr::Raw(vec!["42".into()]));
         assert_eq!(expr_to_rust_static(&e), "42");
     }
 
     #[test]
     fn static_raw_eq_value() {
-        let e = Expr::Raw(vec!["=".into(), "100".into()]);
+        let e = Spanned::no_span(Expr::Raw(vec!["=".into(), "100".into()]));
         assert_eq!(expr_to_rust_static(&e), "100");
     }
 }

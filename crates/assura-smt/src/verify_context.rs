@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::{Clause, ClauseKind, Expr, Param};
+use assura_parser::ast::{Clause, ClauseKind, Param, SpExpr};
 use assura_types::TypeEnv;
 
 use crate::VerifyFileExtras;
@@ -117,7 +117,7 @@ impl<'a> ContractVerifyContext<'a> {
 pub(crate) struct Cvc5ContractVerifySession<'a> {
     pub contract: &'a ContractVerifyContext<'a>,
     pub prepared: Cvc5ContractPrepared<'a>,
-    pub lemma_defs: Option<&'a HashMap<String, Vec<&'a Expr>>>,
+    pub lemma_defs: Option<&'a HashMap<String, Vec<&'a SpExpr>>>,
     pub cache: &'a mut SessionCache,
 }
 
@@ -125,7 +125,7 @@ impl<'a> Cvc5ContractVerifySession<'a> {
     pub fn new(
         contract: &'a ContractVerifyContext<'a>,
         prepared: Cvc5ContractPrepared<'a>,
-        lemma_defs: Option<&'a HashMap<String, Vec<&'a Expr>>>,
+        lemma_defs: Option<&'a HashMap<String, Vec<&'a SpExpr>>>,
         cache: &'a mut SessionCache,
     ) -> Self {
         Self {
@@ -152,7 +152,7 @@ impl<'a> Cvc5ContractVerifySession<'a> {
 /// Per-clause verification input for CVC5 native and shell-out backends.
 pub(crate) struct Cvc5ClauseVerifyInput<'a> {
     pub desc: &'a str,
-    pub body: &'a Expr,
+    pub body: &'a SpExpr,
     pub kind: ClauseKind,
 }
 

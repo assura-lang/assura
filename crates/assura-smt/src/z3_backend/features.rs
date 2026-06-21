@@ -5,6 +5,7 @@ use super::encoder::Encoder;
 use super::solver::check_validity;
 use crate::measures::MeasureDefinition;
 use crate::*;
+use assura_parser::ast::SpExpr;
 
 use std::collections::HashMap;
 use z3::{Solver, ast};
@@ -18,8 +19,8 @@ use z3::{Solver, ast};
 /// Encodes: assert antecedent, assert NOT consequent, check-sat.
 /// UNSAT => Verified, SAT => Counterexample.
 pub(crate) fn check_refinement_subtype_impl(
-    antecedent: &Expr,
-    consequent: &Expr,
+    antecedent: &SpExpr,
+    consequent: &SpExpr,
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
@@ -52,9 +53,9 @@ pub(crate) fn check_refinement_subtype_impl(
 
 /// Check refinement subtyping with additional context assumptions.
 pub(crate) fn check_refinement_subtype_with_context_impl(
-    context: &[Expr],
-    antecedent: &Expr,
-    consequent: &Expr,
+    context: &[SpExpr],
+    antecedent: &SpExpr,
+    consequent: &SpExpr,
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
@@ -104,7 +105,10 @@ pub(crate) fn check_refinement_subtype_with_context_impl(
 ///
 /// Models buffer capacity as a non-negative integer. Asserts all
 /// requires as assumptions, then checks the ensures clause validity.
-pub(crate) fn verify_buffer_bounds_impl(requires: &[Expr], ensures: &Expr) -> VerificationResult {
+pub(crate) fn verify_buffer_bounds_impl(
+    requires: &[SpExpr],
+    ensures: &SpExpr,
+) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
     params.set_u32("timeout", 1000);
@@ -140,11 +144,11 @@ pub(crate) fn verify_buffer_bounds_impl(requires: &[Expr], ensures: &Expr) -> Ve
 ///
 /// We negate this and check for SAT. UNSAT = containment holds.
 pub(crate) fn verify_region_containment_impl(
-    context: &[Expr],
-    sub_lo: &Expr,
-    sub_hi: &Expr,
-    parent_lo: &Expr,
-    parent_hi: &Expr,
+    context: &[SpExpr],
+    sub_lo: &SpExpr,
+    sub_hi: &SpExpr,
+    parent_lo: &SpExpr,
+    parent_hi: &SpExpr,
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
@@ -407,8 +411,8 @@ fn assert_measure_axioms(
 /// 3. Asserts all requires as assumptions.
 /// 4. Checks validity of ensures (negate + check-sat).
 pub(crate) fn verify_with_measures_impl(
-    requires: &[Expr],
-    ensures: &Expr,
+    requires: &[SpExpr],
+    ensures: &SpExpr,
     measures: &[MeasureDefinition],
 ) -> VerificationResult {
     let solver = Solver::new();
@@ -465,9 +469,9 @@ pub(crate) fn verify_with_measures_impl(
 /// by asserting preconditions, then checking that `NOT (call_arg < measure && call_arg >= 0)`
 /// is UNSAT.
 pub(crate) fn verify_decrease_impl(
-    preconditions: &[Expr],
-    measure_expr: &Expr,
-    call_arg_expr: &Expr,
+    preconditions: &[SpExpr],
+    measure_expr: &SpExpr,
+    call_arg_expr: &SpExpr,
     clause_desc: String,
 ) -> VerificationResult {
     let solver = Solver::new();

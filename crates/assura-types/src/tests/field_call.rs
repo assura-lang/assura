@@ -6,7 +6,10 @@ use super::*;
 fn infer_field_on_named_type_is_unknown() {
     let mut env = TypeEnv::new();
     env.insert("p".into(), Type::Named("Point".into()));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "x".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("p".into()))),
+        "x".into(),
+    ));
     // Named type without struct field info returns Unknown
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
@@ -19,7 +22,10 @@ fn infer_field_resolves_struct_field() {
         "Point".into(),
         vec![("x".into(), Type::Int), ("y".into(), Type::Int)],
     );
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "x".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("p".into()))),
+        "x".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -30,7 +36,10 @@ fn infer_field_unknown_field_on_known_struct() {
     env.struct_fields
         .insert("Point".into(), vec![("x".into(), Type::Int)]);
     // Accessing unknown field on registered struct emits A03005
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("p".into())), "z".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("p".into()))),
+        "z".into(),
+    ));
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
     assert!(err.message.contains("unknown field `z`"));
@@ -40,7 +49,10 @@ fn infer_field_unknown_field_on_known_struct() {
 fn unknown_field_on_list_emits_a03005() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "bogus".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+        "bogus".into(),
+    ));
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
     assert!(err.message.contains("unknown field `bogus`"));
@@ -50,11 +62,11 @@ fn unknown_field_on_list_emits_a03005() {
 fn unknown_method_on_list_emits_a03005() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("xs".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
         method: "bogus_method".into(),
         args: vec![],
-    };
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
     assert!(err.message.contains("unknown method `bogus_method`"));
@@ -67,11 +79,11 @@ fn map_keys_returns_set() {
         "m".into(),
         Type::Map(Box::new(Type::String), Box::new(Type::Int)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("m".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("m".into()))),
         method: "keys".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Set(Box::new(Type::String))
@@ -85,11 +97,11 @@ fn map_values_returns_list() {
         "m".into(),
         Type::Map(Box::new(Type::String), Box::new(Type::Int)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("m".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("m".into()))),
         method: "values".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::List(Box::new(Type::Int))
@@ -100,11 +112,11 @@ fn map_values_returns_list() {
 fn set_union_returns_set() {
     let mut env = TypeEnv::new();
     env.insert("s".into(), Type::Set(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("s".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("s".into()))),
         method: "union".into(),
-        args: vec![AstExpr::Ident("s".into())],
-    };
+        args: vec![Spanned::no_span(AstExpr::Ident("s".into()))],
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Set(Box::new(Type::Int))
@@ -115,11 +127,11 @@ fn set_union_returns_set() {
 fn string_split_returns_list() {
     let mut env = TypeEnv::new();
     env.insert("s".into(), Type::String);
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("s".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("s".into()))),
         method: "split".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::List(Box::new(Type::String))
@@ -130,11 +142,11 @@ fn string_split_returns_list() {
 fn bytes_len_returns_nat() {
     let mut env = TypeEnv::new();
     env.insert("data".into(), Type::Bytes);
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("data".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("data".into()))),
         method: "len".into(),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
 }
 
@@ -142,11 +154,11 @@ fn bytes_len_returns_nat() {
 fn unknown_method_on_bytes_emits_a03005() {
     let mut env = TypeEnv::new();
     env.insert("data".into(), Type::Bytes);
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("data".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("data".into()))),
         method: "bogus".into(),
         args: vec![],
-    };
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
 }
@@ -155,7 +167,10 @@ fn unknown_method_on_bytes_emits_a03005() {
 fn unknown_field_on_option_emits_a03005() {
     let mut env = TypeEnv::new();
     env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("opt".into())), "nope".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
+        "nope".into(),
+    ));
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
 }
@@ -165,7 +180,10 @@ fn unknown_field_on_named_without_struct_fields_is_unknown() {
     // Named type with NO registered struct_fields stays lenient
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Named("SomeExternalType".into()));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("x".into())), "anything".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        "anything".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
 
@@ -173,7 +191,10 @@ fn unknown_field_on_named_without_struct_fields_is_unknown() {
 fn infer_field_collection_len() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "len".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+        "len".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
 }
 
@@ -181,11 +202,11 @@ fn infer_field_collection_len() {
 fn infer_method_collection_contains() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("xs".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
         method: "contains".into(),
-        args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))],
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -193,11 +214,11 @@ fn infer_method_collection_contains() {
 fn infer_method_list_get() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("xs".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
         method: "get".into(),
-        args: vec![AstExpr::Literal(AstLit::Int("0".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))],
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::Int))
@@ -244,13 +265,13 @@ fn infer_field_surfaces_receiver_error() {
     let env = TypeEnv::new();
     // Field access on an expression that has an error inside:
     // (!42).field -> error inside unary !
-    let expr = AstExpr::Field(
-        Box::new(AstExpr::UnaryOp {
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::UnaryOp {
             op: AstUnOp::Not,
-            expr: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
-        }),
+            expr: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())))),
+        })),
         "field".into(),
-    );
+    ));
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03001");
 }
@@ -265,13 +286,13 @@ fn infer_call_fn_type_returns_ret() {
             ret: Box::new(Type::Int),
         },
     );
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("add".into())),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("add".into()))),
         args: vec![
-            AstExpr::Literal(AstLit::Int("1".into())),
-            AstExpr::Literal(AstLit::Int("2".into())),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into()))),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("2".into()))),
         ],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -285,13 +306,13 @@ fn infer_call_wrong_arg_count_a03002() {
             ret: Box::new(Type::Int),
         },
     );
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("inc".into())),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("inc".into()))),
         args: vec![
-            AstExpr::Literal(AstLit::Int("1".into())),
-            AstExpr::Literal(AstLit::Int("2".into())),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into()))),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("2".into()))),
         ],
-    };
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03002");
     assert!(err.message.contains("1"));
@@ -302,10 +323,10 @@ fn infer_call_wrong_arg_count_a03002() {
 fn infer_call_not_callable_a03005() {
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Int);
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         args: vec![],
-    };
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
     assert!(err.message.contains("Int"));
@@ -316,10 +337,10 @@ fn infer_call_not_callable_a03005() {
 fn infer_call_bool_not_callable_a03005() {
     let mut env = TypeEnv::new();
     env.insert("flag".into(), Type::Bool);
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("flag".into())),
-        args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("flag".into()))),
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))],
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
 }
@@ -327,10 +348,10 @@ fn infer_call_bool_not_callable_a03005() {
 #[test]
 fn infer_call_unknown_callee_is_lenient() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("unknown_fn".into())),
-        args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("unknown_fn".into()))),
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))],
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
 
@@ -339,10 +360,10 @@ fn infer_call_named_type_returns_named() {
     let mut env = TypeEnv::new();
     env.insert("MyType".into(), Type::Named("MyType".into()));
     // Calling a Named type returns that type (constructor pattern)
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("MyType".into())),
-        args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("MyType".into()))),
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))],
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Named("MyType".into())
@@ -360,13 +381,13 @@ fn infer_call_fn_empty_params_skips_count_check() {
             ret: Box::new(Type::Bool),
         },
     );
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("f".into())),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("f".into()))),
         args: vec![
-            AstExpr::Literal(AstLit::Int("1".into())),
-            AstExpr::Literal(AstLit::Int("2".into())),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into()))),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("2".into()))),
         ],
-    };
+    });
     // Empty params means we skip count check, return ret type
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
@@ -382,14 +403,14 @@ fn infer_call_surfaces_arg_error() {
         },
     );
     // Argument has a type error inside it: true + false
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("f".into())),
-        args: vec![AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("f".into()))),
+        args: vec![Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
-        }],
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(false)))),
+        })],
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03001");
 }
@@ -397,11 +418,11 @@ fn infer_call_surfaces_arg_error() {
 #[test]
 fn infer_method_call_is_unknown() {
     let env = TypeEnv::new();
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("obj".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("obj".into()))),
         method: "do_something".into(),
-        args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))],
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
 
@@ -409,15 +430,15 @@ fn infer_method_call_is_unknown() {
 fn infer_method_call_surfaces_receiver_error() {
     let env = TypeEnv::new();
     // receiver has a type error: true + 1
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-        }),
+            rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+        })),
         method: "m".into(),
         args: vec![],
-    };
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03001");
 }
@@ -426,10 +447,10 @@ fn infer_method_call_surfaces_receiver_error() {
 fn infer_index_list_returns_element_type() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("xs".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -440,10 +461,12 @@ fn infer_index_map_returns_value_type() {
         "m".into(),
         Type::Map(Box::new(Type::String), Box::new(Type::Bool)),
     );
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("m".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Str("key".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("m".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Str(
+            "key".into(),
+        )))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -451,20 +474,20 @@ fn infer_index_map_returns_value_type() {
 fn infer_index_sequence_returns_element_type() {
     let mut env = TypeEnv::new();
     env.insert("seq".into(), Type::Sequence(Box::new(Type::Float)));
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("seq".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("seq".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
 }
 
 #[test]
 fn infer_index_unknown_base_is_unknown() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("unknown".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("unknown".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
 
@@ -472,10 +495,10 @@ fn infer_index_unknown_base_is_unknown() {
 fn infer_index_named_type_is_unknown() {
     let mut env = TypeEnv::new();
     env.insert("arr".into(), Type::Named("CustomArray".into()));
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("arr".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("arr".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     // Named type indexing returns Unknown (could be user-defined indexable)
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
@@ -485,14 +508,14 @@ fn infer_index_surfaces_index_error() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
     // Index expr has a type error: true && 42
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("xs".into())),
-        index: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
             op: AstBinOp::And,
-            rhs: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
-        }),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())))),
+        })),
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03001");
 }
@@ -501,10 +524,10 @@ fn infer_index_surfaces_index_error() {
 fn infer_index_bytes_returns_u8() {
     let mut env = TypeEnv::new();
     env.insert("data".into(), Type::Bytes);
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("data".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("data".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::U8);
 }
 
@@ -513,17 +536,17 @@ fn infer_index_tuple_literal() {
     let mut env = TypeEnv::new();
     env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::Bool]));
     // pair[0] should be Int
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("pair".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("pair".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 
     // pair[1] should be Bool
-    let expr1 = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("pair".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-    };
+    let expr1 = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("pair".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+    });
     assert_eq!(infer_expr(&expr1, &env).unwrap(), Type::Bool);
 }
 
@@ -531,10 +554,10 @@ fn infer_index_tuple_literal() {
 fn infer_index_bool_emits_error() {
     let mut env = TypeEnv::new();
     env.insert("flag".into(), Type::Bool);
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("flag".into())),
-        index: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("flag".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03005");
 }
@@ -635,12 +658,12 @@ fn refinement_predicate_roundtrip_through_clause_params() {
     // Verify that a refinement type survives extraction via shared
     // extract_clause_params and then parse_type_tokens.
     // Input: raw tokens for `x : { n : Int | n > 0 }`
-    use assura_parser::ast::{Expr, extract_clause_params};
+    use assura_parser::ast::{Expr, Spanned, extract_clause_params};
     let tokens: Vec<String> = vec!["x", ":", "{", "n", ":", "Int", "|", "n", ">", "0", "}"]
         .into_iter()
         .map(String::from)
         .collect();
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     let params = extract_clause_params(&body);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0].name, "x");
@@ -672,7 +695,7 @@ fn refinement_predicate_with_less_than_in_multi_param() {
     .into_iter()
     .map(String::from)
     .collect();
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     let params = extract_clause_params(&body);
     assert_eq!(params.len(), 2);
 

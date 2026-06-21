@@ -999,9 +999,9 @@ pub fn generate_all_feature_clauses(clauses: &[Clause], fn_name: &str, code: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{Expr, Literal};
+    use assura_parser::ast::{Expr, Literal, SpExpr, Spanned};
 
-    fn mk_clause(kind: ClauseKind, body: Expr) -> Clause {
+    fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {
             kind,
             body,
@@ -1012,12 +1012,15 @@ mod tests {
     fn mk_other(kind: &str) -> Clause {
         mk_clause(
             ClauseKind::Other(kind.into()),
-            Expr::Literal(Literal::Bool(true)),
+            Spanned::no_span(Expr::Literal(Literal::Bool(true))),
         )
     }
 
     fn mk_other_ident(kind: &str, ident: &str) -> Clause {
-        mk_clause(ClauseKind::Other(kind.into()), Expr::Ident(ident.into()))
+        mk_clause(
+            ClauseKind::Other(kind.into()),
+            Spanned::no_span(Expr::Ident(ident.into())),
+        )
     }
 
     // ---- CORE features ----
@@ -1634,7 +1637,10 @@ mod tests {
 
     #[test]
     fn dispatch_non_other_clause_returns_false() {
-        let clause = mk_clause(ClauseKind::Requires, Expr::Literal(Literal::Bool(true)));
+        let clause = mk_clause(
+            ClauseKind::Requires,
+            Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+        );
         let mut code = String::new();
         assert!(!generate_feature_clause(&clause, "fn1", &mut code));
         assert!(code.is_empty());
@@ -1647,7 +1653,10 @@ mod tests {
         let clauses = vec![
             mk_other("ghost"),
             mk_other("region"),
-            mk_clause(ClauseKind::Requires, Expr::Literal(Literal::Bool(true))),
+            mk_clause(
+                ClauseKind::Requires,
+                Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+            ),
         ];
         let mut code = String::new();
         generate_all_feature_clauses(&clauses, "fn1", &mut code);
@@ -1682,7 +1691,10 @@ mod tests {
 
     #[test]
     fn frame_conditions_empty_emits_compile_error() {
-        let clause = mk_clause(ClauseKind::Other("frame".into()), Expr::Raw(vec![]));
+        let clause = mk_clause(
+            ClauseKind::Other("frame".into()),
+            Spanned::no_span(Expr::Raw(vec![])),
+        );
         let mut code = String::new();
         compile_time_frame(&clause, "bad_fn", &mut code);
         assert!(
@@ -1710,7 +1722,7 @@ mod tests {
     fn trigger_pattern_empty_emits_compile_error() {
         let clause = mk_clause(
             ClauseKind::Other("trigger_pattern".into()),
-            Expr::Raw(vec![]),
+            Spanned::no_span(Expr::Raw(vec![])),
         );
         let mut code = String::new();
         compile_time_trigger_pattern(&clause, &mut code);
@@ -1737,7 +1749,10 @@ mod tests {
 
     #[test]
     fn dependent_types_empty_emits_compile_error() {
-        let clause = mk_clause(ClauseKind::Other("dependent".into()), Expr::Raw(vec![]));
+        let clause = mk_clause(
+            ClauseKind::Other("dependent".into()),
+            Spanned::no_span(Expr::Raw(vec![])),
+        );
         let mut code = String::new();
         compile_time_dependent_types(&clause, &mut code);
         assert!(
@@ -1751,11 +1766,11 @@ mod tests {
         // Real-world pattern: modifies { ctx.peer_point, ctx.shared_secret }
         let clause = mk_clause(
             ClauseKind::Other("frame".into()),
-            Expr::Raw(vec![
+            Spanned::no_span(Expr::Raw(vec![
                 "ctx.peer_point".into(),
                 ",".into(),
                 "ctx.shared_secret".into(),
-            ]),
+            ])),
         );
         let mut code = String::new();
         compile_time_frame(&clause, "ecdh_parse", &mut code);

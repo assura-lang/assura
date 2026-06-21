@@ -60,7 +60,7 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
 /// Verify a single contract's clauses using CVC5, with optional lemma defs.
 pub(crate) fn verify_contract_cvc5_with_lemmas(
     ctx: &ContractVerifyContext<'_>,
-    lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_parser::ast::Expr>>>,
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_parser::ast::SpExpr>>>,
     cache: &mut SessionCache,
 ) -> Vec<VerificationResult> {
     let (mut results, prepared) = prepare_cvc5_contract_verification(

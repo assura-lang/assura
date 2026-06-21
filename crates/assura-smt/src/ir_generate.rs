@@ -3,7 +3,7 @@
 //! Analyzes `ensures` clauses to produce IR bodies richer than identity stubs.
 //! Falls back to `stub_ir_sidecar_text` when no pattern matches.
 
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal};
+use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr};
 use std::collections::HashMap;
 
 use crate::ir::stub_ir_sidecar_text;
@@ -43,7 +43,7 @@ struct IrGenPlan {
     siblings: Vec<(usize, IrGenBody)>,
 }
 
-type IrPlannerFn = fn(&Expr, &PlanCtx<'_>) -> Option<IrGenPlan>;
+type IrPlannerFn = fn(&SpExpr, &PlanCtx<'_>) -> Option<IrGenPlan>;
 
 const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_if_branch_ensures,
@@ -84,16 +84,16 @@ pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> Ens
             if expr_suggests_call_chain(other) {
                 return EnsuresShape::CallChain;
             }
-            if matches!(other, Expr::If { .. }) {
+            if matches!(&other.node, Expr::If { .. }) {
                 return EnsuresShape::IfBranch;
             }
-            if matches!(other, Expr::Match { .. }) {
+            if matches!(&other.node, Expr::Match { .. }) {
                 return EnsuresShape::MatchArm;
             }
-            if matches!(other, Expr::Ident(_)) {
+            if matches!(&other.node, Expr::Ident(_)) {
                 return EnsuresShape::Identity;
             }
-            if matches!(other, Expr::BinOp { op, .. } if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod))
+            if matches!(&other.node, Expr::BinOp { op, .. } if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod))
             {
                 return EnsuresShape::Arithmetic;
             }
@@ -149,7 +149,7 @@ pub fn generate_ir_sidecar_text(
     stub_ir_sidecar_text(name, params, return_ty, requires_count, ensures_count)
 }
 
-fn plan_from_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+fn plan_from_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     for planner in ENSURES_PLANNERS {
         if let Some(plan) = planner(expr, ctx) {
             return Some(plan);
@@ -165,7 +165,7 @@ fn single_fn_plan(body: IrGenBody) -> IrGenPlan {
     }
 }
 
-fn plan_identity_equality(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+fn plan_identity_equality(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     if is_result_ident(lhs) {
         return plan_result_equals(rhs, ctx).map(single_fn_plan);
@@ -176,13 +176,13 @@ fn plan_identity_equality(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     None
 }
 
-fn plan_length_copy_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+fn plan_length_copy_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let slot = length_relation_ensures(expr, &ctx.name_to_slot)?;
     Some(single_fn_plan(single_load(slot, ctx.return_ty)))
 }
 
 /// `ensures { result == if cond then a else b }` → branch blocks `#1` / `#2`.
-fn plan_if_branch_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+fn plan_if_branch_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let if_expr = if is_result_ident(lhs) {
         rhs
@@ -195,7 +195,7 @@ fn plan_if_branch_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
         cond,
         then_branch,
         else_branch,
-    } = if_expr
+    } = &if_expr.node
     else {
         return None;
     };
@@ -229,7 +229,7 @@ fn plan_if_branch_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
 /// comparing the scrutinee against pattern literals. For example,
 /// `match x { 0 => 0, _ => x }` treats any non-zero `x` as the wildcard
 /// arm, but does not verify that `x == 0` selects the first arm.
-fn plan_match_arm_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+fn plan_match_arm_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let match_expr = if is_result_ident(lhs) {
         rhs
@@ -238,7 +238,7 @@ fn plan_match_arm_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     } else {
         return None;
     };
-    let Expr::Match { scrutinee, arms } = match_expr else {
+    let Expr::Match { scrutinee, arms } = &match_expr.node else {
         return None;
     };
     if arms.len() < 2 {
@@ -273,7 +273,7 @@ fn plan_match_arm_ensures(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
 /// with `$result = load $0` instead of `$result = arith add $0 $0`.
 /// The verifier inlines this stub, so verification only confirms that
 /// the call plumbing works, not that the callee computes the right value.
-fn plan_multi_fn_call_chain(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+fn plan_multi_fn_call_chain(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let call = if is_result_ident(lhs) {
         rhs
@@ -282,10 +282,10 @@ fn plan_multi_fn_call_chain(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
     } else {
         return None;
     };
-    let Expr::Call { func, args } = call else {
+    let Expr::Call { func, args } = &call.node else {
         return None;
     };
-    let Expr::Ident(helper) = func.as_ref() else {
+    let Expr::Ident(helper) = &func.as_ref().node else {
         return None;
     };
     if is_builtin_call(helper) || args.len() != 1 {
@@ -307,18 +307,20 @@ fn plan_multi_fn_call_chain(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
     })
 }
 
-fn plan_branch_result(expr: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+fn plan_branch_result(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
     plan_result_equals(expr, ctx)
 }
 
-fn plan_result_equals(other: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
-    match other {
+fn plan_result_equals(other: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+    match &other.node {
         Expr::Ident(name) => {
             let slot = *ctx.name_to_slot.get(name.as_str())?;
             Some(single_load(slot, ctx.return_ty))
         }
         Expr::Literal(lit) => Some(single_const(&literal_to_ir_const(lit)?, ctx.return_ty)),
-        Expr::BinOp { op, lhs, rhs } => plan_result_arith(op.clone(), lhs, rhs, ctx),
+        Expr::BinOp { op, lhs, rhs } => {
+            plan_result_arith(op.clone(), lhs.as_ref(), rhs.as_ref(), ctx)
+        }
         _ => {
             if ctx.param_count == 1 {
                 Some(single_load(0, ctx.return_ty))
@@ -329,7 +331,12 @@ fn plan_result_equals(other: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
     }
 }
 
-fn plan_result_arith(op: BinOp, lhs: &Expr, rhs: &Expr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+fn plan_result_arith(
+    op: BinOp,
+    lhs: &SpExpr,
+    rhs: &SpExpr,
+    ctx: &PlanCtx<'_>,
+) -> Option<IrGenBody> {
     let ir_op = match op {
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => op.as_ident(),
         _ => return None,
@@ -350,31 +357,31 @@ fn plan_result_arith(op: BinOp, lhs: &Expr, rhs: &Expr, ctx: &PlanCtx<'_>) -> Op
     })
 }
 
-fn length_relation_ensures(expr: &Expr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
-    match expr {
+fn length_relation_ensures(expr: &SpExpr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
+    match &expr.node {
         Expr::BinOp {
             op: BinOp::Lte | BinOp::Lt | BinOp::Eq,
             lhs,
             rhs,
-        } => length_pair_to_param_slot(lhs, rhs, name_to_slot)
-            .or_else(|| length_pair_to_param_slot(rhs, lhs, name_to_slot)),
+        } => length_pair_to_param_slot(lhs.as_ref(), rhs.as_ref(), name_to_slot)
+            .or_else(|| length_pair_to_param_slot(rhs.as_ref(), lhs.as_ref(), name_to_slot)),
         _ => None,
     }
 }
 
 fn length_pair_to_param_slot(
-    result_side: &Expr,
-    other_side: &Expr,
+    result_side: &SpExpr,
+    other_side: &SpExpr,
     name_to_slot: &HashMap<&str, usize>,
 ) -> Option<usize> {
     if !is_result_length_call(result_side) {
         return None;
     }
-    match other_side {
+    match &other_side.node {
         Expr::MethodCall {
             receiver, method, ..
         } if method == "length"
-            && matches!(receiver.as_ref(), Expr::Ident(name) if name_to_slot.contains_key(name.as_str())) =>
+            && matches!(&receiver.as_ref().node, Expr::Ident(name) if name_to_slot.contains_key(name.as_str())) =>
         {
             name_to_slot
                 .get(receiver_as_ident(receiver).unwrap())
@@ -385,28 +392,28 @@ fn length_pair_to_param_slot(
     }
 }
 
-fn receiver_as_ident(expr: &Expr) -> Option<&str> {
-    match expr {
+fn receiver_as_ident(expr: &SpExpr) -> Option<&str> {
+    match &expr.node {
         Expr::Ident(name) => Some(name.as_str()),
         _ => None,
     }
 }
 
-fn is_result_length_call(expr: &Expr) -> bool {
+fn is_result_length_call(expr: &SpExpr) -> bool {
     matches!(
-        expr,
+        &expr.node,
         Expr::MethodCall {
             receiver,
             method,
             ..
         } if method == "length"
-            && matches!(receiver.as_ref(), Expr::Ident(name) if name == "result")
+            && matches!(&receiver.as_ref().node, Expr::Ident(name) if name == "result")
     )
 }
 
 /// Requires clauses that mention index/buffer access (not mere `length() > 0`).
-fn clause_mentions_index_bounds(expr: &Expr) -> bool {
-    match expr {
+fn clause_mentions_index_bounds(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Index { .. } => true,
         Expr::BinOp { lhs, rhs, .. } => {
             clause_mentions_index_bounds(lhs) || clause_mentions_index_bounds(rhs)
@@ -428,10 +435,10 @@ fn clause_mentions_index_bounds(expr: &Expr) -> bool {
     }
 }
 
-fn clause_mentions_result_field(expr: &Expr) -> bool {
-    match expr {
+fn clause_mentions_result_field(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Field(receiver, _) => {
-            matches!(receiver.as_ref(), Expr::Ident(name) if name == "result")
+            matches!(&receiver.as_ref().node, Expr::Ident(name) if name == "result")
         }
         Expr::BinOp { lhs, rhs, .. } => {
             clause_mentions_result_field(lhs) || clause_mentions_result_field(rhs)
@@ -440,8 +447,8 @@ fn clause_mentions_result_field(expr: &Expr) -> bool {
     }
 }
 
-fn expr_to_param_slot(expr: &Expr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
-    match expr {
+fn expr_to_param_slot(expr: &SpExpr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
+    match &expr.node {
         Expr::Ident(name) => name_to_slot.get(name.as_str()).copied(),
         Expr::Literal(_) => None,
         _ => None,
@@ -473,8 +480,8 @@ fn literal_to_ir_const(lit: &Literal) -> Option<String> {
     }
 }
 
-fn equality_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    match expr {
+fn equality_operands(expr: &SpExpr) -> Option<(&SpExpr, &SpExpr)> {
+    match &expr.node {
         Expr::BinOp {
             op: BinOp::Eq,
             lhs,
@@ -484,15 +491,15 @@ fn equality_operands(expr: &Expr) -> Option<(&Expr, &Expr)> {
     }
 }
 
-fn is_result_ident(expr: &Expr) -> bool {
-    matches!(expr, Expr::Ident(name) if name == "result")
+fn is_result_ident(expr: &SpExpr) -> bool {
+    matches!(&expr.node, Expr::Ident(name) if name == "result")
 }
 
 /// `ensures { result == helper(x) }` — delegate via a cross-function `call`.
-fn expr_suggests_call_chain(expr: &Expr) -> bool {
-    match expr {
+fn expr_suggests_call_chain(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Call { func, .. } => {
-            matches!(func.as_ref(), Expr::Ident(name) if !is_builtin_call(name))
+            matches!(&func.as_ref().node, Expr::Ident(name) if !is_builtin_call(name))
         }
         _ => false,
     }
@@ -556,37 +563,45 @@ fn sanitize_module_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, ClauseKind, Expr};
+    use assura_parser::ast::{BinOp, ClauseKind, Expr, SpExpr, Spanned};
+
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
+    }
+
+    fn spb(e: Expr) -> Box<SpExpr> {
+        Box::new(sp(e))
+    }
 
     fn int_param(_name: &str, slot: usize) -> (usize, String) {
         (slot, "Int".into())
     }
 
-    fn bytes_len_le_result_raw() -> Expr {
-        Expr::BinOp {
+    fn bytes_len_le_result_raw() -> SpExpr {
+        sp(Expr::BinOp {
             op: BinOp::Lte,
-            lhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident("result".into())),
+            lhs: spb(Expr::MethodCall {
+                receiver: spb(Expr::Ident("result".into())),
                 method: "length".into(),
                 args: vec![],
             }),
-            rhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident("raw".into())),
+            rhs: spb(Expr::MethodCall {
+                receiver: spb(Expr::Ident("raw".into())),
                 method: "length".into(),
                 args: vec![],
             }),
-        }
+        })
     }
 
     #[test]
     fn generates_load_when_ensures_result_eq_param() {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Eq,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::Ident("x".into())),
-            },
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Ident("x".into())),
+            }),
             effect_variables: vec![],
         }];
         let text =
@@ -599,11 +614,11 @@ mod tests {
     fn generates_const_when_ensures_result_eq_literal() {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Eq,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::Literal(Literal::Int("42".into()))),
-            },
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Literal(Literal::Int("42".into()))),
+            }),
             effect_variables: vec![],
         }];
         let text = generate_ir_sidecar_text("Const42", &[], &[], "Int", &clauses);
@@ -614,15 +629,15 @@ mod tests {
     fn generates_arith_when_ensures_result_eq_sum() {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Eq,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::BinOp {
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::BinOp {
                     op: BinOp::Add,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Ident("y".into())),
+                    lhs: spb(Expr::Ident("x".into())),
+                    rhs: spb(Expr::Ident("y".into())),
                 }),
-            },
+            }),
             effect_variables: vec![],
         }];
         let text = generate_ir_sidecar_text(
@@ -658,14 +673,14 @@ mod tests {
     fn classifies_call_chain_when_result_eq_helper_call() {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Eq,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::Call {
-                    func: Box::new(Expr::Ident("double".into())),
-                    args: vec![Expr::Ident("x".into())],
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Call {
+                    func: spb(Expr::Ident("double".into())),
+                    args: vec![sp(Expr::Ident("x".into()))],
                 }),
-            },
+            }),
             effect_variables: vec![],
         }];
         assert_eq!(
@@ -691,19 +706,19 @@ mod tests {
     fn test_ir_generate_if_branch() {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Eq,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::If {
-                    cond: Box::new(Expr::BinOp {
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::If {
+                    cond: spb(Expr::BinOp {
                         op: BinOp::Gt,
-                        lhs: Box::new(Expr::Ident("x".into())),
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("0".into()))),
                     }),
-                    then_branch: Box::new(Expr::Ident("x".into())),
-                    else_branch: Some(Box::new(Expr::Literal(Literal::Int("0".into())))),
+                    then_branch: spb(Expr::Ident("x".into())),
+                    else_branch: Some(spb(Expr::Literal(Literal::Int("0".into())))),
                 }),
-            },
+            }),
             effect_variables: vec![],
         }];
         let text = generate_ir_sidecar_text(
@@ -724,23 +739,23 @@ mod tests {
 
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Eq,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::Match {
-                    scrutinee: Box::new(Expr::Ident("x".into())),
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Match {
+                    scrutinee: spb(Expr::Ident("x".into())),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Literal::Int("0".into())),
-                            body: Expr::Literal(Literal::Int("0".into())),
+                            body: sp(Expr::Literal(Literal::Int("0".into()))),
                         },
                         MatchArm {
                             pattern: Pattern::Ident("_".into()),
-                            body: Expr::Ident("x".into()),
+                            body: sp(Expr::Ident("x".into())),
                         },
                     ],
                 }),
-            },
+            }),
             effect_variables: vec![],
         }];
         let text = generate_ir_sidecar_text(
@@ -759,14 +774,14 @@ mod tests {
     fn test_ir_generate_multi_fn_call_chain() {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Eq,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::Call {
-                    func: Box::new(Expr::Ident("double".into())),
-                    args: vec![Expr::Ident("x".into())],
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Call {
+                    func: spb(Expr::Ident("double".into())),
+                    args: vec![sp(Expr::Ident("x".into()))],
                 }),
-            },
+            }),
             effect_variables: vec![],
         }];
         let text = generate_ir_sidecar_text(
@@ -784,11 +799,11 @@ mod tests {
     fn falls_back_to_stub_when_ensures_unrecognized() {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: sp(Expr::BinOp {
                 op: BinOp::Gt,
-                lhs: Box::new(Expr::Ident("result".into())),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
             effect_variables: vec![],
         }];
         let text = generate_ir_sidecar_text(

@@ -216,7 +216,7 @@ mod tests {
             name: name.into(),
             clauses: vec![Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::Ident("x".into()),
+                body: Spanned::no_span(Expr::Ident("x".into())),
                 effect_variables: vec![],
             }],
             fn_params: vec![],
@@ -329,26 +329,26 @@ module copy {
         .unwrap();
 
         let raw_len_gt_zero = Expr::BinOp {
-            lhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident("raw".into())),
+            lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
                 method: "length".into(),
                 args: vec![],
-            }),
+            })),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         };
         let result_len_le_raw = Expr::BinOp {
-            lhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident("result".into())),
+            lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                receiver: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                 method: "length".into(),
                 args: vec![],
-            }),
+            })),
             op: BinOp::Lte,
-            rhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident("raw".into())),
+            rhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
                 method: "length".into(),
                 args: vec![],
-            }),
+            })),
         };
 
         let source = make_source(vec![Decl::Contract(ContractDecl {
@@ -356,22 +356,30 @@ module copy {
             clauses: vec![
                 Clause {
                     kind: ClauseKind::Input,
-                    body: Expr::Raw(vec!["raw".into(), ":".into(), "Bytes".into()]),
+                    body: Spanned::no_span(Expr::Raw(vec![
+                        "raw".into(),
+                        ":".into(),
+                        "Bytes".into(),
+                    ])),
                     effect_variables: vec![],
                 },
                 Clause {
                     kind: ClauseKind::Output,
-                    body: Expr::Raw(vec!["result".into(), ":".into(), "Bytes".into()]),
+                    body: Spanned::no_span(Expr::Raw(vec![
+                        "result".into(),
+                        ":".into(),
+                        "Bytes".into(),
+                    ])),
                     effect_variables: vec![],
                 },
                 Clause {
                     kind: ClauseKind::Requires,
-                    body: raw_len_gt_zero,
+                    body: Spanned::no_span(raw_len_gt_zero),
                     effect_variables: vec![],
                 },
                 Clause {
                     kind: ClauseKind::Ensures,
-                    body: result_len_le_raw,
+                    body: Spanned::no_span(result_len_le_raw),
                     effect_variables: vec![],
                 },
             ],

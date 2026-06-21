@@ -118,7 +118,7 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
         .clauses
         .iter()
         .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "implements"))
-        .filter_map(|cl| match &cl.body {
+        .filter_map(|cl| match &cl.body.node {
             Expr::Ident(name) => Some(name.clone()),
             Expr::Raw(tokens) if tokens.len() == 1 => Some(tokens[0].clone()),
             _ => None,
@@ -252,7 +252,7 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
                 if let ClauseKind::Other(k) = &clause.kind
                     && k == "method"
                 {
-                    let method_name = match &clause.body {
+                    let method_name = match &clause.body.node {
                         Expr::Ident(n) => Some(n.as_str()),
                         Expr::Raw(tokens) if tokens.len() == 1 => Some(tokens[0].as_str()),
                         _ => None,
@@ -322,14 +322,14 @@ pub(crate) fn proptest_strategy_for_type(rust_type: &str) -> String {
 ///
 /// Returns `Some((param_name, refined_strategy))` if the constraint can be
 /// encoded as a generator, or `None` if it should remain a filter/assumption.
-pub(crate) fn try_refine_strategy(requires_expr: &Expr) -> Option<(String, String)> {
-    if let Expr::BinOp { lhs, op, rhs } = requires_expr {
-        let param = match lhs.as_ref() {
+pub(crate) fn try_refine_strategy(requires_expr: &SpExpr) -> Option<(String, String)> {
+    if let Expr::BinOp { lhs, op, rhs } = &requires_expr.node {
+        let param = match &lhs.node {
             Expr::Ident(name) => name.clone(),
             _ => return None,
         };
 
-        match (op, rhs.as_ref()) {
+        match (op, &rhs.node) {
             // x != 0 -> filter: use 1..=MAX for unsigned, two ranges for signed
             (BinOp::Neq, Expr::Literal(Literal::Int(val))) if val == "0" => {
                 Some((param, "1i64..=i64::MAX".to_string()))
@@ -403,7 +403,7 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
 
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut requires_exprs: Vec<String> = Vec::new();
-    let mut requires_ast: Vec<&Expr> = Vec::new();
+    let mut requires_ast: Vec<&SpExpr> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
     let mut output_name: Option<String> = None;
 
@@ -528,7 +528,7 @@ pub(crate) fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mu
         .iter()
         .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "extends"))
         .filter_map(|cl| {
-            if let Expr::Ident(name) = &cl.body {
+            if let Expr::Ident(name) = &cl.body.node {
                 Some(name.clone())
             } else {
                 None
@@ -575,7 +575,7 @@ pub(crate) fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mu
 ///
 /// Uses the shared `extract_clause_params` from assura-parser, then maps
 /// Assura type tokens to Rust types via `map_type_token`/`map_type_tokens`.
-pub(crate) fn extract_input_params(body: &Expr, params: &mut Vec<(String, String)>) {
+pub(crate) fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
     use assura_parser::ast::extract_clause_params;
     for param in extract_clause_params(body) {
         let rust_ty = if param.ty.is_none() {
@@ -600,16 +600,16 @@ pub(crate) fn extract_input_params(body: &Expr, params: &mut Vec<(String, String
 }
 
 /// Extract the Rust return type from an output clause body.
-pub(crate) fn extract_output_type(body: &Expr) -> String {
-    match body {
+pub(crate) fn extract_output_type(body: &SpExpr) -> String {
+    match &body.node {
         Expr::Call { args, .. } => {
             // output(result: Int) => parse the cast or ident in args
             for arg in args {
-                match arg {
+                match &arg.node {
                     Expr::Cast { ty, .. } => return map_type_token(ty).to_string(),
                     Expr::Ident(name) => return map_type_token(name).to_string(),
-                    other => {
-                        let ty = extract_output_type(other);
+                    _ => {
+                        let ty = extract_output_type(arg);
                         if ty != "()" {
                             return ty;
                         }
@@ -676,8 +676,8 @@ pub(crate) fn extract_output_type(body: &Expr) -> String {
 /// Returns `Some("value")` if a name is found and it differs from `result`, which is already
 /// aliased to `__result` by the codegen. Returns `None` if the output clause has no named
 /// binding or uses `result`.
-pub(crate) fn extract_output_name(body: &Expr) -> Option<String> {
-    match body {
+pub(crate) fn extract_output_name(body: &SpExpr) -> Option<String> {
+    match &body.node {
         Expr::Call { args, .. } => {
             for arg in args {
                 if let Some(name) = extract_output_name(arg) {
@@ -688,7 +688,7 @@ pub(crate) fn extract_output_name(body: &Expr) -> Option<String> {
         }
         Expr::Cast { expr, .. } => {
             // output(value: Nat) parses as Cast { expr: Ident("value"), ty: "Nat" }
-            if let Expr::Ident(name) = expr.as_ref()
+            if let Expr::Ident(name) = &expr.node
                 && name != "result"
             {
                 return Some(name.clone());
@@ -729,8 +729,8 @@ pub(crate) fn extract_output_name(body: &Expr) -> Option<String> {
 /// - `Expr::Raw(["DivByZero", ",", "Overflow"])` -> vec!["DivByZero", "Overflow"]
 /// - `Expr::Ident("DivByZero")` -> vec!["DivByZero"]
 /// - `Expr::Tuple([Ident("A"), Ident("B")])` -> vec!["A", "B"]
-pub(crate) fn extract_error_variants(body: &Expr) -> Vec<String> {
-    match body {
+pub(crate) fn extract_error_variants(body: &SpExpr) -> Vec<String> {
+    match &body.node {
         Expr::Ident(name) => vec![name.clone()],
         Expr::Tuple(items) | Expr::List(items) | Expr::Block(items) => {
             items.iter().flat_map(extract_error_variants).collect()
@@ -789,7 +789,7 @@ mod tests {
     use super::*;
     use assura_parser::ast::*;
 
-    fn mk_clause(kind: ClauseKind, body: Expr) -> Clause {
+    fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {
             kind,
             body,
@@ -917,11 +917,11 @@ mod tests {
 
     #[test]
     fn refine_neq_zero() {
-        let expr = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Neq,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
         let (param, strategy) = try_refine_strategy(&expr).unwrap();
         assert_eq!(param, "x");
         assert!(strategy.contains("1i64..=i64::MAX"));
@@ -929,11 +929,11 @@ mod tests {
 
     #[test]
     fn refine_gt_zero() {
-        let expr = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
         let (param, strategy) = try_refine_strategy(&expr).unwrap();
         assert_eq!(param, "n");
         assert!(strategy.contains("1i64..=i64::MAX"));
@@ -941,22 +941,22 @@ mod tests {
 
     #[test]
     fn refine_gte_zero() {
-        let expr = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Gte,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
         let (_, strategy) = try_refine_strategy(&expr).unwrap();
         assert!(strategy.contains("0i64..=i64::MAX"));
     }
 
     #[test]
     fn refine_lt_bound() {
-        let expr = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Lt,
-            rhs: Box::new(Expr::Literal(Literal::Int("100".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("100".into())))),
+        });
         let (_, strategy) = try_refine_strategy(&expr).unwrap();
         assert!(strategy.contains("100i64"));
         assert!(strategy.contains("i64::MIN"));
@@ -964,28 +964,28 @@ mod tests {
 
     #[test]
     fn refine_lte_bound() {
-        let expr = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Lte,
-            rhs: Box::new(Expr::Literal(Literal::Int("50".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("50".into())))),
+        });
         let (_, strategy) = try_refine_strategy(&expr).unwrap();
         assert!(strategy.contains("=50i64"));
     }
 
     #[test]
     fn refine_non_ident_lhs_returns_none() {
-        let expr = Expr::BinOp {
-            lhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
         assert!(try_refine_strategy(&expr).is_none());
     }
 
     #[test]
     fn refine_non_binop_returns_none() {
-        let expr = Expr::Ident("x".into());
+        let expr = Spanned::no_span(Expr::Ident("x".into()));
         assert!(try_refine_strategy(&expr).is_none());
     }
 
@@ -996,8 +996,11 @@ mod tests {
         let c = mk_contract(
             "Div",
             vec![
-                mk_clause(ClauseKind::Input, Expr::Ident("x".into())),
-                mk_clause(ClauseKind::Ensures, Expr::Literal(Literal::Bool(true))),
+                mk_clause(ClauseKind::Input, Spanned::no_span(Expr::Ident("x".into()))),
+                mk_clause(
+                    ClauseKind::Ensures,
+                    Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+                ),
             ],
         );
         assert!(contract_is_testable(&c));
@@ -1007,7 +1010,10 @@ mod tests {
     fn not_testable_missing_ensures() {
         let c = mk_contract(
             "Div",
-            vec![mk_clause(ClauseKind::Input, Expr::Ident("x".into()))],
+            vec![mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Ident("x".into())),
+            )],
         );
         assert!(!contract_is_testable(&c));
     }
@@ -1018,7 +1024,7 @@ mod tests {
             "Div",
             vec![mk_clause(
                 ClauseKind::Ensures,
-                Expr::Literal(Literal::Bool(true)),
+                Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             )],
         );
         assert!(!contract_is_testable(&c));
@@ -1028,34 +1034,34 @@ mod tests {
 
     #[test]
     fn output_type_from_cast() {
-        let body = Expr::Cast {
-            expr: Box::new(Expr::Ident("result".into())),
+        let body = Spanned::no_span(Expr::Cast {
+            expr: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
             ty: "Int".into(),
-        };
+        });
         assert_eq!(extract_output_type(&body), "i64");
     }
 
     #[test]
     fn output_type_from_ident() {
-        let body = Expr::Ident("Bool".into());
+        let body = Spanned::no_span(Expr::Ident("Bool".into()));
         assert_eq!(extract_output_type(&body), "bool");
     }
 
     #[test]
     fn output_type_from_float_ident() {
-        let body = Expr::Ident("Float".into());
+        let body = Spanned::no_span(Expr::Ident("Float".into()));
         assert_eq!(extract_output_type(&body), "f64");
     }
 
     #[test]
     fn output_type_from_raw_colon() {
-        let body = Expr::Raw(vec!["result".into(), ":".into(), "Int".into()]);
+        let body = Spanned::no_span(Expr::Raw(vec!["result".into(), ":".into(), "Int".into()]));
         assert_eq!(extract_output_type(&body), "i64");
     }
 
     #[test]
     fn output_type_unknown_returns_unit() {
-        let body = Expr::Literal(Literal::Int("42".into()));
+        let body = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
         assert_eq!(extract_output_type(&body), "()");
     }
 
@@ -1063,30 +1069,34 @@ mod tests {
 
     #[test]
     fn error_variants_single_ident() {
-        let body = Expr::Ident("DivByZero".into());
+        let body = Spanned::no_span(Expr::Ident("DivByZero".into()));
         assert_eq!(extract_error_variants(&body), vec!["DivByZero"]);
     }
 
     #[test]
     fn error_variants_tuple() {
-        let body = Expr::Tuple(vec![
-            Expr::Ident("DivByZero".into()),
-            Expr::Ident("Overflow".into()),
-        ]);
+        let body = Spanned::no_span(Expr::Tuple(vec![
+            Spanned::no_span(Expr::Ident("DivByZero".into())),
+            Spanned::no_span(Expr::Ident("Overflow".into())),
+        ]));
         let vars = extract_error_variants(&body);
         assert_eq!(vars, vec!["DivByZero", "Overflow"]);
     }
 
     #[test]
     fn error_variants_raw_tokens() {
-        let body = Expr::Raw(vec!["DivByZero".into(), ",".into(), "Overflow".into()]);
+        let body = Spanned::no_span(Expr::Raw(vec![
+            "DivByZero".into(),
+            ",".into(),
+            "Overflow".into(),
+        ]));
         let vars = extract_error_variants(&body);
         assert_eq!(vars, vec!["DivByZero", "Overflow"]);
     }
 
     #[test]
     fn error_variants_ident() {
-        let body = Expr::Ident("Err".into());
+        let body = Spanned::no_span(Expr::Ident("Err".into()));
         assert_eq!(extract_error_variants(&body), vec!["Err"]);
     }
 
@@ -1095,9 +1105,18 @@ mod tests {
     #[test]
     fn collect_errors_from_clauses() {
         let clauses = vec![
-            mk_clause(ClauseKind::Requires, Expr::Literal(Literal::Bool(true))),
-            mk_clause(ClauseKind::Errors, Expr::Ident("DivByZero".into())),
-            mk_clause(ClauseKind::Errors, Expr::Ident("Overflow".into())),
+            mk_clause(
+                ClauseKind::Requires,
+                Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+            ),
+            mk_clause(
+                ClauseKind::Errors,
+                Spanned::no_span(Expr::Ident("DivByZero".into())),
+            ),
+            mk_clause(
+                ClauseKind::Errors,
+                Spanned::no_span(Expr::Ident("Overflow".into())),
+            ),
         ];
         let vars = collect_error_variants(&clauses);
         assert_eq!(vars, vec!["DivByZero", "Overflow"]);
@@ -1107,7 +1126,7 @@ mod tests {
     fn collect_errors_empty() {
         let clauses = vec![mk_clause(
             ClauseKind::Requires,
-            Expr::Literal(Literal::Bool(true)),
+            Spanned::no_span(Expr::Literal(Literal::Bool(true))),
         )];
         assert!(collect_error_variants(&clauses).is_empty());
     }
@@ -1133,11 +1152,11 @@ mod tests {
             "SafeDiv",
             vec![mk_clause(
                 ClauseKind::Requires,
-                Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("b".into())),
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
                     op: BinOp::Neq,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
             )],
         );
         let mut code = String::new();
@@ -1152,7 +1171,7 @@ mod tests {
             "Hashable",
             vec![mk_clause(
                 ClauseKind::Other("interface".into()),
-                Expr::Literal(Literal::Bool(true)),
+                Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             )],
         );
         let mut code = String::new();
@@ -1170,13 +1189,16 @@ mod tests {
             vec![
                 mk_clause(
                     ClauseKind::Requires,
-                    Expr::BinOp {
-                        lhs: Box::new(Expr::Ident("b".into())),
+                    Spanned::no_span(Expr::BinOp {
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
                         op: BinOp::Neq,
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                    },
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    }),
                 ),
-                mk_clause(ClauseKind::Ensures, Expr::Literal(Literal::Bool(true))),
+                mk_clause(
+                    ClauseKind::Ensures,
+                    Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+                ),
             ],
         );
         let mut code = String::new();
@@ -1192,7 +1214,7 @@ mod tests {
             "Div",
             vec![mk_clause(
                 ClauseKind::Errors,
-                Expr::Ident("DivByZero".into()),
+                Spanned::no_span(Expr::Ident("DivByZero".into())),
             )],
         );
         let mut code = String::new();
@@ -1216,7 +1238,7 @@ mod tests {
             "MyImpl",
             vec![mk_clause(
                 ClauseKind::Other("implements".into()),
-                Expr::Ident("Hashable".into()),
+                Spanned::no_span(Expr::Ident("Hashable".into())),
             )],
         );
         let mut code = String::new();
@@ -1234,11 +1256,11 @@ mod tests {
             vec![
                 mk_clause(
                     ClauseKind::Other("interface".into()),
-                    Expr::Literal(Literal::Bool(true)),
+                    Spanned::no_span(Expr::Literal(Literal::Bool(true))),
                 ),
                 mk_clause(
                     ClauseKind::Other("method".into()),
-                    Expr::Ident("serialize".into()),
+                    Spanned::no_span(Expr::Ident("serialize".into())),
                 ),
             ],
         );
@@ -1255,11 +1277,11 @@ mod tests {
             vec![
                 mk_clause(
                     ClauseKind::Other("interface".into()),
-                    Expr::Literal(Literal::Bool(true)),
+                    Spanned::no_span(Expr::Literal(Literal::Bool(true))),
                 ),
                 mk_clause(
                     ClauseKind::Other("extends".into()),
-                    Expr::Ident("Hashable".into()),
+                    Spanned::no_span(Expr::Ident("Hashable".into())),
                 ),
             ],
         );
@@ -1275,15 +1297,15 @@ mod tests {
             vec![
                 mk_clause(
                     ClauseKind::Other("interface".into()),
-                    Expr::Literal(Literal::Bool(true)),
+                    Spanned::no_span(Expr::Literal(Literal::Bool(true))),
                 ),
                 mk_clause(
                     ClauseKind::Invariant,
-                    Expr::BinOp {
-                        lhs: Box::new(Expr::Ident("x".into())),
+                    Spanned::no_span(Expr::BinOp {
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                         op: BinOp::Gt,
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                    },
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    }),
                 ),
             ],
         );
@@ -1297,13 +1319,13 @@ mod tests {
 
     #[test]
     fn extract_input_from_cast() {
-        let body = Expr::Call {
-            func: Box::new(Expr::Ident("input".into())),
-            args: vec![Expr::Cast {
-                expr: Box::new(Expr::Ident("x".into())),
+        let body = Spanned::no_span(Expr::Call {
+            func: Box::new(Spanned::no_span(Expr::Ident("input".into()))),
+            args: vec![Spanned::no_span(Expr::Cast {
+                expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 ty: "Int".into(),
-            }],
-        };
+            })],
+        });
         let mut params = Vec::new();
         extract_input_params(&body, &mut params);
         // extract_clause_params from the parser handles this
@@ -1313,7 +1335,7 @@ mod tests {
 
     #[test]
     fn extract_input_from_ident() {
-        let body = Expr::Ident("x".into());
+        let body = Spanned::no_span(Expr::Ident("x".into()));
         let mut params = Vec::new();
         extract_input_params(&body, &mut params);
         // Single ident extraction depends on extract_clause_params

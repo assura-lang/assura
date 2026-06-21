@@ -224,8 +224,6 @@ pub(crate) fn build_type_env(
     env
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

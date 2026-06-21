@@ -12,7 +12,7 @@ use crate::cache::SessionCache;
 use crate::feature_max::{collect_feature_max_constants, derive_narrowings};
 use crate::ir::{IrFunction, IrInstr};
 use crate::*;
-use assura_parser::ast::Clause;
+use assura_parser::ast::{Clause, SpExpr};
 use z3::{SatResult, Solver, ast};
 
 // -----------------------------------------------------------------------
@@ -84,7 +84,7 @@ pub(crate) use crate::entry::{extract_input_params, extract_output_return_type};
 fn verify_clauses_with_types(
     parent_name: &str,
     clauses: &[Clause],
-    lemma_defs: &std::collections::HashMap<String, Vec<&Expr>>,
+    lemma_defs: &std::collections::HashMap<String, Vec<&SpExpr>>,
     cache: &mut SessionCache,
     results: &mut Vec<VerificationResult>,
     types: &TypeConstraints,
@@ -133,7 +133,7 @@ fn verify_clauses_with_types(
     }
 
     // T045: Build frame checker from modifies clauses
-    let modifies_bodies: Vec<&Expr> = clauses
+    let modifies_bodies: Vec<&SpExpr> = clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Modifies)
         .map(|c| &c.body)
@@ -141,7 +141,7 @@ fn verify_clauses_with_types(
     let frame_checker = if modifies_bodies.is_empty() {
         assura_types::FrameChecker::empty()
     } else {
-        let body_refs: Vec<&Expr> = modifies_bodies.to_vec();
+        let body_refs: Vec<&SpExpr> = modifies_bodies.to_vec();
         assura_types::FrameChecker::new(&body_refs)
     };
 
@@ -388,7 +388,7 @@ fn verify_clauses_with_types(
 }
 
 /// Verify a standalone invariant expression (e.g., service invariant).
-fn verify_invariant_expr(parent_name: &str, expr: &Expr, results: &mut Vec<VerificationResult>) {
+fn verify_invariant_expr(parent_name: &str, expr: &SpExpr, results: &mut Vec<VerificationResult>) {
     let desc = format!("{parent_name}::invariant");
     let solver = Solver::new();
     let mut encoder = Encoder::new();
@@ -406,13 +406,13 @@ fn verify_invariant_expr(parent_name: &str, expr: &Expr, results: &mut Vec<Verif
 /// Collect all lemma definitions from the source AST.
 ///
 /// Returns a map from lemma name to its ensures clause bodies.
-fn collect_lemma_defs(typed: &TypedFile) -> std::collections::HashMap<String, Vec<&Expr>> {
+fn collect_lemma_defs(typed: &TypedFile) -> std::collections::HashMap<String, Vec<&SpExpr>> {
     let mut lemmas = std::collections::HashMap::new();
     for decl in &typed.resolved.source.decls {
         if let Decl::FnDef(f) = &decl.node
             && f.is_lemma
         {
-            let ensures: Vec<&Expr> = f
+            let ensures: Vec<&SpExpr> = f
                 .clauses
                 .iter()
                 .filter(|c| c.kind == ClauseKind::Ensures)
@@ -434,8 +434,8 @@ fn collect_apply_refs(clauses: &[Clause]) -> Vec<String> {
     refs
 }
 
-fn collect_apply_refs_expr(expr: &Expr, refs: &mut Vec<String>) {
-    match expr {
+fn collect_apply_refs_expr(expr: &SpExpr, refs: &mut Vec<String>) {
+    match &expr.node {
         Expr::Apply { lemma_name, args } => {
             refs.push(lemma_name.clone());
             for arg in args {
@@ -499,8 +499,8 @@ fn collect_apply_refs_expr(expr: &Expr, refs: &mut Vec<String>) {
 /// satisfiability. UNSAT means the formula holds universally.
 pub(crate) fn verify_quantified_impl(
     name: &str,
-    assumptions: &[Expr],
-    quantified_body: &Expr,
+    assumptions: &[SpExpr],
+    quantified_body: &SpExpr,
 ) -> VerificationResult {
     let solver = Solver::new();
     // Layer 2 timeout: 10 seconds
@@ -826,10 +826,10 @@ pub(crate) fn verify_impl_with_timeout(
 
 /// Collect function names from an expression tree and register them
 /// with the trigger manager for quantifier e-matching.
-fn collect_function_names_for_triggers(expr: &Expr, tm: &mut crate::advanced::TriggerManager) {
-    match expr {
+fn collect_function_names_for_triggers(expr: &SpExpr, tm: &mut crate::advanced::TriggerManager) {
+    match &expr.node {
         Expr::Call { func, args } => {
-            if let Expr::Ident(name) = func.as_ref() {
+            if let Expr::Ident(name) = &func.as_ref().node {
                 tm.register_function(name.clone());
             }
             for a in args {
@@ -884,13 +884,20 @@ fn collect_function_names_for_triggers(expr: &Expr, tm: &mut crate::advanced::Tr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Literal};
+    use assura_parser::ast::{BinOp, Literal, Spanned};
+
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
+    }
+    fn spb(e: Expr) -> Box<SpExpr> {
+        Box::new(sp(e))
+    }
 
     #[test]
     fn extract_output_return_type_nat() {
         let clauses = vec![Clause {
             kind: ClauseKind::Output,
-            body: Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()]),
+            body: sp(Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()])),
             effect_variables: vec![],
         }];
         let ty = extract_output_return_type(&clauses);
@@ -902,7 +909,7 @@ mod tests {
     fn extract_output_return_type_non_nat() {
         let clauses = vec![Clause {
             kind: ClauseKind::Output,
-            body: Expr::Raw(vec!["result".into(), ":".into(), "Bytes".into()]),
+            body: sp(Expr::Raw(vec!["result".into(), ":".into(), "Bytes".into()])),
             effect_variables: vec![],
         }];
         let ty = extract_output_return_type(&clauses);
@@ -914,7 +921,7 @@ mod tests {
     fn extract_output_return_type_missing() {
         let clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Literal(Literal::Bool(true)),
+            body: sp(Expr::Literal(Literal::Bool(true))),
             effect_variables: vec![],
         }];
         let ty = extract_output_return_type(&clauses);
@@ -925,7 +932,11 @@ mod tests {
     fn extract_input_params_basic() {
         let clauses = vec![Clause {
             kind: ClauseKind::Input,
-            body: Expr::Raw(vec!["raw_data".into(), ":".into(), "Bytes".into()]),
+            body: sp(Expr::Raw(vec![
+                "raw_data".into(),
+                ":".into(),
+                "Bytes".into(),
+            ])),
             effect_variables: vec![],
         }];
         let params = extract_input_params(&clauses);
@@ -943,16 +954,16 @@ mod tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Output,
-                body: Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()]),
+                body: sp(Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()])),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("result".into())),
+                body: sp(Expr::BinOp {
+                    lhs: spb(Expr::Ident("result".into())),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                }),
                 effect_variables: vec![],
             },
         ];

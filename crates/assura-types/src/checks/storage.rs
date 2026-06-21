@@ -3,7 +3,7 @@
 //! Crash recovery, page cache, MVCC, rollback,
 //! monotonic state, storage failure.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr};
+use assura_parser::ast::{ClauseKind, Decl, Expr, SpExpr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -72,7 +72,7 @@ pub(crate) fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> 
                 && (k == "page_cache" || k == "buffer_pool" || k == "cache_policy")
             {
                 // Extract capacity from annotation body
-                let capacity = match &clause.body {
+                let capacity = match &clause.body.node {
                     Expr::Call { args, .. } => {
                         args.first()
                             .and_then(extract_int_literal)
@@ -111,7 +111,7 @@ pub(crate) fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> 
 }
 
 /// Scan an expression for page cache operations (load_page, pin, dirty, evict, page_count).
-fn page_cache_scan_expr(expr: &Expr, checker: &mut PageCacheChecker) {
+fn page_cache_scan_expr(expr: &SpExpr, checker: &mut PageCacheChecker) {
     if let Some((name, args)) = extract_call(expr) {
         let page_id = args
             .first()
@@ -184,7 +184,7 @@ pub(crate) fn run_mvcc_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
 }
 
 /// Scan an expression for MVCC operations (begin_txn, write, commit).
-fn mvcc_scan_expr(expr: &Expr, checker: &mut MvccChecker) {
+fn mvcc_scan_expr(expr: &SpExpr, checker: &mut MvccChecker) {
     if let Some((name, args)) = extract_call(expr) {
         match name {
             "begin_txn" | "begin" | "start_transaction" => {
@@ -213,7 +213,7 @@ fn mvcc_scan_expr(expr: &Expr, checker: &mut MvccChecker) {
         }
     }
     // Scan sub-expressions
-    match expr {
+    match &expr.node {
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
                 mvcc_scan_expr(e, checker);
@@ -262,7 +262,7 @@ pub(crate) fn run_rollback_checks(source: &assura_parser::ast::SourceFile) -> Ve
 
 /// Scan an expression for rollback operations (savepoint, acquire, release, rollback).
 /// Returns any immediate errors (e.g., rollback to unknown savepoint).
-fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) -> Vec<TypeError> {
+fn rollback_scan_expr(expr: &SpExpr, checker: &mut RollbackChecker) -> Vec<TypeError> {
     let mut scan_errors = Vec::new();
     if let Some((name, args)) = extract_call(expr) {
         match name {
@@ -296,11 +296,11 @@ fn rollback_scan_expr(expr: &Expr, checker: &mut RollbackChecker) -> Vec<TypeErr
         }
     }
     // Also check for identifier-based savepoint declarations
-    if let Expr::Ident(name) = expr {
+    if let Expr::Ident(name) = &expr.node {
         checker.create_savepoint(name.clone());
     }
     // Scan sub-expressions recursively
-    match expr {
+    match &expr.node {
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
                 scan_errors.extend(rollback_scan_expr(e, checker));
@@ -338,9 +338,9 @@ pub(crate) fn run_monotonic_state_checks(
                 if k == "monotonic" || k == "monotone" || k == "increasing" {
                     found = true;
                     // Extract direction from call syntax: monotonic(name, direction, initial)
-                    match &clause.body {
+                    match &clause.body.node {
                         Expr::Call { func, args } => {
-                            if let Expr::Ident(name) = func.as_ref() {
+                            if let Expr::Ident(name) = &func.as_ref().node {
                                 let direction = args
                                     .first()
                                     .and_then(extract_ident)
@@ -438,7 +438,7 @@ pub(crate) fn run_storage_failure_checks(
             if let ClauseKind::Other(ref k) = clause.kind {
                 if k == "failure_mode" || k == "storage_failure" {
                     found = true;
-                    if let Expr::Ident(name) = &clause.body {
+                    if let Expr::Ident(name) = &clause.body.node {
                         let mode = match name.as_str() {
                             "partial_write" => FailureMode::PartialWrite,
                             "torn_page" => FailureMode::TornPage,
@@ -451,7 +451,7 @@ pub(crate) fn run_storage_failure_checks(
                     }
                 }
                 if (k == "handles" || k == "handles_failure")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                 {
                     checker.mark_handled(name);
                 }

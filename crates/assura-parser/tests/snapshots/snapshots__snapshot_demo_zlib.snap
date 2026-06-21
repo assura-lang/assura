@@ -155,20 +155,26 @@ SourceFile {
                             kind: Other(
                                 "taint",
                             ),
-                            body: Ident(
-                                "untrusted",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "untrusted",
+                                ),
+                                span: 355..370,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "io",
-                                    ".",
-                                    "read",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "io",
+                                        ".",
+                                        "read",
+                                    ],
+                                ),
+                                span: 370..385,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -244,16 +250,22 @@ SourceFile {
                             kind: Other(
                                 "taint",
                             ),
-                            body: Ident(
-                                "validated",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "validated",
+                                ),
+                                span: 528..543,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 543..555,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -369,25 +381,34 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Modifies,
-                            body: Ident(
-                                "dst",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "dst",
+                                ),
+                                span: 1253..1266,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 1266..1278,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Other(
                                 "incremental",
                             ),
-                            body: Ident(
-                                "InflateDecoder",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "InflateDecoder",
+                                ),
+                                span: 1278..1303,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -427,92 +448,146 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: Field(
-                                Ident(
+                            body: Spanned {
+                                node: Field(
+                                    Spanned {
+                                        node: Ident(
+                                            "state",
+                                        ),
+                                        span: 2433..2438,
+                                    },
                                     "state",
                                 ),
-                                "state",
-                            ),
+                                span: 2433..2444,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Field(
-                                    Ident(
-                                        "state",
-                                    ),
-                                    "extra_bytes_copied",
-                                ),
-                                op: Lte,
-                                rhs: Field(
-                                    Field(
-                                        Field(
-                                            Ident(
-                                                "state",
-                                            ),
-                                            "head",
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Ident(
+                                                    "state",
+                                                ),
+                                                span: 2465..2470,
+                                            },
+                                            "extra_bytes_copied",
                                         ),
-                                        "extra",
-                                    ),
-                                    "extra_max",
-                                ),
+                                        span: 2465..2489,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Field(
+                                                    Spanned {
+                                                        node: Field(
+                                                            Spanned {
+                                                                node: Ident(
+                                                                    "state",
+                                                                ),
+                                                                span: 2491..2496,
+                                                            },
+                                                            "head",
+                                                        ),
+                                                        span: 2491..2501,
+                                                    },
+                                                    "extra",
+                                                ),
+                                                span: 2491..2507,
+                                            },
+                                            "extra_max",
+                                        ),
+                                        span: 2491..2517,
+                                    },
+                                },
+                                span: 2465..2517,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Modifies,
-                            body: Raw(
-                                [
-                                    "state",
-                                    ".",
-                                    "head",
-                                    ".",
-                                    "extra",
-                                    ".",
-                                    "data",
-                                    ",",
-                                    "state",
-                                    ".",
-                                    "extra_bytes_copied",
-                                    ",",
-                                    "state",
-                                    ".",
-                                    "extra_bytes_remaining",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "state",
+                                        ".",
+                                        "head",
+                                        ".",
+                                        "extra",
+                                        ".",
+                                        "data",
+                                        ",",
+                                        "state",
+                                        ".",
+                                        "extra_bytes_copied",
+                                        ",",
+                                        "state",
+                                        ".",
+                                        "extra_bytes_remaining",
+                                    ],
+                                ),
+                                span: 2518..2602,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Field(
-                                    Ident(
-                                        "state",
-                                    ),
-                                    "extra_bytes_copied",
-                                ),
-                                op: Lte,
-                                rhs: Field(
-                                    Field(
-                                        Field(
-                                            Ident(
-                                                "state",
-                                            ),
-                                            "head",
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Ident(
+                                                    "state",
+                                                ),
+                                                span: 2610..2615,
+                                            },
+                                            "extra_bytes_copied",
                                         ),
-                                        "extra",
-                                    ),
-                                    "extra_max",
-                                ),
+                                        span: 2610..2634,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Field(
+                                                    Spanned {
+                                                        node: Field(
+                                                            Spanned {
+                                                                node: Ident(
+                                                                    "state",
+                                                                ),
+                                                                span: 2636..2641,
+                                                            },
+                                                            "head",
+                                                        ),
+                                                        span: 2636..2646,
+                                                    },
+                                                    "extra",
+                                                ),
+                                                span: 2636..2652,
+                                            },
+                                            "extra_max",
+                                        ),
+                                        span: 2636..2662,
+                                    },
+                                },
+                                span: 2610..2662,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 2663..2675,
+                            },
                             effect_variables: [],
                         },
                     ],

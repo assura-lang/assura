@@ -29,12 +29,12 @@ pub(crate) fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
             // Register extern with trust boundary classification
             let boundary = if e.clauses.iter().any(|c| {
                 matches!(&c.kind, ClauseKind::Other(k) if k == "trust")
-                    && matches!(&c.body, Expr::Ident(v) if v == "trusted")
+                    && matches!(&c.body.node, Expr::Ident(v) if v == "trusted")
             }) {
                 TrustBoundary::Trusted
             } else if e.clauses.iter().any(|c| {
                 matches!(&c.kind, ClauseKind::Other(k) if k == "trust")
-                    && matches!(&c.body, Expr::Ident(v) if v == "audited")
+                    && matches!(&c.body.node, Expr::Ident(v) if v == "audited")
             }) {
                 TrustBoundary::Audited
             } else {
@@ -148,7 +148,7 @@ pub(crate) fn run_error_propagation_checks(
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_propagate"
                 {
-                    match &clause.body {
+                    match &clause.body.node {
                         Expr::Raw(tokens) => policy.must_propagate.extend(tokens.iter().cloned()),
                         Expr::Ident(name) => policy.must_propagate.push(name.clone()),
                         _ => {}
@@ -156,13 +156,13 @@ pub(crate) fn run_error_propagation_checks(
                 }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_check"
-                    && let Expr::Raw(tokens) = &clause.body
+                    && let Expr::Raw(tokens) = &clause.body.node
                 {
                     policy.must_check.extend(tokens.iter().cloned());
                 }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_not_mask"
-                    && let Expr::Raw(tokens) = &clause.body
+                    && let Expr::Raw(tokens) = &clause.body.node
                     && tokens.len() >= 2
                 {
                     policy
@@ -171,7 +171,7 @@ pub(crate) fn run_error_propagation_checks(
                 }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_preserve_detail"
-                    && let Expr::Raw(tokens) = &clause.body
+                    && let Expr::Raw(tokens) = &clause.body.node
                 {
                     policy.must_preserve_detail.extend(tokens.iter().cloned());
                 }
@@ -199,7 +199,7 @@ pub(crate) fn run_error_propagation_checks(
             if returns_error {
                 for clause in &f.clauses {
                     if clause.kind == ClauseKind::Errors
-                        && let Expr::Raw(tokens) = &clause.body
+                        && let Expr::Raw(tokens) = &clause.body.node
                     {
                         for error_code in tokens {
                             if checker.is_must_propagate(error_code) {
@@ -220,7 +220,7 @@ pub(crate) fn run_error_propagation_checks(
                     // Check "catch" clauses for error action violations
                     if let ClauseKind::Other(ref k) = clause.kind
                         && k == "catch"
-                        && let Expr::Raw(tokens) = &clause.body
+                        && let Expr::Raw(tokens) = &clause.body.node
                     {
                         let error_code = tokens.first().cloned().unwrap_or_default();
                         let action_kw = tokens.get(1).map(|s| s.as_str()).unwrap_or("");

@@ -38,9 +38,9 @@ pub(crate) fn run_binary_format_checks(source: &assura_parser::ast::SourceFile) 
                     found = true;
                     // Extract field from call syntax: field(name, offset, size)
                     // or from kv pairs: name = x, offset = y, size = z
-                    match &clause.body {
+                    match &clause.body.node {
                         Expr::Call { func, args } => {
-                            if let Expr::Ident(name) = func.as_ref() {
+                            if let Expr::Ident(name) = &func.as_ref().node {
                                 let offset = args
                                     .first()
                                     .and_then(extract_int_literal)
@@ -139,7 +139,7 @@ pub(crate) fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> V
                 if k == "bit_layout" || k == "bit_level" {
                     found = true;
                     // Extract container size: bit_layout(bits)
-                    let bits = match &clause.body {
+                    let bits = match &clause.body.node {
                         Expr::Call { func: _, args } => args
                             .first()
                             .and_then(extract_int_literal)
@@ -157,9 +157,9 @@ pub(crate) fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> V
                     found = true;
                     // Extract bit field: bit_field(name, offset, width) or bit_field(name, offset, width, cross_byte_ok)
                     if let Some(ref mut ch) = checker {
-                        match &clause.body {
+                        match &clause.body.node {
                             Expr::Call { func, args } => {
-                                if let Expr::Ident(name) = func.as_ref() {
+                                if let Expr::Ident(name) = &func.as_ref().node {
                                     let bit_offset = args
                                         .first()
                                         .and_then(extract_int_literal)
@@ -198,7 +198,7 @@ pub(crate) fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> V
                         // No container declared yet, create default 64-bit
                         container_bits = 64;
                         let mut ch = BitLevelChecker::new(64);
-                        if let Expr::Ident(name) = &clause.body {
+                        if let Expr::Ident(name) = &clause.body.node {
                             ch.add_field(BitField {
                                 name: name.clone(),
                                 bit_offset: 0,
@@ -240,9 +240,9 @@ pub(crate) fn run_string_encoding_checks(
             {
                 found = true;
                 // Extract encoding from call syntax: encoding(name, enc_type)
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let enc = args
                                 .first()
                                 .and_then(extract_ident)
@@ -336,9 +336,9 @@ pub(crate) fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Ve
                 if k == "checksum" || k == "crc" || k == "hash" {
                     found = true;
                     // Extract checksum params: checksum(name, algorithm, start, end)
-                    match &clause.body {
+                    match &clause.body.node {
                         Expr::Call { func, args } => {
-                            if let Expr::Ident(name) = func.as_ref() {
+                            if let Expr::Ident(name) = &func.as_ref().node {
                                 let algo = args
                                     .first()
                                     .and_then(extract_ident)
@@ -391,7 +391,7 @@ pub(crate) fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Ve
                     }
                 }
                 if (k == "verify_checksum" || k == "verified")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                 {
                     checker.mark_verified(name);
                 }
@@ -591,7 +591,7 @@ pub(crate) fn run_opaque_function_checks(
                     checker.exit_proof();
                 }
                 if k == "reveal"
-                    && let Expr::Ident(fn_name) = &clause.body
+                    && let Expr::Ident(fn_name) = &clause.body.node
                     && let Some(err) = checker.reveal(fn_name, &decl.span)
                 {
                     errors.push(err);

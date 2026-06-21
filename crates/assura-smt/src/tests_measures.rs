@@ -642,7 +642,9 @@ fn fs_cache_put_and_get() {
     let cache = VerificationCache::new(&dir);
     let clauses = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Expr::Ident("result".into()),
+        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
+            "result".into(),
+        )),
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
@@ -660,12 +662,16 @@ fn fs_cache_miss_on_different_clauses() {
     let cache = VerificationCache::new(&dir);
     let clauses_a = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Expr::Ident("result".into()),
+        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
+            "result".into(),
+        )),
         effect_variables: vec![],
     }];
     let clauses_b = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Requires,
-        body: assura_parser::ast::Expr::Ident("result".into()),
+        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
+            "result".into(),
+        )),
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
@@ -681,7 +687,9 @@ fn fs_cache_clear() {
     let cache = VerificationCache::new(&dir);
     let clauses = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Expr::Ident("result".into()),
+        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
+            "result".into(),
+        )),
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
@@ -700,7 +708,9 @@ fn fs_cache_entry_count() {
     assert_eq!(cache.entry_count(), 0);
     let clauses = vec![assura_parser::ast::Clause {
         kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Expr::Ident("result".into()),
+        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
+            "result".into(),
+        )),
         effect_variables: vec![],
     }];
     cache.put("alpha", &clauses, &[]);

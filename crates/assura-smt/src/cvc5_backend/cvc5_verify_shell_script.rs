@@ -2,13 +2,13 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{ClauseKind, Expr};
+use assura_parser::ast::{ClauseKind, SpExpr};
 
 use crate::cvc5_common::{collect_apply_refs_from_expr, sanitize_smtlib_name};
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
 
-pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&Expr]) {
+pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
     for req in requires {
         if let Some(smt) = expr_to_smtlib(req) {
             script.push_str(&format!("(assert {smt})\n"));
@@ -33,8 +33,8 @@ pub(crate) fn append_cvc5_shellout_frame_axioms(
 
 pub(crate) fn append_cvc5_shellout_lemma_assumptions(
     script: &mut String,
-    body: &Expr,
-    defs: &std::collections::HashMap<String, Vec<&Expr>>,
+    body: &SpExpr,
+    defs: &std::collections::HashMap<String, Vec<&SpExpr>>,
 ) {
     let apply_refs = collect_apply_refs_from_expr(body);
     for lemma_name in &apply_refs {

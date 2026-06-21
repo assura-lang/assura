@@ -143,14 +143,23 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "alphabet_size",
-                                ),
-                                op: Lte,
-                                rhs: Ident(
-                                    "MAX_ALPHABET_SIZE",
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "alphabet_size",
+                                        ),
+                                        span: 668..681,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "MAX_ALPHABET_SIZE",
+                                        ),
+                                        span: 683..700,
+                                    },
+                                },
+                                span: 668..700,
                             },
                             effect_variables: [],
                         },
@@ -158,38 +167,44 @@ SourceFile {
                             kind: Other(
                                 "must_be",
                             ),
-                            body: Raw(
-                                [],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [],
+                                ),
+                                span: 701..708,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Other(
                                 "deterministic",
                             ),
-                            body: Raw(
-                                [
-                                    "let",
-                                    "primary",
-                                    "=",
-                                    "pow",
-                                    "2",
-                                    ",",
-                                    "ROOT_BITS",
-                                    "as",
-                                    "U32",
-                                    "let",
-                                    "max_secondary",
-                                    "=",
-                                    "max_over_valid_codes",
-                                    "alphabet_size",
-                                    ",",
-                                    "ROOT_BITS",
-                                    "primary",
-                                    "+",
-                                    "max_secondary",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "let",
+                                        "primary",
+                                        "=",
+                                        "pow",
+                                        "2",
+                                        ",",
+                                        "ROOT_BITS",
+                                        "as",
+                                        "U32",
+                                        "let",
+                                        "max_secondary",
+                                        "=",
+                                        "max_over_valid_codes",
+                                        "alphabet_size",
+                                        ",",
+                                        "ROOT_BITS",
+                                        "primary",
+                                        "+",
+                                        "max_secondary",
+                                    ],
+                                ),
+                                span: 708..838,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -237,9 +252,12 @@ SourceFile {
                         kind: Other(
                             "verify_against",
                         ),
-                        body: Ident(
-                            "worst_case_table_size",
-                        ),
+                        body: Spanned {
+                            node: Ident(
+                                "worst_case_table_size",
+                            ),
+                            span: 953..989,
+                        },
                         effect_variables: [],
                     },
                 ],
@@ -283,20 +301,26 @@ SourceFile {
                             kind: Other(
                                 "taint",
                             ),
-                            body: Ident(
-                                "untrusted",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "untrusted",
+                                ),
+                                span: 1050..1065,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "io",
-                                    ".",
-                                    "read",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "io",
+                                        ".",
+                                        "read",
+                                    ],
+                                ),
+                                span: 1065..1080,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -346,20 +370,26 @@ SourceFile {
                             kind: Other(
                                 "taint",
                             ),
-                            body: Ident(
-                                "untrusted",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "untrusted",
+                                ),
+                                span: 1180..1195,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "io",
-                                    ".",
-                                    "read",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "io",
+                                        ".",
+                                        "read",
+                                    ],
+                                ),
+                                span: 1195..1210,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -409,20 +439,26 @@ SourceFile {
                             kind: Other(
                                 "taint",
                             ),
-                            body: Raw(
-                                [
-                                    "validated",
-                                    "|",
-                                    "HuffmanError",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "validated",
+                                        "|",
+                                        "HuffmanError",
+                                    ],
+                                ),
+                                span: 1452..1480,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 1480..1492,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -499,90 +535,144 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "size",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "280",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "size",
+                                        ),
+                                        span: 2622..2626,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "280",
+                                            ),
+                                        ),
+                                        span: 2628..2631,
+                                    },
+                                },
+                                span: 2622..2631,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "max_len",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "15",
-                                    ),
-                                ),
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Ensures,
-                            body: BinOp {
-                                lhs: BinOp {
-                                    lhs: Ident(
-                                        "size",
-                                    ),
-                                    op: Add,
-                                    rhs: Ident(
-                                        "max_len",
-                                    ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "max_len",
+                                        ),
+                                        span: 2641..2648,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "15",
+                                            ),
+                                        ),
+                                        span: 2650..2652,
+                                    },
                                 },
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "295",
-                                    ),
-                                ),
+                                span: 2641..2652,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "size",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "280",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "size",
+                                                ),
+                                                span: 2661..2665,
+                                            },
+                                            op: Add,
+                                            rhs: Spanned {
+                                                node: Ident(
+                                                    "max_len",
+                                                ),
+                                                span: 2666..2673,
+                                            },
+                                        },
+                                        span: 0..0,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "295",
+                                            ),
+                                        ),
+                                        span: 2675..2678,
+                                    },
+                                },
+                                span: 2661..2678,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "max_len",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "15",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "size",
+                                        ),
+                                        span: 2687..2691,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "280",
+                                            ),
+                                        ),
+                                        span: 2693..2696,
+                                    },
+                                },
+                                span: 2687..2696,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "max_len",
+                                        ),
+                                        span: 2705..2712,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "15",
+                                            ),
+                                        ),
+                                        span: 2714..2716,
+                                    },
+                                },
+                                span: 2705..2716,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 2717..2729,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -628,84 +718,138 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "root_bits",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "15",
-                                    ),
-                                ),
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "alphabet_size",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "280",
-                                    ),
-                                ),
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "table_size",
-                                ),
-                                op: Gte,
-                                rhs: BinOp {
-                                    lhs: Ident(
-                                        "alphabet_size",
-                                    ),
-                                    op: Add,
-                                    rhs: Ident(
-                                        "root_bits",
-                                    ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "root_bits",
+                                        ),
+                                        span: 2806..2815,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "15",
+                                            ),
+                                        ),
+                                        span: 2817..2819,
+                                    },
                                 },
+                                span: 2806..2819,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "alphabet_size",
+                                        ),
+                                        span: 2829..2842,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "280",
+                                            ),
+                                        ),
+                                        span: 2844..2847,
+                                    },
+                                },
+                                span: 2829..2847,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "table_size",
+                                        ),
+                                        span: 2857..2867,
+                                    },
+                                    op: Gte,
+                                    rhs: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "alphabet_size",
+                                                ),
+                                                span: 2869..2882,
+                                            },
+                                            op: Add,
+                                            rhs: Spanned {
+                                                node: Ident(
+                                                    "root_bits",
+                                                ),
+                                                span: 2883..2892,
+                                            },
+                                        },
+                                        span: 2869..2892,
+                                    },
+                                },
+                                span: 2857..2892,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "table_size",
-                                ),
-                                op: Gte,
-                                rhs: Ident(
-                                    "root_bits",
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "table_size",
+                                        ),
+                                        span: 2901..2911,
+                                    },
+                                    op: Gte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "root_bits",
+                                        ),
+                                        span: 2913..2922,
+                                    },
+                                },
+                                span: 2901..2922,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "table_size",
-                                ),
-                                op: Gte,
-                                rhs: Ident(
-                                    "alphabet_size",
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "table_size",
+                                        ),
+                                        span: 2931..2941,
+                                    },
+                                    op: Gte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "alphabet_size",
+                                        ),
+                                        span: 2943..2956,
+                                    },
+                                },
+                                span: 2931..2956,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 2957..2969,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -751,80 +895,128 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "code_len",
-                                ),
-                                op: Lte,
-                                rhs: Ident(
-                                    "max_code_len",
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "code_len",
+                                        ),
+                                        span: 3049..3057,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "max_code_len",
+                                        ),
+                                        span: 3059..3071,
+                                    },
+                                },
+                                span: 3049..3071,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "max_code_len",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "15",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "max_code_len",
+                                        ),
+                                        span: 3081..3093,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "15",
+                                            ),
+                                        ),
+                                        span: 3095..3097,
+                                    },
+                                },
+                                span: 3081..3097,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "root_bits",
-                                ),
-                                op: Lte,
-                                rhs: Ident(
-                                    "max_code_len",
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "root_bits",
+                                        ),
+                                        span: 3107..3116,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "max_code_len",
+                                        ),
+                                        span: 3118..3130,
+                                    },
+                                },
+                                span: 3107..3130,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "code_len",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "15",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "code_len",
+                                        ),
+                                        span: 3139..3147,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "15",
+                                            ),
+                                        ),
+                                        span: 3149..3151,
+                                    },
+                                },
+                                span: 3139..3151,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "root_bits",
-                                ),
-                                op: Lte,
-                                rhs: Literal(
-                                    Int(
-                                        "15",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "root_bits",
+                                        ),
+                                        span: 3160..3169,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "15",
+                                            ),
+                                        ),
+                                        span: 3171..3173,
+                                    },
+                                },
+                                span: 3160..3173,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 3174..3186,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -869,13 +1061,16 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Effects,
-                            body: Raw(
-                                [
-                                    "io",
-                                    ".",
-                                    "read",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "io",
+                                        ".",
+                                        "read",
+                                    ],
+                                ),
+                                span: 3287..3302,
+                            },
                             effect_variables: [],
                         },
                     ],

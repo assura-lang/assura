@@ -1,3 +1,5 @@
+use assura_parser::ast::SpExpr;
+
 use super::*;
 
 /// Stub verification when Z3 is not available.
@@ -19,7 +21,7 @@ pub(crate) fn verify_stub(typed: &TypedFile) -> Vec<VerificationResult> {
 }
 
 /// Stub refinement subtype check when Z3 is not available.
-pub(crate) fn refinement_stub(_ante: &Expr, _cons: &Expr) -> VerificationResult {
+pub(crate) fn refinement_stub(_ante: &SpExpr, _cons: &SpExpr) -> VerificationResult {
     VerificationResult::Unknown {
         clause_desc: "refinement_subtype".into(),
         reason: "Z3 not available (compiled without z3-verify feature)".into(),
@@ -28,9 +30,9 @@ pub(crate) fn refinement_stub(_ante: &Expr, _cons: &Expr) -> VerificationResult 
 
 /// Stub refinement subtype check with context when Z3 is not available.
 pub(crate) fn refinement_ctx_stub(
-    _context: &[Expr],
-    _ante: &Expr,
-    _cons: &Expr,
+    _context: &[SpExpr],
+    _ante: &SpExpr,
+    _cons: &SpExpr,
 ) -> VerificationResult {
     VerificationResult::Unknown {
         clause_desc: "refinement_subtype_with_context".into(),

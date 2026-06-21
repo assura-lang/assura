@@ -110,7 +110,7 @@ impl MemoryChecker {
     pub fn check_bounds_in_requires(
         &self,
         buffer_name: &str,
-        requires_exprs: &[&Expr],
+        requires_exprs: &[&SpExpr],
         span: &Range<usize>,
     ) -> Option<MemoryError> {
         if !self.is_buffer(buffer_name) {
@@ -232,8 +232,8 @@ impl MemoryChecker {
     /// - `buf.len >= expr` or `buf.capacity >= expr`
     /// - Any comparison where one side references the buffer's length/capacity
     ///   and the other constrains an offset/index
-    fn expr_has_bounds_check(&self, expr: &Expr, buffer_name: &str) -> bool {
-        match expr {
+    fn expr_has_bounds_check(&self, expr: &SpExpr, buffer_name: &str) -> bool {
+        match &expr.node {
             Expr::BinOp { lhs, op, rhs } => {
                 match op {
                     BinOp::Lte | BinOp::Lt => {
@@ -262,12 +262,12 @@ impl MemoryChecker {
     ///
     /// Looks for `buf.len`, `buf.capacity`, `buf.length`, or the
     /// registered capacity expression for the buffer.
-    fn references_buffer_capacity(&self, expr: &Expr, buffer_name: &str) -> bool {
-        match expr {
+    fn references_buffer_capacity(&self, expr: &SpExpr, buffer_name: &str) -> bool {
+        match &expr.node {
             Expr::Field(receiver, field) => {
                 let is_len_field =
                     field == "len" || field == "capacity" || field == "length" || field == "size";
-                if is_len_field && let Expr::Ident(name) = receiver.as_ref() {
+                if is_len_field && let Expr::Ident(name) = &receiver.as_ref().node {
                     return name == buffer_name;
                 }
                 false
@@ -306,7 +306,7 @@ impl std::fmt::Debug for MemoryChecker {
 }
 
 /// Check whether an expression references a variable by name.
-pub fn expr_references_var(expr: &Expr, var_name: &str) -> bool {
+pub fn expr_references_var(expr: &SpExpr, var_name: &str) -> bool {
     struct VarRefChecker<'a> {
         target: &'a str,
         found: bool,

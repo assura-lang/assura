@@ -649,25 +649,25 @@ fn test_no_modifies_no_frame_axiom() {
 // T039: Refinement type subtyping as SMT queries
 // -----------------------------------------------------------------------
 
-use assura_parser::ast::{BinOp, Expr, Literal};
+use assura_parser::ast::{BinOp, Expr, Literal, SpExpr, Spanned};
 
 /// Helper: build `Expr::BinOp { lhs, op, rhs }`.
-fn binop(lhs: Expr, op: BinOp, rhs: Expr) -> Expr {
-    Expr::BinOp {
+fn binop(lhs: SpExpr, op: BinOp, rhs: SpExpr) -> SpExpr {
+    Spanned::no_span(Expr::BinOp {
         lhs: Box::new(lhs),
         op,
         rhs: Box::new(rhs),
-    }
+    })
 }
 
 /// Helper: build `Expr::Ident(name)`.
-fn ident(name: &str) -> Expr {
-    Expr::Ident(name.to_string())
+fn ident(name: &str) -> SpExpr {
+    Spanned::no_span(Expr::Ident(name.to_string()))
 }
 
 /// Helper: build `Expr::Literal(Literal::Int(n))`.
-fn int_lit(n: i64) -> Expr {
-    Expr::Literal(Literal::Int(n.to_string()))
+fn int_lit(n: i64) -> SpExpr {
+    Spanned::no_span(Expr::Literal(Literal::Int(n.to_string())))
 }
 
 #[test]
@@ -721,7 +721,7 @@ fn test_refinement_with_context() {
 #[test]
 fn test_counterexample_has_model() {
     // true does NOT imply x > 0 -> counterexample with x value
-    let ante = Expr::Literal(Literal::Bool(true));
+    let ante = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
     let cons = binop(ident("x"), BinOp::Gt, int_lit(0));
 
     let result = super::check_refinement_subtype(&ante, &cons);
@@ -803,7 +803,7 @@ fn test_buffer_bounds_with_requires_verified() {
 fn test_buffer_bounds_without_requires_counterexample() {
     // Contract: no requires, ensures { offset + len <= buf_len }
     // Without bounds check, offset/len are unconstrained -> counterexample.
-    let requires: Vec<Expr> = vec![];
+    let requires: Vec<SpExpr> = vec![];
     let ensures = binop(
         binop(ident("offset"), BinOp::Add, ident("len")),
         BinOp::Lte,
@@ -883,7 +883,7 @@ fn test_region_containment_sub_within_parent() {
 fn test_region_containment_sub_exceeds_parent() {
     // Sub-region: [0, 10), Parent-region: [0, 5)
     // 10 > 5, so containment fails.
-    let context: Vec<Expr> = vec![];
+    let context: Vec<SpExpr> = vec![];
 
     let result = super::verify_region_containment(
         &context,
@@ -901,7 +901,7 @@ fn test_region_containment_sub_exceeds_parent() {
 #[test]
 fn test_region_containment_same_range() {
     // Sub-region == parent-region: [0, n) subset [0, n) -> Verified
-    let context: Vec<Expr> = vec![];
+    let context: Vec<SpExpr> = vec![];
 
     let result = super::verify_region_containment(
         &context,
@@ -1294,7 +1294,7 @@ fn test_measure_no_requires_counterexample() {
         )
         .with_axiom("len(xs) >= 0", super::MeasureAxiomTag::NonNegative),
     ];
-    let requires: Vec<Expr> = vec![];
+    let requires: Vec<SpExpr> = vec![];
     let ensures = binop(ident("x"), BinOp::Gt, int_lit(0));
 
     let result = super::verify_with_measures(&requires, &ensures, &measures);
@@ -1691,10 +1691,10 @@ fn test_tuple_encoding_preserves_elements() {
     use assura_parser::ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
-        let tuple_expr = Expr::Tuple(vec![
-            Expr::Literal(Literal::Int("1".into())),
-            Expr::Literal(Literal::Int("2".into())),
-        ]);
+        let tuple_expr = Spanned::no_span(Expr::Tuple(vec![
+            Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
+            Spanned::no_span(Expr::Literal(Literal::Int("2".into()))),
+        ]));
         let _val = encoder.encode_expr(&tuple_expr);
         // The fix asserts __tuple_2_0(tuple) == 1 and __tuple_2_1(tuple) == 2
         // as background axioms. Without the fix, no axioms are produced.
@@ -1712,11 +1712,11 @@ fn test_list_encoding_preserves_elements() {
     use assura_parser::ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
-        let list_expr = Expr::List(vec![
-            Expr::Literal(Literal::Int("10".into())),
-            Expr::Literal(Literal::Int("20".into())),
-            Expr::Literal(Literal::Int("30".into())),
-        ]);
+        let list_expr = Spanned::no_span(Expr::List(vec![
+            Spanned::no_span(Expr::Literal(Literal::Int("10".into()))),
+            Spanned::no_span(Expr::Literal(Literal::Int("20".into()))),
+            Spanned::no_span(Expr::Literal(Literal::Int("30".into()))),
+        ]));
         let _val = encoder.encode_expr(&list_expr);
         // 3 element axioms + 1 length axiom = 4 background axioms
         assert!(
@@ -1738,8 +1738,12 @@ fn test_string_distinctness() {
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
         // Encode two different string literals
-        let _hello = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
-        let _world = encoder.encode_expr(&Expr::Literal(Literal::Str("world".into())));
+        let _hello = encoder.encode_expr(&Spanned::no_span(Expr::Literal(Literal::Str(
+            "hello".into(),
+        ))));
+        let _world = encoder.encode_expr(&Spanned::no_span(Expr::Literal(Literal::Str(
+            "world".into(),
+        ))));
         // Must have a distinctness axiom (hello != world) plus length axioms
         let has_distinctness = encoder.background_axioms.len() >= 3; // 2 lengths + 1 distinct
         assert!(
@@ -1749,7 +1753,9 @@ fn test_string_distinctness() {
         );
         // Same string encoded twice should NOT add another distinctness axiom
         let axiom_count_before = encoder.background_axioms.len();
-        let _hello2 = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
+        let _hello2 = encoder.encode_expr(&Spanned::no_span(Expr::Literal(Literal::Str(
+            "hello".into(),
+        ))));
         // Only a new length axiom, no new distinctness axiom
         assert_eq!(
             encoder.background_axioms.len(),
@@ -1769,10 +1775,10 @@ fn test_apply_missing_lemma_not_verified() {
     use assura_parser::ast::Expr;
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
-        let apply_expr = Expr::Apply {
+        let apply_expr = Spanned::no_span(Expr::Apply {
             lemma_name: "NonexistentLemma".into(),
-            args: vec![Expr::Ident("x".into())],
-        };
+            args: vec![Spanned::no_span(Expr::Ident("x".into()))],
+        });
         let val = encoder.encode_expr(&apply_expr);
         // Must NOT be hardcoded true. Should be a named bool variable.
         let is_bool = matches!(val, crate::z3_backend::encoder::Z3Value::Bool(_));
@@ -2210,16 +2216,16 @@ fn deep_field_chain_ensures_verifies() {
 fn deep_field_chain_not_unmodelable() {
     use z3_backend::encoder::expr_has_unmodelable_features;
     // state.head.extra.extra_max should NOT be unmodelable
-    let expr = Expr::Field(
-        Box::new(Expr::Field(
-            Box::new(Expr::Field(
-                Box::new(Expr::Ident("state".into())),
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("state".into()))),
                 "head".into(),
-            )),
+            ))),
             "extra".into(),
-        )),
+        ))),
         "extra_max".into(),
-    );
+    ));
     assert!(
         !expr_has_unmodelable_features(&expr),
         "deep field chain should be modelable after #198"
@@ -2234,13 +2240,13 @@ fn deep_field_chain_not_unmodelable() {
 fn taint_keyword_not_unmodelable() {
     use z3_backend::encoder::expr_has_unmodelable_features;
     // Raw tokens with taint/ghost/region but no @ should be modelable
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "taint".into(),
         "untrusted".into(),
         "x".into(),
         ">=".into(),
         "0".into(),
-    ]);
+    ]));
     assert!(
         !expr_has_unmodelable_features(&expr),
         "taint keywords should be modelable after #200"
@@ -2251,13 +2257,13 @@ fn taint_keyword_not_unmodelable() {
 fn typestate_at_now_modelable() {
     use z3_backend::encoder::expr_has_unmodelable_features;
     // #262: Raw tokens with @ are now modelable (encoded as integer equality)
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "state".into(),
         ".".into(),
         "status".into(),
         "@".into(),
         "Active".into(),
-    ]);
+    ]));
     assert!(
         !expr_has_unmodelable_features(&expr),
         "typestate @ annotation should be modelable after #262"
@@ -2277,12 +2283,12 @@ fn z3_typestate_same_state_verifies() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()])),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()])),
             effect_variables: vec![],
         },
     ];
@@ -2307,12 +2313,12 @@ fn z3_typestate_different_state_counterexample() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()])),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()])),
             effect_variables: vec![],
         },
     ];
@@ -2337,12 +2343,12 @@ fn z3_typestate_mismatch_completes_without_hang() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()])),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()])),
             effect_variables: vec![],
         },
     ];
@@ -2369,24 +2375,24 @@ fn z3_typestate_with_dot_field() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Raw(vec![
+            body: Spanned::no_span(Expr::Raw(vec![
                 "conn".into(),
                 ".".into(),
                 "state".into(),
                 "@".into(),
                 "Connected".into(),
-            ]),
+            ])),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::Raw(vec![
+            body: Spanned::no_span(Expr::Raw(vec![
                 "conn".into(),
                 ".".into(),
                 "state".into(),
                 "@".into(),
                 "Connected".into(),
-            ]),
+            ])),
             effect_variables: vec![],
         },
     ];
@@ -2410,11 +2416,11 @@ fn z3_typestate_with_dot_field() {
 fn unknown_method_call_not_unmodelable() {
     use z3_backend::encoder::expr_has_unmodelable_features;
     // Method calls should NOT be unmodelable (encoded as uninterpreted functions)
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("data".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("data".into()))),
         method: "custom_check".into(),
-        args: vec![Expr::Ident("x".into())],
-    };
+        args: vec![Spanned::no_span(Expr::Ident("x".into()))],
+    });
     assert!(
         !expr_has_unmodelable_features(&expr),
         "unknown method calls should be modelable after #201"
@@ -2425,7 +2431,10 @@ fn unknown_method_call_not_unmodelable() {
 fn field_access_not_unmodelable() {
     use z3_backend::encoder::expr_has_unmodelable_features;
     // Field access (even unknown fields) should be modelable
-    let expr = Expr::Field(Box::new(Expr::Ident("obj".into())), "custom_field".into());
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
+        "custom_field".into(),
+    ));
     assert!(
         !expr_has_unmodelable_features(&expr),
         "field access should be modelable after #198"
@@ -2443,7 +2452,9 @@ fn test_string_theory_literal_z3() {
     z3::with_z3_config(&z3::Config::new(), || {
         // With string_theory=true, string literals produce Z3Value::Str
         let mut encoder = Encoder::with_string_theory(true);
-        let val = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
+        let val = encoder.encode_expr(&Spanned::no_span(Expr::Literal(Literal::Str(
+            "hello".into(),
+        ))));
         assert!(
             matches!(val, Z3Value::Str(_)),
             "With string_theory=true, string literals must produce Z3Value::Str"
@@ -2464,7 +2475,9 @@ fn test_string_theory_default_uses_int() {
         // Default (string_theory=false): string literals produce Z3Value::Int
         let mut encoder = Encoder::new();
         assert!(!encoder.use_string_theory);
-        let val = encoder.encode_expr(&Expr::Literal(Literal::Str("hello".into())));
+        let val = encoder.encode_expr(&Spanned::no_span(Expr::Literal(Literal::Str(
+            "hello".into(),
+        ))));
         assert!(
             matches!(val, Z3Value::Int(_)),
             "Default encoding must produce Z3Value::Int for strings"
@@ -2479,8 +2492,8 @@ fn test_string_theory_length_z3() {
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::with_string_theory(true);
         // Encode "abc".length -> should use native str.len, producing an Int
-        let str_expr = Expr::Literal(Literal::Str("abc".into()));
-        let field_expr = Expr::Field(Box::new(str_expr), "length".into());
+        let str_expr = Spanned::no_span(Expr::Literal(Literal::Str("abc".into())));
+        let field_expr = Spanned::no_span(Expr::Field(Box::new(str_expr), "length".into()));
         let val = encoder.encode_expr(&field_expr);
         assert!(
             matches!(val, Z3Value::Int(_)),
@@ -2496,11 +2509,15 @@ fn test_string_theory_equality_z3() {
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::with_string_theory(true);
         // "hello" == "hello" should use native string equality
-        let eq_expr = Expr::BinOp {
-            lhs: Box::new(Expr::Literal(Literal::Str("hello".into()))),
+        let eq_expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Str(
+                "hello".into(),
+            )))),
             op: BinOp::Eq,
-            rhs: Box::new(Expr::Literal(Literal::Str("hello".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Str(
+                "hello".into(),
+            )))),
+        });
         let val = encoder.encode_expr(&eq_expr);
         assert!(
             matches!(val, Z3Value::Bool(_)),

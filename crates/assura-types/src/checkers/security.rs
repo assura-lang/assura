@@ -28,7 +28,7 @@ impl ConstantTimeChecker {
     }
 
     /// Check if an expression references any secret variable.
-    pub fn references_secret(&self, expr: &Expr) -> bool {
+    pub fn references_secret(&self, expr: &SpExpr) -> bool {
         struct SecretChecker<'a> {
             secrets: &'a HashMap<String, bool>,
             found: bool,
@@ -50,7 +50,7 @@ impl ConstantTimeChecker {
 
     /// Check that branches do not depend on secret data.
     /// - A14001: branch condition depends on secret data (timing leak)
-    pub fn check_branch(&self, condition: &Expr, span: &Range<usize>) -> Vec<ConstantTimeError> {
+    pub fn check_branch(&self, condition: &SpExpr, span: &Range<usize>) -> Vec<ConstantTimeError> {
         let mut errors = Vec::new();
         if self.references_secret(condition) {
             errors.push(ConstantTimeError {
@@ -66,7 +66,7 @@ impl ConstantTimeChecker {
 
     /// Check that array indexing does not depend on secret data.
     /// - A14002: secret-dependent array index (cache timing leak)
-    pub fn check_index(&self, index_expr: &Expr, span: &Range<usize>) -> Vec<ConstantTimeError> {
+    pub fn check_index(&self, index_expr: &SpExpr, span: &Range<usize>) -> Vec<ConstantTimeError> {
         let mut errors = Vec::new();
         if self.references_secret(index_expr) {
             errors.push(ConstantTimeError {
@@ -81,9 +81,9 @@ impl ConstantTimeChecker {
     }
 
     /// Check a full expression for constant-time violations.
-    pub fn check_expr(&self, expr: &Expr, span: &Range<usize>) -> Vec<ConstantTimeError> {
+    pub fn check_expr(&self, expr: &SpExpr, span: &Range<usize>) -> Vec<ConstantTimeError> {
         let mut errors = Vec::new();
-        match expr {
+        match &expr.node {
             Expr::If {
                 cond,
                 then_branch,
@@ -958,17 +958,18 @@ impl Default for CryptoConformanceChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
     fn span() -> Range<usize> {
         0..10
     }
 
-    fn ident(s: &str) -> Expr {
-        Expr::Ident(s.to_string())
+    fn ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.to_string()))
     }
 
-    fn int_lit(n: i64) -> Expr {
-        Expr::Literal(Literal::Int(n.to_string()))
+    fn int_lit(n: i64) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Int(n.to_string())))
     }
 
     // ---- ConstantTimeChecker ----
@@ -1002,11 +1003,11 @@ mod tests {
     fn ct_check_expr_if_with_secret_condition() {
         let mut checker = ConstantTimeChecker::new();
         checker.mark_secret("s".into());
-        let expr = Expr::If {
+        let expr = Spanned::no_span(Expr::If {
             cond: Box::new(ident("s")),
             then_branch: Box::new(int_lit(1)),
             else_branch: Some(Box::new(int_lit(0))),
-        };
+        });
         let errs = checker.check_expr(&expr, &span());
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code.as_ref(), "A14001");
@@ -1016,11 +1017,11 @@ mod tests {
     fn ct_references_secret_in_binop() {
         let mut checker = ConstantTimeChecker::new();
         checker.mark_secret("pw".into());
-        let expr = Expr::BinOp {
+        let expr = Spanned::no_span(Expr::BinOp {
             lhs: Box::new(ident("pw")),
             op: BinOp::Add,
             rhs: Box::new(int_lit(1)),
-        };
+        });
         assert!(checker.references_secret(&expr));
     }
 

@@ -3,7 +3,7 @@
 //! Walks clause bodies (requires, ensures, invariant, etc.) and checks
 //! that `Expr::Ident` references resolve to a known name in scope.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SourceFile, Span};
+use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SourceFile, SpExpr, Span};
 
 use crate::BUILTIN_VALUE_NAMES;
 use crate::errors::ResolutionError;
@@ -189,7 +189,7 @@ pub(crate) fn is_body_clause(kind: &ClauseKind) -> bool {
 /// The `locals` parameter tracks locally-bound names (quantifier variables,
 /// let bindings) that are valid within their subtree.
 fn check_expr_idents(
-    expr: &Expr,
+    expr: &SpExpr,
     table: &SymbolTable,
     scope_id: usize,
     span: &Span,
@@ -197,7 +197,7 @@ fn check_expr_idents(
     locals: &mut Vec<String>,
     errors: &mut Vec<ResolutionError>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Ident(name) => {
             // Skip if it resolves in the symbol table
             if table.lookup(name, scope_id).is_some() {

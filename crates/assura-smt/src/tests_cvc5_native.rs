@@ -42,9 +42,9 @@ mod native_tests {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
             body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("n".into())),
+                lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
                 op: BinOp::Gte,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
             effect_variables: vec![],
         }];
@@ -66,18 +66,18 @@ mod native_tests {
             Clause {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -97,9 +97,9 @@ mod native_tests {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
             body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
             effect_variables: vec![],
         }];
@@ -118,9 +118,9 @@ mod native_tests {
         let clauses = vec![Clause {
             kind: ClauseKind::Invariant,
             body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
             effect_variables: vec![],
         }];
@@ -179,9 +179,9 @@ mod native_tests {
             Clause {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("n".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -257,16 +257,16 @@ mod native_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::And,
-                    lhs: Box::new(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::BinOp {
                         op: BinOp::Gt,
-                        lhs: Box::new(Expr::Ident("x".into())),
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                    }),
-                    rhs: Box::new(Expr::Raw(vec![
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Raw(vec![
                         "conn".into(),
                         "@".into(),
                         "Connected".into(),
-                    ])),
+                    ]))),
                 },
                 effect_variables: vec![],
             },
@@ -334,43 +334,43 @@ mod native_tests {
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("len".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("len".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
             make_clause(
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("start".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("start".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
             make_clause(
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Lte,
-                    lhs: Box::new(Expr::Ident("start".into())),
-                    rhs: Box::new(Expr::Ident("end_val".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("start".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("end_val".into()))),
                 },
             ),
             make_clause(
                 ClauseKind::Ensures,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::Call {
-                            func: Box::new(Expr::Ident("substring".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::Call {
+                            func: Box::new(Spanned::no_span(Expr::Ident("substring".into()))),
                             args: vec![
                                 Expr::Ident("s".into()),
                                 Expr::Ident("start".into()),
                                 Expr::Ident("end_val".into()),
                             ],
-                        }),
+                        })),
                         method: "length".into(),
                         args: vec![],
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
         ];
@@ -392,15 +392,15 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("concat".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("concat".into()))),
                         args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
-                    }),
+                    })),
                     method: "length".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("ConcatTest", &clauses);
@@ -423,23 +423,23 @@ mod native_tests {
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::Ident("s".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::Ident("s".into()))),
                         method: "length".into(),
                         args: vec![],
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
             make_clause(
                 ClauseKind::Ensures,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("index_of".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("index_of".into()))),
                         args: vec![Expr::Ident("s".into()), Expr::Ident("sub".into())],
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Int("-1".into()))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("-1".into())))),
                 },
             ),
         ];
@@ -463,28 +463,28 @@ mod native_tests {
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("idx".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("idx".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
             make_clause(
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::Ident("s".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::Ident("s".into()))),
                         method: "length".into(),
                         args: vec![],
-                    }),
-                    rhs: Box::new(Expr::Ident("idx".into())),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("idx".into()))),
                 },
             ),
             make_clause(
                 ClauseKind::Ensures,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("idx".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("idx".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
         ];
@@ -506,19 +506,19 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("replace".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("replace".into()))),
                         args: vec![
                             Expr::Ident("s".into()),
                             Expr::Ident("old_s".into()),
                             Expr::Ident("new_s".into()),
                         ],
-                    }),
+                    })),
                     method: "length".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("ReplaceTest", &clauses);
@@ -539,15 +539,15 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("split".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("split".into()))),
                         args: vec![Expr::Ident("s".into()), Expr::Ident("delim".into())],
-                    }),
+                    })),
                     method: "length".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("SplitTest", &clauses);
@@ -568,15 +568,15 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("trim".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("trim".into()))),
                         args: vec![Expr::Ident("s".into())],
-                    }),
+                    })),
                     method: "length".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("TrimTest", &clauses);
@@ -597,19 +597,19 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("set".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("set".into()))),
                         args: vec![
                             Expr::Ident("arr".into()),
                             Expr::Ident("i".into()),
                             Expr::Ident("v".into()),
                         ],
-                    }),
+                    })),
                     method: "length".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("ArraySetTest", &clauses);
@@ -630,19 +630,19 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("put".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("put".into()))),
                         args: vec![
                             Expr::Ident("m".into()),
                             Expr::Ident("k".into()),
                             Expr::Ident("v".into()),
                         ],
-                    }),
+                    })),
                     method: "size".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("MapPutTest", &clauses);
@@ -664,32 +664,32 @@ mod native_tests {
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("start".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("start".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
             make_clause(
                 ClauseKind::Requires,
                 Expr::BinOp {
                     op: BinOp::Lte,
-                    lhs: Box::new(Expr::Ident("start".into())),
-                    rhs: Box::new(Expr::Ident("end_val".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("start".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("end_val".into()))),
                 },
             ),
             make_clause(
                 ClauseKind::Ensures,
                 Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::MethodCall {
-                            receiver: Box::new(Expr::Ident("s".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::MethodCall {
+                            receiver: Box::new(Spanned::no_span(Expr::Ident("s".into()))),
                             method: "substring".into(),
                             args: vec![Expr::Ident("start".into()), Expr::Ident("end_val".into())],
-                        }),
+                        })),
                         method: "length".into(),
                         args: vec![],
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
             ),
         ];
@@ -711,16 +711,16 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::Ident("arr".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
                         method: "set".into(),
                         args: vec![Expr::Ident("i".into()), Expr::Ident("v".into())],
-                    }),
+                    })),
                     method: "length".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("MethodArraySetTest", &clauses);
@@ -741,16 +741,16 @@ mod native_tests {
             ClauseKind::Ensures,
             Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::Ident("m".into())),
+                lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                    receiver: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::Ident("m".into()))),
                         method: "put".into(),
                         args: vec![Expr::Ident("k".into()), Expr::Ident("v".into())],
-                    }),
+                    })),
                     method: "size".into(),
                     args: vec![],
-                }),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
             },
         )];
         let results = crate::cvc5_backend::verify_contract_cvc5("MethodMapPutTest", &clauses);
@@ -779,15 +779,15 @@ mod match_pattern_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
                 body: Expr::Match {
-                    scrutinee: Box::new(Expr::Ident("x".into())),
+                    scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Constructor {
@@ -824,7 +824,7 @@ mod match_pattern_tests {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
             body: Expr::Match {
-                scrutinee: Box::new(Expr::Ident("t".into())),
+                scrutinee: Box::new(Spanned::no_span(Expr::Ident("t".into()))),
                 arms: vec![MatchArm {
                     pattern: Pattern::Tuple(vec![
                         Pattern::Ident("a".into()),
@@ -851,7 +851,7 @@ mod match_pattern_tests {
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
             body: Expr::Match {
-                scrutinee: Box::new(Expr::Ident("x".into())),
+                scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Constructor {
@@ -894,15 +894,15 @@ mod match_pattern_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
                 body: Expr::Match {
-                    scrutinee: Box::new(Expr::Ident("x".into())),
+                    scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Ident("Zero".into()),
@@ -912,8 +912,10 @@ mod match_pattern_tests {
                             pattern: Pattern::Wildcard,
                             body: Expr::BinOp {
                                 op: BinOp::Gte,
-                                lhs: Box::new(Expr::Ident("x".into())),
-                                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+                                    "0".into(),
+                                )))),
                             },
                         },
                     ],
@@ -950,8 +952,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -964,8 +966,8 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -981,8 +983,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Eq,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -995,8 +997,8 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Eq,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1026,8 +1028,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1054,8 +1056,8 @@ mod frame_tests {
         let mut lemma_defs = std::collections::HashMap::new();
         let lemma_ensures = Expr::BinOp {
             op: BinOp::Gte,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         };
         lemma_defs.insert("pos_lemma".to_string(), vec![&lemma_ensures]);
 
@@ -1064,8 +1066,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1073,11 +1075,11 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::And,
-                    lhs: Box::new(Expr::Apply {
+                    lhs: Box::new(Spanned::no_span(Expr::Apply {
                         lemma_name: "pos_lemma".into(),
                         args: vec![Expr::Ident("x".into())],
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Bool(true))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
                 },
                 effect_variables: vec![],
             },
@@ -1106,8 +1108,8 @@ mod frame_tests {
         let mut lemma_defs = std::collections::HashMap::new();
         let lemma_ensures = Expr::BinOp {
             op: BinOp::Gte,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         };
         lemma_defs.insert("helper".to_string(), vec![&lemma_ensures]);
 
@@ -1118,8 +1120,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1127,8 +1129,8 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1185,8 +1187,10 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                        "0.0".into(),
+                    )))),
                 },
                 effect_variables: vec![],
             },
@@ -1194,8 +1198,10 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                        "0.0".into(),
+                    )))),
                 },
                 effect_variables: vec![],
             },
@@ -1221,8 +1227,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1230,16 +1236,24 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::If {
-                        cond: Box::new(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::If {
+                        cond: Box::new(Spanned::no_span(Expr::BinOp {
                             op: BinOp::Gt,
-                            lhs: Box::new(Expr::Ident("x".into())),
-                            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                        }),
-                        then_branch: Box::new(Expr::Literal(Literal::Float("1.5".into()))),
-                        else_branch: Some(Box::new(Expr::Literal(Literal::Int("0".into())))),
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+                                "0".into(),
+                            )))),
+                        })),
+                        then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                            "1.5".into(),
+                        )))),
+                        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+                            "0".into(),
+                        ))))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                        "0.0".into(),
+                    )))),
                 },
                 effect_variables: vec![],
             },
@@ -1263,8 +1277,10 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Float("1.0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                        "1.0".into(),
+                    )))),
                 },
                 effect_variables: vec![],
             },
@@ -1272,11 +1288,13 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Lt,
-                    lhs: Box::new(Expr::UnaryOp {
+                    lhs: Box::new(Spanned::no_span(Expr::UnaryOp {
                         op: UnaryOp::Neg,
-                        expr: Box::new(Expr::Ident("x".into())),
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Float("0.0".into()))),
+                        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                        "0.0".into(),
+                    )))),
                 },
                 effect_variables: vec![],
             },
@@ -1298,8 +1316,10 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Float("2.0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                        "2.0".into(),
+                    )))),
                 },
                 effect_variables: vec![],
             },
@@ -1307,12 +1327,16 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::BinOp {
                         op: BinOp::Add,
-                        lhs: Box::new(Expr::Ident("x".into())),
-                        rhs: Box::new(Expr::Literal(Literal::Float("1.0".into()))),
-                    }),
-                    rhs: Box::new(Expr::Literal(Literal::Float("3.0".into()))),
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                            "1.0".into(),
+                        )))),
+                    })),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+                        "3.0".into(),
+                    )))),
                 },
                 effect_variables: vec![],
             },
@@ -1337,11 +1361,11 @@ mod frame_tests {
 
         let body = Expr::BinOp {
             op: BinOp::Gt,
-            lhs: Box::new(Expr::Call {
-                func: Box::new(Expr::Ident("f".into())),
+            lhs: Box::new(Spanned::no_span(Expr::Call {
+                func: Box::new(Spanned::no_span(Expr::Ident("f".into()))),
                 args: vec![Expr::Ident("i".into())],
-            }),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            })),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         };
 
         let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
@@ -1358,8 +1382,8 @@ mod frame_tests {
 
         let body = Expr::BinOp {
             op: BinOp::Gte,
-            lhs: Box::new(Expr::Ident("i".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            lhs: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         };
 
         let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
@@ -1377,18 +1401,18 @@ mod frame_tests {
 
         let body = Expr::BinOp {
             op: BinOp::Gt,
-            lhs: Box::new(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::BinOp {
                 op: BinOp::Add,
-                lhs: Box::new(Expr::Call {
-                    func: Box::new(Expr::Ident("g".into())),
+                lhs: Box::new(Spanned::no_span(Expr::Call {
+                    func: Box::new(Spanned::no_span(Expr::Ident("g".into()))),
                     args: vec![Expr::Ident("i".into())],
-                }),
-                rhs: Box::new(Expr::Call {
-                    func: Box::new(Expr::Ident("h".into())),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::Call {
+                    func: Box::new(Spanned::no_span(Expr::Ident("h".into()))),
                     args: vec![Expr::Ident("i".into())],
-                }),
-            }),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                })),
+            })),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         };
 
         let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
@@ -1405,7 +1429,7 @@ mod frame_tests {
         let bound = tm.mk_var(tm.integer_sort(), "i");
 
         let body = Expr::Call {
-            func: Box::new(Expr::Ident("lookup".into())),
+            func: Box::new(Spanned::no_span(Expr::Ident("lookup".into()))),
             args: vec![Expr::Ident("i".into())],
         };
 
@@ -1423,8 +1447,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1432,16 +1456,16 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::Forall {
                     var: "i".into(),
-                    domain: Box::new(Expr::BinOp {
+                    domain: Box::new(Spanned::no_span(Expr::BinOp {
                         op: BinOp::Range,
-                        lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                        rhs: Box::new(Expr::Ident("x".into())),
-                    }),
-                    body: Box::new(Expr::BinOp {
+                        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                        rhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    })),
+                    body: Box::new(Spanned::no_span(Expr::BinOp {
                         op: BinOp::Gte,
-                        lhs: Box::new(Expr::Ident("i".into())),
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                    }),
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    })),
                 },
                 effect_variables: vec![],
             },
@@ -1462,11 +1486,11 @@ mod frame_tests {
 
         let body = Expr::BinOp {
             op: BinOp::Gte,
-            lhs: Box::new(Expr::Call {
-                func: Box::new(Expr::Ident("lookup".into())),
+            lhs: Box::new(Spanned::no_span(Expr::Call {
+                func: Box::new(Spanned::no_span(Expr::Ident("lookup".into()))),
                 args: vec![Expr::Ident("table".into()), Expr::Ident("i".into())],
-            }),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            })),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         };
 
         let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
@@ -1488,8 +1512,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1497,8 +1521,8 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1529,8 +1553,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1538,8 +1562,8 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1549,8 +1573,8 @@ mod frame_tests {
                 kind: ClauseKind::Requires,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("y".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
                 },
                 effect_variables: vec![],
             },
@@ -1558,8 +1582,8 @@ mod frame_tests {
                 kind: ClauseKind::Ensures,
                 body: Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("y".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 },
                 effect_variables: vec![],
             },

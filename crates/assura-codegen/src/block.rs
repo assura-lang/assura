@@ -172,8 +172,9 @@ pub(crate) fn format_rust(code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
-    fn mk_clause(kind: ClauseKind, body: Expr) -> Clause {
+    fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {
             kind,
             body,
@@ -187,7 +188,7 @@ mod tests {
     fn block_interface_delegates_to_trait() {
         let clauses = vec![mk_clause(
             ClauseKind::Other("method".into()),
-            Expr::Ident("compute".into()),
+            Spanned::no_span(Expr::Ident("compute".into())),
         )];
         let mut code = String::new();
         generate_block(&BlockKind::Interface, "Computable", &clauses, &mut code);
@@ -198,7 +199,7 @@ mod tests {
     fn block_feature_compile_time_only() {
         let clauses = vec![mk_clause(
             ClauseKind::Other("flag".into()),
-            Expr::Literal(Literal::Bool(true)),
+            Spanned::no_span(Expr::Literal(Literal::Bool(true))),
         )];
         let mut code = String::new();
         generate_block(&BlockKind::Feature, "my_flag", &clauses, &mut code);
@@ -217,11 +218,11 @@ mod tests {
     fn block_generic_with_ensures() {
         let clauses = vec![mk_clause(
             ClauseKind::Ensures,
-            Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
         )];
         let mut code = String::new();
         generate_block(
@@ -238,7 +239,7 @@ mod tests {
     fn block_with_requires() {
         let clauses = vec![mk_clause(
             ClauseKind::Requires,
-            Expr::Literal(Literal::Bool(true)),
+            Spanned::no_span(Expr::Literal(Literal::Bool(true))),
         )];
         let mut code = String::new();
         generate_block(
@@ -254,7 +255,7 @@ mod tests {
     fn block_with_must_not() {
         let clauses = vec![mk_clause(
             ClauseKind::MustNot,
-            Expr::Ident("overflow".into()),
+            Spanned::no_span(Expr::Ident("overflow".into())),
         )];
         let mut code = String::new();
         generate_block(
@@ -271,7 +272,7 @@ mod tests {
     fn block_with_rule() {
         let clauses = vec![mk_clause(
             ClauseKind::Rule,
-            Expr::Literal(Literal::Bool(true)),
+            Spanned::no_span(Expr::Literal(Literal::Bool(true))),
         )];
         let mut code = String::new();
         generate_block(

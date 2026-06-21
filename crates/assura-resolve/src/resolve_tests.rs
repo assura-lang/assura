@@ -1,4 +1,5 @@
 use super::*;
+use assura_parser::ast::Spanned;
 
 /// Helper: parse source text into a `SourceFile` (panics on error).
 fn parse_ok(source: &str) -> SourceFile {
@@ -511,8 +512,7 @@ import std.math;
 "#;
     let file = parse_ok(src);
     let mut visited = HashSet::new();
-    let resolved =
-        resolve_with_modules(&file, &module_map, &mut visited).expect("should succeed");
+    let resolved = resolve_with_modules(&file, &module_map, &mut visited).expect("should succeed");
     assert_eq!(resolved.imports.len(), 1);
     assert_eq!(resolved.imports[0].status, ImportStatus::Resolved);
 }
@@ -576,8 +576,7 @@ import unknown.mod;
 "#;
     let file = parse_ok(src);
     let mut visited = HashSet::new();
-    let resolved =
-        resolve_with_modules(&file, &module_map, &mut visited).expect("should succeed");
+    let resolved = resolve_with_modules(&file, &module_map, &mut visited).expect("should succeed");
     assert_eq!(resolved.imports.len(), 2);
     assert_eq!(resolved.imports[0].status, ImportStatus::Resolved);
     assert_eq!(resolved.imports[1].status, ImportStatus::Unresolved);
@@ -1176,7 +1175,7 @@ fn is_valid_path_segment_tests() {
 #[test]
 fn extract_input_params_raw_tokens() {
     use assura_parser::ast::Expr;
-    let body = Expr::Raw(vec![
+    let body = Spanned::no_span(Expr::Raw(vec![
         "a".to_string(),
         ":".to_string(),
         "Int".to_string(),
@@ -1184,7 +1183,7 @@ fn extract_input_params_raw_tokens() {
         "b".to_string(),
         ":".to_string(),
         "Nat".to_string(),
-    ]);
+    ]));
     let names = extract_input_param_names(&body);
     assert_eq!(names, vec!["a", "b"]);
 }
@@ -1193,7 +1192,7 @@ fn extract_input_params_raw_tokens() {
 fn extract_input_params_generic_type() {
     use assura_parser::ast::Expr;
     // input(items: List<Int>, count: Nat)
-    let body = Expr::Raw(vec![
+    let body = Spanned::no_span(Expr::Raw(vec![
         "items".into(),
         ":".into(),
         "List".into(),
@@ -1204,7 +1203,7 @@ fn extract_input_params_generic_type() {
         "count".into(),
         ":".into(),
         "Nat".into(),
-    ]);
+    ]));
     let names = extract_input_param_names(&body);
     assert_eq!(names, vec!["items", "count"]);
 }
@@ -1212,16 +1211,16 @@ fn extract_input_params_generic_type() {
 #[test]
 fn extract_input_params_call_expr() {
     use assura_parser::ast::Expr;
-    let body = Expr::Call {
-        func: Box::new(Expr::Ident("input".to_string())),
+    let body = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("input".to_string()))),
         args: vec![
-            Expr::Cast {
-                expr: Box::new(Expr::Ident("x".to_string())),
+            Spanned::no_span(Expr::Cast {
+                expr: Box::new(Spanned::no_span(Expr::Ident("x".to_string()))),
                 ty: "Int".to_string(),
-            },
-            Expr::Ident("y".to_string()),
+            }),
+            Spanned::no_span(Expr::Ident("y".to_string())),
         ],
-    };
+    });
     let names = extract_input_param_names(&body);
     assert_eq!(names, vec!["x", "y"]);
 }
@@ -1229,7 +1228,7 @@ fn extract_input_params_call_expr() {
 #[test]
 fn extract_input_params_ident() {
     use assura_parser::ast::Expr;
-    let body = Expr::Ident("x".to_string());
+    let body = Spanned::no_span(Expr::Ident("x".to_string()));
     let names = extract_input_param_names(&body);
     assert_eq!(names, vec!["x"]);
 }
@@ -1237,10 +1236,10 @@ fn extract_input_params_ident() {
 #[test]
 fn extract_input_params_cast() {
     use assura_parser::ast::Expr;
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("n".to_string())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("n".to_string()))),
         ty: "Int".to_string(),
-    };
+    });
     let names = extract_input_param_names(&body);
     assert_eq!(names, vec!["n"]);
 }
@@ -1248,13 +1247,13 @@ fn extract_input_params_cast() {
 #[test]
 fn extract_input_params_tuple() {
     use assura_parser::ast::Expr;
-    let body = Expr::Tuple(vec![
-        Expr::Cast {
-            expr: Box::new(Expr::Ident("a".to_string())),
+    let body = Spanned::no_span(Expr::Tuple(vec![
+        Spanned::no_span(Expr::Cast {
+            expr: Box::new(Spanned::no_span(Expr::Ident("a".to_string()))),
             ty: "Int".to_string(),
-        },
-        Expr::Ident("b".to_string()),
-    ]);
+        }),
+        Spanned::no_span(Expr::Ident("b".to_string())),
+    ]));
     let names = extract_input_param_names(&body);
     assert_eq!(names, vec!["a", "b"]);
 }
@@ -1262,7 +1261,7 @@ fn extract_input_params_tuple() {
 #[test]
 fn extract_input_params_raw_as_separator() {
     use assura_parser::ast::Expr;
-    let body = Expr::Raw(vec![
+    let body = Spanned::no_span(Expr::Raw(vec![
         "x".into(),
         "as".into(),
         "Int".into(),
@@ -1270,7 +1269,7 @@ fn extract_input_params_raw_as_separator() {
         "y".into(),
         "as".into(),
         "Nat".into(),
-    ]);
+    ]));
     let names = extract_input_param_names(&body);
     assert_eq!(names, vec!["x", "y"]);
 }

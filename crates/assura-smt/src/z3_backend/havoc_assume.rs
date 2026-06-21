@@ -363,7 +363,7 @@ fn encode_ir_pred_arg(
 mod tests {
     use super::*;
     use crate::ir::IrInstr;
-    use assura_parser::ast::{BinOp, ClauseKind, Expr, Literal};
+    use assura_parser::ast::{BinOp, ClauseKind, Expr, Literal, Spanned};
     use assura_types::TypeEnv;
     use std::collections::HashMap;
 
@@ -393,28 +393,28 @@ mod tests {
             let mut encoder = Encoder::new();
             let requires = vec![Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::Ident("raw".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
                         method: "length".into(),
                         args: vec![],
-                    }),
+                    })),
                     op: BinOp::Lte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("100".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("100".into())))),
+                }),
                 effect_variables: vec![],
             }];
             let ensures = vec![Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::MethodCall {
-                        receiver: Box::new(Expr::Ident("result".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                        receiver: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                         method: "length".into(),
                         args: vec![],
-                    }),
+                    })),
                     op: BinOp::Lte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("100".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("100".into())))),
+                }),
                 effect_variables: vec![],
             }];
             let req_refs: Vec<_> = requires.iter().collect();

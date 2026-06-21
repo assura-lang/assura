@@ -15,59 +15,86 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Input,
-                            body: Raw(
-                                [
-                                    "x",
-                                    ":",
-                                    "Int",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "x",
+                                        ":",
+                                        "Int",
+                                    ],
+                                ),
+                                span: 20..32,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Output,
-                            body: Raw(
-                                [
-                                    "result",
-                                    ":",
-                                    "Nat",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "result",
+                                        ":",
+                                        "Nat",
+                                    ],
+                                ),
+                                span: 32..50,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "x",
-                                ),
-                                op: Gte,
-                                rhs: Literal(
-                                    Int(
-                                        "0",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "x",
+                                        ),
+                                        span: 59..60,
+                                    },
+                                    op: Gte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                        span: 62..63,
+                                    },
+                                },
+                                span: 59..63,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "result",
-                                ),
-                                op: Eq,
-                                rhs: Ident(
-                                    "x",
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "result",
+                                        ),
+                                        span: 72..78,
+                                    },
+                                    op: Eq,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "x",
+                                        ),
+                                        span: 80..81,
+                                    },
+                                },
+                                span: 72..81,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 82..95,
+                            },
                             effect_variables: [],
                         },
                     ],

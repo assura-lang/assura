@@ -15,122 +15,179 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Input,
-                            body: Raw(
-                                [
-                                    "buf",
-                                    ":",
-                                    "Bytes",
-                                    ",",
-                                    "n",
-                                    ":",
-                                    "Nat",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "buf",
+                                        ":",
+                                        "Bytes",
+                                        ",",
+                                        "n",
+                                        ":",
+                                        "Nat",
+                                    ],
+                                ),
+                                span: 19..41,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Output,
-                            body: Raw(
-                                [
-                                    "result",
-                                    ":",
-                                    "Bool",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "result",
+                                        ":",
+                                        "Bool",
+                                    ],
+                                ),
+                                span: 41..60,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Requires,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "n",
-                                ),
-                                op: Gt,
-                                rhs: Literal(
-                                    Int(
-                                        "0",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "n",
+                                        ),
+                                        span: 69..70,
+                                    },
+                                    op: Gt,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                        span: 71..72,
+                                    },
+                                },
+                                span: 69..72,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "result",
-                                ),
-                                op: Eq,
-                                rhs: Literal(
-                                    Bool(
-                                        true,
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "result",
+                                        ),
+                                        span: 81..87,
+                                    },
+                                    op: Eq,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Bool(
+                                                true,
+                                            ),
+                                        ),
+                                        span: 89..93,
+                                    },
+                                },
+                                span: 81..93,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Effects,
-                            body: Ident(
-                                "pure",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 94..107,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Invariant,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "n",
-                                ),
-                                op: Gte,
-                                rhs: Literal(
-                                    Int(
-                                        "0",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "n",
+                                        ),
+                                        span: 117..118,
+                                    },
+                                    op: Gte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                        span: 120..121,
+                                    },
+                                },
+                                span: 117..121,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Modifies,
-                            body: Ident(
-                                "buf",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "buf",
+                                ),
+                                span: 122..135,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: Rule,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "n",
-                                ),
-                                op: Lte,
-                                rhs: MethodCall {
-                                    receiver: Ident(
-                                        "buf",
-                                    ),
-                                    method: "length",
-                                    args: [],
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "n",
+                                        ),
+                                        span: 140..141,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: MethodCall {
+                                            receiver: Spanned {
+                                                node: Ident(
+                                                    "buf",
+                                                ),
+                                                span: 143..146,
+                                            },
+                                            method: "length",
+                                            args: [],
+                                        },
+                                        span: 143..155,
+                                    },
                                 },
+                                span: 140..155,
                             },
                             effect_variables: [],
                         },
                         Clause {
                             kind: DataFlow,
-                            body: Raw(
-                                [
-                                    "buf",
-                                    "->",
-                                    "result",
-                                ],
-                            ),
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "buf",
+                                        "->",
+                                        "result",
+                                    ],
+                                ),
+                                span: 156..178,
+                            },
                             effect_variables: [],
                         },
                         Clause {
                             kind: MustNot,
-                            body: Ident(
-                                "overflow",
-                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "overflow",
+                                ),
+                                span: 187..195,
+                            },
                             effect_variables: [],
                         },
                     ],

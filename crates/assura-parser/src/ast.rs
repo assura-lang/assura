@@ -6,6 +6,18 @@ pub struct Spanned<T> {
     pub span: Span,
 }
 
+impl<T> Spanned<T> {
+    /// Create a `Spanned` with a zero-length sentinel span.
+    /// Useful in tests where source locations are irrelevant.
+    pub fn no_span(node: T) -> Self {
+        Self { node, span: 0..0 }
+    }
+}
+
+/// Shorthand for `Spanned<Expr>`. Used throughout the AST wherever
+/// an expression with source location is needed.
+pub type SpExpr = Spanned<Expr>;
+
 // ---------------------------------------------------------------------------
 // Top-level file
 // ---------------------------------------------------------------------------
@@ -163,10 +175,7 @@ impl Decl {
             Decl::Bind(b) => &b.clauses,
             Decl::Service(_) => &[],
             Decl::Block { body, .. } => body,
-            Decl::TypeDef(_)
-            | Decl::EnumDef(_)
-            | Decl::Prophecy(_)
-            | Decl::CodecRegistry(_) => &[],
+            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) => &[],
         }
     }
 
@@ -214,7 +223,7 @@ pub struct ContractDecl {
 #[derive(Debug, Clone)]
 pub struct Clause {
     pub kind: ClauseKind,
-    pub body: Expr,
+    pub body: SpExpr,
     /// Effect row variables (e.g., `E` in `effects <io | E>`).
     /// Only populated for `ClauseKind::Effects` clauses.
     pub effect_variables: Vec<String>,
@@ -285,68 +294,77 @@ pub enum Expr {
     /// Named reference: variable, type, keyword-as-value
     Ident(String),
     /// Field access: `expr.field`
-    Field(Box<Expr>, String),
+    Field(Box<SpExpr>, String),
     /// Method call: `expr.method(args)`
     MethodCall {
-        receiver: Box<Expr>,
+        receiver: Box<SpExpr>,
         method: String,
-        args: Vec<Expr>,
+        args: Vec<SpExpr>,
     },
     /// Function call: `f(args)`
-    Call { func: Box<Expr>, args: Vec<Expr> },
+    Call {
+        func: Box<SpExpr>,
+        args: Vec<SpExpr>,
+    },
     /// Index access: `expr[index]`
-    Index { expr: Box<Expr>, index: Box<Expr> },
+    Index {
+        expr: Box<SpExpr>,
+        index: Box<SpExpr>,
+    },
     /// Binary operation
     BinOp {
-        lhs: Box<Expr>,
+        lhs: Box<SpExpr>,
         op: BinOp,
-        rhs: Box<Expr>,
+        rhs: Box<SpExpr>,
     },
     /// Unary operation
-    UnaryOp { op: UnaryOp, expr: Box<Expr> },
+    UnaryOp { op: UnaryOp, expr: Box<SpExpr> },
     /// `old(expr)` for postconditions
-    Old(Box<Expr>),
+    Old(Box<SpExpr>),
     /// `forall var in domain: body`
     Forall {
         var: String,
-        domain: Box<Expr>,
-        body: Box<Expr>,
+        domain: Box<SpExpr>,
+        body: Box<SpExpr>,
     },
     /// `exists var in domain: body`
     Exists {
         var: String,
-        domain: Box<Expr>,
-        body: Box<Expr>,
+        domain: Box<SpExpr>,
+        body: Box<SpExpr>,
     },
     /// `if cond then expr [else expr]`
     If {
-        cond: Box<Expr>,
-        then_branch: Box<Expr>,
-        else_branch: Option<Box<Expr>>,
+        cond: Box<SpExpr>,
+        then_branch: Box<SpExpr>,
+        else_branch: Option<Box<SpExpr>>,
     },
     /// List literal: `[a, b, c]`
-    List(Vec<Expr>),
+    List(Vec<SpExpr>),
     /// Type cast: `expr as Type`
-    Cast { expr: Box<Expr>, ty: String },
+    Cast { expr: Box<SpExpr>, ty: String },
     /// Sequence of space-separated expressions (e.g., `pure incremental Foo`)
-    Block(Vec<Expr>),
+    Block(Vec<SpExpr>),
     /// Ghost block: verified but erased at runtime
-    Ghost(Box<Expr>),
+    Ghost(Box<SpExpr>),
     /// Apply a lemma: `apply lemma_name(args)` — adds lemma ensures as assumption
-    Apply { lemma_name: String, args: Vec<Expr> },
+    Apply {
+        lemma_name: String,
+        args: Vec<SpExpr>,
+    },
     /// Let binding: `let x = expr in body`
     Let {
         name: String,
-        value: Box<Expr>,
-        body: Box<Expr>,
+        value: Box<SpExpr>,
+        body: Box<SpExpr>,
     },
     /// Match expression: `match expr { pattern => body, ... }`
     Match {
-        scrutinee: Box<Expr>,
+        scrutinee: Box<SpExpr>,
         arms: Vec<MatchArm>,
     },
     /// Tuple expression: `(a, b, c)`
-    Tuple(Vec<Expr>),
+    Tuple(Vec<SpExpr>),
     /// Unparsed token sequence (fallback)
     Raw(Vec<String>),
 }
@@ -354,7 +372,7 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Pattern,
-    pub body: Expr,
+    pub body: SpExpr,
 }
 
 #[derive(Debug, Clone)]
@@ -488,90 +506,93 @@ pub enum Literal {
 /// Visitor trait for walking `Expr` trees. Each `visit_*` method has a default
 /// that recurses into sub-expressions via `walk_expr`. Override only the
 /// methods you care about; the default traversal handles the rest.
+///
+/// All methods receive `&SpExpr` (`Spanned<Expr>`) so implementations can
+/// access source spans. The dispatch in `walk_expr` matches on `.node`.
 pub trait ExprVisitor {
     /// Called for every expression node before dispatching to variant-specific
     /// methods. Override for pre/post-order hooks on all expressions.
-    fn visit_expr(&mut self, expr: &Expr) {
+    fn visit_expr(&mut self, expr: &SpExpr) {
         walk_expr(self, expr);
     }
     fn visit_literal(&mut self, _lit: &Literal) {}
     fn visit_ident(&mut self, _name: &str) {}
-    fn visit_field(&mut self, base: &Expr, _field: &str) {
+    fn visit_field(&mut self, base: &SpExpr, _field: &str) {
         self.visit_expr(base);
     }
-    fn visit_method_call(&mut self, receiver: &Expr, _method: &str, args: &[Expr]) {
+    fn visit_method_call(&mut self, receiver: &SpExpr, _method: &str, args: &[SpExpr]) {
         self.visit_expr(receiver);
         for arg in args {
             self.visit_expr(arg);
         }
     }
-    fn visit_call(&mut self, func: &Expr, args: &[Expr]) {
+    fn visit_call(&mut self, func: &SpExpr, args: &[SpExpr]) {
         self.visit_expr(func);
         for arg in args {
             self.visit_expr(arg);
         }
     }
-    fn visit_index(&mut self, base: &Expr, index: &Expr) {
+    fn visit_index(&mut self, base: &SpExpr, index: &SpExpr) {
         self.visit_expr(base);
         self.visit_expr(index);
     }
-    fn visit_binop(&mut self, lhs: &Expr, _op: &BinOp, rhs: &Expr) {
+    fn visit_binop(&mut self, lhs: &SpExpr, _op: &BinOp, rhs: &SpExpr) {
         self.visit_expr(lhs);
         self.visit_expr(rhs);
     }
-    fn visit_unary_op(&mut self, _op: &UnaryOp, inner: &Expr) {
+    fn visit_unary_op(&mut self, _op: &UnaryOp, inner: &SpExpr) {
         self.visit_expr(inner);
     }
-    fn visit_old(&mut self, inner: &Expr) {
+    fn visit_old(&mut self, inner: &SpExpr) {
         self.visit_expr(inner);
     }
-    fn visit_forall(&mut self, _var: &str, domain: &Expr, body: &Expr) {
+    fn visit_forall(&mut self, _var: &str, domain: &SpExpr, body: &SpExpr) {
         self.visit_expr(domain);
         self.visit_expr(body);
     }
-    fn visit_exists(&mut self, _var: &str, domain: &Expr, body: &Expr) {
+    fn visit_exists(&mut self, _var: &str, domain: &SpExpr, body: &SpExpr) {
         self.visit_expr(domain);
         self.visit_expr(body);
     }
-    fn visit_if(&mut self, cond: &Expr, then_br: &Expr, else_br: Option<&Expr>) {
+    fn visit_if(&mut self, cond: &SpExpr, then_br: &SpExpr, else_br: Option<&SpExpr>) {
         self.visit_expr(cond);
         self.visit_expr(then_br);
         if let Some(e) = else_br {
             self.visit_expr(e);
         }
     }
-    fn visit_list(&mut self, items: &[Expr]) {
+    fn visit_list(&mut self, items: &[SpExpr]) {
         for item in items {
             self.visit_expr(item);
         }
     }
-    fn visit_cast(&mut self, inner: &Expr, _ty: &str) {
+    fn visit_cast(&mut self, inner: &SpExpr, _ty: &str) {
         self.visit_expr(inner);
     }
-    fn visit_block(&mut self, exprs: &[Expr]) {
+    fn visit_block(&mut self, exprs: &[SpExpr]) {
         for e in exprs {
             self.visit_expr(e);
         }
     }
-    fn visit_ghost(&mut self, inner: &Expr) {
+    fn visit_ghost(&mut self, inner: &SpExpr) {
         self.visit_expr(inner);
     }
-    fn visit_apply(&mut self, _name: &str, args: &[Expr]) {
+    fn visit_apply(&mut self, _name: &str, args: &[SpExpr]) {
         for arg in args {
             self.visit_expr(arg);
         }
     }
-    fn visit_let(&mut self, _name: &str, value: &Expr, body: &Expr) {
+    fn visit_let(&mut self, _name: &str, value: &SpExpr, body: &SpExpr) {
         self.visit_expr(value);
         self.visit_expr(body);
     }
-    fn visit_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) {
+    fn visit_match(&mut self, scrutinee: &SpExpr, arms: &[MatchArm]) {
         self.visit_expr(scrutinee);
         for arm in arms {
             self.visit_expr(&arm.body);
         }
     }
-    fn visit_tuple(&mut self, items: &[Expr]) {
+    fn visit_tuple(&mut self, items: &[SpExpr]) {
         for item in items {
             self.visit_expr(item);
         }
@@ -579,10 +600,10 @@ pub trait ExprVisitor {
     fn visit_raw(&mut self, _tokens: &[String]) {}
 }
 
-/// Walk an `Expr`, dispatching to the appropriate `visit_*` method on the
+/// Walk a `SpExpr`, dispatching to the appropriate `visit_*` method on the
 /// visitor. Called by the default `visit_expr` implementation.
-pub fn walk_expr(visitor: &mut (impl ExprVisitor + ?Sized), expr: &Expr) {
-    match expr {
+pub fn walk_expr(visitor: &mut (impl ExprVisitor + ?Sized), expr: &SpExpr) {
+    match &expr.node {
         Expr::Literal(lit) => visitor.visit_literal(lit),
         Expr::Ident(name) => visitor.visit_ident(name),
         Expr::Field(base, field) => visitor.visit_field(base, field),
@@ -624,11 +645,13 @@ pub fn walk_expr(visitor: &mut (impl ExprVisitor + ?Sized), expr: &Expr) {
 ///
 /// The default `fold_expr` dispatches to per-variant methods. Override any
 /// method to customize behavior; call `self.fold_expr(sub)` to recurse.
+///
+/// All methods receive `&SpExpr` so implementations can access source spans.
 pub trait ExprFolder {
     type Output;
 
-    fn fold_expr(&mut self, expr: &Expr) -> Self::Output {
-        match expr {
+    fn fold_expr(&mut self, expr: &SpExpr) -> Self::Output {
+        match &expr.node {
             Expr::Literal(lit) => self.fold_literal(lit),
             Expr::Ident(s) => self.fold_ident(s),
             Expr::Field(base, field) => self.fold_field(base, field),
@@ -663,24 +686,34 @@ pub trait ExprFolder {
 
     fn fold_literal(&mut self, lit: &Literal) -> Self::Output;
     fn fold_ident(&mut self, name: &str) -> Self::Output;
-    fn fold_field(&mut self, base: &Expr, field: &str) -> Self::Output;
-    fn fold_method_call(&mut self, receiver: &Expr, method: &str, args: &[Expr]) -> Self::Output;
-    fn fold_call(&mut self, func: &Expr, args: &[Expr]) -> Self::Output;
-    fn fold_index(&mut self, base: &Expr, index: &Expr) -> Self::Output;
-    fn fold_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> Self::Output;
-    fn fold_unary_op(&mut self, op: &UnaryOp, inner: &Expr) -> Self::Output;
-    fn fold_old(&mut self, inner: &Expr) -> Self::Output;
-    fn fold_forall(&mut self, var: &str, domain: &Expr, body: &Expr) -> Self::Output;
-    fn fold_exists(&mut self, var: &str, domain: &Expr, body: &Expr) -> Self::Output;
-    fn fold_if(&mut self, cond: &Expr, then_br: &Expr, else_br: Option<&Expr>) -> Self::Output;
-    fn fold_list(&mut self, items: &[Expr]) -> Self::Output;
-    fn fold_cast(&mut self, inner: &Expr, ty: &str) -> Self::Output;
-    fn fold_block(&mut self, exprs: &[Expr]) -> Self::Output;
-    fn fold_ghost(&mut self, inner: &Expr) -> Self::Output;
-    fn fold_apply(&mut self, name: &str, args: &[Expr]) -> Self::Output;
-    fn fold_let(&mut self, name: &str, value: &Expr, body: &Expr) -> Self::Output;
-    fn fold_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) -> Self::Output;
-    fn fold_tuple(&mut self, items: &[Expr]) -> Self::Output;
+    fn fold_field(&mut self, base: &SpExpr, field: &str) -> Self::Output;
+    fn fold_method_call(
+        &mut self,
+        receiver: &SpExpr,
+        method: &str,
+        args: &[SpExpr],
+    ) -> Self::Output;
+    fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> Self::Output;
+    fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) -> Self::Output;
+    fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> Self::Output;
+    fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) -> Self::Output;
+    fn fold_old(&mut self, inner: &SpExpr) -> Self::Output;
+    fn fold_forall(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> Self::Output;
+    fn fold_exists(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> Self::Output;
+    fn fold_if(
+        &mut self,
+        cond: &SpExpr,
+        then_br: &SpExpr,
+        else_br: Option<&SpExpr>,
+    ) -> Self::Output;
+    fn fold_list(&mut self, items: &[SpExpr]) -> Self::Output;
+    fn fold_cast(&mut self, inner: &SpExpr, ty: &str) -> Self::Output;
+    fn fold_block(&mut self, exprs: &[SpExpr]) -> Self::Output;
+    fn fold_ghost(&mut self, inner: &SpExpr) -> Self::Output;
+    fn fold_apply(&mut self, name: &str, args: &[SpExpr]) -> Self::Output;
+    fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) -> Self::Output;
+    fn fold_match(&mut self, scrutinee: &SpExpr, arms: &[MatchArm]) -> Self::Output;
+    fn fold_tuple(&mut self, items: &[SpExpr]) -> Self::Output;
     fn fold_raw(&mut self, tokens: &[String]) -> Self::Output;
 }
 
@@ -908,21 +941,21 @@ pub struct ParsedParam {
 /// - `input(x)` -> Call with Ident args (untyped)
 /// - `input { a: Int }` -> Block with Cast elements
 /// - Raw token fallback: `["a", ":", "Int", ",", "b", ":", "Bool"]`
-pub fn extract_clause_params(body: &Expr) -> Vec<ParsedParam> {
+pub fn extract_clause_params(body: &SpExpr) -> Vec<ParsedParam> {
     let mut params = Vec::new();
     extract_clause_params_inner(body, &mut params);
     params
 }
 
-fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
-    match body {
+fn extract_clause_params_inner(body: &SpExpr, params: &mut Vec<ParsedParam>) {
+    match &body.node {
         Expr::Call { args, .. } => {
             for arg in args {
                 extract_single_param(arg, params);
             }
         }
         Expr::Cast { expr: inner, ty } => {
-            if let Expr::Ident(name) = inner.as_ref() {
+            if let Expr::Ident(name) = &inner.node {
                 let ty_tokens = vec![ty.clone()];
                 let parsed = try_parse_type_tokens(&ty_tokens);
                 params.push(ParsedParam {
@@ -947,10 +980,10 @@ fn extract_clause_params_inner(body: &Expr, params: &mut Vec<ParsedParam>) {
     }
 }
 
-fn extract_single_param(expr: &Expr, params: &mut Vec<ParsedParam>) {
-    match expr {
+fn extract_single_param(expr: &SpExpr, params: &mut Vec<ParsedParam>) {
+    match &expr.node {
         Expr::Cast { expr: inner, ty } => {
-            if let Expr::Ident(name) = inner.as_ref() {
+            if let Expr::Ident(name) = &inner.node {
                 let ty_tokens = vec![ty.clone()];
                 let parsed = try_parse_type_tokens(&ty_tokens);
                 params.push(ParsedParam {
@@ -1175,8 +1208,8 @@ pub enum ServiceItem {
     States(Vec<String>),
     Operation { name: String, clauses: Vec<Clause> },
     Query { name: String, clauses: Vec<Clause> },
-    Invariant(Expr),
-    Other { kind: String, body: Expr },
+    Invariant(SpExpr),
+    Other { kind: String, body: SpExpr },
 }
 
 #[cfg(test)]
@@ -1193,7 +1226,7 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        let body = Expr::Raw(tokens);
+        let body = Spanned::no_span(Expr::Raw(tokens));
         let params = extract_clause_params(&body);
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "a");
@@ -1210,7 +1243,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let body = Expr::Raw(tokens);
+        let body = Spanned::no_span(Expr::Raw(tokens));
         let params = extract_clause_params(&body);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "val");
@@ -1227,7 +1260,7 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        let body = Expr::Raw(tokens);
+        let body = Spanned::no_span(Expr::Raw(tokens));
         let params = extract_clause_params(&body);
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "a");

@@ -132,13 +132,12 @@ pub(crate) fn run_build(
 
     // --- Verify ---
     let verify_start = Instant::now();
-    let verification_results =
-        assura_smt::Verifier::new(&typed)
-            .source(std::path::Path::new(filename))
-            .solver(build_solver)
-            .parallel()
-            .with_decrease_checks()
-            .verify();
+    let verification_results = assura_smt::Verifier::new(&typed)
+        .source(std::path::Path::new(filename))
+        .solver(build_solver)
+        .parallel()
+        .with_decrease_checks()
+        .verify();
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
     if verbosity == Verbosity::Verbose {

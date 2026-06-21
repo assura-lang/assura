@@ -11,7 +11,7 @@ use crate::inference::{infer_expr, types_compatible};
 // Re-export AST types used across many test submodules
 pub(super) use assura_parser::ast::{
     BinOp, BinOp as AstBinOp, Clause as AstClause, ClauseKind, Decl, Expr, Expr as AstExpr,
-    FnDef as AstFnDef, Literal as AstLit, Param as AstParam, UnaryOp as AstUnOp,
+    FnDef as AstFnDef, Literal as AstLit, Param as AstParam, SpExpr, Spanned, UnaryOp as AstUnOp,
 };
 pub(super) use assura_resolve::ResolvedFile;
 

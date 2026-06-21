@@ -64,7 +64,7 @@ fn test_result_length_verifies() {
 fn test_z3_ir_body_constrains_result() {
     use crate::ir::{IrFunction, parse_ir_module};
     use crate::z3_backend::verify_contract_impl_with_types_and_ir;
-    use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param};
+    use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
 
     let ir_source = r#"
 module copy {
@@ -77,37 +77,37 @@ module copy {
     let ir: IrFunction = parse_ir_module(ir_source).unwrap().functions[0].clone();
 
     let raw_len_gt_zero = Expr::BinOp {
-        lhs: Box::new(Expr::MethodCall {
-            receiver: Box::new(Expr::Ident("raw".into())),
+        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
             method: "length".into(),
             args: vec![],
-        }),
+        })),
         op: BinOp::Gt,
-        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     };
     let result_len_le_raw = Expr::BinOp {
-        lhs: Box::new(Expr::MethodCall {
-            receiver: Box::new(Expr::Ident("result".into())),
+        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
             method: "length".into(),
             args: vec![],
-        }),
+        })),
         op: BinOp::Lte,
-        rhs: Box::new(Expr::MethodCall {
-            receiver: Box::new(Expr::Ident("raw".into())),
+        rhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
             method: "length".into(),
             args: vec![],
-        }),
+        })),
     };
 
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: raw_len_gt_zero,
+            body: Spanned::no_span(raw_len_gt_zero),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: result_len_le_raw,
+            body: Spanned::no_span(result_len_le_raw),
             effect_variables: vec![],
         },
     ];

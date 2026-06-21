@@ -2,13 +2,13 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::{Expr, SpExpr};
 
 use crate::cvc5_common::{sanitize_smtlib_name, smtlib_result_name};
 
 /// Collect all variable names referenced in an expression.
-pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
-    match expr {
+pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
+    match &expr.node {
         Expr::Ident(name) => {
             if name == "result" {
                 vars.insert(smtlib_result_name().to_string());
@@ -100,7 +100,7 @@ pub fn collect_vars(expr: &Expr, vars: &mut HashSet<String>) {
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn collect_cvc5_var_names(requires: &[&Expr], body: &Expr) -> HashSet<String> {
+pub(crate) fn collect_cvc5_var_names(requires: &[&SpExpr], body: &SpExpr) -> HashSet<String> {
     let mut names = HashSet::new();
     for req in requires {
         collect_vars(req, &mut names);
@@ -110,7 +110,7 @@ pub(crate) fn collect_cvc5_var_names(requires: &[&Expr], body: &Expr) -> HashSet
 }
 
 pub(crate) fn collect_cvc5_var_names_from_clauses(
-    requires: &[&Expr],
+    requires: &[&SpExpr],
     clauses: &[&assura_parser::ast::Clause],
 ) -> HashSet<String> {
     let mut names = HashSet::new();
@@ -126,8 +126,8 @@ pub(crate) fn collect_cvc5_var_names_from_clauses(
 #[cfg(feature = "cvc5-verify")]
 #[cfg_attr(feature = "z3-verify", allow(dead_code))]
 pub(crate) fn collect_cvc5_var_names_from_assumptions(
-    assumptions: &[&Expr],
-    body: &Expr,
+    assumptions: &[&SpExpr],
+    body: &SpExpr,
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for a in assumptions {
@@ -139,21 +139,28 @@ pub(crate) fn collect_cvc5_var_names_from_assumptions(
 
 #[cfg(test)]
 mod tests {
-    use assura_parser::ast::Expr;
+    use assura_parser::ast::{Expr, Spanned};
 
     use super::*;
+
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
+    }
+    fn spb(e: Expr) -> Box<SpExpr> {
+        Box::new(sp(e))
+    }
 
     #[test]
     fn collect_vars_ident() {
         let mut vars = HashSet::new();
-        collect_vars(&Expr::Ident("x".into()), &mut vars);
+        collect_vars(&sp(Expr::Ident("x".into())), &mut vars);
         assert!(vars.contains("x"));
     }
 
     #[test]
     fn collect_vars_result() {
         let mut vars = HashSet::new();
-        collect_vars(&Expr::Ident("result".into()), &mut vars);
+        collect_vars(&sp(Expr::Ident("result".into())), &mut vars);
         assert!(vars.contains("__result"));
         assert!(!vars.contains("result"));
     }
@@ -161,11 +168,11 @@ mod tests {
     #[test]
     fn collect_vars_quantifier_removes_bound_var() {
         let mut vars = HashSet::new();
-        let forall_expr = Expr::Forall {
+        let forall_expr = sp(Expr::Forall {
             var: "i".into(),
-            domain: Box::new(Expr::Ident("domain".into())),
-            body: Box::new(Expr::Ident("i".into())),
-        };
+            domain: spb(Expr::Ident("domain".into())),
+            body: spb(Expr::Ident("i".into())),
+        });
         collect_vars(&forall_expr, &mut vars);
         assert!(!vars.contains("i"));
         assert!(vars.contains("domain"));

@@ -1094,7 +1094,10 @@ fn codec_registry_empty_decoder_a52002() {
 fn error_type_suppresses_field_access() {
     let mut env = TypeEnv::new();
     env.insert("e".into(), Type::Error);
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("e".into())), "foo".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("e".into()))),
+        "foo".into(),
+    ));
     // Field access on Error receiver yields Error (no A03005 emitted)
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
 }
@@ -1103,11 +1106,11 @@ fn error_type_suppresses_field_access() {
 fn error_type_suppresses_method_call() {
     let mut env = TypeEnv::new();
     env.insert("e".into(), Type::Error);
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("e".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("e".into()))),
         method: "anything".into(),
         args: vec![],
-    };
+    });
     // Method call on Error receiver yields Error (no A03005)
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
 }
@@ -1116,12 +1119,12 @@ fn error_type_suppresses_method_call() {
 fn error_type_suppresses_index() {
     let mut env = TypeEnv::new();
     env.insert("e".into(), Type::Error);
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("e".into())),
-        index: Box::new(AstExpr::Literal(assura_parser::ast::Literal::Int(
-            "0".into(),
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("e".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Literal(
+            assura_parser::ast::Literal::Int("0".into()),
         ))),
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
 }
 
@@ -1129,10 +1132,10 @@ fn error_type_suppresses_index() {
 fn error_type_suppresses_call() {
     let mut env = TypeEnv::new();
     env.insert("f".into(), Type::Error);
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("f".into())),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("f".into()))),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Error);
 }
 
@@ -1167,11 +1170,11 @@ fn option_map_with_known_function() {
             ret: Box::new(Type::String),
         },
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("opt".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
         method: "map".into(),
-        args: vec![AstExpr::Ident("to_string_fn".into())],
-    };
+        args: vec![Spanned::no_span(AstExpr::Ident("to_string_fn".into()))],
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::String))
@@ -1192,11 +1195,11 @@ fn result_map_with_known_function() {
             ret: Box::new(Type::Float),
         },
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "map".into(),
-        args: vec![AstExpr::Ident("double".into())],
-    };
+        args: vec![Spanned::no_span(AstExpr::Ident("double".into()))],
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Result(Box::new(Type::Float), Box::new(Type::String))
@@ -1217,11 +1220,11 @@ fn result_map_err_with_known_function() {
             ret: Box::new(Type::Named("AppError".into())),
         },
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "map_err".into(),
-        args: vec![AstExpr::Ident("wrap_err".into())],
-    };
+        args: vec![Spanned::no_span(AstExpr::Ident("wrap_err".into()))],
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Result(
@@ -1235,11 +1238,11 @@ fn result_map_err_with_known_function() {
 fn option_filter_preserves_type() {
     let mut env = TypeEnv::new();
     env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("opt".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
         method: "filter".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::Int))
@@ -1250,11 +1253,11 @@ fn option_filter_preserves_type() {
 fn option_or_else_preserves_type() {
     let mut env = TypeEnv::new();
     env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("opt".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
         method: "or_else".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::Int))
@@ -1265,12 +1268,12 @@ fn option_or_else_preserves_type() {
 fn type_param_call_returns_type_param() {
     let mut env = TypeEnv::new();
     env.insert("T".into(), Type::TypeParam("T".into()));
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("T".into())),
-        args: vec![AstExpr::Literal(assura_parser::ast::Literal::Int(
-            "1".into(),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("T".into()))),
+        args: vec![Spanned::no_span(AstExpr::Literal(
+            assura_parser::ast::Literal::Int("1".into()),
         ))],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::TypeParam("T".into())
@@ -1280,17 +1283,19 @@ fn type_param_call_returns_type_param() {
 #[test]
 fn block_empty_returns_unit() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Block(vec![]);
+    let expr = Spanned::no_span(AstExpr::Block(vec![]));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unit);
 }
 
 #[test]
 fn block_returns_last_expr_type() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Block(vec![
-        AstExpr::Literal(assura_parser::ast::Literal::Int("1".into())),
-        AstExpr::Literal(assura_parser::ast::Literal::Bool(true)),
-    ]);
+    let expr = Spanned::no_span(AstExpr::Block(vec![
+        Spanned::no_span(AstExpr::Literal(assura_parser::ast::Literal::Int(
+            "1".into(),
+        ))),
+        Spanned::no_span(AstExpr::Literal(assura_parser::ast::Literal::Bool(true))),
+    ]));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -1436,8 +1441,8 @@ fn rollback_checker_duplicate_savepoint() {
 #[test]
 fn extract_int_literal_positive() {
     use crate::checkers::extract_int_literal;
-    use assura_parser::ast::{Expr, Literal};
-    let expr = Expr::Literal(Literal::Int("42".into()));
+    use assura_parser::ast::{Expr, Literal, Spanned};
+    let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
     assert_eq!(extract_int_literal(&expr), Some(42));
 }
 
@@ -1445,10 +1450,10 @@ fn extract_int_literal_positive() {
 fn extract_int_literal_negative() {
     use crate::checkers::extract_int_literal;
     use assura_parser::ast::{Expr, Literal, UnaryOp};
-    let expr = Expr::UnaryOp {
+    let expr = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Literal(Literal::Int("5".into()))),
-    };
+        expr: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+    });
     assert_eq!(extract_int_literal(&expr), Some(-5));
 }
 
@@ -1456,7 +1461,7 @@ fn extract_int_literal_negative() {
 fn extract_ident_works() {
     use crate::checkers::extract_ident;
     use assura_parser::ast::Expr;
-    let expr = Expr::Ident("hello".into());
+    let expr = Spanned::no_span(Expr::Ident("hello".into()));
     assert_eq!(extract_ident(&expr), Some("hello"));
 }
 
@@ -1464,11 +1469,11 @@ fn extract_ident_works() {
 fn extract_kv_pair_from_eq() {
     use crate::checkers::extract_kv_pair;
     use assura_parser::ast::{BinOp, Expr, Literal};
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Eq,
-        lhs: Box::new(Expr::Ident("size".into())),
-        rhs: Box::new(Expr::Literal(Literal::Int("256".into()))),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("size".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("256".into())))),
+    });
     let pair = extract_kv_pair(&expr);
     assert!(pair.is_some());
     let (key, _val) = pair.unwrap();
@@ -1479,10 +1484,10 @@ fn extract_kv_pair_from_eq() {
 fn extract_call_works() {
     use crate::checkers::extract_call;
     use assura_parser::ast::{Expr, Literal};
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("load_page".into())),
-        args: vec![Expr::Literal(Literal::Int("42".into()))],
-    };
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("load_page".into()))),
+        args: vec![Spanned::no_span(Expr::Literal(Literal::Int("42".into())))],
+    });
     let result = extract_call(&expr);
     assert!(result.is_some());
     let (name, args) = result.unwrap();
@@ -1643,9 +1648,7 @@ fn cross_file_without_modules_still_works() {
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
     let modules = std::collections::HashMap::new();
 
-    let result = crate::TypeChecker::new()
-        .modules(modules)
-        .check(&resolved);
+    let result = crate::TypeChecker::new().modules(modules).check(&resolved);
     assert!(
         result.is_ok(),
         "type checking with empty modules map should still work"

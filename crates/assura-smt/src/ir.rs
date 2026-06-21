@@ -905,8 +905,8 @@ fn referenced_slots(expr: &IrExprKind) -> Vec<usize> {
     }
 }
 
-fn count_input_params(body: &assura_parser::ast::Expr) -> usize {
-    match body {
+fn count_input_params(body: &assura_parser::ast::SpExpr) -> usize {
+    match &body.node {
         assura_parser::ast::Expr::Tuple(items) => items.len(),
         assura_parser::ast::Expr::Call { args, .. } => args.len(),
         _ => 1,

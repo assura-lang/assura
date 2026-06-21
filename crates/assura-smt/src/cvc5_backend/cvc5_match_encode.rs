@@ -1,6 +1,6 @@
 //! Shared match-expression encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::{Expr, Literal, MatchArm, Pattern};
+use assura_parser::ast::{Literal, MatchArm, Pattern, SpExpr};
 
 use crate::cvc5_builtins::pattern_hash_name;
 use crate::cvc5_common::float_literal_to_smtlib;
@@ -12,13 +12,13 @@ pub(crate) fn is_constructor_tag_pattern(name: &str) -> bool {
 
 /// Encode match arms as nested `ite` chains in SMT-LIB2 (arms processed right-to-left).
 pub(crate) fn encode_match_smtlib<F, G>(
-    scrutinee: &Expr,
+    scrutinee: &SpExpr,
     arms: &[MatchArm],
     mut encode: F,
     constructor_test: G,
 ) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
     G: Fn(&str, &str) -> String,
 {
     if arms.is_empty() {
@@ -97,7 +97,7 @@ pub(crate) fn bind_pattern_vars_cvc5<'a>(
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_match_cvc5<'a, E>(
     tm: &'a cvc5::TermManager,
-    scrutinee: &Expr,
+    scrutinee: &SpExpr,
     arms: &[MatchArm],
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
@@ -105,7 +105,7 @@ pub(crate) fn encode_match_cvc5<'a, E>(
 ) -> Option<cvc5::Term<'a>>
 where
     E: FnMut(
-        &Expr,
+        &SpExpr,
         &mut std::collections::HashMap<String, cvc5::Term<'a>>,
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,

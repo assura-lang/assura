@@ -97,7 +97,7 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
     // SEC.2 compile-time enforcement: determine trust boundary from clauses
     let trust_level = ex.clauses.iter().find_map(|c| {
         if matches!(&c.kind, ClauseKind::Other(k) if k == "trust" || k == "boundary") {
-            match &c.body {
+            match &c.body.node {
                 Expr::Ident(v) => Some(v.as_str().to_string()),
                 _ => None,
             }
@@ -262,6 +262,7 @@ pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
     fn mk_param(name: &str, ty: &str) -> assura_parser::ast::Param {
         assura_parser::ast::Param {
@@ -270,7 +271,7 @@ mod tests {
         }
     }
 
-    fn mk_clause(kind: ClauseKind, body: Expr) -> Clause {
+    fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {
             kind,
             body,
@@ -305,11 +306,11 @@ mod tests {
             return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Requires,
-                Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("b".into())),
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
                     op: BinOp::Neq,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
             )],
         };
         let mut code = String::new();
@@ -326,11 +327,11 @@ mod tests {
             return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Ensures,
-                Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("result".into())),
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
             )],
         };
         let mut code = String::new();
@@ -377,7 +378,7 @@ mod tests {
             return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Other("trust".into()),
-                Expr::Ident("untrusted".into()),
+                Spanned::no_span(Expr::Ident("untrusted".into())),
             )],
         };
         let mut code = String::new();
@@ -395,15 +396,15 @@ mod tests {
             clauses: vec![
                 mk_clause(
                     ClauseKind::Other("trust".into()),
-                    Expr::Ident("untrusted".into()),
+                    Spanned::no_span(Expr::Ident("untrusted".into())),
                 ),
                 mk_clause(
                     ClauseKind::Requires,
-                    Expr::BinOp {
-                        lhs: Box::new(Expr::Ident("x".into())),
+                    Spanned::no_span(Expr::BinOp {
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                         op: BinOp::Gt,
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                    },
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    }),
                 ),
             ],
         };
@@ -458,23 +459,23 @@ mod tests {
             clauses: vec![
                 mk_clause(
                     ClauseKind::Requires,
-                    Expr::BinOp {
-                        lhs: Box::new(Expr::Ident("b".into())),
+                    Spanned::no_span(Expr::BinOp {
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
                         op: BinOp::Neq,
-                        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                    },
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    }),
                 ),
                 mk_clause(
                     ClauseKind::Ensures,
-                    Expr::BinOp {
-                        lhs: Box::new(Expr::Ident("result".into())),
+                    Spanned::no_span(Expr::BinOp {
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                         op: BinOp::Eq,
-                        rhs: Box::new(Expr::BinOp {
-                            lhs: Box::new(Expr::Ident("a".into())),
+                        rhs: Box::new(Spanned::no_span(Expr::BinOp {
+                            lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
                             op: BinOp::Div,
-                            rhs: Box::new(Expr::Ident("b".into())),
-                        }),
-                    },
+                            rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                        })),
+                    }),
                 ),
             ],
         };
@@ -495,15 +496,17 @@ mod tests {
             return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Ensures,
-                Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("result".into())),
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                     op: BinOp::Eq,
-                    rhs: Box::new(Expr::BinOp {
-                        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
+                    rhs: Box::new(Spanned::no_span(Expr::BinOp {
+                        lhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+                            Expr::Ident("x".into()),
+                        ))))),
                         op: BinOp::Add,
-                        rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-                    }),
-                },
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+                    })),
+                }),
             )],
         };
         let mut code = String::new();

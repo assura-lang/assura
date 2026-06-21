@@ -1,6 +1,6 @@
 //! Shared CVC5 utilities used by shell-out and native backends.
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::{Expr, SpExpr};
 
 /// Rational denominator for Float literal encoding (matches Z3/CVC5 native).
 pub(crate) const FLOAT_RATIONAL_DENOM: i64 = 1_000_000;
@@ -58,14 +58,14 @@ pub(crate) fn float_to_rational_parts(f: &str) -> (i64, i64) {
 pub(crate) fn is_self_rooted_cvc5(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(name) => name == "self",
-        Expr::Field(obj, _) => is_self_rooted_cvc5(obj),
+        Expr::Field(obj, _) => is_self_rooted_cvc5(&obj.node),
         _ => false,
     }
 }
 
 pub(crate) fn field_chain_depth_cvc5(expr: &Expr) -> usize {
     match expr {
-        Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(obj),
+        Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(&obj.node),
         _ => 0,
     }
 }
@@ -78,7 +78,7 @@ pub(crate) fn has_deep_field_chain_cvc5(expr: &Expr) -> bool {
 pub(crate) fn flatten_field_chain_cvc5(expr: &Expr) -> String {
     match expr {
         Expr::Field(obj, field) => {
-            let prefix = flatten_field_chain_cvc5(obj);
+            let prefix = flatten_field_chain_cvc5(&obj.node);
             format!("{prefix}__{field}")
         }
         Expr::Ident(name) => name.clone(),
@@ -90,8 +90,8 @@ pub(crate) fn flatten_field_chain_cvc5(expr: &Expr) -> String {
 // Unmodelable-feature detection (mirrors Z3 encoder, no z3-verify dep)
 // -------------------------------------------------------------------------
 
-pub(crate) fn expr_has_unmodelable_features_cvc5(expr: &Expr) -> bool {
-    match expr {
+pub(crate) fn expr_has_unmodelable_features_cvc5(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Field(obj, _) => expr_has_unmodelable_features_cvc5(obj),
         Expr::MethodCall {
             receiver,
@@ -147,7 +147,7 @@ pub(crate) fn expr_has_unmodelable_features_cvc5(expr: &Expr) -> bool {
     }
 }
 
-pub(crate) fn collect_unmodelable_reasons_cvc5(_expr: &Expr) -> Vec<String> {
+pub(crate) fn collect_unmodelable_reasons_cvc5(_expr: &SpExpr) -> Vec<String> {
     Vec::new()
 }
 
@@ -178,14 +178,14 @@ pub(crate) fn is_internal_cvc5_var(name: &str) -> bool {
 // Lemma apply-ref collection
 // -------------------------------------------------------------------------
 
-pub(crate) fn collect_apply_refs_from_expr(expr: &Expr) -> Vec<String> {
+pub(crate) fn collect_apply_refs_from_expr(expr: &SpExpr) -> Vec<String> {
     let mut refs = Vec::new();
     collect_apply_refs_inner(expr, &mut refs);
     refs
 }
 
-fn collect_apply_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
-    match expr {
+fn collect_apply_refs_inner(expr: &SpExpr, refs: &mut Vec<String>) {
+    match &expr.node {
         Expr::Apply { lemma_name, args } => {
             refs.push(lemma_name.clone());
             for arg in args {
@@ -256,7 +256,11 @@ fn collect_apply_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Expr;
+    use assura_parser::ast::{Expr, Spanned};
+
+    fn spb(e: Expr) -> Box<SpExpr> {
+        Box::new(Spanned::no_span(e))
+    }
 
     #[test]
     fn sanitize_dots() {
@@ -270,10 +274,7 @@ mod tests {
     #[test]
     fn flatten_deep_chain() {
         let expr = Expr::Field(
-            Box::new(Expr::Field(
-                Box::new(Expr::Ident("state".into())),
-                "head".into(),
-            )),
+            spb(Expr::Field(spb(Expr::Ident("state".into())), "head".into())),
             "extra".into(),
         );
         assert_eq!(flatten_field_chain_cvc5(&expr), "state__head__extra");

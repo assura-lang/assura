@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{Clause, ClauseKind, Decl, Expr};
+use assura_parser::ast::{Clause, ClauseKind, Decl, SpExpr};
 
 use crate::CounterexampleModel;
 use crate::VerificationResult;
@@ -141,13 +141,13 @@ pub(crate) fn cvc5_interpret_clause_check_result(
 /// `z3-verify` feature.
 pub(crate) fn collect_lemma_defs_for_cvc5(
     typed: &assura_types::TypedFile,
-) -> std::collections::HashMap<String, Vec<&Expr>> {
+) -> std::collections::HashMap<String, Vec<&SpExpr>> {
     let mut lemmas = std::collections::HashMap::new();
     for decl in &typed.resolved.source.decls {
         if let Decl::FnDef(f) = &decl.node
             && f.is_lemma
         {
-            let ensures: Vec<&Expr> = f
+            let ensures: Vec<&SpExpr> = f
                 .clauses
                 .iter()
                 .filter(|c| c.kind == ClauseKind::Ensures)
@@ -162,7 +162,7 @@ pub(crate) fn collect_lemma_defs_for_cvc5(
 /// Prepared state shared by native and shell-out CVC5 contract verification.
 pub(crate) struct Cvc5ContractPrepared<'a> {
     pub narrowings: Vec<(String, i64)>,
-    pub requires_exprs: Vec<&'a Expr>,
+    pub requires_exprs: Vec<&'a SpExpr>,
     pub frame_checker: assura_types::FrameChecker,
     pub verifiable: Vec<&'a Clause>,
     pub requires_clauses: Vec<&'a Clause>,
@@ -236,16 +236,16 @@ pub(crate) fn cvc5_contract_shared_setup<'a>(
     constants: &[(String, i64)],
 ) -> (
     Vec<(String, i64)>,
-    Vec<&'a Expr>,
+    Vec<&'a SpExpr>,
     assura_types::FrameChecker,
 ) {
     let narrowings = derive_narrowings(constants);
-    let requires_exprs: Vec<&Expr> = clauses
+    let requires_exprs: Vec<&SpExpr> = clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Requires)
         .map(|c| &c.body)
         .collect();
-    let modifies_bodies: Vec<&Expr> = clauses
+    let modifies_bodies: Vec<&SpExpr> = clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Modifies)
         .map(|c| &c.body)
@@ -274,7 +274,7 @@ pub(crate) fn cvc5_lookup_cached_clause(
         })
 }
 
-pub(crate) fn cvc5_unmodelable_precheck(desc: &str, body: &Expr) -> Option<VerificationResult> {
+pub(crate) fn cvc5_unmodelable_precheck(desc: &str, body: &SpExpr) -> Option<VerificationResult> {
     if !expr_has_unmodelable_features_cvc5(body) {
         return None;
     }

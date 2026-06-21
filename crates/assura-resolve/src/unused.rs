@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{Decl, Expr, FnDef, ServiceItem, SourceFile, TypeBody, TypeExpr};
+use assura_parser::ast::{Decl, Expr, FnDef, ServiceItem, SourceFile, SpExpr, TypeBody, TypeExpr};
 
 use crate::errors::ResolutionError;
 use crate::imports::{ImportStatus, ResolvedImport};
@@ -142,8 +142,8 @@ fn collect_type_expr_names(te: Option<&TypeExpr>, names: &mut HashSet<String>) {
     }
 }
 
-fn collect_expr_names(expr: &Expr, names: &mut HashSet<String>) {
-    match expr {
+fn collect_expr_names(expr: &SpExpr, names: &mut HashSet<String>) {
+    match &expr.node {
         Expr::Ident(name) => {
             names.insert(name.clone());
         }

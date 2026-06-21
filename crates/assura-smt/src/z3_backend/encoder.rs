@@ -4,7 +4,7 @@
 //! and unmodelable-feature detection.
 
 use crate::*;
-use assura_parser::ast::{BinOp, Literal, UnaryOp};
+use assura_parser::ast::{BinOp, Literal, SpExpr, Spanned, UnaryOp};
 use assura_types::checkers::expr_references_var;
 use std::collections::HashMap;
 use std::sync::Once;
@@ -296,7 +296,7 @@ impl Encoder {
     /// membership as an uninterpreted `contains(domain, x)` predicate.
     fn guard_quantifier_body(
         &mut self,
-        domain: &Expr,
+        domain: &SpExpr,
         bound: &ast::Int,
         body: &ast::Bool,
         is_forall: bool,
@@ -306,7 +306,7 @@ impl Encoder {
             op: BinOp::Range,
             lhs: lo,
             rhs: hi,
-        } = domain
+        } = &domain.node
         {
             let lo_val = self.encode_expr(lo).as_int(&mut self.fresh_counter);
             let hi_val = self.encode_expr(hi).as_int(&mut self.fresh_counter);
@@ -345,7 +345,7 @@ impl Encoder {
     /// hints that help the solver instantiate quantifiers efficiently.
     fn infer_quantifier_patterns(
         &mut self,
-        body: &Expr,
+        body: &SpExpr,
         bound_var: &str,
         bound_z3: &ast::Int,
     ) -> Vec<z3::Pattern> {
@@ -377,15 +377,15 @@ impl Encoder {
     /// bound variable, and create Z3 trigger patterns from them.
     fn collect_trigger_calls(
         &self,
-        expr: &Expr,
+        expr: &SpExpr,
         bound_var: &str,
         bound_z3: &ast::Int,
         patterns: &mut Vec<z3::Pattern>,
     ) {
-        match expr {
+        match &expr.node {
             Expr::Call { func, args } => {
                 let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
-                if refs_bound && let Expr::Ident(fname) = func.as_ref() {
+                if refs_bound && let Expr::Ident(fname) = &func.as_ref().node {
                     let int_sort = z3::Sort::int();
                     let arity = args.len();
                     let param_sorts: Vec<&z3::Sort> = (0..arity).map(|_| &int_sort).collect();
@@ -474,7 +474,7 @@ impl Encoder {
         })
     }
 
-    fn encode_call(&mut self, func_name: &str, args: &[Expr]) -> Z3Value {
+    fn encode_call(&mut self, func_name: &str, args: &[SpExpr]) -> Z3Value {
         if func_name.chars().next().is_some_and(|c| c.is_uppercase()) {
             self.init_adt_infrastructure();
             let arg_vals: Vec<ast::Int> = args
@@ -500,7 +500,7 @@ impl Encoder {
         // Canonical length for simple identifiers (#267).
         if matches!(func_name, "len" | "length")
             && args.len() == 1
-            && let Expr::Ident(name) = &args[0]
+            && let Expr::Ident(name) = &args[0].node
         {
             return Z3Value::Int(self.canonical_length(name));
         }
@@ -692,7 +692,7 @@ impl Encoder {
         // set(a, i, v) returns a new array where a[i] == v and
         // all other elements are unchanged.
         if func_name == "set" && arg_vals.len() == 3 {
-            let arr_expr = &args[0];
+            let arr_expr = &args[0].node;
             let arr = &arg_vals[0];
             let idx = &arg_vals[1];
             let val = &arg_vals[2];
@@ -783,10 +783,10 @@ impl Encoder {
     /// spurious counterexamples because Z3 can assign any value to
     /// `__field_len(result)`. This is a known limitation; see the doc
     /// comment on `verify_clauses_with_types` for details.
-    fn encode_field_access(&mut self, obj: &Expr, field: &str) -> Z3Value {
+    fn encode_field_access(&mut self, obj: &SpExpr, field: &str) -> Z3Value {
         // Canonical length for simple identifiers (#267).
         if matches!(field, "len" | "length")
-            && let Expr::Ident(name) = obj
+            && let Expr::Ident(name) = &obj.node
         {
             return Z3Value::Int(self.canonical_length(name));
         }
@@ -806,7 +806,7 @@ impl Encoder {
         // #198: Flatten deep field chains (e.g., state.head.extra.extra_max)
         // into a single Z3 variable instead of nested uninterpreted functions.
         if has_deep_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()))
-            || is_self_rooted(obj)
+            || is_self_rooted(&obj.node)
         {
             let flat_name =
                 flatten_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()));
@@ -859,7 +859,7 @@ impl Encoder {
     }
 
     /// Encode indexing as uninterpreted function: __index(collection, index).
-    fn encode_index(&mut self, collection: &Expr, index: &Expr) -> Z3Value {
+    fn encode_index(&mut self, collection: &SpExpr, index: &SpExpr) -> Z3Value {
         let coll_val = self.encode_expr(collection).as_int(&mut self.fresh_counter);
         let idx_val = self.encode_expr(index).as_int(&mut self.fresh_counter);
 
@@ -1267,8 +1267,8 @@ impl Encoder {
     }
 
     /// Encode an AST expression into a Z3 value.
-    pub(crate) fn encode_expr(&mut self, expr: &Expr) -> Z3Value {
-        match expr {
+    pub(crate) fn encode_expr(&mut self, expr: &SpExpr) -> Z3Value {
+        match &expr.node {
             // --- Literals ---
             Expr::Literal(Literal::Int(s)) => {
                 // Use Z3's string-based bignum constructor for large integers
@@ -1377,7 +1377,7 @@ impl Encoder {
             }
 
             // --- old(expr): encode inner with __old suffix ---
-            Expr::Old(inner) => match inner.as_ref() {
+            Expr::Old(inner) => match &inner.as_ref().node {
                 // old(x) -> x__old
                 Expr::Ident(name) => {
                     let old_name = format!("{name}__old");
@@ -1386,7 +1386,7 @@ impl Encoder {
                 }
                 // old(obj.field) -> encode obj as old, then access field
                 Expr::Field(obj, field) => {
-                    let old_obj = self.encode_expr(&Expr::Old(obj.clone()));
+                    let old_obj = self.encode_expr(&Spanned::no_span(Expr::Old(obj.clone())));
                     let old_obj_int = old_obj.as_int(&mut self.fresh_counter);
                     let func_name = format!("__field_{field}");
                     if matches!(
@@ -1408,7 +1408,7 @@ impl Encoder {
                 Expr::MethodCall {
                     receiver, method, ..
                 } => {
-                    let old_recv = self.encode_expr(&Expr::Old(receiver.clone()));
+                    let old_recv = self.encode_expr(&Spanned::no_span(Expr::Old(receiver.clone())));
                     let old_int = old_recv.as_int(&mut self.fresh_counter);
                     let decl = self.make_func(method, 1);
                     let result = decl.apply(&[&old_int as &dyn z3::ast::Ast]);
@@ -1589,14 +1589,14 @@ impl Encoder {
                 method,
                 args,
             } => {
-                let mut all_args = vec![receiver.as_ref().clone()];
+                let mut all_args: Vec<SpExpr> = vec![receiver.as_ref().clone()];
                 all_args.extend(args.iter().cloned());
                 self.encode_call(method, &all_args)
             }
 
             // --- Function call: uninterpreted function ---
             Expr::Call { func, args } => {
-                let func_name = match func.as_ref() {
+                let func_name = match &func.as_ref().node {
                     Expr::Ident(name) => name.clone(),
                     Expr::Field(_, field) => field.clone(),
                     _ => format!("__call_{}", self.fresh_counter),
@@ -2169,7 +2169,7 @@ impl Encoder {
     }
 
     /// Encode a binary operation.
-    fn encode_binop(&mut self, lhs: &Expr, op: &BinOp, rhs: &Expr) -> Z3Value {
+    fn encode_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> Z3Value {
         // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
         // The parser produces BinOp(BinOp(a, <, b), <, c). We detect
         // when a comparison's LHS is itself a comparison, extract the
@@ -2179,7 +2179,7 @@ impl Encoder {
                 lhs: inner_lhs,
                 op: inner_op,
                 rhs: inner_rhs,
-            } = lhs
+            } = &lhs.node
             && Self::is_comparison(inner_op)
         {
             // Encode: (inner_lhs inner_op inner_rhs) && (inner_rhs op rhs)
@@ -2426,8 +2426,8 @@ impl Encoder {
 /// encoder cannot faithfully represent (field-access chains on `self`,
 /// typestate annotations, taint annotations, validate blocks, region
 /// types, etc.).
-pub(crate) fn expr_has_unmodelable_features(expr: &Expr) -> bool {
-    match expr {
+pub(crate) fn expr_has_unmodelable_features(expr: &SpExpr) -> bool {
+    match &expr.node {
         // #198: Field access is now always modelable. Deep field chains
         // are flattened into single Z3 variables, and self-rooted access
         // is treated the same as any other variable.
@@ -2493,7 +2493,7 @@ pub(crate) fn expr_has_unmodelable_features(expr: &Expr) -> bool {
 fn is_self_rooted(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(name) => name == "self",
-        Expr::Field(obj, _) => is_self_rooted(obj),
+        Expr::Field(obj, _) => is_self_rooted(&obj.node),
         _ => false,
     }
 }
@@ -2508,7 +2508,7 @@ fn has_deep_field_chain(expr: &Expr) -> bool {
 
 fn field_chain_depth(expr: &Expr) -> usize {
     match expr {
-        Expr::Field(obj, _) => 1 + field_chain_depth(obj),
+        Expr::Field(obj, _) => 1 + field_chain_depth(&obj.node),
         _ => 0,
     }
 }
@@ -2519,7 +2519,7 @@ fn field_chain_depth(expr: &Expr) -> usize {
 fn flatten_field_chain(expr: &Expr) -> String {
     match expr {
         Expr::Field(obj, field) => {
-            let prefix = flatten_field_chain(obj);
+            let prefix = flatten_field_chain(&obj.node);
             format!("{prefix}__{field}")
         }
         Expr::Ident(name) => name.clone(),
@@ -2527,7 +2527,7 @@ fn flatten_field_chain(expr: &Expr) -> String {
     }
 }
 
-pub(super) fn collect_unmodelable_reasons(_expr: &Expr) -> Vec<String> {
+pub(super) fn collect_unmodelable_reasons(_expr: &SpExpr) -> Vec<String> {
     // #198, #200, #201, #262: All expression types are now modelable.
     // Field access, method calls, raw tokens (including typestate @),
     // taint, ghost, region, and validate are all encoded in SMT.

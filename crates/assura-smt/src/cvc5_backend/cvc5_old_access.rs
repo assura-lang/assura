@@ -1,6 +1,6 @@
 //! Shared old() encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::{Expr, SpExpr, Spanned};
 
 use crate::cvc5_common::old_ident_smtlib_name;
 use crate::cvc5_field_access::{
@@ -12,15 +12,21 @@ use crate::cvc5_field_access::{
 pub(crate) enum OldAccessPlan {
     Ident(String),
     FlatField(String),
-    ShallowField { obj: Box<Expr>, field: String },
-    MethodCall { receiver: Box<Expr>, method: String },
+    ShallowField {
+        obj: Box<SpExpr>,
+        field: String,
+    },
+    MethodCall {
+        receiver: Box<SpExpr>,
+        method: String,
+    },
     Other,
 }
 
 pub(crate) fn plan_old_access(inner: &Expr) -> OldAccessPlan {
     match inner {
         Expr::Ident(name) => OldAccessPlan::Ident(name.clone()),
-        Expr::Field(obj, field) => match plan_field_access(obj.as_ref(), field) {
+        Expr::Field(obj, field) => match plan_field_access(&obj.as_ref().node, field) {
             FieldAccessPlan::Flatten(flat) => OldAccessPlan::FlatField(flat),
             FieldAccessPlan::ShallowUf { field: f } => OldAccessPlan::ShallowField {
                 obj: obj.clone(),
@@ -38,19 +44,21 @@ pub(crate) fn plan_old_access(inner: &Expr) -> OldAccessPlan {
 }
 
 /// Encode `old(inner)` as SMT-LIB2 via recursive `encode` callback.
-pub(crate) fn encode_old_smtlib<F>(inner: &Expr, mut encode: F) -> Option<String>
+pub(crate) fn encode_old_smtlib<F>(inner: &SpExpr, mut encode: F) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
 {
-    match plan_old_access(inner) {
+    match plan_old_access(&inner.node) {
         OldAccessPlan::Ident(name) => Some(old_ident_smtlib_name(&name)),
         OldAccessPlan::FlatField(flat) => Some(old_flat_field_smtlib(&flat)),
         OldAccessPlan::ShallowField { obj, field } => {
-            let old_obj = encode(&Expr::Old(obj))?;
+            let old_expr = Spanned::no_span(Expr::Old(obj));
+            let old_obj = encode(&old_expr)?;
             Some(shallow_field_smtlib(&field, &old_obj))
         }
         OldAccessPlan::MethodCall { receiver, method } => {
-            let old_recv = encode(&Expr::Old(receiver))?;
+            let old_expr = Spanned::no_span(Expr::Old(receiver));
+            let old_recv = encode(&old_expr)?;
             Some(format!("({method} {old_recv})"))
         }
         OldAccessPlan::Other => encode(inner),
@@ -61,22 +69,23 @@ where
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_old_cvc5<'a, E>(
     tm: &'a cvc5::TermManager,
-    inner: &Expr,
+    inner: &SpExpr,
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     mut encode: E,
 ) -> Option<cvc5::Term<'a>>
 where
     E: FnMut(
-        &Expr,
+        &SpExpr,
         &mut std::collections::HashMap<String, cvc5::Term<'a>>,
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
     use crate::cvc5_common::sanitize_smtlib_name;
     use crate::cvc5_field_access::encode_shallow_field_cvc5;
+    use assura_parser::ast::Spanned;
 
-    match plan_old_access(inner) {
+    match plan_old_access(&inner.node) {
         OldAccessPlan::Ident(name) => {
             let key = sanitize_smtlib_name(&old_ident_smtlib_name(&name));
             Some(
@@ -89,7 +98,8 @@ where
             Some(tm.mk_const(tm.integer_sort(), &format!("{flat}__old")))
         }
         OldAccessPlan::ShallowField { obj, field } => {
-            let old_obj = encode(&Expr::Old(obj), vars, state)?;
+            let old_expr = Spanned::no_span(Expr::Old(obj));
+            let old_obj = encode(&old_expr, vars, state)?;
             Some(encode_shallow_field_cvc5(
                 tm,
                 &field,
@@ -99,7 +109,8 @@ where
             ))
         }
         OldAccessPlan::MethodCall { receiver, method } => {
-            let old_recv = encode(&Expr::Old(receiver), vars, state)?;
+            let old_expr = Spanned::no_span(Expr::Old(receiver));
+            let old_recv = encode(&old_expr, vars, state)?;
             let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
             let func_const = tm.mk_const(func_sort, &method);
             Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, old_recv]))

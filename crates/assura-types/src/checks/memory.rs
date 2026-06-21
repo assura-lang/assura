@@ -3,7 +3,7 @@
 //! Memory regions, shared memory, lock ordering, weak memory,
 //! allocators, circular buffers.
 
-use assura_parser::ast::{BinOp, BlockKind, ClauseKind, Decl, Expr};
+use assura_parser::ast::{BinOp, BlockKind, ClauseKind, Decl, Expr, SpExpr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -64,7 +64,7 @@ pub(crate) fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<
             continue;
         }
 
-        let requires_exprs: Vec<&Expr> = clauses
+        let requires_exprs: Vec<&SpExpr> = clauses
             .iter()
             .filter(|c| c.kind == ClauseKind::Requires)
             .map(|c| &c.body)
@@ -74,7 +74,7 @@ pub(crate) fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && k == "region"
-                && let Expr::Raw(tokens) = &clause.body
+                && let Expr::Raw(tokens) = &clause.body.node
                 && tokens.len() >= 4
             {
                 // region name = lower..upper on buffer
@@ -124,7 +124,7 @@ pub(crate) fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && k == "contains"
-                && let Expr::Raw(tokens) = &clause.body
+                && let Expr::Raw(tokens) = &clause.body.node
                 && tokens.len() >= 2
             {
                 let sub_name = &tokens[0];
@@ -198,8 +198,9 @@ pub(crate) fn run_shared_mem_checks(source: &assura_parser::ast::SourceFile) -> 
                     lhs,
                     op: BinOp::Implies,
                     rhs,
-                } = &clause.body
-                && let (Expr::Ident(obj), Expr::Ident(mode)) = (lhs.as_ref(), rhs.as_ref())
+                } = &clause.body.node
+                && let (Expr::Ident(obj), Expr::Ident(mode)) =
+                    (&lhs.as_ref().node, &rhs.as_ref().node)
             {
                 let access_mode = match mode.as_str() {
                     "exclusive" => AccessMode::Exclusive,
@@ -232,7 +233,7 @@ pub(crate) fn run_shared_mem_checks(source: &assura_parser::ast::SourceFile) -> 
             // Check for data race annotations
             if let ClauseKind::Other(k) = &clause.kind
                 && k == "concurrent_access"
-                && let Expr::Raw(tokens) = &clause.body
+                && let Expr::Raw(tokens) = &clause.body.node
                 && tokens.len() >= 3
             {
                 let object = &tokens[0];
@@ -271,7 +272,7 @@ pub(crate) fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> 
             && *kind == BlockKind::LockOrder
         {
             for (priority, clause) in body.iter().enumerate() {
-                if let Expr::Ident(lock_name) = &clause.body {
+                if let Expr::Ident(lock_name) = &clause.body.node {
                     checker.define_order(lock_name.clone(), priority as u32);
                 }
             }
@@ -364,7 +365,7 @@ pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) ->
         for clause in clauses {
             if clause.kind == ClauseKind::Ordering {
                 // Extract the ordering value from the clause body
-                let ordering_str = match &clause.body {
+                let ordering_str = match &clause.body.node {
                     Expr::Ident(s) => Some(s.as_str()),
                     Expr::Raw(tokens) => tokens
                         .iter()
@@ -429,12 +430,12 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
             if let ClauseKind::Other(ref k) = clause.kind {
                 if k == "allocator" || k == "alloc" || k == "arena" {
                     has_alloc = true;
-                    if let Expr::Ident(name) = &clause.body {
+                    if let Expr::Ident(name) = &clause.body.node {
                         checker.record_alloc(name.clone(), None, decl.span.clone());
                     }
                 }
                 if (k == "dealloc" || k == "free")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                     && let Some(err) = checker.record_free(name, decl.span.clone())
                 {
                     return vec![err];
@@ -452,13 +453,13 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
                 if (k == "arena" || k == "declare_arena")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                 {
                     checker.declare_arena(name.clone());
                     has_alloc = true;
                 }
                 if (k == "drop_arena" || k == "arena_drop")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                 {
                     checker.drop_arena(name, decl.span.clone());
                 }
@@ -478,7 +479,7 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "bounded" || k == "alloc_bound")
-                && let Expr::Ident(name) = &clause.body
+                && let Expr::Ident(name) = &clause.body.node
             {
                 checker.mark_bounded(name);
             }
@@ -525,9 +526,9 @@ pub(crate) fn run_circular_buffer_checks(
                 && (k == "circular_buffer" || k == "ring_buffer")
             {
                 found = true;
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let cap = args
                                 .first()
                                 .and_then(extract_int_literal)
@@ -573,12 +574,12 @@ pub(crate) fn run_circular_buffer_checks(
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
                 if (k == "push" || k == "insert")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                 {
                     checker.push(name);
                 }
                 if (k == "pop" || k == "remove")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                 {
                     checker.pop(name);
                 }

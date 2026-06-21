@@ -12,15 +12,15 @@ use super::*;
 /// - `Expr::List([...])` for comma-separated list
 ///
 /// Returns a set of string representations (e.g., `"x"`, `"node.keys"`).
-pub(crate) fn extract_modifies_targets(expr: &Expr) -> Vec<String> {
+pub(crate) fn extract_modifies_targets(expr: &SpExpr) -> Vec<String> {
     let mut targets = Vec::new();
     collect_modifies_targets(expr, &mut targets);
     targets
 }
 
 /// Recursively collect modifies targets from an expression.
-fn collect_modifies_targets(expr: &Expr, targets: &mut Vec<String>) {
-    match expr {
+fn collect_modifies_targets(expr: &SpExpr, targets: &mut Vec<String>) {
+    match &expr.node {
         Expr::Ident(name) => {
             targets.push(name.clone());
         }
@@ -59,8 +59,8 @@ fn collect_modifies_targets(expr: &Expr, targets: &mut Vec<String>) {
 }
 
 /// Build a dotted field path from nested Field expressions.
-fn build_field_path(expr: &Expr, path: &mut String) {
-    match expr {
+fn build_field_path(expr: &SpExpr, path: &mut String) {
+    match &expr.node {
         Expr::Ident(name) => {
             path.push_str(name);
         }
@@ -78,11 +78,11 @@ fn build_field_path(expr: &Expr, path: &mut String) {
 /// Walks the expression tree and whenever it finds `Expr::Old(inner)`,
 /// extracts the variable/field name from `inner`. This is used to find
 /// which pre-state variables an `ensures` clause references.
-pub(crate) fn collect_old_references(expr: &Expr) -> Vec<String> {
+pub(crate) fn collect_old_references(expr: &SpExpr) -> Vec<String> {
     struct OldRefCollector(Vec<String>);
     impl ExprVisitor for OldRefCollector {
-        fn visit_old(&mut self, inner: &Expr) {
-            match inner {
+        fn visit_old(&mut self, inner: &SpExpr) {
+            match &inner.node {
                 Expr::Ident(name) => self.0.push(name.clone()),
                 Expr::Field(receiver, field) => {
                     let mut path = String::new();
@@ -109,7 +109,7 @@ pub(crate) fn collect_old_references(expr: &Expr) -> Vec<String> {
 ///
 /// Used to find which variables an ensures clause mentions so we can
 /// determine which frame axioms to inject.
-pub(crate) fn collect_ident_references(expr: &Expr) -> Vec<String> {
+pub(crate) fn collect_ident_references(expr: &SpExpr) -> Vec<String> {
     struct IdentRefCollector(Vec<String>);
     impl ExprVisitor for IdentRefCollector {
         fn visit_ident(&mut self, name: &str) {
@@ -117,7 +117,7 @@ pub(crate) fn collect_ident_references(expr: &Expr) -> Vec<String> {
                 self.0.push(name.to_string());
             }
         }
-        fn visit_field(&mut self, base: &Expr, field: &str) {
+        fn visit_field(&mut self, base: &SpExpr, field: &str) {
             let mut path = String::new();
             build_field_path(base, &mut path);
             if !path.is_empty() {

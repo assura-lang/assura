@@ -1158,7 +1158,6 @@ pub fn adapter_for_extension(ext: &str) -> Option<Box<dyn LanguageAdapter>> {
 // Tests
 // ---------------------------------------------------------------------------
 
-
 #[cfg(test)]
 #[path = "ra_tests.rs"]
 mod tests;

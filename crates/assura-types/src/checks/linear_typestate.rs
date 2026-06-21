@@ -1,6 +1,6 @@
 //! Linearity and typestate checks.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
+use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SpExpr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -113,11 +113,11 @@ fn infer_usage_grade(ty_tokens: &[String]) -> UsageGrade {
 /// - `Expr::Cast`: single param `x as linear Int`
 /// - `Expr::Block`/`Expr::Tuple`: sequences containing linear-annotated items
 pub(crate) fn declare_linear_params_from_expr(
-    expr: &Expr,
+    expr: &SpExpr,
     tracker: &mut UsageTracker,
     span: &std::ops::Range<usize>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Raw(tokens) => {
             declare_linear_params_from_raw(tokens, tracker, span);
         }
@@ -128,7 +128,7 @@ pub(crate) fn declare_linear_params_from_expr(
         }
         Expr::Cast { expr: inner, ty } => {
             if ty.contains("linear")
-                && let Expr::Ident(name) = inner.as_ref()
+                && let Expr::Ident(name) = &inner.as_ref().node
             {
                 tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
             }
@@ -147,14 +147,14 @@ pub(crate) fn declare_linear_params_from_expr(
 
 /// Declare a single input parameter as linear if it has a linear annotation.
 fn declare_linear_single_param(
-    expr: &Expr,
+    expr: &SpExpr,
     tracker: &mut UsageTracker,
     span: &std::ops::Range<usize>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Cast { expr: inner, ty } => {
             if ty.contains("linear")
-                && let Expr::Ident(name) = inner.as_ref()
+                && let Expr::Ident(name) = &inner.as_ref().node
             {
                 tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
             }
@@ -227,7 +227,7 @@ pub(crate) fn run_typestate_checks(source: &assura_parser::ast::SourceFile) -> V
                     for clause in clauses {
                         if let ClauseKind::Other(ref k) = clause.kind
                             && (k == "transition" || k == "from_state" || k == "to_state")
-                            && let Expr::Raw(tokens) = &clause.body
+                            && let Expr::Raw(tokens) = &clause.body.node
                             && tokens.len() >= 3
                         {
                             transitions.push((name.clone(), tokens[0].clone(), tokens[2].clone()));

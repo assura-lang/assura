@@ -1,6 +1,6 @@
 //! Numeric, fixed-width, and collection checks.
 
-use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr};
+use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, SpExpr};
 
 use crate::checkers::*;
 use crate::domain::*;
@@ -52,13 +52,13 @@ pub(crate) fn run_fixed_width_checks(
 /// Calls `check_binop` and `check_division_by_zero` in addition to the
 /// individual overflow/signedness/cast checks.
 fn check_expr_fixed_width_full(
-    expr: &Expr,
+    expr: &SpExpr,
     type_env: &TypeEnv,
     fw_checker: &FixedWidthChecker,
     span: &std::ops::Range<usize>,
     errors: &mut Vec<TypeError>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::BinOp { lhs, op, rhs } => {
             check_expr_fixed_width_full(lhs, type_env, fw_checker, span, errors);
             check_expr_fixed_width_full(rhs, type_env, fw_checker, span, errors);
@@ -143,11 +143,11 @@ fn check_expr_fixed_width_full(
 
 /// Infer fixed-width type using both type env and the checker's bindings.
 fn infer_fixed_width_type_ext(
-    expr: &Expr,
+    expr: &SpExpr,
     type_env: &TypeEnv,
     fw_checker: &FixedWidthChecker,
 ) -> Option<Type> {
-    match expr {
+    match &expr.node {
         Expr::Ident(name) => {
             // Check checker bindings first, then type env
             if let Some(ty) = fw_checker.get_type(name)
@@ -229,10 +229,10 @@ pub(crate) fn run_collection_contract_checks(
 }
 
 /// Check if an expression mentions `len` (used by collection contract checks).
-fn expr_mentions_len(expr: &Expr) -> bool {
-    match expr {
+fn expr_mentions_len(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Call { func, args } => {
-            if let Expr::Ident(name) = func.as_ref()
+            if let Expr::Ident(name) = &func.as_ref().node
                 && name == "len"
             {
                 return true;
@@ -279,9 +279,9 @@ pub(crate) fn run_numerical_precision_checks(
             {
                 found = true;
                 // Extract precision params from call syntax: precision(name, bits, ulp)
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let bits = args
                                 .first()
                                 .and_then(extract_int_literal)
@@ -385,10 +385,10 @@ pub(crate) fn type_name_to_bits(ty: &str) -> u32 {
 
 /// Extract the target bit width from a cast expression involving a variable.
 /// Returns the narrowest cast target found, or 32 as a default.
-fn extract_cast_target_bits(expr: &Expr, var_name: &str) -> u32 {
-    match expr {
+fn extract_cast_target_bits(expr: &SpExpr, var_name: &str) -> u32 {
+    match &expr.node {
         Expr::Cast { expr: inner, ty } => {
-            if let Expr::Ident(name) = inner.as_ref()
+            if let Expr::Ident(name) = &inner.node
                 && name == var_name
             {
                 return type_name_to_bits(ty);
@@ -396,14 +396,14 @@ fn extract_cast_target_bits(expr: &Expr, var_name: &str) -> u32 {
             extract_cast_target_bits(inner, var_name)
         }
         Expr::Call { func, args } => {
-            if let Expr::Ident(fn_name) = func.as_ref()
+            if let Expr::Ident(fn_name) = &func.as_ref().node
                 && (fn_name == "as_f32"
                     || fn_name == "as_f16"
                     || fn_name == "narrow"
                     || fn_name == "truncate")
                 && args
                     .iter()
-                    .any(|a| matches!(a, Expr::Ident(n) if n == var_name))
+                    .any(|a| matches!(&a.node, Expr::Ident(n) if n == var_name))
             {
                 return match fn_name.as_str() {
                     "as_f16" => 16,
@@ -424,21 +424,21 @@ fn extract_cast_target_bits(expr: &Expr, var_name: &str) -> u32 {
 }
 
 /// Check if a clause body contains a cast-like expression for a variable.
-fn clause_contains_cast(expr: &Expr, var_name: &str) -> bool {
-    match expr {
+fn clause_contains_cast(expr: &SpExpr, var_name: &str) -> bool {
+    match &expr.node {
         Expr::Cast { expr: inner, .. } => {
-            if let Expr::Ident(name) = inner.as_ref() {
+            if let Expr::Ident(name) = &inner.node {
                 name == var_name
             } else {
                 clause_contains_cast(inner, var_name)
             }
         }
         Expr::Call { func, args } => {
-            if let Expr::Ident(fn_name) = func.as_ref()
+            if let Expr::Ident(fn_name) = &func.as_ref().node
                 && (fn_name == "as_f32" || fn_name == "narrow" || fn_name == "truncate")
                 && args
                     .iter()
-                    .any(|a| matches!(a, Expr::Ident(n) if n == var_name))
+                    .any(|a| matches!(&a.node, Expr::Ident(n) if n == var_name))
             {
                 return true;
             }
@@ -470,9 +470,9 @@ pub(crate) fn run_precomputed_table_checks(
             {
                 found = true;
                 // Extract table params: precomputed_table(name, size, generator)
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let size = args
                                 .first()
                                 .and_then(extract_int_literal)

@@ -1,4 +1,5 @@
 use super::*;
+use assura_parser::ast::Spanned;
 // T050: Section 13 type interaction tests
 //
 // These test pairwise (and three-way) interactions between:
@@ -138,11 +139,11 @@ fn interaction_linear_effect_consume_with_correct_effects() {
     let mut ctx = LinearContext::new(tracker);
 
     // Simulate: conn is consumed by calling conn.close()
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("conn".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("conn".into()))),
         method: "close".into(),
         args: vec![],
-    };
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -168,7 +169,7 @@ fn interaction_linear_effect_resource_not_consumed_a05002() {
     let mut ctx = LinearContext::new(tracker);
 
     // Function body does NOT use conn at all
-    let expr = AstExpr::Literal(AstLit::Int("0".into()));
+    let expr = Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())));
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -198,7 +199,7 @@ fn interaction_linear_effect_pure_function_with_linear_resource() {
     let mut ctx = LinearContext::new(tracker);
 
     // Resource consumed (linear OK)
-    let expr = AstExpr::Ident("handle".into());
+    let expr = Spanned::no_span(AstExpr::Ident("handle".into()));
     check_expr_linearity(&expr, &mut ctx);
     let linear_errors = ctx.check();
     assert!(linear_errors.is_empty());
@@ -222,11 +223,13 @@ fn interaction_linear_effect_undeclared_effect_on_resource() {
     let mut ctx = LinearContext::new(tracker);
 
     // Resource consumed
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("socket".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("socket".into()))),
         method: "send".into(),
-        args: vec![AstExpr::Literal(AstLit::Str("data".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Str(
+            "data".into(),
+        )))],
+    });
     check_expr_linearity(&expr, &mut ctx);
     let linear_errors = ctx.check();
     assert!(linear_errors.is_empty());
@@ -456,17 +459,17 @@ fn interaction_typestate_branch_divergence_with_linear_context() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then use(resource) else use(resource)
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Call {
-            func: Box::new(AstExpr::Ident("activate".into())),
-            args: vec![AstExpr::Ident("resource".into())],
-        }),
-        else_branch: Some(Box::new(AstExpr::Call {
-            func: Box::new(AstExpr::Ident("deactivate".into())),
-            args: vec![AstExpr::Ident("resource".into())],
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Call {
+            func: Box::new(Spanned::no_span(AstExpr::Ident("activate".into()))),
+            args: vec![Spanned::no_span(AstExpr::Ident("resource".into()))],
         })),
-    };
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Call {
+            func: Box::new(Spanned::no_span(AstExpr::Ident("deactivate".into()))),
+            args: vec![Spanned::no_span(AstExpr::Ident("resource".into()))],
+        }))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     // Linear: consistent (1 use in each branch) => no A05004
     assert!(
@@ -552,11 +555,11 @@ fn interaction_linear_context_fork_merge_two_vars() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then a else b
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Ident("a".into())),
-        else_branch: Some(Box::new(AstExpr::Ident("b".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("a".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("b".into())))),
+    });
     let errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(errors.len(), 2);
     assert!(errors.iter().all(|e| e.code == "A05004"));
@@ -581,17 +584,17 @@ fn interaction_linear_context_fork_merge_swap_in_branches() {
 
     // if cond then [x, y] else [y, x]
     // Both x and y used once in each branch (consistent delta = 1)
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::List(vec![
-            AstExpr::Ident("x".into()),
-            AstExpr::Ident("y".into()),
-        ])),
-        else_branch: Some(Box::new(AstExpr::List(vec![
-            AstExpr::Ident("y".into()),
-            AstExpr::Ident("x".into()),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::List(vec![
+            Spanned::no_span(AstExpr::Ident("x".into())),
+            Spanned::no_span(AstExpr::Ident("y".into())),
         ]))),
-    };
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::List(vec![
+            Spanned::no_span(AstExpr::Ident("y".into())),
+            Spanned::no_span(AstExpr::Ident("x".into())),
+        ])))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -811,11 +814,11 @@ fn interaction_full_pipeline_linear_typestate_effect_pass() {
     let mut ctx = LinearContext::new(tracker);
 
     // Resource consumed once (via close)
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("db_conn".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("db_conn".into()))),
         method: "close".into(),
         args: vec![],
-    };
+    });
     check_expr_linearity(&expr, &mut ctx);
     let linear_errors = ctx.check();
     assert!(linear_errors.is_empty(), "linear: {linear_errors:?}");
@@ -895,52 +898,58 @@ fn interaction_full_pipeline_all_three_fail() {
 
 #[test]
 fn extract_modifies_single_ident() {
-    let body = AstExpr::Ident("x".into());
+    let body = Spanned::no_span(AstExpr::Ident("x".into()));
     let targets = extract_modifies_targets(&body);
     assert_eq!(targets, vec!["x"]);
 }
 
 #[test]
 fn extract_modifies_block_of_idents() {
-    let body = AstExpr::Block(vec![AstExpr::Ident("x".into()), AstExpr::Ident("y".into())]);
+    let body = Spanned::no_span(AstExpr::Block(vec![
+        Spanned::no_span(AstExpr::Ident("x".into())),
+        Spanned::no_span(AstExpr::Ident("y".into())),
+    ]));
     let targets = extract_modifies_targets(&body);
     assert_eq!(targets, vec!["x", "y"]);
 }
 
 #[test]
 fn extract_modifies_field_access() {
-    let body = AstExpr::Field(Box::new(AstExpr::Ident("node".into())), "keys".into());
+    let body = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("node".into()))),
+        "keys".into(),
+    ));
     let targets = extract_modifies_targets(&body);
     assert_eq!(targets, vec!["node.keys"]);
 }
 
 #[test]
 fn extract_modifies_nested_field() {
-    let body = AstExpr::Field(
-        Box::new(AstExpr::Field(
-            Box::new(AstExpr::Ident("state".into())),
+    let body = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Field(
+            Box::new(Spanned::no_span(AstExpr::Ident("state".into()))),
             "head".into(),
-        )),
+        ))),
         "data".into(),
-    );
+    ));
     let targets = extract_modifies_targets(&body);
     assert_eq!(targets, vec!["state.head.data"]);
 }
 
 #[test]
 fn extract_modifies_list() {
-    let body = AstExpr::List(vec![
-        AstExpr::Ident("a".into()),
-        AstExpr::Ident("b".into()),
-        AstExpr::Ident("c".into()),
-    ]);
+    let body = Spanned::no_span(AstExpr::List(vec![
+        Spanned::no_span(AstExpr::Ident("a".into())),
+        Spanned::no_span(AstExpr::Ident("b".into())),
+        Spanned::no_span(AstExpr::Ident("c".into())),
+    ]));
     let targets = extract_modifies_targets(&body);
     assert_eq!(targets, vec!["a", "b", "c"]);
 }
 
 #[test]
 fn extract_modifies_raw_tokens() {
-    let body = AstExpr::Raw(vec!["x".into(), ",".into(), "y".into()]);
+    let body = Spanned::no_span(AstExpr::Raw(vec!["x".into(), ",".into(), "y".into()]));
     let targets = extract_modifies_targets(&body);
     assert_eq!(targets, vec!["x", "y"]);
 }
@@ -948,7 +957,9 @@ fn extract_modifies_raw_tokens() {
 #[test]
 fn collect_old_refs_simple() {
     // old(x)
-    let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+    let expr = Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(AstExpr::Ident(
+        "x".into(),
+    )))));
     let refs = collect_old_references(&expr);
     assert_eq!(refs, vec!["x"]);
 }
@@ -956,15 +967,19 @@ fn collect_old_refs_simple() {
 #[test]
 fn collect_old_refs_in_binop() {
     // old(x) == old(y) + 1
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("x".into())))),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(
+            AstExpr::Ident("x".into()),
+        ))))),
         op: AstBinOp::Eq,
-        rhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("y".into())))),
+        rhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(
+                AstExpr::Ident("y".into()),
+            ))))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-        }),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+        })),
+    });
     let refs = collect_old_references(&expr);
     assert!(refs.contains(&"x".to_string()));
     assert!(refs.contains(&"y".to_string()));
@@ -973,10 +988,10 @@ fn collect_old_refs_in_binop() {
 #[test]
 fn collect_old_refs_field() {
     // old(node.count)
-    let expr = AstExpr::Old(Box::new(AstExpr::Field(
-        Box::new(AstExpr::Ident("node".into())),
+    let expr = Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("node".into()))),
         "count".into(),
-    )));
+    )))));
     let refs = collect_old_references(&expr);
     assert_eq!(refs, vec!["node.count"]);
 }
@@ -984,11 +999,11 @@ fn collect_old_refs_field() {
 #[test]
 fn collect_old_refs_none() {
     // x + y (no old() references)
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("y".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("y".into()))),
+    });
     let refs = collect_old_references(&expr);
     assert!(refs.is_empty());
 }
@@ -996,7 +1011,7 @@ fn collect_old_refs_none() {
 #[test]
 fn frame_checker_valid_modifies_clause() {
     // modifies { x } with x in scope -> no errors
-    let body = AstExpr::Ident("x".into());
+    let body = Spanned::no_span(AstExpr::Ident("x".into()));
     let checker = FrameChecker::new(&[&body]);
 
     let mut env = TypeEnv::new();
@@ -1013,7 +1028,7 @@ fn frame_checker_valid_modifies_clause() {
 #[test]
 fn frame_checker_unknown_var_a14001() {
     // modifies { nonexistent } -> A14001
-    let body = AstExpr::Ident("nonexistent".into());
+    let body = Spanned::no_span(AstExpr::Ident("nonexistent".into()));
     let checker = FrameChecker::new(&[&body]);
 
     let env = TypeEnv::new();
@@ -1031,10 +1046,10 @@ fn frame_checker_unknown_var_a14001() {
 #[test]
 fn frame_checker_mixed_scope_check() {
     // modifies { x, unknown_y } -> 1 error for unknown_y
-    let body = AstExpr::Block(vec![
-        AstExpr::Ident("x".into()),
-        AstExpr::Ident("unknown_y".into()),
-    ]);
+    let body = Spanned::no_span(AstExpr::Block(vec![
+        Spanned::no_span(AstExpr::Ident("x".into())),
+        Spanned::no_span(AstExpr::Ident("unknown_y".into())),
+    ]));
     let checker = FrameChecker::new(&[&body]);
 
     let mut env = TypeEnv::new();
@@ -1054,14 +1069,16 @@ fn frame_checker_mixed_scope_check() {
 fn frame_checker_frame_axiom_vars() {
     // modifies { x }, ensures: y == old(y)
     // y is NOT in the modifies set, so it gets a frame axiom
-    let modifies_body = AstExpr::Ident("x".into());
+    let modifies_body = Spanned::no_span(AstExpr::Ident("x".into()));
     let checker = FrameChecker::new(&[&modifies_body]);
 
-    let ensures_body = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("y".into())),
+    let ensures_body = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("y".into()))),
         op: AstBinOp::Eq,
-        rhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("y".into())))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(
+            AstExpr::Ident("y".into()),
+        ))))),
+    });
 
     let frame_vars = checker.frame_axiom_vars(&ensures_body);
     assert!(frame_vars.contains(&"y".to_string()));
@@ -1073,18 +1090,20 @@ fn frame_checker_frame_axiom_vars() {
 fn frame_checker_modified_var_no_axiom() {
     // modifies { x }, ensures: x == old(x) + 1
     // x IS in the modifies set, so it should NOT get a frame axiom
-    let modifies_body = AstExpr::Ident("x".into());
+    let modifies_body = Spanned::no_span(AstExpr::Ident("x".into()));
     let checker = FrameChecker::new(&[&modifies_body]);
 
-    let ensures_body = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let ensures_body = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::Eq,
-        rhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("x".into())))),
+        rhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(
+                AstExpr::Ident("x".into()),
+            ))))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-        }),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+        })),
+    });
 
     let frame_vars = checker.frame_axiom_vars(&ensures_body);
     assert!(!frame_vars.contains(&"x".to_string()));
@@ -1096,11 +1115,13 @@ fn frame_checker_empty_no_axioms() {
     let checker = FrameChecker::empty();
     assert!(!checker.has_modifies());
 
-    let ensures_body = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("y".into())),
+    let ensures_body = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("y".into()))),
         op: AstBinOp::Eq,
-        rhs: Box::new(AstExpr::Old(Box::new(AstExpr::Ident("y".into())))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(
+            AstExpr::Ident("y".into()),
+        ))))),
+    });
 
     let frame_vars = checker.frame_axiom_vars(&ensures_body);
     assert!(frame_vars.is_empty());
@@ -1108,14 +1129,17 @@ fn frame_checker_empty_no_axioms() {
 
 #[test]
 fn frame_checker_has_modifies() {
-    let body = AstExpr::Ident("x".into());
+    let body = Spanned::no_span(AstExpr::Ident("x".into()));
     let checker = FrameChecker::new(&[&body]);
     assert!(checker.has_modifies());
 }
 
 #[test]
 fn frame_checker_is_modified() {
-    let body = AstExpr::Block(vec![AstExpr::Ident("x".into()), AstExpr::Ident("y".into())]);
+    let body = Spanned::no_span(AstExpr::Block(vec![
+        Spanned::no_span(AstExpr::Ident("x".into())),
+        Spanned::no_span(AstExpr::Ident("y".into())),
+    ]));
     let checker = FrameChecker::new(&[&body]);
     assert!(checker.is_modified("x"));
     assert!(checker.is_modified("y"));
@@ -1183,7 +1207,9 @@ ensures { result == true }
 fn ghost_block_type_checks_inner() {
     // A ghost block should type-check its inner expression.
     let env = TypeEnv::new();
-    let expr = AstExpr::Ghost(Box::new(AstExpr::Literal(AstLit::Bool(true))));
+    let expr = Spanned::no_span(AstExpr::Ghost(Box::new(Spanned::no_span(
+        AstExpr::Literal(AstLit::Bool(true)),
+    ))));
     // Ghost block type is Unit (erased at runtime)
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unit);
 }
@@ -1192,11 +1218,11 @@ fn ghost_block_type_checks_inner() {
 fn ghost_block_propagates_inner_error() {
     // A ghost block with a type error in its body should propagate the error.
     let env = TypeEnv::new();
-    let expr = AstExpr::Ghost(Box::new(AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+    let expr = Spanned::no_span(AstExpr::Ghost(Box::new(Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
-    }));
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(false)))),
+    }))));
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03001");
 }
@@ -1207,7 +1233,9 @@ fn ghost_var_not_counted_as_linear_use() {
     let mut tracker = UsageTracker::new();
     tracker.declare("resource".into(), UsageGrade::Linear, 0..1);
 
-    let ghost_expr = AstExpr::Ghost(Box::new(AstExpr::Ident("resource".into())));
+    let ghost_expr = Spanned::no_span(AstExpr::Ghost(Box::new(Spanned::no_span(AstExpr::Ident(
+        "resource".into(),
+    )))));
 
     // Walk with linearity checker: ghost blocks should not count
     let mut ctx = LinearContext::new(tracker);
@@ -1313,10 +1341,10 @@ fn fn_is_not_lemma() {
 fn apply_expr_type_is_bool() {
     // apply lemma_name(args) should have Bool type.
     let env = TypeEnv::new();
-    let apply = AstExpr::Apply {
+    let apply = Spanned::no_span(AstExpr::Apply {
         lemma_name: "some_lemma".into(),
-        args: vec![AstExpr::Literal(AstLit::Int("42".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())))],
+    });
     let result = infer_expr(&apply, &env);
     assert_eq!(result.unwrap(), Type::Bool);
 }
@@ -1327,10 +1355,10 @@ fn apply_not_counted_as_linear_use() {
     let mut tracker = UsageTracker::new();
     tracker.declare("resource".into(), UsageGrade::Linear, 0..1);
 
-    let apply = AstExpr::Apply {
+    let apply = Spanned::no_span(AstExpr::Apply {
         lemma_name: "some_lemma".into(),
-        args: vec![AstExpr::Ident("resource".into())],
-    };
+        args: vec![Spanned::no_span(AstExpr::Ident("resource".into()))],
+    });
 
     let mut ctx = LinearContext::new(tracker);
     let errors = check_expr_linearity(&apply, &mut ctx);

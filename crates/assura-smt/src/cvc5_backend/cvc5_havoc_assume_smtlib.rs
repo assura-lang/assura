@@ -56,19 +56,19 @@ fn declare_canonical_len(target: &mut HavocAssumeSmtlibTarget<'_>, name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, ClauseKind, Expr, Literal};
+    use assura_parser::ast::{BinOp, ClauseKind, Expr, Literal, SpExpr, Spanned};
     use std::collections::HashSet;
 
-    fn len_le(obj: &str, bound: Expr) -> Expr {
-        Expr::BinOp {
-            lhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident(obj.into())),
+    fn len_le(obj: &str, bound: SpExpr) -> SpExpr {
+        Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                receiver: Box::new(Spanned::no_span(Expr::Ident(obj.into()))),
                 method: "length".into(),
                 args: vec![],
-            }),
+            })),
             op: BinOp::Lte,
             rhs: Box::new(bound),
-        }
+        })
     }
 
     #[test]
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn havoc_assume_smtlib_cross_clause_length_link() {
-        let n = Expr::Literal(Literal::Int("100".into()));
+        let n = Spanned::no_span(Expr::Literal(Literal::Int("100".into())));
         let requires = vec![assura_parser::ast::Clause {
             kind: ClauseKind::Requires,
             body: len_le("raw", n.clone()),

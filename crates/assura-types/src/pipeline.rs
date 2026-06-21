@@ -12,8 +12,8 @@ use assura_resolve::{ImportStatus, ResolvedFile, SymbolTable};
 use crate::checkers::PendingDecreaseCheck;
 use crate::checks::*;
 use crate::clauses::{
-    check_clause_bodies, collect_input_param_types,
-    extract_output_type_from_body, register_input_clause_params,
+    check_clause_bodies, collect_input_param_types, extract_output_type_from_body,
+    register_input_clause_params,
 };
 use crate::convert::{parse_type_tokens, resolve_type_opt};
 use crate::env::build_type_env;
@@ -212,8 +212,6 @@ fn generate_tests_from_contracts(
     tgen.generate_all()
 }
 
-
-
 /// Inject type information from an imported module's AST into the type
 /// environment. Adds concrete types for imported contracts, services,
 /// type definitions, enum variants, and function signatures.
@@ -346,8 +344,6 @@ fn inject_imported_types(
     }
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Builder API (consolidates all 5 type_check entry points)
 // ---------------------------------------------------------------------------
@@ -422,8 +418,6 @@ impl TypeChecker {
             generated_tests,
         })
     }
-
-
 }
 
 impl Default for TypeChecker {

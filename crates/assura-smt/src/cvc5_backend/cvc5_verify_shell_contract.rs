@@ -1,6 +1,6 @@
 //! CVC5 shell-out contract verification (incremental and per-clause paths).
 
-use assura_parser::ast::{ClauseKind, Expr};
+use assura_parser::ast::{ClauseKind, SpExpr};
 
 use crate::VerificationResult;
 use crate::cvc5_adt::cvc5_adt_prelude_lines;
@@ -35,7 +35,7 @@ struct PendingShellClause {
 struct IncrementalShellScriptInput<'a> {
     prepared: &'a Cvc5ContractPrepared<'a>,
     contract: &'a ContractVerifyContext<'a>,
-    lemma_defs: Option<&'a std::collections::HashMap<String, Vec<&'a Expr>>>,
+    lemma_defs: Option<&'a std::collections::HashMap<String, Vec<&'a SpExpr>>>,
     pending: &'a [PendingShellClause],
 }
 
@@ -235,14 +235,14 @@ fn build_incremental_shell_script(
 mod tests {
     use super::*;
     use crate::cvc5_verify_shared::prepare_cvc5_contract_verification;
-    use assura_parser::ast::{BinOp, Clause, Literal};
+    use assura_parser::ast::{BinOp, Clause, Expr, Literal, Spanned};
 
     #[test]
     fn non_ident_call_is_unencodable_but_not_unmodelable() {
-        let body = Expr::Call {
-            func: Box::new(Expr::Literal(Literal::Int("1".into()))),
+        let body = Spanned::no_span(Expr::Call {
+            func: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
             args: vec![],
-        };
+        });
         assert!(expr_to_smtlib(&body).is_none());
         assert!(cvc5_unmodelable_precheck("T::Ensures", &body).is_none());
     }
@@ -252,29 +252,29 @@ mod tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Lte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];

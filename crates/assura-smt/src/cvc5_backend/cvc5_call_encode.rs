@@ -1,6 +1,6 @@
 //! Shared Call and MethodCall encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::{Expr, SpExpr};
 
 use crate::cvc5_builtins::known_builtin_to_smtlib;
 use crate::cvc5_common::canonical_length_smtlib_name;
@@ -17,11 +17,11 @@ use crate::cvc5_native_builtins::{
 };
 
 /// Encode `f(args)` as SMT-LIB2 (builtin table or generic UF).
-pub(crate) fn encode_call_smtlib<F>(func: &Expr, args: &[Expr], encode: F) -> Option<String>
+pub(crate) fn encode_call_smtlib<F>(func: &SpExpr, args: &[SpExpr], encode: F) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
 {
-    let f = match func {
+    let f = match &func.node {
         Expr::Ident(name) => sanitize_smtlib_name(name),
         _ => return None,
     };
@@ -38,17 +38,17 @@ where
 
 /// Encode `receiver.method(args)` as SMT-LIB2 (receiver prepended to arg list).
 pub(crate) fn encode_method_call_smtlib<F>(
-    receiver: &Expr,
+    receiver: &SpExpr,
     method: &str,
-    args: &[Expr],
+    args: &[SpExpr],
     mut encode: F,
 ) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
 {
     if matches!(method, "length" | "len")
         && args.is_empty()
-        && let Expr::Ident(name) = receiver
+        && let Expr::Ident(name) = &receiver.node
     {
         return Some(canonical_length_smtlib_name(name));
     }
@@ -70,19 +70,19 @@ where
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_length_receiver_cvc5<'a, F>(
     tm: &'a cvc5::TermManager,
-    receiver: &Expr,
+    receiver: &SpExpr,
     vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
     mut encode: F,
 ) -> Option<cvc5::Term<'a>>
 where
     F: FnMut(
-        &Expr,
+        &SpExpr,
         &mut HashMap<String, cvc5::Term<'a>>,
         &mut Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    if let Expr::Ident(name) = receiver {
+    if let Expr::Ident(name) = &receiver.node {
         return Some(canonical_length_cvc5(tm, name, vars, state));
     }
     let recv_val = encode(receiver, vars, state)?;
@@ -93,20 +93,20 @@ where
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_call_cvc5<'a, F>(
     tm: &'a cvc5::TermManager,
-    func: &Expr,
-    args: &[Expr],
+    func: &SpExpr,
+    args: &[SpExpr],
     vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
     mut encode: F,
 ) -> Option<cvc5::Term<'a>>
 where
     F: FnMut(
-        &Expr,
+        &SpExpr,
         &mut HashMap<String, cvc5::Term<'a>>,
         &mut Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    if let Expr::Ident(name) = func {
+    if let Expr::Ident(name) = &func.node {
         let f_name = sanitize_smtlib_name(name);
         if args.is_empty() {
             return vars
@@ -130,16 +130,16 @@ where
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_method_call_cvc5<'a, F>(
     tm: &'a cvc5::TermManager,
-    receiver: &Expr,
+    receiver: &SpExpr,
     method: &str,
-    args: &[Expr],
+    args: &[SpExpr],
     vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
     mut encode: F,
 ) -> Option<cvc5::Term<'a>>
 where
     F: FnMut(
-        &Expr,
+        &SpExpr,
         &mut HashMap<String, cvc5::Term<'a>>,
         &mut Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
@@ -162,16 +162,20 @@ where
 
 #[cfg(test)]
 mod tests {
-    use assura_parser::ast::{Expr, Literal};
+    use assura_parser::ast::{Expr, Literal, Spanned};
 
     use super::*;
 
-    fn ident(name: &str) -> Expr {
-        Expr::Ident(name.to_string())
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
     }
 
-    fn encode_lit(expr: &Expr) -> Option<String> {
-        match expr {
+    fn ident(name: &str) -> SpExpr {
+        sp(Expr::Ident(name.to_string()))
+    }
+
+    fn encode_lit(expr: &SpExpr) -> Option<String> {
+        match &expr.node {
             Expr::Literal(Literal::Int(n)) => Some(n.clone()),
             Expr::Ident(name) => Some(sanitize_smtlib_name(name)),
             _ => None,
@@ -181,7 +185,7 @@ mod tests {
     #[test]
     fn call_no_args_returns_name() {
         let func = ident("foo");
-        let args: Vec<Expr> = vec![];
+        let args: Vec<SpExpr> = vec![];
         assert_eq!(
             encode_call_smtlib(&func, &args, encode_lit),
             Some("foo".into())

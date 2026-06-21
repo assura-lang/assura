@@ -230,7 +230,7 @@ impl TypestateChecker {
 /// Each `Ident` node increments the usage count for that variable name.
 /// Recursively walks all sub-expressions (binary ops, unary ops, function
 /// calls, quantifiers, etc.).
-pub(crate) fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
+pub(crate) fn expr_usages(expr: &SpExpr, tracker: &mut UsageTracker) {
     struct UsageVisitor<'a>(&'a mut UsageTracker);
     impl ExprVisitor for UsageVisitor<'_> {
         fn visit_ident(&mut self, name: &str) {
@@ -238,8 +238,8 @@ pub(crate) fn expr_usages(expr: &Expr, tracker: &mut UsageTracker) {
         }
         // Ghost blocks and apply expressions are erased at runtime;
         // do not count usages inside them.
-        fn visit_ghost(&mut self, _inner: &Expr) {}
-        fn visit_apply(&mut self, _name: &str, _args: &[Expr]) {}
+        fn visit_ghost(&mut self, _inner: &SpExpr) {}
+        fn visit_apply(&mut self, _name: &str, _args: &[SpExpr]) {}
     }
     let mut v = UsageVisitor(tracker);
     v.visit_expr(expr);

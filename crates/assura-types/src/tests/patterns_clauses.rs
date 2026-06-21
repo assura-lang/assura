@@ -1,4 +1,5 @@
 use super::*;
+use assura_parser::ast::Spanned;
 // T017: Pattern exhaustiveness checking tests
 // -----------------------------------------------------------------------
 
@@ -116,7 +117,7 @@ use assura_parser::ast::ClauseKind as AstClauseKind;
 #[test]
 fn clause_requires_bool_body_ok() {
     let env = TypeEnv::new();
-    let body = AstExpr::Literal(AstLit::Bool(true));
+    let body = Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());
@@ -125,7 +126,7 @@ fn clause_requires_bool_body_ok() {
 #[test]
 fn clause_requires_int_body_error() {
     let env = TypeEnv::new();
-    let body = AstExpr::Literal(AstLit::Int("42".into()));
+    let body = Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
     assert_eq!(errors.len(), 1);
@@ -138,7 +139,7 @@ fn clause_requires_int_body_error() {
 #[test]
 fn clause_ensures_bool_body_ok() {
     let env = TypeEnv::new();
-    let body = AstExpr::Literal(AstLit::Bool(false));
+    let body = Spanned::no_span(AstExpr::Literal(AstLit::Bool(false)));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());
@@ -147,7 +148,7 @@ fn clause_ensures_bool_body_ok() {
 #[test]
 fn clause_ensures_string_body_error() {
     let env = TypeEnv::new();
-    let body = AstExpr::Literal(AstLit::Str("hello".into()));
+    let body = Spanned::no_span(AstExpr::Literal(AstLit::Str("hello".into())));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Ensures, &body, &env, &mut errors, &(0..0));
     assert_eq!(errors.len(), 1);
@@ -158,7 +159,7 @@ fn clause_ensures_string_body_error() {
 #[test]
 fn clause_invariant_bool_body_ok() {
     let env = TypeEnv::new();
-    let body = AstExpr::Literal(AstLit::Bool(true));
+    let body = Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());
@@ -167,7 +168,7 @@ fn clause_invariant_bool_body_ok() {
 #[test]
 fn clause_invariant_float_body_error() {
     let env = TypeEnv::new();
-    let body = AstExpr::Literal(AstLit::Float("3.14".into()));
+    let body = Spanned::no_span(AstExpr::Literal(AstLit::Float("3.14".into())));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Invariant, &body, &env, &mut errors, &(0..0));
     assert_eq!(errors.len(), 1);
@@ -178,11 +179,11 @@ fn clause_invariant_float_body_error() {
 #[test]
 fn clause_rule_bool_body_ok() {
     let env = TypeEnv::new();
-    let body = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+    let body = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
         op: AstBinOp::And,
-        rhs: Box::new(AstExpr::Literal(AstLit::Bool(false))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(false)))),
+    });
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());
@@ -191,7 +192,7 @@ fn clause_rule_bool_body_ok() {
 #[test]
 fn clause_rule_int_body_error() {
     let env = TypeEnv::new();
-    let body = AstExpr::Literal(AstLit::Int("99".into()));
+    let body = Spanned::no_span(AstExpr::Literal(AstLit::Int("99".into())));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Rule, &body, &env, &mut errors, &(0..0));
     assert_eq!(errors.len(), 1);
@@ -203,7 +204,7 @@ fn clause_rule_int_body_error() {
 fn clause_effects_any_body_ok() {
     let env = TypeEnv::new();
     // Effects clause accepts any type (lenient)
-    let body = AstExpr::Ident("pure".into());
+    let body = Spanned::no_span(AstExpr::Ident("pure".into()));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Effects, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());
@@ -212,7 +213,7 @@ fn clause_effects_any_body_ok() {
 #[test]
 fn clause_modifies_any_body_ok() {
     let env = TypeEnv::new();
-    let body = AstExpr::Ident("buffer".into());
+    let body = Spanned::no_span(AstExpr::Ident("buffer".into()));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Modifies, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());
@@ -222,7 +223,7 @@ fn clause_modifies_any_body_ok() {
 fn clause_unknown_body_no_error() {
     let env = TypeEnv::new();
     // Unknown ident in requires clause should not emit A03006
-    let body = AstExpr::Ident("unknown_predicate".into());
+    let body = Spanned::no_span(AstExpr::Ident("unknown_predicate".into()));
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());
@@ -233,11 +234,11 @@ fn clause_comparison_in_requires_ok() {
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Int);
     // x > 0 should infer as Bool, valid in requires
-    let body = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let body = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::Gt,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     let mut errors = Vec::new();
     check_clause_expr(&AstClauseKind::Requires, &body, &env, &mut errors, &(0..0));
     assert!(errors.is_empty());

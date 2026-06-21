@@ -25,14 +25,14 @@ pub(crate) fn run_platform_abstraction_checks(
             if let ClauseKind::Other(ref k) = clause.kind {
                 if k == "platform" || k == "target_platform" {
                     found = true;
-                    if let Expr::Ident(name) = &clause.body {
+                    if let Expr::Ident(name) = &clause.body.node {
                         checker.add_platform(name.clone());
                     }
                 }
                 if k == "abstraction" || k == "platform_abstraction" {
-                    match &clause.body {
+                    match &clause.body.node {
                         Expr::Call { func, args } => {
-                            if let Expr::Ident(name) = func.as_ref() {
+                            if let Expr::Ident(name) = &func.as_ref().node {
                                 let platforms: Vec<String> = args
                                     .iter()
                                     .filter_map(|a| extract_ident(a).map(String::from))
@@ -107,9 +107,9 @@ pub(crate) fn run_feature_flag_checks(source: &assura_parser::ast::SourceFile) -
                 && k == "feature_flag"
             {
                 found = true;
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let enabled = args
                                 .first()
                                 .and_then(extract_ident)
@@ -169,7 +169,7 @@ pub(crate) fn run_feature_flag_checks(source: &assura_parser::ast::SourceFile) -
             // Check for undeclared flag references
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "when_flag" || k == "if_feature")
-                && let Expr::Ident(flag_name) = &clause.body
+                && let Expr::Ident(flag_name) = &clause.body.node
                 && let Some(err) = checker.check_undeclared(flag_name)
             {
                 return vec![err];
@@ -198,9 +198,9 @@ pub(crate) fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile)
             {
                 found = true;
                 // Extract limit: limit(name, max, unit)
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let max_val =
                                 args.first()
                                     .and_then(extract_int_literal)

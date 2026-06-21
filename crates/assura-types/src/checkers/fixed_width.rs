@@ -252,7 +252,7 @@ impl FixedWidthChecker {
     /// A10104.
     pub fn check_division_by_zero(
         op: &BinOp,
-        rhs: &Expr,
+        rhs: &SpExpr,
         left_type: &Type,
         span: &Range<usize>,
     ) -> Option<FixedWidthError> {
@@ -302,7 +302,7 @@ impl FixedWidthChecker {
         op: &BinOp,
         left_type: &Type,
         right_type: &Type,
-        rhs_expr: &Expr,
+        rhs_expr: &SpExpr,
         span: &Range<usize>,
     ) -> Vec<FixedWidthError> {
         let mut errors = Vec::new();
@@ -325,8 +325,8 @@ impl FixedWidthChecker {
     // -- internal helpers ---------------------------------------------------
 
     /// Return `true` if an expression is a literal `0`.
-    fn is_literal_zero(expr: &Expr) -> bool {
-        match expr {
+    fn is_literal_zero(expr: &SpExpr) -> bool {
+        match &expr.node {
             Expr::Literal(Literal::Int(s)) => s == "0",
             _ => false,
         }

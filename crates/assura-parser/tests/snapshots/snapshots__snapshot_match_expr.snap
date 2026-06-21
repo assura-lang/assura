@@ -15,11 +15,14 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Requires,
-                            body: Literal(
-                                Bool(
-                                    true,
+                            body: Spanned {
+                                node: Literal(
+                                    Bool(
+                                        true,
+                                    ),
                                 ),
-                            ),
+                                span: 27..31,
+                            },
                             effect_variables: [],
                         },
                     ],
@@ -52,16 +55,25 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "result",
-                                ),
-                                op: Gte,
-                                rhs: Literal(
-                                    Int(
-                                        "0",
-                                    ),
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "result",
+                                        ),
+                                        span: 63..69,
+                                    },
+                                    op: Gte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "0",
+                                            ),
+                                        ),
+                                        span: 71..72,
+                                    },
+                                },
+                                span: 63..72,
                             },
                             effect_variables: [],
                         },
@@ -94,14 +106,23 @@ SourceFile {
                     clauses: [
                         Clause {
                             kind: Ensures,
-                            body: BinOp {
-                                lhs: Ident(
-                                    "result",
-                                ),
-                                op: Gt,
-                                rhs: Ident(
-                                    "x",
-                                ),
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "result",
+                                        ),
+                                        span: 129..135,
+                                    },
+                                    op: Gt,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "x",
+                                        ),
+                                        span: 136..137,
+                                    },
+                                },
+                                span: 129..137,
                             },
                             effect_variables: [],
                         },

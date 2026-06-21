@@ -9,7 +9,7 @@ use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
 use crate::havoc_assume::{HavocAssumeInput, HavocAssumeSmtlibTarget};
 use crate::verify_context::{ContractVerifyContext, LoadedIrContext};
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param};
+use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
 use std::collections::HashSet;
 use std::process::Command;
 
@@ -22,11 +22,11 @@ fn cvc5_on_path() -> bool {
 
 #[test]
 fn shell_method_call_length_uses_canonical_len() {
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("raw".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
         method: "length".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         expr_to_smtlib(&expr),
         Some(canonical_length_smtlib_name("raw"))
@@ -35,7 +35,10 @@ fn shell_method_call_length_uses_canonical_len() {
 
 #[test]
 fn shell_ident_field_length_uses_canonical_len() {
-    let expr = Expr::Field(Box::new(Expr::Ident("raw".into())), "length".into());
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
+        "length".into(),
+    ));
     assert_eq!(
         expr_to_smtlib(&expr),
         Some(canonical_length_smtlib_name("raw"))
@@ -55,31 +58,31 @@ fn shell_shared_type_constraints_match_shell_script_rules() {
 
 #[test]
 fn shell_havoc_assume_script_emits_length_link_axiom() {
-    let n = Expr::Literal(Literal::Int("50".into()));
+    let n = Spanned::no_span(Expr::Literal(Literal::Int("50".into())));
     let requires = vec![Clause {
         kind: ClauseKind::Requires,
-        body: Expr::BinOp {
-            lhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident("buf".into())),
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                receiver: Box::new(Spanned::no_span(Expr::Ident("buf".into()))),
                 method: "length".into(),
                 args: vec![],
-            }),
+            })),
             op: BinOp::Lte,
             rhs: Box::new(n.clone()),
-        },
+        }),
         effect_variables: vec![],
     }];
     let ensures = vec![Clause {
         kind: ClauseKind::Ensures,
-        body: Expr::BinOp {
-            lhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident("result".into())),
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                receiver: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                 method: "length".into(),
                 args: vec![],
-            }),
+            })),
             op: BinOp::Lte,
             rhs: Box::new(n),
-        },
+        }),
         effect_variables: vec![],
     }];
     let mut script = String::new();
@@ -154,28 +157,28 @@ module copy {
 "#;
     let ir: IrFunction = parse_ir_module(ir_source).unwrap().functions[0].clone();
 
-    let raw_len_gt_zero = Expr::BinOp {
-        lhs: Box::new(Expr::MethodCall {
-            receiver: Box::new(Expr::Ident("raw".into())),
+    let raw_len_gt_zero = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
             method: "length".into(),
             args: vec![],
-        }),
+        })),
         op: BinOp::Gt,
-        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-    };
-    let result_len_le_raw = Expr::BinOp {
-        lhs: Box::new(Expr::MethodCall {
-            receiver: Box::new(Expr::Ident("result".into())),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+    });
+    let result_len_le_raw = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
             method: "length".into(),
             args: vec![],
-        }),
+        })),
         op: BinOp::Lte,
-        rhs: Box::new(Expr::MethodCall {
-            receiver: Box::new(Expr::Ident("raw".into())),
+        rhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
             method: "length".into(),
             args: vec![],
-        }),
-    };
+        })),
+    });
 
     let clauses = vec![
         Clause {

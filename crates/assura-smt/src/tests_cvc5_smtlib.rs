@@ -9,7 +9,7 @@ use crate::cvc5_common::{
 };
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, UnaryOp};
+use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, Spanned, UnaryOp};
 use std::collections::HashSet;
 
 // -------------------------------------------------------------------
@@ -61,99 +61,99 @@ fn test_derive_narrowings_multiple() {
 
 #[test]
 fn test_smtlib_int_positive() {
-    let expr = Expr::Literal(Literal::Int("42".into()));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
     assert_eq!(expr_to_smtlib(&expr), Some("42".into()));
 }
 
 #[test]
 fn test_smtlib_int_negative() {
-    let expr = Expr::Literal(Literal::Int("-7".into()));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Int("-7".into())));
     assert_eq!(expr_to_smtlib(&expr), Some("(- 7)".into()));
 }
 
 #[test]
 fn test_smtlib_bool_true() {
-    let expr = Expr::Literal(Literal::Bool(true));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
     assert_eq!(expr_to_smtlib(&expr), Some("true".into()));
 }
 
 #[test]
 fn test_smtlib_bool_false() {
-    let expr = Expr::Literal(Literal::Bool(false));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Bool(false)));
     assert_eq!(expr_to_smtlib(&expr), Some("false".into()));
 }
 
 #[test]
 fn test_smtlib_string_encodes_as_named_const() {
-    let expr = Expr::Literal(Literal::Str("hello".into()));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Str("hello".into())));
     assert_eq!(expr_to_smtlib(&expr), Some("__str_hello".into()));
 }
 
 #[test]
 fn test_smtlib_ident() {
-    let expr = Expr::Ident("x".into());
+    let expr = Spanned::no_span(Expr::Ident("x".into()));
     assert_eq!(expr_to_smtlib(&expr), Some("x".into()));
 }
 
 #[test]
 fn test_smtlib_result_keyword() {
-    let expr = Expr::Ident("result".into());
+    let expr = Spanned::no_span(Expr::Ident("result".into()));
     assert_eq!(expr_to_smtlib(&expr), Some("__result".into()));
 }
 
 #[test]
 fn test_smtlib_dotted_ident_sanitized() {
-    let expr = Expr::Ident("state.field".into());
+    let expr = Spanned::no_span(Expr::Ident("state.field".into()));
     assert_eq!(expr_to_smtlib(&expr), Some("state_field".into()));
 }
 
 #[test]
 fn test_smtlib_binop_add() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Add,
-        lhs: Box::new(Expr::Ident("x".into())),
-        rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(+ x 1)".into()));
 }
 
 #[test]
 fn test_smtlib_binop_neq() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Neq,
-        lhs: Box::new(Expr::Ident("a".into())),
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(not (= a b))".into()));
 }
 
 #[test]
 fn test_smtlib_binop_div_is_integer() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Div,
-        lhs: Box::new(Expr::Ident("x".into())),
-        rhs: Box::new(Expr::Ident("y".into())),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(div x y)".into()));
 }
 
 #[test]
 fn test_smtlib_binop_implies() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Implies,
-        lhs: Box::new(Expr::Ident("p".into())),
-        rhs: Box::new(Expr::Ident("q".into())),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("p".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("q".into()))),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(=> p q)".into()));
 }
 
 #[test]
 fn test_smtlib_binop_range_encodes() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Range,
-        lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+    });
     let s = expr_to_smtlib(&expr).expect("Range should encode");
     assert!(s.contains(">="), "missing >= in range encoding: {s}");
     assert!(s.contains("<"), "missing < in range encoding: {s}");
@@ -165,11 +165,11 @@ fn test_smtlib_binop_range_encodes() {
 
 #[test]
 fn test_smtlib_binop_in() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::In,
-        lhs: Box::new(Expr::Ident("x".into())),
-        rhs: Box::new(Expr::Ident("collection".into())),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("collection".into()))),
+    });
     let s = expr_to_smtlib(&expr).expect("In should encode");
     assert!(s.contains("__contains"), "missing contains UF in: {s}");
     assert!(s.contains("collection"), "missing collection in: {s}");
@@ -178,11 +178,11 @@ fn test_smtlib_binop_in() {
 
 #[test]
 fn test_smtlib_binop_notin() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::NotIn,
-        lhs: Box::new(Expr::Ident("x".into())),
-        rhs: Box::new(Expr::Ident("items".into())),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("items".into()))),
+    });
     let s = expr_to_smtlib(&expr).expect("NotIn should encode");
     assert!(s.contains("not"), "missing negation in NotIn: {s}");
     assert!(
@@ -193,11 +193,11 @@ fn test_smtlib_binop_notin() {
 
 #[test]
 fn test_smtlib_binop_concat() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Concat,
-        lhs: Box::new(Expr::Ident("a".into())),
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     let s = expr_to_smtlib(&expr).expect("Concat should encode");
     assert!(s.contains("__concat"), "missing concat UF in: {s}");
     assert!(s.contains("a"), "missing lhs in concat: {s}");
@@ -206,54 +206,54 @@ fn test_smtlib_binop_concat() {
 
 #[test]
 fn test_smtlib_unary_not() {
-    let expr = Expr::UnaryOp {
+    let expr = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Not,
-        expr: Box::new(Expr::Ident("flag".into())),
-    };
+        expr: Box::new(Spanned::no_span(Expr::Ident("flag".into()))),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(not flag)".into()));
 }
 
 #[test]
 fn test_smtlib_unary_neg() {
-    let expr = Expr::UnaryOp {
+    let expr = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Ident("x".into())),
-    };
+        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(- x)".into()));
 }
 
 #[test]
 fn test_smtlib_if_with_else() {
-    let expr = Expr::If {
-        cond: Box::new(Expr::Ident("c".into())),
-        then_branch: Box::new(Expr::Ident("t".into())),
-        else_branch: Some(Box::new(Expr::Ident("e".into()))),
-    };
+    let expr = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Ident("t".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Ident("e".into())))),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(ite c t e)".into()));
 }
 
 #[test]
 fn test_smtlib_if_without_else() {
-    let expr = Expr::If {
-        cond: Box::new(Expr::Ident("p".into())),
-        then_branch: Box::new(Expr::Ident("q".into())),
+    let expr = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("p".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Ident("q".into()))),
         else_branch: None,
-    };
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(=> p q)".into()));
 }
 
 #[test]
 fn test_smtlib_forall_non_range_domain() {
     // Non-range domain should produce __domain_contains guard
-    let expr = Expr::Forall {
+    let expr = Spanned::no_span(Expr::Forall {
         var: "i".into(),
-        domain: Box::new(Expr::Ident("xs".into())),
-        body: Box::new(Expr::BinOp {
+        domain: Box::new(Spanned::no_span(Expr::Ident("xs".into()))),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Gte,
-            lhs: Box::new(Expr::Ident("i".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        }),
-    };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        })),
+    });
     assert_eq!(
         expr_to_smtlib(&expr),
         Some("(forall ((i Int)) (=> (__domain_contains xs i) (>= i 0)))".into())
@@ -263,15 +263,15 @@ fn test_smtlib_forall_non_range_domain() {
 #[test]
 fn test_smtlib_exists_non_range_domain() {
     // Non-range domain should produce __domain_contains guard
-    let expr = Expr::Exists {
+    let expr = Spanned::no_span(Expr::Exists {
         var: "x".into(),
-        domain: Box::new(Expr::Ident("S".into())),
-        body: Box::new(Expr::BinOp {
+        domain: Box::new(Spanned::no_span(Expr::Ident("S".into()))),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Eq,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        }),
-    };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        })),
+    });
     assert_eq!(
         expr_to_smtlib(&expr),
         Some("(exists ((x Int)) (and (__domain_contains S x) (= x 0)))".into())
@@ -281,19 +281,19 @@ fn test_smtlib_exists_non_range_domain() {
 #[test]
 fn test_smtlib_forall_range_domain() {
     // forall x in 0..10 { x >= 0 } should produce range guard
-    let expr = Expr::Forall {
+    let expr = Spanned::no_span(Expr::Forall {
         var: "x".into(),
-        domain: Box::new(Expr::BinOp {
+        domain: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Range,
-            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-        }),
-        body: Box::new(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+        })),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Gte,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        }),
-    };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        })),
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(
         s,
@@ -304,19 +304,19 @@ fn test_smtlib_forall_range_domain() {
 #[test]
 fn test_smtlib_exists_range_domain() {
     // exists x in 0..10 { x == 5 } should produce range guard with conjunction
-    let expr = Expr::Exists {
+    let expr = Spanned::no_span(Expr::Exists {
         var: "x".into(),
-        domain: Box::new(Expr::BinOp {
+        domain: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Range,
-            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-        }),
-        body: Box::new(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+        })),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Eq,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
-        }),
-    };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+        })),
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(
         s,
@@ -327,82 +327,87 @@ fn test_smtlib_exists_range_domain() {
 #[test]
 fn test_smtlib_forall_range_variable_bounds() {
     // forall i in 0..n { i >= 0 } -- variable upper bound
-    let expr = Expr::Forall {
+    let expr = Spanned::no_span(Expr::Forall {
         var: "i".into(),
-        domain: Box::new(Expr::BinOp {
+        domain: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Range,
-            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            rhs: Box::new(Expr::Ident("n".into())),
-        }),
-        body: Box::new(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            rhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
+        })),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Gte,
-            lhs: Box::new(Expr::Ident("i".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        }),
-    };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        })),
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(forall ((i Int)) (=> (and (>= i 0) (< i n)) (>= i 0)))");
 }
 
 #[test]
 fn test_smtlib_call_no_args() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("foo".into())),
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("foo".into()))),
         args: vec![],
-    };
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("foo".into()));
 }
 
 #[test]
 fn test_smtlib_call_with_args() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("f".into())),
-        args: vec![Expr::Ident("x".into()), Expr::Ident("y".into())],
-    };
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("f".into()))),
+        args: vec![
+            Spanned::no_span(Expr::Ident("x".into())),
+            Spanned::no_span(Expr::Ident("y".into())),
+        ],
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(f x y)".into()));
 }
 
 #[test]
 fn test_smtlib_old_adds_suffix() {
-    let expr = Expr::Old(Box::new(Expr::Ident("x".into())));
+    let expr = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+        "x".into(),
+    )))));
     assert_eq!(expr_to_smtlib(&expr), Some("x__old".into()));
 }
 
 #[test]
 fn test_smtlib_literal_int() {
-    let expr = Expr::Literal(Literal::Int("5".into()));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Int("5".into())));
     assert_eq!(expr_to_smtlib(&expr), Some("5".into()));
 }
 
 #[test]
 fn test_smtlib_raw_single_token() {
-    let expr = Expr::Raw(vec!["foo".into()]);
+    let expr = Spanned::no_span(Expr::Raw(vec!["foo".into()]));
     assert_eq!(expr_to_smtlib(&expr), Some("foo".into()));
     // Integer token
-    let expr_int = Expr::Raw(vec!["42".into()]);
+    let expr_int = Spanned::no_span(Expr::Raw(vec!["42".into()]));
     assert_eq!(expr_to_smtlib(&expr_int), Some("42".into()));
     // Bool token
-    let expr_bool = Expr::Raw(vec!["true".into()]);
+    let expr_bool = Spanned::no_span(Expr::Raw(vec!["true".into()]));
     assert_eq!(expr_to_smtlib(&expr_bool), Some("true".into()));
 }
 
 #[test]
 fn test_smtlib_raw_precedence_climbing() {
     // "a + b * c" should parse as (+ a (* b c)) due to precedence
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "a".into(),
         "+".into(),
         "b".into(),
         "*".into(),
         "c".into(),
-    ]);
+    ]));
     assert_eq!(expr_to_smtlib(&expr), Some("(+ a (* b c))".into()));
 }
 
 #[test]
 fn test_smtlib_raw_parentheses() {
     // "(a + b) * c" should parse as (* (+ a b) c)
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "(".into(),
         "a".into(),
         "+".into(),
@@ -410,28 +415,28 @@ fn test_smtlib_raw_parentheses() {
         ")".into(),
         "*".into(),
         "c".into(),
-    ]);
+    ]));
     assert_eq!(expr_to_smtlib(&expr), Some("(* (+ a b) c)".into()));
 }
 
 #[test]
 fn test_smtlib_raw_old_expression() {
     // "old ( x ) + 1" should parse old(x) + 1
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "old".into(),
         "(".into(),
         "x".into(),
         ")".into(),
         "+".into(),
         "1".into(),
-    ]);
+    ]));
     assert_eq!(expr_to_smtlib(&expr), Some("(+ x__old 1)".into()));
 }
 
 #[test]
 fn test_smtlib_raw_nested_operators() {
     // "a + b - c + d" left-associative: (+ (- (+ a b) c) d)
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "a".into(),
         "+".into(),
         "b".into(),
@@ -439,7 +444,7 @@ fn test_smtlib_raw_nested_operators() {
         "c".into(),
         "+".into(),
         "d".into(),
-    ]);
+    ]));
     let result = expr_to_smtlib(&expr).unwrap();
     // Left-associative: ((a + b) - c) + d
     assert_eq!(result, "(+ (- (+ a b) c) d)");
@@ -448,64 +453,64 @@ fn test_smtlib_raw_nested_operators() {
 #[test]
 fn test_smtlib_raw_comparison_chain() {
     // "a < b < c" desugars to (and (< a b) (< b c))
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "a".into(),
         "<".into(),
         "b".into(),
         "<".into(),
         "c".into(),
-    ]);
+    ]));
     assert_eq!(expr_to_smtlib(&expr), Some("(and (< a b) (< b c))".into()));
 }
 
 #[test]
 fn test_smtlib_raw_unary_not() {
     // "! x" -> (not x)
-    let expr = Expr::Raw(vec!["!".into(), "x".into()]);
+    let expr = Spanned::no_span(Expr::Raw(vec!["!".into(), "x".into()]));
     assert_eq!(expr_to_smtlib(&expr), Some("(not x)".into()));
 }
 
 #[test]
 fn test_smtlib_raw_unary_neg() {
     // "- x" -> (- x)
-    let expr = Expr::Raw(vec!["-".into(), "x".into()]);
+    let expr = Spanned::no_span(Expr::Raw(vec!["-".into(), "x".into()]));
     assert_eq!(expr_to_smtlib(&expr), Some("(- x)".into()));
 }
 
 #[test]
 fn test_smtlib_raw_logical_ops() {
     // "a && b || c" should respect precedence: (or (and a b) c)
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "a".into(),
         "&&".into(),
         "b".into(),
         "||".into(),
         "c".into(),
-    ]);
+    ]));
     assert_eq!(expr_to_smtlib(&expr), Some("(or (and a b) c)".into()));
 }
 
 #[test]
 fn test_smtlib_raw_neq() {
     // "a != b" -> (not (= a b))
-    let expr = Expr::Raw(vec!["a".into(), "!=".into(), "b".into()]);
+    let expr = Spanned::no_span(Expr::Raw(vec!["a".into(), "!=".into(), "b".into()]));
     assert_eq!(expr_to_smtlib(&expr), Some("(not (= a b))".into()));
 }
 
 #[test]
 fn test_smtlib_raw_mod_div() {
     // "a mod b" and "a div b"
-    let expr_mod = Expr::Raw(vec!["a".into(), "mod".into(), "b".into()]);
+    let expr_mod = Spanned::no_span(Expr::Raw(vec!["a".into(), "mod".into(), "b".into()]));
     assert_eq!(expr_to_smtlib(&expr_mod), Some("(mod a b)".into()));
 
-    let expr_div = Expr::Raw(vec!["a".into(), "div".into(), "b".into()]);
+    let expr_div = Spanned::no_span(Expr::Raw(vec!["a".into(), "div".into(), "b".into()]));
     assert_eq!(expr_to_smtlib(&expr_div), Some("(div a b)".into()));
 }
 
 #[test]
 fn test_smtlib_raw_complex_expression() {
     // "x >= 0 && x < max" -> (and (>= x 0) (< x max))
-    let expr = Expr::Raw(vec![
+    let expr = Spanned::no_span(Expr::Raw(vec![
         "x".into(),
         ">=".into(),
         "0".into(),
@@ -513,7 +518,7 @@ fn test_smtlib_raw_complex_expression() {
         "x".into(),
         "<".into(),
         "max".into(),
-    ]);
+    ]));
     assert_eq!(
         expr_to_smtlib(&expr),
         Some("(and (>= x 0) (< x max))".into())
@@ -523,49 +528,54 @@ fn test_smtlib_raw_complex_expression() {
 #[test]
 fn test_smtlib_raw_function_call() {
     // "abs ( x )" -> (abs x)
-    let expr = Expr::Raw(vec!["abs".into(), "(".into(), "x".into(), ")".into()]);
+    let expr = Spanned::no_span(Expr::Raw(vec![
+        "abs".into(),
+        "(".into(),
+        "x".into(),
+        ")".into(),
+    ]));
     assert_eq!(expr_to_smtlib(&expr), Some("(abs x)".into()));
 }
 
 #[test]
 fn test_smtlib_let_expr() {
-    let expr = Expr::Let {
+    let expr = Spanned::no_span(Expr::Let {
         name: "x".into(),
-        value: Box::new(Expr::Literal(Literal::Int("5".into()))),
-        body: Box::new(Expr::BinOp {
+        value: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
             op: BinOp::Add,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        }),
-    };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        })),
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(let ((x 5)) (+ x 1))".into()));
 }
 
 #[test]
 fn test_smtlib_match_with_literal_and_wildcard() {
     use assura_parser::ast::MatchArm;
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("n".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
         arms: vec![
             MatchArm {
                 pattern: Pattern::Literal(Literal::Int("0".into())),
-                body: Expr::Literal(Literal::Int("1".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
             },
             MatchArm {
                 pattern: Pattern::Wildcard,
-                body: Expr::Ident("n".into()),
+                body: Spanned::no_span(Expr::Ident("n".into())),
             },
         ],
-    };
+    });
     assert_eq!(expr_to_smtlib(&expr), Some("(ite (= n 0) 1 n)".into()));
 }
 
 #[test]
 fn test_smtlib_match_empty_arms() {
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("n".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
         arms: vec![],
-    };
+    });
     assert_eq!(expr_to_smtlib(&expr), None);
 }
 
@@ -573,29 +583,29 @@ fn test_smtlib_match_empty_arms() {
 fn test_smtlib_match_constructor_pattern() {
     use assura_parser::ast::MatchArm;
     // match x { Some(v) => v, None => 0 }
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("x".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![
             MatchArm {
                 pattern: Pattern::Constructor {
                     name: "Some".into(),
                     fields: vec![Pattern::Ident("v".into())],
                 },
-                body: Expr::Ident("v".into()),
+                body: Spanned::no_span(Expr::Ident("v".into())),
             },
             MatchArm {
                 pattern: Pattern::Constructor {
                     name: "None".into(),
                     fields: vec![],
                 },
-                body: Expr::Literal(Literal::Int("0".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
             },
             MatchArm {
                 pattern: Pattern::Wildcard,
-                body: Expr::Literal(Literal::Int("0".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
             },
         ],
-    };
+    });
     let smt = expr_to_smtlib(&expr).expect("should encode constructor match");
     // #263: Constructor patterns use ADT tag testers, not pattern hashes.
     assert!(smt.contains("__adt_tag_Option"));
@@ -608,13 +618,13 @@ fn test_smtlib_match_constructor_pattern() {
 fn test_smtlib_match_tuple_pattern() {
     use assura_parser::ast::MatchArm;
     // match t { (a, b) => a }
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("t".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("t".into()))),
         arms: vec![MatchArm {
             pattern: Pattern::Tuple(vec![Pattern::Ident("a".into()), Pattern::Ident("b".into())]),
-            body: Expr::Ident("a".into()),
+            body: Spanned::no_span(Expr::Ident("a".into())),
         }],
-    };
+    });
     let smt = expr_to_smtlib(&expr).expect("should encode tuple match");
     // Tuple is structural, body is just "a"
     assert_eq!(smt, "a");
@@ -624,19 +634,19 @@ fn test_smtlib_match_tuple_pattern() {
 fn test_smtlib_match_ident_constructor_like() {
     use assura_parser::ast::MatchArm;
     // match x { None => 1, _ => 0 }  (Ident "None" uppercase = constructor)
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("x".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![
             MatchArm {
                 pattern: Pattern::Ident("None".into()),
-                body: Expr::Literal(Literal::Int("1".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
             },
             MatchArm {
                 pattern: Pattern::Wildcard,
-                body: Expr::Literal(Literal::Int("0".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
             },
         ],
-    };
+    });
     let smt = expr_to_smtlib(&expr).expect("should encode ident-as-constructor match");
     let none_hash = crate::cvc5_builtins::pattern_hash_name("None");
     assert!(smt.contains(&none_hash.to_string()));
@@ -650,14 +660,14 @@ fn test_smtlib_match_ident_constructor_like() {
 #[test]
 fn test_collect_vars_ident() {
     let mut vars = HashSet::new();
-    collect_vars(&Expr::Ident("x".into()), &mut vars);
+    collect_vars(&Spanned::no_span(Expr::Ident("x".into())), &mut vars);
     assert!(vars.contains("x"));
 }
 
 #[test]
 fn test_collect_vars_result() {
     let mut vars = HashSet::new();
-    collect_vars(&Expr::Ident("result".into()), &mut vars);
+    collect_vars(&Spanned::no_span(Expr::Ident("result".into())), &mut vars);
     assert!(vars.contains("__result"));
     assert!(!vars.contains("result"));
 }
@@ -665,11 +675,11 @@ fn test_collect_vars_result() {
 #[test]
 fn test_collect_vars_binop() {
     let mut vars = HashSet::new();
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Add,
-        lhs: Box::new(Expr::Ident("a".into())),
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("a"));
     assert!(vars.contains("b"));
@@ -678,11 +688,11 @@ fn test_collect_vars_binop() {
 #[test]
 fn test_collect_vars_if_all_branches() {
     let mut vars = HashSet::new();
-    let expr = Expr::If {
-        cond: Box::new(Expr::Ident("c".into())),
-        then_branch: Box::new(Expr::Ident("t".into())),
-        else_branch: Some(Box::new(Expr::Ident("e".into()))),
-    };
+    let expr = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Ident("t".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Ident("e".into())))),
+    });
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("c"));
     assert!(vars.contains("t"));
@@ -692,14 +702,20 @@ fn test_collect_vars_if_all_branches() {
 #[test]
 fn test_collect_vars_literal_no_vars() {
     let mut vars = HashSet::new();
-    collect_vars(&Expr::Literal(Literal::Int("42".into())), &mut vars);
+    collect_vars(
+        &Spanned::no_span(Expr::Literal(Literal::Int("42".into()))),
+        &mut vars,
+    );
     assert!(vars.is_empty());
 }
 
 #[test]
 fn test_collect_vars_dotted_sanitized() {
     let mut vars = HashSet::new();
-    collect_vars(&Expr::Ident("obj.field".into()), &mut vars);
+    collect_vars(
+        &Spanned::no_span(Expr::Ident("obj.field".into())),
+        &mut vars,
+    );
     assert!(vars.contains("obj_field"));
 }
 
@@ -820,7 +836,10 @@ fn test_parse_model_all_internal_returns_none() {
 
 #[test]
 fn collect_vars_field_access() {
-    let expr = Expr::Field(Box::new(Expr::Ident("obj".into())), "field".into());
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
+        "field".into(),
+    ));
     let mut vars = HashSet::new();
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("obj"));
@@ -828,11 +847,11 @@ fn collect_vars_field_access() {
 
 #[test]
 fn collect_vars_method_call() {
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("list".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("list".into()))),
         method: "len".into(),
-        args: vec![Expr::Ident("idx".into())],
-    };
+        args: vec![Spanned::no_span(Expr::Ident("idx".into()))],
+    });
     let mut vars = HashSet::new();
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("list"));
@@ -841,10 +860,10 @@ fn collect_vars_method_call() {
 
 #[test]
 fn collect_vars_index() {
-    let expr = Expr::Index {
-        expr: Box::new(Expr::Ident("arr".into())),
-        index: Box::new(Expr::Ident("i".into())),
-    };
+    let expr = Spanned::no_span(Expr::Index {
+        expr: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
+        index: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
+    });
     let mut vars = HashSet::new();
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("arr"));
@@ -853,11 +872,11 @@ fn collect_vars_index() {
 
 #[test]
 fn collect_vars_let_expr() {
-    let expr = Expr::Let {
+    let expr = Spanned::no_span(Expr::Let {
         name: "tmp".into(),
-        value: Box::new(Expr::Ident("a".into())),
-        body: Box::new(Expr::Ident("b".into())),
-    };
+        value: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        body: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     let mut vars = HashSet::new();
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("a"));
@@ -867,13 +886,13 @@ fn collect_vars_let_expr() {
 #[test]
 fn collect_vars_match_expr() {
     use assura_parser::ast::{MatchArm, Pattern};
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("x".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![MatchArm {
             pattern: Pattern::Ident("_".into()),
-            body: Expr::Ident("y".into()),
+            body: Spanned::no_span(Expr::Ident("y".into())),
         }],
-    };
+    });
     let mut vars = HashSet::new();
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("x"));
@@ -882,9 +901,12 @@ fn collect_vars_match_expr() {
 
 #[test]
 fn collect_vars_list_tuple_block() {
-    let list = Expr::List(vec![Expr::Ident("a".into()), Expr::Ident("b".into())]);
-    let tuple = Expr::Tuple(vec![Expr::Ident("c".into())]);
-    let block = Expr::Block(vec![Expr::Ident("d".into())]);
+    let list = Spanned::no_span(Expr::List(vec![
+        Spanned::no_span(Expr::Ident("a".into())),
+        Spanned::no_span(Expr::Ident("b".into())),
+    ]));
+    let tuple = Spanned::no_span(Expr::Tuple(vec![Spanned::no_span(Expr::Ident("c".into()))]));
+    let block = Spanned::no_span(Expr::Block(vec![Spanned::no_span(Expr::Ident("d".into()))]));
     let mut vars = HashSet::new();
     collect_vars(&list, &mut vars);
     collect_vars(&tuple, &mut vars);
@@ -897,10 +919,10 @@ fn collect_vars_list_tuple_block() {
 
 #[test]
 fn collect_vars_apply() {
-    let expr = Expr::Apply {
+    let expr = Spanned::no_span(Expr::Apply {
         lemma_name: "lem".into(),
-        args: vec![Expr::Ident("p".into())],
-    };
+        args: vec![Spanned::no_span(Expr::Ident("p".into()))],
+    });
     let mut vars = HashSet::new();
     collect_vars(&expr, &mut vars);
     assert!(vars.contains("p"));
@@ -908,7 +930,7 @@ fn collect_vars_apply() {
 
 #[test]
 fn collect_vars_literal_is_empty() {
-    let expr = Expr::Literal(Literal::Int("42".into()));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
     let mut vars = HashSet::new();
     collect_vars(&expr, &mut vars);
     assert!(vars.is_empty());
@@ -926,7 +948,7 @@ fn test_cvc5_must_not_semantics() {
     // asserting it directly gives SAT -> Counterexample.
     let clause = Clause {
         kind: ClauseKind::MustNot,
-        body: Expr::Literal(Literal::Bool(true)),
+        body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
         effect_variables: vec![],
     };
     let results = verify_contract_cvc5("TestMustNot", &[clause]);
@@ -947,7 +969,7 @@ fn test_cvc5_must_not_semantics() {
 fn test_cvc5_must_not_impossible() {
     let clause = Clause {
         kind: ClauseKind::MustNot,
-        body: Expr::Literal(Literal::Bool(false)),
+        body: Spanned::no_span(Expr::Literal(Literal::Bool(false))),
         effect_variables: vec![],
     };
     let results = verify_contract_cvc5("TestMustNotFalse", &[clause]);
@@ -971,16 +993,16 @@ fn test_cvc5_must_not_impossible() {
 #[test]
 fn test_cvc5_quantifier_var_not_global() {
     // forall i in xs: i >= 0
-    let body = Expr::BinOp {
+    let body = Spanned::no_span(Expr::BinOp {
         op: BinOp::Gte,
-        lhs: Box::new(Expr::Ident("i".into())),
-        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-    };
-    let forall_expr = Expr::Forall {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+    });
+    let forall_expr = Spanned::no_span(Expr::Forall {
         var: "i".into(),
-        domain: Box::new(Expr::Ident("xs".into())),
+        domain: Box::new(Spanned::no_span(Expr::Ident("xs".into()))),
         body: Box::new(body),
-    };
+    });
     let mut vars = HashSet::new();
     collect_vars(&forall_expr, &mut vars);
     // "i" must NOT be in the global vars set
@@ -1002,7 +1024,7 @@ fn test_cvc5_quantifier_var_not_global() {
 #[test]
 fn test_typestate_now_modelable() {
     // #262: Raw tokens with @ are now modelable (encoded as integer equality)
-    let expr = Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]);
+    let expr = Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]));
     assert!(
         !expr_has_unmodelable_features_cvc5(&expr),
         "typestate @ annotation should be modelable after #262"
@@ -1012,7 +1034,7 @@ fn test_typestate_now_modelable() {
 #[test]
 fn test_no_unmodelable_reason_for_typestate() {
     // #262: Typestate no longer produces unmodelable reasons
-    let expr = Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]);
+    let expr = Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]));
     let reasons = collect_unmodelable_reasons_cvc5(&expr);
     assert!(
         reasons.is_empty(),
@@ -1024,11 +1046,11 @@ fn test_no_unmodelable_reason_for_typestate() {
 #[test]
 fn test_modelable_normal_expr() {
     // Normal binary expression should be modelable
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Gt,
-        lhs: Box::new(Expr::Ident("x".into())),
-        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+    });
     assert!(
         !expr_has_unmodelable_features_cvc5(&expr),
         "normal binop should be modelable"
@@ -1038,15 +1060,15 @@ fn test_modelable_normal_expr() {
 #[test]
 fn test_typestate_nested_in_binop_modelable() {
     // #262: Typestate nested in a binary expression is now modelable
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::And,
-        lhs: Box::new(Expr::Ident("x".into())),
-        rhs: Box::new(Expr::Raw(vec![
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Raw(vec![
             "conn".into(),
             "@".into(),
             "Connected".into(),
-        ])),
-    };
+        ]))),
+    });
     assert!(
         !expr_has_unmodelable_features_cvc5(&expr),
         "typestate nested in binop should be modelable after #262"
@@ -1056,11 +1078,15 @@ fn test_typestate_nested_in_binop_modelable() {
 #[test]
 fn test_typestate_in_if_branch_modelable() {
     // #262: Typestate in if branch is now modelable
-    let expr = Expr::If {
-        cond: Box::new(Expr::Ident("flag".into())),
-        then_branch: Box::new(Expr::Raw(vec!["s".into(), "@".into(), "Locked".into()])),
+    let expr = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("flag".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Raw(vec![
+            "s".into(),
+            "@".into(),
+            "Locked".into(),
+        ]))),
         else_branch: None,
-    };
+    });
     assert!(
         !expr_has_unmodelable_features_cvc5(&expr),
         "typestate in if-then should be modelable after #262"
@@ -1070,11 +1096,15 @@ fn test_typestate_in_if_branch_modelable() {
 #[test]
 fn test_typestate_in_forall_body_modelable() {
     // #262: Typestate in forall body is now modelable
-    let expr = Expr::Forall {
+    let expr = Spanned::no_span(Expr::Forall {
         var: "i".into(),
-        domain: Box::new(Expr::Ident("xs".into())),
-        body: Box::new(Expr::Raw(vec!["item".into(), "@".into(), "Valid".into()])),
-    };
+        domain: Box::new(Spanned::no_span(Expr::Ident("xs".into()))),
+        body: Box::new(Spanned::no_span(Expr::Raw(vec![
+            "item".into(),
+            "@".into(),
+            "Valid".into(),
+        ]))),
+    });
     assert!(
         !expr_has_unmodelable_features_cvc5(&expr),
         "typestate in forall body should be modelable after #262"
@@ -1088,12 +1118,12 @@ fn test_cvc5_typestate_same_state_verifies() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()])),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()])),
             effect_variables: vec![],
         },
     ];
@@ -1119,12 +1149,12 @@ fn test_cvc5_typestate_different_state_counterexample() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()])),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Closed".into()])),
             effect_variables: vec![],
         },
     ];
@@ -1149,27 +1179,27 @@ fn test_cvc5_typestate_different_state_counterexample() {
 
 #[test]
 fn test_collect_apply_refs_simple() {
-    let expr = Expr::Apply {
+    let expr = Spanned::no_span(Expr::Apply {
         lemma_name: "helper".into(),
-        args: vec![Expr::Ident("x".into())],
-    };
+        args: vec![Spanned::no_span(Expr::Ident("x".into()))],
+    });
     let refs = collect_apply_refs_from_expr(&expr);
     assert_eq!(refs, vec!["helper"]);
 }
 
 #[test]
 fn test_collect_apply_refs_nested_in_binop() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::And,
-        lhs: Box::new(Expr::Apply {
+        lhs: Box::new(Spanned::no_span(Expr::Apply {
             lemma_name: "lem_a".into(),
-            args: vec![Expr::Ident("x".into())],
-        }),
-        rhs: Box::new(Expr::Apply {
+            args: vec![Spanned::no_span(Expr::Ident("x".into()))],
+        })),
+        rhs: Box::new(Spanned::no_span(Expr::Apply {
             lemma_name: "lem_b".into(),
-            args: vec![Expr::Ident("y".into())],
-        }),
-    };
+            args: vec![Spanned::no_span(Expr::Ident("y".into()))],
+        })),
+    });
     let refs = collect_apply_refs_from_expr(&expr);
     assert_eq!(refs.len(), 2);
     assert!(refs.contains(&"lem_a".to_string()));
@@ -1178,25 +1208,27 @@ fn test_collect_apply_refs_nested_in_binop() {
 
 #[test]
 fn test_collect_apply_refs_no_apply() {
-    let expr = Expr::BinOp {
+    let expr = Spanned::no_span(Expr::BinOp {
         op: BinOp::Gt,
-        lhs: Box::new(Expr::Ident("x".into())),
-        rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-    };
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+    });
     let refs = collect_apply_refs_from_expr(&expr);
     assert!(refs.is_empty());
 }
 
 #[test]
 fn test_collect_apply_refs_nested_in_if() {
-    let expr = Expr::If {
-        cond: Box::new(Expr::Ident("flag".into())),
-        then_branch: Box::new(Expr::Apply {
+    let expr = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("flag".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Apply {
             lemma_name: "branch_lem".into(),
             args: vec![],
-        }),
-        else_branch: Some(Box::new(Expr::Literal(Literal::Bool(true)))),
-    };
+        })),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(
+            true,
+        ))))),
+    });
     let refs = collect_apply_refs_from_expr(&expr);
     assert_eq!(refs, vec!["branch_lem"]);
 }
@@ -1207,14 +1239,14 @@ fn test_collect_apply_refs_nested_in_if() {
 
 #[test]
 fn test_smtlib_float_rational_encoding() {
-    let expr = Expr::Literal(Literal::Float("3.14".into()));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Float("3.14".into())));
     let result = expr_to_smtlib(&expr).unwrap();
     assert_eq!(result, "(/ 3140000 1000000)");
 }
 
 #[test]
 fn test_smtlib_float_zero() {
-    let expr = Expr::Literal(Literal::Float("0.0".into()));
+    let expr = Spanned::no_span(Expr::Literal(Literal::Float("0.0".into())));
     let result = expr_to_smtlib(&expr).unwrap();
     assert_eq!(result, "(/ 0 1000000)");
 }
@@ -1223,10 +1255,12 @@ fn test_smtlib_float_zero() {
 fn test_smtlib_float_negative() {
     // Negative floats: the negation is applied by UnaryOp::Neg externally,
     // but the literal itself may parse as negative
-    let expr = Expr::UnaryOp {
+    let expr = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Literal(Literal::Float("2.5".into()))),
-    };
+        expr: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "2.5".into(),
+        )))),
+    });
     let result = expr_to_smtlib(&expr).unwrap();
     assert_eq!(result, "(- (/ 2500000 1000000))");
 }
@@ -1234,19 +1268,19 @@ fn test_smtlib_float_negative() {
 #[test]
 fn test_smtlib_match_float_pattern_rational() {
     // Match arm with float literal should use rational encoding
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("x".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: Pattern::Literal(Literal::Float("1.5".into())),
-                body: Expr::Literal(Literal::Bool(true)),
+                body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             },
             assura_parser::ast::MatchArm {
                 pattern: Pattern::Wildcard,
-                body: Expr::Literal(Literal::Bool(false)),
+                body: Spanned::no_span(Expr::Literal(Literal::Bool(false))),
             },
         ],
-    };
+    });
     let result = expr_to_smtlib(&expr).unwrap();
     assert!(
         result.contains("(/ 1500000 1000000)"),
@@ -1259,34 +1293,37 @@ fn test_smtlib_match_float_pattern_rational() {
 
 #[test]
 fn test_is_self_rooted_cvc5_ident_self() {
-    let expr = Expr::Ident("self".into());
-    assert!(is_self_rooted_cvc5(&expr));
+    let expr = Spanned::no_span(Expr::Ident("self".into()));
+    assert!(is_self_rooted_cvc5(&expr.node));
 }
 
 #[test]
 fn test_is_self_rooted_cvc5_ident_other() {
-    let expr = Expr::Ident("x".into());
-    assert!(!is_self_rooted_cvc5(&expr));
+    let expr = Spanned::no_span(Expr::Ident("x".into()));
+    assert!(!is_self_rooted_cvc5(&expr.node));
 }
 
 #[test]
 fn test_is_self_rooted_cvc5_field_chain() {
     // self.value
-    let expr = Expr::Field(Box::new(Expr::Ident("self".into())), "value".into());
-    assert!(is_self_rooted_cvc5(&expr));
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("self".into()))),
+        "value".into(),
+    ));
+    assert!(is_self_rooted_cvc5(&expr.node));
 }
 
 #[test]
 fn test_is_self_rooted_cvc5_deep_chain() {
     // self.inner.value
-    let expr = Expr::Field(
-        Box::new(Expr::Field(
-            Box::new(Expr::Ident("self".into())),
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("self".into()))),
             "inner".into(),
-        )),
+        ))),
         "value".into(),
-    );
-    assert!(is_self_rooted_cvc5(&expr));
+    ));
+    assert!(is_self_rooted_cvc5(&expr.node));
 }
 
 #[test]
@@ -1296,56 +1333,71 @@ fn test_field_chain_depth_cvc5_ident() {
 
 #[test]
 fn test_field_chain_depth_cvc5_single() {
-    let expr = Expr::Field(Box::new(Expr::Ident("x".into())), "y".into());
-    assert_eq!(field_chain_depth_cvc5(&expr), 1);
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        "y".into(),
+    ));
+    assert_eq!(field_chain_depth_cvc5(&expr.node), 1);
 }
 
 #[test]
 fn test_field_chain_depth_cvc5_deep() {
     // a.b.c -> depth 2
-    let expr = Expr::Field(
-        Box::new(Expr::Field(Box::new(Expr::Ident("a".into())), "b".into())),
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+            "b".into(),
+        ))),
         "c".into(),
-    );
-    assert_eq!(field_chain_depth_cvc5(&expr), 2);
+    ));
+    assert_eq!(field_chain_depth_cvc5(&expr.node), 2);
 }
 
 #[test]
 fn test_has_deep_field_chain_cvc5() {
     // a.b -> depth 1, not deep
-    let shallow = Expr::Field(Box::new(Expr::Ident("a".into())), "b".into());
-    assert!(!has_deep_field_chain_cvc5(&shallow));
+    let shallow = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        "b".into(),
+    ));
+    assert!(!has_deep_field_chain_cvc5(&shallow.node));
 
     // a.b.c -> depth 2, deep
-    let deep = Expr::Field(
-        Box::new(Expr::Field(Box::new(Expr::Ident("a".into())), "b".into())),
+    let deep = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+            "b".into(),
+        ))),
         "c".into(),
-    );
-    assert!(has_deep_field_chain_cvc5(&deep));
+    ));
+    assert!(has_deep_field_chain_cvc5(&deep.node));
 }
 
 #[test]
 fn test_flatten_field_chain_cvc5_simple() {
     // a.b -> "a__b"
-    let expr = Expr::Field(Box::new(Expr::Ident("a".into())), "b".into());
-    assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        "b".into(),
+    ));
+    assert_eq!(flatten_field_chain_cvc5(&expr.node), "a__b");
 }
 
 #[test]
 fn test_flatten_field_chain_cvc5_deep() {
     // state.head.extra.extra_max -> "state__head__extra__extra_max"
-    let expr = Expr::Field(
-        Box::new(Expr::Field(
-            Box::new(Expr::Field(
-                Box::new(Expr::Ident("state".into())),
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("state".into()))),
                 "head".into(),
-            )),
+            ))),
             "extra".into(),
-        )),
+        ))),
         "extra_max".into(),
-    );
+    ));
     assert_eq!(
-        flatten_field_chain_cvc5(&expr),
+        flatten_field_chain_cvc5(&expr.node),
         "state__head__extra__extra_max"
     );
 }
@@ -1353,23 +1405,26 @@ fn test_flatten_field_chain_cvc5_deep() {
 #[test]
 fn test_flatten_field_chain_cvc5_ident() {
     // a.b -> "a__b"
-    let expr = Expr::Field(Box::new(Expr::Ident("a".into())), "b".into());
-    assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        "b".into(),
+    ));
+    assert_eq!(flatten_field_chain_cvc5(&expr.node), "a__b");
 }
 
 #[test]
 fn test_cvc5_deep_field_chain_smtlib_flattening() {
     // state.head.extra.extra_max should flatten in SMT-LIB output
-    let expr = Expr::Field(
-        Box::new(Expr::Field(
-            Box::new(Expr::Field(
-                Box::new(Expr::Ident("state".into())),
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("state".into()))),
                 "head".into(),
-            )),
+            ))),
             "extra".into(),
-        )),
+        ))),
         "extra_max".into(),
-    );
+    ));
     let result = expr_to_smtlib(&expr);
     assert_eq!(result, Some("state__head__extra__extra_max".into()));
 }
@@ -1377,7 +1432,10 @@ fn test_cvc5_deep_field_chain_smtlib_flattening() {
 #[test]
 fn test_cvc5_self_rooted_smtlib_flattening() {
     // self.value should flatten even at depth 1
-    let expr = Expr::Field(Box::new(Expr::Ident("self".into())), "value".into());
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("self".into()))),
+        "value".into(),
+    ));
     let result = expr_to_smtlib(&expr);
     assert_eq!(result, Some("self__value".into()));
 }
@@ -1385,7 +1443,10 @@ fn test_cvc5_self_rooted_smtlib_flattening() {
 #[test]
 fn test_cvc5_shallow_field_smtlib_no_flatten() {
     // obj.field at depth 1 (not self-rooted) should NOT flatten
-    let expr = Expr::Field(Box::new(Expr::Ident("obj".into())), "field".into());
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
+        "field".into(),
+    ));
     let result = expr_to_smtlib(&expr);
     assert_eq!(result, Some("(__field_field obj)".into()));
 }
@@ -1393,14 +1454,14 @@ fn test_cvc5_shallow_field_smtlib_no_flatten() {
 #[test]
 fn test_cvc5_old_deep_field_smtlib_flattening() {
     // old(state.head.value) should flatten to state__head__value__old
-    let inner = Expr::Field(
-        Box::new(Expr::Field(
-            Box::new(Expr::Ident("state".into())),
+    let inner = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("state".into()))),
             "head".into(),
-        )),
+        ))),
         "value".into(),
-    );
-    let expr = Expr::Old(Box::new(inner));
+    ));
+    let expr = Spanned::no_span(Expr::Old(Box::new(inner)));
     let result = expr_to_smtlib(&expr);
     assert_eq!(result, Some("state__head__value__old".into()));
 }
@@ -1408,8 +1469,11 @@ fn test_cvc5_old_deep_field_smtlib_flattening() {
 #[test]
 fn test_cvc5_old_self_rooted_smtlib_flattening() {
     // old(self.counter) should flatten to self__counter__old
-    let inner = Expr::Field(Box::new(Expr::Ident("self".into())), "counter".into());
-    let expr = Expr::Old(Box::new(inner));
+    let inner = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("self".into()))),
+        "counter".into(),
+    ));
+    let expr = Spanned::no_span(Expr::Old(Box::new(inner)));
     let result = expr_to_smtlib(&expr);
     assert_eq!(result, Some("self__counter__old".into()));
 }
@@ -1422,46 +1486,46 @@ fn test_cvc5_deep_field_chain_contract_verifies() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
+            body: Spanned::no_span(Expr::BinOp {
                 op: BinOp::And,
-                lhs: Box::new(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::BinOp {
                     op: BinOp::Gte,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                }),
-                rhs: Box::new(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                })),
+                rhs: Box::new(Spanned::no_span(Expr::BinOp {
                     op: BinOp::Lt,
-                    lhs: Box::new(Expr::Ident("x".into())),
-                    rhs: Box::new(Expr::Field(
-                        Box::new(Expr::Field(
-                            Box::new(Expr::Field(
-                                Box::new(Expr::Ident("state".into())),
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Field(
+                        Box::new(Spanned::no_span(Expr::Field(
+                            Box::new(Spanned::no_span(Expr::Field(
+                                Box::new(Spanned::no_span(Expr::Ident("state".into()))),
                                 "head".into(),
-                            )),
+                            ))),
                             "extra".into(),
-                        )),
+                        ))),
                         "max".into(),
-                    )),
-                }),
-            },
+                    ))),
+                })),
+            }),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: Spanned::no_span(Expr::BinOp {
                 op: BinOp::Gt,
-                lhs: Box::new(Expr::Field(
-                    Box::new(Expr::Field(
-                        Box::new(Expr::Field(
-                            Box::new(Expr::Ident("state".into())),
+                lhs: Box::new(Spanned::no_span(Expr::Field(
+                    Box::new(Spanned::no_span(Expr::Field(
+                        Box::new(Spanned::no_span(Expr::Field(
+                            Box::new(Spanned::no_span(Expr::Ident("state".into()))),
                             "head".into(),
-                        )),
+                        ))),
                         "extra".into(),
-                    )),
+                    ))),
                     "max".into(),
-                )),
-                rhs: Box::new(Expr::Ident("x".into())),
-            },
+                ))),
+                rhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            }),
             effect_variables: vec![],
         },
     ];
@@ -1483,26 +1547,26 @@ fn test_cvc5_self_rooted_field_contract_verifies() {
     let clauses = vec![
         Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
+            body: Spanned::no_span(Expr::BinOp {
                 op: BinOp::Gt,
-                lhs: Box::new(Expr::Field(
-                    Box::new(Expr::Ident("self".into())),
+                lhs: Box::new(Spanned::no_span(Expr::Field(
+                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                     "value".into(),
-                )),
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                ))),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
+            body: Spanned::no_span(Expr::BinOp {
                 op: BinOp::Gte,
-                lhs: Box::new(Expr::Field(
-                    Box::new(Expr::Ident("self".into())),
+                lhs: Box::new(Spanned::no_span(Expr::Field(
+                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                     "value".into(),
-                )),
-                rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-            },
+                ))),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+            }),
             effect_variables: vec![],
         },
     ];
@@ -1521,13 +1585,13 @@ fn test_cvc5_self_rooted_field_contract_verifies() {
 #[test]
 fn test_cvc5_nested_field_boolean_smtlib() {
     // obj.inner.is_empty should flatten in SMT-LIB output
-    let expr = Expr::Field(
-        Box::new(Expr::Field(
-            Box::new(Expr::Ident("obj".into())),
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
             "inner".into(),
-        )),
+        ))),
         "is_empty".into(),
-    );
+    ));
     let result = expr_to_smtlib(&expr);
     assert_eq!(result, Some("obj__inner__is_empty".into()));
 }
@@ -1535,13 +1599,13 @@ fn test_cvc5_nested_field_boolean_smtlib() {
 #[test]
 fn test_cvc5_nested_field_size_smtlib() {
     // obj.inner.length should flatten in SMT-LIB output
-    let expr = Expr::Field(
-        Box::new(Expr::Field(
-            Box::new(Expr::Ident("obj".into())),
+    let expr = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
             "inner".into(),
-        )),
+        ))),
         "length".into(),
-    );
+    ));
     let result = expr_to_smtlib(&expr);
     assert_eq!(result, Some("obj__inner__length".into()));
 }
@@ -1551,167 +1615,182 @@ fn test_cvc5_nested_field_size_smtlib() {
 
 #[test]
 fn test_smtlib_call_substring() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("substring".into())),
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("substring".into()))),
         args: vec![
-            Expr::Ident("s".into()),
-            Expr::Literal(Literal::Int("0".into())),
-            Expr::Literal(Literal::Int("5".into())),
+            Spanned::no_span(Expr::Ident("s".into())),
+            Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
+            Spanned::no_span(Expr::Literal(Literal::Int("5".into()))),
         ],
-    };
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(substring s 0 5)");
 }
 
 #[test]
 fn test_smtlib_call_concat() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("concat".into())),
-        args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
-    };
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("concat".into()))),
+        args: vec![
+            Spanned::no_span(Expr::Ident("a".into())),
+            Spanned::no_span(Expr::Ident("b".into())),
+        ],
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(__concat a b)");
 }
 
 #[test]
 fn test_smtlib_call_index_of() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("index_of".into())),
-        args: vec![Expr::Ident("s".into()), Expr::Ident("sub".into())],
-    };
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("index_of".into()))),
+        args: vec![
+            Spanned::no_span(Expr::Ident("s".into())),
+            Spanned::no_span(Expr::Ident("sub".into())),
+        ],
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(index_of s sub)");
 }
 
 #[test]
 fn test_smtlib_call_char_at() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("char_at".into())),
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("char_at".into()))),
         args: vec![
-            Expr::Ident("s".into()),
-            Expr::Literal(Literal::Int("3".into())),
+            Spanned::no_span(Expr::Ident("s".into())),
+            Spanned::no_span(Expr::Literal(Literal::Int("3".into()))),
         ],
-    };
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(char_at s 3)");
 }
 
 #[test]
 fn test_smtlib_call_replace() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("replace".into())),
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("replace".into()))),
         args: vec![
-            Expr::Ident("s".into()),
-            Expr::Ident("old_s".into()),
-            Expr::Ident("new_s".into()),
+            Spanned::no_span(Expr::Ident("s".into())),
+            Spanned::no_span(Expr::Ident("old_s".into())),
+            Spanned::no_span(Expr::Ident("new_s".into())),
         ],
-    };
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(replace s old_s new_s)");
 }
 
 #[test]
 fn test_smtlib_call_split() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("split".into())),
-        args: vec![Expr::Ident("s".into()), Expr::Ident("delim".into())],
-    };
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("split".into()))),
+        args: vec![
+            Spanned::no_span(Expr::Ident("s".into())),
+            Spanned::no_span(Expr::Ident("delim".into())),
+        ],
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(split s delim)");
 }
 
 #[test]
 fn test_smtlib_call_trim() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("trim".into())),
-        args: vec![Expr::Ident("s".into())],
-    };
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("trim".into()))),
+        args: vec![Spanned::no_span(Expr::Ident("s".into()))],
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(trim s)");
 }
 
 #[test]
 fn test_smtlib_call_set() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("set".into())),
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("set".into()))),
         args: vec![
-            Expr::Ident("arr".into()),
-            Expr::Ident("i".into()),
-            Expr::Ident("v".into()),
+            Spanned::no_span(Expr::Ident("arr".into())),
+            Spanned::no_span(Expr::Ident("i".into())),
+            Spanned::no_span(Expr::Ident("v".into())),
         ],
-    };
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(set arr i v)");
 }
 
 #[test]
 fn test_smtlib_call_put() {
-    let expr = Expr::Call {
-        func: Box::new(Expr::Ident("put".into())),
+    let expr = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("put".into()))),
         args: vec![
-            Expr::Ident("m".into()),
-            Expr::Ident("k".into()),
-            Expr::Ident("v".into()),
+            Spanned::no_span(Expr::Ident("m".into())),
+            Spanned::no_span(Expr::Ident("k".into())),
+            Spanned::no_span(Expr::Ident("v".into())),
         ],
-    };
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(put m k v)");
 }
 
 #[test]
 fn test_smtlib_method_substring() {
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("s".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("s".into()))),
         method: "substring".into(),
         args: vec![
-            Expr::Literal(Literal::Int("1".into())),
-            Expr::Literal(Literal::Int("4".into())),
+            Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
+            Spanned::no_span(Expr::Literal(Literal::Int("4".into()))),
         ],
-    };
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(substring s 1 4)");
 }
 
 #[test]
 fn test_smtlib_method_concat() {
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("a".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         method: "concat".into(),
-        args: vec![Expr::Ident("b".into())],
-    };
+        args: vec![Spanned::no_span(Expr::Ident("b".into()))],
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(__concat a b)");
 }
 
 #[test]
 fn test_smtlib_method_set() {
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("arr".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
         method: "set".into(),
-        args: vec![Expr::Ident("i".into()), Expr::Ident("v".into())],
-    };
+        args: vec![
+            Spanned::no_span(Expr::Ident("i".into())),
+            Spanned::no_span(Expr::Ident("v".into())),
+        ],
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(set arr i v)");
 }
 
 #[test]
 fn test_smtlib_method_put() {
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("m".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("m".into()))),
         method: "put".into(),
-        args: vec![Expr::Ident("k".into()), Expr::Ident("v".into())],
-    };
+        args: vec![
+            Spanned::no_span(Expr::Ident("k".into())),
+            Spanned::no_span(Expr::Ident("v".into())),
+        ],
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(put m k v)");
 }
 
 #[test]
 fn test_smtlib_method_trim() {
-    let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("s".into())),
+    let expr = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("s".into()))),
         method: "trim".into(),
         args: vec![],
-    };
+    });
     let s = expr_to_smtlib(&expr).unwrap();
     assert_eq!(s, "(trim s)");
 }

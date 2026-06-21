@@ -1,6 +1,6 @@
 //! Shared quantifier encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::{SpExpr, Spanned};
 
 use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_raw_ops::{
@@ -12,16 +12,18 @@ use assura_types::checkers::expr_references_var;
 
 /// Build the domain guard for an AST quantifier in SMT-LIB2.
 pub(crate) fn encode_quantifier_domain_guard_smtlib<F>(
-    domain: &Expr,
+    domain: &SpExpr,
     var: &str,
     mut encode: F,
 ) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
 {
-    if let Some((lo, hi)) = domain_as_range(domain) {
-        let lo_s = encode(lo)?;
-        let hi_s = encode(hi)?;
+    if let Some((lo, hi)) = domain_as_range(&domain.node) {
+        let lo_sp = Spanned::no_span(lo.clone());
+        let hi_sp = Spanned::no_span(hi.clone());
+        let lo_s = encode(&lo_sp)?;
+        let hi_s = encode(&hi_sp)?;
         Some(range_guard_smtlib(var, &lo_s, &hi_s))
     } else {
         let d = encode(domain).unwrap_or_else(|| var.to_string());
@@ -33,12 +35,12 @@ where
 pub(crate) fn encode_ast_quantifier_smtlib<F>(
     is_forall: bool,
     var: &str,
-    domain: &Expr,
+    domain: &SpExpr,
     body_smt: &str,
     encode_domain: F,
 ) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
 {
     let v = sanitize_smtlib_name(var);
     let guard = encode_quantifier_domain_guard_smtlib(domain, &v, encode_domain)?;
@@ -49,7 +51,7 @@ where
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
     ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
-    domain: &Expr,
+    domain: &SpExpr,
     bound_var: &cvc5::Term<'a>,
     body: cvc5::Term<'a>,
     is_forall: bool,
@@ -57,13 +59,15 @@ pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
 ) -> cvc5::Term<'a>
 where
     E: FnMut(
-        &Expr,
+        &SpExpr,
         &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    let guard = if let Some((lo, hi)) = domain_as_range(domain) {
-        let lo_val = encode(lo, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
-        let hi_val = encode(hi, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
+    let guard = if let Some((lo, hi)) = domain_as_range(&domain.node) {
+        let lo_sp = Spanned::no_span(lo.clone());
+        let hi_sp = Spanned::no_span(hi.clone());
+        let lo_val = encode(&lo_sp, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
+        let hi_val = encode(&hi_sp, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
         let ge_lo = ctx
             .tm
             .mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
@@ -91,13 +95,13 @@ pub(crate) fn encode_ast_quantifier_cvc5<'a, E>(
     ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     is_forall: bool,
     var: &str,
-    domain: &Expr,
-    body: &Expr,
+    domain: &SpExpr,
+    body: &SpExpr,
     mut encode: E,
 ) -> Option<cvc5::Term<'a>>
 where
     E: FnMut(
-        &Expr,
+        &SpExpr,
         &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
@@ -133,7 +137,7 @@ where
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     tm: &'a cvc5::TermManager,
-    body: &Expr,
+    body: &SpExpr,
     bound_var_name: &str,
     bound_cvc5: &cvc5::Term<'a>,
 ) -> Vec<cvc5::Term<'a>> {
@@ -154,7 +158,7 @@ pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     }
 
     if patterns.is_empty() {
-        collect_trigger_calls_cvc5(tm, body, bound_var_name, bound_cvc5, &mut patterns);
+        collect_trigger_calls_cvc5(tm, &body.node, bound_var_name, bound_cvc5, &mut patterns);
     }
 
     patterns
@@ -171,7 +175,7 @@ fn collect_trigger_calls_cvc5<'a>(
     match expr {
         Expr::Call { func, args } => {
             let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
-            if refs_bound && let Expr::Ident(fname) = func.as_ref() {
+            if refs_bound && let Expr::Ident(fname) = &func.as_ref().node {
                 let arity = args.len();
                 let param_sorts: Vec<cvc5::Sort> = (0..arity).map(|_| tm.integer_sort()).collect();
                 let fun_sort = tm.mk_fun_sort(&param_sorts, tm.integer_sort());
@@ -188,36 +192,36 @@ fn collect_trigger_calls_cvc5<'a>(
                 patterns.push(app);
             }
             for a in args {
-                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
+                collect_trigger_calls_cvc5(tm, &a.node, bound_var, bound_cvc5, patterns);
             }
         }
         Expr::MethodCall { receiver, args, .. } => {
-            collect_trigger_calls_cvc5(tm, receiver, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &receiver.node, bound_var, bound_cvc5, patterns);
             for a in args {
-                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
+                collect_trigger_calls_cvc5(tm, &a.node, bound_var, bound_cvc5, patterns);
             }
         }
         Expr::BinOp { lhs, rhs, .. } => {
-            collect_trigger_calls_cvc5(tm, lhs, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, rhs, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &lhs.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &rhs.node, bound_var, bound_cvc5, patterns);
         }
         Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Ghost(e) => {
-            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &e.node, bound_var, bound_cvc5, patterns);
         }
         Expr::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            collect_trigger_calls_cvc5(tm, cond, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, then_branch, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &cond.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &then_branch.node, bound_var, bound_cvc5, patterns);
             if let Some(eb) = else_branch {
-                collect_trigger_calls_cvc5(tm, eb, bound_var, bound_cvc5, patterns);
+                collect_trigger_calls_cvc5(tm, &eb.node, bound_var, bound_cvc5, patterns);
             }
         }
         Expr::Index { expr: e, index } => {
-            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, index, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &e.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, &index.node, bound_var, bound_cvc5, patterns);
         }
         _ => {}
     }
@@ -226,16 +230,16 @@ fn collect_trigger_calls_cvc5<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Literal};
+    use assura_parser::ast::{BinOp, Expr, Literal};
 
     #[test]
     fn range_domain_guard_smtlib() {
-        let domain = Expr::BinOp {
+        let domain = Spanned::no_span(Expr::BinOp {
             op: BinOp::Range,
-            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-        };
-        let guard = encode_quantifier_domain_guard_smtlib(&domain, "x", |e| match e {
+            lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+        });
+        let guard = encode_quantifier_domain_guard_smtlib(&domain, "x", |e| match &e.node {
             Expr::Literal(Literal::Int(n)) => Some(n.clone()),
             _ => None,
         })

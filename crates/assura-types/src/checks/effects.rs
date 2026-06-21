@@ -1,6 +1,6 @@
 //! Effect checking.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
+use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SpExpr};
 use std::collections::HashMap;
 
 use crate::TypeError;
@@ -159,11 +159,11 @@ fn infer_callee_effects(
 
 /// Recursively collect effects from function calls in an expression.
 fn collect_call_effects(
-    expr: &Expr,
+    expr: &SpExpr,
     effect_map: &HashMap<String, EffectSet>,
     effects: &mut EffectSet,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Call { func, args } => {
             // Extract the function name from the call target
             if let Some(name) = extract_call_name(func)
@@ -252,8 +252,8 @@ fn collect_call_effects(
 }
 
 /// Extract a function name from a Call target expression.
-fn extract_call_name(func: &Expr) -> Option<String> {
-    match func {
+fn extract_call_name(func: &SpExpr) -> Option<String> {
+    match &func.node {
         Expr::Ident(name) => Some(name.clone()),
         Expr::Field(_, name) => Some(name.clone()),
         _ => None,
@@ -297,8 +297,8 @@ fn extract_effects_from_clauses(
 /// Effect names may be dot-separated (e.g., `console.read`) which the lexer
 /// tokenizes as `["console", ".", "read"]`. This function joins them back
 /// into single names before returning.
-fn extract_effect_names_from_expr(expr: &Expr) -> Vec<String> {
-    match expr {
+fn extract_effect_names_from_expr(expr: &SpExpr) -> Vec<String> {
+    match &expr.node {
         Expr::Ident(name) => vec![name.clone()],
         Expr::Raw(tokens) => {
             // Join dot-separated tokens: ["console", ".", "read"] -> "console.read"
@@ -354,8 +354,8 @@ fn extract_effect_names_from_expr(expr: &Expr) -> Vec<String> {
 /// - `io` sub-effects: console, file, network, process, env, time, random
 /// - `mem` effects: alloc, dealloc, resize
 /// - `panic` effects: panic, abort, unreachable
-fn infer_effects_from_expr(expr: &Expr, effects: &mut EffectSet) {
-    match expr {
+fn infer_effects_from_expr(expr: &SpExpr, effects: &mut EffectSet) {
+    match &expr.node {
         Expr::Ident(name) => {
             // IO sub-effects: console, file, network, socket, http, process, env, time, random
             let io_prefixes = [

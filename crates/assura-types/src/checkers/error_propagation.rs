@@ -5,14 +5,14 @@ use super::*;
 
 /// Extract an integer literal value from an expression.
 /// Returns `None` for non-literal or non-integer expressions.
-pub(crate) fn extract_int_literal(expr: &Expr) -> Option<i64> {
-    match expr {
+pub(crate) fn extract_int_literal(expr: &SpExpr) -> Option<i64> {
+    match &expr.node {
         Expr::Literal(Literal::Int(s)) => s.parse::<i64>().ok(),
         Expr::UnaryOp {
             op: UnaryOp::Neg,
             expr: inner,
         } => {
-            if let Expr::Literal(Literal::Int(s)) = inner.as_ref() {
+            if let Expr::Literal(Literal::Int(s)) = &inner.node {
                 s.parse::<i64>().ok().map(|v| -v)
             } else {
                 None
@@ -23,8 +23,8 @@ pub(crate) fn extract_int_literal(expr: &Expr) -> Option<i64> {
 }
 
 /// Extract a float literal value from an expression.
-pub(crate) fn extract_float_literal(expr: &Expr) -> Option<f64> {
-    match expr {
+pub(crate) fn extract_float_literal(expr: &SpExpr) -> Option<f64> {
+    match &expr.node {
         Expr::Literal(Literal::Float(s)) => s.parse::<f64>().ok(),
         Expr::Literal(Literal::Int(s)) => s.parse::<f64>().ok(),
         _ => None,
@@ -32,22 +32,22 @@ pub(crate) fn extract_float_literal(expr: &Expr) -> Option<f64> {
 }
 
 /// Extract a string identifier from an expression.
-pub(crate) fn extract_ident(expr: &Expr) -> Option<&str> {
-    match expr {
+pub(crate) fn extract_ident(expr: &SpExpr) -> Option<&str> {
+    match &expr.node {
         Expr::Ident(name) => Some(name.as_str()),
         _ => None,
     }
 }
 
 /// Extract a key-value pair from a BinOp expression (e.g., `name = value`).
-pub(crate) fn extract_kv_pair(expr: &Expr) -> Option<(&str, &Expr)> {
-    match expr {
+pub(crate) fn extract_kv_pair(expr: &SpExpr) -> Option<(&str, &SpExpr)> {
+    match &expr.node {
         Expr::BinOp {
             op: BinOp::Eq,
             lhs,
             rhs,
         } => {
-            if let Expr::Ident(key) = lhs.as_ref() {
+            if let Expr::Ident(key) = &lhs.as_ref().node {
                 Some((key.as_str(), rhs.as_ref()))
             } else {
                 None
@@ -59,10 +59,10 @@ pub(crate) fn extract_kv_pair(expr: &Expr) -> Option<(&str, &Expr)> {
 
 /// Extract a call-style expression: `name(arg1, arg2, ...)`.
 /// Returns `(function_name, arguments)`.
-pub(crate) fn extract_call(expr: &Expr) -> Option<(&str, &[Expr])> {
-    match expr {
+pub(crate) fn extract_call(expr: &SpExpr) -> Option<(&str, &[SpExpr])> {
+    match &expr.node {
         Expr::Call { func, args } => {
-            if let Expr::Ident(name) = func.as_ref() {
+            if let Expr::Ident(name) = &func.as_ref().node {
                 Some((name.as_str(), args.as_slice()))
             } else {
                 None
@@ -73,8 +73,8 @@ pub(crate) fn extract_call(expr: &Expr) -> Option<(&str, &[Expr])> {
 }
 
 /// Extract multiple key-value pairs from a block or list expression.
-pub(crate) fn extract_kv_pairs(expr: &Expr) -> Vec<(&str, &Expr)> {
-    match expr {
+pub(crate) fn extract_kv_pairs(expr: &SpExpr) -> Vec<(&str, &SpExpr)> {
+    match &expr.node {
         Expr::Block(exprs) | Expr::List(exprs) => {
             exprs.iter().filter_map(extract_kv_pair).collect()
         }
@@ -107,7 +107,7 @@ impl FrameChecker {
     ///
     /// Extracts variable/field names from the modifies clause and stores
     /// them as the "modified" set.
-    pub fn new(modifies_clauses: &[&Expr]) -> Self {
+    pub fn new(modifies_clauses: &[&SpExpr]) -> Self {
         let mut modified = std::collections::HashSet::new();
         for body in modifies_clauses {
             for target in extract_modifies_targets(body) {
@@ -184,7 +184,7 @@ impl FrameChecker {
     ///
     /// Returns the list of variable names for which frame axioms should
     /// be injected.
-    pub fn frame_axiom_vars(&self, ensures_body: &Expr) -> Vec<String> {
+    pub fn frame_axiom_vars(&self, ensures_body: &SpExpr) -> Vec<String> {
         if !self.has_modifies() {
             return Vec::new();
         }

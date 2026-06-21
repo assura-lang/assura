@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use crate::ir::{IrExprKind, IrFunction};
 use crate::ir_encode::IrEncodeContext;
-use assura_parser::ast::{BinOp, Clause, Expr};
+use assura_parser::ast::{BinOp, Clause, Expr, SpExpr};
 
 /// Shared havoc+assume clause and IR context for Z3 and CVC5 backends.
 pub(crate) struct HavocAssumeInput<'a> {
@@ -34,25 +34,25 @@ pub const RESULT_SLOT: usize = usize::MAX;
 #[derive(Debug, Clone)]
 pub struct LengthBound {
     pub object: String,
-    pub bound: Expr,
+    pub bound: SpExpr,
     pub strict: bool,
 }
 
 /// Extract `obj.length() <= bound` (or `<`) from an expression tree.
-pub fn extract_length_bounds(expr: &Expr) -> Vec<LengthBound> {
+pub fn extract_length_bounds(expr: &SpExpr) -> Vec<LengthBound> {
     let mut out = Vec::new();
     collect_length_bounds(expr, &mut out);
     out
 }
 
-fn collect_length_bounds(expr: &Expr, out: &mut Vec<LengthBound>) {
-    match expr {
+fn collect_length_bounds(expr: &SpExpr, out: &mut Vec<LengthBound>) {
+    match &expr.node {
         Expr::BinOp { lhs, op, rhs } => match op {
             BinOp::Lte | BinOp::Lt => {
                 if let Some(obj) = length_object(lhs) {
                     out.push(LengthBound {
                         object: obj.to_string(),
-                        bound: *rhs.clone(),
+                        bound: rhs.as_ref().clone(),
                         strict: matches!(op, BinOp::Lt),
                     });
                 }
@@ -85,29 +85,31 @@ fn collect_length_bounds(expr: &Expr, out: &mut Vec<LengthBound>) {
 }
 
 /// Return the identifier whose `.length()` is called, if any.
-pub fn length_object(expr: &Expr) -> Option<&str> {
-    match expr {
+pub fn length_object(expr: &SpExpr) -> Option<&str> {
+    match &expr.node {
         Expr::MethodCall {
             receiver,
             method,
             args,
         } if (method == "length" || method == "len") && args.is_empty() => {
-            match receiver.as_ref() {
+            match &receiver.as_ref().node {
                 Expr::Ident(name) => Some(name.as_str()),
                 _ => None,
             }
         }
-        Expr::Field(obj, field) if field == "length" || field == "len" => match obj.as_ref() {
-            Expr::Ident(name) => Some(name.as_str()),
-            _ => None,
-        },
+        Expr::Field(obj, field) if field == "length" || field == "len" => {
+            match &obj.as_ref().node {
+                Expr::Ident(name) => Some(name.as_str()),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
 
 /// Structural equality for bound expressions (for cross-clause matching).
-pub fn expr_structurally_eq(a: &Expr, b: &Expr) -> bool {
-    match (a, b) {
+pub fn expr_structurally_eq(a: &SpExpr, b: &SpExpr) -> bool {
+    match (&a.node, &b.node) {
         (Expr::Ident(x), Expr::Ident(y)) => x == y,
         (Expr::Literal(la), Expr::Literal(lb)) => la == lb,
         (
@@ -222,23 +224,31 @@ pub fn describe_ir_expr(expr: &IrExprKind) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{ClauseKind, Literal};
+    use assura_parser::ast::{ClauseKind, Literal, Spanned};
 
-    fn len_le(obj: &str, bound: Expr) -> Expr {
-        Expr::BinOp {
-            lhs: Box::new(Expr::MethodCall {
-                receiver: Box::new(Expr::Ident(obj.into())),
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
+    }
+
+    fn spb(e: Expr) -> Box<SpExpr> {
+        Box::new(sp(e))
+    }
+
+    fn len_le(obj: &str, bound: SpExpr) -> SpExpr {
+        sp(Expr::BinOp {
+            lhs: spb(Expr::MethodCall {
+                receiver: spb(Expr::Ident(obj.into())),
                 method: "length".into(),
                 args: vec![],
             }),
             op: BinOp::Lte,
             rhs: Box::new(bound),
-        }
+        })
     }
 
     #[test]
     fn extract_length_bound_simple() {
-        let e = len_le("raw", Expr::Literal(Literal::Int("100".into())));
+        let e = len_le("raw", sp(Expr::Literal(Literal::Int("100".into()))));
         let bounds = extract_length_bounds(&e);
         assert_eq!(bounds.len(), 1);
         assert_eq!(bounds[0].object, "raw");
@@ -246,7 +256,7 @@ mod tests {
 
     #[test]
     fn infer_cross_clause_same_bound() {
-        let n = Expr::Literal(Literal::Int("100".into()));
+        let n = sp(Expr::Literal(Literal::Int("100".into())));
         let requires = vec![Clause {
             kind: ClauseKind::Requires,
             body: len_le("raw", n.clone()),
@@ -268,26 +278,26 @@ mod tests {
     fn infer_direct_result_raw_length() {
         let requires = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::MethodCall {
-                    receiver: Box::new(Expr::Ident("raw".into())),
+            body: sp(Expr::BinOp {
+                lhs: spb(Expr::MethodCall {
+                    receiver: spb(Expr::Ident("raw".into())),
                     method: "length".into(),
                     args: vec![],
                 }),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
             effect_variables: vec![],
         }];
         let ensures = vec![Clause {
             kind: ClauseKind::Ensures,
             body: len_le(
                 "result",
-                Expr::MethodCall {
-                    receiver: Box::new(Expr::Ident("raw".into())),
+                sp(Expr::MethodCall {
+                    receiver: spb(Expr::Ident("raw".into())),
                     method: "length".into(),
                     args: vec![],
-                },
+                }),
             ),
             effect_variables: vec![],
         }];

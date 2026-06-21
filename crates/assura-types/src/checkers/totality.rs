@@ -102,7 +102,7 @@ impl TotalityChecker {
         &self,
         fn_def: &assura_parser::ast::FnDef,
     ) -> Option<DecreasesMeasure> {
-        let decreases_exprs: Vec<&Expr> = fn_def
+        let decreases_exprs: Vec<&SpExpr> = fn_def
             .clauses
             .iter()
             .filter(|c| {
@@ -122,22 +122,28 @@ impl TotalityChecker {
             0 => None,
             1 => {
                 if has_well_founded {
-                    Some(DecreasesMeasure::WellFounded(decreases_exprs[0].clone()))
+                    Some(DecreasesMeasure::WellFounded(
+                        decreases_exprs[0].node.clone(),
+                    ))
                 } else {
-                    Some(DecreasesMeasure::Natural(decreases_exprs[0].clone()))
+                    Some(DecreasesMeasure::Natural(decreases_exprs[0].node.clone()))
                 }
             }
             _ => Some(DecreasesMeasure::Lexicographic(
-                decreases_exprs.into_iter().cloned().collect(),
+                decreases_exprs
+                    .into_iter()
+                    .map(|e| e.node.clone())
+                    .collect(),
             )),
         }
     }
 
     /// Check whether the given expression contains a recursive call to `fn_name`.
-    fn expr_contains_recursive_call(&self, expr: &Expr, fn_name: &str) -> bool {
-        match expr {
+    fn expr_contains_recursive_call(&self, expr: &SpExpr, fn_name: &str) -> bool {
+        match &expr.node {
             Expr::Call { func, args } => {
-                let is_self_call = matches!(func.as_ref(), Expr::Ident(name) if name == fn_name);
+                let is_self_call =
+                    matches!(&func.as_ref().node, Expr::Ident(name) if name == fn_name);
                 if is_self_call {
                     return true;
                 }
@@ -211,13 +217,13 @@ impl TotalityChecker {
     /// Collect arguments from recursive call sites to `fn_name` in `expr`.
     fn collect_recursive_call_args<'a>(
         &self,
-        expr: &'a Expr,
+        expr: &'a SpExpr,
         fn_name: &str,
-        out: &mut Vec<&'a [Expr]>,
+        out: &mut Vec<&'a [SpExpr]>,
     ) {
-        match expr {
+        match &expr.node {
             Expr::Call { func, args } => {
-                if matches!(func.as_ref(), Expr::Ident(name) if name == fn_name) {
+                if matches!(&func.as_ref().node, Expr::Ident(name) if name == fn_name) {
                     out.push(args.as_slice());
                 }
                 self.collect_recursive_call_args(func, fn_name, out);
@@ -314,11 +320,11 @@ impl TotalityChecker {
                     op: BinOp::Sub,
                     rhs,
                 } => {
-                    if let Expr::Ident(arg_var) = lhs.as_ref()
+                    if let Expr::Ident(arg_var) = &lhs.as_ref().node
                         && arg_var == measure_var
                     {
                         // The rhs must be a positive literal
-                        if let Expr::Literal(Literal::Int(s)) = rhs.as_ref()
+                        if let Expr::Literal(Literal::Int(s)) = &rhs.as_ref().node
                             && let Ok(v) = s.parse::<i64>()
                         {
                             return v > 0;
@@ -330,7 +336,7 @@ impl TotalityChecker {
                 }
                 // Structural: x.tail, x.left, x.right, x.children, etc.
                 Expr::Field(receiver, field) => {
-                    if let Expr::Ident(arg_var) = receiver.as_ref()
+                    if let Expr::Ident(arg_var) = &receiver.node
                         && arg_var == measure_var
                     {
                         return matches!(
@@ -360,7 +366,7 @@ impl TotalityChecker {
                 // Check requires clauses for a constraint like `n >= 0`
                 for clause in &fn_def.clauses {
                     if clause.kind == ClauseKind::Requires
-                        && Self::expr_constrains_non_negative(&clause.body, name)
+                        && Self::expr_constrains_non_negative(&clause.body.node, name)
                     {
                         return true;
                     }
@@ -405,9 +411,9 @@ impl TotalityChecker {
                 match op {
                     // x >= 0 or x > 0
                     BinOp::Gte | BinOp::Gt => {
-                        if let Expr::Ident(name) = lhs.as_ref()
+                        if let Expr::Ident(name) = &lhs.node
                             && name == var_name
-                            && let Expr::Literal(Literal::Int(s)) = rhs.as_ref()
+                            && let Expr::Literal(Literal::Int(s)) = &rhs.node
                             && let Ok(v) = s.parse::<i64>()
                         {
                             return v >= 0;
@@ -416,10 +422,10 @@ impl TotalityChecker {
                     }
                     // 0 <= x or 0 < x
                     BinOp::Lte | BinOp::Lt => {
-                        if let Expr::Literal(Literal::Int(s)) = lhs.as_ref()
+                        if let Expr::Literal(Literal::Int(s)) = &lhs.node
                             && let Ok(v) = s.parse::<i64>()
                             && v >= 0
-                            && let Expr::Ident(name) = rhs.as_ref()
+                            && let Expr::Ident(name) = &rhs.node
                         {
                             return name == var_name;
                         }
@@ -427,8 +433,8 @@ impl TotalityChecker {
                     }
                     // Conjunction: either side can provide the constraint
                     BinOp::And => {
-                        Self::expr_constrains_non_negative(lhs, var_name)
-                            || Self::expr_constrains_non_negative(rhs, var_name)
+                        Self::expr_constrains_non_negative(&lhs.node, var_name)
+                            || Self::expr_constrains_non_negative(&rhs.node, var_name)
                     }
                     _ => false,
                 }
@@ -448,7 +454,7 @@ impl TotalityChecker {
         &self,
         fn_def: &assura_parser::ast::FnDef,
         measure: &DecreasesMeasure,
-        call_args: &[Expr],
+        call_args: &[SpExpr],
         span: &Range<usize>,
     ) -> DecreaseCheckResult {
         match measure {
@@ -460,13 +466,13 @@ impl TotalityChecker {
                             && let Some(call_arg) = call_args.get(i)
                         {
                             // Try syntactic check first (fast)
-                            if Self::is_strictly_decreasing(measure_expr, call_arg) {
+                            if Self::is_strictly_decreasing(measure_expr, &call_arg.node) {
                                 return DecreaseCheckResult::Proved;
                             }
                             // Syntactic check failed; return NeedsSmt
                             return DecreaseCheckResult::NeedsSmt {
                                 measure_expr: measure_expr.clone(),
-                                call_arg: call_arg.clone(),
+                                call_arg: call_arg.node.clone(),
                             };
                         }
                     }
@@ -483,10 +489,11 @@ impl TotalityChecker {
                             if param.name == *measure_var
                                 && let Some(call_arg) = call_args.get(i)
                             {
-                                if Self::is_strictly_decreasing(measure_expr, call_arg) {
+                                if Self::is_strictly_decreasing(measure_expr, &call_arg.node) {
                                     any_decreases = true;
                                 } else {
-                                    smt_candidates.push((measure_expr.clone(), call_arg.clone()));
+                                    smt_candidates
+                                        .push((measure_expr.clone(), call_arg.node.clone()));
                                 }
                             }
                         }
@@ -517,7 +524,7 @@ impl TotalityChecker {
                 if let Some(arg) = call_args.first() {
                     DecreaseCheckResult::NeedsSmt {
                         measure_expr: wf_expr.clone(),
-                        call_arg: arg.clone(),
+                        call_arg: arg.node.clone(),
                     }
                 } else {
                     DecreaseCheckResult::Proved
@@ -626,7 +633,7 @@ impl TotalityChecker {
         }
 
         // Collect recursive call sites and check each one
-        let mut call_arg_sets: Vec<&[Expr]> = Vec::new();
+        let mut call_arg_sets: Vec<&[SpExpr]> = Vec::new();
         for clause in &fn_def.clauses {
             self.collect_recursive_call_args(&clause.body, &fn_def.name, &mut call_arg_sets);
         }
@@ -645,7 +652,7 @@ impl TotalityChecker {
                             .clauses
                             .iter()
                             .filter(|c| c.kind == ClauseKind::Requires)
-                            .map(|c| c.body.clone())
+                            .map(|c| c.body.node.clone())
                             .collect(),
                         measure_expr,
                         call_arg,
@@ -742,18 +749,18 @@ impl std::fmt::Debug for TotalityChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{Clause, FnDef, Param};
+    use assura_parser::ast::{Clause, FnDef, Param, SpExpr, Spanned};
 
     fn span() -> Range<usize> {
         0..10
     }
 
-    fn ident(s: &str) -> Expr {
-        Expr::Ident(s.to_string())
+    fn ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.to_string()))
     }
 
-    fn int_lit(n: i64) -> Expr {
-        Expr::Literal(Literal::Int(n.to_string()))
+    fn int_lit(n: i64) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Int(n.to_string())))
     }
 
     fn make_param(name: &str, ty: &[&str]) -> Param {
@@ -775,7 +782,7 @@ mod tests {
         }
     }
 
-    fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
+    fn make_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {
             kind,
             body,
@@ -867,19 +874,25 @@ mod tests {
     #[test]
     fn strictly_decreasing_n_minus_1() {
         let measure = ident("n");
-        let call_arg = Expr::BinOp {
+        let call_arg = Spanned::no_span(Expr::BinOp {
             lhs: Box::new(ident("n")),
             op: BinOp::Sub,
             rhs: Box::new(int_lit(1)),
-        };
-        assert!(TotalityChecker::is_strictly_decreasing(&measure, &call_arg));
+        });
+        assert!(TotalityChecker::is_strictly_decreasing(
+            &measure.node,
+            &call_arg.node
+        ));
     }
 
     #[test]
     fn strictly_decreasing_structural_tail() {
         let measure = ident("xs");
-        let call_arg = Expr::Field(Box::new(ident("xs")), "tail".into());
-        assert!(TotalityChecker::is_strictly_decreasing(&measure, &call_arg));
+        let call_arg = Spanned::no_span(Expr::Field(Box::new(ident("xs")), "tail".into()));
+        assert!(TotalityChecker::is_strictly_decreasing(
+            &measure.node,
+            &call_arg.node
+        ));
     }
 
     #[test]
@@ -887,7 +900,8 @@ mod tests {
         let measure = ident("n");
         let call_arg = ident("n");
         assert!(!TotalityChecker::is_strictly_decreasing(
-            &measure, &call_arg
+            &measure.node,
+            &call_arg.node
         ));
     }
 
@@ -896,7 +910,8 @@ mod tests {
         let measure = ident("n");
         let call_arg = ident("m");
         assert!(!TotalityChecker::is_strictly_decreasing(
-            &measure, &call_arg
+            &measure.node,
+            &call_arg.node
         ));
     }
 
@@ -910,11 +925,11 @@ mod tests {
             vec![make_param("a", &["Int"]), make_param("b", &["Int"])],
             vec![make_clause(
                 ClauseKind::Ensures,
-                Expr::BinOp {
+                Spanned::no_span(Expr::BinOp {
                     lhs: Box::new(ident("a")),
                     op: BinOp::Add,
                     rhs: Box::new(ident("b")),
-                },
+                }),
             )],
         );
         let (errs, pending) = checker.check_function_totality(&f, &span());
@@ -930,10 +945,10 @@ mod tests {
             vec![make_param("n", &["Int"])],
             vec![make_clause(
                 ClauseKind::Ensures,
-                Expr::Call {
+                Spanned::no_span(Expr::Call {
                     func: Box::new(ident("loop_fn")),
                     args: vec![ident("n")],
-                },
+                }),
             )],
         );
         let (errs, _) = checker.check_function_totality(&f, &span());
@@ -951,22 +966,22 @@ mod tests {
                 make_clause(ClauseKind::Decreases, ident("n")),
                 make_clause(
                     ClauseKind::Requires,
-                    Expr::BinOp {
+                    Spanned::no_span(Expr::BinOp {
                         lhs: Box::new(ident("n")),
                         op: BinOp::Gte,
                         rhs: Box::new(int_lit(0)),
-                    },
+                    }),
                 ),
                 make_clause(
                     ClauseKind::Ensures,
-                    Expr::Call {
+                    Spanned::no_span(Expr::Call {
                         func: Box::new(ident("fac")),
-                        args: vec![Expr::BinOp {
+                        args: vec![Spanned::no_span(Expr::BinOp {
                             lhs: Box::new(ident("n")),
                             op: BinOp::Sub,
                             rhs: Box::new(int_lit(1)),
-                        }],
-                    },
+                        })],
+                    }),
                 ),
             ],
         );
@@ -984,10 +999,10 @@ mod tests {
             vec![],
             vec![make_clause(
                 ClauseKind::Ensures,
-                Expr::Call {
+                Spanned::no_span(Expr::Call {
                     func: Box::new(ident("diverge")),
                     args: vec![],
-                },
+                }),
             )],
         );
         let (errs, pending) = checker.check_function_totality(&f, &span());
@@ -1005,10 +1020,10 @@ mod tests {
             vec![make_param("n", &["Nat"])],
             vec![make_clause(
                 ClauseKind::Ensures,
-                Expr::Call {
+                Spanned::no_span(Expr::Call {
                     func: Box::new(ident("odd")),
                     args: vec![ident("n")],
-                },
+                }),
             )],
         );
         let g = make_fn(
@@ -1016,10 +1031,10 @@ mod tests {
             vec![make_param("n", &["Nat"])],
             vec![make_clause(
                 ClauseKind::Ensures,
-                Expr::Call {
+                Spanned::no_span(Expr::Call {
                     func: Box::new(ident("even")),
                     args: vec![ident("n")],
-                },
+                }),
             )],
         );
         let errs = checker.check_mutual_recursion(&[(&f, &span()), (&g, &span())]);
@@ -1037,10 +1052,10 @@ mod tests {
                 make_clause(ClauseKind::Decreases, ident("n")),
                 make_clause(
                     ClauseKind::Ensures,
-                    Expr::Call {
+                    Spanned::no_span(Expr::Call {
                         func: Box::new(ident("odd")),
                         args: vec![ident("n")],
-                    },
+                    }),
                 ),
             ],
         );
@@ -1049,10 +1064,10 @@ mod tests {
             vec![make_param("n", &["Nat"])],
             vec![make_clause(
                 ClauseKind::Ensures,
-                Expr::Call {
+                Spanned::no_span(Expr::Call {
                     func: Box::new(ident("even")),
                     args: vec![ident("n")],
-                },
+                }),
             )],
         );
         let errs = checker.check_mutual_recursion(&[(&f, &span()), (&g, &span())]);
@@ -1064,7 +1079,7 @@ mod tests {
     #[test]
     fn well_founded_nat_param() {
         let f = make_fn("f", vec![make_param("n", &["Nat"])], vec![]);
-        assert!(TotalityChecker::is_well_founded(&ident("n"), &f));
+        assert!(TotalityChecker::is_well_founded(&ident("n").node, &f));
     }
 
     #[test]
@@ -1074,25 +1089,25 @@ mod tests {
             vec![make_param("n", &["Int"])],
             vec![make_clause(
                 ClauseKind::Requires,
-                Expr::BinOp {
+                Spanned::no_span(Expr::BinOp {
                     lhs: Box::new(ident("n")),
                     op: BinOp::Gte,
                     rhs: Box::new(int_lit(0)),
-                },
+                }),
             )],
         );
-        assert!(TotalityChecker::is_well_founded(&ident("n"), &f));
+        assert!(TotalityChecker::is_well_founded(&ident("n").node, &f));
     }
 
     #[test]
     fn not_well_founded_unconstrained_int() {
         let f = make_fn("f", vec![make_param("n", &["Int"])], vec![]);
-        assert!(!TotalityChecker::is_well_founded(&ident("n"), &f));
+        assert!(!TotalityChecker::is_well_founded(&ident("n").node, &f));
     }
 
     #[test]
     fn well_founded_structural_type() {
         let f = make_fn("f", vec![make_param("xs", &["List"])], vec![]);
-        assert!(TotalityChecker::is_well_founded(&ident("xs"), &f));
+        assert!(TotalityChecker::is_well_founded(&ident("xs").node, &f));
     }
 }

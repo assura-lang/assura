@@ -22,9 +22,13 @@
 pub use assura_config::SolverChoice;
 
 // Re-export parser/types that sub-modules import via `use super::*;`
+#[cfg(any(feature = "z3-verify", test))]
+pub(crate) use assura_parser::ast::Expr;
 #[cfg(feature = "z3-verify")]
 pub(crate) use assura_parser::ast::ServiceItem;
-pub(crate) use assura_parser::ast::{ClauseKind, Decl, Expr};
+#[cfg(test)]
+pub(crate) use assura_parser::ast::Spanned;
+pub(crate) use assura_parser::ast::{ClauseKind, Decl};
 pub(crate) use assura_types::TypedFile;
 
 // ---------------------------------------------------------------------------
@@ -316,18 +320,18 @@ contract Good {
 #[cfg(test)]
 mod decrease_tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Expr, Literal};
+    use assura_parser::ast::{BinOp, Expr, Literal, SpExpr};
 
     /// Helper: verify_decrease with trivial preconditions.
-    fn check_decrease(measure: &Expr, call_arg: &Expr, desc: &str) -> VerificationResult {
+    fn check_decrease(measure: &SpExpr, call_arg: &SpExpr, desc: &str) -> VerificationResult {
         verify_decrease(&[], measure, call_arg, desc.to_string())
     }
 
     /// Helper: verify_decrease with preconditions.
     fn check_decrease_with_pre(
-        preconditions: &[Expr],
-        measure: &Expr,
-        call_arg: &Expr,
+        preconditions: &[SpExpr],
+        measure: &SpExpr,
+        call_arg: &SpExpr,
         desc: &str,
     ) -> VerificationResult {
         verify_decrease(preconditions, measure, call_arg, desc.to_string())
@@ -338,17 +342,17 @@ mod decrease_tests {
     #[test]
     fn factorial_terminates() {
         // decreases n, call arg = n - 1, precondition: n > 0
-        let measure = Expr::Ident("n".into());
-        let call_arg = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+        let measure = Spanned::no_span(Expr::Ident("n".into()));
+        let call_arg = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Sub,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
-        let pre = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
+        let pre = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
         let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "factorial::decreases");
         assert!(
             matches!(result, VerificationResult::Verified { .. }),
@@ -360,17 +364,17 @@ mod decrease_tests {
 
     #[test]
     fn fibonacci_n_minus_1_terminates() {
-        let measure = Expr::Ident("n".into());
-        let call_arg = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+        let measure = Spanned::no_span(Expr::Ident("n".into()));
+        let call_arg = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Sub,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
-        let pre = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
+        let pre = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
         let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "fib::decreases(n-1)");
         assert!(
             matches!(result, VerificationResult::Verified { .. }),
@@ -380,17 +384,17 @@ mod decrease_tests {
 
     #[test]
     fn fibonacci_n_minus_2_terminates() {
-        let measure = Expr::Ident("n".into());
-        let call_arg = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+        let measure = Spanned::no_span(Expr::Ident("n".into()));
+        let call_arg = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Sub,
-            rhs: Box::new(Expr::Literal(Literal::Int("2".into()))),
-        };
-        let pre = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("2".into())))),
+        });
+        let pre = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
         let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "fib::decreases(n-2)");
         assert!(
             matches!(result, VerificationResult::Verified { .. }),
@@ -403,8 +407,8 @@ mod decrease_tests {
     #[test]
     fn spin_same_arg_does_not_terminate() {
         // decreases n, call arg = n (same, not decreasing)
-        let measure = Expr::Ident("n".into());
-        let call_arg = Expr::Ident("n".into());
+        let measure = Spanned::no_span(Expr::Ident("n".into()));
+        let call_arg = Spanned::no_span(Expr::Ident("n".into()));
         let result = check_decrease(&measure, &call_arg, "spin::decreases");
         assert!(
             !matches!(result, VerificationResult::Verified { .. }),
@@ -416,12 +420,12 @@ mod decrease_tests {
 
     #[test]
     fn increasing_arg_does_not_terminate() {
-        let measure = Expr::Ident("n".into());
-        let call_arg = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+        let measure = Spanned::no_span(Expr::Ident("n".into()));
+        let call_arg = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Add,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
         let result = check_decrease(&measure, &call_arg, "bad::decreases");
         assert!(
             !matches!(result, VerificationResult::Verified { .. }),
@@ -434,17 +438,17 @@ mod decrease_tests {
     #[test]
     fn decrease_with_nat_precondition() {
         // decreases n, call arg = n - 1, precondition: n >= 1
-        let measure = Expr::Ident("n".into());
-        let call_arg = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+        let measure = Spanned::no_span(Expr::Ident("n".into()));
+        let call_arg = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Sub,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
-        let pre = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
+        let pre = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Gte,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
         let result = check_decrease_with_pre(&[pre], &measure, &call_arg, "countdown::decreases");
         assert!(
             matches!(result, VerificationResult::Verified { .. }),
@@ -464,20 +468,20 @@ mod verify_contract_tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];
@@ -494,11 +498,11 @@ mod verify_contract_tests {
         // No requires, ensures x > 0 (counterexample: x = 0)
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         }];
         let results = verify_contract("NoPrecondition", &clauses);
@@ -517,29 +521,29 @@ mod verify_contract_tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("20".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("20".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];
@@ -564,11 +568,11 @@ mod verify_contract_tests {
         // Only requires, no ensures/invariant
         let clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         }];
         let results = verify_contract("OnlyRequires", &clauses);
@@ -586,38 +590,38 @@ mod verify_contract_tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("100".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("100".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];
@@ -653,29 +657,29 @@ mod verify_contract_tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];
@@ -700,31 +704,31 @@ mod verify_contract_tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             // This will have a counterexample (not implied by x > 0)
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+                }),
                 effect_variables: vec![],
             },
             // This MUST still verify (pop must remove negation of x > 10)
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];
@@ -751,19 +755,19 @@ mod quantified_verification_tests {
     #[test]
     fn forall_trivially_true() {
         // forall x in 0..10: x == x (always true)
-        let body = Expr::Forall {
+        let body = Spanned::no_span(Expr::Forall {
             var: "x".into(),
-            domain: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            domain: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 op: BinOp::Range,
-                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-            }),
-            body: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+            })),
+            body: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Eq,
-                rhs: Box::new(Expr::Ident("x".into())),
-            }),
-        };
+                rhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            })),
+        });
         let result = verify_quantified_expr("trivial_forall", &[], &body);
         assert!(
             matches!(result, VerificationResult::Verified { .. }),
@@ -774,19 +778,19 @@ mod quantified_verification_tests {
     #[test]
     fn forall_with_counterexample() {
         // forall x in 0..10: x > 0 (false: x = 0 is a counterexample)
-        let body = Expr::Forall {
+        let body = Spanned::no_span(Expr::Forall {
             var: "x".into(),
-            domain: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            domain: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 op: BinOp::Range,
-                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-            }),
-            body: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+            })),
+            body: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            }),
-        };
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            })),
+        });
         let result = verify_quantified_expr("nonpositive_forall", &[], &body);
         assert!(
             matches!(result, VerificationResult::Counterexample { .. }),
@@ -797,19 +801,19 @@ mod quantified_verification_tests {
     #[test]
     fn exists_trivially_satisfiable() {
         // exists x in 0..100: x > 5 (true: e.g. x = 6)
-        let body = Expr::Exists {
+        let body = Spanned::no_span(Expr::Exists {
             var: "x".into(),
-            domain: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            domain: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 op: BinOp::Range,
-                rhs: Box::new(Expr::Literal(Literal::Int("100".into()))),
-            }),
-            body: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("100".into())))),
+            })),
+            body: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("5".into()))),
-            }),
-        };
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+            })),
+        });
         let result = verify_quantified_expr("trivial_exists", &[], &body);
         assert!(
             matches!(result, VerificationResult::Verified { .. }),
@@ -821,28 +825,28 @@ mod quantified_verification_tests {
     fn forall_with_assumption() {
         // Assumption: n > 0
         // Check: forall x in 0..10: n + x >= x (always true when n > 0)
-        let assumption = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("n".into())),
+        let assumption = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
-        let body = Expr::Forall {
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
+        let body = Spanned::no_span(Expr::Forall {
             var: "x".into(),
-            domain: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+            domain: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 op: BinOp::Range,
-                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-            }),
-            body: Box::new(Expr::BinOp {
-                lhs: Box::new(Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("n".into())),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+            })),
+            body: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
                     op: BinOp::Add,
-                    rhs: Box::new(Expr::Ident("x".into())),
-                }),
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                })),
                 op: BinOp::Gte,
-                rhs: Box::new(Expr::Ident("x".into())),
-            }),
-        };
+                rhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            })),
+        });
         let result = verify_quantified_expr("forall_with_pre", &[assumption], &body);
         assert!(
             matches!(result, VerificationResult::Verified { .. }),
@@ -1181,40 +1185,40 @@ mod cvc5_tests {
     #[test]
     fn cvc5_expr_to_smtlib_literal() {
         use assura_parser::ast::Literal;
-        let e = Expr::Literal(Literal::Int("42".into()));
+        let e = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
         assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("42".to_string()));
 
-        let e = Expr::Literal(Literal::Bool(true));
+        let e = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
         assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("true".to_string()));
 
-        let e = Expr::Literal(Literal::Int("-5".into()));
+        let e = Spanned::no_span(Expr::Literal(Literal::Int("-5".into())));
         assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("(- 5)".to_string()));
     }
 
     #[test]
     fn cvc5_expr_to_smtlib_ident() {
-        let e = Expr::Ident("x".to_string());
+        let e = Spanned::no_span(Expr::Ident("x".to_string()));
         assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("x".to_string()));
     }
 
     #[test]
     fn cvc5_expr_to_smtlib_binop() {
         use assura_parser::ast::{BinOp, Literal};
-        let e = Expr::BinOp {
+        let e = Spanned::no_span(Expr::BinOp {
             op: BinOp::Add,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
         assert_eq!(
             cvc5_backend::expr_to_smtlib(&e),
             Some("(+ x 1)".to_string())
         );
 
-        let e = Expr::BinOp {
+        let e = Spanned::no_span(Expr::BinOp {
             op: BinOp::Neq,
-            lhs: Box::new(Expr::Ident("a".into())),
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
         assert_eq!(
             cvc5_backend::expr_to_smtlib(&e),
             Some("(not (= a 0))".to_string())
@@ -1224,10 +1228,10 @@ mod cvc5_tests {
     #[test]
     fn cvc5_expr_to_smtlib_unary() {
         use assura_parser::ast::UnaryOp;
-        let e = Expr::UnaryOp {
+        let e = Spanned::no_span(Expr::UnaryOp {
             op: UnaryOp::Not,
-            expr: Box::new(Expr::Ident("p".into())),
-        };
+            expr: Box::new(Spanned::no_span(Expr::Ident("p".into()))),
+        });
         assert_eq!(
             cvc5_backend::expr_to_smtlib(&e),
             Some("(not p)".to_string())
@@ -1237,11 +1241,13 @@ mod cvc5_tests {
     #[test]
     fn cvc5_expr_to_smtlib_ite() {
         use assura_parser::ast::Literal;
-        let e = Expr::If {
-            cond: Box::new(Expr::Ident("c".into())),
-            then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
-            else_branch: Some(Box::new(Expr::Literal(Literal::Int("0".into())))),
-        };
+        let e = Spanned::no_span(Expr::If {
+            cond: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+            then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+            else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+                "0".into(),
+            ))))),
+        });
         assert_eq!(
             cvc5_backend::expr_to_smtlib(&e),
             Some("(ite c 1 0)".to_string())
@@ -1250,15 +1256,17 @@ mod cvc5_tests {
 
     #[test]
     fn cvc5_expr_to_smtlib_forall() {
-        let e = Expr::Forall {
+        let e = Spanned::no_span(Expr::Forall {
             var: "i".to_string(),
-            domain: Box::new(Expr::Ident("S".into())),
-            body: Box::new(Expr::BinOp {
+            domain: Box::new(Spanned::no_span(Expr::Ident("S".into()))),
+            body: Box::new(Spanned::no_span(Expr::BinOp {
                 op: assura_parser::ast::BinOp::Gt,
-                lhs: Box::new(Expr::Ident("i".into())),
-                rhs: Box::new(Expr::Literal(assura_parser::ast::Literal::Int("0".into()))),
-            }),
-        };
+                lhs: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(
+                    assura_parser::ast::Literal::Int("0".into()),
+                ))),
+            })),
+        });
         assert_eq!(
             cvc5_backend::expr_to_smtlib(&e),
             Some("(forall ((i Int)) (=> (__domain_contains S i) (> i 0)))".to_string())
@@ -1267,7 +1275,7 @@ mod cvc5_tests {
 
     #[test]
     fn cvc5_expr_to_smtlib_result() {
-        let e = Expr::Ident("result".to_string());
+        let e = Spanned::no_span(Expr::Ident("result".to_string()));
         assert_eq!(
             cvc5_backend::expr_to_smtlib(&e),
             Some("__result".to_string())
@@ -1276,18 +1284,20 @@ mod cvc5_tests {
 
     #[test]
     fn cvc5_expr_to_smtlib_old() {
-        let e = Expr::Old(Box::new(Expr::Ident("x".into())));
+        let e = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+            "x".into(),
+        )))));
         assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("x__old".to_string()));
     }
 
     #[test]
     fn cvc5_collect_vars() {
         use std::collections::HashSet;
-        let e = Expr::BinOp {
+        let e = Spanned::no_span(Expr::BinOp {
             op: assura_parser::ast::BinOp::Add,
-            lhs: Box::new(Expr::Ident("x".into())),
-            rhs: Box::new(Expr::Ident("y".into())),
-        };
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+        });
         let mut vars = HashSet::new();
         cvc5_backend::collect_vars(&e, &mut vars);
         assert!(vars.contains("x"));
@@ -1316,20 +1326,20 @@ mod cvc5_tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
+                body: Spanned::no_span(Expr::BinOp {
                     op: assura_parser::ast::BinOp::Neq,
-                    lhs: Box::new(Expr::Ident("b".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
+                body: Spanned::no_span(Expr::BinOp {
                     op: assura_parser::ast::BinOp::Gt,
-                    lhs: Box::new(Expr::Ident("result".into())),
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];

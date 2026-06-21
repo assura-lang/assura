@@ -28,7 +28,8 @@ pub(crate) fn run_determinism_checks(source: &assura_parser::ast::SourceFile) ->
 
         // Check if the function has a pure effects clause
         let is_pure = clauses.iter().any(|c| {
-            c.kind == ClauseKind::Effects && matches!(&c.body, Expr::Ident(name) if name == "pure")
+            c.kind == ClauseKind::Effects
+                && matches!(&c.body.node, Expr::Ident(name) if name == "pure")
         });
         if !is_pure {
             continue;
@@ -86,7 +87,7 @@ pub(crate) fn run_callback_reentrancy_checks(
                 && (k == "non_reentrant" || k == "callback")
             {
                 found = true;
-                if let Expr::Ident(name) = &clause.body {
+                if let Expr::Ident(name) = &clause.body.node {
                     checker.mark_non_reentrant(name.clone(), decl.span.clone());
                 }
             }
@@ -157,7 +158,7 @@ pub(crate) fn run_callback_reentrancy_checks(
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && k == "non_reentrant"
-                && let Expr::Ident(name) = &clause.body
+                && let Expr::Ident(name) = &clause.body.node
             {
                 nr_targets.push(name.clone());
             }
@@ -215,9 +216,9 @@ pub(crate) fn run_temporal_deadline_checks(
             {
                 found = true;
                 // Extract deadline name and value from expression
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let ms = args
                                 .first()
                                 .and_then(extract_int_literal)

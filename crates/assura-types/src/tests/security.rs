@@ -31,18 +31,18 @@ fn memory_checker_bounds_check_present() {
     let mut checker = MemoryChecker::new();
     checker.register_buffer("buf".into(), "buf.len".into());
 
-    let bounds_expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("offset".into())),
+    let bounds_expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("offset".into()))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("len".into())),
-        }),
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("len".into()))),
+        })),
         op: AstBinOp::Lte,
-        rhs: Box::new(AstExpr::Field(
-            Box::new(AstExpr::Ident("buf".into())),
+        rhs: Box::new(Spanned::no_span(AstExpr::Field(
+            Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
             "len".into(),
-        )),
-    };
+        ))),
+    });
 
     let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
     assert!(result.is_none(), "should detect bounds check");
@@ -55,11 +55,11 @@ fn memory_checker_bounds_check_missing() {
     checker.register_buffer("buf".into(), "buf.len".into());
 
     // A requires clause that does not check buffer bounds
-    let unrelated_expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let unrelated_expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::Gt,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
 
     let result = checker.check_bounds_in_requires("buf", &[&unrelated_expr], &(0..10));
     assert!(result.is_some(), "should detect missing bounds check");
@@ -157,14 +157,14 @@ fn memory_checker_bounds_check_with_capacity() {
     let mut checker = MemoryChecker::new();
     checker.register_buffer("buf".into(), "buf.capacity".into());
 
-    let bounds_expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("idx".into())),
+    let bounds_expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("idx".into()))),
         op: AstBinOp::Lt,
-        rhs: Box::new(AstExpr::Field(
-            Box::new(AstExpr::Ident("buf".into())),
+        rhs: Box::new(Spanned::no_span(AstExpr::Field(
+            Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
             "capacity".into(),
-        )),
-    };
+        ))),
+    });
 
     let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
     assert!(result.is_none(), "should detect capacity bounds check");
@@ -176,26 +176,26 @@ fn memory_checker_bounds_check_in_conjunction() {
     let mut checker = MemoryChecker::new();
     checker.register_buffer("buf".into(), "buf.len".into());
 
-    let bounds_expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("x".into())),
+    let bounds_expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
             op: AstBinOp::Gt,
-            rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-        }),
+            rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+        })),
         op: AstBinOp::And,
-        rhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::BinOp {
-                lhs: Box::new(AstExpr::Ident("offset".into())),
+        rhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+                lhs: Box::new(Spanned::no_span(AstExpr::Ident("offset".into()))),
                 op: AstBinOp::Add,
-                rhs: Box::new(AstExpr::Ident("len".into())),
-            }),
+                rhs: Box::new(Spanned::no_span(AstExpr::Ident("len".into()))),
+            })),
             op: AstBinOp::Lte,
-            rhs: Box::new(AstExpr::Field(
-                Box::new(AstExpr::Ident("buf".into())),
+            rhs: Box::new(Spanned::no_span(AstExpr::Field(
+                Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
                 "len".into(),
-            )),
-        }),
-    };
+            ))),
+        })),
+    });
 
     let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
     assert!(
@@ -217,18 +217,18 @@ fn memory_checker_gte_bounds_check() {
     let mut checker = MemoryChecker::new();
     checker.register_buffer("buf".into(), "buf.len".into());
 
-    let bounds_expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Field(
-            Box::new(AstExpr::Ident("buf".into())),
+    let bounds_expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Field(
+            Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
             "len".into(),
-        )),
+        ))),
         op: AstBinOp::Gte,
-        rhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("offset".into())),
+        rhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("offset".into()))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("len".into())),
-        }),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("len".into()))),
+        })),
+    });
 
     let result = checker.check_bounds_in_requires("buf", &[&bounds_expr], &(0..10));
     assert!(result.is_none(), "should detect buf.len >= expr pattern");
@@ -236,18 +236,18 @@ fn memory_checker_gte_bounds_check() {
 
 #[test]
 fn expr_references_var_basic() {
-    let expr = AstExpr::Ident("buf".into());
+    let expr = Spanned::no_span(AstExpr::Ident("buf".into()));
     assert!(expr_references_var(&expr, "buf"));
     assert!(!expr_references_var(&expr, "other"));
 }
 
 #[test]
 fn expr_references_var_in_binop() {
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("buf".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+    });
     assert!(expr_references_var(&expr, "buf"));
     assert!(!expr_references_var(&expr, "other"));
 }
@@ -320,10 +320,10 @@ fn taint_checker_untrusted_index_a09101() {
     let mut checker = TaintChecker::new();
     checker.declare("idx".into(), TaintLabel::Untrusted);
 
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("buf".into())),
-        index: Box::new(AstExpr::Ident("idx".into())),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Ident("idx".into()))),
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A09101");
@@ -335,10 +335,10 @@ fn taint_checker_validated_index_passes() {
     let mut checker = TaintChecker::new();
     checker.declare("idx".into(), TaintLabel::Validated);
 
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("buf".into())),
-        index: Box::new(AstExpr::Ident("idx".into())),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Ident("idx".into()))),
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert!(errors.is_empty(), "validated index should pass: {errors:?}");
 }
@@ -348,10 +348,10 @@ fn taint_checker_trusted_index_passes() {
     // Trusted (default) data -> no error
     let checker = TaintChecker::new();
 
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("buf".into())),
-        index: Box::new(AstExpr::Ident("idx".into())),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Ident("idx".into()))),
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert!(errors.is_empty(), "trusted index should pass: {errors:?}");
 }
@@ -363,11 +363,11 @@ fn taint_propagation_through_arithmetic() {
     checker.declare("tainted".into(), TaintLabel::Untrusted);
     checker.declare("safe".into(), TaintLabel::Trusted);
 
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("tainted".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("tainted".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("safe".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("safe".into()))),
+    });
     assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
 }
 
@@ -378,11 +378,11 @@ fn taint_propagation_both_untrusted() {
     checker.declare("a".into(), TaintLabel::Untrusted);
     checker.declare("b".into(), TaintLabel::Untrusted);
 
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("a".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("a".into()))),
         op: AstBinOp::Mul,
-        rhs: Box::new(AstExpr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("b".into()))),
+    });
     assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
 }
 
@@ -392,10 +392,10 @@ fn taint_validation_removes_taint() {
     let mut checker = TaintChecker::new();
     checker.declare("raw".into(), TaintLabel::Untrusted);
 
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("validate".into())),
-        args: vec![AstExpr::Ident("raw".into())],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("validate".into()))),
+        args: vec![Spanned::no_span(AstExpr::Ident("raw".into()))],
+    });
     assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
 }
 
@@ -405,10 +405,10 @@ fn taint_checker_alloc_a09102() {
     let mut checker = TaintChecker::new();
     checker.declare("sz".into(), TaintLabel::Untrusted);
 
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("alloc".into())),
-        args: vec![AstExpr::Ident("sz".into())],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("alloc".into()))),
+        args: vec![Spanned::no_span(AstExpr::Ident("sz".into()))],
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A09102");
@@ -421,10 +421,10 @@ fn taint_checker_trusted_sink_a09103() {
     checker.declare("raw_len".into(), TaintLabel::Untrusted);
     checker.register_trusted_sink("memcpy_len".into(), vec![Some(TaintLabel::Validated)]);
 
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("memcpy_len".into())),
-        args: vec![AstExpr::Ident("raw_len".into())],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("memcpy_len".into()))),
+        args: vec![Spanned::no_span(AstExpr::Ident("raw_len".into()))],
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A09103");
@@ -437,10 +437,10 @@ fn taint_checker_validated_at_sink_passes() {
     checker.declare("safe_len".into(), TaintLabel::Validated);
     checker.register_trusted_sink("memcpy_len".into(), vec![Some(TaintLabel::Validated)]);
 
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("memcpy_len".into())),
-        args: vec![AstExpr::Ident("safe_len".into())],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("memcpy_len".into()))),
+        args: vec![Spanned::no_span(AstExpr::Ident("safe_len".into()))],
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert!(errors.is_empty(), "validated data at sink should pass");
 }
@@ -448,7 +448,7 @@ fn taint_checker_validated_at_sink_passes() {
 #[test]
 fn taint_infer_literal_trusted() {
     let checker = TaintChecker::new();
-    let expr = AstExpr::Literal(AstLit::Int("42".into()));
+    let expr = Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())));
     assert_eq!(checker.infer_taint(&expr), TaintLabel::Trusted);
 }
 
@@ -456,7 +456,7 @@ fn taint_infer_literal_trusted() {
 fn taint_infer_unknown_var_trusted() {
     // Undeclared variables default to Trusted
     let checker = TaintChecker::new();
-    let expr = AstExpr::Ident("x".into());
+    let expr = Spanned::no_span(AstExpr::Ident("x".into()));
     assert_eq!(checker.infer_taint(&expr), TaintLabel::Trusted);
 }
 
@@ -466,15 +466,15 @@ fn taint_checker_nested_index_propagation() {
     let mut checker = TaintChecker::new();
     checker.declare("offset".into(), TaintLabel::Untrusted);
 
-    let index_expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("offset".into())),
+    let index_expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("offset".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-    };
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("buf".into())),
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+    });
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
         index: Box::new(index_expr),
-    };
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A09101");
@@ -524,11 +524,11 @@ fn dep_type_nat_arithmetic_valid() {
     let mut checker = DependentTypeChecker::new();
     checker.bind_index("n".into(), DepIndex::Nat("n".into()));
     // n + 1 is a valid Nat expression
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("n".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+    });
     let errors = checker.check_index_expr(&expr, &DepIndex::Nat("n".into()), &(0..1));
     assert!(errors.is_empty(), "n + 1 should be valid Nat arithmetic");
 }
@@ -538,11 +538,11 @@ fn dep_type_bool_arithmetic_rejected() {
     let mut checker = DependentTypeChecker::new();
     checker.bind_index("flag".into(), DepIndex::Bool("flag".into()));
     // flag + 1 is NOT valid for a Bool index
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("flag".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("flag".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+    });
     let errors = checker.check_index_expr(&expr, &DepIndex::Bool("flag".into()), &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A03008");
@@ -559,7 +559,7 @@ fn dep_type_enum_variant_valid() {
             enum_type: "Mode".into(),
         },
     );
-    let expr = AstExpr::Ident("Read".into());
+    let expr = Spanned::no_span(AstExpr::Ident("Read".into()));
     let idx = DepIndex::Enum {
         name: "m".into(),
         enum_type: "Mode".into(),
@@ -619,7 +619,7 @@ fn dep_type_equality_index_count_mismatch() {
 fn dep_type_index_erasure_ghost_ok() {
     let mut checker = DependentTypeChecker::new();
     checker.bind_index("n".into(), DepIndex::Nat("n".into()));
-    let expr = AstExpr::Ident("n".into());
+    let expr = Spanned::no_span(AstExpr::Ident("n".into()));
     let errors = checker.check_index_erasure(&expr, true, &(0..1));
     assert!(errors.is_empty(), "index in ghost context is ok");
 }
@@ -628,7 +628,7 @@ fn dep_type_index_erasure_ghost_ok() {
 fn dep_type_index_erasure_runtime_error() {
     let mut checker = DependentTypeChecker::new();
     checker.bind_index("n".into(), DepIndex::Nat("n".into()));
-    let expr = AstExpr::Ident("n".into());
+    let expr = Spanned::no_span(AstExpr::Ident("n".into()));
     let errors = checker.check_index_erasure(&expr, false, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A03012");
@@ -968,11 +968,11 @@ fn interface_unknown_interface_a13001() {
 fn ct_branch_on_secret_a14001() {
     let mut checker = ConstantTimeChecker::new();
     checker.mark_secret("key".into());
-    let cond = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("key".into())),
+    let cond = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("key".into()))),
         op: AstBinOp::Eq,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     let errors = checker.check_branch(&cond, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A14001");
@@ -982,7 +982,7 @@ fn ct_branch_on_secret_a14001() {
 fn ct_branch_on_public_ok() {
     let mut checker = ConstantTimeChecker::new();
     checker.mark_secret("key".into());
-    let cond = AstExpr::Ident("public_val".into());
+    let cond = Spanned::no_span(AstExpr::Ident("public_val".into()));
     let errors = checker.check_branch(&cond, &(0..1));
     assert!(errors.is_empty());
 }
@@ -991,7 +991,7 @@ fn ct_branch_on_public_ok() {
 fn ct_index_on_secret_a14002() {
     let mut checker = ConstantTimeChecker::new();
     checker.mark_secret("secret_idx".into());
-    let idx = AstExpr::Ident("secret_idx".into());
+    let idx = Spanned::no_span(AstExpr::Ident("secret_idx".into()));
     let errors = checker.check_index(&idx, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A14002");
@@ -1000,7 +1000,7 @@ fn ct_index_on_secret_a14002() {
 #[test]
 fn ct_index_on_public_ok() {
     let checker = ConstantTimeChecker::new();
-    let idx = AstExpr::Ident("i".into());
+    let idx = Spanned::no_span(AstExpr::Ident("i".into()));
     let errors = checker.check_index(&idx, &(0..1));
     assert!(errors.is_empty());
 }
@@ -1010,15 +1010,15 @@ fn ct_nested_secret_in_condition() {
     let mut checker = ConstantTimeChecker::new();
     checker.mark_secret("password".into());
     // password + 1 == 42
-    let cond = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("password".into())),
+    let cond = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("password".into()))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-        }),
+            rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+        })),
         op: AstBinOp::Eq,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())))),
+    });
     let errors = checker.check_branch(&cond, &(0..1));
     assert_eq!(errors.len(), 1);
 }
@@ -1027,11 +1027,13 @@ fn ct_nested_secret_in_condition() {
 fn ct_check_expr_if_with_secret() {
     let mut checker = ConstantTimeChecker::new();
     checker.mark_secret("s".into());
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Ident("s".into())),
-        then_branch: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-        else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("0".into())))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Ident("s".into()))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int(
+            "0".into(),
+        ))))),
+    });
     let errors = checker.check_expr(&expr, &(0..1));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A14001");
@@ -1041,7 +1043,10 @@ fn ct_check_expr_if_with_secret() {
 fn ct_references_secret_field() {
     let mut checker = ConstantTimeChecker::new();
     checker.mark_secret("key".into());
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("key".into())), "len".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("key".into()))),
+        "len".into(),
+    ));
     assert!(checker.references_secret(&expr));
 }
 
@@ -1633,11 +1638,11 @@ fn info_flow_label_propagation_binary() {
     checker.declare("secret".into(), SecurityLabel::Confidential);
     checker.declare("pub_val".into(), SecurityLabel::Public);
 
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("secret".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("secret".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("pub_val".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("pub_val".into()))),
+    });
     assert_eq!(checker.infer_label(&expr), SecurityLabel::Confidential);
 }
 
@@ -1648,11 +1653,11 @@ fn info_flow_label_propagation_both_restricted() {
     checker.declare("a".into(), SecurityLabel::Restricted);
     checker.declare("b".into(), SecurityLabel::Restricted);
 
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("a".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("a".into()))),
         op: AstBinOp::Mul,
-        rhs: Box::new(AstExpr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("b".into()))),
+    });
     assert_eq!(checker.infer_label(&expr), SecurityLabel::Restricted);
 }
 
@@ -1660,7 +1665,7 @@ fn info_flow_label_propagation_both_restricted() {
 fn info_flow_infer_literal_public() {
     // Literals are always Public
     let checker = InfoFlowChecker::new();
-    let expr = AstExpr::Literal(AstLit::Int("42".into()));
+    let expr = Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())));
     assert_eq!(checker.infer_label(&expr), SecurityLabel::Public);
 }
 
@@ -1668,7 +1673,7 @@ fn info_flow_infer_literal_public() {
 fn info_flow_infer_unknown_var_public() {
     // Undeclared variables default to Public
     let checker = InfoFlowChecker::new();
-    let expr = AstExpr::Ident("x".into());
+    let expr = Spanned::no_span(AstExpr::Ident("x".into()));
     assert_eq!(checker.infer_label(&expr), SecurityLabel::Public);
 }
 
@@ -1752,16 +1757,16 @@ fn info_flow_label_propagation_nested() {
     checker.declare("conf".into(), SecurityLabel::Confidential);
     checker.declare("restr".into(), SecurityLabel::Restricted);
 
-    let inner = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("pub_val".into())),
+    let inner = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("pub_val".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("conf".into())),
-    };
-    let outer = AstExpr::BinOp {
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("conf".into()))),
+    });
+    let outer = Spanned::no_span(AstExpr::BinOp {
         lhs: Box::new(inner),
         op: AstBinOp::Mul,
-        rhs: Box::new(AstExpr::Ident("restr".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("restr".into()))),
+    });
     assert_eq!(checker.infer_label(&outer), SecurityLabel::Restricted);
 }
 
@@ -1770,7 +1775,10 @@ fn info_flow_label_field_access() {
     // Field access propagates receiver label
     let mut checker = InfoFlowChecker::new();
     checker.declare("secret_obj".into(), SecurityLabel::Confidential);
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("secret_obj".into())), "name".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("secret_obj".into()))),
+        "name".into(),
+    ));
     assert_eq!(checker.infer_label(&expr), SecurityLabel::Confidential);
 }
 
@@ -1781,14 +1789,16 @@ fn info_flow_check_expr_if_covert_channel() {
     let mut checker = InfoFlowChecker::new();
     checker.declare("is_admin".into(), SecurityLabel::Confidential);
 
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Ident("is_admin".into())),
-        then_branch: Box::new(AstExpr::Call {
-            func: Box::new(AstExpr::Ident("sleep".into())),
-            args: vec![AstExpr::Literal(AstLit::Int("100".into()))],
-        }),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Ident("is_admin".into()))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Call {
+            func: Box::new(Spanned::no_span(AstExpr::Ident("sleep".into()))),
+            args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int(
+                "100".into(),
+            )))],
+        })),
         else_branch: None,
-    };
+    });
     let errors = checker.check_expr(&expr, &(0..10));
     let has_a08005 = errors.iter().any(|e| e.code == "A08005");
     assert!(
@@ -1840,11 +1850,11 @@ fn info_flow_multiple_variables_mixed_levels() {
     );
     // Verify inferred labels
     assert_eq!(
-        checker.infer_label(&AstExpr::Ident("pub_data".into())),
+        checker.infer_label(&Spanned::no_span(AstExpr::Ident("pub_data".into()))),
         SecurityLabel::Public
     );
     assert_eq!(
-        checker.infer_label(&AstExpr::Ident("restr_data".into())),
+        checker.infer_label(&Spanned::no_span(AstExpr::Ident("restr_data".into()))),
         SecurityLabel::Restricted
     );
 }
@@ -1878,7 +1888,7 @@ fn make_fn_def(name: &str, params: Vec<(&str, &[&str])>, clauses: Vec<AstClause>
     }
 }
 
-fn decreases_clause(body: AstExpr) -> AstClause {
+fn decreases_clause(body: SpExpr) -> AstClause {
     AstClause {
         kind: ClauseKind::Other("decreases".into()),
         body,
@@ -1886,7 +1896,7 @@ fn decreases_clause(body: AstExpr) -> AstClause {
     }
 }
 
-fn requires_clause(body: AstExpr) -> AstClause {
+fn requires_clause(body: SpExpr) -> AstClause {
     AstClause {
         kind: ClauseKind::Requires,
         body,
@@ -1897,18 +1907,18 @@ fn requires_clause(body: AstExpr) -> AstClause {
 fn partial_clause() -> AstClause {
     AstClause {
         kind: ClauseKind::Other("partial".into()),
-        body: AstExpr::Literal(AstLit::Bool(true)),
+        body: Spanned::no_span(AstExpr::Literal(AstLit::Bool(true))),
         effect_variables: vec![],
     }
 }
 
-fn ensures_with_recursive_call(fn_name: &str, args: Vec<AstExpr>) -> AstClause {
+fn ensures_with_recursive_call(fn_name: &str, args: Vec<SpExpr>) -> AstClause {
     AstClause {
         kind: ClauseKind::Ensures,
-        body: AstExpr::Call {
-            func: Box::new(AstExpr::Ident(fn_name.into())),
+        body: Spanned::no_span(AstExpr::Call {
+            func: Box::new(Spanned::no_span(AstExpr::Ident(fn_name.into()))),
             args,
-        },
+        }),
         effect_variables: vec![],
     }
 }
@@ -1932,14 +1942,14 @@ fn totality_recursive_with_valid_decreases() {
         "factorial",
         vec![("n", &["Nat"])],
         vec![
-            decreases_clause(AstExpr::Ident("n".into())),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("n".into()))),
             ensures_with_recursive_call(
                 "factorial",
-                vec![AstExpr::BinOp {
-                    lhs: Box::new(AstExpr::Ident("n".into())),
+                vec![Spanned::no_span(AstExpr::BinOp {
+                    lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                     op: AstBinOp::Sub,
-                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-                }],
+                    rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+                })],
             ),
         ],
     );
@@ -1959,7 +1969,7 @@ fn totality_recursive_without_decreases_a09001() {
         vec![("n", &["Int"])],
         vec![ensures_with_recursive_call(
             "loop_forever",
-            vec![AstExpr::Ident("n".into())],
+            vec![Spanned::no_span(AstExpr::Ident("n".into()))],
         )],
     );
     let checker = TotalityChecker::new();
@@ -1977,8 +1987,8 @@ fn totality_non_decreasing_measure_deferred_to_smt() {
         "spin",
         vec![("n", &["Nat"])],
         vec![
-            decreases_clause(AstExpr::Ident("n".into())),
-            ensures_with_recursive_call("spin", vec![AstExpr::Ident("n".into())]),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("n".into()))),
+            ensures_with_recursive_call("spin", vec![Spanned::no_span(AstExpr::Ident("n".into()))]),
         ],
     );
     let checker = TotalityChecker::new();
@@ -2003,14 +2013,14 @@ fn totality_measure_not_well_founded_a09003() {
         "bad_rec",
         vec![("n", &["Int"])],
         vec![
-            decreases_clause(AstExpr::Ident("n".into())),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("n".into()))),
             ensures_with_recursive_call(
                 "bad_rec",
-                vec![AstExpr::BinOp {
-                    lhs: Box::new(AstExpr::Ident("n".into())),
+                vec![Spanned::no_span(AstExpr::BinOp {
+                    lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                     op: AstBinOp::Sub,
-                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-                }],
+                    rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+                })],
             ),
         ],
     );
@@ -2029,19 +2039,19 @@ fn totality_well_founded_with_requires_clause() {
         "count_down",
         vec![("n", &["Int"])],
         vec![
-            requires_clause(AstExpr::BinOp {
-                lhs: Box::new(AstExpr::Ident("n".into())),
+            requires_clause(Spanned::no_span(AstExpr::BinOp {
+                lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                 op: AstBinOp::Gte,
-                rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-            }),
-            decreases_clause(AstExpr::Ident("n".into())),
+                rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+            })),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("n".into()))),
             ensures_with_recursive_call(
                 "count_down",
-                vec![AstExpr::BinOp {
-                    lhs: Box::new(AstExpr::Ident("n".into())),
+                vec![Spanned::no_span(AstExpr::BinOp {
+                    lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                     op: AstBinOp::Sub,
-                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-                }],
+                    rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+                })],
             ),
         ],
     );
@@ -2061,7 +2071,10 @@ fn totality_partial_escape_hatch() {
         vec![("n", &["Int"])],
         vec![
             partial_clause(),
-            ensures_with_recursive_call("diverge", vec![AstExpr::Ident("n".into())]),
+            ensures_with_recursive_call(
+                "diverge",
+                vec![Spanned::no_span(AstExpr::Ident("n".into()))],
+            ),
         ],
     );
     let checker = TotalityChecker::new();
@@ -2080,7 +2093,7 @@ fn totality_partial_via_register() {
         vec![("n", &["Int"])],
         vec![ensures_with_recursive_call(
             "diverge2",
-            vec![AstExpr::Ident("n".into())],
+            vec![Spanned::no_span(AstExpr::Ident("n".into()))],
         )],
     );
     let mut checker = TotalityChecker::new();
@@ -2096,17 +2109,17 @@ fn totality_lexicographic_measures() {
         "ack",
         vec![("m", &["Nat"]), ("n", &["Nat"])],
         vec![
-            decreases_clause(AstExpr::Ident("m".into())),
-            decreases_clause(AstExpr::Ident("n".into())),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("m".into()))),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("n".into()))),
             ensures_with_recursive_call(
                 "ack",
                 vec![
-                    AstExpr::BinOp {
-                        lhs: Box::new(AstExpr::Ident("m".into())),
+                    Spanned::no_span(AstExpr::BinOp {
+                        lhs: Box::new(Spanned::no_span(AstExpr::Ident("m".into()))),
                         op: AstBinOp::Sub,
-                        rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-                    },
-                    AstExpr::Ident("n".into()),
+                        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+                    }),
+                    Spanned::no_span(AstExpr::Ident("n".into())),
                 ],
             ),
         ],
@@ -2127,11 +2140,11 @@ fn totality_mutual_recursion_no_decreases_a09004() {
         vec![("n", &["Nat"])],
         vec![ensures_with_recursive_call(
             "odd",
-            vec![AstExpr::BinOp {
-                lhs: Box::new(AstExpr::Ident("n".into())),
+            vec![Spanned::no_span(AstExpr::BinOp {
+                lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                 op: AstBinOp::Sub,
-                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-            }],
+                rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+            })],
         )],
     );
     let fn_b = make_fn_def(
@@ -2139,11 +2152,11 @@ fn totality_mutual_recursion_no_decreases_a09004() {
         vec![("n", &["Nat"])],
         vec![ensures_with_recursive_call(
             "even",
-            vec![AstExpr::BinOp {
-                lhs: Box::new(AstExpr::Ident("n".into())),
+            vec![Spanned::no_span(AstExpr::BinOp {
+                lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                 op: AstBinOp::Sub,
-                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-            }],
+                rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+            })],
         )],
     );
 
@@ -2165,14 +2178,14 @@ fn totality_mutual_recursion_with_decreases_passes() {
         "even2",
         vec![("n", &["Nat"])],
         vec![
-            decreases_clause(AstExpr::Ident("n".into())),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("n".into()))),
             ensures_with_recursive_call(
                 "odd2",
-                vec![AstExpr::BinOp {
-                    lhs: Box::new(AstExpr::Ident("n".into())),
+                vec![Spanned::no_span(AstExpr::BinOp {
+                    lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                     op: AstBinOp::Sub,
-                    rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-                }],
+                    rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+                })],
             ),
         ],
     );
@@ -2181,11 +2194,11 @@ fn totality_mutual_recursion_with_decreases_passes() {
         vec![("n", &["Nat"])],
         vec![ensures_with_recursive_call(
             "even2",
-            vec![AstExpr::BinOp {
-                lhs: Box::new(AstExpr::Ident("n".into())),
+            vec![Spanned::no_span(AstExpr::BinOp {
+                lhs: Box::new(Spanned::no_span(AstExpr::Ident("n".into()))),
                 op: AstBinOp::Sub,
-                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-            }],
+                rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+            })],
         )],
     );
 
@@ -2207,13 +2220,13 @@ fn totality_structural_recursion_on_list() {
         "list_len",
         vec![("xs", &["List"])],
         vec![
-            decreases_clause(AstExpr::Ident("xs".into())),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("xs".into()))),
             ensures_with_recursive_call(
                 "list_len",
-                vec![AstExpr::Field(
-                    Box::new(AstExpr::Ident("xs".into())),
+                vec![Spanned::no_span(AstExpr::Field(
+                    Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
                     "tail".into(),
-                )],
+                ))],
             ),
         ],
     );
@@ -2232,13 +2245,13 @@ fn totality_structural_recursion_on_tree() {
         "tree_depth",
         vec![("node", &["Tree"])],
         vec![
-            decreases_clause(AstExpr::Ident("node".into())),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("node".into()))),
             ensures_with_recursive_call(
                 "tree_depth",
-                vec![AstExpr::Field(
-                    Box::new(AstExpr::Ident("node".into())),
+                vec![Spanned::no_span(AstExpr::Field(
+                    Box::new(Spanned::no_span(AstExpr::Ident("node".into()))),
                     "left".into(),
-                )],
+                ))],
             ),
         ],
     );
@@ -2262,7 +2275,9 @@ fn totality_extract_single_decreases() {
     let fn_def = make_fn_def(
         "f",
         vec![("n", &["Nat"])],
-        vec![decreases_clause(AstExpr::Ident("n".into()))],
+        vec![decreases_clause(Spanned::no_span(AstExpr::Ident(
+            "n".into(),
+        )))],
     );
     let checker = TotalityChecker::new();
     let measure = checker.extract_decreases_measure(&fn_def);
@@ -2278,8 +2293,8 @@ fn totality_extract_lexicographic_decreases() {
         "f",
         vec![("m", &["Nat"]), ("n", &["Nat"])],
         vec![
-            decreases_clause(AstExpr::Ident("m".into())),
-            decreases_clause(AstExpr::Ident("n".into())),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("m".into()))),
+            decreases_clause(Spanned::no_span(AstExpr::Ident("n".into()))),
         ],
     );
     let checker = TotalityChecker::new();

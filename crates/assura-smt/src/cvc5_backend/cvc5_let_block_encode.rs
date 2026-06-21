@@ -1,18 +1,18 @@
 //! Shared Let and Block encoding for CVC5 shell-out and native backends.
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::SpExpr;
 
 use crate::cvc5_common::sanitize_smtlib_name;
 
 /// Encode `let name = value in body` as SMT-LIB2 `(let ((v val)) body)`.
 pub(crate) fn encode_let_smtlib<F>(
     name: &str,
-    value: &Expr,
-    body: &Expr,
+    value: &SpExpr,
+    body: &SpExpr,
     mut encode: F,
 ) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
 {
     let v = sanitize_smtlib_name(name);
     let val = encode(value)?;
@@ -21,9 +21,9 @@ where
 }
 
 /// Encode a block as its last expression (SMT-LIB has no block form).
-pub(crate) fn encode_block_smtlib<F>(body: &[Expr], mut encode: F) -> Option<String>
+pub(crate) fn encode_block_smtlib<F>(body: &[SpExpr], mut encode: F) -> Option<String>
 where
-    F: FnMut(&Expr) -> Option<String>,
+    F: FnMut(&SpExpr) -> Option<String>,
 {
     if body.is_empty() {
         return Some("true".to_string());
@@ -35,15 +35,15 @@ where
 pub(crate) fn encode_let_cvc5<'a, F>(
     _tm: &'a cvc5::TermManager,
     name: &str,
-    value: &Expr,
-    body: &Expr,
+    value: &SpExpr,
+    body: &SpExpr,
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     mut encode: F,
 ) -> Option<cvc5::Term<'a>>
 where
     F: FnMut(
-        &Expr,
+        &SpExpr,
         &mut std::collections::HashMap<String, cvc5::Term<'a>>,
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
@@ -58,14 +58,14 @@ where
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_block_cvc5<'a, F>(
     tm: &'a cvc5::TermManager,
-    body: &[Expr],
+    body: &[SpExpr],
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     mut encode: F,
 ) -> Option<cvc5::Term<'a>>
 where
     F: FnMut(
-        &Expr,
+        &SpExpr,
         &mut std::collections::HashMap<String, cvc5::Term<'a>>,
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
@@ -82,16 +82,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use assura_parser::ast::{Expr, Literal};
+    use assura_parser::ast::{Expr, Literal, Spanned};
 
     use super::*;
 
-    fn ident(name: &str) -> Expr {
-        Expr::Ident(name.to_string())
+    fn ident(name: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(name.to_string()))
     }
 
-    fn encode_simple(expr: &Expr) -> Option<String> {
-        match expr {
+    fn encode_simple(expr: &SpExpr) -> Option<String> {
+        match &expr.node {
             Expr::Ident(name) => Some(sanitize_smtlib_name(name)),
             Expr::Literal(Literal::Int(n)) => Some(n.clone()),
             _ => None,
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn let_smtlib_binds_name() {
         let body = ident("x");
-        let value = Expr::Literal(Literal::Int("1".into()));
+        let value = Spanned::no_span(Expr::Literal(Literal::Int("1".into())));
         assert_eq!(
             encode_let_smtlib("x", &value, &body, encode_simple),
             Some("(let ((x 1)) x)".into())
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn block_smtlib_empty_is_true() {
         assert_eq!(
-            encode_block_smtlib(&[] as &[Expr], encode_simple),
+            encode_block_smtlib(&[] as &[SpExpr], encode_simple),
             Some("true".into())
         );
     }

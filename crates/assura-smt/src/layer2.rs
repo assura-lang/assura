@@ -1,4 +1,5 @@
 use super::*;
+use assura_parser::ast::SpExpr;
 
 // ===========================================================================
 // T076: Layer 2 SMT encoding
@@ -589,8 +590,8 @@ fn parse_int_expr(expr: &str, vars: &[(String, z3::ast::Int)]) -> Option<z3::ast
 /// Layer 2 uses a 10s timeout (vs 1s for Layer 1).
 pub fn verify_quantified_expr(
     name: &str,
-    assumptions: &[Expr],
-    quantified_body: &Expr,
+    assumptions: &[SpExpr],
+    quantified_body: &SpExpr,
 ) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
     {

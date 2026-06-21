@@ -314,15 +314,15 @@ impl LinearContext {
 /// Returns errors for:
 /// - A05004: linear variable used inconsistently across branches
 /// - A05005: linear variable escapes its scope
-pub(crate) fn check_expr_linearity(expr: &Expr, ctx: &mut LinearContext) -> Vec<TypeError> {
+pub(crate) fn check_expr_linearity(expr: &SpExpr, ctx: &mut LinearContext) -> Vec<TypeError> {
     let mut errors = Vec::new();
     check_expr_linearity_inner(expr, ctx, &mut errors);
     errors
 }
 
 /// Inner recursive walker for `check_expr_linearity`.
-fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut Vec<TypeError>) {
-    match expr {
+fn check_expr_linearity_inner(expr: &SpExpr, ctx: &mut LinearContext, errors: &mut Vec<TypeError>) {
+    match &expr.node {
         Expr::Ident(name) => {
             ctx.use_var(name);
         }
@@ -455,17 +455,18 @@ fn check_expr_linearity_inner(expr: &Expr, ctx: &mut LinearContext, errors: &mut
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
     fn span() -> Range<usize> {
         0..10
     }
 
-    fn ident(s: &str) -> Expr {
-        Expr::Ident(s.to_string())
+    fn ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.to_string()))
     }
 
-    fn int_lit(n: i64) -> Expr {
-        Expr::Literal(Literal::Int(n.to_string()))
+    fn int_lit(n: i64) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Int(n.to_string())))
     }
 
     // ---- UsageTracker ----
@@ -656,11 +657,11 @@ mod tests {
         let mut t = UsageTracker::new();
         t.declare("x".into(), UsageGrade::Linear, span());
         let mut ctx = LinearContext::new(t);
-        let expr = Expr::If {
-            cond: Box::new(Expr::Literal(Literal::Bool(true))),
+        let expr = Spanned::no_span(Expr::If {
+            cond: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
             then_branch: Box::new(ident("x")),
             else_branch: Some(Box::new(ident("x"))),
-        };
+        });
         let errs = check_expr_linearity(&expr, &mut ctx);
         assert!(errs.is_empty()); // Used in both branches
     }
@@ -670,11 +671,11 @@ mod tests {
         let mut t = UsageTracker::new();
         t.declare("x".into(), UsageGrade::Linear, span());
         let mut ctx = LinearContext::new(t);
-        let expr = Expr::If {
-            cond: Box::new(Expr::Literal(Literal::Bool(true))),
+        let expr = Spanned::no_span(Expr::If {
+            cond: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
             then_branch: Box::new(ident("x")),
             else_branch: Some(Box::new(int_lit(0))),
-        };
+        });
         let errs = check_expr_linearity(&expr, &mut ctx);
         assert!(!errs.is_empty());
         assert!(errs.iter().any(|e| e.code.as_ref() == "A05004"));
@@ -685,7 +686,7 @@ mod tests {
         let mut t = UsageTracker::new();
         t.declare("x".into(), UsageGrade::Linear, span());
         let mut ctx = LinearContext::new(t);
-        let expr = Expr::Old(Box::new(ident("x")));
+        let expr = Spanned::no_span(Expr::Old(Box::new(ident("x"))));
         let errs = check_expr_linearity(&expr, &mut ctx);
         assert!(errs.is_empty());
         assert_eq!(ctx.get_count("x"), Some(0)); // old() is ghost, not counted
@@ -696,7 +697,7 @@ mod tests {
         let mut t = UsageTracker::new();
         t.declare("x".into(), UsageGrade::Linear, span());
         let mut ctx = LinearContext::new(t);
-        let expr = Expr::Ghost(Box::new(ident("x")));
+        let expr = Spanned::no_span(Expr::Ghost(Box::new(ident("x"))));
         let errs = check_expr_linearity(&expr, &mut ctx);
         assert!(errs.is_empty());
         assert_eq!(ctx.get_count("x"), Some(0));
@@ -707,11 +708,11 @@ mod tests {
         let mut t = UsageTracker::new();
         t.declare("x".into(), UsageGrade::Linear, span());
         let mut ctx = LinearContext::new(t);
-        let expr = Expr::Forall {
+        let expr = Spanned::no_span(Expr::Forall {
             var: "i".into(),
             domain: Box::new(ident("x")),
-            body: Box::new(Expr::Literal(Literal::Bool(true))),
-        };
+            body: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+        });
         let errs = check_expr_linearity(&expr, &mut ctx);
         assert!(errs.is_empty());
         assert_eq!(ctx.get_count("x"), Some(0));

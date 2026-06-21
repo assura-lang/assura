@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use assura_parser::ast::{ClauseKind, Expr};
+use assura_parser::ast::{ClauseKind, Expr, SpExpr};
 
 use crate::TypeError;
 
@@ -27,8 +27,8 @@ fn extract_fn_effects(f: &assura_parser::ast::FnDef) -> Option<Vec<String>> {
 }
 
 /// Recursively extract effect name strings from an expression.
-fn extract_effect_names(expr: &Expr, names: &mut Vec<String>) {
-    match expr {
+fn extract_effect_names(expr: &SpExpr, names: &mut Vec<String>) {
+    match &expr.node {
         Expr::Ident(s) => names.push(s.clone()),
         Expr::Raw(tokens) => {
             for tok in tokens {

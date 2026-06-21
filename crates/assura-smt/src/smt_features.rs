@@ -7,12 +7,14 @@
 
 #[cfg(feature = "z3-verify")]
 use crate::ClauseKind;
+#[cfg(any(feature = "z3-verify", test))]
+use crate::Expr;
+use crate::VerificationResult;
 #[cfg(feature = "z3-verify")]
 use crate::z3_backend::encoder::{Encoder, expr_has_unmodelable_features};
 #[cfg(feature = "z3-verify")]
 use crate::z3_backend::solver::check_validity;
-use crate::{Expr, VerificationResult};
-use assura_parser::ast::Clause;
+use assura_parser::ast::{Clause, SpExpr};
 #[cfg(feature = "z3-verify")]
 use z3::Solver;
 
@@ -33,7 +35,7 @@ use z3::Solver;
 fn verify_feature_body(
     parent_name: &str,
     feature_label: &str,
-    _body: &Expr,
+    _body: &SpExpr,
     _sibling_clauses: &[Clause],
 ) -> VerificationResult {
     #[cfg(feature = "cvc5-verify")]
@@ -63,7 +65,7 @@ fn verify_feature_body(
 fn verify_feature_body(
     parent_name: &str,
     feature_label: &str,
-    body: &Expr,
+    body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> VerificationResult {
     let desc = format!("{parent_name}: {feature_label}");
@@ -80,7 +82,8 @@ fn verify_feature_body(
     // (e.g., `incremental InflateDecoder`). These are type/declaration
     // references, not boolean predicates. Sending them to Z3 creates an
     // unconstrained variable that trivially produces counterexamples.
-    if matches!(body, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
         return VerificationResult::Unknown {
             clause_desc: desc,
             reason: format!("{feature_label} not yet encoded in SMT"),
@@ -170,7 +173,7 @@ pub fn verify_opaque_contract(name: &str, has_ensures: bool) -> VerificationResu
 #[cfg(not(feature = "z3-verify"))]
 pub fn verify_structural_invariant_inductive(
     parent_name: &str,
-    _body: &Expr,
+    _body: &SpExpr,
     _sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
     #[cfg(feature = "cvc5-verify")]
@@ -198,7 +201,7 @@ pub fn verify_structural_invariant_inductive(
 #[cfg(feature = "z3-verify")]
 pub fn verify_structural_invariant_inductive(
     parent_name: &str,
-    body: &Expr,
+    body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
     let mut all_results = Vec::new();
@@ -213,7 +216,8 @@ pub fn verify_structural_invariant_inductive(
     }
 
     // Skip bare uppercase identifier bodies (declarative references, not predicates)
-    if matches!(body, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
         all_results.push(VerificationResult::Unknown {
             clause_desc: format!("{parent_name}: structural_invariant"),
             reason: "structural_invariant not yet encoded in SMT".into(),
@@ -323,7 +327,7 @@ pub fn verify_structural_invariant_inductive(
 pub fn verify_feature_clause(
     clause_kind: &str,
     parent_name: &str,
-    body: &Expr,
+    body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
     use assura_parser::features::Feature;
@@ -586,6 +590,14 @@ pub fn verify_feature_clause(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
+
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
+    }
+    fn spb(e: Expr) -> Box<SpExpr> {
+        Box::new(sp(e))
+    }
 
     #[test]
     fn opaque_with_ensures_verifies() {
@@ -606,7 +618,7 @@ mod tests {
         // based on whether SMT verification applies).
         use assura_parser::ast::Literal;
         use assura_parser::features::Feature;
-        let dummy_body = Expr::Literal(Literal::Bool(true));
+        let dummy_body = sp(Expr::Literal(Literal::Bool(true)));
         let dummy_clauses: &[Clause] = &[];
         for info in Feature::all() {
             for kind in info.clause_kinds {
@@ -621,7 +633,7 @@ mod tests {
     #[test]
     fn unknown_feature_returns_empty() {
         use assura_parser::ast::Literal;
-        let dummy_body = Expr::Literal(Literal::Bool(true));
+        let dummy_body = sp(Expr::Literal(Literal::Bool(true)));
         let dummy_clauses: &[Clause] = &[];
         assert!(
             verify_feature_clause("nonexistent_feature", "test", &dummy_body, dummy_clauses)
@@ -634,7 +646,7 @@ mod tests {
     fn feature_body_verified_with_tautology() {
         // A feature clause with body `true` should be verified (not Unknown).
         use assura_parser::ast::Literal;
-        let body = Expr::Literal(Literal::Bool(true));
+        let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
         let results = verify_feature_clause("allocator", "test_fn", &body, clauses);
         assert!(!results.is_empty(), "should produce results");
@@ -650,7 +662,7 @@ mod tests {
     fn feature_body_counterexample_with_contradiction() {
         // A feature clause with body `false` should produce a counterexample.
         use assura_parser::ast::Literal;
-        let body = Expr::Literal(Literal::Bool(false));
+        let body = sp(Expr::Literal(Literal::Bool(false)));
         let clauses: &[Clause] = &[];
         let results = verify_feature_clause("monotonic", "test_fn", &body, clauses);
         assert!(!results.is_empty(), "should produce results");
@@ -667,16 +679,16 @@ mod tests {
         // Body: x > 0, Requires: x >= 1
         // Under the requires, x > 0 should be verified.
         use assura_parser::ast::{BinOp, Literal};
-        let body = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        let body = sp(Expr::BinOp {
+            lhs: spb(Expr::Ident("x".into())),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
-        let requires_body = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+            rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+        });
+        let requires_body = sp(Expr::BinOp {
+            lhs: spb(Expr::Ident("x".into())),
             op: BinOp::Gte,
-            rhs: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        };
+            rhs: spb(Expr::Literal(Literal::Int("1".into()))),
+        });
         let clauses = vec![Clause {
             kind: ClauseKind::Requires,
             body: requires_body,
@@ -700,7 +712,7 @@ mod tests {
         // #189: Features that were converted from stubs to Z3 body
         // verification should verify a tautology body (`true`).
         use assura_parser::ast::Literal;
-        let body = Expr::Literal(Literal::Bool(true));
+        let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
 
         let check = |kind: &str, label: &str| {
@@ -727,7 +739,7 @@ mod tests {
     fn converted_stubs_counterexample_on_false() {
         // #189: Converted features should produce counterexamples for `false`.
         use assura_parser::ast::Literal;
-        let body = Expr::Literal(Literal::Bool(false));
+        let body = sp(Expr::Literal(Literal::Bool(false)));
         let clauses: &[Clause] = &[];
 
         let check = |kind: &str, label: &str| {
@@ -750,7 +762,7 @@ mod tests {
     fn structural_invariant_establishment_verifies_tautology() {
         // structural_invariant with body `true` should verify establishment
         use assura_parser::ast::Literal;
-        let body = Expr::Literal(Literal::Bool(true));
+        let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
         let results = verify_structural_invariant_inductive("test_type", &body, clauses);
         // Should produce 2 results: establishment + preservation
@@ -778,7 +790,7 @@ mod tests {
     fn structural_invariant_establishment_fails_contradiction() {
         // structural_invariant with body `false` should fail establishment
         use assura_parser::ast::Literal;
-        let body = Expr::Literal(Literal::Bool(false));
+        let body = sp(Expr::Literal(Literal::Bool(false)));
         let clauses: &[Clause] = &[];
         let results = verify_structural_invariant_inductive("test_type", &body, clauses);
         assert!(!results.is_empty(), "should produce results");
@@ -798,28 +810,28 @@ mod tests {
         // structural_invariant: x >= 0
         // Both establishment and preservation should verify.
         use assura_parser::ast::{BinOp, Literal};
-        let inv_body = Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        let inv_body = sp(Expr::BinOp {
+            lhs: spb(Expr::Ident("x".into())),
             op: BinOp::Gte,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+            rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+        });
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: sp(Expr::BinOp {
+                    lhs: spb(Expr::Ident("x".into())),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: sp(Expr::BinOp {
+                    lhs: spb(Expr::Ident("x".into())),
                     op: BinOp::Gte,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                }),
                 effect_variables: vec![],
             },
         ];
@@ -847,7 +859,7 @@ mod tests {
         // Verify that the dispatch table routes structural_invariant
         // through the inductive checker (producing establishment results)
         use assura_parser::ast::Literal;
-        let body = Expr::Literal(Literal::Bool(true));
+        let body = sp(Expr::Literal(Literal::Bool(true)));
         let clauses: &[Clause] = &[];
         let results = verify_feature_clause("structural_invariant", "test_fn", &body, clauses);
         assert!(

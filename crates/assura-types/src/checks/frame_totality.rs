@@ -1,6 +1,6 @@
 //! Frame and totality checks.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr};
+use assura_parser::ast::{ClauseKind, Decl, SpExpr};
 
 use crate::checkers::*;
 use crate::{TypeEnv, TypeError};
@@ -28,7 +28,7 @@ pub(crate) fn run_frame_checks(
         if clauses.is_empty() {
             continue;
         }
-        let modifies_bodies: Vec<&Expr> = clauses
+        let modifies_bodies: Vec<&SpExpr> = clauses
             .iter()
             .filter(|c| c.kind == ClauseKind::Modifies)
             .map(|c| &c.body)

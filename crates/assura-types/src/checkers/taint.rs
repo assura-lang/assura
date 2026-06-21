@@ -146,8 +146,8 @@ impl TaintChecker {
     /// Taint propagates through operations: if any operand is tainted,
     /// the result is tainted. Uses the minimum in the lattice
     /// (Untrusted < Validated < Trusted).
-    pub fn infer_taint(&self, expr: &Expr) -> TaintLabel {
-        match expr {
+    pub fn infer_taint(&self, expr: &SpExpr) -> TaintLabel {
+        match &expr.node {
             Expr::Ident(name) => self.get_label(name).unwrap_or(TaintLabel::Trusted),
             Expr::Literal(_) => TaintLabel::Trusted,
             Expr::Field(receiver, _) => self.infer_taint(receiver),
@@ -157,7 +157,7 @@ impl TaintChecker {
             Expr::UnaryOp { expr: inner, .. } => self.infer_taint(inner),
             Expr::Call { func, args } => {
                 // Validation functions produce Validated output
-                if let Expr::Ident(name) = func.as_ref()
+                if let Expr::Ident(name) = &func.as_ref().node
                     && self.validation_fns.contains(name)
                 {
                     return TaintLabel::Validated;
@@ -225,15 +225,15 @@ impl TaintChecker {
     ///
     /// Walks the expression tree looking for sensitive positions where
     /// untrusted data is used without validation.
-    pub fn check_expr(&self, expr: &Expr, span: &Range<usize>) -> Vec<TypeError> {
+    pub fn check_expr(&self, expr: &SpExpr, span: &Range<usize>) -> Vec<TypeError> {
         let mut errors = Vec::new();
         self.check_expr_inner(expr, span, &mut errors);
         errors
     }
 
     /// Inner recursive checker for taint violations.
-    fn check_expr_inner(&self, expr: &Expr, span: &Range<usize>, errors: &mut Vec<TypeError>) {
-        match expr {
+    fn check_expr_inner(&self, expr: &SpExpr, span: &Range<usize>, errors: &mut Vec<TypeError>) {
+        match &expr.node {
             // A09101: tainted data as array index
             Expr::Index { expr: base, index } => {
                 let index_taint = self.infer_taint(index);
@@ -253,7 +253,7 @@ impl TaintChecker {
 
             // A09102 / A09103: tainted data at function call sites
             Expr::Call { func, args } => {
-                if let Expr::Ident(name) = func.as_ref() {
+                if let Expr::Ident(name) = &func.as_ref().node {
                     // A09102: allocation size
                     if is_alloc_function(name) {
                         for arg in args {
@@ -529,17 +529,18 @@ fn is_alloc_function(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
     fn span() -> Range<usize> {
         0..10
     }
 
-    fn ident(s: &str) -> Expr {
-        Expr::Ident(s.to_string())
+    fn ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.to_string()))
     }
 
-    fn int_lit(n: i64) -> Expr {
-        Expr::Literal(Literal::Int(n.to_string()))
+    fn int_lit(n: i64) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Int(n.to_string())))
     }
 
     // ---- TaintLabel ----
@@ -605,21 +606,21 @@ mod tests {
     fn tc_infer_binop_propagates_taint() {
         let mut checker = TaintChecker::new();
         checker.declare("tainted".into(), TaintLabel::Untrusted);
-        let expr = Expr::BinOp {
+        let expr = Spanned::no_span(Expr::BinOp {
             lhs: Box::new(ident("tainted")),
             op: BinOp::Add,
             rhs: Box::new(int_lit(1)),
-        };
+        });
         assert_eq!(checker.infer_taint(&expr), TaintLabel::Untrusted);
     }
 
     #[test]
     fn tc_infer_validation_fn_produces_validated() {
         let checker = TaintChecker::new();
-        let expr = Expr::Call {
+        let expr = Spanned::no_span(Expr::Call {
             func: Box::new(ident("validate")),
             args: vec![ident("raw")],
-        };
+        });
         assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
     }
 
@@ -627,10 +628,10 @@ mod tests {
     fn tc_check_untrusted_array_index() {
         let mut checker = TaintChecker::new();
         checker.declare("idx".into(), TaintLabel::Untrusted);
-        let expr = Expr::Index {
+        let expr = Spanned::no_span(Expr::Index {
             expr: Box::new(ident("arr")),
             index: Box::new(ident("idx")),
-        };
+        });
         let errs = checker.check_expr(&expr, &span());
         assert!(!errs.is_empty());
         assert!(errs.iter().any(|e| e.code.as_ref() == "A09101"));
@@ -640,10 +641,10 @@ mod tests {
     fn tc_check_validated_array_index_ok() {
         let mut checker = TaintChecker::new();
         checker.declare("idx".into(), TaintLabel::Validated);
-        let expr = Expr::Index {
+        let expr = Spanned::no_span(Expr::Index {
             expr: Box::new(ident("arr")),
             index: Box::new(ident("idx")),
-        };
+        });
         let errs = checker.check_expr(&expr, &span());
         assert!(errs.is_empty());
     }
@@ -652,10 +653,10 @@ mod tests {
     fn tc_check_untrusted_alloc_size() {
         let mut checker = TaintChecker::new();
         checker.declare("sz".into(), TaintLabel::Untrusted);
-        let expr = Expr::Call {
+        let expr = Spanned::no_span(Expr::Call {
             func: Box::new(ident("malloc")),
             args: vec![ident("sz")],
-        };
+        });
         let errs = checker.check_expr(&expr, &span());
         assert!(!errs.is_empty());
         assert!(errs.iter().any(|e| e.code.as_ref() == "A09102"));
@@ -666,10 +667,10 @@ mod tests {
         let mut checker = TaintChecker::new();
         checker.declare("raw".into(), TaintLabel::Untrusted);
         checker.register_trusted_sink("exec_query".into(), vec![Some(TaintLabel::Validated)]);
-        let expr = Expr::Call {
+        let expr = Spanned::no_span(Expr::Call {
             func: Box::new(ident("exec_query")),
             args: vec![ident("raw")],
-        };
+        });
         let errs = checker.check_expr(&expr, &span());
         assert!(!errs.is_empty());
         assert!(errs.iter().any(|e| e.code.as_ref() == "A09103"));
@@ -680,10 +681,10 @@ mod tests {
         let mut checker = TaintChecker::new();
         checker.declare("safe".into(), TaintLabel::Validated);
         checker.register_trusted_sink("exec_query".into(), vec![Some(TaintLabel::Validated)]);
-        let expr = Expr::Call {
+        let expr = Spanned::no_span(Expr::Call {
             func: Box::new(ident("exec_query")),
             args: vec![ident("safe")],
-        };
+        });
         let errs = checker.check_expr(&expr, &span());
         assert!(errs.is_empty());
     }
@@ -700,10 +701,10 @@ mod tests {
     fn tc_register_custom_validator() {
         let mut checker = TaintChecker::new();
         checker.register_validator("my_sanitize".into());
-        let expr = Expr::Call {
+        let expr = Spanned::no_span(Expr::Call {
             func: Box::new(ident("my_sanitize")),
             args: vec![ident("raw")],
-        };
+        });
         assert_eq!(checker.infer_taint(&expr), TaintLabel::Validated);
     }
 

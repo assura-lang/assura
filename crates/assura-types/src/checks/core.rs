@@ -2,7 +2,7 @@
 //!
 //! Liveness, axiomatic, CRUD auth.
 
-use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr, ServiceItem};
+use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr, ServiceItem, SpExpr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -62,8 +62,8 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
 }
 
 /// Helper: check if an expression tree contains a text reference.
-fn expr_contains_text(expr: &Expr, text: &str) -> bool {
-    match expr {
+fn expr_contains_text(expr: &SpExpr, text: &str) -> bool {
+    match &expr.node {
         Expr::Ident(s) => s == text,
         Expr::Raw(tokens) => tokens.iter().any(|t| t == text),
         Expr::Block(exprs) | Expr::List(exprs) => exprs.iter().any(|e| expr_contains_text(e, text)),
@@ -235,11 +235,11 @@ pub(crate) fn run_quantifier_trigger_checks(
 
 /// Recursively walk an expression tree collecting quantifier occurrences.
 fn collect_quantifiers(
-    expr: &Expr,
+    expr: &SpExpr,
     checker: &mut QuantifierTriggerChecker,
     fallback_span: &std::ops::Range<usize>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Forall { var, domain, body } | Expr::Exists { var, domain, body } => {
             // Check if the quantifier has a trigger annotation.
             // A trigger annotation is detected when the domain or body contains
@@ -362,11 +362,11 @@ pub(crate) fn run_prophecy_resolution_checks(
 
 /// Recursively collect identifier references that match known prophecy names.
 fn collect_ident_refs(
-    expr: &Expr,
+    expr: &SpExpr,
     prophecy_names: &std::collections::HashSet<&str>,
     found: &mut std::collections::HashSet<String>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Ident(name) => {
             if prophecy_names.contains(name.as_str()) {
                 found.insert(name.clone());
@@ -404,12 +404,13 @@ fn collect_ident_refs(
 }
 
 /// Recursively collect names passed to resolve() or resolve_prophecy() calls.
-fn collect_resolve_calls(expr: &Expr, names: &mut std::collections::HashSet<String>) {
-    match expr {
+fn collect_resolve_calls(expr: &SpExpr, names: &mut std::collections::HashSet<String>) {
+    match &expr.node {
         Expr::Call { func, args } => {
-            if let Expr::Ident(fname) = func.as_ref()
+            if let Expr::Ident(fname) = &func.as_ref().node
                 && (fname == "resolve" || fname == "resolve_prophecy")
-                && let Some(Expr::Ident(var)) = args.first()
+                && let Some(_sp_arg) = args.first()
+                && let Expr::Ident(var) = &_sp_arg.node
             {
                 names.insert(var.clone());
             }

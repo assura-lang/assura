@@ -3,7 +3,7 @@
 //! Contains `dump_smt_queries()` for `--dump-smt` support and
 //! `validate_quantifier_bounds()` for detecting infinite-domain quantifiers.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
+use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SpExpr};
 use assura_types::TypedFile;
 
 // ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ pub fn dump_smt_queries(typed: &TypedFile) -> Vec<SmtQuery> {
             _ => continue,
         };
 
-        let requires_exprs: Vec<&Expr> = clauses
+        let requires_exprs: Vec<&SpExpr> = clauses
             .iter()
             .filter(|c| c.kind == ClauseKind::Requires)
             .map(|c| &c.body)
@@ -170,14 +170,14 @@ pub fn validate_quantifier_bounds(typed: &TypedFile) -> Vec<UnboundedQuantifierW
 
 /// Recursively walk an expression looking for forall/exists with infinite domains.
 fn collect_unbounded_quantifiers(
-    expr: &Expr,
+    expr: &SpExpr,
     context: &str,
     warnings: &mut Vec<UnboundedQuantifierWarning>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Forall { var, domain, body } | Expr::Exists { var, domain, body } => {
             if let Some(reason) = check_infinite_domain(domain) {
-                let kind = if matches!(expr, Expr::Forall { .. }) {
+                let kind = if matches!(&expr.node, Expr::Forall { .. }) {
                     "forall"
                 } else {
                     "exists"
@@ -265,8 +265,8 @@ fn collect_unbounded_quantifiers(
 
 /// Check if a domain expression represents an infinite/unbounded type.
 /// Returns Some(description) if infinite, None if bounded.
-fn check_infinite_domain(domain: &Expr) -> Option<String> {
-    match domain {
+fn check_infinite_domain(domain: &SpExpr) -> Option<String> {
+    match &domain.node {
         Expr::Ident(name) => {
             if INFINITE_TYPE_NAMES.contains(&name.as_str()) {
                 Some(name.clone())
@@ -330,53 +330,60 @@ fn check_raw_quantifier_bounds(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Expr, Literal};
+    use assura_parser::ast::{BinOp, Expr, Literal, Spanned};
+
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
+    }
+    fn spb(e: Expr) -> Box<SpExpr> {
+        Box::new(sp(e))
+    }
 
     // ---- check_infinite_domain ----
 
     #[test]
     fn infinite_domain_int() {
-        let e = Expr::Ident("Int".into());
+        let e = sp(Expr::Ident("Int".into()));
         assert_eq!(check_infinite_domain(&e), Some("Int".into()));
     }
 
     #[test]
     fn infinite_domain_float() {
-        let e = Expr::Ident("Float".into());
+        let e = sp(Expr::Ident("Float".into()));
         assert_eq!(check_infinite_domain(&e), Some("Float".into()));
     }
 
     #[test]
     fn infinite_domain_string() {
-        let e = Expr::Ident("String".into());
+        let e = sp(Expr::Ident("String".into()));
         assert_eq!(check_infinite_domain(&e), Some("String".into()));
     }
 
     #[test]
     fn finite_domain_custom_type() {
-        let e = Expr::Ident("MyList".into());
+        let e = sp(Expr::Ident("MyList".into()));
         assert_eq!(check_infinite_domain(&e), None);
     }
 
     #[test]
     fn infinite_domain_raw_single_token() {
-        let e = Expr::Raw(vec!["Nat".into()]);
+        let e = sp(Expr::Raw(vec!["Nat".into()]));
         assert_eq!(check_infinite_domain(&e), Some("Nat".into()));
     }
 
     #[test]
     fn finite_domain_raw_multi_token() {
-        let e = Expr::Raw(vec!["0".into(), "..".into(), "100".into()]);
+        let e = sp(Expr::Raw(vec!["0".into(), "..".into(), "100".into()]));
         assert_eq!(check_infinite_domain(&e), None);
     }
 
     #[test]
     fn finite_domain_binop() {
-        let e = Expr::BinOp {
-            lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+        let e = sp(Expr::BinOp {
+            lhs: spb(Expr::Literal(Literal::Int("0".into()))),
             op: BinOp::Lt,
-            rhs: Box::new(Expr::Literal(Literal::Int("100".into()))),
-        };
+            rhs: spb(Expr::Literal(Literal::Int("100".into()))),
+        });
         assert_eq!(check_infinite_domain(&e), None);
     }
 
@@ -384,11 +391,11 @@ mod tests {
 
     #[test]
     fn forall_over_int_produces_warning() {
-        let expr = Expr::Forall {
+        let expr = sp(Expr::Forall {
             var: "x".into(),
-            domain: Box::new(Expr::Ident("Int".into())),
-            body: Box::new(Expr::Literal(Literal::Bool(true))),
-        };
+            domain: spb(Expr::Ident("Int".into())),
+            body: spb(Expr::Literal(Literal::Bool(true))),
+        });
         let mut warnings = Vec::new();
         collect_unbounded_quantifiers(&expr, "TestContract", &mut warnings);
         assert_eq!(warnings.len(), 1);
@@ -398,11 +405,11 @@ mod tests {
 
     #[test]
     fn exists_over_nat_produces_warning() {
-        let expr = Expr::Exists {
+        let expr = sp(Expr::Exists {
             var: "n".into(),
-            domain: Box::new(Expr::Ident("Nat".into())),
-            body: Box::new(Expr::Literal(Literal::Bool(true))),
-        };
+            domain: spb(Expr::Ident("Nat".into())),
+            body: spb(Expr::Literal(Literal::Bool(true))),
+        });
         let mut warnings = Vec::new();
         collect_unbounded_quantifiers(&expr, "TestFn", &mut warnings);
         assert_eq!(warnings.len(), 1);
@@ -411,11 +418,11 @@ mod tests {
 
     #[test]
     fn forall_over_custom_type_no_warning() {
-        let expr = Expr::Forall {
+        let expr = sp(Expr::Forall {
             var: "item".into(),
-            domain: Box::new(Expr::Ident("items".into())),
-            body: Box::new(Expr::Literal(Literal::Bool(true))),
-        };
+            domain: spb(Expr::Ident("items".into())),
+            body: spb(Expr::Literal(Literal::Bool(true))),
+        });
         let mut warnings = Vec::new();
         collect_unbounded_quantifiers(&expr, "TestContract", &mut warnings);
         assert!(warnings.is_empty());
@@ -423,16 +430,16 @@ mod tests {
 
     #[test]
     fn nested_quantifier_both_warned() {
-        let inner = Expr::Forall {
+        let inner = sp(Expr::Forall {
             var: "y".into(),
-            domain: Box::new(Expr::Ident("Float".into())),
-            body: Box::new(Expr::Literal(Literal::Bool(true))),
-        };
-        let outer = Expr::Forall {
+            domain: spb(Expr::Ident("Float".into())),
+            body: spb(Expr::Literal(Literal::Bool(true))),
+        });
+        let outer = sp(Expr::Forall {
             var: "x".into(),
-            domain: Box::new(Expr::Ident("Int".into())),
+            domain: spb(Expr::Ident("Int".into())),
             body: Box::new(inner),
-        };
+        });
         let mut warnings = Vec::new();
         collect_unbounded_quantifiers(&outer, "Nested", &mut warnings);
         assert_eq!(warnings.len(), 2);
@@ -440,7 +447,7 @@ mod tests {
 
     #[test]
     fn literal_no_warning() {
-        let expr = Expr::Literal(Literal::Bool(true));
+        let expr = sp(Expr::Literal(Literal::Bool(true)));
         let mut warnings = Vec::new();
         collect_unbounded_quantifiers(&expr, "ctx", &mut warnings);
         assert!(warnings.is_empty());
@@ -448,15 +455,15 @@ mod tests {
 
     #[test]
     fn binop_recurses() {
-        let expr = Expr::BinOp {
-            lhs: Box::new(Expr::Forall {
+        let expr = sp(Expr::BinOp {
+            lhs: spb(Expr::Forall {
                 var: "x".into(),
-                domain: Box::new(Expr::Ident("Int".into())),
-                body: Box::new(Expr::Literal(Literal::Bool(true))),
+                domain: spb(Expr::Ident("Int".into())),
+                body: spb(Expr::Literal(Literal::Bool(true))),
             }),
             op: BinOp::And,
-            rhs: Box::new(Expr::Literal(Literal::Bool(true))),
-        };
+            rhs: spb(Expr::Literal(Literal::Bool(true))),
+        });
         let mut warnings = Vec::new();
         collect_unbounded_quantifiers(&expr, "ctx", &mut warnings);
         assert_eq!(warnings.len(), 1);

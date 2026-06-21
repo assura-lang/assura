@@ -6,19 +6,19 @@ use super::*;
 fn match_infer_type_from_first_arm() {
     // match x { A => 42, B => 0 } should infer Int from the first arm
     let env = TypeEnv::new();
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Ident("A".into()),
-                body: AstExpr::Literal(AstLit::Int("42".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Ident("B".into()),
-                body: AstExpr::Literal(AstLit::Int("0".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into()))),
             },
         ],
-    };
+    });
     let result = infer_expr(&expr, &env);
     assert_eq!(result.unwrap(), Type::Int);
 }
@@ -27,19 +27,19 @@ fn match_infer_type_from_first_arm() {
 fn match_incompatible_arms_emits_error() {
     // match x { A => 42, B => true } should emit A03001
     let env = TypeEnv::new();
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Ident("A".into()),
-                body: AstExpr::Literal(AstLit::Int("42".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Ident("B".into()),
-                body: AstExpr::Literal(AstLit::Bool(true)),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Bool(true))),
             },
         ],
-    };
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03001");
     assert!(err.message.contains("incompatible"));
@@ -49,46 +49,46 @@ fn match_incompatible_arms_emits_error() {
 fn match_compatible_arms_ok() {
     // match x { A => 42, B => 0 } all Int arms = ok
     let env = TypeEnv::new();
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Ident("A".into()),
-                body: AstExpr::Literal(AstLit::Int("1".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Ident("B".into()),
-                body: AstExpr::Literal(AstLit::Int("2".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("2".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Wildcard,
-                body: AstExpr::Literal(AstLit::Int("3".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("3".into()))),
             },
         ],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
 #[test]
 fn match_empty_arms_infers_unknown() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         arms: vec![],
-    };
+    });
     let result = infer_expr(&expr, &env);
     assert_eq!(result.unwrap(), Type::Unknown);
 }
 
 #[test]
 fn match_expr_references_var() {
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("status".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("status".into()))),
         arms: vec![assura_parser::ast::MatchArm {
             pattern: assura_parser::ast::Pattern::Ident("A".into()),
-            body: AstExpr::Ident("result".into()),
+            body: Spanned::no_span(AstExpr::Ident("result".into())),
         }],
-    };
+    });
     assert!(expr_references_var(&expr, "status"));
     assert!(expr_references_var(&expr, "result"));
     assert!(!expr_references_var(&expr, "other"));
@@ -97,30 +97,32 @@ fn match_expr_references_var() {
 #[test]
 fn infer_cast_returns_target_type() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Cast {
-        expr: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+    let expr = Spanned::no_span(AstExpr::Cast {
+        expr: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())))),
         ty: "Float".into(),
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
 }
 
 #[test]
 fn infer_cast_to_u8() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Cast {
-        expr: Box::new(AstExpr::Literal(AstLit::Int("255".into()))),
+    let expr = Spanned::no_span(AstExpr::Cast {
+        expr: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int(
+            "255".into(),
+        )))),
         ty: "U8".into(),
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::U8);
 }
 
 #[test]
 fn infer_cast_to_named_type() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Cast {
-        expr: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Cast {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         ty: "CustomType".into(),
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Named("CustomType".into())
@@ -131,11 +133,11 @@ fn infer_cast_to_named_type() {
 fn infer_let_binding_propagates_type() {
     let env = TypeEnv::new();
     // let x = 42 in x  =>  should infer Int from body
-    let expr = AstExpr::Let {
+    let expr = Spanned::no_span(AstExpr::Let {
         name: "x".into(),
-        value: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
-        body: Box::new(AstExpr::Ident("x".into())),
-    };
+        value: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())))),
+        body: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -143,52 +145,52 @@ fn infer_let_binding_propagates_type() {
 fn infer_match_checks_all_arms() {
     let env = TypeEnv::new();
     // match true { true => 1, false => 2 } => Int
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Bool(true)),
-                body: AstExpr::Literal(AstLit::Int("1".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Bool(false)),
-                body: AstExpr::Literal(AstLit::Int("2".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("2".into()))),
             },
         ],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
 #[test]
 fn infer_match_empty_arms_returns_unknown() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Literal(AstLit::Bool(true))),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
         arms: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
 
 #[test]
 fn infer_builtin_len_returns_nat() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("len".into())),
-        args: vec![AstExpr::Ident("xs".into())],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("len".into()))),
+        args: vec![Spanned::no_span(AstExpr::Ident("xs".into()))],
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
 }
 
 #[test]
 fn infer_builtin_contains_returns_bool() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("contains".into())),
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("contains".into()))),
         args: vec![
-            AstExpr::Ident("xs".into()),
-            AstExpr::Literal(AstLit::Int("1".into())),
+            Spanned::no_span(AstExpr::Ident("xs".into())),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into()))),
         ],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -197,7 +199,7 @@ fn result_bound_in_ensures_env() {
     // When `result` is bound in the env, infer_expr should return it
     let mut env = TypeEnv::new();
     env.insert("result".to_string(), Type::Int);
-    let expr = AstExpr::Ident("result".into());
+    let expr = Spanned::no_span(AstExpr::Ident("result".into()));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -205,7 +207,7 @@ fn result_bound_in_ensures_env() {
 fn result_unknown_without_binding() {
     // Without binding, `result` returns Unknown
     let env = TypeEnv::new();
-    let expr = AstExpr::Ident("result".into());
+    let expr = Spanned::no_span(AstExpr::Ident("result".into()));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
 
@@ -227,10 +229,10 @@ fn square(x: Int) -> Int
 #[test]
 fn tuple_infers_element_types() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Tuple(vec![
-        AstExpr::Literal(AstLit::Int("1".into())),
-        AstExpr::Literal(AstLit::Bool(true)),
-    ]);
+    let expr = Spanned::no_span(AstExpr::Tuple(vec![
+        Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into()))),
+        Spanned::no_span(AstExpr::Literal(AstLit::Bool(true))),
+    ]));
     let ty = infer_expr(&expr, &env).unwrap();
     assert_eq!(ty, Type::Tuple(vec![Type::Int, Type::Bool]));
 }
@@ -238,7 +240,9 @@ fn tuple_infers_element_types() {
 #[test]
 fn tuple_single_element() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Tuple(vec![AstExpr::Literal(AstLit::Int("42".into()))]);
+    let expr = Spanned::no_span(AstExpr::Tuple(vec![Spanned::no_span(AstExpr::Literal(
+        AstLit::Int("42".into()),
+    ))]));
     let ty = infer_expr(&expr, &env).unwrap();
     assert_eq!(ty, Type::Tuple(vec![Type::Int]));
 }
@@ -246,7 +250,7 @@ fn tuple_single_element() {
 #[test]
 fn tuple_empty() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Tuple(vec![]);
+    let expr = Spanned::no_span(AstExpr::Tuple(vec![]));
     let ty = infer_expr(&expr, &env).unwrap();
     assert_eq!(ty, Type::Tuple(vec![]));
 }
@@ -262,10 +266,16 @@ fn tuple_field_access_numeric() {
     let mut env = TypeEnv::new();
     env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::String]));
     // pair.0 should be Int
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("pair".into())), "0".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("pair".into()))),
+        "0".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
     // pair.1 should be String
-    let expr1 = AstExpr::Field(Box::new(AstExpr::Ident("pair".into())), "1".into());
+    let expr1 = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("pair".into()))),
+        "1".into(),
+    ));
     assert_eq!(infer_expr(&expr1, &env).unwrap(), Type::String);
 }
 
@@ -291,7 +301,10 @@ fn tuple_compatibility() {
 fn list_field_head_returns_option() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "head".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+        "head".into(),
+    ));
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::Int))
@@ -302,7 +315,10 @@ fn list_field_head_returns_option() {
 fn list_field_tail_returns_list() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "tail".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+        "tail".into(),
+    ));
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::List(Box::new(Type::Int))
@@ -316,11 +332,11 @@ fn option_flatten_reduces_nesting() {
         "x".into(),
         Type::Option(Box::new(Type::Option(Box::new(Type::Int)))),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         method: "flatten".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::Int))
@@ -331,11 +347,13 @@ fn option_flatten_reduces_nesting() {
 fn option_ok_or_returns_result() {
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Option(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         method: "ok_or".into(),
-        args: vec![AstExpr::Literal(AstLit::Str("err".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Str(
+            "err".into(),
+        )))],
+    });
     let ty = infer_expr(&expr, &env).unwrap();
     match ty {
         Type::Result(ok, _) => assert_eq!(*ok, Type::Int),
@@ -350,11 +368,11 @@ fn result_map_err_preserves_ok_type() {
         "r".into(),
         Type::Result(Box::new(Type::Int), Box::new(Type::String)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "map_err".into(),
         args: vec![],
-    };
+    });
     let ty = infer_expr(&expr, &env).unwrap();
     match ty {
         Type::Result(ok, _) => assert_eq!(*ok, Type::Int),
@@ -369,11 +387,11 @@ fn result_ok_returns_option() {
         "r".into(),
         Type::Result(Box::new(Type::Nat), Box::new(Type::String)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "ok".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::Nat))
@@ -387,11 +405,11 @@ fn result_err_returns_option() {
         "r".into(),
         Type::Result(Box::new(Type::Nat), Box::new(Type::String)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "err".into(),
         args: vec![],
-    };
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Option(Box::new(Type::String))
@@ -405,11 +423,11 @@ fn result_unwrap_err_returns_error_type() {
         "r".into(),
         Type::Result(Box::new(Type::Int), Box::new(Type::String)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "unwrap_err".into(),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
 }
 
@@ -417,11 +435,11 @@ fn result_unwrap_err_returns_error_type() {
 fn range_returns_list_int() {
     // Range expression returns List<Int>
     let env = TypeEnv::new();
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
         op: AstBinOp::Range,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("10".into())))),
+    });
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::List(Box::new(Type::Int))
@@ -431,11 +449,11 @@ fn range_returns_list_int() {
 #[test]
 fn range_rejects_non_numeric() {
     let env = TypeEnv::new();
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Literal(AstLit::Str("a".into()))),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Str("a".into())))),
         op: AstBinOp::Range,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("10".into())))),
+    });
     assert!(infer_expr(&expr, &env).is_err());
 }
 
@@ -444,11 +462,11 @@ fn in_operator_rejects_non_collection_rhs() {
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Int);
     env.insert("y".into(), Type::Int);
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::In,
-        rhs: Box::new(AstExpr::Ident("y".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("y".into()))),
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert!(err.message.contains("collection"), "got: {}", err.message);
 }
@@ -458,11 +476,11 @@ fn in_operator_accepts_list() {
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Int);
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::In,
-        rhs: Box::new(AstExpr::Ident("xs".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -471,22 +489,22 @@ fn in_operator_accepts_set() {
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Int);
     env.insert("s".into(), Type::Set(Box::new(Type::Int)));
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::In,
-        rhs: Box::new(AstExpr::Ident("s".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("s".into()))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
 #[test]
 fn division_by_zero_literal_emits_error() {
     let env = TypeEnv::new();
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("10".into())))),
         op: AstBinOp::Div,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03010");
     assert!(
@@ -499,11 +517,11 @@ fn division_by_zero_literal_emits_error() {
 #[test]
 fn modulo_by_zero_literal_emits_error() {
     let env = TypeEnv::new();
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("10".into())))),
         op: AstBinOp::Mod,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
     let err = infer_expr(&expr, &env).unwrap_err();
     assert_eq!(err.code, "A03010");
     assert!(
@@ -516,11 +534,11 @@ fn modulo_by_zero_literal_emits_error() {
 #[test]
 fn division_by_nonzero_ok() {
     let env = TypeEnv::new();
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Literal(AstLit::Int("10".into()))),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("10".into())))),
         op: AstBinOp::Div,
-        rhs: Box::new(AstExpr::Literal(AstLit::Int("3".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("3".into())))),
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -532,7 +550,10 @@ fn division_by_nonzero_ok() {
 fn field_option_value() {
     let mut env = TypeEnv::new();
     env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("opt".into())), "value".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
+        "value".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -540,7 +561,10 @@ fn field_option_value() {
 fn field_option_is_some() {
     let mut env = TypeEnv::new();
     env.insert("opt".into(), Type::Option(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("opt".into())), "is_some".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
+        "is_some".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -551,7 +575,10 @@ fn field_result_ok_type() {
         "r".into(),
         Type::Result(Box::new(Type::String), Box::new(Type::Int)),
     );
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("r".into())), "ok".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
+        "ok".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
 }
 
@@ -562,7 +589,10 @@ fn field_result_err_type() {
         "r".into(),
         Type::Result(Box::new(Type::String), Box::new(Type::Int)),
     );
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("r".into())), "err".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
+        "err".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -573,7 +603,10 @@ fn field_result_is_ok() {
         "r".into(),
         Type::Result(Box::new(Type::String), Box::new(Type::Int)),
     );
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("r".into())), "is_ok".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
+        "is_ok".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -584,12 +617,18 @@ fn field_map_keys_values() {
         "m".into(),
         Type::Map(Box::new(Type::String), Box::new(Type::Int)),
     );
-    let keys_expr = AstExpr::Field(Box::new(AstExpr::Ident("m".into())), "keys".into());
+    let keys_expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("m".into()))),
+        "keys".into(),
+    ));
     assert_eq!(
         infer_expr(&keys_expr, &env).unwrap(),
         Type::List(Box::new(Type::String))
     );
-    let vals_expr = AstExpr::Field(Box::new(AstExpr::Ident("m".into())), "values".into());
+    let vals_expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("m".into()))),
+        "values".into(),
+    ));
     assert_eq!(
         infer_expr(&vals_expr, &env).unwrap(),
         Type::List(Box::new(Type::Int))
@@ -600,7 +639,10 @@ fn field_map_keys_values() {
 fn field_collection_is_empty() {
     let mut env = TypeEnv::new();
     env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("xs".into())), "is_empty".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("xs".into()))),
+        "is_empty".into(),
+    ));
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -612,11 +654,11 @@ fn field_collection_is_empty() {
 fn method_string_contains() {
     let mut env = TypeEnv::new();
     env.insert("s".into(), Type::String);
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("s".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("s".into()))),
         method: "contains".into(),
-        args: vec![AstExpr::Literal(AstLit::Str("x".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Str("x".into())))],
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -624,11 +666,11 @@ fn method_string_contains() {
 fn method_string_to_uppercase() {
     let mut env = TypeEnv::new();
     env.insert("s".into(), Type::String);
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("s".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("s".into()))),
         method: "to_uppercase".into(),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
 }
 
@@ -636,11 +678,11 @@ fn method_string_to_uppercase() {
 fn method_option_unwrap() {
     let mut env = TypeEnv::new();
     env.insert("opt".into(), Type::Option(Box::new(Type::Float)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("opt".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
         method: "unwrap".into(),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Float);
 }
 
@@ -648,11 +690,11 @@ fn method_option_unwrap() {
 fn method_option_is_some() {
     let mut env = TypeEnv::new();
     env.insert("opt".into(), Type::Option(Box::new(Type::Float)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("opt".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("opt".into()))),
         method: "is_some".into(),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -663,11 +705,11 @@ fn method_result_unwrap() {
         "r".into(),
         Type::Result(Box::new(Type::Nat), Box::new(Type::String)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "unwrap".into(),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
 }
 
@@ -678,11 +720,11 @@ fn method_result_is_ok() {
         "r".into(),
         Type::Result(Box::new(Type::Nat), Box::new(Type::String)),
     );
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("r".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("r".into()))),
         method: "is_ok".into(),
         args: vec![],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -690,11 +732,11 @@ fn method_result_is_ok() {
 fn method_set_insert() {
     let mut env = TypeEnv::new();
     env.insert("s".into(), Type::Set(Box::new(Type::Int)));
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("s".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("s".into()))),
         method: "insert".into(),
-        args: vec![AstExpr::Literal(AstLit::Int("1".into()))],
-    };
+        args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))],
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unit);
 }
 
@@ -707,30 +749,30 @@ fn match_binds_ident_pattern_to_scrutinee_type() {
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Int);
     // match x { val => val + 1 } should bind `val` to Int
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         arms: vec![assura_parser::ast::MatchArm {
             pattern: assura_parser::ast::Pattern::Ident("val".into()),
-            body: AstExpr::BinOp {
-                lhs: Box::new(AstExpr::Ident("val".into())),
+            body: Spanned::no_span(AstExpr::BinOp {
+                lhs: Box::new(Spanned::no_span(AstExpr::Ident("val".into()))),
                 op: AstBinOp::Add,
-                rhs: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+            }),
         }],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
 #[test]
 fn match_wildcard_does_not_bind() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("42".into()))),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())))),
         arms: vec![assura_parser::ast::MatchArm {
             pattern: assura_parser::ast::Pattern::Wildcard,
-            body: AstExpr::Literal(AstLit::Bool(true)),
+            body: Spanned::no_span(AstExpr::Literal(AstLit::Bool(true))),
         }],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -738,36 +780,36 @@ fn match_wildcard_does_not_bind() {
 fn match_tuple_pattern_binds_element_types() {
     let mut env = TypeEnv::new();
     env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::Bool]));
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("pair".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("pair".into()))),
         arms: vec![assura_parser::ast::MatchArm {
             pattern: assura_parser::ast::Pattern::Tuple(vec![
                 assura_parser::ast::Pattern::Ident("a".into()),
                 assura_parser::ast::Pattern::Ident("b".into()),
             ]),
             // body uses 'a' which should be Int from pair[0]
-            body: AstExpr::Ident("a".into()),
+            body: Spanned::no_span(AstExpr::Ident("a".into())),
         }],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
 #[test]
 fn match_literal_pattern_does_not_bind() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
-                body: AstExpr::Literal(AstLit::Str("one".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Str("one".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Wildcard,
-                body: AstExpr::Literal(AstLit::Str("other".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Str("other".into()))),
             },
         ],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::String);
 }
 
@@ -783,17 +825,17 @@ fn match_constructor_pattern_binds_field_types() {
         },
     );
     env.insert("val".into(), Type::Named("Option".into()));
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("val".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("val".into()))),
         arms: vec![assura_parser::ast::MatchArm {
             pattern: assura_parser::ast::Pattern::Constructor {
                 name: "Some".into(),
                 fields: vec![assura_parser::ast::Pattern::Ident("x".into())],
             },
             // body uses 'x' which should be Int from Some's first param
-            body: AstExpr::Ident("x".into()),
+            body: Spanned::no_span(AstExpr::Ident("x".into())),
         }],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
 }
 
@@ -809,8 +851,8 @@ fn match_constructor_pattern_multi_field() {
         },
     );
     env.insert("p".into(), Type::Named("PairType".into()));
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("p".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("p".into()))),
         arms: vec![assura_parser::ast::MatchArm {
             pattern: assura_parser::ast::Pattern::Constructor {
                 name: "Pair".into(),
@@ -820,9 +862,9 @@ fn match_constructor_pattern_multi_field() {
                 ],
             },
             // body uses 'b' which should be Bool from Pair's second param
-            body: AstExpr::Ident("b".into()),
+            body: Spanned::no_span(AstExpr::Ident("b".into())),
         }],
-    };
+    });
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
 }
 
@@ -830,7 +872,7 @@ fn match_constructor_pattern_multi_field() {
 fn self_in_service_context_resolves_to_named_type() {
     let mut env = TypeEnv::new();
     env.insert("self".to_string(), Type::Named("FileStore".into()));
-    let expr = AstExpr::Ident("self".into());
+    let expr = Spanned::no_span(AstExpr::Ident("self".into()));
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Named("FileStore".into())
@@ -845,7 +887,10 @@ fn self_field_access_in_service() {
         "FileStore".into(),
         vec![("state".into(), Type::Named("State".into()))],
     );
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("self".into())), "state".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("self".into()))),
+        "state".into(),
+    ));
     assert_eq!(
         infer_expr(&expr, &env).unwrap(),
         Type::Named("State".into())
@@ -855,7 +900,7 @@ fn self_field_access_in_service() {
 #[test]
 fn self_without_binding_returns_unknown() {
     let env = TypeEnv::new();
-    let expr = AstExpr::Ident("self".into());
+    let expr = Spanned::no_span(AstExpr::Ident("self".into()));
     // Outside a service context, self is Unknown
     assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Unknown);
 }
@@ -863,30 +908,34 @@ fn self_without_binding_returns_unknown() {
 #[test]
 fn extract_output_type_from_raw_tokens() {
     // output(result: Nat) is parsed as Raw(["result", ":", "Nat"])
-    let body = AstExpr::Raw(vec!["result".into(), ":".into(), "Nat".into()]);
+    let body = Spanned::no_span(AstExpr::Raw(vec![
+        "result".into(),
+        ":".into(),
+        "Nat".into(),
+    ]));
     assert_eq!(extract_output_type_from_body(&body), Type::Nat);
 }
 
 #[test]
 fn extract_output_type_from_cast() {
-    let body = AstExpr::Cast {
-        expr: Box::new(AstExpr::Ident("result".into())),
+    let body = Spanned::no_span(AstExpr::Cast {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("result".into()))),
         ty: "Int".into(),
-    };
+    });
     assert_eq!(extract_output_type_from_body(&body), Type::Int);
 }
 
 #[test]
 fn extract_output_type_from_raw_generic() {
     // output(result: List<Int>) from raw tokens
-    let body = AstExpr::Raw(vec![
+    let body = Spanned::no_span(AstExpr::Raw(vec![
         "result".into(),
         ":".into(),
         "List".into(),
         "<".into(),
         "Int".into(),
         ">".into(),
-    ]);
+    ]));
     assert_eq!(
         extract_output_type_from_body(&body),
         Type::List(Box::new(Type::Int))
@@ -1041,7 +1090,7 @@ service Guardian {
 fn input_clause_single_ident() {
     // input { x } should register x as Unknown
     let mut env = TypeEnv::new();
-    let body = Expr::Ident("x".into());
+    let body = Spanned::no_span(Expr::Ident("x".into()));
     register_input_clause_params(&body, &mut env);
     assert_eq!(env.lookup("x"), Some(&Type::Unknown));
 }
@@ -1050,10 +1099,10 @@ fn input_clause_single_ident() {
 fn input_clause_single_cast() {
     // input(a as Int) at top level
     let mut env = TypeEnv::new();
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("a".into())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         ty: "Int".into(),
-    };
+    });
     register_input_clause_params(&body, &mut env);
     assert_eq!(env.lookup("a"), Some(&Type::Int));
 }
@@ -1062,13 +1111,13 @@ fn input_clause_single_cast() {
 fn input_clause_paren_wraps_call() {
     // Paren-wrapped call: input((a as Int))
     let mut env = TypeEnv::new();
-    let inner_call = Expr::Call {
-        func: Box::new(Expr::Ident("input".into())),
-        args: vec![Expr::Cast {
-            expr: Box::new(Expr::Ident("a".into())),
+    let inner_call = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("input".into()))),
+        args: vec![Spanned::no_span(Expr::Cast {
+            expr: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
             ty: "Int".into(),
-        }],
-    };
+        })],
+    });
     let body = inner_call;
     register_input_clause_params(&body, &mut env);
     assert_eq!(env.lookup("a"), Some(&Type::Int));
@@ -1087,7 +1136,7 @@ fn input_clause_raw_with_as() {
         "as".into(),
         "String".into(),
     ];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     register_input_clause_params(&body, &mut env);
     assert_eq!(env.lookup("a"), Some(&Type::Int));
     assert_eq!(env.lookup("b"), Some(&Type::String));
@@ -1098,7 +1147,7 @@ fn input_clause_raw_bare_idents() {
     // Raw tokens: "buf , n" — bare identifiers without type annotations
     let mut env = TypeEnv::new();
     let tokens = vec!["buf".into(), ",".into(), "n".into()];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     register_input_clause_params(&body, &mut env);
     assert_eq!(env.lookup("buf"), Some(&Type::Unknown));
     assert_eq!(env.lookup("n"), Some(&Type::Unknown));
@@ -1106,10 +1155,10 @@ fn input_clause_raw_bare_idents() {
 
 #[test]
 fn collect_input_types_single_cast() {
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("a".into())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         ty: "Int".into(),
-    };
+    });
     let mut out = Vec::new();
     collect_input_param_types(&body, &mut out);
     assert_eq!(out, vec![Type::Int]);
@@ -1117,7 +1166,7 @@ fn collect_input_types_single_cast() {
 
 #[test]
 fn collect_input_types_single_ident() {
-    let body = Expr::Ident("x".into());
+    let body = Spanned::no_span(Expr::Ident("x".into()));
     let mut out = Vec::new();
     collect_input_param_types(&body, &mut out);
     assert_eq!(out, vec![Type::Unknown]);
@@ -1134,7 +1183,7 @@ fn collect_input_types_raw_as() {
         "as".into(),
         "Bool".into(),
     ];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     let mut out = Vec::new();
     collect_input_param_types(&body, &mut out);
     assert_eq!(out, vec![Type::Int, Type::Bool]);
@@ -1143,7 +1192,7 @@ fn collect_input_types_raw_as() {
 #[test]
 fn collect_input_types_raw_bare_idents() {
     let tokens = vec!["x".into(), ",".into(), "y".into()];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     let mut out = Vec::new();
     collect_input_param_types(&body, &mut out);
     assert_eq!(out, vec![Type::Unknown, Type::Unknown]);
@@ -1155,10 +1204,10 @@ fn collect_input_types_raw_bare_idents() {
 fn linear_from_cast() {
     // input(handle as linear FileHandle)
     let mut tracker = UsageTracker::new();
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("handle".into())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("handle".into()))),
         ty: "linear FileHandle".into(),
-    };
+    });
     declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
     assert_eq!(
         tracker.get_count("handle"),
@@ -1171,19 +1220,19 @@ fn linear_from_cast() {
 fn linear_from_call_args() {
     // input(h as linear File, n as Int) — only h is linear
     let mut tracker = UsageTracker::new();
-    let body = Expr::Call {
-        func: Box::new(Expr::Ident("input".into())),
+    let body = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("input".into()))),
         args: vec![
-            Expr::Cast {
-                expr: Box::new(Expr::Ident("h".into())),
+            Spanned::no_span(Expr::Cast {
+                expr: Box::new(Spanned::no_span(Expr::Ident("h".into()))),
                 ty: "linear File".into(),
-            },
-            Expr::Cast {
-                expr: Box::new(Expr::Ident("n".into())),
+            }),
+            Spanned::no_span(Expr::Cast {
+                expr: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
                 ty: "Int".into(),
-            },
+            }),
         ],
-    };
+    });
     declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
     assert_eq!(
         tracker.get_count("h"),
@@ -1211,7 +1260,7 @@ fn linear_from_raw_with_colon() {
         ":".into(),
         "Int".into(),
     ];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
     assert_eq!(
         tracker.get_count("x"),
@@ -1235,7 +1284,7 @@ fn linear_from_raw_with_as() {
         "linear".into(),
         "Resource".into(),
     ];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
     assert_eq!(
         tracker.get_count("handle"),
@@ -1248,10 +1297,10 @@ fn linear_from_raw_with_as() {
 fn linear_from_cast_direct() {
     // Direct Cast
     let mut tracker = UsageTracker::new();
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("buf".into())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("buf".into()))),
         ty: "linear Buffer".into(),
-    };
+    });
     declare_linear_params_from_expr(&body, &mut tracker, &(0..1));
     assert_eq!(
         tracker.get_count("buf"),
@@ -1446,11 +1495,11 @@ fn s003_info_flow_label_inference_through_binop() {
     checker.declare("secret_key".into(), SecurityLabel::Restricted);
     checker.declare("public_data".into(), SecurityLabel::Public);
 
-    let expr = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("secret_key".into())),
+    let expr = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("secret_key".into()))),
         op: BinOp::Add,
-        rhs: Box::new(Expr::Ident("public_data".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("public_data".into()))),
+    });
     let label = checker.infer_label(&expr);
     assert_eq!(
         label,
@@ -1491,19 +1540,19 @@ fn s004_match_consistent_usage_ok() {
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     let mut ctx = LinearContext::new(tracker);
 
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
-                body: AstExpr::Ident("x".into()),
+                body: Spanned::no_span(AstExpr::Ident("x".into())),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Wildcard,
-                body: AstExpr::Ident("x".into()),
+                body: Spanned::no_span(AstExpr::Ident("x".into())),
             },
         ],
-    };
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(
         branch_errors.is_empty(),
@@ -1523,19 +1572,19 @@ fn s004_match_inconsistent_usage_a05004() {
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     let mut ctx = LinearContext::new(tracker);
 
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
-                body: AstExpr::Ident("x".into()),
+                body: Spanned::no_span(AstExpr::Ident("x".into())),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Wildcard,
-                body: AstExpr::Literal(AstLit::Int("0".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into()))),
             },
         ],
-    };
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(branch_errors.len(), 1);
     assert_eq!(branch_errors[0].code, "A05004");
@@ -1550,23 +1599,23 @@ fn s004_match_three_arms_one_differs_a05004() {
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     let mut ctx = LinearContext::new(tracker);
 
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Literal(AstLit::Int("0".into()))),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
-                body: AstExpr::Ident("x".into()),
+                body: Spanned::no_span(AstExpr::Ident("x".into())),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("2".into())),
-                body: AstExpr::Ident("x".into()),
+                body: Spanned::no_span(AstExpr::Ident("x".into())),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Wildcard,
-                body: AstExpr::Literal(AstLit::Int("0".into())),
+                body: Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into()))),
             },
         ],
-    };
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(branch_errors.len(), 1, "one error for x: {branch_errors:?}");
     assert_eq!(branch_errors[0].code, "A05004");
@@ -1580,19 +1629,19 @@ fn s004_match_scrutinee_uses_linear_var() {
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     let mut ctx = LinearContext::new(tracker);
 
-    let expr = AstExpr::Match {
-        scrutinee: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Match {
+        scrutinee: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Literal(AstLit::Int("1".into())),
-                body: AstExpr::Ident("x".into()),
+                body: Spanned::no_span(AstExpr::Ident("x".into())),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Wildcard,
-                body: AstExpr::Ident("x".into()),
+                body: Spanned::no_span(AstExpr::Ident("x".into())),
             },
         ],
-    };
+    });
     let _branch_errors = check_expr_linearity(&expr, &mut ctx);
     // Final check: 1 (scrutinee) + 1 (max from arms) = 2 total.
     let final_errors = ctx.check();
@@ -1611,15 +1660,15 @@ fn s004_forall_body_is_ghost_use() {
     let mut ctx = LinearContext::new(tracker);
 
     // forall i in range: i < x  (x is referenced but ghost)
-    let expr = AstExpr::Forall {
+    let expr = Spanned::no_span(AstExpr::Forall {
         var: "i".into(),
-        domain: Box::new(AstExpr::Ident("range".into())),
-        body: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("i".into())),
+        domain: Box::new(Spanned::no_span(AstExpr::Ident("range".into()))),
+        body: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("i".into()))),
             op: AstBinOp::Lt,
-            rhs: Box::new(AstExpr::Ident("x".into())),
-        }),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        })),
+    });
     let errors = check_expr_linearity(&expr, &mut ctx);
     assert!(errors.is_empty(), "forall body should not produce errors");
 
@@ -1634,11 +1683,11 @@ fn s004_exists_body_is_ghost_use() {
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     let mut ctx = LinearContext::new(tracker);
 
-    let expr = AstExpr::Exists {
+    let expr = Spanned::no_span(AstExpr::Exists {
         var: "i".into(),
-        domain: Box::new(AstExpr::Ident("range".into())),
-        body: Box::new(AstExpr::Ident("x".into())),
-    };
+        domain: Box::new(Spanned::no_span(AstExpr::Ident("range".into()))),
+        body: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+    });
     let errors = check_expr_linearity(&expr, &mut ctx);
     assert!(errors.is_empty(), "exists body should not produce errors");
     assert_eq!(ctx.get_count("x"), Some(0));
@@ -1651,7 +1700,9 @@ fn s004_old_expr_is_ghost_use() {
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     let mut ctx = LinearContext::new(tracker);
 
-    let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+    let expr = Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(AstExpr::Ident(
+        "x".into(),
+    )))));
     let errors = check_expr_linearity(&expr, &mut ctx);
     assert!(errors.is_empty(), "old(x) should not count as a use");
     assert_eq!(ctx.get_count("x"), Some(0));
@@ -1664,7 +1715,9 @@ fn s004_ghost_block_is_not_a_use() {
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     let mut ctx = LinearContext::new(tracker);
 
-    let expr = AstExpr::Ghost(Box::new(AstExpr::Ident("x".into())));
+    let expr = Spanned::no_span(AstExpr::Ghost(Box::new(Spanned::no_span(AstExpr::Ident(
+        "x".into(),
+    )))));
     let errors = check_expr_linearity(&expr, &mut ctx);
     assert!(errors.is_empty());
     assert_eq!(ctx.get_count("x"), Some(0));

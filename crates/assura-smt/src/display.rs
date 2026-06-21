@@ -301,17 +301,20 @@ pub fn collect_contract_names(file: &SourceFile) -> Vec<String> {
 /// sends each one to `verify_decrease()` and returns the results as
 /// `VerificationResult`s that can be merged with the main verification output.
 pub fn dispatch_decrease_checks(typed: &TypedFile) -> Vec<VerificationResult> {
+    use assura_parser::ast::Spanned;
     typed
         .pending_decrease_checks
         .iter()
         .map(|check| {
             let desc = format!("{}::decreases({})", check.fn_name, "termination");
-            crate::verify_decrease(
-                &check.preconditions,
-                &check.measure_expr,
-                &check.call_arg,
-                desc,
-            )
+            let preconditions: Vec<_> = check
+                .preconditions
+                .iter()
+                .map(|e| Spanned::no_span(e.clone()))
+                .collect();
+            let measure = Spanned::no_span(check.measure_expr.clone());
+            let call_arg = Spanned::no_span(check.call_arg.clone());
+            crate::verify_decrease(&preconditions, &measure, &call_arg, desc)
         })
         .collect()
 }

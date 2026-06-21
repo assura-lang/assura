@@ -1,4 +1,5 @@
 use super::*;
+use assura_parser::ast::Spanned;
 // T031: Usage tracking tests (linear types)
 // -----------------------------------------------------------------------
 
@@ -179,7 +180,7 @@ fn usage_grade_display() {
 fn expr_usages_counts_ident() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
-    let expr = AstExpr::Ident("x".into());
+    let expr = Spanned::no_span(AstExpr::Ident("x".into()));
     expr_usages(&expr, &mut tracker);
     // x used once, so check should pass for Linear
     assert!(tracker.check().is_empty());
@@ -190,11 +191,11 @@ fn expr_usages_binop_counts_both_sides() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Exact(2), 0..1);
     // x + x => 2 uses
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("x".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -204,11 +205,11 @@ fn expr_usages_linear_used_in_binop_a05001() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     // x + x => 2 uses of a linear variable
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("x".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+    });
     expr_usages(&expr, &mut tracker);
     let errors = tracker.check();
     assert_eq!(errors.len(), 1);
@@ -221,10 +222,10 @@ fn expr_usages_call_counts_func_and_args() {
     tracker.declare("f".into(), UsageGrade::Linear, 0..1);
     tracker.declare("a".into(), UsageGrade::Linear, 2..3);
     // f(a) => 1 use of f, 1 use of a
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("f".into())),
-        args: vec![AstExpr::Ident("a".into())],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("f".into()))),
+        args: vec![Spanned::no_span(AstExpr::Ident("a".into()))],
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -236,11 +237,11 @@ fn expr_usages_nested_if() {
     tracker.declare("t".into(), UsageGrade::Exact(1), 2..3);
     tracker.declare("e".into(), UsageGrade::Exact(1), 4..5);
     // if c then t else e => 1 use each
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Ident("c".into())),
-        then_branch: Box::new(AstExpr::Ident("t".into())),
-        else_branch: Some(Box::new(AstExpr::Ident("e".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Ident("c".into()))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("t".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("e".into())))),
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -251,11 +252,11 @@ fn expr_usages_quantifier_counts_domain_and_body() {
     tracker.declare("S".into(), UsageGrade::Exact(1), 0..1);
     tracker.declare("p".into(), UsageGrade::Exact(1), 2..3);
     // forall x in S: p => 1 use of S, 1 use of p
-    let expr = AstExpr::Forall {
+    let expr = Spanned::no_span(AstExpr::Forall {
         var: "x".into(),
-        domain: Box::new(AstExpr::Ident("S".into())),
-        body: Box::new(AstExpr::Ident("p".into())),
-    };
+        domain: Box::new(Spanned::no_span(AstExpr::Ident("S".into()))),
+        body: Box::new(Spanned::no_span(AstExpr::Ident("p".into()))),
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -265,7 +266,10 @@ fn expr_usages_field_access_counts_receiver() {
     let mut tracker = UsageTracker::new();
     tracker.declare("obj".into(), UsageGrade::Linear, 0..1);
     // obj.field => 1 use of obj
-    let expr = AstExpr::Field(Box::new(AstExpr::Ident("obj".into())), "field".into());
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("obj".into()))),
+        "field".into(),
+    ));
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -276,11 +280,11 @@ fn expr_usages_method_call_counts_receiver_and_args() {
     tracker.declare("obj".into(), UsageGrade::Exact(1), 0..1);
     tracker.declare("arg1".into(), UsageGrade::Exact(1), 2..3);
     // obj.method(arg1)
-    let expr = AstExpr::MethodCall {
-        receiver: Box::new(AstExpr::Ident("obj".into())),
+    let expr = Spanned::no_span(AstExpr::MethodCall {
+        receiver: Box::new(Spanned::no_span(AstExpr::Ident("obj".into()))),
         method: "method".into(),
-        args: vec![AstExpr::Ident("arg1".into())],
-    };
+        args: vec![Spanned::no_span(AstExpr::Ident("arg1".into()))],
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -291,10 +295,10 @@ fn expr_usages_index_counts_base_and_index() {
     tracker.declare("arr".into(), UsageGrade::Exact(1), 0..1);
     tracker.declare("i".into(), UsageGrade::Exact(1), 2..3);
     // arr[i]
-    let expr = AstExpr::Index {
-        expr: Box::new(AstExpr::Ident("arr".into())),
-        index: Box::new(AstExpr::Ident("i".into())),
-    };
+    let expr = Spanned::no_span(AstExpr::Index {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("arr".into()))),
+        index: Box::new(Spanned::no_span(AstExpr::Ident("i".into()))),
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -304,7 +308,9 @@ fn expr_usages_old_counts_inner() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     // old(x) => 1 use of x
-    let expr = AstExpr::Old(Box::new(AstExpr::Ident("x".into())));
+    let expr = Spanned::no_span(AstExpr::Old(Box::new(Spanned::no_span(AstExpr::Ident(
+        "x".into(),
+    )))));
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -314,7 +320,7 @@ fn expr_usages_ident_counts() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     // x => 1 use of x
-    let expr = AstExpr::Ident("x".into());
+    let expr = Spanned::no_span(AstExpr::Ident("x".into()));
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -325,7 +331,10 @@ fn expr_usages_list_counts_elements() {
     tracker.declare("a".into(), UsageGrade::Exact(1), 0..1);
     tracker.declare("b".into(), UsageGrade::Exact(1), 2..3);
     // [a, b]
-    let expr = AstExpr::List(vec![AstExpr::Ident("a".into()), AstExpr::Ident("b".into())]);
+    let expr = Spanned::no_span(AstExpr::List(vec![
+        Spanned::no_span(AstExpr::Ident("a".into())),
+        Spanned::no_span(AstExpr::Ident("b".into())),
+    ]));
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -335,10 +344,10 @@ fn expr_usages_unary_counts_inner() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     // -x => 1 use of x
-    let expr = AstExpr::UnaryOp {
+    let expr = Spanned::no_span(AstExpr::UnaryOp {
         op: AstUnOp::Neg,
-        expr: Box::new(AstExpr::Ident("x".into())),
-    };
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -348,10 +357,10 @@ fn expr_usages_cast_counts_inner() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     // x as Foo => 1 use of x
-    let expr = AstExpr::Cast {
-        expr: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::Cast {
+        expr: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         ty: "Foo".into(),
-    };
+    });
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -361,7 +370,10 @@ fn expr_usages_block_counts_all() {
     let mut tracker = UsageTracker::new();
     tracker.declare("a".into(), UsageGrade::Exact(1), 0..1);
     tracker.declare("b".into(), UsageGrade::Exact(1), 2..3);
-    let expr = AstExpr::Block(vec![AstExpr::Ident("a".into()), AstExpr::Ident("b".into())]);
+    let expr = Spanned::no_span(AstExpr::Block(vec![
+        Spanned::no_span(AstExpr::Ident("a".into())),
+        Spanned::no_span(AstExpr::Ident("b".into())),
+    ]));
     expr_usages(&expr, &mut tracker);
     assert!(tracker.check().is_empty());
 }
@@ -371,7 +383,7 @@ fn expr_usages_raw_no_count() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Linear, 0..1);
     // Raw tokens cannot be analyzed; x stays at 0 uses
-    let expr = AstExpr::Raw(vec!["x".into()]);
+    let expr = Spanned::no_span(AstExpr::Raw(vec!["x".into()]));
     expr_usages(&expr, &mut tracker);
     let errors = tracker.check();
     // Linear var not used => A05002
@@ -383,7 +395,7 @@ fn expr_usages_raw_no_count() {
 fn expr_usages_literal_no_count() {
     let mut tracker = UsageTracker::new();
     tracker.declare("x".into(), UsageGrade::Unlimited, 0..1);
-    let expr = AstExpr::Literal(AstLit::Int("42".into()));
+    let expr = Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())));
     expr_usages(&expr, &mut tracker);
     // No uses recorded, but unlimited is fine
     assert!(tracker.check().is_empty());
@@ -416,11 +428,11 @@ fn linear_context_both_branches_use_var_ok() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then x else x
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Ident("x".into())),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty(), "should have no A05004 errors");
 
@@ -440,11 +452,13 @@ fn linear_context_one_branch_only_a05004() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then x else 42
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Ident("x".into())),
-        else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("42".into())))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int(
+            "42".into(),
+        ))))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(branch_errors.len(), 1);
     assert_eq!(branch_errors[0].code, "A05004");
@@ -461,11 +475,11 @@ fn linear_context_no_else_branch_a05004() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then x
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         else_branch: None,
-    };
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(branch_errors.len(), 1);
     assert_eq!(branch_errors[0].code, "A05004");
@@ -480,11 +494,13 @@ fn linear_context_neither_branch_uses_var() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then 1 else 2
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Literal(AstLit::Int("1".into()))),
-        else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("2".into())))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int(
+            "2".into(),
+        ))))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(
         branch_errors.is_empty(),
@@ -505,15 +521,15 @@ fn linear_context_double_use_in_one_branch() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then (x + x) else x
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("x".into())),
-        }),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        })),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(branch_errors.len(), 1);
     assert_eq!(branch_errors[0].code, "A05004");
@@ -530,19 +546,19 @@ fn linear_context_unlimited_var_no_consistency_error() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then (x + x + x) else x
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::BinOp {
-                lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+                lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
                 op: AstBinOp::Add,
-                rhs: Box::new(AstExpr::Ident("x".into())),
-            }),
+                rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+            })),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("x".into())),
-        }),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        })),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -561,11 +577,11 @@ fn linear_context_condition_uses_before_fork() {
     let mut ctx = LinearContext::new(tracker);
 
     // if c then x else x
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Ident("c".into())),
-        then_branch: Box::new(AstExpr::Ident("x".into())),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Ident("c".into()))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -585,17 +601,17 @@ fn linear_context_multiple_vars_mixed() {
     // if cond then (a, b) else (a, 0)
     // a: used in both => consistent
     // b: used in then only => inconsistent A05004
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::List(vec![
-            AstExpr::Ident("a".into()),
-            AstExpr::Ident("b".into()),
-        ])),
-        else_branch: Some(Box::new(AstExpr::List(vec![
-            AstExpr::Ident("a".into()),
-            AstExpr::Literal(AstLit::Int("0".into())),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::List(vec![
+            Spanned::no_span(AstExpr::Ident("a".into())),
+            Spanned::no_span(AstExpr::Ident("b".into())),
         ]))),
-    };
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::List(vec![
+            Spanned::no_span(AstExpr::Ident("a".into())),
+            Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into()))),
+        ])))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(branch_errors.len(), 1);
     assert_eq!(branch_errors[0].code, "A05004");
@@ -610,15 +626,15 @@ fn linear_context_exact_grade_consistency_check() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then (x+x) else x  => delta 2 vs delta 1 => A05004
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("x".into())),
-        }),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        })),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert_eq!(branch_errors.len(), 1);
     assert_eq!(branch_errors[0].code, "A05004");
@@ -632,19 +648,19 @@ fn linear_context_exact_grade_consistent_ok() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then (x+x) else (x+x) => delta 2 in both
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("x".into())),
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("x".into())),
-        }),
-        else_branch: Some(Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("x".into())),
-            op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("x".into())),
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
         })),
-    };
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+            op: AstBinOp::Add,
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        }))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -662,15 +678,15 @@ fn linear_context_nested_if_branches() {
     // if c1 then (if c2 then x else x) else x
     // Inner if: x used consistently in both branches => OK
     // Outer if: after inner merge, x used once in then, once in else => OK
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::If {
-            cond: Box::new(AstExpr::Literal(AstLit::Bool(false))),
-            then_branch: Box::new(AstExpr::Ident("x".into())),
-            else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-        }),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::If {
+            cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(false)))),
+            then_branch: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+            else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+        })),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -687,15 +703,17 @@ fn linear_context_nested_if_inner_inconsistent() {
 
     // if c1 then (if c2 then x else 0) else x
     // Inner if: x used in then but not else => A05004
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::If {
-            cond: Box::new(AstExpr::Literal(AstLit::Bool(false))),
-            then_branch: Box::new(AstExpr::Ident("x".into())),
-            else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("0".into())))),
-        }),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::If {
+            cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(false)))),
+            then_branch: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+            else_branch: Some(Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int(
+                "0".into(),
+            ))))),
+        })),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     // Inner if produces an A05004 for x
     assert!(
@@ -713,11 +731,13 @@ fn linear_context_erased_var_unaffected_by_branches() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then g else 0
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Ident("g".into())),
-        else_branch: Some(Box::new(AstExpr::Literal(AstLit::Int("0".into())))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("g".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int(
+            "0".into(),
+        ))))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     // Erased is not Linear or Exact, so no A05004
     assert!(branch_errors.is_empty());
@@ -739,11 +759,11 @@ fn linear_context_var_used_in_condition_and_branches() {
     let mut ctx = LinearContext::new(tracker);
 
     // if x then x else x  (x as condition + x in each branch)
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Ident("x".into())),
-        then_branch: Box::new(AstExpr::Ident("x".into())),
-        else_branch: Some(Box::new(AstExpr::Ident("x".into()))),
-    };
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("x".into())))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     // Branches are consistent (both use x once more)
     assert!(branch_errors.is_empty());
@@ -806,7 +826,7 @@ fn linear_context_a05005_scope_escape() {
 
     // Simulate: resource is declared but never used in its scope
     // (no expressions reference it).
-    let expr = AstExpr::Literal(AstLit::Int("42".into()));
+    let expr = Spanned::no_span(AstExpr::Literal(AstLit::Int("42".into())));
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -831,11 +851,11 @@ fn linear_double_use_a05001() {
     let mut ctx = LinearContext::new(tracker);
 
     // buf + buf => 2 uses of linear variable
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("buf".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("buf".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("buf".into()))),
+    });
     check_expr_linearity(&expr, &mut ctx);
     let errors = ctx.check();
     assert_eq!(errors.len(), 1);
@@ -852,7 +872,7 @@ fn linear_unused_a05002() {
     let mut ctx = LinearContext::new(tracker);
 
     // Expression that does not reference 'handle' at all
-    let expr = AstExpr::Literal(AstLit::Int("99".into()));
+    let expr = Spanned::no_span(AstExpr::Literal(AstLit::Int("99".into())));
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -871,7 +891,7 @@ fn linear_correctly_used_once_passes() {
     let mut ctx = LinearContext::new(tracker);
 
     // Single use: conn
-    let expr = AstExpr::Ident("conn".into());
+    let expr = Spanned::no_span(AstExpr::Ident("conn".into()));
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -935,15 +955,15 @@ fn linear_triple_use_a05001() {
     let mut ctx = LinearContext::new(tracker);
 
     // fd + fd + fd => 3 uses
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::BinOp {
-            lhs: Box::new(AstExpr::Ident("fd".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::BinOp {
+            lhs: Box::new(Spanned::no_span(AstExpr::Ident("fd".into()))),
             op: AstBinOp::Add,
-            rhs: Box::new(AstExpr::Ident("fd".into())),
-        }),
+            rhs: Box::new(Spanned::no_span(AstExpr::Ident("fd".into()))),
+        })),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("fd".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("fd".into()))),
+    });
     check_expr_linearity(&expr, &mut ctx);
     let errors = ctx.check();
     assert_eq!(errors.len(), 1);
@@ -959,10 +979,10 @@ fn linear_used_in_call_arg_exactly_once_passes() {
     let mut ctx = LinearContext::new(tracker);
 
     // consume(key) => 1 use of key
-    let expr = AstExpr::Call {
-        func: Box::new(AstExpr::Ident("consume".into())),
-        args: vec![AstExpr::Ident("key".into())],
-    };
+    let expr = Spanned::no_span(AstExpr::Call {
+        func: Box::new(Spanned::no_span(AstExpr::Ident("consume".into()))),
+        args: vec![Spanned::no_span(AstExpr::Ident("key".into()))],
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -978,17 +998,17 @@ fn linear_branch_consistency_with_single_use_passes() {
     let mut ctx = LinearContext::new(tracker);
 
     // if cond then consume(tok) else discard(tok)
-    let expr = AstExpr::If {
-        cond: Box::new(AstExpr::Literal(AstLit::Bool(true))),
-        then_branch: Box::new(AstExpr::Call {
-            func: Box::new(AstExpr::Ident("consume".into())),
-            args: vec![AstExpr::Ident("tok".into())],
-        }),
-        else_branch: Some(Box::new(AstExpr::Call {
-            func: Box::new(AstExpr::Ident("discard".into())),
-            args: vec![AstExpr::Ident("tok".into())],
+    let expr = Spanned::no_span(AstExpr::If {
+        cond: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(AstExpr::Call {
+            func: Box::new(Spanned::no_span(AstExpr::Ident("consume".into()))),
+            args: vec![Spanned::no_span(AstExpr::Ident("tok".into()))],
         })),
-    };
+        else_branch: Some(Box::new(Spanned::no_span(AstExpr::Call {
+            func: Box::new(Spanned::no_span(AstExpr::Ident("discard".into()))),
+            args: vec![Spanned::no_span(AstExpr::Ident("tok".into()))],
+        }))),
+    });
     let branch_errors = check_expr_linearity(&expr, &mut ctx);
     assert!(branch_errors.is_empty());
 
@@ -1005,11 +1025,11 @@ fn linear_two_vars_one_double_used_one_unused() {
     let mut ctx = LinearContext::new(tracker);
 
     // a + a (double use of a, b never referenced)
-    let expr = AstExpr::BinOp {
-        lhs: Box::new(AstExpr::Ident("a".into())),
+    let expr = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("a".into()))),
         op: AstBinOp::Add,
-        rhs: Box::new(AstExpr::Ident("a".into())),
-    };
+        rhs: Box::new(Spanned::no_span(AstExpr::Ident("a".into()))),
+    });
     check_expr_linearity(&expr, &mut ctx);
     let errors = ctx.check();
     assert_eq!(errors.len(), 2);

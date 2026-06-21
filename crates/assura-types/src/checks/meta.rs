@@ -4,7 +4,7 @@
 //! complexity bounds, behavioral equivalence, refinement,
 //! incremental contracts, scoped invariants, composition, libraries.
 
-use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr};
+use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr, SpExpr};
 
 use crate::checkers::*;
 use crate::convert::parse_type_tokens;
@@ -120,13 +120,13 @@ pub(crate) fn run_match_exhaustiveness_checks(
 
 /// Recursively walk an expression looking for match expressions.
 fn check_match_exhaustiveness_expr(
-    expr: &Expr,
+    expr: &SpExpr,
     span: &std::ops::Range<usize>,
     enum_variants: &std::collections::HashMap<String, Vec<String>>,
     _symbols: &assura_resolve::SymbolTable,
     errors: &mut Vec<TypeError>,
 ) {
-    match expr {
+    match &expr.node {
         Expr::Match { scrutinee, arms } => {
             // Recurse into scrutinee and arm bodies
             check_match_exhaustiveness_expr(scrutinee, span, enum_variants, _symbols, errors);
@@ -135,7 +135,7 @@ fn check_match_exhaustiveness_expr(
             }
 
             // Try to determine the enum type from the scrutinee
-            if let Expr::Ident(name) = scrutinee.as_ref()
+            if let Expr::Ident(name) = &scrutinee.node
                 && let Some(variants) = enum_variants.get(name)
             {
                 let patterns: Vec<Pattern> = arms
@@ -172,7 +172,7 @@ fn check_match_exhaustiveness_expr(
             let has_wildcard = arms
                 .iter()
                 .any(|arm| matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard));
-            let has_enum_coverage = if let Expr::Ident(name) = scrutinee.as_ref() {
+            let has_enum_coverage = if let Expr::Ident(name) = &scrutinee.node {
                 enum_variants.contains_key(name)
             } else {
                 false
@@ -267,8 +267,8 @@ fn check_match_exhaustiveness_expr(
 /// - `Ident("method_name")` -> name only, no params/return
 /// - `Call { func: Ident("f"), args }` -> name + param types from args
 /// - `Raw(["f", "(", "Int", ")", "->", "Bool"])` -> name + parsed types
-fn extract_interface_method(body: &Expr) -> Option<InterfaceMethod> {
-    match body {
+fn extract_interface_method(body: &SpExpr) -> Option<InterfaceMethod> {
+    match &body.node {
         Expr::Ident(name) => Some(InterfaceMethod {
             name: name.clone(),
             param_types: vec![],
@@ -278,14 +278,14 @@ fn extract_interface_method(body: &Expr) -> Option<InterfaceMethod> {
             no_reentrancy: false,
         }),
         Expr::Call { func, args } => {
-            let name = match func.as_ref() {
+            let name = match &func.as_ref().node {
                 Expr::Ident(n) => n.clone(),
                 _ => return None,
             };
             // Each arg in a method decl is typically a type identifier
             let param_types: Vec<Type> = args
                 .iter()
-                .map(|arg| match arg {
+                .map(|arg| match &arg.node {
                     Expr::Ident(t) => parse_type_tokens(std::slice::from_ref(t)),
                     _ => Type::Unknown,
                 })
@@ -362,7 +362,7 @@ pub(crate) fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> V
                     .iter()
                     .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "extends"))
                     .filter_map(|cl| {
-                        if let Expr::Ident(name) = &cl.body {
+                        if let Expr::Ident(name) = &cl.body.node {
                             Some(name.clone())
                         } else {
                             None
@@ -385,7 +385,7 @@ pub(crate) fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> V
             for clause in &c.clauses {
                 if let ClauseKind::Other(k) = &clause.kind
                     && k == "implements"
-                    && let Expr::Ident(iface_name) = &clause.body
+                    && let Expr::Ident(iface_name) = &clause.body.node
                 {
                     let impl_methods: Vec<InterfaceMethod> = c
                         .clauses
@@ -419,7 +419,7 @@ pub(crate) fn run_interface_checks(source: &assura_parser::ast::SourceFile) -> V
                         // Check reentrancy restrictions
                         let is_reentrant = c.clauses.iter().any(|cl| {
                             matches!(&cl.kind, ClauseKind::Other(k) if k == "reentrant")
-                                && matches!(&cl.body, Expr::Ident(n) if n == &method.name)
+                                && matches!(&cl.body.node, Expr::Ident(n) if n == &method.name)
                         });
                         for err in checker.check_reentrancy(
                             iface_name,
@@ -476,7 +476,7 @@ pub(crate) fn run_structural_invariant_checks(
                     if let ClauseKind::Other(k) = &clause.kind
                         && k == "structural_invariant"
                     {
-                        let kind = match &clause.body {
+                        let kind = match &clause.body.node {
                             Expr::Ident(name) => match name.as_str() {
                                 "sorted" => InvariantKind::Sorted { descending: false },
                                 "acyclic" => InvariantKind::Acyclic,
@@ -484,7 +484,7 @@ pub(crate) fn run_structural_invariant_checks(
                                 other => InvariantKind::Custom(other.to_string()),
                             },
                             Expr::Call { func, .. } => {
-                                if let Expr::Ident(name) = func.as_ref() {
+                                if let Expr::Ident(name) = &func.as_ref().node {
                                     match name.as_str() {
                                         "tree_balance" => {
                                             InvariantKind::TreeBalance { max_diff: 1 }
@@ -521,7 +521,7 @@ pub(crate) fn run_structural_invariant_checks(
                     if let ClauseKind::Other(k) = &clause.kind
                         && k == "modifies_structure"
                     {
-                        let op_name = match &clause.body {
+                        let op_name = match &clause.body.node {
                             Expr::Ident(name) => name.as_str(),
                             _ => "unknown",
                         };
@@ -568,7 +568,7 @@ pub(crate) fn run_complexity_bound_checks(
                 && (k == "complexity" || k == "time_complexity" || k == "big_o")
             {
                 found = true;
-                if let Expr::Ident(class_name) = &clause.body {
+                if let Expr::Ident(class_name) = &clause.body.node {
                     let class = match class_name.as_str() {
                         "constant" | "O1" => ComplexityClass::Constant,
                         "logarithmic" | "O_log_n" => ComplexityClass::Logarithmic,
@@ -602,7 +602,7 @@ pub(crate) fn run_complexity_bound_checks(
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "measured_complexity" || k == "actual_complexity")
-                && let Expr::Ident(class_name) = &clause.body
+                && let Expr::Ident(class_name) = &clause.body.node
             {
                 let class = match class_name.as_str() {
                     "constant" | "O1" => ComplexityClass::Constant,
@@ -642,8 +642,9 @@ pub(crate) fn run_behavioral_equivalence_checks(
                 && (k == "equivalent" || k == "behavioral_equiv" || k == "equiv")
             {
                 found = true;
-                if let Expr::BinOp { lhs, rhs, .. } = &clause.body
-                    && let (Expr::Ident(a), Expr::Ident(b)) = (lhs.as_ref(), rhs.as_ref())
+                if let Expr::BinOp { lhs, rhs, .. } = &clause.body.node
+                    && let (Expr::Ident(a), Expr::Ident(b)) =
+                        (&lhs.as_ref().node, &rhs.as_ref().node)
                 {
                     checker.declare(
                         format!("{a}_equiv_{b}"),
@@ -670,7 +671,7 @@ pub(crate) fn run_behavioral_equivalence_checks(
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "verified_equiv" || k == "equiv_proved")
-                && let Expr::Ident(name) = &clause.body
+                && let Expr::Ident(name) = &clause.body.node
             {
                 checker.mark_verified(name);
             }
@@ -701,9 +702,9 @@ pub(crate) fn run_multi_pass_refinement_checks(
             {
                 found = true;
                 // Extract pass params: refine(name, from_level, to_level, order)
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let from = args
                                 .first()
                                 .and_then(extract_ident)
@@ -820,9 +821,9 @@ pub(crate) fn run_incremental_contract_checks(
             {
                 found = true;
                 // Extract version: version(name, major, minor, patch)
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Call { func, args } => {
-                        if let Expr::Ident(name) = func.as_ref() {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             let major = args
                                 .first()
                                 .and_then(extract_int_literal)
@@ -907,7 +908,7 @@ pub(crate) fn run_scoped_invariant_checks(
             if let ClauseKind::Other(ref k) = clause.kind {
                 if k == "suspend_invariant" || k == "scoped_invariant" {
                     found = true;
-                    if let Expr::Ident(name) = &clause.body {
+                    if let Expr::Ident(name) = &clause.body.node {
                         checker.declare_invariant(name.clone());
                         if let Some(err) = checker.suspend(name) {
                             errors.push(err);
@@ -915,7 +916,7 @@ pub(crate) fn run_scoped_invariant_checks(
                     }
                 }
                 if (k == "restore_invariant" || k == "restore")
-                    && let Expr::Ident(name) = &clause.body
+                    && let Expr::Ident(name) = &clause.body.node
                     && let Some(err) = checker.restore(name)
                 {
                     errors.push(err);
@@ -971,7 +972,7 @@ pub(crate) fn run_contract_composition_checks(
                     matches!(&cl.kind, ClauseKind::Other(k) if k == "extends" || k == "inherits")
                 })
                 .filter_map(|cl| {
-                    if let Expr::Ident(name) = &cl.body {
+                    if let Expr::Ident(name) = &cl.body.node {
                         Some(name.clone())
                     } else {
                         None
@@ -1010,12 +1011,12 @@ pub(crate) fn run_contract_library_checks(
                 for clause in body {
                     if let ClauseKind::Other(ref k) = clause.kind {
                         if (k == "export" || k == "exports")
-                            && let Expr::Ident(contract_name) = &clause.body
+                            && let Expr::Ident(contract_name) = &clause.body.node
                         {
                             checker.add_export(name, contract_name.clone());
                         }
                         if (k == "depends" || k == "dependency")
-                            && let Expr::Ident(dep_name) = &clause.body
+                            && let Expr::Ident(dep_name) = &clause.body.node
                         {
                             checker.add_dependency(
                                 name,

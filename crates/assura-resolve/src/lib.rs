@@ -16,7 +16,7 @@ mod unused;
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SourceFile, TypeBody};
+use assura_parser::ast::{ClauseKind, Decl, ServiceItem, SourceFile, SpExpr, TypeBody};
 
 // Re-export public API
 pub use errors::{ResolutionError, ResolvedFile};
@@ -122,7 +122,7 @@ const BUILTIN_VALUE_NAMES: &[&str] = &[
 /// Extract parameter names from an `input` clause body.
 ///
 /// Extract parameter names from a clause body using the shared parser utility.
-fn extract_input_param_names(body: &Expr) -> Vec<String> {
+fn extract_input_param_names(body: &SpExpr) -> Vec<String> {
     assura_parser::ast::extract_clause_params(body)
         .into_iter()
         .map(|p| p.name)

@@ -258,7 +258,7 @@ pub fn ir_prompt_contexts_for_typed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, ClauseKind, Expr};
+    use assura_parser::ast::{BinOp, ClauseKind, Expr, Spanned};
 
     fn copy_bytes_ctx() -> IrPromptContext {
         IrPromptContext {
@@ -271,32 +271,34 @@ mod tests {
             clauses: vec![
                 Clause {
                     kind: ClauseKind::Requires,
-                    body: Expr::BinOp {
+                    body: Spanned::no_span(Expr::BinOp {
                         op: BinOp::Gt,
-                        lhs: Box::new(Expr::MethodCall {
-                            receiver: Box::new(Expr::Ident("raw".into())),
+                        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                            receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
                             method: "length".into(),
                             args: vec![],
-                        }),
-                        rhs: Box::new(Expr::Literal(assura_parser::ast::Literal::Int("0".into()))),
-                    },
+                        })),
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(
+                            assura_parser::ast::Literal::Int("0".into()),
+                        ))),
+                    }),
                     effect_variables: vec![],
                 },
                 Clause {
                     kind: ClauseKind::Ensures,
-                    body: Expr::BinOp {
+                    body: Spanned::no_span(Expr::BinOp {
                         op: BinOp::Lte,
-                        lhs: Box::new(Expr::MethodCall {
-                            receiver: Box::new(Expr::Ident("result".into())),
+                        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                            receiver: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                             method: "length".into(),
                             args: vec![],
-                        }),
-                        rhs: Box::new(Expr::MethodCall {
-                            receiver: Box::new(Expr::Ident("raw".into())),
+                        })),
+                        rhs: Box::new(Spanned::no_span(Expr::MethodCall {
+                            receiver: Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
                             method: "length".into(),
                             args: vec![],
-                        }),
-                    },
+                        })),
+                    }),
                     effect_variables: vec![],
                 },
             ],
@@ -332,14 +334,14 @@ mod tests {
             return_ty: vec!["Int".into()],
             clauses: vec![Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
+                body: Spanned::no_span(Expr::BinOp {
                     op: BinOp::Eq,
-                    lhs: Box::new(Expr::Ident("result".into())),
-                    rhs: Box::new(Expr::Call {
-                        func: Box::new(Expr::Ident("double".into())),
-                        args: vec![Expr::Ident("x".into())],
-                    }),
-                },
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Call {
+                        func: Box::new(Spanned::no_span(Expr::Ident("double".into()))),
+                        args: vec![Spanned::no_span(Expr::Ident("x".into()))],
+                    })),
+                }),
                 effect_variables: vec![],
             }],
             source_file: None,

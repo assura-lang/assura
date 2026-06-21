@@ -10,16 +10,16 @@ use super::*;
 /// Operations take `&mut self`, queries take `&self`. Both extract input params
 /// and output types from their clauses for proper function signatures.
 /// Extract a state name from a `self.state == StateName` pattern.
-pub(crate) fn extract_state_comparison(body: &Expr) -> Option<String> {
-    if let Expr::BinOp { lhs, op, rhs } = body
+pub(crate) fn extract_state_comparison(body: &SpExpr) -> Option<String> {
+    if let Expr::BinOp { lhs, op, rhs } = &body.node
         && matches!(op, BinOp::Eq)
     {
         // Check lhs is self.state
         let is_self_state = matches!(
-            lhs.as_ref(),
-            Expr::Field(recv, field) if matches!(recv.as_ref(), Expr::Ident(s) if s == "self") && field == "state"
+            &lhs.as_ref().node,
+            Expr::Field(recv, field) if matches!(&recv.as_ref().node, Expr::Ident(s) if s == "self") && field == "state"
         );
-        if is_self_state && let Expr::Ident(state_name) = rhs.as_ref() {
+        if is_self_state && let Expr::Ident(state_name) = &rhs.as_ref().node {
             return Some(state_name.clone());
         }
     }
@@ -449,8 +449,8 @@ pub(crate) fn generate_typestate_service_body(s: &ServiceDecl, code: &mut String
     }
 
     let mut state_methods: Vec<(Option<String>, Vec<MethodRef<'_>>)> = Vec::new();
-    let mut invariant_exprs: Vec<&Expr> = Vec::new();
-    let mut other_items: Vec<(&str, &Expr)> = Vec::new();
+    let mut invariant_exprs: Vec<&SpExpr> = Vec::new();
+    let mut other_items: Vec<(&str, &SpExpr)> = Vec::new();
 
     // Build ordered grouping: preserve state order from declaration
     let mut state_order: Vec<Option<String>> = Vec::new();
@@ -666,7 +666,7 @@ pub(crate) fn generate_interface_trait(name: &str, body: &[Clause], code: &mut S
         .iter()
         .filter(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "extends"))
         .filter_map(|c| {
-            if let Expr::Ident(n) = &c.body {
+            if let Expr::Ident(n) = &c.body.node {
                 Some(n.clone())
             } else {
                 None
@@ -720,15 +720,15 @@ pub(crate) fn generate_interface_trait(name: &str, body: &[Clause], code: &mut S
 }
 
 /// Generate a single trait method declaration from an interface method clause.
-pub(crate) fn generate_trait_method(body: &Expr, code: &mut String) {
-    match body {
+pub(crate) fn generate_trait_method(body: &SpExpr, code: &mut String) {
+    match &body.node {
         Expr::Ident(name) => {
             // Simple method with no params: fn name(&self);
             code.push_str(&format!("    fn {name}(&self);\n\n"));
         }
         Expr::Call { func, args } => {
             // Method with params: fn name(&self, param: Type, ...) -> RetType
-            let func_name = if let Expr::Ident(n) = func.as_ref() {
+            let func_name = if let Expr::Ident(n) = &func.as_ref().node {
                 n.clone()
             } else {
                 "unknown".to_string()
@@ -737,7 +737,7 @@ pub(crate) fn generate_trait_method(body: &Expr, code: &mut String) {
                 .iter()
                 .enumerate()
                 .map(|(i, arg)| {
-                    if let Expr::Ident(ty) = arg {
+                    if let Expr::Ident(ty) = &arg.node {
                         format!("arg{i}: {}", map_type_token(ty))
                     } else {
                         format!("arg{i}: i64")
@@ -835,7 +835,7 @@ pub(crate) fn generate_trait_method(body: &Expr, code: &mut String) {
         | Expr::Tuple(_) => {
             code.push_str(&format!(
                 "    compile_error!(\"unsupported expression in trait method: {:?}\");\n\n",
-                std::mem::discriminant(body)
+                std::mem::discriminant(&body.node)
             ));
         }
     }
@@ -846,8 +846,9 @@ pub(crate) fn generate_trait_method(body: &Expr, code: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
-    fn mk_clause(kind: ClauseKind, body: Expr) -> Clause {
+    fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {
             kind,
             body,
@@ -860,40 +861,40 @@ mod tests {
     #[test]
     fn state_comparison_match() {
         // self.state == Open
-        let body = Expr::BinOp {
-            lhs: Box::new(Expr::Field(
-                Box::new(Expr::Ident("self".into())),
+        let body = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                 "state".into(),
-            )),
+            ))),
             op: BinOp::Eq,
-            rhs: Box::new(Expr::Ident("Open".into())),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Ident("Open".into()))),
+        });
         assert_eq!(extract_state_comparison(&body), Some("Open".into()));
     }
 
     #[test]
     fn state_comparison_not_self() {
-        let body = Expr::BinOp {
-            lhs: Box::new(Expr::Field(
-                Box::new(Expr::Ident("other".into())),
+        let body = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("other".into()))),
                 "state".into(),
-            )),
+            ))),
             op: BinOp::Eq,
-            rhs: Box::new(Expr::Ident("Open".into())),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Ident("Open".into()))),
+        });
         assert_eq!(extract_state_comparison(&body), None);
     }
 
     #[test]
     fn state_comparison_not_eq() {
-        let body = Expr::BinOp {
-            lhs: Box::new(Expr::Field(
-                Box::new(Expr::Ident("self".into())),
+        let body = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                 "state".into(),
-            )),
+            ))),
             op: BinOp::Neq,
-            rhs: Box::new(Expr::Ident("Open".into())),
-        };
+            rhs: Box::new(Spanned::no_span(Expr::Ident("Open".into()))),
+        });
         assert_eq!(extract_state_comparison(&body), None);
     }
 
@@ -927,14 +928,14 @@ mod tests {
     fn pre_state_found() {
         let clauses = vec![mk_clause(
             ClauseKind::Requires,
-            Expr::BinOp {
-                lhs: Box::new(Expr::Field(
-                    Box::new(Expr::Ident("self".into())),
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Field(
+                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                     "state".into(),
-                )),
+                ))),
                 op: BinOp::Eq,
-                rhs: Box::new(Expr::Ident("Init".into())),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Ident("Init".into()))),
+            }),
         )];
         assert_eq!(method_pre_state(&clauses), Some("Init".into()));
     }
@@ -943,11 +944,11 @@ mod tests {
     fn pre_state_not_found() {
         let clauses = vec![mk_clause(
             ClauseKind::Requires,
-            Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
         )];
         assert_eq!(method_pre_state(&clauses), None);
     }
@@ -984,14 +985,14 @@ mod tests {
     fn service_method_with_state_guard() {
         let clauses = vec![mk_clause(
             ClauseKind::Requires,
-            Expr::BinOp {
-                lhs: Box::new(Expr::Field(
-                    Box::new(Expr::Ident("self".into())),
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Field(
+                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                     "state".into(),
-                )),
+                ))),
                 op: BinOp::Eq,
-                rhs: Box::new(Expr::Ident("Ready".into())),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Ident("Ready".into()))),
+            }),
         )];
         let mut code = String::new();
         generate_service_method(&mut code, "start", &clauses, true, false);
@@ -1005,14 +1006,14 @@ mod tests {
     fn service_method_with_state_transition() {
         let clauses = vec![mk_clause(
             ClauseKind::Ensures,
-            Expr::BinOp {
-                lhs: Box::new(Expr::Field(
-                    Box::new(Expr::Ident("self".into())),
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Field(
+                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                     "state".into(),
-                )),
+                ))),
                 op: BinOp::Eq,
-                rhs: Box::new(Expr::Ident("Running".into())),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Ident("Running".into()))),
+            }),
         )];
         let mut code = String::new();
         generate_service_method(&mut code, "start", &clauses, true, false);
@@ -1054,25 +1055,25 @@ mod tests {
                     clauses: vec![
                         mk_clause(
                             ClauseKind::Requires,
-                            Expr::BinOp {
-                                lhs: Box::new(Expr::Field(
-                                    Box::new(Expr::Ident("self".into())),
+                            Spanned::no_span(Expr::BinOp {
+                                lhs: Box::new(Spanned::no_span(Expr::Field(
+                                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                                     "state".into(),
-                                )),
+                                ))),
                                 op: BinOp::Eq,
-                                rhs: Box::new(Expr::Ident("Closed".into())),
-                            },
+                                rhs: Box::new(Spanned::no_span(Expr::Ident("Closed".into()))),
+                            }),
                         ),
                         mk_clause(
                             ClauseKind::Ensures,
-                            Expr::BinOp {
-                                lhs: Box::new(Expr::Field(
-                                    Box::new(Expr::Ident("self".into())),
+                            Spanned::no_span(Expr::BinOp {
+                                lhs: Box::new(Spanned::no_span(Expr::Field(
+                                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                                     "state".into(),
-                                )),
+                                ))),
                                 op: BinOp::Eq,
-                                rhs: Box::new(Expr::Ident("Open".into())),
-                            },
+                                rhs: Box::new(Spanned::no_span(Expr::Ident("Open".into()))),
+                            }),
                         ),
                     ],
                 },
@@ -1094,7 +1095,7 @@ mod tests {
     fn interface_simple_method() {
         let clauses = vec![mk_clause(
             ClauseKind::Other("method".into()),
-            Expr::Ident("do_something".into()),
+            Spanned::no_span(Expr::Ident("do_something".into())),
         )];
         let mut code = String::new();
         generate_interface_trait("Doable", &clauses, &mut code);
@@ -1107,11 +1108,11 @@ mod tests {
         let clauses = vec![
             mk_clause(
                 ClauseKind::Other("extends".into()),
-                Expr::Ident("Base".into()),
+                Spanned::no_span(Expr::Ident("Base".into())),
             ),
             mk_clause(
                 ClauseKind::Other("method".into()),
-                Expr::Ident("extra".into()),
+                Spanned::no_span(Expr::Ident("extra".into())),
             ),
         ];
         let mut code = String::new();
@@ -1126,11 +1127,11 @@ mod tests {
     fn interface_invariant_becomes_provided_method() {
         let clauses = vec![mk_clause(
             ClauseKind::Invariant,
-            Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
         )];
         let mut code = String::new();
         generate_interface_trait("Positive", &clauses, &mut code);
@@ -1143,16 +1144,20 @@ mod tests {
     #[test]
     fn trait_method_ident() {
         let mut code = String::new();
-        generate_trait_method(&Expr::Ident("compute".into()), &mut code);
+        let body = Spanned::no_span(Expr::Ident("compute".into()));
+        generate_trait_method(&body, &mut code);
         assert!(code.contains("fn compute(&self);"));
     }
 
     #[test]
     fn trait_method_call_with_args() {
-        let body = Expr::Call {
-            func: Box::new(Expr::Ident("process".into())),
-            args: vec![Expr::Ident("Int".into()), Expr::Ident("Bool".into())],
-        };
+        let body = Spanned::no_span(Expr::Call {
+            func: Box::new(Spanned::no_span(Expr::Ident("process".into()))),
+            args: vec![
+                Spanned::no_span(Expr::Ident("Int".into())),
+                Spanned::no_span(Expr::Ident("Bool".into())),
+            ],
+        });
         let mut code = String::new();
         generate_trait_method(&body, &mut code);
         assert!(code.contains("fn process(&self, arg0: i64, arg1: bool)"));
@@ -1160,7 +1165,7 @@ mod tests {
 
     #[test]
     fn trait_method_unsupported_expr() {
-        let body = Expr::Literal(Literal::Int("42".into()));
+        let body = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
         let mut code = String::new();
         generate_trait_method(&body, &mut code);
         assert!(code.contains("compile_error!"));

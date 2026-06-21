@@ -1,4 +1,5 @@
 use super::*;
+use assura_parser::ast::Spanned;
 
 /// Helper: parse + resolve + type-check source text, then codegen.
 fn codegen_ok(source: &str) -> GeneratedProject {
@@ -670,7 +671,9 @@ fn non_ghost_fn_still_generated() {
 #[test]
 fn ghost_block_erased_in_expr() {
     // A ghost block expression should produce erased output.
-    let expr = Expr::Ghost(Box::new(Expr::Literal(Literal::Bool(true))));
+    let expr = Spanned::no_span(Expr::Ghost(Box::new(Spanned::no_span(Expr::Literal(
+        Literal::Bool(true),
+    )))));
     let rust = expr_to_rust(&expr);
     assert!(
         rust.contains("ghost erased"),
@@ -696,10 +699,10 @@ fn lemma_fn_produces_no_output() {
 #[test]
 fn apply_expr_erased_in_codegen() {
     // apply lemma_name(args) should produce a comment, not code.
-    let expr = Expr::Apply {
+    let expr = Spanned::no_span(Expr::Apply {
         lemma_name: "my_lemma".into(),
-        args: vec![Expr::Literal(Literal::Int("42".into()))],
-    };
+        args: vec![Spanned::no_span(Expr::Literal(Literal::Int("42".into())))],
+    });
     let rust = expr_to_rust(&expr);
     assert!(
         rust.contains("lemma my_lemma applied"),
@@ -710,19 +713,19 @@ fn apply_expr_erased_in_codegen() {
 #[test]
 fn match_expr_codegen() {
     // match expression should generate Rust match syntax
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("status".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("status".into()))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Ident("Active".into()),
-                body: Expr::Literal(Literal::Int("1".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Wildcard,
-                body: Expr::Literal(Literal::Int("0".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
             },
         ],
-    };
+    });
     let rust = expr_to_rust(&expr);
     assert!(
         rust.contains("match status"),
@@ -738,25 +741,25 @@ fn match_expr_codegen() {
 #[test]
 fn match_without_wildcard_gets_fallback() {
     // match with only Constructor patterns (no wildcard) should get _ => unreachable!()
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("color".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("color".into()))),
         arms: vec![
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Constructor {
                     name: "Red".into(),
                     fields: vec![],
                 },
-                body: Expr::Literal(Literal::Int("1".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
             },
             assura_parser::ast::MatchArm {
                 pattern: assura_parser::ast::Pattern::Constructor {
                     name: "Blue".into(),
                     fields: vec![],
                 },
-                body: Expr::Literal(Literal::Int("2".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("2".into()))),
             },
         ],
-    };
+    });
     let rust = expr_to_rust(&expr);
     assert!(
         rust.contains("_ => unreachable!"),
@@ -1093,12 +1096,12 @@ fn interface_block_generates_trait() {
     let body = vec![
         Clause {
             kind: ClauseKind::Other("method".into()),
-            body: Expr::Ident("process".into()),
+            body: Spanned::no_span(Expr::Ident("process".into())),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Other("method".into()),
-            body: Expr::Ident("validate".into()),
+            body: Spanned::no_span(Expr::Ident("validate".into())),
             effect_variables: vec![],
         },
     ];
@@ -1123,12 +1126,12 @@ fn interface_with_extends_generates_supertrait() {
     let body = vec![
         Clause {
             kind: ClauseKind::Other("extends".into()),
-            body: Expr::Ident("Base".into()),
+            body: Spanned::no_span(Expr::Ident("Base".into())),
             effect_variables: vec![],
         },
         Clause {
             kind: ClauseKind::Other("method".into()),
-            body: Expr::Ident("extra".into()),
+            body: Spanned::no_span(Expr::Ident("extra".into())),
             effect_variables: vec![],
         },
     ];
@@ -1144,11 +1147,11 @@ fn interface_with_invariant_generates_provided_method() {
     let mut code = String::new();
     let body = vec![Clause {
         kind: ClauseKind::Invariant,
-        body: Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        },
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        }),
         effect_variables: vec![],
     }];
     super::generate_interface_trait("Positive", &body, &mut code);
@@ -1389,10 +1392,10 @@ enum Value {
 fn extract_input_params_single_cast() {
     // Top-level Cast: input(a as Int) at top level
     let mut params = Vec::new();
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("a".into())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         ty: "Int".into(),
-    };
+    });
     extract_input_params(&body, &mut params);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0].0, "a");
@@ -1401,7 +1404,7 @@ fn extract_input_params_single_cast() {
 #[test]
 fn extract_input_params_single_ident() {
     let mut params = Vec::new();
-    let body = Expr::Ident("x".into());
+    let body = Spanned::no_span(Expr::Ident("x".into()));
     extract_input_params(&body, &mut params);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], ("x".to_string(), "i64".to_string()));
@@ -1419,7 +1422,7 @@ fn extract_input_params_raw_as() {
         "as".into(),
         "String".into(),
     ];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     extract_input_params(&body, &mut params);
     assert_eq!(params.len(), 2);
     assert_eq!(params[0].0, "a");
@@ -1430,7 +1433,7 @@ fn extract_input_params_raw_as() {
 fn extract_input_params_raw_bare_idents() {
     let mut params = Vec::new();
     let tokens = vec!["buf".into(), ",".into(), "n".into()];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     extract_input_params(&body, &mut params);
     assert_eq!(params.len(), 2);
     assert_eq!(params[0].0, "buf");
@@ -1439,7 +1442,7 @@ fn extract_input_params_raw_bare_idents() {
 
 #[test]
 fn extract_output_type_ident() {
-    let body = Expr::Ident("Int".into());
+    let body = Spanned::no_span(Expr::Ident("Int".into()));
     let ty = extract_output_type(&body);
     assert_eq!(ty, "i64");
 }
@@ -1447,7 +1450,7 @@ fn extract_output_type_ident() {
 #[test]
 fn extract_output_type_raw_as() {
     let tokens = vec!["result".into(), "as".into(), "Bool".into()];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     let ty = extract_output_type(&body);
     assert_eq!(ty, "bool");
 }
@@ -1455,33 +1458,33 @@ fn extract_output_type_raw_as() {
 #[test]
 fn extract_output_name_cast() {
     // output(value: Nat) -> Cast { expr: Ident("value"), ty: "Nat" }
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("value".into())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("value".into()))),
         ty: "Nat".into(),
-    };
+    });
     assert_eq!(extract_output_name(&body), Some("value".into()));
 }
 
 #[test]
 fn extract_output_name_result_is_none() {
     // output(result: Int) -> result is already aliased, no extra binding needed
-    let body = Expr::Cast {
-        expr: Box::new(Expr::Ident("result".into())),
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
         ty: "Int".into(),
-    };
+    });
     assert_eq!(extract_output_name(&body), None);
 }
 
 #[test]
 fn extract_output_name_call_with_cast() {
     // output(value: Nat) parsed as Call { func: "output", args: [Cast] }
-    let body = Expr::Call {
-        func: Box::new(Expr::Ident("output".into())),
-        args: vec![Expr::Cast {
-            expr: Box::new(Expr::Ident("segment".into())),
+    let body = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("output".into()))),
+        args: vec![Spanned::no_span(Expr::Cast {
+            expr: Box::new(Spanned::no_span(Expr::Ident("segment".into()))),
             ty: "FtsSegment".into(),
-        }],
-    };
+        })],
+    });
     assert_eq!(extract_output_name(&body), Some("segment".into()));
 }
 
@@ -1510,14 +1513,14 @@ contract SafeAccess {
 fn extract_output_name_raw_colon() {
     // output(value : Nat) parsed as Raw tokens ["value", ":", "Nat"]
     let tokens = vec!["value".into(), ":".into(), "Nat".into()];
-    let body = Expr::Raw(tokens);
+    let body = Spanned::no_span(Expr::Raw(tokens));
     assert_eq!(extract_output_name(&body), Some("value".into()));
 }
 
 #[test]
 fn extract_output_name_ident_only_is_none() {
     // output(Nat) - type only, no named binding
-    let body = Expr::Ident("Nat".into());
+    let body = Spanned::no_span(Expr::Ident("Nat".into()));
     assert_eq!(extract_output_name(&body), None);
 }
 
@@ -2258,14 +2261,18 @@ contract Simple {
 
 #[test]
 fn extract_error_variants_from_raw() {
-    let body = Expr::Raw(vec!["DivByZero".into(), ",".into(), "Overflow".into()]);
+    let body = Spanned::no_span(Expr::Raw(vec![
+        "DivByZero".into(),
+        ",".into(),
+        "Overflow".into(),
+    ]));
     let variants = extract_error_variants(&body);
     assert_eq!(variants, vec!["DivByZero", "Overflow"]);
 }
 
 #[test]
 fn extract_error_variants_from_ident() {
-    let body = Expr::Ident("SingleError".into());
+    let body = Spanned::no_span(Expr::Ident("SingleError".into()));
     let variants = extract_error_variants(&body);
     assert_eq!(variants, vec!["SingleError"]);
 }
@@ -2432,16 +2439,16 @@ fn collect_type_refs_from_nested_exprs() {
     let mut out = std::collections::HashSet::new();
 
     // Type ref inside a Match arm body
-    let expr = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("x".into())),
+    let expr = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![MatchArm {
             pattern: Pattern::Wildcard,
-            body: Expr::Call {
-                func: Box::new(Expr::Ident("MyType".into())),
+            body: Spanned::no_span(Expr::Call {
+                func: Box::new(Spanned::no_span(Expr::Ident("MyType".into()))),
                 args: vec![],
-            },
+            }),
         }],
-    };
+    });
     collect_type_refs_from_expr(&expr, &mut out);
     assert!(
         out.contains("MyType"),
@@ -2450,11 +2457,11 @@ fn collect_type_refs_from_nested_exprs() {
 
     // Type ref inside a Let body
     out.clear();
-    let expr = Expr::Let {
+    let expr = Spanned::no_span(Expr::Let {
         name: "x".into(),
-        value: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        body: Box::new(Expr::Ident("SomeType".into())),
-    };
+        value: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        body: Box::new(Spanned::no_span(Expr::Ident("SomeType".into()))),
+    });
     collect_type_refs_from_expr(&expr, &mut out);
     assert!(
         out.contains("SomeType"),
@@ -2463,10 +2470,10 @@ fn collect_type_refs_from_nested_exprs() {
 
     // Type ref inside a Tuple
     out.clear();
-    let expr = Expr::Tuple(vec![
-        Expr::Ident("x".into()),
-        Expr::Ident("CustomStruct".into()),
-    ]);
+    let expr = Spanned::no_span(Expr::Tuple(vec![
+        Spanned::no_span(Expr::Ident("x".into())),
+        Spanned::no_span(Expr::Ident("CustomStruct".into())),
+    ]));
     collect_type_refs_from_expr(&expr, &mut out);
     assert!(
         out.contains("CustomStruct"),
@@ -2501,13 +2508,15 @@ contract UseConst {
 #[test]
 fn extract_output_type_recurses_into_call_args() {
     // Previously a Tuple arg inside Call was silently skipped via _ => {}
-    let body = Expr::Call {
-        func: Box::new(Expr::Ident("output".into())),
-        args: vec![Expr::Tuple(vec![Expr::Cast {
-            expr: Box::new(Expr::Ident("x".into())),
-            ty: "Int".into(),
-        }])],
-    };
+    let body = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("output".into()))),
+        args: vec![Spanned::no_span(Expr::Tuple(vec![Spanned::no_span(
+            Expr::Cast {
+                expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                ty: "Int".into(),
+            },
+        )]))],
+    });
     let ty = extract_output_type(&body);
     assert_eq!(ty, "i64", "should recurse into Tuple inside Call args");
 }
@@ -2515,14 +2524,20 @@ fn extract_output_type_recurses_into_call_args() {
 #[test]
 fn extract_error_variants_from_block() {
     // Previously Block fell through to _ => vec![]
-    let body = Expr::Block(vec![Expr::Ident("ErrA".into()), Expr::Ident("ErrB".into())]);
+    let body = Spanned::no_span(Expr::Block(vec![
+        Spanned::no_span(Expr::Ident("ErrA".into())),
+        Spanned::no_span(Expr::Ident("ErrB".into())),
+    ]));
     let variants = extract_error_variants(&body);
     assert_eq!(variants, vec!["ErrA", "ErrB"]);
 }
 
 #[test]
 fn extract_error_variants_from_list() {
-    let body = Expr::List(vec![Expr::Ident("X".into()), Expr::Ident("Y".into())]);
+    let body = Spanned::no_span(Expr::List(vec![
+        Spanned::no_span(Expr::Ident("X".into())),
+        Spanned::no_span(Expr::Ident("Y".into())),
+    ]));
     let variants = extract_error_variants(&body);
     assert_eq!(variants, vec!["X", "Y"]);
 }
@@ -2530,11 +2545,11 @@ fn extract_error_variants_from_list() {
 #[test]
 fn extract_error_variants_non_ident_returns_empty() {
     // BinOp cannot contain error variant names
-    let body = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    let body = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: assura_parser::ast::BinOp::Add,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     let variants = extract_error_variants(&body);
     assert!(variants.is_empty());
 }
@@ -2542,7 +2557,7 @@ fn extract_error_variants_non_ident_returns_empty() {
 #[test]
 fn generate_trait_method_unsupported_emits_compile_error() {
     // Previously unsupported Expr variants got a silent comment
-    let body = Expr::Literal(assura_parser::ast::Literal::Int("42".into()));
+    let body = Spanned::no_span(Expr::Literal(assura_parser::ast::Literal::Int("42".into())));
     let mut code = String::new();
     generate_trait_method(&body, &mut code);
     assert!(
@@ -2556,7 +2571,7 @@ fn generate_block_effects_clause_explicit() {
     // Previously Effects fell through to _ => debug comment
     let clauses = vec![Clause {
         kind: ClauseKind::Effects,
-        body: Expr::Raw(vec!["io".into()]),
+        body: Spanned::no_span(Expr::Raw(vec!["io".into()])),
         effect_variables: vec![],
     }];
     let mut code = String::new();
@@ -2573,25 +2588,25 @@ fn generate_block_effects_clause_explicit() {
 
 #[test]
 fn resolve_ordering_acquire() {
-    let body = Expr::Ident("acquire".into());
+    let body = Spanned::no_span(Expr::Ident("acquire".into()));
     assert_eq!(resolve_ordering_variant(&body), Some("Acquire"));
 }
 
 #[test]
 fn resolve_ordering_seq_cst() {
-    let body = Expr::Ident("seq_cst".into());
+    let body = Spanned::no_span(Expr::Ident("seq_cst".into()));
     assert_eq!(resolve_ordering_variant(&body), Some("SeqCst"));
 }
 
 #[test]
 fn resolve_ordering_raw_tokens() {
-    let body = Expr::Raw(vec!["release".into()]);
+    let body = Spanned::no_span(Expr::Raw(vec!["release".into()]));
     assert_eq!(resolve_ordering_variant(&body), Some("Release"));
 }
 
 #[test]
 fn resolve_ordering_unknown() {
-    let body = Expr::Ident("bogus".into());
+    let body = Spanned::no_span(Expr::Ident("bogus".into()));
     assert_eq!(resolve_ordering_variant(&body), None);
 }
 
@@ -2599,7 +2614,7 @@ fn resolve_ordering_unknown() {
 fn codegen_ordering_constant_in_block() {
     let clauses = vec![Clause {
         kind: ClauseKind::Ordering,
-        body: Expr::Ident("acquire".into()),
+        body: Spanned::no_span(Expr::Ident("acquire".into())),
         effect_variables: vec![],
     }];
     let mut code = String::new();
@@ -2767,133 +2782,137 @@ fn test_demo_codegen_warning_free() {
 
 #[test]
 fn is_numeric_ident() {
-    assert!(is_numeric_expr(&Expr::Ident("x".into())));
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Ident("x".into()))));
 }
 
 #[test]
 fn is_numeric_int_literal() {
-    assert!(is_numeric_expr(&Expr::Literal(Literal::Int("42".into()))));
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Literal(
+        Literal::Int("42".into())
+    ))));
 }
 
 #[test]
 fn is_numeric_float_literal() {
-    assert!(is_numeric_expr(&Expr::Literal(Literal::Float(
-        "3.14".into()
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Literal(
+        Literal::Float("3.14".into())
     ))));
 }
 
 #[test]
 fn is_numeric_str_literal_false() {
-    assert!(!is_numeric_expr(&Expr::Literal(Literal::Str(
-        "hello".into()
+    assert!(!is_numeric_expr(&Spanned::no_span(Expr::Literal(
+        Literal::Str("hello".into())
     ))));
 }
 
 #[test]
 fn is_numeric_bool_literal_false() {
-    assert!(!is_numeric_expr(&Expr::Literal(Literal::Bool(true))));
+    assert!(!is_numeric_expr(&Spanned::no_span(Expr::Literal(
+        Literal::Bool(true)
+    ))));
 }
 
 #[test]
 fn is_numeric_field_access() {
-    assert!(is_numeric_expr(&Expr::Field(
-        Box::new(Expr::Ident("obj".into())),
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
         "count".into()
-    )));
+    ))));
 }
 
 #[test]
 fn is_numeric_arithmetic_binop() {
-    assert!(is_numeric_expr(&Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Add,
-        rhs: Box::new(Expr::Ident("b".into())),
-    }));
-    assert!(is_numeric_expr(&Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    })));
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Mod,
-        rhs: Box::new(Expr::Ident("b".into())),
-    }));
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    })));
 }
 
 #[test]
 fn is_numeric_logical_binop_false() {
-    assert!(!is_numeric_expr(&Expr::BinOp {
-        lhs: Box::new(Expr::Literal(Literal::Bool(true))),
+    assert!(!is_numeric_expr(&Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
         op: BinOp::And,
-        rhs: Box::new(Expr::Literal(Literal::Bool(false))),
-    }));
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(false)))),
+    })));
 }
 
 #[test]
 fn is_numeric_negation() {
-    assert!(is_numeric_expr(&Expr::UnaryOp {
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Ident("x".into())),
-    }));
+        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+    })));
 }
 
 #[test]
 fn is_numeric_not_false() {
-    assert!(!is_numeric_expr(&Expr::UnaryOp {
+    assert!(!is_numeric_expr(&Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Not,
-        expr: Box::new(Expr::Literal(Literal::Bool(true))),
-    }));
+        expr: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+    })));
 }
 
 #[test]
 fn is_numeric_old_delegates() {
-    assert!(is_numeric_expr(&Expr::Old(Box::new(Expr::Ident(
-        "x".into()
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Old(Box::new(
+        Spanned::no_span(Expr::Ident("x".into()))
     )))));
 }
 
 #[test]
 fn is_numeric_call() {
-    assert!(is_numeric_expr(&Expr::Call {
-        func: Box::new(Expr::Ident("foo".into())),
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("foo".into()))),
         args: vec![],
-    }));
+    })));
 }
 
 #[test]
 fn is_numeric_index() {
-    assert!(is_numeric_expr(&Expr::Index {
-        expr: Box::new(Expr::Ident("arr".into())),
-        index: Box::new(Expr::Literal(Literal::Int("0".into()))),
-    }));
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Index {
+        expr: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
+        index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+    })));
 }
 
 #[test]
 fn is_numeric_forall_false() {
-    assert!(!is_numeric_expr(&Expr::Forall {
+    assert!(!is_numeric_expr(&Spanned::no_span(Expr::Forall {
         var: "x".into(),
-        domain: Box::new(Expr::Ident("items".into())),
-        body: Box::new(Expr::Literal(Literal::Bool(true))),
-    }));
+        domain: Box::new(Spanned::no_span(Expr::Ident("items".into()))),
+        body: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+    })));
 }
 
 #[test]
 fn is_numeric_list_false() {
-    assert!(!is_numeric_expr(&Expr::List(vec![])));
+    assert!(!is_numeric_expr(&Spanned::no_span(Expr::List(vec![]))));
 }
 
 #[test]
 fn is_numeric_let_delegates() {
-    assert!(is_numeric_expr(&Expr::Let {
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::Let {
         name: "x".into(),
-        value: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        body: Box::new(Expr::Ident("x".into())),
-    }));
+        value: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        body: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+    })));
 }
 
 #[test]
 fn is_numeric_if_delegates_to_then() {
-    assert!(is_numeric_expr(&Expr::If {
-        cond: Box::new(Expr::Literal(Literal::Bool(true))),
-        then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
+    assert!(is_numeric_expr(&Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
         else_branch: None,
-    }));
+    })));
 }
 
 // -----------------------------------------------------------------------
@@ -2902,126 +2921,138 @@ fn is_numeric_if_delegates_to_then() {
 
 #[test]
 fn expr_to_rust_int_literal() {
-    let e = Expr::Literal(Literal::Int("42".into()));
+    let e = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
     assert_eq!(expr_to_rust(&e), "42");
 }
 
 #[test]
 fn expr_to_rust_str_literal() {
-    let e = Expr::Literal(Literal::Str("hello".into()));
+    let e = Spanned::no_span(Expr::Literal(Literal::Str("hello".into())));
     assert_eq!(expr_to_rust(&e), "\"hello\"");
 }
 
 #[test]
 fn expr_to_rust_bool_literal() {
-    assert_eq!(expr_to_rust(&Expr::Literal(Literal::Bool(true))), "true");
-    assert_eq!(expr_to_rust(&Expr::Literal(Literal::Bool(false))), "false");
+    assert_eq!(
+        expr_to_rust(&Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+        "true"
+    );
+    assert_eq!(
+        expr_to_rust(&Spanned::no_span(Expr::Literal(Literal::Bool(false)))),
+        "false"
+    );
 }
 
 #[test]
 fn expr_to_rust_result_keyword() {
-    let e = Expr::Ident("result".into());
+    let e = Spanned::no_span(Expr::Ident("result".into()));
     assert_eq!(expr_to_rust(&e), "__result");
 }
 
 #[test]
 fn expr_to_rust_normal_ident() {
-    let e = Expr::Ident("foo".into());
+    let e = Spanned::no_span(Expr::Ident("foo".into()));
     assert_eq!(expr_to_rust(&e), "foo");
 }
 
 #[test]
 fn expr_to_rust_field_access() {
-    let e = Expr::Field(Box::new(Expr::Ident("obj".into())), "len".into());
+    let e = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
+        "len".into(),
+    ));
     assert_eq!(expr_to_rust(&e), "obj.len");
 }
 
 #[test]
 fn expr_to_rust_method_call() {
-    let e = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("v".into())),
+    let e = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("v".into()))),
         method: "push".into(),
-        args: vec![Expr::Literal(Literal::Int("1".into()))],
-    };
+        args: vec![Spanned::no_span(Expr::Literal(Literal::Int("1".into())))],
+    });
     assert_eq!(expr_to_rust(&e), "v.push(1)");
 }
 
 #[test]
 fn expr_to_rust_function_call() {
-    let e = Expr::Call {
-        func: Box::new(Expr::Ident("f".into())),
-        args: vec![Expr::Ident("a".into()), Expr::Ident("b".into())],
-    };
+    let e = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("f".into()))),
+        args: vec![
+            Spanned::no_span(Expr::Ident("a".into())),
+            Spanned::no_span(Expr::Ident("b".into())),
+        ],
+    });
     assert_eq!(expr_to_rust(&e), "f(a, b)");
 }
 
 #[test]
 fn expr_to_rust_index() {
-    let e = Expr::Index {
-        expr: Box::new(Expr::Ident("arr".into())),
-        index: Box::new(Expr::Literal(Literal::Int("0".into()))),
-    };
+    let e = Spanned::no_span(Expr::Index {
+        expr: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
+        index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+    });
     assert_eq!(expr_to_rust(&e), "arr[0]");
 }
 
 #[test]
 fn expr_to_rust_arithmetic() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Add,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "(a + b)");
 }
 
 #[test]
 fn expr_to_rust_implies() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("p".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("p".into()))),
         op: BinOp::Implies,
-        rhs: Box::new(Expr::Ident("q".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("q".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "(!p || q)");
 }
 
 #[test]
 fn expr_to_rust_in_operator() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("x".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::In,
-        rhs: Box::new(Expr::Ident("set".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("set".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "set.contains(&x)");
 }
 
 #[test]
 fn expr_to_rust_not_in_operator() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("x".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::NotIn,
-        rhs: Box::new(Expr::Ident("set".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("set".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "!set.contains(&x)");
 }
 
 #[test]
 fn expr_to_rust_concat() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Concat,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "[a, b].concat()");
 }
 
 #[test]
 fn expr_to_rust_numeric_comparison_casts() {
     // Ordering comparisons on numeric exprs get i128::from() casts
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Lt,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     let result = expr_to_rust(&e);
     assert!(result.contains("i128::from(a)"), "got: {result}");
     assert!(result.contains("i128::from(b)"), "got: {result}");
@@ -3030,75 +3061,79 @@ fn expr_to_rust_numeric_comparison_casts() {
 #[test]
 fn expr_to_rust_equality_no_cast() {
     // Equality doesn't get i128 casts
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Eq,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "(a == b)");
 }
 
 #[test]
 fn expr_to_rust_unary_neg() {
-    let e = Expr::UnaryOp {
+    let e = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Ident("x".into())),
-    };
+        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "(-x)");
 }
 
 #[test]
 fn expr_to_rust_unary_not() {
-    let e = Expr::UnaryOp {
+    let e = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Not,
-        expr: Box::new(Expr::Literal(Literal::Bool(true))),
-    };
+        expr: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+    });
     assert_eq!(expr_to_rust(&e), "(!true)");
 }
 
 #[test]
 fn expr_to_rust_old() {
-    let e = Expr::Old(Box::new(Expr::Ident("x".into())));
+    let e = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+        "x".into(),
+    )))));
     assert_eq!(expr_to_rust(&e), "__old_x");
 }
 
 #[test]
 fn expr_to_rust_forall() {
-    let e = Expr::Forall {
+    let e = Spanned::no_span(Expr::Forall {
         var: "x".into(),
-        domain: Box::new(Expr::Ident("items".into())),
-        body: Box::new(Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        domain: Box::new(Spanned::no_span(Expr::Ident("items".into()))),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        }),
-    };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        })),
+    });
     let result = expr_to_rust(&e);
     assert!(result.contains(".iter().all(|x|"), "got: {result}");
 }
 
 #[test]
 fn expr_to_rust_exists() {
-    let e = Expr::Exists {
+    let e = Spanned::no_span(Expr::Exists {
         var: "x".into(),
-        domain: Box::new(Expr::Ident("items".into())),
-        body: Box::new(Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        domain: Box::new(Spanned::no_span(Expr::Ident("items".into()))),
+        body: Box::new(Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Eq,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        }),
-    };
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        })),
+    });
     let result = expr_to_rust(&e);
     assert!(result.contains(".iter().any(|x|"), "got: {result}");
 }
 
 #[test]
 fn expr_to_rust_if_else() {
-    let e = Expr::If {
-        cond: Box::new(Expr::Ident("cond".into())),
-        then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
-        else_branch: Some(Box::new(Expr::Literal(Literal::Int("2".into())))),
-    };
+    let e = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("cond".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+            "2".into(),
+        ))))),
+    });
     let result = expr_to_rust(&e);
     assert!(result.contains("if cond"), "got: {result}");
     assert!(result.contains("else"), "got: {result}");
@@ -3106,11 +3141,11 @@ fn expr_to_rust_if_else() {
 
 #[test]
 fn expr_to_rust_if_no_else() {
-    let e = Expr::If {
-        cond: Box::new(Expr::Ident("cond".into())),
-        then_branch: Box::new(Expr::Literal(Literal::Int("1".into()))),
+    let e = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("cond".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
         else_branch: None,
-    };
+    });
     let result = expr_to_rust(&e);
     assert!(result.contains("if cond"), "got: {result}");
     assert!(!result.contains("else"), "got: {result}");
@@ -3118,46 +3153,49 @@ fn expr_to_rust_if_no_else() {
 
 #[test]
 fn expr_to_rust_list() {
-    let e = Expr::List(vec![
-        Expr::Literal(Literal::Int("1".into())),
-        Expr::Literal(Literal::Int("2".into())),
-    ]);
+    let e = Spanned::no_span(Expr::List(vec![
+        Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
+        Spanned::no_span(Expr::Literal(Literal::Int("2".into()))),
+    ]));
     assert_eq!(expr_to_rust(&e), "vec![1, 2]");
 }
 
 #[test]
 fn expr_to_rust_cast() {
-    let e = Expr::Cast {
-        expr: Box::new(Expr::Ident("x".into())),
+    let e = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         ty: "Int".into(),
-    };
+    });
     let result = expr_to_rust(&e);
     assert!(result.contains("as i64"), "got: {result}");
 }
 
 #[test]
 fn expr_to_rust_let_binding() {
-    let e = Expr::Let {
+    let e = Spanned::no_span(Expr::Let {
         name: "x".into(),
-        value: Box::new(Expr::Literal(Literal::Int("5".into()))),
-        body: Box::new(Expr::Ident("x".into())),
-    };
+        value: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+        body: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+    });
     assert_eq!(expr_to_rust(&e), "{ let x = 5; x }");
 }
 
 #[test]
 fn expr_to_rust_tuple() {
-    let e = Expr::Tuple(vec![Expr::Ident("a".into()), Expr::Ident("b".into())]);
+    let e = Spanned::no_span(Expr::Tuple(vec![
+        Spanned::no_span(Expr::Ident("a".into())),
+        Spanned::no_span(Expr::Ident("b".into())),
+    ]));
     assert_eq!(expr_to_rust(&e), "(a, b)");
 }
 
 #[test]
 fn expr_to_rust_range() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         op: BinOp::Range,
-        rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+    });
     assert_eq!(expr_to_rust(&e), "(0 .. 10)");
 }
 
@@ -3167,105 +3205,120 @@ fn expr_to_rust_range() {
 
 #[test]
 fn old_var_name_ident() {
-    assert_eq!(old_var_name(&Expr::Ident("x".into())), "x");
+    assert_eq!(
+        old_var_name(&Spanned::no_span(Expr::Ident("x".into()))),
+        "x"
+    );
 }
 
 #[test]
 fn old_var_name_field() {
-    let e = Expr::Field(Box::new(Expr::Ident("buf".into())), "len".into());
+    let e = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("buf".into()))),
+        "len".into(),
+    ));
     assert_eq!(old_var_name(&e), "buf_len");
 }
 
 #[test]
 fn old_var_name_call() {
-    let e = Expr::Call {
-        func: Box::new(Expr::Ident("size".into())),
+    let e = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("size".into()))),
         args: vec![],
-    };
+    });
     assert_eq!(old_var_name(&e), "size");
 }
 
 #[test]
 fn old_var_name_method_call() {
-    let e = Expr::MethodCall {
-        receiver: Box::new(Expr::Ident("v".into())),
+    let e = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("v".into()))),
         method: "len".into(),
         args: vec![],
-    };
+    });
     assert_eq!(old_var_name(&e), "v_len");
 }
 
 #[test]
 fn old_var_name_index() {
-    let e = Expr::Index {
-        expr: Box::new(Expr::Ident("arr".into())),
-        index: Box::new(Expr::Literal(Literal::Int("0".into()))),
-    };
+    let e = Spanned::no_span(Expr::Index {
+        expr: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
+        index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+    });
     assert_eq!(old_var_name(&e), "arr_idx");
 }
 
 #[test]
 fn old_var_name_binop() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Add,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     assert_eq!(old_var_name(&e), "a_add_b");
 }
 
 #[test]
 fn old_var_name_unary() {
-    let e = Expr::UnaryOp {
+    let e = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Ident("x".into())),
-    };
+        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+    });
     assert_eq!(old_var_name(&e), "neg_x");
 }
 
 #[test]
 fn old_var_name_literal() {
     assert_eq!(
-        old_var_name(&Expr::Literal(Literal::Int("42".into()))),
+        old_var_name(&Spanned::no_span(Expr::Literal(Literal::Int("42".into())))),
         "lit_42"
     );
     assert_eq!(
-        old_var_name(&Expr::Literal(Literal::Bool(true))),
+        old_var_name(&Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
         "lit_true"
     );
 }
 
 #[test]
 fn old_var_name_old_delegates() {
-    let e = Expr::Old(Box::new(Expr::Ident("z".into())));
+    let e = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+        "z".into(),
+    )))));
     assert_eq!(old_var_name(&e), "z");
 }
 
 #[test]
 fn old_var_name_ghost() {
-    let e = Expr::Ghost(Box::new(Expr::Ident("g".into())));
+    let e = Spanned::no_span(Expr::Ghost(Box::new(Spanned::no_span(Expr::Ident(
+        "g".into(),
+    )))));
     assert_eq!(old_var_name(&e), "ghost_g");
 }
 
 #[test]
 fn old_var_name_list_tuple() {
-    assert_eq!(old_var_name(&Expr::List(vec![])), "list");
-    assert_eq!(old_var_name(&Expr::Tuple(vec![])), "tuple");
+    assert_eq!(old_var_name(&Spanned::no_span(Expr::List(vec![]))), "list");
+    assert_eq!(
+        old_var_name(&Spanned::no_span(Expr::Tuple(vec![]))),
+        "tuple"
+    );
 }
 
 #[test]
 fn old_var_name_raw_tokens() {
-    let e = Expr::Raw(vec!["tok".into()]);
+    let e = Spanned::no_span(Expr::Raw(vec!["tok".into()]));
     assert_eq!(old_var_name(&e), "tok");
-    let e2 = Expr::Raw(vec![]);
+    let e2 = Spanned::no_span(Expr::Raw(vec![]));
     assert_eq!(old_var_name(&e2), "raw");
 }
 
 #[test]
 fn old_var_name_block() {
-    let e = Expr::Block(vec![Expr::Ident("first".into())]);
+    let e = Spanned::no_span(Expr::Block(vec![Spanned::no_span(Expr::Ident(
+        "first".into(),
+    ))]));
     assert_eq!(old_var_name(&e), "first");
-    let e2 = Expr::Block(vec![]);
+    let e2 = Spanned::no_span(Expr::Block(vec![]));
     assert_eq!(old_var_name(&e2), "block");
 }
 
@@ -3364,13 +3417,15 @@ fn debug_assert_indented_deep_field_comment() {
 
 #[test]
 fn collect_old_exprs_none() {
-    let e = Expr::Ident("x".into());
+    let e = Spanned::no_span(Expr::Ident("x".into()));
     assert!(collect_old_exprs(&e).is_empty());
 }
 
 #[test]
 fn collect_old_exprs_single() {
-    let e = Expr::Old(Box::new(Expr::Ident("x".into())));
+    let e = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+        "x".into(),
+    )))));
     let result = collect_old_exprs(&e);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].0, "x");
@@ -3379,11 +3434,13 @@ fn collect_old_exprs_single() {
 
 #[test]
 fn collect_old_exprs_in_binop() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("a".into())))),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+            Expr::Ident("a".into()),
+        ))))),
         op: BinOp::Lt,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     let result = collect_old_exprs(&e);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].0, "a");
@@ -3392,43 +3449,57 @@ fn collect_old_exprs_in_binop() {
 #[test]
 fn collect_old_exprs_deduplicates() {
     // old(x) + old(x) should produce only one entry
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+            Expr::Ident("x".into()),
+        ))))),
         op: BinOp::Add,
-        rhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+            Expr::Ident("x".into()),
+        ))))),
+    });
     let result = collect_old_exprs(&e);
     assert_eq!(result.len(), 1);
 }
 
 #[test]
 fn collect_old_exprs_multiple_different() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Old(Box::new(Expr::Ident("x".into())))),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+            Expr::Ident("x".into()),
+        ))))),
         op: BinOp::Add,
-        rhs: Box::new(Expr::Old(Box::new(Expr::Ident("y".into())))),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+            Expr::Ident("y".into()),
+        ))))),
+    });
     let result = collect_old_exprs(&e);
     assert_eq!(result.len(), 2);
 }
 
 #[test]
 fn collect_old_exprs_in_if() {
-    let e = Expr::If {
-        cond: Box::new(Expr::Literal(Literal::Bool(true))),
-        then_branch: Box::new(Expr::Old(Box::new(Expr::Ident("a".into())))),
-        else_branch: Some(Box::new(Expr::Old(Box::new(Expr::Ident("b".into()))))),
-    };
+    let e = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+        then_branch: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+            Expr::Ident("a".into()),
+        ))))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Old(Box::new(
+            Spanned::no_span(Expr::Ident("b".into())),
+        ))))),
+    });
     let result = collect_old_exprs(&e);
     assert_eq!(result.len(), 2);
 }
 
 #[test]
 fn collect_old_exprs_in_list() {
-    let e = Expr::List(vec![
-        Expr::Old(Box::new(Expr::Ident("x".into()))),
-        Expr::Ident("y".into()),
-    ]);
+    let e = Spanned::no_span(Expr::List(vec![
+        Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+            "x".into(),
+        ))))),
+        Spanned::no_span(Expr::Ident("y".into())),
+    ]));
     let result = collect_old_exprs(&e);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].0, "x");
@@ -3436,11 +3507,13 @@ fn collect_old_exprs_in_list() {
 
 #[test]
 fn collect_old_exprs_in_let() {
-    let e = Expr::Let {
+    let e = Spanned::no_span(Expr::Let {
         name: "tmp".into(),
-        value: Box::new(Expr::Old(Box::new(Expr::Ident("v".into())))),
-        body: Box::new(Expr::Ident("tmp".into())),
-    };
+        value: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+            Expr::Ident("v".into()),
+        ))))),
+        body: Box::new(Spanned::no_span(Expr::Ident("tmp".into()))),
+    });
     let result = collect_old_exprs(&e);
     assert_eq!(result.len(), 1);
 }
@@ -3475,23 +3548,23 @@ fn raw_tokens_typestate_annotation() {
 
 #[test]
 fn expr_to_rust_match_with_constructor_patterns() {
-    use assura_parser::ast::{MatchArm, Pattern};
-    let e = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("x".into())),
+    use assura_parser::ast::{MatchArm, Pattern, Spanned};
+    let e = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![
             MatchArm {
                 pattern: Pattern::Constructor {
                     name: "Some".into(),
                     fields: vec![Pattern::Ident("v".into())],
                 },
-                body: Expr::Ident("v".into()),
+                body: Spanned::no_span(Expr::Ident("v".into())),
             },
             MatchArm {
                 pattern: Pattern::Wildcard,
-                body: Expr::Literal(Literal::Int("0".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
             },
         ],
-    };
+    });
     let result = expr_to_rust(&e);
     assert!(result.contains("match x"), "got: {result}");
     assert!(result.contains("Some(v) => v"), "got: {result}");
@@ -3502,16 +3575,16 @@ fn expr_to_rust_match_with_constructor_patterns() {
 fn expr_to_rust_match_adds_wildcard_fallback() {
     use assura_parser::ast::{MatchArm, Pattern};
     // Match with only constructor patterns (no wildcard/ident) gets a fallback
-    let e = Expr::Match {
-        scrutinee: Box::new(Expr::Ident("x".into())),
+    let e = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![MatchArm {
             pattern: Pattern::Constructor {
                 name: "None".into(),
                 fields: vec![],
             },
-            body: Expr::Literal(Literal::Int("0".into())),
+            body: Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
         }],
-    };
+    });
     let result = expr_to_rust(&e);
     assert!(
         result.contains("_ => unreachable!"),
@@ -3555,7 +3628,7 @@ fn generate_block_feature_compile_time_only() {
     let mut code = String::new();
     let clauses = vec![Clause {
         kind: ClauseKind::Other("priority".into()),
-        body: Expr::Literal(Literal::Str("high".into())),
+        body: Spanned::no_span(Expr::Literal(Literal::Str("high".into()))),
         effect_variables: vec![],
     }];
     generate_block(&BlockKind::Feature, "safety", &clauses, &mut code);
@@ -3580,7 +3653,7 @@ fn generate_block_generic_with_ensures() {
     let mut code = String::new();
     let clauses = vec![Clause {
         kind: ClauseKind::Ensures,
-        body: Expr::Literal(Literal::Bool(true)),
+        body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
         effect_variables: vec![],
     }];
     generate_block(&BlockKind::Feature, "test_feat", &clauses, &mut code);
@@ -3599,7 +3672,7 @@ fn generate_block_ordering_clause() {
     let mut code = String::new();
     let clauses = vec![Clause {
         kind: ClauseKind::Ordering,
-        body: Expr::Ident("seq_cst".into()),
+        body: Spanned::no_span(Expr::Ident("seq_cst".into())),
         effect_variables: vec![],
     }];
     generate_block(&BlockKind::Feature, "atomic_ops", &clauses, &mut code);
@@ -3614,7 +3687,7 @@ fn generate_block_must_not_clause() {
     let mut code = String::new();
     let clauses = vec![Clause {
         kind: ClauseKind::MustNot,
-        body: Expr::Literal(Literal::Bool(false)),
+        body: Spanned::no_span(Expr::Literal(Literal::Bool(false))),
         effect_variables: vec![],
     }];
     generate_block(&BlockKind::Feature, "constraint", &clauses, &mut code);
@@ -3686,14 +3759,14 @@ fn compute(x: Int) -> Int
 
 #[test]
 fn extract_state_self_state_eq() {
-    let body = Expr::BinOp {
-        lhs: Box::new(Expr::Field(
-            Box::new(Expr::Ident("self".into())),
+    let body = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("self".into()))),
             "state".into(),
-        )),
+        ))),
         op: BinOp::Eq,
-        rhs: Box::new(Expr::Ident("Connected".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("Connected".into()))),
+    });
     assert_eq!(
         extract_state_comparison(&body),
         Some("Connected".to_string())
@@ -3703,33 +3776,33 @@ fn extract_state_self_state_eq() {
 #[test]
 fn extract_state_non_state_field() {
     // self.name == X is NOT a state comparison
-    let body = Expr::BinOp {
-        lhs: Box::new(Expr::Field(
-            Box::new(Expr::Ident("self".into())),
+    let body = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("self".into()))),
             "name".into(),
-        )),
+        ))),
         op: BinOp::Eq,
-        rhs: Box::new(Expr::Ident("X".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("X".into()))),
+    });
     assert_eq!(extract_state_comparison(&body), None);
 }
 
 #[test]
 fn extract_state_non_eq_op() {
-    let body = Expr::BinOp {
-        lhs: Box::new(Expr::Field(
-            Box::new(Expr::Ident("self".into())),
+    let body = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("self".into()))),
             "state".into(),
-        )),
+        ))),
         op: BinOp::Neq,
-        rhs: Box::new(Expr::Ident("Closed".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("Closed".into()))),
+    });
     assert_eq!(extract_state_comparison(&body), None);
 }
 
 #[test]
 fn extract_state_not_a_binop() {
-    let body = Expr::Ident("something".into());
+    let body = Spanned::no_span(Expr::Ident("something".into()));
     assert_eq!(extract_state_comparison(&body), None);
 }
 
@@ -3741,14 +3814,14 @@ fn extract_state_not_a_binop() {
 fn method_pre_state_with_state_guard() {
     let clauses = vec![Clause {
         kind: ClauseKind::Requires,
-        body: Expr::BinOp {
-            lhs: Box::new(Expr::Field(
-                Box::new(Expr::Ident("self".into())),
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("self".into()))),
                 "state".into(),
-            )),
+            ))),
             op: BinOp::Eq,
-            rhs: Box::new(Expr::Ident("Running".into())),
-        },
+            rhs: Box::new(Spanned::no_span(Expr::Ident("Running".into()))),
+        }),
         effect_variables: vec![],
     }];
     assert_eq!(method_pre_state(&clauses), Some("Running".to_string()));
@@ -3758,11 +3831,11 @@ fn method_pre_state_with_state_guard() {
 fn method_pre_state_without_state_guard() {
     let clauses = vec![Clause {
         kind: ClauseKind::Requires,
-        body: Expr::BinOp {
-            lhs: Box::new(Expr::Ident("x".into())),
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Gt,
-            rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        },
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        }),
         effect_variables: vec![],
     }];
     assert_eq!(method_pre_state(&clauses), None);
@@ -3958,17 +4031,17 @@ fn extract_base_type_fallback() {
 
 #[test]
 fn expr_to_rust_static_literal() {
-    let e = Expr::Literal(Literal::Int("100".into()));
+    let e = Spanned::no_span(Expr::Literal(Literal::Int("100".into())));
     assert_eq!(expr_to_rust_static(&e), "100");
 }
 
 #[test]
 fn expr_to_rust_static_binop() {
-    let e = Expr::BinOp {
-        lhs: Box::new(Expr::Ident("a".into())),
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Add,
-        rhs: Box::new(Expr::Ident("b".into())),
-    };
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
     assert_eq!(expr_to_rust_static(&e), "(a + b)");
 }
 

@@ -3,7 +3,7 @@
 //! Handles parameter extraction from input clauses, output type inference,
 //! and type-checking clause bodies against their expected types.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
+use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SpExpr};
 
 use crate::{
     Type, TypeEnv, TypeError, check_ghost_fn_effects, check_lemma_fn_effects, infer_expr,
@@ -24,7 +24,7 @@ use crate::{
 /// This extracts `(name, type)` pairs and inserts them as bindings.
 ///
 /// Uses the shared `extract_clause_params` from assura-parser.
-pub(crate) fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
+pub(crate) fn register_input_clause_params(body: &SpExpr, env: &mut TypeEnv) {
     use assura_parser::ast::extract_clause_params;
     for param in extract_clause_params(body) {
         if param.ty.is_none() {
@@ -45,7 +45,7 @@ pub(crate) fn register_input_clause_params(body: &Expr, env: &mut TypeEnv) {
 /// returns types instead of inserting into a `TypeEnv`.
 ///
 /// Uses the shared `extract_clause_params` from assura-parser.
-pub(crate) fn collect_input_param_types(body: &Expr, out: &mut Vec<Type>) {
+pub(crate) fn collect_input_param_types(body: &SpExpr, out: &mut Vec<Type>) {
     use assura_parser::ast::extract_clause_params;
     for param in extract_clause_params(body) {
         if param.ty.is_none() {
@@ -122,8 +122,8 @@ pub(crate) fn env_with_result(env: &TypeEnv, result_ty: &Type) -> TypeEnv {
 ///
 /// Returns the declared output type, or `Type::Unknown` if not extractable.
 /// Treats `Type::Error` as "not found" for the purposes of extraction.
-pub(crate) fn extract_output_type_from_body(body: &Expr) -> Type {
-    match body {
+pub(crate) fn extract_output_type_from_body(body: &SpExpr) -> Type {
+    match &body.node {
         Expr::Cast { ty, .. } => parse_type_tokens(std::slice::from_ref(ty)),
         Expr::Raw(tokens) => {
             // Look for "name : Type" pattern
@@ -330,13 +330,11 @@ pub(crate) fn check_clause_bodies(
     errors
 }
 
-
-
 /// Try to infer the type of an expression; if a type error occurs, push
 /// it into the collector. Uses `ctx_span` to replace placeholder `0..0`
 /// spans with the declaration's actual source span.
 fn collect_expr_errors(
-    expr: &Expr,
+    expr: &SpExpr,
     env: &TypeEnv,
     errors: &mut Vec<TypeError>,
     ctx_span: &std::ops::Range<usize>,
@@ -373,7 +371,7 @@ fn clause_kind_label(kind: &ClauseKind) -> &'static str {
 /// but the body has a definitively non-Bool type.
 pub(crate) fn check_clause_expr(
     kind: &ClauseKind,
-    body: &Expr,
+    body: &SpExpr,
     env: &TypeEnv,
     errors: &mut Vec<TypeError>,
     ctx_span: &std::ops::Range<usize>,
@@ -398,28 +396,26 @@ pub(crate) fn check_clause_expr(
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{Expr, Literal, Pattern};
+    use assura_parser::ast::{Expr, Literal, Pattern, SpExpr, Spanned};
 
     #[test]
     fn register_input_params_typed() {
-        let body = Expr::Call {
-            func: Box::new(Expr::Ident("input".into())),
+        let body = Spanned::no_span(Expr::Call {
+            func: Box::new(Spanned::no_span(Expr::Ident("input".into()))),
             args: vec![
-                Expr::Cast {
-                    expr: Box::new(Expr::Ident("n".into())),
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
                     ty: "Int".into(),
-                },
-                Expr::Cast {
-                    expr: Box::new(Expr::Ident("s".into())),
+                }),
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("s".into()))),
                     ty: "String".into(),
-                },
+                }),
             ],
-        };
+        });
         let mut env = TypeEnv::new();
         register_input_clause_params(&body, &mut env);
         assert_eq!(env.lookup("n"), Some(&Type::Int));
@@ -428,10 +424,10 @@ mod tests {
 
     #[test]
     fn register_input_params_untyped() {
-        let body = Expr::Call {
-            func: Box::new(Expr::Ident("input".into())),
-            args: vec![Expr::Ident("x".into())],
-        };
+        let body = Spanned::no_span(Expr::Call {
+            func: Box::new(Spanned::no_span(Expr::Ident("input".into()))),
+            args: vec![Spanned::no_span(Expr::Ident("x".into()))],
+        });
         let mut env = TypeEnv::new();
         register_input_clause_params(&body, &mut env);
         assert_eq!(env.lookup("x"), Some(&Type::Unknown));
@@ -439,13 +435,13 @@ mod tests {
 
     #[test]
     fn collect_input_types_typed() {
-        let body = Expr::Call {
-            func: Box::new(Expr::Ident("input".into())),
-            args: vec![Expr::Cast {
-                expr: Box::new(Expr::Ident("n".into())),
+        let body = Spanned::no_span(Expr::Call {
+            func: Box::new(Spanned::no_span(Expr::Ident("input".into()))),
+            args: vec![Spanned::no_span(Expr::Cast {
+                expr: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
                 ty: "Int".into(),
-            }],
-        };
+            })],
+        });
         let mut types = Vec::new();
         collect_input_param_types(&body, &mut types);
         assert_eq!(types, vec![Type::Int]);
@@ -525,7 +521,7 @@ mod tests {
     #[test]
     fn check_clause_body_bool_ok() {
         let env = TypeEnv::new();
-        let body = Expr::Literal(Literal::Bool(true));
+        let body = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
         let mut errors = Vec::new();
         check_clause_expr(&ClauseKind::Requires, &body, &env, &mut errors, &(0..1));
         assert!(errors.is_empty());
@@ -534,7 +530,7 @@ mod tests {
     #[test]
     fn check_clause_body_non_bool_error() {
         let env = TypeEnv::new();
-        let body = Expr::Literal(Literal::Int("42".into()));
+        let body = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
         let mut errors = Vec::new();
         check_clause_expr(&ClauseKind::Requires, &body, &env, &mut errors, &(0..1));
         assert_eq!(errors.len(), 1);
@@ -544,7 +540,7 @@ mod tests {
     #[test]
     fn check_clause_body_input_not_checked_for_bool() {
         let env = TypeEnv::new();
-        let body = Expr::Literal(Literal::Int("42".into()));
+        let body = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
         let mut errors = Vec::new();
         check_clause_expr(&ClauseKind::Input, &body, &env, &mut errors, &(0..1));
         assert!(errors.is_empty(), "input clauses should not require Bool");

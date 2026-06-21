@@ -1,6 +1,6 @@
 //! Shared field-access strategy for CVC5 shell-out and native backends.
 
-use assura_parser::ast::Expr;
+use assura_parser::ast::{Expr, Spanned};
 
 use crate::cvc5_common::{
     flatten_field_chain_cvc5, has_deep_field_chain_cvc5, is_self_rooted_cvc5,
@@ -17,7 +17,7 @@ pub(crate) enum FieldAccessPlan {
 
 /// Decide flatten-vs-UF encoding for `obj.field`.
 pub(crate) fn plan_field_access(obj: &Expr, field: &str) -> FieldAccessPlan {
-    let full_expr = Expr::Field(Box::new(obj.clone()), field.to_string());
+    let full_expr = Expr::Field(Box::new(Spanned::no_span(obj.clone())), field.to_string());
     if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(obj) {
         FieldAccessPlan::Flatten(flatten_field_chain_cvc5(&full_expr))
     } else {
@@ -158,7 +158,10 @@ mod tests {
     #[test]
     fn flatten_deep_chain() {
         let _obj = Expr::Field(
-            Box::new(Expr::Field(Box::new(Expr::Ident("a".into())), "b".into())),
+            Box::new(Spanned::no_span(Expr::Field(
+                Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+                "b".into(),
+            ))),
             "c".into(),
         );
         // plan on obj.field would be wrong - use parent

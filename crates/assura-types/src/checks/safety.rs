@@ -78,7 +78,7 @@ pub(crate) fn run_crypto_conformance_checks(
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && k == "crypto_spec"
-                && let Expr::Raw(tokens) = &clause.body
+                && let Expr::Raw(tokens) = &clause.body.node
                 && !tokens.is_empty()
             {
                 let name = tokens[0].trim_matches('"').to_string();
@@ -128,15 +128,16 @@ pub(crate) fn run_crypto_conformance_checks(
                 "conforms" | "spec" | "crypto" => {
                     // Extract algorithm name from clause body
                     // Note: Literal::Str includes source quotes (e.g. `"AES-128-GCM"`)
-                    if let Expr::Literal(assura_parser::ast::Literal::Str(name)) = &clause.body {
+                    if let Expr::Literal(assura_parser::ast::Literal::Str(name)) = &clause.body.node
+                    {
                         algorithm = Some(name.trim_matches('"').to_string());
-                    } else if let Expr::Ident(name) = &clause.body {
+                    } else if let Expr::Ident(name) = &clause.body.node {
                         algorithm = Some(name.clone());
-                    } else if let Expr::Call { func, .. } = &clause.body {
-                        if let Expr::Ident(name) = func.as_ref() {
+                    } else if let Expr::Call { func, .. } = &clause.body.node {
+                        if let Expr::Ident(name) = &func.as_ref().node {
                             algorithm = Some(name.clone());
                         }
-                    } else if let Expr::Raw(tokens) = &clause.body
+                    } else if let Expr::Raw(tokens) = &clause.body.node
                         && let Some(t) = tokens.first()
                     {
                         // Fallback: extract from raw tokens (strip quotes)
@@ -147,18 +148,18 @@ pub(crate) fn run_crypto_conformance_checks(
                     }
                 }
                 "key_size" => {
-                    if let Expr::Literal(assura_parser::ast::Literal::Int(s)) = &clause.body {
+                    if let Expr::Literal(assura_parser::ast::Literal::Int(s)) = &clause.body.node {
                         key_size = s.parse().ok();
-                    } else if let Expr::Raw(tokens) = &clause.body
+                    } else if let Expr::Raw(tokens) = &clause.body.node
                         && let Some(t) = tokens.first()
                     {
                         key_size = t.parse().ok();
                     }
                 }
                 "nonce_size" => {
-                    if let Expr::Literal(assura_parser::ast::Literal::Int(s)) = &clause.body {
+                    if let Expr::Literal(assura_parser::ast::Literal::Int(s)) = &clause.body.node {
                         nonce_size = s.parse().ok();
-                    } else if let Expr::Raw(tokens) = &clause.body
+                    } else if let Expr::Raw(tokens) = &clause.body.node
                         && let Some(t) = tokens.first()
                     {
                         nonce_size = t.parse().ok();
@@ -168,11 +169,11 @@ pub(crate) fn run_crypto_conformance_checks(
                     has_tag_check = true;
                 }
                 "nonce" => {
-                    if let Expr::Ident(src) = &clause.body {
+                    if let Expr::Ident(src) = &clause.body.node {
                         nonce_source = Some(src.clone());
                         is_counter_nonce = src.contains("counter") || src.contains("ctr");
                         is_random_nonce = src.contains("random") || src.contains("rng");
-                    } else if let Expr::Raw(tokens) = &clause.body
+                    } else if let Expr::Raw(tokens) = &clause.body.node
                         && let Some(src) = tokens.first()
                     {
                         nonce_source = Some(src.clone());
@@ -316,10 +317,10 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
                         lhs,
                         op: BinOp::Eq,
                         rhs,
-                    } = &clause.body
-                        && let Expr::Ident(src) = rhs.as_ref()
+                    } = &clause.body.node
+                        && let Expr::Ident(src) = &rhs.as_ref().node
                         && src == name
-                        && let Expr::Ident(tgt) = lhs.as_ref()
+                        && let Expr::Ident(tgt) = &lhs.as_ref().node
                     {
                         let tgt_is_sensitive = checker.sensitive_names().contains(tgt);
                         for err in checker.check_copy(name, tgt, tgt_is_sensitive, &decl.span) {
@@ -370,7 +371,7 @@ pub(crate) fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) 
                     if let ClauseKind::Other(ref k) = clause.kind
                         && (k == "obligation" || k == "proof_obligation" || k == "must_prove")
                     {
-                        if let Expr::Ident(obl) = &clause.body {
+                        if let Expr::Ident(obl) = &clause.body.node {
                             obligations.push(obl.clone());
                         } else if let Some((_, args)) = extract_call(&clause.body) {
                             for arg in args {
@@ -406,7 +407,7 @@ pub(crate) fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) 
                     if let ClauseKind::Other(ref k) = clause.kind
                         && (k == "obligation" || k == "proof_obligation" || k == "must_prove")
                     {
-                        if let Expr::Ident(obl) = &clause.body {
+                        if let Expr::Ident(obl) = &clause.body.node {
                             obligations.push(obl.clone());
                         } else if let Some((_, args)) = extract_call(&clause.body) {
                             for arg in args {
@@ -439,7 +440,7 @@ pub(crate) fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) 
                 for clause in &f.clauses {
                     if let ClauseKind::Other(ref k) = clause.kind
                         && (k == "discharges" || k == "proves")
-                        && let Expr::Ident(obligation) = &clause.body
+                        && let Expr::Ident(obligation) = &clause.body.node
                     {
                         checker.discharge_obligation(&f.name, obligation.clone());
                     }
@@ -451,7 +452,7 @@ pub(crate) fn run_unsafe_escape_checks(source: &assura_parser::ast::SourceFile) 
                 for clause in body {
                     if let ClauseKind::Other(ref k) = clause.kind
                         && (k == "discharges" || k == "proves")
-                        && let Expr::Ident(obligation) = &clause.body
+                        && let Expr::Ident(obligation) = &clause.body.node
                     {
                         checker.discharge_obligation(name, obligation.clone());
                     }

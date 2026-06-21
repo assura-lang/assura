@@ -90,68 +90,98 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    body: Raw(
-                                        [
-                                            "amount",
-                                            ":",
-                                            "Int",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "amount",
+                                                ":",
+                                                "Int",
+                                            ],
+                                        ),
+                                        span: 190..207,
+                                    },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
-                                    body: Raw(
-                                        [
-                                            "order",
-                                            ":",
-                                            "Order",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "order",
+                                                ":",
+                                                "Order",
+                                            ],
+                                        ),
+                                        span: 207..226,
+                                    },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Requires,
-                                    body: BinOp {
-                                        lhs: Ident(
-                                            "amount",
-                                        ),
-                                        op: Gt,
-                                        rhs: Literal(
-                                            Int(
-                                                "0",
-                                            ),
-                                        ),
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "amount",
+                                                ),
+                                                span: 235..241,
+                                            },
+                                            op: Gt,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Int(
+                                                        "0",
+                                                    ),
+                                                ),
+                                                span: 242..243,
+                                            },
+                                        },
+                                        span: 235..243,
                                     },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Ensures,
-                                    body: BinOp {
-                                        lhs: Field(
-                                            Ident(
-                                                "order",
-                                            ),
-                                            "status",
-                                        ),
-                                        op: Eq,
-                                        rhs: Literal(
-                                            Str(
-                                                "\"Pending\"",
-                                            ),
-                                        ),
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Field(
+                                                    Spanned {
+                                                        node: Ident(
+                                                            "order",
+                                                        ),
+                                                        span: 252..257,
+                                                    },
+                                                    "status",
+                                                ),
+                                                span: 252..264,
+                                            },
+                                            op: Eq,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Str(
+                                                        "\"Pending\"",
+                                                    ),
+                                                ),
+                                                span: 266..275,
+                                            },
+                                        },
+                                        span: 252..275,
                                     },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
-                                    body: Raw(
-                                        [
-                                            "db",
-                                            ".",
-                                            "write",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "db",
+                                                ".",
+                                                "write",
+                                            ],
+                                        ),
+                                        span: 276..293,
+                                    },
                                     effect_variables: [],
                                 },
                             ],
@@ -161,50 +191,68 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    body: Raw(
-                                        [
-                                            "id",
-                                            ":",
-                                            "Nat",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "id",
+                                                ":",
+                                                "Nat",
+                                            ],
+                                        ),
+                                        span: 316..329,
+                                    },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
-                                    body: Raw(
-                                        [
-                                            "order",
-                                            ":",
-                                            "Order",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "order",
+                                                ":",
+                                                "Order",
+                                            ],
+                                        ),
+                                        span: 329..348,
+                                    },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Requires,
-                                    body: BinOp {
-                                        lhs: Ident(
-                                            "id",
-                                        ),
-                                        op: Gt,
-                                        rhs: Literal(
-                                            Int(
-                                                "0",
-                                            ),
-                                        ),
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "id",
+                                                ),
+                                                span: 357..359,
+                                            },
+                                            op: Gt,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Int(
+                                                        "0",
+                                                    ),
+                                                ),
+                                                span: 360..361,
+                                            },
+                                        },
+                                        span: 357..361,
                                     },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
-                                    body: Raw(
-                                        [
-                                            "db",
-                                            ".",
-                                            "write",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "db",
+                                                ".",
+                                                "write",
+                                            ],
+                                        ),
+                                        span: 362..379,
+                                    },
                                     effect_variables: [],
                                 },
                             ],
@@ -214,69 +262,90 @@ SourceFile {
                             clauses: [
                                 Clause {
                                     kind: Input,
-                                    body: Raw(
-                                        [
-                                            "id",
-                                            ":",
-                                            "Nat",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "id",
+                                                ":",
+                                                "Nat",
+                                            ],
+                                        ),
+                                        span: 394..407,
+                                    },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Output,
-                                    body: Raw(
-                                        [
-                                            "order",
-                                            ":",
-                                            "Order",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "order",
+                                                ":",
+                                                "Order",
+                                            ],
+                                        ),
+                                        span: 407..426,
+                                    },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Requires,
-                                    body: BinOp {
-                                        lhs: Ident(
-                                            "id",
-                                        ),
-                                        op: Gt,
-                                        rhs: Literal(
-                                            Int(
-                                                "0",
-                                            ),
-                                        ),
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "id",
+                                                ),
+                                                span: 435..437,
+                                            },
+                                            op: Gt,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Int(
+                                                        "0",
+                                                    ),
+                                                ),
+                                                span: 438..439,
+                                            },
+                                        },
+                                        span: 435..439,
                                     },
                                     effect_variables: [],
                                 },
                                 Clause {
                                     kind: Effects,
-                                    body: Raw(
-                                        [
-                                            "db",
-                                            ".",
-                                            "read",
-                                        ],
-                                    ),
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "db",
+                                                ".",
+                                                "read",
+                                            ],
+                                        ),
+                                        span: 440..456,
+                                    },
                                     effect_variables: [],
                                 },
                             ],
                         },
                         Invariant(
-                            Raw(
-                                [
-                                    "forall",
-                                    "o",
-                                    "in",
-                                    "orders",
-                                    ":",
-                                    "o",
-                                    ".",
-                                    "amount",
-                                    ">",
-                                    "0",
-                                ],
-                            ),
+                            Spanned {
+                                node: Raw(
+                                    [
+                                        "forall",
+                                        "o",
+                                        "in",
+                                        "orders",
+                                        ":",
+                                        "o",
+                                        ".",
+                                        "amount",
+                                        ">",
+                                        "0",
+                                    ],
+                                ),
+                                span: 457..494,
+                            },
                         ),
                     ],
                 },

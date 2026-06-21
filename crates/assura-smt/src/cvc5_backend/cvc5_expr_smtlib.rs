@@ -1,4 +1,4 @@
-use assura_parser::ast::Expr;
+use assura_parser::ast::{Expr, SpExpr};
 use std::sync::OnceLock;
 
 use crate::cvc5_adt::{Cvc5AdtDef, adt_is_constructor_smt, define_adt_cvc5};
@@ -30,8 +30,8 @@ fn shell_match_adt_def() -> &'static Cvc5AdtDef {
 }
 
 /// Convert an AST expression to an SMT-LIB2 string representation.
-pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
-    match expr {
+pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
+    match &expr.node {
         Expr::Literal(lit) => encode_literal_smtlib(lit),
         Expr::Ident(name) => Some(encode_ident_smtlib(name)),
         Expr::BinOp { op, lhs, rhs } => {
@@ -75,11 +75,11 @@ pub fn expr_to_smtlib(expr: &Expr) -> Option<String> {
         }),
         Expr::Field(obj, field) => {
             if matches!(field.as_str(), "len" | "length")
-                && let Expr::Ident(name) = obj.as_ref()
+                && let Expr::Ident(name) = &obj.as_ref().node
             {
                 return Some(canonical_length_smtlib_name(name));
             }
-            match plan_field_access(obj.as_ref(), field) {
+            match plan_field_access(&obj.as_ref().node, field) {
                 FieldAccessPlan::Flatten(name) => Some(name),
                 FieldAccessPlan::ShallowUf { field: f } => {
                     let o = expr_to_smtlib(obj)?;

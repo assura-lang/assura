@@ -590,9 +590,7 @@ contract Typed {
                         // Type check passed; try SMT verification for
                         // error codes in the A05xxx range (prophecy,
                         // verification failures).
-                        let vr = assura_smt::Verifier::new(&typed)
-                            .source(&path)
-                            .verify();
+                        let vr = assura_smt::Verifier::new(&typed).source(&path).verify();
                         let found = vr.iter().any(|r| match r {
                             assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
                                 clause_desc.contains(&code)

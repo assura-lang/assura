@@ -107,7 +107,7 @@ impl DependentTypeChecker {
     /// For Bool/Enum indices, only direct references are allowed (no arithmetic).
     pub fn check_index_expr(
         &self,
-        expr: &Expr,
+        expr: &SpExpr,
         expected_kind: &DepIndex,
         span: &Range<usize>,
     ) -> Vec<DepTypeError> {
@@ -204,7 +204,7 @@ impl DependentTypeChecker {
     /// Returns an error if an index variable appears in a non-ghost context.
     pub fn check_index_erasure(
         &self,
-        expr: &Expr,
+        expr: &SpExpr,
         ghost_context: bool,
         span: &Range<usize>,
     ) -> Vec<DepTypeError> {
@@ -239,8 +239,8 @@ impl DependentTypeChecker {
 
     // --- Helper methods ---
 
-    fn is_nat_expr(&self, expr: &Expr) -> bool {
-        match expr {
+    fn is_nat_expr(&self, expr: &SpExpr) -> bool {
+        match &expr.node {
             Expr::Literal(Literal::Int(_)) => true,
             Expr::Ident(name) => {
                 matches!(self.index_vars.get(name), Some(DepIndex::Nat(_)))
@@ -261,12 +261,12 @@ impl DependentTypeChecker {
         }
     }
 
-    fn is_bool_expr(&self, expr: &Expr) -> bool {
-        matches!(expr, Expr::Literal(Literal::Bool(_)) | Expr::Ident(_))
+    fn is_bool_expr(&self, expr: &SpExpr) -> bool {
+        matches!(&expr.node, Expr::Literal(Literal::Bool(_)) | Expr::Ident(_))
     }
 
-    fn is_enum_expr(&self, expr: &Expr, enum_type: &str) -> bool {
-        match expr {
+    fn is_enum_expr(&self, expr: &SpExpr, enum_type: &str) -> bool {
+        match &expr.node {
             Expr::Ident(name) => {
                 // Either a variable reference or a variant name
                 if let Some(variants) = self.enums.get(enum_type) {
@@ -279,7 +279,7 @@ impl DependentTypeChecker {
         }
     }
 
-    fn collect_idents(&self, expr: &Expr) -> Vec<String> {
+    fn collect_idents(&self, expr: &SpExpr) -> Vec<String> {
         struct IdentCollector(Vec<String>);
         impl ExprVisitor for IdentCollector {
             fn visit_ident(&mut self, name: &str) {
@@ -566,8 +566,8 @@ impl InfoFlowChecker {
     /// The result label is the **maximum** of all operand labels (the
     /// join in the lattice).  Variables without a declared label default
     /// to `Public`.
-    pub fn infer_label(&self, expr: &Expr) -> SecurityLabel {
-        match expr {
+    pub fn infer_label(&self, expr: &SpExpr) -> SecurityLabel {
+        match &expr.node {
             Expr::Ident(name) => self
                 .labels
                 .get(name)
@@ -657,7 +657,7 @@ impl InfoFlowChecker {
     /// Walks the AST looking for:
     /// - Implicit flows through `if` conditions (A08004)
     /// - Covert channels through timing/exception calls (A08005)
-    pub fn check_expr(&self, expr: &Expr, span: &Range<usize>) -> Vec<InfoFlowError> {
+    pub fn check_expr(&self, expr: &SpExpr, span: &Range<usize>) -> Vec<InfoFlowError> {
         let mut errors = Vec::new();
         self.check_expr_inner(expr, span, SecurityLabel::Public, &mut errors);
         errors
@@ -668,12 +668,12 @@ impl InfoFlowChecker {
     /// conditionals).
     fn check_expr_inner(
         &self,
-        expr: &Expr,
+        expr: &SpExpr,
         span: &Range<usize>,
         pc_label: SecurityLabel,
         errors: &mut Vec<InfoFlowError>,
     ) {
-        match expr {
+        match &expr.node {
             Expr::If {
                 cond,
                 then_branch,
@@ -690,7 +690,7 @@ impl InfoFlowChecker {
             // Detect covert channels: high-security pc controls a
             // timing-sensitive or exception-raising call.
             Expr::Call { func, args } => {
-                if let Expr::Ident(name) = func.as_ref()
+                if let Expr::Ident(name) = &func.as_ref().node
                     && let Some(err) = self.check_covert_channel(pc_label, name, span)
                 {
                     errors.push(err);
@@ -784,17 +784,18 @@ impl Default for InfoFlowChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
     fn span() -> Range<usize> {
         0..10
     }
 
-    fn ident(s: &str) -> Expr {
-        Expr::Ident(s.to_string())
+    fn ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.to_string()))
     }
 
-    fn int_lit(n: i64) -> Expr {
-        Expr::Literal(Literal::Int(n.to_string()))
+    fn int_lit(n: i64) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Int(n.to_string())))
     }
 
     // ---- DependentTypeChecker ----
@@ -840,11 +841,11 @@ mod tests {
     fn dep_check_nat_index_expr_arithmetic() {
         let mut checker = DependentTypeChecker::new();
         checker.bind_index("n".into(), DepIndex::Nat("n".into()));
-        let expr = Expr::BinOp {
+        let expr = Spanned::no_span(Expr::BinOp {
             lhs: Box::new(ident("n")),
             op: BinOp::Add,
             rhs: Box::new(int_lit(1)),
-        };
+        });
         let errs = checker.check_index_expr(&expr, &DepIndex::Nat("n".into()), &span());
         assert!(errs.is_empty());
     }
@@ -852,11 +853,11 @@ mod tests {
     #[test]
     fn dep_check_bool_index_rejects_arithmetic() {
         let checker = DependentTypeChecker::new();
-        let expr = Expr::BinOp {
+        let expr = Spanned::no_span(Expr::BinOp {
             lhs: Box::new(int_lit(1)),
             op: BinOp::Add,
             rhs: Box::new(int_lit(2)),
-        };
+        });
         let errs = checker.check_index_expr(&expr, &DepIndex::Bool("flag".into()), &span());
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code.as_ref(), "A03008");
@@ -1027,11 +1028,11 @@ mod tests {
         let mut checker = InfoFlowChecker::new();
         checker.declare("a".into(), SecurityLabel::Internal);
         checker.declare("b".into(), SecurityLabel::Confidential);
-        let expr = Expr::BinOp {
+        let expr = Spanned::no_span(Expr::BinOp {
             lhs: Box::new(ident("a")),
             op: BinOp::Add,
             rhs: Box::new(ident("b")),
-        };
+        });
         assert_eq!(checker.infer_label(&expr), SecurityLabel::Confidential);
     }
 
@@ -1045,14 +1046,14 @@ mod tests {
     fn ifc_check_expr_covert_channel_in_if() {
         let mut checker = InfoFlowChecker::new();
         checker.declare("secret".into(), SecurityLabel::Restricted);
-        let expr = Expr::If {
+        let expr = Spanned::no_span(Expr::If {
             cond: Box::new(ident("secret")),
-            then_branch: Box::new(Expr::Call {
+            then_branch: Box::new(Spanned::no_span(Expr::Call {
                 func: Box::new(ident("sleep")),
                 args: vec![int_lit(1)],
-            }),
+            })),
             else_branch: None,
-        };
+        });
         let errs = checker.check_expr(&expr, &span());
         assert!(!errs.is_empty());
         assert!(errs.iter().any(|e| e.code.as_ref() == "A08005"));

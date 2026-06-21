@@ -116,6 +116,14 @@ fn span_of(n: &SyntaxNode) -> Span {
     (range.start().into())..(range.end().into())
 }
 
+/// Lower a CST node into a `SpExpr` (expression with span).
+fn lower_sp_expr(n: &SyntaxNode) -> SpExpr {
+    Spanned {
+        node: lower_expr(n),
+        span: span_of(n),
+    }
+}
+
 /// Collect all token text from a node, optionally filtering by kind.
 fn collect_text(n: &SyntaxNode) -> String {
     n.text().to_string()
@@ -272,7 +280,7 @@ fn lower_clause(n: &SyntaxNode) -> Clause {
 
     // For effects clauses, extract effect row variables (names after `|`)
     let effect_variables = if kind == ClauseKind::Effects {
-        extract_effect_variables(&body)
+        extract_effect_variables(&body.node)
     } else {
         vec![]
     };
@@ -355,12 +363,12 @@ fn clause_kind_from_syntax(k: SyntaxKind, text: &str) -> Option<ClauseKind> {
 }
 
 /// Lower clause body: try to build an Expr from child nodes, fall back to raw tokens.
-fn lower_clause_body(n: &SyntaxNode) -> Expr {
+fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
     // Look for expression nodes in children
     for child in n.children() {
         let k = child.kind();
         if is_expr_kind(k) {
-            return lower_expr(&child);
+            return lower_sp_expr(&child);
         }
     }
 
@@ -408,7 +416,8 @@ fn lower_clause_body(n: &SyntaxNode) -> Expr {
         .filter(|s| !s.is_empty())
         .collect();
 
-    if tokens.is_empty() {
+    let span = span_of(n);
+    let expr = if tokens.is_empty() {
         Expr::Raw(vec![])
     } else if tokens.len() == 1 && tokens[0].chars().all(|c| c.is_alphanumeric() || c == '_') {
         // Single identifier token: promote to Expr::Ident so downstream
@@ -421,7 +430,8 @@ fn lower_clause_body(n: &SyntaxNode) -> Expr {
         )
     } else {
         Expr::Raw(tokens)
-    }
+    };
+    Spanned { node: expr, span }
 }
 
 // -----------------------------------------------------------------
@@ -487,18 +497,18 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
             inner.unwrap_or(Expr::Raw(vec![]))
         }
         SyntaxKind::TUPLE_EXPR => {
-            let items: Vec<Expr> = n
+            let items: Vec<SpExpr> = n
                 .children()
                 .filter(|c| is_expr_kind(c.kind()))
-                .map(|c| lower_expr(&c))
+                .map(|c| lower_sp_expr(&c))
                 .collect();
             Expr::Tuple(items)
         }
         SyntaxKind::LIST_EXPR => {
-            let items: Vec<Expr> = n
+            let items: Vec<SpExpr> = n
                 .children()
                 .filter(|c| is_expr_kind(c.kind()))
-                .map(|c| lower_expr(&c))
+                .map(|c| lower_sp_expr(&c))
                 .collect();
             Expr::List(items)
         }
@@ -506,12 +516,14 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
         SyntaxKind::GHOST_EXPR => {
             let inner = n.children().find_map(|c| {
                 if is_expr_kind(c.kind()) {
-                    Some(lower_expr(&c))
+                    Some(lower_sp_expr(&c))
                 } else {
                     None
                 }
             });
-            Expr::Ghost(Box::new(inner.unwrap_or(Expr::Raw(vec![]))))
+            Expr::Ghost(Box::new(
+                inner.unwrap_or(Spanned::no_span(Expr::Raw(vec![]))),
+            ))
         }
         SyntaxKind::APPLY_EXPR => lower_apply_expr(n),
         SyntaxKind::LET_EXPR => lower_let_expr(n),
@@ -542,8 +554,8 @@ fn lower_field_expr(n: &SyntaxNode) -> Expr {
     let mut children_iter = n.children();
     let obj = children_iter
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     // Field name is the last IDENT or keyword token
     let field = n
@@ -561,8 +573,8 @@ fn lower_method_call(n: &SyntaxNode) -> Expr {
     let mut children_iter = n.children();
     let receiver = children_iter
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     // Method name: IDENT or keyword token after DOT
     let method = n
@@ -598,7 +610,7 @@ fn lower_call_expr(n: &SyntaxNode) -> Expr {
         let child_exprs: Vec<_> = n
             .children()
             .filter(|c| is_expr_kind(c.kind()))
-            .map(|c| lower_expr(&c))
+            .map(|c| lower_sp_expr(&c))
             .collect();
         if !child_exprs.is_empty() {
             args = child_exprs;
@@ -606,7 +618,10 @@ fn lower_call_expr(n: &SyntaxNode) -> Expr {
     }
 
     Expr::Call {
-        func: Box::new(Expr::Ident(func_name)),
+        func: Box::new(Spanned {
+            node: Expr::Ident(func_name),
+            span: span_of(n),
+        }),
         args,
     }
 }
@@ -620,10 +635,10 @@ fn first_ident_or_keyword(n: &SyntaxNode) -> String {
         .unwrap_or_default()
 }
 
-fn lower_arg_list(n: &SyntaxNode) -> Vec<Expr> {
+fn lower_arg_list(n: &SyntaxNode) -> Vec<SpExpr> {
     n.children()
         .filter(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_expr(&c))
+        .map(|c| lower_sp_expr(&c))
         .collect()
 }
 
@@ -631,12 +646,12 @@ fn lower_index_expr(n: &SyntaxNode) -> Expr {
     let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
     let base = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
     let index = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     Expr::Index {
         expr: Box::new(base),
@@ -651,7 +666,7 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
     //   BIN_EXPR(BIN_EXPR(a, &&, b), &&, c)
     // We collect (op, rhs) pairs walking down the left spine, then
     // build the AST bottom-up.
-    let mut chain: Vec<(BinOp, Expr)> = Vec::new();
+    let mut chain: Vec<(BinOp, SpExpr)> = Vec::new();
     let mut current = n.clone();
 
     loop {
@@ -670,20 +685,20 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
                 .map(|t| t.text().to_string())
                 .collect();
             // Can't parse operator; return raw and apply any collected chain.
-            let mut result = Expr::Raw(tokens);
+            let mut result = Spanned::no_span(Expr::Raw(tokens));
             for (chain_op, chain_rhs) in chain.into_iter().rev() {
-                result = Expr::BinOp {
+                result = Spanned::no_span(Expr::BinOp {
                     lhs: Box::new(result),
                     op: chain_op,
                     rhs: Box::new(chain_rhs),
-                };
+                });
             }
-            return result;
+            return result.node;
         };
 
         let rhs = rhs_node
-            .map(|c| lower_expr(&c))
-            .unwrap_or(Expr::Raw(vec![]));
+            .map(|c| lower_sp_expr(&c))
+            .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
         chain.push((op, rhs));
 
@@ -696,17 +711,17 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
             _ => {
                 // Base case: LHS is not a BIN_EXPR, lower it normally.
                 let base = lhs_node
-                    .map(|c| lower_expr(&c))
-                    .unwrap_or(Expr::Raw(vec![]));
+                    .map(|c| lower_sp_expr(&c))
+                    .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
                 let mut result = base;
                 for (chain_op, chain_rhs) in chain.into_iter().rev() {
-                    result = Expr::BinOp {
+                    result = Spanned::no_span(Expr::BinOp {
                         lhs: Box::new(result),
                         op: chain_op,
                         rhs: Box::new(chain_rhs),
-                    };
+                    });
                 }
-                return result;
+                return result.node;
             }
         }
     }
@@ -742,8 +757,8 @@ fn lower_unary_expr(n: &SyntaxNode) -> Expr {
     let inner = n
         .children()
         .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     let op = n
         .children_with_tokens()
@@ -767,8 +782,8 @@ fn lower_old_expr(n: &SyntaxNode) -> Expr {
     let inner = n
         .children()
         .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
     Expr::Old(Box::new(inner))
 }
 
@@ -786,12 +801,12 @@ fn lower_quantifier(n: &SyntaxNode, is_forall: bool) -> Expr {
     let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
     let domain = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
     let body = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     if is_forall {
         Expr::Forall {
@@ -812,13 +827,13 @@ fn lower_if_expr(n: &SyntaxNode) -> Expr {
     let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
     let cond = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
     let then_branch = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
-    let else_branch = exprs.next().map(|c| Box::new(lower_expr(&c)));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let else_branch = exprs.next().map(|c| Box::new(lower_sp_expr(&c)));
 
     Expr::If {
         cond: Box::new(cond),
@@ -831,8 +846,8 @@ fn lower_cast_expr(n: &SyntaxNode) -> Expr {
     let inner = n
         .children()
         .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     // Type name: the token after `as`
     let mut saw_as = false;
@@ -857,7 +872,7 @@ fn lower_cast_expr(n: &SyntaxNode) -> Expr {
 
 fn lower_apply_expr(n: &SyntaxNode) -> Expr {
     let lemma_name = first_ident(n);
-    let args = find_child(n, SyntaxKind::ARG_LIST)
+    let args: Vec<SpExpr> = find_child(n, SyntaxKind::ARG_LIST)
         .map(|al| lower_arg_list(&al))
         .unwrap_or_default();
     Expr::Apply { lemma_name, args }
@@ -868,12 +883,12 @@ fn lower_let_expr(n: &SyntaxNode) -> Expr {
     let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
     let value = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
     let body = exprs
         .next()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     Expr::Let {
         name,
@@ -886,8 +901,8 @@ fn lower_match_expr(n: &SyntaxNode) -> Expr {
     let scrutinee = n
         .children()
         .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     let arms = find_child(n, SyntaxKind::MATCH_ARM_LIST)
         .map(|al| {
@@ -914,8 +929,8 @@ fn lower_match_arm(n: &SyntaxNode) -> MatchArm {
         .children()
         .filter(|c| is_expr_kind(c.kind()))
         .last()
-        .map(|c| lower_expr(&c))
-        .unwrap_or(Expr::Raw(vec![]));
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
     MatchArm { pattern, body }
 }
@@ -1267,14 +1282,14 @@ fn lower_bind(n: &SyntaxNode) -> BindDecl {
     let params = all_clauses
         .iter()
         .find(|c| c.kind == ClauseKind::Input)
-        .map(|c| extract_params_from_clause_body(&c.body))
+        .map(|c| extract_params_from_clause_body(&c.body.node))
         .unwrap_or_default();
 
     // Extract return type from the output clause body
     let return_ty = all_clauses
         .iter()
         .find(|c| c.kind == ClauseKind::Output)
-        .map(|c| extract_return_type_from_clause_body(&c.body))
+        .map(|c| extract_return_type_from_clause_body(&c.body.node))
         .unwrap_or_default();
 
     // Filter out input/output clauses; keep requires/ensures/effects etc.
@@ -2014,7 +2029,7 @@ mod tests {
         assert!(errors.is_empty(), "errors: {errors:?}");
         if let Decl::Contract(c) = &sf.decls[0].node {
             // The requires body should be a BinOp expression
-            match &c.clauses[0].body {
+            match &c.clauses[0].body.node {
                 Expr::BinOp { op, .. } => assert_eq!(*op, BinOp::Gt),
                 other => panic!("expected BinOp, got {other:?}"),
             }

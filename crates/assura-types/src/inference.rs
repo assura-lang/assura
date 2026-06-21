@@ -4,7 +4,7 @@
 //! in a given type environment. Covers literals, variables, field access,
 //! binary/unary operations, function calls, quantifiers, and more.
 
-use assura_parser::ast::{BinOp, Expr, Literal, Span, UnaryOp};
+use assura_parser::ast::{BinOp, Expr, Literal, SpExpr, Span, UnaryOp};
 
 use crate::clauses::bind_pattern_vars;
 use crate::{Type, TypeEnv, TypeError, parse_type_tokens};
@@ -15,8 +15,8 @@ use crate::{Type, TypeEnv, TypeError, parse_type_tokens};
 
 /// Returns `true` if `ty` is a numeric type.
 /// Check if an expression is a literal zero (integer 0 or float 0.0).
-pub(crate) fn is_literal_zero(expr: &Expr) -> bool {
-    match expr {
+pub(crate) fn is_literal_zero(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Literal(Literal::Int(s)) => s == "0",
         Expr::Literal(Literal::Float(s)) => s == "0.0" || s == "0",
         _ => false,
@@ -72,7 +72,7 @@ pub(crate) fn is_numeric(ty: &Type) -> bool {
 ///
 /// Errors produced by this overload use `0..0` spans. For proper source
 /// locations, use `infer_expr_spanned` with the enclosing clause span.
-pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
+pub fn infer_expr(expr: &SpExpr, env: &TypeEnv) -> Result<Type, TypeError> {
     infer_expr_spanned(expr, env, 0..0)
 }
 
@@ -81,8 +81,8 @@ pub fn infer_expr(expr: &Expr, env: &TypeEnv) -> Result<Type, TypeError> {
 /// The span is used in all `TypeError` instances produced during inference
 /// so that diagnostics point to the enclosing clause body rather than the
 /// start of the file.
-pub fn infer_expr_spanned(expr: &Expr, env: &TypeEnv, span: Span) -> Result<Type, TypeError> {
-    match expr {
+pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Type, TypeError> {
+    match &expr.node {
         // --- Literals ---
         Expr::Literal(Literal::Int(_)) => Ok(Type::Int),
         Expr::Literal(Literal::Float(_)) => Ok(Type::Float),
@@ -538,7 +538,7 @@ pub fn infer_expr_spanned(expr: &Expr, env: &TypeEnv, span: Span) -> Result<Type
                 Type::Bytes => Ok(Type::U8),
                 // Tuple indexing with literal index
                 Type::Tuple(elems) => {
-                    if let Expr::Literal(Literal::Int(idx_str)) = index.as_ref()
+                    if let Expr::Literal(Literal::Int(idx_str)) = &index.as_ref().node
                         && let Ok(idx) = idx_str.parse::<usize>()
                         && idx < elems.len()
                     {
@@ -703,9 +703,9 @@ pub(crate) fn types_compatible(a: &Type, b: &Type) -> bool {
 
 /// Infer the result type of a binary operation.
 fn infer_binop(
-    lhs: &Expr,
+    lhs: &SpExpr,
     op: &BinOp,
-    rhs: &Expr,
+    rhs: &SpExpr,
     env: &TypeEnv,
     span: Span,
 ) -> Result<Type, TypeError> {
@@ -881,7 +881,12 @@ fn infer_binop(
 }
 
 /// Infer the result type of a function call expression.
-fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv, span: Span) -> Result<Type, TypeError> {
+fn infer_call(
+    func: &SpExpr,
+    args: &[SpExpr],
+    env: &TypeEnv,
+    span: Span,
+) -> Result<Type, TypeError> {
     let func_ty = infer_expr_spanned(func, env, span.clone())?;
 
     // Infer argument types eagerly so errors inside arguments are surfaced
@@ -912,7 +917,7 @@ fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv, span: Span) -> Result<T
         }
         // Unknown callee: try to infer from function name or argument types.
         Type::Unknown => {
-            if let Expr::Ident(name) = func
+            if let Expr::Ident(name) = &func.node
                 && let Some(ty) = infer_builtin_call_type(name, &arg_types)
             {
                 return Ok(ty);
@@ -941,10 +946,10 @@ fn infer_call(func: &Expr, args: &[Expr], env: &TypeEnv, span: Span) -> Result<T
 ///
 /// If the first argument is a known function name in the environment, return
 /// its declared return type. Otherwise return `Type::Unknown`.
-fn infer_closure_return_from_args(args: &[Expr], env: &TypeEnv) -> Type {
+fn infer_closure_return_from_args(args: &[SpExpr], env: &TypeEnv) -> Type {
     if let Some(first_arg) = args.first() {
         // If the argument is an identifier that resolves to a function, use its return type
-        if let Expr::Ident(name) = first_arg
+        if let Expr::Ident(name) = &first_arg.node
             && let Some(Type::Fn { ret, .. }) = env.lookup(name)
         {
             return *ret.clone();
@@ -990,34 +995,34 @@ fn infer_builtin_call_type(name: &str, arg_types: &[Type]) -> Option<Type> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Expr, Literal, UnaryOp};
+    use assura_parser::ast::{BinOp, Expr, Literal, SpExpr, Spanned, UnaryOp};
 
-    fn mk_int(s: &str) -> Expr {
-        Expr::Literal(Literal::Int(s.into()))
+    fn mk_int(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Int(s.into())))
     }
 
-    fn mk_float(s: &str) -> Expr {
-        Expr::Literal(Literal::Float(s.into()))
+    fn mk_float(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Float(s.into())))
     }
 
-    fn mk_bool(b: bool) -> Expr {
-        Expr::Literal(Literal::Bool(b))
+    fn mk_bool(b: bool) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Bool(b)))
     }
 
-    fn mk_str(s: &str) -> Expr {
-        Expr::Literal(Literal::Str(s.into()))
+    fn mk_str(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Str(s.into())))
     }
 
-    fn mk_ident(s: &str) -> Expr {
-        Expr::Ident(s.into())
+    fn mk_ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.into()))
     }
 
-    fn mk_binop(lhs: Expr, op: BinOp, rhs: Expr) -> Expr {
-        Expr::BinOp {
+    fn mk_binop(lhs: SpExpr, op: BinOp, rhs: SpExpr) -> SpExpr {
+        Spanned::no_span(Expr::BinOp {
             lhs: Box::new(lhs),
             op,
             rhs: Box::new(rhs),
-        }
+        })
     }
 
     // --- Literal inference ---
@@ -1136,38 +1141,38 @@ mod tests {
 
     #[test]
     fn unary_neg_int() {
-        let expr = Expr::UnaryOp {
+        let expr = Spanned::no_span(Expr::UnaryOp {
             op: UnaryOp::Neg,
             expr: Box::new(mk_int("5")),
-        };
+        });
         assert_eq!(infer_expr(&expr, &TypeEnv::new()).unwrap(), Type::Int);
     }
 
     #[test]
     fn unary_not_bool() {
-        let expr = Expr::UnaryOp {
+        let expr = Spanned::no_span(Expr::UnaryOp {
             op: UnaryOp::Not,
             expr: Box::new(mk_bool(true)),
-        };
+        });
         assert_eq!(infer_expr(&expr, &TypeEnv::new()).unwrap(), Type::Bool);
     }
 
     #[test]
     fn unary_neg_string_error() {
-        let expr = Expr::UnaryOp {
+        let expr = Spanned::no_span(Expr::UnaryOp {
             op: UnaryOp::Neg,
             expr: Box::new(mk_str("hello")),
-        };
+        });
         let err = infer_expr(&expr, &TypeEnv::new()).unwrap_err();
         assert_eq!(err.code, "A03001");
     }
 
     #[test]
     fn unary_not_int_error() {
-        let expr = Expr::UnaryOp {
+        let expr = Spanned::no_span(Expr::UnaryOp {
             op: UnaryOp::Not,
             expr: Box::new(mk_int("5")),
-        };
+        });
         let err = infer_expr(&expr, &TypeEnv::new()).unwrap_err();
         assert_eq!(err.code, "A03001");
     }
@@ -1184,11 +1189,11 @@ mod tests {
 
     #[test]
     fn if_then_else_matching_branches() {
-        let expr = Expr::If {
+        let expr = Spanned::no_span(Expr::If {
             cond: Box::new(mk_bool(true)),
             then_branch: Box::new(mk_int("1")),
             else_branch: Some(Box::new(mk_int("2"))),
-        };
+        });
         assert_eq!(infer_expr(&expr, &TypeEnv::new()).unwrap(), Type::Int);
     }
 
@@ -1271,11 +1276,11 @@ mod tests {
     fn method_call_len_on_list() {
         let mut env = TypeEnv::new();
         env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-        let expr = Expr::MethodCall {
+        let expr = Spanned::no_span(Expr::MethodCall {
             receiver: Box::new(mk_ident("xs")),
             method: "len".into(),
             args: vec![],
-        };
+        });
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Nat);
     }
 
@@ -1283,21 +1288,21 @@ mod tests {
     fn method_call_contains_on_list() {
         let mut env = TypeEnv::new();
         env.insert("xs".into(), Type::List(Box::new(Type::Int)));
-        let expr = Expr::MethodCall {
+        let expr = Spanned::no_span(Expr::MethodCall {
             receiver: Box::new(mk_ident("xs")),
             method: "contains".into(),
             args: vec![mk_int("1")],
-        };
+        });
         assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Bool);
     }
 
     #[test]
     fn method_call_on_unknown_returns_unknown() {
-        let expr = Expr::MethodCall {
+        let expr = Spanned::no_span(Expr::MethodCall {
             receiver: Box::new(mk_ident("unknown_var")),
             method: "foo".into(),
             args: vec![],
-        };
+        });
         assert_eq!(infer_expr(&expr, &TypeEnv::new()).unwrap(), Type::Unknown);
     }
 }

@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr};
+use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, SpExpr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -65,7 +65,7 @@ pub(crate) fn run_dependent_type_checks(source: &assura_parser::ast::SourceFile)
             // Look for "dep_type" or "dependent" clause annotations
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "dep_type" || k == "dependent")
-                && let Expr::Raw(tokens) = &clause.body
+                && let Expr::Raw(tokens) = &clause.body.node
                 && tokens.len() >= 2
             {
                 let index_name = &tokens[0];
@@ -137,7 +137,7 @@ pub(crate) fn run_dependent_type_checks(source: &assura_parser::ast::SourceFile)
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && k == "dep_type_eq"
-                && let Expr::Raw(tokens) = &clause.body
+                && let Expr::Raw(tokens) = &clause.body.node
                 && tokens.len() >= 2
             {
                 let name_a = &tokens[0];
@@ -184,7 +184,7 @@ fn check_contract_info_flow(
         // Register purpose labels from "purpose" annotations
         if let ClauseKind::Other(ref k) = clause.kind
             && k == "purpose"
-            && let Expr::Raw(tokens) = &clause.body
+            && let Expr::Raw(tokens) = &clause.body.node
             && tokens.len() >= 2
         {
             checker.declare_purpose(tokens[0].clone(), tokens[1].clone());
@@ -248,7 +248,7 @@ fn check_contract_info_flow(
         // Use get_label and get_purpose for purpose-label mismatches
         if let ClauseKind::Other(ref k) = clause.kind
             && k == "purpose_check"
-            && let Expr::Raw(tokens) = &clause.body
+            && let Expr::Raw(tokens) = &clause.body.node
             && tokens.len() >= 2
         {
             let var_name = &tokens[0];
@@ -291,7 +291,7 @@ fn check_fn_info_flow(fn_def: &assura_parser::ast::FnDef, span: &Range<usize>) -
         // Register purpose, declassify, and timing-sensitive annotations
         if let ClauseKind::Other(ref k) = clause.kind
             && k == "purpose"
-            && let Expr::Raw(tokens) = &clause.body
+            && let Expr::Raw(tokens) = &clause.body.node
             && tokens.len() >= 2
         {
             checker.declare_purpose(tokens[0].clone(), tokens[1].clone());
@@ -344,8 +344,8 @@ fn check_fn_info_flow(fn_def: &assura_parser::ast::FnDef, span: &Range<usize>) -
 ///
 /// Looks for patterns like `secret key: Bytes`, `confidential password: String`
 /// where the security label is a keyword before the parameter name.
-fn assign_labels_from_clause(expr: &Expr, checker: &mut InfoFlowChecker, has_any: &mut bool) {
-    match expr {
+fn assign_labels_from_clause(expr: &SpExpr, checker: &mut InfoFlowChecker, has_any: &mut bool) {
+    match &expr.node {
         Expr::Raw(tokens) => {
             // Scan for label keywords followed by a param name
             let mut i = 0;
@@ -404,7 +404,7 @@ fn infer_label_from_type_tokens(tokens: &[String]) -> SecurityLabel {
 /// a value that should be public (e.g., the `result` variable in an ensures
 /// clause), report A08001.
 fn check_expr_info_flow(
-    expr: &Expr,
+    expr: &SpExpr,
     checker: &InfoFlowChecker,
     span: &Range<usize>,
     errors: &mut Vec<TypeError>,
@@ -415,7 +415,7 @@ fn check_expr_info_flow(
         rhs,
         op: BinOp::Eq,
         ..
-    } = expr
+    } = &expr.node
     {
         // Pattern: result == expr or expr == result
         let (target, source) = if is_result_expr(lhs) {
@@ -440,7 +440,7 @@ fn check_expr_info_flow(
     // Check for implicit flows through if conditions
     if let Expr::If {
         cond, then_branch, ..
-    } = expr
+    } = &expr.node
     {
         let cond_label = checker.infer_label(cond);
         if cond_label > SecurityLabel::Public {
@@ -454,15 +454,15 @@ fn check_expr_info_flow(
 }
 
 /// Check if an expression is `result` (the return value variable).
-fn is_result_expr(expr: &Expr) -> bool {
-    matches!(expr, Expr::Ident(name) if name == "result")
+fn is_result_expr(expr: &SpExpr) -> bool {
+    matches!(&expr.node, Expr::Ident(name) if name == "result")
 }
 
 /// Infer the security label of a branch target.
 ///
 /// If the branch references `result`, the target is Public (since result
 /// flows out). Otherwise, use the checker's label inference.
-fn infer_branch_target_label(expr: &Expr, checker: &InfoFlowChecker) -> SecurityLabel {
+fn infer_branch_target_label(expr: &SpExpr, checker: &InfoFlowChecker) -> SecurityLabel {
     // If the branch affects `result`, the target is public
     if contains_result_ref(expr) {
         SecurityLabel::Public
@@ -472,8 +472,8 @@ fn infer_branch_target_label(expr: &Expr, checker: &InfoFlowChecker) -> Security
 }
 
 /// Check if an expression tree contains a reference to `result`.
-fn contains_result_ref(expr: &Expr) -> bool {
-    match expr {
+fn contains_result_ref(expr: &SpExpr) -> bool {
+    match &expr.node {
         Expr::Ident(name) => name == "result",
         Expr::BinOp { lhs, rhs, .. } => contains_result_ref(lhs) || contains_result_ref(rhs),
         Expr::Field(inner, _) | Expr::Old(inner) => contains_result_ref(inner),

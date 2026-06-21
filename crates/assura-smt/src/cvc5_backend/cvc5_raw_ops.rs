@@ -250,7 +250,7 @@ pub(crate) fn domain_as_range(domain: &Expr) -> Option<(&Expr, &Expr)> {
             op: BinOp::Range,
             lhs,
             rhs,
-        } => Some((lhs.as_ref(), rhs.as_ref())),
+        } => Some((&lhs.as_ref().node, &rhs.as_ref().node)),
         _ => None,
     }
 }

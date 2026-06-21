@@ -31,8 +31,8 @@ use types_gen::*;
 
 use assura_parser::ast::{
     BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
-    Expr, ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem, TypeBody, TypeDef,
-    UnaryOp,
+    Expr, ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem, SpExpr, TypeBody,
+    TypeDef, UnaryOp,
 };
 use assura_types::TypedFile;
 

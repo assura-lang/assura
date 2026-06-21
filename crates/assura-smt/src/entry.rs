@@ -5,7 +5,7 @@
 //! taint safety, measures, termination).
 
 use assura_parser::ast::{
-    BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, Param, ServiceItem, TypeExpr,
+    BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, Param, ServiceItem, SpExpr, TypeExpr,
 };
 use assura_types::TypedFile;
 use assura_types::checkers::expr_references_var;
@@ -27,7 +27,7 @@ use crate::verify_context::ContractVerifyContext;
 pub(crate) fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
     for clause in clauses {
         if clause.kind == ClauseKind::Output
-            && let Expr::Raw(tokens) = &clause.body
+            && let Expr::Raw(tokens) = &clause.body.node
         {
             if tokens.len() >= 3 && tokens[1] == ":" {
                 return tokens[2..].to_vec();
@@ -42,7 +42,7 @@ pub(crate) fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
 pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
     for clause in clauses {
         if clause.kind == ClauseKind::Input
-            && let Expr::Raw(tokens) = &clause.body
+            && let Expr::Raw(tokens) = &clause.body.node
         {
             let mut params = Vec::new();
             let mut i = 0;
@@ -221,12 +221,7 @@ impl<'a> Verifier<'a> {
                     &default_cache
                 }
             };
-            verify_parallel_with_solver(
-                self.typed,
-                cache,
-                self.options.solver,
-                Some(&extras),
-            )
+            verify_parallel_with_solver(self.typed, cache, self.options.solver, Some(&extras))
         } else {
             verify_with_options_impl(self.typed, &self.options, Some(&extras))
         };
@@ -387,8 +382,8 @@ fn parse_memory_ordering(s: &str) -> Option<MemoryOrdering> {
 }
 
 /// Extract a numeric argument from an expression tree (for eventually_within bounds).
-fn extract_numeric_arg(expr: &Expr) -> Option<u64> {
-    match expr {
+fn extract_numeric_arg(expr: &SpExpr) -> Option<u64> {
+    match &expr.node {
         Expr::Literal(assura_parser::ast::Literal::Int(s)) => s.parse().ok(),
         Expr::Call { args, .. } => args.iter().find_map(extract_numeric_arg),
         Expr::Raw(tokens) => tokens.iter().find_map(|t| t.parse::<u64>().ok()),
@@ -398,14 +393,18 @@ fn extract_numeric_arg(expr: &Expr) -> Option<u64> {
 }
 
 /// Scan an expression for prophecy resolution calls: resolve(var, value).
-fn resolve_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
-    match expr {
+fn resolve_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager) {
+    match &expr.node {
         Expr::Call { func, args } => {
-            if let Expr::Ident(name) = func.as_ref()
+            if let Expr::Ident(name) = &func.as_ref().node
                 && (name == "resolve" || name == "resolve_prophecy")
-                && let Some(Expr::Ident(var_name)) = args.first()
+                && let Some(first) = args.first()
+                && let Expr::Ident(var_name) = &first.node
             {
-                let value = args.get(1).map(|a| format!("{a:?}")).unwrap_or_default();
+                let value = args
+                    .get(1)
+                    .map(|a| format!("{:?}", a.node))
+                    .unwrap_or_default();
                 if let Err(e) = pm.resolve(&format!("{fn_name}:{var_name}"), value) {
                     eprintln!("warning: prophecy resolution failed: {e}");
                 }
@@ -418,8 +417,8 @@ fn resolve_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
             resolve_prophecy_vars(lhs, fn_name, pm);
             resolve_prophecy_vars(rhs, fn_name, pm);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
-            resolve_prophecy_vars(expr, fn_name, pm)
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
+            resolve_prophecy_vars(inner, fn_name, pm)
         }
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
@@ -431,14 +430,18 @@ fn resolve_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
 }
 
 /// Scan an expression for prophecy constraint patterns (equality with prophecy vars).
-fn constrain_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
-    match expr {
+fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager) {
+    match &expr.node {
         Expr::Call { func, args } => {
-            if let Expr::Ident(name) = func.as_ref()
+            if let Expr::Ident(name) = &func.as_ref().node
                 && (name == "constrain" || name == "constrain_prophecy")
-                && let Some(Expr::Ident(var_name)) = args.first()
+                && let Some(first) = args.first()
+                && let Expr::Ident(var_name) = &first.node
             {
-                let constraint = args.get(1).map(|a| format!("{a:?}")).unwrap_or_default();
+                let constraint = args
+                    .get(1)
+                    .map(|a| format!("{:?}", a.node))
+                    .unwrap_or_default();
                 pm.add_constraint(&format!("{fn_name}:{var_name}"), constraint);
             }
             for arg in args {
@@ -448,18 +451,19 @@ fn constrain_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager)
         Expr::BinOp { lhs, rhs, op } => {
             // An equality like `prophecy(x) == expr` constrains x
             if *op == BinOp::Eq
-                && let Expr::Call { func, args } = lhs.as_ref()
-                && let Expr::Ident(name) = func.as_ref()
+                && let Expr::Call { func, args } = &lhs.as_ref().node
+                && let Expr::Ident(name) = &func.as_ref().node
                 && (name == "prophecy" || name == "prophesy")
-                && let Some(Expr::Ident(var_name)) = args.first()
+                && let Some(first) = args.first()
+                && let Expr::Ident(var_name) = &first.node
             {
-                pm.add_constraint(&format!("{fn_name}:{var_name}"), format!("{rhs:?}"));
+                pm.add_constraint(&format!("{fn_name}:{var_name}"), format!("{:?}", rhs.node));
             }
             constrain_prophecy_vars(lhs, fn_name, pm);
             constrain_prophecy_vars(rhs, fn_name, pm);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
-            constrain_prophecy_vars(expr, fn_name, pm)
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
+            constrain_prophecy_vars(inner, fn_name, pm)
         }
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
@@ -471,12 +475,13 @@ fn constrain_prophecy_vars(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager)
 }
 
 /// Collect prophecy variable references from ensures clauses.
-fn collect_prophecy_refs(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
-    match expr {
+fn collect_prophecy_refs(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager) {
+    match &expr.node {
         Expr::Call { func, args } => {
-            if let Expr::Ident(name) = func.as_ref()
+            if let Expr::Ident(name) = &func.as_ref().node
                 && (name == "prophecy" || name == "prophesy")
-                && let Some(Expr::Ident(var_name)) = args.first()
+                && let Some(first) = args.first()
+                && let Expr::Ident(var_name) = &first.node
             {
                 pm.declare(format!("{fn_name}:{var_name}"));
             }
@@ -488,8 +493,8 @@ fn collect_prophecy_refs(expr: &Expr, fn_name: &str, pm: &mut ProphecyManager) {
             collect_prophecy_refs(lhs, fn_name, pm);
             collect_prophecy_refs(rhs, fn_name, pm);
         }
-        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
-            collect_prophecy_refs(expr, fn_name, pm)
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
+            collect_prophecy_refs(inner, fn_name, pm)
         }
         _ => {}
     }
@@ -516,7 +521,7 @@ pub(crate) fn run_weak_memory_checks(typed: &TypedFile) -> Vec<VerificationResul
         let mut found_ordering = false;
         for clause in clauses {
             if clause.kind == ClauseKind::Ordering {
-                let ordering_str = match &clause.body {
+                let ordering_str = match &clause.body.node {
                     Expr::Ident(s) => Some(s.as_str()),
                     Expr::Raw(tokens) => tokens
                         .iter()
@@ -622,13 +627,13 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
                 for clause in body {
                     match &clause.kind {
                         ClauseKind::Other(k) if k == "assume" => {
-                            let text = format!("{:?}", clause.body);
+                            let text = format!("{:?}", clause.body.node);
                             if text.contains("fair") {
                                 lc.add_fairness(format!("{name}:fair"));
                             }
                         }
                         ClauseKind::Other(k) if k == "prove" => {
-                            let text = format!("{:?}", clause.body);
+                            let text = format!("{:?}", clause.body.node);
                             let liveness_kind = if expr_references_var(&clause.body, "leads_to") {
                                 LivenessKind::LeadsTo
                             } else if expr_references_var(&clause.body, "eventually_within") {
@@ -657,7 +662,7 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
                         lc.add_obligation(
                             format!("{}:liveness", c.name),
                             LivenessKind::Eventually,
-                            format!("{:?}", clause.body),
+                            format!("{:?}", clause.body.node),
                             String::new(),
                         );
                     }
@@ -701,22 +706,22 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Invariant {
-                match &clause.body {
+                match &clause.body.node {
                     Expr::Forall { var, domain, body } => {
-                        let sort = format!("{domain:?}");
+                        let sort = format!("{:?}", domain.node);
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: format!("{body:?}"),
+                            body: format!("{:?}", body.node),
                             triggers: Vec::new(),
                         });
                     }
                     Expr::Exists { var, domain, body } => {
-                        let sort = format!("{domain:?}");
+                        let sort = format!("{:?}", domain.node);
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: format!("{body:?}"),
+                            body: format!("{:?}", body.node),
                             triggers: Vec::new(),
                         });
                     }
@@ -726,7 +731,7 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
             if clause.kind == ClauseKind::Decreases {
                 l2.add_termination(crate::layer2::TerminationObligation {
                     fn_name: name.to_string(),
-                    measure: format!("{:?}", clause.body),
+                    measure: format!("{:?}", clause.body.node),
                     recursive_calls: Vec::new(),
                 });
             }
@@ -940,8 +945,6 @@ fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> Ver
     if z3_pri >= cvc5_pri { z3r } else { cvc5r }
 }
 
-
-
 /// Check whether any declaration in the source file has verifiable clauses
 /// (requires, ensures, invariant).  Returns false if there is nothing to
 /// send to the solver, allowing callers to skip thread-pool and cache init.
@@ -1119,7 +1122,7 @@ fn verify_contract_with_types_and_solver(
 ///
 /// UNSAT => subtyping holds (Verified).
 /// SAT  => counterexample exists.
-pub fn check_refinement_subtype(antecedent: &Expr, consequent: &Expr) -> VerificationResult {
+pub fn check_refinement_subtype(antecedent: &SpExpr, consequent: &SpExpr) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
     {
         crate::z3_backend::check_refinement_subtype_impl(antecedent, consequent)
@@ -1145,7 +1148,7 @@ pub fn check_refinement_subtype(antecedent: &Expr, consequent: &Expr) -> Verific
 /// - The ensures clause is checked for validity under those assumptions
 ///
 /// This is the SMT encoding for MEM.1 memory region contracts.
-pub fn verify_buffer_bounds(requires: &[Expr], ensures: &Expr) -> VerificationResult {
+pub fn verify_buffer_bounds(requires: &[SpExpr], ensures: &SpExpr) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
     {
         crate::z3_backend::verify_buffer_bounds_impl(requires, ensures)
@@ -1172,11 +1175,11 @@ pub fn verify_buffer_bounds(requires: &[Expr], ensures: &Expr) -> VerificationRe
 /// the buffer capacity). Returns Verified if the containment holds for all
 /// possible values satisfying the context, or Counterexample otherwise.
 pub fn verify_region_containment(
-    context: &[Expr],
-    sub_lo: &Expr,
-    sub_hi: &Expr,
-    parent_lo: &Expr,
-    parent_hi: &Expr,
+    context: &[SpExpr],
+    sub_lo: &SpExpr,
+    sub_hi: &SpExpr,
+    parent_lo: &SpExpr,
+    parent_hi: &SpExpr,
 ) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
     {
@@ -1206,9 +1209,9 @@ pub fn verify_region_containment(
 /// negating the consequent. Useful when the subtyping depends on
 /// constraints from enclosing scopes (e.g., function parameters).
 pub fn check_refinement_subtype_with_context(
-    context: &[Expr],
-    antecedent: &Expr,
-    consequent: &Expr,
+    context: &[SpExpr],
+    antecedent: &SpExpr,
+    consequent: &SpExpr,
 ) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
     {
@@ -1273,8 +1276,8 @@ pub fn verify_taint_safety(
 ///
 /// This is the primary entry point for measure-aware verification.
 pub fn verify_with_measures(
-    requires: &[Expr],
-    ensures: &Expr,
+    requires: &[SpExpr],
+    ensures: &SpExpr,
     measures: &[MeasureDefinition],
 ) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
@@ -1312,9 +1315,9 @@ pub fn verify_with_measures(
 /// UNSAT on the negation => verified (measure decreases).
 /// SAT => counterexample (measure does not decrease).
 pub fn verify_decrease(
-    preconditions: &[Expr],
-    measure_expr: &Expr,
-    call_arg_expr: &Expr,
+    preconditions: &[SpExpr],
+    measure_expr: &SpExpr,
+    call_arg_expr: &SpExpr,
     clause_desc: String,
 ) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
@@ -1377,22 +1380,22 @@ pub fn verify_evolution(
     new_clauses: &[Clause],
 ) -> EvolutionResult {
     // Collect requires and ensures from both versions
-    let old_requires: Vec<&Expr> = old_clauses
+    let old_requires: Vec<&SpExpr> = old_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Requires)
         .map(|c| &c.body)
         .collect();
-    let new_requires: Vec<&Expr> = new_clauses
+    let new_requires: Vec<&SpExpr> = new_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Requires)
         .map(|c| &c.body)
         .collect();
-    let old_ensures: Vec<&Expr> = old_clauses
+    let old_ensures: Vec<&SpExpr> = old_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Ensures)
         .map(|c| &c.body)
         .collect();
-    let new_ensures: Vec<&Expr> = new_clauses
+    let new_ensures: Vec<&SpExpr> = new_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Ensures)
         .map(|c| &c.body)
@@ -1450,8 +1453,8 @@ pub fn verify_evolution(
 /// `(assert antecedents) (assert (not (and consequents))) (check-sat)`
 /// UNSAT = implication holds.
 fn check_implication(
-    antecedents: &[&Expr],
-    consequents: &[&Expr],
+    antecedents: &[&SpExpr],
+    consequents: &[&SpExpr],
     desc: &str,
 ) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
@@ -1461,7 +1464,7 @@ fn check_implication(
         use z3::Solver;
 
         // Check if any expressions have unmodelable features
-        let all_exprs: Vec<&&Expr> = antecedents.iter().chain(consequents.iter()).collect();
+        let all_exprs: Vec<&&SpExpr> = antecedents.iter().chain(consequents.iter()).collect();
         for expr in &all_exprs {
             if expr_has_unmodelable_features(expr) {
                 return VerificationResult::Unknown {
@@ -1586,7 +1589,7 @@ mod tests {
     fn make_clause(kind: ClauseKind) -> Clause {
         Clause {
             kind,
-            body: Expr::Literal(Literal::Bool(true)),
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             effect_variables: vec![],
         }
     }
@@ -1676,7 +1679,9 @@ mod tests {
     fn has_verifiable_service_invariant() {
         let source = make_source(vec![Decl::Service(ServiceDecl {
             name: "S".into(),
-            items: vec![ServiceItem::Invariant(Expr::Literal(Literal::Bool(true)))],
+            items: vec![ServiceItem::Invariant(Spanned::no_span(Expr::Literal(
+                Literal::Bool(true),
+            )))],
         })]);
         assert!(has_verifiable_clauses(&source));
     }
@@ -1839,7 +1844,7 @@ mod tests {
     fn extract_output_return_type_nat() {
         let clauses = vec![Clause {
             kind: ClauseKind::Output,
-            body: Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["result".into(), ":".into(), "Nat".into()])),
             effect_variables: vec![],
         }];
         assert_eq!(extract_output_return_type(&clauses), vec!["Nat"]);
@@ -1849,14 +1854,14 @@ mod tests {
     fn extract_output_return_type_complex() {
         let clauses = vec![Clause {
             kind: ClauseKind::Output,
-            body: Expr::Raw(vec![
+            body: Spanned::no_span(Expr::Raw(vec![
                 "result".into(),
                 ":".into(),
                 "List".into(),
                 "<".into(),
                 "Int".into(),
                 ">".into(),
-            ]),
+            ])),
             effect_variables: vec![],
         }];
         assert_eq!(
@@ -1870,7 +1875,7 @@ mod tests {
         // Fallback path: tokens without ":" at position 1 are returned as-is
         let clauses = vec![Clause {
             kind: ClauseKind::Output,
-            body: Expr::Raw(vec!["Nat".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["Nat".into()])),
             effect_variables: vec![],
         }];
         assert_eq!(extract_output_return_type(&clauses), vec!["Nat"]);
@@ -1880,7 +1885,7 @@ mod tests {
     fn extract_output_return_type_missing() {
         let clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Literal(Literal::Bool(true)),
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             effect_variables: vec![],
         }];
         assert!(extract_output_return_type(&clauses).is_empty());
@@ -1891,7 +1896,7 @@ mod tests {
         // Output clause with non-Raw body (should be skipped)
         let clauses = vec![Clause {
             kind: ClauseKind::Output,
-            body: Expr::Literal(Literal::Bool(true)),
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             effect_variables: vec![],
         }];
         assert!(extract_output_return_type(&clauses).is_empty());
@@ -1903,7 +1908,11 @@ mod tests {
     fn extract_input_params_single() {
         let clauses = vec![Clause {
             kind: ClauseKind::Input,
-            body: Expr::Raw(vec!["raw_data".into(), ":".into(), "Bytes".into()]),
+            body: Spanned::no_span(Expr::Raw(vec![
+                "raw_data".into(),
+                ":".into(),
+                "Bytes".into(),
+            ])),
             effect_variables: vec![],
         }];
         let params = extract_input_params(&clauses);
@@ -1916,7 +1925,7 @@ mod tests {
     fn extract_input_params_multiple() {
         let clauses = vec![Clause {
             kind: ClauseKind::Input,
-            body: Expr::Raw(vec![
+            body: Spanned::no_span(Expr::Raw(vec![
                 "x".into(),
                 ":".into(),
                 "Int".into(),
@@ -1924,7 +1933,7 @@ mod tests {
                 "y".into(),
                 ":".into(),
                 "Nat".into(),
-            ]),
+            ])),
             effect_variables: vec![],
         }];
         let params = extract_input_params(&clauses);
@@ -1940,7 +1949,7 @@ mod tests {
         // Parameter without a type annotation
         let clauses = vec![Clause {
             kind: ClauseKind::Input,
-            body: Expr::Raw(vec!["x".into()]),
+            body: Spanned::no_span(Expr::Raw(vec!["x".into()])),
             effect_variables: vec![],
         }];
         let params = extract_input_params(&clauses);
@@ -1953,7 +1962,7 @@ mod tests {
     fn extract_input_params_empty() {
         let clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::Literal(Literal::Bool(true)),
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             effect_variables: vec![],
         }];
         assert!(extract_input_params(&clauses).is_empty());
@@ -1964,7 +1973,7 @@ mod tests {
         // Input clause with non-Raw body (should be skipped)
         let clauses = vec![Clause {
             kind: ClauseKind::Input,
-            body: Expr::Literal(Literal::Bool(true)),
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             effect_variables: vec![],
         }];
         assert!(extract_input_params(&clauses).is_empty());
@@ -1978,20 +1987,20 @@ mod tests {
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
             Clause {
                 kind: ClauseKind::Ensures,
-                body: Expr::BinOp {
-                    lhs: Box::new(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                     op: BinOp::Gt,
-                    rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-                },
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
                 effect_variables: vec![],
             },
         ];
@@ -2020,20 +2029,20 @@ mod tests {
         // New: requires x > 0 (weaker, accepts more inputs)
         let old_clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+            }),
             effect_variables: vec![],
         }];
         let new_clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         }];
         let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
@@ -2053,20 +2062,20 @@ mod tests {
         // New: requires x > 10 (stronger, rejects inputs old accepted)
         let old_clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         }];
         let new_clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("10".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("10".into())))),
+            }),
             effect_variables: vec![],
         }];
         let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
@@ -2086,11 +2095,11 @@ mod tests {
         // New: no ensures (lost guarantees)
         let old_clauses = vec![Clause {
             kind: ClauseKind::Ensures,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         }];
         let new_clauses: Vec<Clause> = vec![];
@@ -2113,11 +2122,11 @@ mod tests {
         let old_clauses: Vec<Clause> = vec![];
         let new_clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         }];
         let result = verify_evolution("TestContract", &old_clauses, &new_clauses);
@@ -2139,11 +2148,11 @@ mod tests {
         // New: no requires (accepts everything; strictly weaker)
         let old_clauses = vec![Clause {
             kind: ClauseKind::Requires,
-            body: Expr::BinOp {
-                lhs: Box::new(Expr::Ident("x".into())),
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
                 op: BinOp::Gt,
-                rhs: Box::new(Expr::Literal(Literal::Int("0".into()))),
-            },
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
             effect_variables: vec![],
         }];
         let new_clauses: Vec<Clause> = vec![];

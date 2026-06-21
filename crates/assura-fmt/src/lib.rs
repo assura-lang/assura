@@ -5,7 +5,7 @@
 use assura_parser::ast::{
     BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
     Expr, ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl,
-    ServiceItem, SourceFile, TypeBody, TypeDef, UnaryOp, extract_clause_params,
+    ServiceItem, SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
 };
 
 /// Format a `SourceFile` AST back to well-formatted source text.
@@ -462,8 +462,8 @@ pub(crate) fn is_braced_kind(kind: &ClauseKind) -> bool {
     )
 }
 
-pub(crate) fn format_expr(expr: &Expr, out: &mut String) {
-    match expr {
+pub(crate) fn format_expr(expr: &SpExpr, out: &mut String) {
+    match &expr.node {
         Expr::Literal(lit) => format_literal(lit, out),
         Expr::Ident(name) => out.push_str(name),
         Expr::Field(base, field) => {
@@ -501,7 +501,7 @@ pub(crate) fn format_expr(expr: &Expr, out: &mut String) {
             let mut parts: Vec<(&BinOp, String)> = Vec::new();
             let mut cur = expr;
             loop {
-                match cur {
+                match &cur.node {
                     Expr::BinOp { lhs, op, rhs } => {
                         let mut rhs_s = String::new();
                         format_expr(rhs, &mut rhs_s);
@@ -626,7 +626,7 @@ pub(crate) fn format_expr(expr: &Expr, out: &mut String) {
     }
 }
 
-pub(crate) fn format_expr_list(items: &[Expr], out: &mut String) {
+pub(crate) fn format_expr_list(items: &[SpExpr], out: &mut String) {
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
@@ -708,6 +708,7 @@ pub(crate) fn binop_str(op: &BinOp) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assura_parser::ast::Spanned;
 
     /// Helper: parse source, assert no errors, format, return formatted string.
     fn parse_and_format(source: &str) -> String {
@@ -1192,13 +1193,23 @@ fn add(a: Int, b: Int) -> Int
         assert_eq!(out, "\"hello\"");
     }
 
+    /// Shorthand to wrap an `Expr` in a `Spanned` with a dummy span.
+    fn sp(e: Expr) -> SpExpr {
+        Spanned::no_span(e)
+    }
+
+    /// Shorthand to wrap an `Expr` in a `Box<SpExpr>` with a dummy span.
+    fn bsp(e: Expr) -> Box<SpExpr> {
+        Box::new(sp(e))
+    }
+
     #[test]
     fn test_format_unary_neg() {
         let mut out = String::new();
-        let expr = Expr::UnaryOp {
+        let expr = sp(Expr::UnaryOp {
             op: UnaryOp::Neg,
-            expr: Box::new(Expr::Ident("x".to_string())),
-        };
+            expr: bsp(Expr::Ident("x".to_string())),
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "-x");
     }
@@ -1206,10 +1217,10 @@ fn add(a: Int, b: Int) -> Int
     #[test]
     fn test_format_unary_not() {
         let mut out = String::new();
-        let expr = Expr::UnaryOp {
+        let expr = sp(Expr::UnaryOp {
             op: UnaryOp::Not,
-            expr: Box::new(Expr::Ident("flag".to_string())),
-        };
+            expr: bsp(Expr::Ident("flag".to_string())),
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "!flag");
     }
@@ -1217,11 +1228,11 @@ fn add(a: Int, b: Int) -> Int
     #[test]
     fn test_format_list_expr() {
         let mut out = String::new();
-        let expr = Expr::List(vec![
-            Expr::Literal(Literal::Int("1".into())),
-            Expr::Literal(Literal::Int("2".into())),
-            Expr::Literal(Literal::Int("3".into())),
-        ]);
+        let expr = sp(Expr::List(vec![
+            sp(Expr::Literal(Literal::Int("1".into()))),
+            sp(Expr::Literal(Literal::Int("2".into()))),
+            sp(Expr::Literal(Literal::Int("3".into()))),
+        ]));
         format_expr(&expr, &mut out);
         assert_eq!(out, "[1, 2, 3]");
     }
@@ -1300,7 +1311,10 @@ contract SafeDivide {
     #[test]
     fn test_format_field_access() {
         let mut out = String::new();
-        let expr = Expr::Field(Box::new(Expr::Ident("point".to_string())), "x".to_string());
+        let expr = sp(Expr::Field(
+            bsp(Expr::Ident("point".to_string())),
+            "x".to_string(),
+        ));
         format_expr(&expr, &mut out);
         assert_eq!(out, "point.x");
     }
@@ -1308,10 +1322,10 @@ contract SafeDivide {
     #[test]
     fn test_format_index_expr() {
         let mut out = String::new();
-        let expr = Expr::Index {
-            expr: Box::new(Expr::Ident("arr".to_string())),
-            index: Box::new(Expr::Literal(Literal::Int("0".into()))),
-        };
+        let expr = sp(Expr::Index {
+            expr: bsp(Expr::Ident("arr".to_string())),
+            index: bsp(Expr::Literal(Literal::Int("0".into()))),
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "arr[0]");
     }
@@ -1321,10 +1335,10 @@ contract SafeDivide {
     #[test]
     fn test_format_cast_expr() {
         let mut out = String::new();
-        let expr = Expr::Cast {
-            expr: Box::new(Expr::Ident("x".to_string())),
+        let expr = sp(Expr::Cast {
+            expr: bsp(Expr::Ident("x".to_string())),
             ty: "Int".to_string(),
-        };
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "x as Int");
     }
@@ -1332,7 +1346,7 @@ contract SafeDivide {
     #[test]
     fn test_format_ghost_expr() {
         let mut out = String::new();
-        let expr = Expr::Ghost(Box::new(Expr::Literal(Literal::Bool(true))));
+        let expr = sp(Expr::Ghost(bsp(Expr::Literal(Literal::Bool(true)))));
         format_expr(&expr, &mut out);
         assert_eq!(out, "ghost { true }");
     }
@@ -1340,10 +1354,13 @@ contract SafeDivide {
     #[test]
     fn test_format_apply_expr() {
         let mut out = String::new();
-        let expr = Expr::Apply {
+        let expr = sp(Expr::Apply {
             lemma_name: "div_pos".to_string(),
-            args: vec![Expr::Ident("a".to_string()), Expr::Ident("b".to_string())],
-        };
+            args: vec![
+                sp(Expr::Ident("a".to_string())),
+                sp(Expr::Ident("b".to_string())),
+            ],
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "apply div_pos(a, b)");
     }
@@ -1351,11 +1368,11 @@ contract SafeDivide {
     #[test]
     fn test_format_let_expr() {
         let mut out = String::new();
-        let expr = Expr::Let {
+        let expr = sp(Expr::Let {
             name: "tmp".to_string(),
-            value: Box::new(Expr::Literal(Literal::Int("5".into()))),
-            body: Box::new(Expr::Ident("tmp".to_string())),
-        };
+            value: bsp(Expr::Literal(Literal::Int("5".into()))),
+            body: bsp(Expr::Ident("tmp".to_string())),
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "let tmp = 5 in tmp");
     }
@@ -1364,22 +1381,22 @@ contract SafeDivide {
     fn test_format_match_expr() {
         use assura_parser::ast::MatchArm;
         let mut out = String::new();
-        let expr = Expr::Match {
-            scrutinee: Box::new(Expr::Ident("x".to_string())),
+        let expr = sp(Expr::Match {
+            scrutinee: bsp(Expr::Ident("x".to_string())),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Constructor {
                         name: "Some".to_string(),
                         fields: vec![Pattern::Ident("v".to_string())],
                     },
-                    body: Expr::Ident("v".to_string()),
+                    body: sp(Expr::Ident("v".to_string())),
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: Expr::Literal(Literal::Int("0".into())),
+                    body: sp(Expr::Literal(Literal::Int("0".into()))),
                 },
             ],
-        };
+        });
         format_expr(&expr, &mut out);
         assert!(out.contains("match x"), "got: {out}");
         assert!(out.contains("Some(v) => v"), "got: {out}");
@@ -1389,10 +1406,10 @@ contract SafeDivide {
     #[test]
     fn test_format_tuple_expr() {
         let mut out = String::new();
-        let expr = Expr::Tuple(vec![
-            Expr::Ident("a".to_string()),
-            Expr::Literal(Literal::Int("1".into())),
-        ]);
+        let expr = sp(Expr::Tuple(vec![
+            sp(Expr::Ident("a".to_string())),
+            sp(Expr::Literal(Literal::Int("1".into()))),
+        ]));
         format_expr(&expr, &mut out);
         assert_eq!(out, "(a, 1)");
     }
@@ -1400,10 +1417,10 @@ contract SafeDivide {
     #[test]
     fn test_format_block_expr() {
         let mut out = String::new();
-        let expr = Expr::Block(vec![
-            Expr::Ident("a".to_string()),
-            Expr::Ident("b".to_string()),
-        ]);
+        let expr = sp(Expr::Block(vec![
+            sp(Expr::Ident("a".to_string())),
+            sp(Expr::Ident("b".to_string())),
+        ]));
         format_expr(&expr, &mut out);
         assert_eq!(out, "a b");
     }
@@ -1411,11 +1428,11 @@ contract SafeDivide {
     #[test]
     fn test_format_method_call_expr() {
         let mut out = String::new();
-        let expr = Expr::MethodCall {
-            receiver: Box::new(Expr::Ident("vec".to_string())),
+        let expr = sp(Expr::MethodCall {
+            receiver: bsp(Expr::Ident("vec".to_string())),
             method: "push".to_string(),
-            args: vec![Expr::Literal(Literal::Int("42".into()))],
-        };
+            args: vec![sp(Expr::Literal(Literal::Int("42".into())))],
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "vec.push(42)");
     }
@@ -1423,10 +1440,13 @@ contract SafeDivide {
     #[test]
     fn test_format_call_expr() {
         let mut out = String::new();
-        let expr = Expr::Call {
-            func: Box::new(Expr::Ident("max".to_string())),
-            args: vec![Expr::Ident("a".to_string()), Expr::Ident("b".to_string())],
-        };
+        let expr = sp(Expr::Call {
+            func: bsp(Expr::Ident("max".to_string())),
+            args: vec![
+                sp(Expr::Ident("a".to_string())),
+                sp(Expr::Ident("b".to_string())),
+            ],
+        });
         format_expr(&expr, &mut out);
         assert_eq!(out, "max(a, b)");
     }
@@ -1434,7 +1454,7 @@ contract SafeDivide {
     #[test]
     fn test_format_old_expr_direct() {
         let mut out = String::new();
-        let expr = Expr::Old(Box::new(Expr::Ident("counter".to_string())));
+        let expr = sp(Expr::Old(bsp(Expr::Ident("counter".to_string()))));
         format_expr(&expr, &mut out);
         assert_eq!(out, "old(counter)");
     }
