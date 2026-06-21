@@ -58,7 +58,6 @@ jobs:
             codegen:
               - 'crates/assura-parser/**'
               - 'crates/assura-resolve/**'
-              - 'crates/assura-hir/**'
               - 'crates/assura-types/**'
               - 'crates/assura-smt/**'
               - 'crates/assura-codegen/**'
