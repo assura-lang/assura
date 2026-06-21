@@ -22,7 +22,7 @@ jobs:
       CARGO_TARGET_DIR: target/fuzz-ci
       CARGO_INCREMENTAL: '0'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
