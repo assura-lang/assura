@@ -21,7 +21,7 @@ jobs:
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup self-hosted Rust environment
@@ -47,7 +47,7 @@ jobs:
   #     contents: read
   #     security-events: write
   #   steps:
-  #     - uses: actions/checkout@v6
+  #     - uses: actions/checkout@v7
   #     - name: Initialize CodeQL
   #       uses: github/codeql-action/init@v3
   #       with:
