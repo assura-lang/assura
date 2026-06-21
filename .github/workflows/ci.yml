@@ -243,9 +243,9 @@ jobs:
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
       - name: Run pipeline benchmarks (smoke + compile check only)
-        # Small sample size for CI speed (no thresholds, just smoke/compile check).
-        # Still exercises the full pipeline on real demos.
-        run: cargo bench -p assura-bench --bench pipeline -- --sample-size 5 --quiet --noplot
+        # Run only full_pipeline bench in CI (smoke to ensure it compiles/runs).
+        # Small sample + quiet + no plots for speed. No thresholds.
+        run: cargo bench -p assura-bench --bench pipeline full_pipeline -- --sample-size 5 --quiet --noplot
 
       - name: Upload benchmark output
         if: ${{ !cancelled() }}
