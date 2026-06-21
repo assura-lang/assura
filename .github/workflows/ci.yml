@@ -198,9 +198,11 @@ jobs:
   benchmark:
     name: Pipeline benchmarks
     needs: changes
-    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    # Only run on codegen/tooling changes (incl. assura-bench) or manual dispatch.
+    # Avoids running on every Rust change (e.g. pure parser tweaks).
+    if: ${{ needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       CARGO_TARGET_DIR: target/ci-bench
       RUSTC_WRAPPER: sccache
@@ -240,8 +242,10 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
-      - name: Run pipeline benchmarks
-        run: cargo bench -p assura-bench --bench pipeline -- --sample-size 10
+      - name: Run pipeline benchmarks (smoke + compile check only)
+        # Small sample size + quick mode for CI speed. No thresholds (smoke only).
+        # Still exercises the full pipeline on real demos.
+        run: cargo bench -p assura-bench --bench pipeline -- --sample-size 5 --quick
 
       - name: Upload benchmark output
         if: ${{ !cancelled() }}
