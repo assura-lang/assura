@@ -271,7 +271,6 @@ dependencies = [
  "assura-config",
  "assura-diagnostics",
  "assura-pipeline",
- "assura-smt",
  "axum",
  "http",
  "prost",
