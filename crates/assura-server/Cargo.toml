@@ -15,7 +15,6 @@ path = "src/main.rs"
 
 [dependencies]
 assura-diagnostics = { path = "../assura-diagnostics" }
-assura-smt = { path = "../assura-smt" }
 assura-pipeline = { path = "../assura-pipeline" }
 assura-config = { path = "../assura-config" }
 tonic = "0.14"
@@ -34,3 +33,6 @@ http = "1"
 
 [build-dependencies]
 tonic-prost-build = "0.14"
+
+[package.metadata.cargo-machete]
+ignored = ["prost", "tonic-prost"]
