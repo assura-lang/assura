@@ -46,7 +46,7 @@ echo "--- Step 4: Demo and fixture files ---"
 fail=0
 for f in demos/*.assura tests/fixtures/test_basic.assura; do
   if [ -f "$f" ]; then
-    if cargo run --bin assura -- "$f" > /dev/null 2>&1; then
+    if cargo run --bin assura -- check "$f" > /dev/null 2>&1; then
       echo "  PASS  $f"
     else
       echo "  FAIL  $f"

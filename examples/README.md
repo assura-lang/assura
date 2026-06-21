@@ -6,14 +6,14 @@ a specific verification capability of the Assura language.
 ## How to Run
 
 ```bash
-# Parse a single example
-cargo run --bin assura -- examples/core/ghost-variables.assura
+# Check a single example
+cargo run --bin assura -- check examples/core/ghost-variables.assura
 
-# Parse with AST output
-cargo run --bin assura -- --ast examples/core/ghost-variables.assura
+# Check with verbose output
+cargo run --bin assura -- check examples/core/ghost-variables.assura --verbose
 
-# Parse all examples
-for f in examples/**/*.assura; do cargo run --bin assura -- "$f"; done
+# Check all examples
+for f in examples/**/*.assura; do cargo run --bin assura -- check "$f"; done
 ```
 
 ## Index

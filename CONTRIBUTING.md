@@ -40,7 +40,6 @@ The compiler is a Cargo workspace with one crate per pipeline stage:
 Source (.assura)
   --> assura-parser     Lexer (logos) + recursive-descent parser (rowan CST)
   --> assura-resolve    Name resolution, symbol table, scope analysis
-  --> assura-hir        High-level IR, AST-to-HIR lowering
   --> assura-types      Type checking, 50+ domain-specific checkers
   --> assura-smt        Z3 SMT solver integration, verification
   --> assura-codegen    Rust code generation via prettyplease
@@ -49,8 +48,12 @@ Source (.assura)
 ```
 
 Supporting crates: `assura-diagnostics` (error types), `assura-config`
-(project configuration), `assura-fmt` (formatter), `assura-bench`
-(benchmarks), `assura-server` (gRPC/HTTP API).
+(project configuration), `assura-fmt` (formatter), `assura-pipeline`
+(multi-file compilation orchestration), `assura-macros` (`#[contract]`
+and `#[trust]` proc macros), `assura-stdlib` (standard library
+definitions), `assura-mcp` (MCP server), `assura-rust-analyzer` (Rust
+source analysis), `assura-bench` (benchmarks), `assura-server`
+(gRPC/HTTP API).
 
 ## Development Workflow
 
@@ -76,11 +79,11 @@ imports Z3 must be behind `#[cfg(feature = "z3-verify")]` with a fallback.
 ### 3. Verify demo files still parse
 
 ```bash
-cargo run --bin assura -- demos/libwebp-huffman.assura
-cargo run --bin assura -- demos/zlib-inflate.assura
-cargo run --bin assura -- demos/mbedtls-x509.assura
-cargo run --bin assura -- demos/taint-tracking.assura
-cargo run --bin assura -- demos/heartbleed.assura
+cargo run --bin assura -- check demos/libwebp-huffman.assura
+cargo run --bin assura -- check demos/zlib-inflate.assura
+cargo run --bin assura -- check demos/mbedtls-x509.assura
+cargo run --bin assura -- check demos/taint-tracking.assura
+cargo run --bin assura -- check demos/heartbleed.assura
 ```
 
 ### 4. Commit

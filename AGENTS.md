@@ -136,10 +136,10 @@ workspace-inherited version, edition, license, and repository fields.
 # Build everything
 cargo build
 
-# Run the parser CLI
-cargo run --bin assura -- demos/libwebp-huffman.assura
-cargo run --bin assura -- --ast demos/libwebp-huffman.assura
-cargo run --bin assura -- --tokens demos/libwebp-huffman.assura
+# Run the CLI (check subcommand)
+cargo run --bin assura -- check demos/libwebp-huffman.assura
+cargo run --bin assura -- check demos/libwebp-huffman.assura --verbose
+cargo run --bin assura -- check demos/libwebp-huffman.assura --stats
 
 # Run tests
 cargo test --workspace
@@ -306,7 +306,7 @@ same task that creates it.** Do not create crates that compile but are
 never called.
 
 The pipeline is a chain. After each task, verify the chain works
-end-to-end by running `cargo run --bin assura -- demos/libwebp-huffman.assura`:
+end-to-end by running `cargo run --bin assura -- check demos/libwebp-huffman.assura`:
 
 ```
 CLI main.rs
@@ -337,8 +337,8 @@ CLI main.rs
 changes (new errors reported, new output produced, etc.):
 
 ```bash
-cargo run --bin assura -- demos/libwebp-huffman.assura
-cargo run --bin assura -- --ast demos/libwebp-huffman.assura
+cargo run --bin assura -- check demos/libwebp-huffman.assura
+cargo run --bin assura -- check demos/libwebp-huffman.assura --verbose
 ```
 
 If the output is identical to before you added the pass, the pass is
@@ -439,13 +439,13 @@ If any step fails, fix it before committing. Do not commit with
 After committing, verify the commit is clean:
 
 ```bash
-cargo run --bin assura -- demos/libwebp-huffman.assura
-cargo run --bin assura -- demos/zlib-inflate.assura
-cargo run --bin assura -- demos/mbedtls-x509.assura
-cargo run --bin assura -- demos/taint-tracking.assura
-cargo run --bin assura -- demos/heartbleed.assura
-cargo run --bin assura -- tests/fixtures/test_basic.assura
-cargo run --bin assura -- tests/fixtures/test_sec.assura
+cargo run --bin assura -- check demos/libwebp-huffman.assura
+cargo run --bin assura -- check demos/zlib-inflate.assura
+cargo run --bin assura -- check demos/mbedtls-x509.assura
+cargo run --bin assura -- check demos/taint-tracking.assura
+cargo run --bin assura -- check demos/heartbleed.assura
+cargo run --bin assura -- check tests/fixtures/test_basic.assura
+cargo run --bin assura -- check tests/fixtures/test_sec.assura
 ```
 
 ## Feature Verification Gate
@@ -728,10 +728,10 @@ When the parser (or any compiler pass) fails on an .assura file:
    it parses. Narrow to the failing region.
 2. **Minimal reproduction**: Extract the smallest .assura snippet that
    triggers the failure. Put it in `tests/fixtures/` as a regression test.
-3. **Token dump**: Run `cargo run --bin assura -- --tokens file.assura` to see what
-   the lexer produces. The issue might be a missing keyword token.
-4. **AST dump**: Run `cargo run --bin assura -- --ast file.assura` to see what the
-   parser produces (may show partial results with `parse_recovery`).
+3. **Verbose check**: Run `cargo run --bin assura -- check file.assura --verbose`
+   to see timing for each pipeline phase and identify where the failure occurs.
+4. **Unit test**: Write a focused `#[test]` that parses the failing snippet
+   with `assura_parser::parse()` and inspects the AST/errors directly.
 5. **Fix, test, commit**: Fix the issue, add the minimal reproduction
    as a test, verify all demos still pass, commit.
 

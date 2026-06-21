@@ -93,11 +93,11 @@ cargo run -- check demos/libwebp-huffman.assura
 # Check with JSON output
 cargo run -- check demos/libwebp-huffman.assura --json
 
-# Dump the AST
-cargo run -- --ast demos/libwebp-huffman.assura
+# Check with verbose timing info
+cargo run -- check demos/libwebp-huffman.assura --verbose
 
-# Dump tokens
-cargo run -- --tokens demos/libwebp-huffman.assura
+# Check with verification statistics
+cargo run -- check demos/libwebp-huffman.assura --stats
 
 # Explain an error code
 cargo run -- explain A03001
