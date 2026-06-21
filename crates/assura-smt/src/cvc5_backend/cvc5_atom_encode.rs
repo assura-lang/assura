@@ -2,6 +2,9 @@
 
 use assura_ast::Literal;
 
+#[cfg(feature = "cvc5-verify")]
+use assura_ast::{Expr, SpExpr};
+
 use crate::cvc5_common::{float_literal_to_smtlib, sanitize_smtlib_name, smtlib_result_name};
 
 #[cfg(feature = "cvc5-verify")]

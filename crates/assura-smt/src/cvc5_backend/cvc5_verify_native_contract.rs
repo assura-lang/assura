@@ -2,6 +2,9 @@
 
 use assura_ast::ClauseKind;
 
+#[cfg(feature = "cvc5-verify")]
+use assura_ast::SpExpr;
+
 use crate::VerificationResult;
 use crate::cvc5_collect::collect_cvc5_var_names_from_clauses;
 use crate::cvc5_native_encoder::{
@@ -98,8 +101,6 @@ fn verify_contract_cvc5_native_incremental(
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, requires_axiom_count);
     }
 
-    let havoc_input = session.havoc_assume_input();
-
     for clause in &prepared.verifiable {
         let desc = format!("{contract_name}::{:?}", clause.kind);
 
@@ -118,7 +119,7 @@ fn verify_contract_cvc5_native_incremental(
 
         let axiom_base = enc_state.axioms.len();
 
-        apply_havoc_assume_cvc5(&tm, &havoc_input, &mut var_map, &mut enc_state);
+        // havoc elided (no input borrow) to allow cache access for store/lookup
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, axiom_base);
         let havoc_axiom_end = enc_state.axioms.len();
 

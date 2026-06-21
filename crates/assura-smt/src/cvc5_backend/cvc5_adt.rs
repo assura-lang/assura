@@ -190,7 +190,7 @@ pub(crate) fn declare_struct_adt_ufs_cvc5_native<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[cfg_attr(not(test), expect(dead_code, reason = "cvc5 native ADT tests"))]
+#[cfg_attr(not(test), allow(dead_code, reason = "cvc5 native ADT tests"))]
 pub(crate) fn define_adt_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
@@ -285,7 +285,7 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[cfg_attr(not(test), expect(dead_code, reason = "cvc5 native ADT tests"))]
+#[cfg_attr(not(test), allow(dead_code, reason = "cvc5 native ADT tests"))]
 pub(crate) fn adt_is_constructor_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
     symbols: &Cvc5AdtNativeSymbols<'a>,
@@ -300,7 +300,7 @@ pub(crate) fn adt_is_constructor_cvc5_native<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-#[cfg_attr(not(test), expect(dead_code, reason = "cvc5 native ADT tests"))]
+#[cfg_attr(not(test), allow(dead_code, reason = "cvc5 native ADT tests"))]
 pub(crate) fn adt_accessor_cvc5_native<'a>(
     tm: &'a cvc5::TermManager,
     symbols: &Cvc5AdtNativeSymbols<'a>,

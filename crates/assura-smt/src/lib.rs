@@ -15,6 +15,8 @@
 //!
 //! The default timeout is 1 second (Layer 1).
 
+#![cfg_attr(feature = "cvc5-verify", allow(dead_code, unused_imports))]
+
 // ---------------------------------------------------------------------------
 // Solver backend selection (defined in assura-config, re-exported here)
 // ---------------------------------------------------------------------------

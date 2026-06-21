@@ -2,6 +2,9 @@
 
 use assura_ast::SpExpr;
 
+#[cfg(feature = "cvc5-verify")]
+use assura_ast::Expr;
+
 use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_raw_ops::{
     domain_as_range, domain_contains_guard_smtlib, range_guard_smtlib, wrap_ast_quantifier_smtlib,
@@ -103,14 +106,13 @@ where
 {
     let v_name = sanitize_smtlib_name(var);
     let bound_var = ctx.tm.mk_var(ctx.tm.integer_sort(), &v_name);
-    let mut local_vars = ctx.vars.clone();
-    local_vars.insert(v_name.clone(), bound_var.clone());
-    let mut local_ctx = crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx {
-        tm: ctx.tm,
-        vars: &mut local_vars,
-        state: ctx.state,
-    };
-    let b = encode(body, &mut local_ctx)?;
+    let old_binding = ctx.vars.insert(v_name.clone(), bound_var.clone());
+    let b = encode(body, ctx)?;
+    if let Some(old) = old_binding {
+        ctx.vars.insert(v_name.clone(), old);
+    } else {
+        ctx.vars.remove(&v_name);
+    }
     let guarded = guard_quantifier_body_cvc5(ctx, domain, &bound_var, b, is_forall, &mut encode);
     let bound_list = ctx
         .tm
@@ -171,7 +173,7 @@ fn collect_trigger_calls_cvc5<'a>(
     match &expr.node {
         Expr::Call { func, args } => {
             let refs_bound = args.iter().any(|a| expr_references_var(a, bound_var));
-            if refs_bound && let Expr::Ident(fname) = &func.as_ref().node {
+            if refs_bound && let Expr::Ident(fname) = &func.node {
                 let arity = args.len();
                 let param_sorts: Vec<cvc5::Sort> = (0..arity).map(|_| tm.integer_sort()).collect();
                 let fun_sort = tm.mk_fun_sort(&param_sorts, tm.integer_sort());
@@ -188,36 +190,36 @@ fn collect_trigger_calls_cvc5<'a>(
                 patterns.push(app);
             }
             for a in args {
-                collect_trigger_calls_cvc5(tm, &a.node, bound_var, bound_cvc5, patterns);
+                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
             }
         }
         Expr::MethodCall { receiver, args, .. } => {
             collect_trigger_calls_cvc5(tm, receiver, bound_var, bound_cvc5, patterns);
             for a in args {
-                collect_trigger_calls_cvc5(tm, &a.node, bound_var, bound_cvc5, patterns);
+                collect_trigger_calls_cvc5(tm, a, bound_var, bound_cvc5, patterns);
             }
         }
         Expr::BinOp { lhs, rhs, .. } => {
-            collect_trigger_calls_cvc5(tm, &lhs.node, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, &rhs.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, lhs, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, rhs, bound_var, bound_cvc5, patterns);
         }
         Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Ghost(e) => {
-            collect_trigger_calls_cvc5(tm, &e.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
         }
         Expr::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            collect_trigger_calls_cvc5(tm, &cond.node, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, &then_branch.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, cond, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, then_branch, bound_var, bound_cvc5, patterns);
             if let Some(eb) = else_branch {
-                collect_trigger_calls_cvc5(tm, &eb.node, bound_var, bound_cvc5, patterns);
+                collect_trigger_calls_cvc5(tm, eb, bound_var, bound_cvc5, patterns);
             }
         }
         Expr::Index { expr: e, index } => {
-            collect_trigger_calls_cvc5(tm, &e.node, bound_var, bound_cvc5, patterns);
-            collect_trigger_calls_cvc5(tm, &index.node, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, e, bound_var, bound_cvc5, patterns);
+            collect_trigger_calls_cvc5(tm, index, bound_var, bound_cvc5, patterns);
         }
         _ => {}
     }

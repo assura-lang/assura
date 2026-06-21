@@ -76,7 +76,7 @@ pub(crate) enum Cvc5ClauseSatOutcome {
 /// Build a SAT outcome from raw SMT-LIB2 `(get-model)` stdout (shell-out path).
 #[cfg_attr(
     all(feature = "cvc5-verify", not(test)),
-    expect(dead_code, reason = "shell-out model parsing only")
+    allow(dead_code, reason = "shell-out model parsing only")
 )]
 pub(crate) fn cvc5_sat_outcome_from_smtlib_model(raw_model: String) -> Cvc5ClauseSatOutcome {
     let counter_model = parse_smtlib_model(&raw_model);
