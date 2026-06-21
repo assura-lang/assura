@@ -1,6 +1,6 @@
 //! Shared atom-level encoding: literals, idents, raw single tokens, and apply.
 
-use assura_ast::{Literal, SpExpr};
+use assura_ast::Literal;
 
 use crate::cvc5_common::{float_literal_to_smtlib, sanitize_smtlib_name, smtlib_result_name};
 
