@@ -173,7 +173,8 @@ pub(crate) fn verify_feature_body_cvc5(
     let desc = format!("{parent_name}: {feature_label}");
 
     // Skip declarative feature clauses (bare uppercase ident)
-    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
         return VerificationResult::Unknown {
             clause_desc: desc,
             reason: format!("{feature_label} not yet encoded in SMT"),
@@ -198,7 +199,8 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
     let mut results = Vec::new();
 
     // Skip bare uppercase ident
-    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase())) {
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
         results.push(VerificationResult::Unknown {
             clause_desc: format!("{parent_name}: structural_invariant"),
             reason: "structural_invariant not yet encoded in SMT".into(),

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use assura_parser::ast::{Decl, ServiceItem};
+use assura_ast::{Decl, ServiceItem};
 
 use crate::VerifyFileExtras;
 use crate::ir::{IrFunction, IrInstr, IrModule, parse_ir_module};
@@ -191,8 +191,8 @@ fn load_ir_file(path: &Path) -> Option<IrSidecar> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
-    use assura_parser::ast::{Clause, ClauseKind, ContractDecl, Decl, Expr, SourceFile};
+    use assura_ast::Spanned;
+    use assura_ast::{Clause, ClauseKind, ContractDecl, Decl, Expr, SourceFile};
     use assura_types::{TypeEnv, TypedFile};
     use std::sync::Arc;
 
@@ -307,7 +307,7 @@ module branch {
         use crate::VerificationCache;
         use crate::VerificationResult;
         use crate::entry::verify_parallel_with_solver;
-        use assura_parser::ast::{BinOp, Clause, ClauseKind, ContractDecl, Expr, Literal};
+        use assura_ast::{BinOp, Clause, ClauseKind, ContractDecl, Expr, Literal};
 
         let dir = std::env::temp_dir().join(format!("assura-ir-pipeline-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

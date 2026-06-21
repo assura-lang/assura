@@ -846,7 +846,7 @@ pub(crate) fn generate_trait_method(body: &SpExpr, code: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
 
     fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {

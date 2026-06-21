@@ -649,7 +649,7 @@ fn test_no_modifies_no_frame_axiom() {
 // T039: Refinement type subtyping as SMT queries
 // -----------------------------------------------------------------------
 
-use assura_parser::ast::{BinOp, Expr, Literal, SpExpr, Spanned};
+use assura_ast::{BinOp, Expr, Literal, SpExpr, Spanned};
 
 /// Helper: build `Expr::BinOp { lhs, op, rhs }`.
 fn binop(lhs: SpExpr, op: BinOp, rhs: SpExpr) -> SpExpr {
@@ -1688,7 +1688,7 @@ contract DecreasesTest {
 #[test]
 fn test_tuple_encoding_preserves_elements() {
     use crate::z3_backend::encoder::Encoder;
-    use assura_parser::ast::{Expr, Literal};
+    use assura_ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
         let tuple_expr = Spanned::no_span(Expr::Tuple(vec![
@@ -1709,7 +1709,7 @@ fn test_tuple_encoding_preserves_elements() {
 #[test]
 fn test_list_encoding_preserves_elements() {
     use crate::z3_backend::encoder::Encoder;
-    use assura_parser::ast::{Expr, Literal};
+    use assura_ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
         let list_expr = Spanned::no_span(Expr::List(vec![
@@ -1734,7 +1734,7 @@ fn test_list_encoding_preserves_elements() {
 #[test]
 fn test_string_distinctness() {
     use crate::z3_backend::encoder::Encoder;
-    use assura_parser::ast::{Expr, Literal};
+    use assura_ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
         // Encode two different string literals
@@ -1772,7 +1772,7 @@ fn test_string_distinctness() {
 #[test]
 fn test_apply_missing_lemma_not_verified() {
     use crate::z3_backend::encoder::Encoder;
-    use assura_parser::ast::Expr;
+    use assura_ast::Expr;
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::new();
         let apply_expr = Spanned::no_span(Expr::Apply {
@@ -2276,7 +2276,7 @@ fn typestate_at_now_modelable() {
 
 #[test]
 fn z3_typestate_same_state_verifies() {
-    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    use assura_ast::{Clause, ClauseKind, Expr};
     // requires { file @ Open }
     // ensures  { file @ Open }
     // Same typestate in pre and post => should verify
@@ -2306,7 +2306,7 @@ fn z3_typestate_same_state_verifies() {
 
 #[test]
 fn z3_typestate_different_state_counterexample() {
-    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    use assura_ast::{Clause, ClauseKind, Expr};
     // requires { file @ Open }
     // ensures  { file @ Closed }
     // Different typestate in pre and post => counterexample
@@ -2336,7 +2336,7 @@ fn z3_typestate_different_state_counterexample() {
 
 #[test]
 fn z3_typestate_mismatch_completes_without_hang() {
-    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    use assura_ast::{Clause, ClauseKind, Expr};
     use std::time::{Duration, Instant};
 
     // Regression (#264): eager Option ADT forall axioms made this SAT query hang.
@@ -2368,7 +2368,7 @@ fn z3_typestate_mismatch_completes_without_hang() {
 
 #[test]
 fn z3_typestate_with_dot_field() {
-    use assura_parser::ast::{Clause, ClauseKind, Expr};
+    use assura_ast::{Clause, ClauseKind, Expr};
     // requires { conn.state @ Connected }
     // ensures  { conn.state @ Connected }
     // Dot-separated field + typestate should verify
@@ -2448,7 +2448,7 @@ fn field_access_not_unmodelable() {
 #[test]
 fn test_string_theory_literal_z3() {
     use crate::z3_backend::encoder::{Encoder, Z3Value};
-    use assura_parser::ast::{Expr, Literal};
+    use assura_ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         // With string_theory=true, string literals produce Z3Value::Str
         let mut encoder = Encoder::with_string_theory(true);
@@ -2470,7 +2470,7 @@ fn test_string_theory_literal_z3() {
 #[test]
 fn test_string_theory_default_uses_int() {
     use crate::z3_backend::encoder::{Encoder, Z3Value};
-    use assura_parser::ast::{Expr, Literal};
+    use assura_ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         // Default (string_theory=false): string literals produce Z3Value::Int
         let mut encoder = Encoder::new();
@@ -2488,7 +2488,7 @@ fn test_string_theory_default_uses_int() {
 #[test]
 fn test_string_theory_length_z3() {
     use crate::z3_backend::encoder::{Encoder, Z3Value};
-    use assura_parser::ast::{Expr, Literal};
+    use assura_ast::{Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::with_string_theory(true);
         // Encode "abc".length -> should use native str.len, producing an Int
@@ -2505,7 +2505,7 @@ fn test_string_theory_length_z3() {
 #[test]
 fn test_string_theory_equality_z3() {
     use crate::z3_backend::encoder::{Encoder, Z3Value};
-    use assura_parser::ast::{BinOp, Expr, Literal};
+    use assura_ast::{BinOp, Expr, Literal};
     z3::with_z3_config(&z3::Config::new(), || {
         let mut encoder = Encoder::with_string_theory(true);
         // "hello" == "hello" should use native string equality

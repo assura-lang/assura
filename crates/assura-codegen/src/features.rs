@@ -10,7 +10,7 @@
 //! Each function here uses the canonical identifier for its feature.
 
 use crate::expr::expr_to_rust;
-use assura_parser::ast::{Clause, ClauseKind};
+use assura_ast::{Clause, ClauseKind};
 
 // ---------------------------------------------------------------------------
 // Macros for common codegen patterns
@@ -999,7 +999,7 @@ pub fn generate_all_feature_clauses(clauses: &[Clause], fn_name: &str, code: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{Expr, Literal, SpExpr, Spanned};
+    use assura_ast::{Expr, Literal, SpExpr, Spanned};
 
     fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {

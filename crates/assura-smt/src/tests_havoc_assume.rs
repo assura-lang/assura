@@ -64,7 +64,7 @@ fn test_result_length_verifies() {
 fn test_z3_ir_body_constrains_result() {
     use crate::ir::{IrFunction, parse_ir_module};
     use crate::z3_backend::verify_contract_impl_with_types_and_ir;
-    use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
+    use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
 
     let ir_source = r#"
 module copy {
@@ -113,7 +113,7 @@ module copy {
     ];
     let params = vec![Param {
         name: "raw".into(),
-        ty: Some(assura_parser::ast::TypeExpr::Named("Bytes".into())),
+        ty: Some(assura_ast::TypeExpr::Named("Bytes".into())),
     }];
 
     let ctx = crate::verify_context::ContractVerifyContext {

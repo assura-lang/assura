@@ -172,7 +172,7 @@ pub(crate) fn format_rust(code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
 
     fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {
@@ -291,7 +291,7 @@ mod tests {
         let cr = CodecRegistryDecl {
             name: "images".into(),
             output_type: vec!["Image".into()],
-            codecs: vec![assura_parser::ast::CodecEntry {
+            codecs: vec![assura_ast::CodecEntry {
                 name: "png".into(),
                 decoder: "decode_png".into(),
                 magic: MagicPattern::Bytes {
@@ -313,7 +313,7 @@ mod tests {
         let cr = CodecRegistryDecl {
             name: "formats".into(),
             output_type: vec![],
-            codecs: vec![assura_parser::ast::CodecEntry {
+            codecs: vec![assura_ast::CodecEntry {
                 name: "custom".into(),
                 decoder: "decode_custom".into(),
                 magic: MagicPattern::Probe("is_custom".into()),

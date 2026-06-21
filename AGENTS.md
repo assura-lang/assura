@@ -32,9 +32,14 @@ compiles the generated Rust to native or WASM binaries.
 
 At the start of every session:
 
-1. **If the session involves code changes**: Run `cargo test --workspace`
-   in the background while reading the task. Do not block on it; start
-   working and check the result before committing.
+1. **If the session involves code changes**:
+   - **Inside an agent tool / Grok CLI** (or any environment with short command timeouts):
+     Use fast targeted commands. Never run the full suite if it will time out.
+     Preferred: `cargo test -p <crate> --lib`, `cargo check -p <crate>`,
+     or `bash scripts/pre-commit-scoped.sh` (infers the crate from git diff).
+   - **On a local developer machine**:
+     Run `cargo test --workspace` in the background while reading the task.
+     Do not block on it; start working and check the result before committing.
    **If the session is read-only** (code review, analysis, questions):
    Skip the test suite entirely. Reading code does not require a green
    build first.
@@ -149,8 +154,12 @@ cargo fmt --check --all
 cargo clippy --workspace -- -D warnings
 ```
 
-Every change must pass `cargo build`, `cargo test --workspace`,
-`cargo clippy --workspace -- -D warnings` before committing.
+Every change must pass `cargo build`, `cargo clippy --workspace -- -D warnings`
+before committing.
+
+For full test coverage use `cargo test --workspace` (local machine or end-of-session).
+Inside an agent tool with timeouts, use targeted verification instead:
+`cargo test -p <crate> --lib`, `cargo check -p <crate>`, or the scoped pre-commit script.
 
 ## Coding Conventions
 
@@ -420,7 +429,7 @@ The script runs, in order:
 cargo fmt --all
 cargo clippy --workspace -- -D warnings
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
-cargo test --workspace
+cargo test --workspace   # full gate only — use scoped/targeted tests inside agent tools
 cargo check --no-default-features -p assura-smt
 ```
 
@@ -476,7 +485,8 @@ demo file, the change is wrong. Fix it before pushing.
 A task in MASTER-PLAN.md is done when ALL of these are true:
 
 1. The code compiles: `cargo build`
-2. All tests pass: `cargo test --workspace`
+2. All tests pass: `cargo test --workspace` (on local machine or via full gate).
+   Inside an agent tool, targeted tests + scoped gate are acceptable substitutes for the full run.
 3. No warnings: `cargo clippy --workspace -- -D warnings`
 4. All demo files still parse: run all four
 5. New code has tests (unit tests in the same file, integration tests
@@ -513,7 +523,7 @@ mandatory verification steps. The mechanical process is:
 - `cargo test -p crate_name test_name` exits 0 with "test result: ok"
 - `grep` commands return the expected count (0 or >0 as specified)
 - CLI commands exit 0 with expected output
-- `cargo test --workspace` exits 0 at the end (the final gate)
+- `cargo test --workspace` exits 0 at the end (the final gate) — or the equivalent scoped/targeted tests when running inside an agent tool with timeouts
 
 **What does NOT count:**
 - "I wrote the test" (did it pass?)
@@ -541,6 +551,7 @@ cargo build
 
 # 2. Verify all tests pass
 cargo test --workspace
+# (or targeted: `cargo test -p <crate> --lib` when inside agent tool with timeouts)
 
 # 3. Read the issue body and check each criterion
 gh issue view <number> --json body --jq '.body' | grep -c '\- \[ \]'

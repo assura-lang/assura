@@ -29,7 +29,7 @@ use expr::*;
 use service::*;
 use types_gen::*;
 
-use assura_parser::ast::{
+use assura_ast::{
     BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
     Expr, ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem, SpExpr, TypeBody,
     TypeDef, UnaryOp,
@@ -40,7 +40,7 @@ use assura_types::TypedFile;
 ///
 /// Bridge helper used during codegen to pass structured types to functions
 /// that still work on raw token slices (e.g., `map_type_tokens`, `collect_type_refs_from_tokens`).
-fn type_expr_to_token_vec(te: Option<&assura_parser::ast::TypeExpr>) -> Vec<String> {
+fn type_expr_to_token_vec(te: Option<&assura_ast::TypeExpr>) -> Vec<String> {
     te.map(|t| t.to_tokens()).unwrap_or_default()
 }
 

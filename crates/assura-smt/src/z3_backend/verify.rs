@@ -12,7 +12,7 @@ use crate::cache::SessionCache;
 use crate::feature_max::{collect_feature_max_constants, derive_narrowings};
 use crate::ir::{IrFunction, IrInstr};
 use crate::*;
-use assura_parser::ast::{Clause, SpExpr};
+use assura_ast::{Clause, SpExpr};
 use z3::{SatResult, Solver, ast};
 
 // -----------------------------------------------------------------------
@@ -23,7 +23,7 @@ use z3::{SatResult, Solver, ast};
 /// type-level Z3 constraints (e.g., `Nat` implies `>= 0`).
 #[derive(Default)]
 struct TypeConstraints<'a> {
-    params: &'a [assura_parser::ast::Param],
+    params: &'a [assura_ast::Param],
     return_ty: &'a [String],
     /// Named constants (from `feature_max` declarations) to bind in Z3
     /// instead of leaving as free variables.
@@ -50,7 +50,7 @@ fn is_nat_type(ty: &[String]) -> bool {
 }
 
 /// Convert a Param's `Option<TypeExpr>` to token vec for SMT type checking.
-fn param_ty_tokens(param: &assura_parser::ast::Param) -> Vec<String> {
+fn param_ty_tokens(param: &assura_ast::Param) -> Vec<String> {
     crate::entry::type_expr_to_token_vec(param.ty.as_ref())
 }
 
@@ -568,7 +568,7 @@ pub(crate) fn verify_contract_impl(
 pub(crate) fn verify_contract_impl_with_types(
     contract_name: &str,
     clauses: &[Clause],
-    params: &[assura_parser::ast::Param],
+    params: &[assura_ast::Param],
     return_ty: &[String],
     constants: &[(String, i64)],
 ) -> Vec<VerificationResult> {
@@ -884,7 +884,7 @@ fn collect_function_names_for_triggers(expr: &SpExpr, tm: &mut crate::advanced::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Literal, Spanned};
+    use assura_ast::{BinOp, Literal, Spanned};
 
     fn sp(e: Expr) -> SpExpr {
         Spanned::no_span(e)
@@ -944,7 +944,7 @@ mod tests {
         assert_eq!(params[0].name, "raw_data");
         assert_eq!(
             params[0].ty,
-            Some(assura_parser::ast::TypeExpr::Named("Bytes".into()))
+            Some(assura_ast::TypeExpr::Named("Bytes".into()))
         );
     }
 

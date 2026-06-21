@@ -226,7 +226,7 @@ fn collect_trigger_calls_cvc5<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_ast::{BinOp, Expr, Literal};
+    use assura_ast::{BinOp, Expr, Literal, Spanned};
 
     #[test]
     fn range_domain_guard_smtlib() {

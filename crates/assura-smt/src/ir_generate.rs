@@ -3,7 +3,7 @@
 //! Analyzes `ensures` clauses to produce IR bodies richer than identity stubs.
 //! Falls back to `stub_ir_sidecar_text` when no pattern matches.
 
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr};
+use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr};
 use std::collections::HashMap;
 
 use crate::ir::stub_ir_sidecar_text;
@@ -563,7 +563,7 @@ fn sanitize_module_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, ClauseKind, Expr, SpExpr, Spanned};
+    use assura_ast::{BinOp, ClauseKind, Expr, SpExpr, Spanned};
 
     fn sp(e: Expr) -> SpExpr {
         Spanned::no_span(e)
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_ir_generate_match_arm() {
-        use assura_parser::ast::{MatchArm, Pattern};
+        use assura_ast::{MatchArm, Pattern};
 
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,

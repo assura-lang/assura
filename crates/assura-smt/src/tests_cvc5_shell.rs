@@ -9,7 +9,7 @@ use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
 use crate::havoc_assume::{HavocAssumeInput, HavocAssumeSmtlibTarget};
 use crate::verify_context::{ContractVerifyContext, LoadedIrContext};
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
+use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
 use std::collections::HashSet;
 use std::process::Command;
 
@@ -194,7 +194,7 @@ module copy {
     ];
     let params = vec![Param {
         name: "raw".into(),
-        ty: Some(assura_parser::ast::TypeExpr::Named("Bytes".into())),
+        ty: Some(assura_ast::TypeExpr::Named("Bytes".into())),
     }];
 
     let mut cache = SessionCache::new();

@@ -7,7 +7,7 @@
 
 use std::io::Write;
 
-use assura_parser::ast::{ClauseKind, Decl, SourceFile};
+use assura_ast::{ClauseKind, Decl, SourceFile};
 use assura_types::TypedFile;
 
 use crate::VerificationResult;
@@ -301,7 +301,7 @@ pub fn collect_contract_names(file: &SourceFile) -> Vec<String> {
 /// sends each one to `verify_decrease()` and returns the results as
 /// `VerificationResult`s that can be merged with the main verification output.
 pub fn dispatch_decrease_checks(typed: &TypedFile) -> Vec<VerificationResult> {
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
     typed
         .pending_decrease_checks
         .iter()

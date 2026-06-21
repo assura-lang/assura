@@ -371,9 +371,12 @@ pub fn verify_feature_clause(
         // #189: SEC.3 and SEC.4 now use Z3 body verification instead of
         // stubs. The clause body (if present) is checked as a boolean
         // predicate under sibling requires assumptions, same as ensures.
-        // SEC.3: constant_time is an annotation (sensitive expr list), not a logical predicate for SMT validity.
-        // Always treat as verified (the ensures/requires carry the logic); avoids counterexamples on non-bool bodies like `constant_time { a }`.
-        Feature::ConstantTime => vec![VerificationResult::verified(format!("{parent_name}: constant_time"))],
+        Feature::ConstantTime => vec![verify_feature_body(
+            parent_name,
+            "constant_time",
+            body,
+            sibling_clauses,
+        )],
         Feature::SecureErasure => vec![verify_feature_body(
             parent_name,
             "secure_erase",

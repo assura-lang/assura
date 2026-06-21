@@ -2,14 +2,14 @@ use crate::VerificationResult;
 use crate::cache::SessionCache;
 use crate::cvc5_backend::*;
 use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, UnaryOp};
+use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, UnaryOp};
 use std::collections::HashSet;
 
 #[cfg(feature = "cvc5-verify")]
 mod native_tests {
     use super::*;
     use crate::verify_context::{ContractVerifyContext, LoadedIrContext};
-    use assura_parser::ast::{Expr, Param};
+    use assura_ast::{Expr, Param};
 
     fn verify_lemmas_test(
         contract_name: &str,
@@ -37,7 +37,7 @@ mod native_tests {
         // This is the path used for `fn check_table_bounds(root_bits: Nat, ...)`
         let params = vec![Param {
             name: "n".into(),
-            ty: Some(assura_parser::ast::TypeExpr::Named("Nat".into())),
+            ty: Some(assura_ast::TypeExpr::Named("Nat".into())),
         }];
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
@@ -768,7 +768,7 @@ mod native_tests {
 #[cfg(feature = "cvc5-verify")]
 mod match_pattern_tests {
     use super::*;
-    use assura_parser::ast::MatchArm;
+    use assura_ast::MatchArm;
 
     #[test]
     fn test_cvc5_match_constructor_pattern() {
@@ -1746,7 +1746,7 @@ mod frame_tests {
 
     #[test]
     fn test_cvc5_unsat_core_extraction() {
-        use assura_parser::ast::{BinOp, Literal};
+        use assura_ast::{BinOp, Literal};
 
         let int_lit = |n: &str| Expr::Literal(Literal::Int(n.into()));
         let var = |name: &str| Expr::Ident(name.into());

@@ -4,7 +4,7 @@
 //! and all standalone verification functions (refinement, buffer bounds,
 //! taint safety, measures, termination).
 
-use assura_parser::ast::{
+use assura_ast::{
     BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, Param, ServiceItem, SpExpr, TypeExpr,
 };
 use assura_types::TypedFile;
@@ -384,7 +384,7 @@ fn parse_memory_ordering(s: &str) -> Option<MemoryOrdering> {
 /// Extract a numeric argument from an expression tree (for eventually_within bounds).
 fn extract_numeric_arg(expr: &SpExpr) -> Option<u64> {
     match &expr.node {
-        Expr::Literal(assura_parser::ast::Literal::Int(s)) => s.parse().ok(),
+        Expr::Literal(assura_ast::Literal::Int(s)) => s.parse().ok(),
         Expr::Call { args, .. } => args.iter().find_map(extract_numeric_arg),
         Expr::Raw(tokens) => tokens.iter().find_map(|t| t.parse::<u64>().ok()),
         Expr::Block(exprs) => exprs.iter().find_map(extract_numeric_arg),
@@ -785,7 +785,7 @@ pub(crate) fn run_codec_checks(typed: &TypedFile) -> Vec<VerificationResult> {
     for decl in &typed.resolved.source.decls {
         if let Decl::CodecRegistry(cr) = &decl.node {
             for entry in &cr.codecs {
-                if let assura_parser::ast::MagicPattern::Bytes { bytes, .. } = &entry.magic {
+                if let assura_ast::MagicPattern::Bytes { bytes, .. } = &entry.magic {
                     codec_disp.register(entry.name.clone(), bytes.clone(), 0);
                 }
             }
@@ -948,10 +948,10 @@ fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> Ver
 /// Check whether any declaration in the source file has verifiable clauses
 /// (requires, ensures, invariant).  Returns false if there is nothing to
 /// send to the solver, allowing callers to skip thread-pool and cache init.
-pub fn has_verifiable_clauses(source: &assura_parser::ast::SourceFile) -> bool {
-    use assura_parser::ast::{ClauseKind, Decl};
+pub fn has_verifiable_clauses(source: &assura_ast::SourceFile) -> bool {
+    use assura_ast::{ClauseKind, Decl};
 
-    let verifiable = |clauses: &[assura_parser::ast::Clause]| {
+    let verifiable = |clauses: &[assura_ast::Clause]| {
         clauses.iter().any(|c| {
             matches!(
                 c.kind,
@@ -965,9 +965,9 @@ pub fn has_verifiable_clauses(source: &assura_parser::ast::SourceFile) -> bool {
         Decl::FnDef(f) => verifiable(&f.clauses),
         Decl::Extern(e) => verifiable(&e.clauses),
         Decl::Service(s) => s.items.iter().any(|item| match item {
-            assura_parser::ast::ServiceItem::Operation { clauses, .. }
-            | assura_parser::ast::ServiceItem::Query { clauses, .. } => verifiable(clauses),
-            assura_parser::ast::ServiceItem::Invariant(_) => true,
+            assura_ast::ServiceItem::Operation { clauses, .. }
+            | assura_ast::ServiceItem::Query { clauses, .. } => verifiable(clauses),
+            assura_ast::ServiceItem::Invariant(_) => true,
             _ => false,
         }),
         Decl::Block { body, .. } => verifiable(body),
@@ -1030,7 +1030,7 @@ pub(crate) fn verify_parallel_with_solver(
 /// Returns one `VerificationResult` per verifiable clause.
 pub fn verify_contract(
     contract_name: &str,
-    clauses: &[assura_parser::ast::Clause],
+    clauses: &[assura_ast::Clause],
 ) -> Vec<VerificationResult> {
     verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3)
 }
@@ -1038,7 +1038,7 @@ pub fn verify_contract(
 /// Verify a single contract's clauses using the specified solver.
 pub fn verify_contract_with_solver(
     contract_name: &str,
-    clauses: &[assura_parser::ast::Clause],
+    clauses: &[assura_ast::Clause],
     solver: SolverChoice,
 ) -> Vec<VerificationResult> {
     match solver {
@@ -1055,11 +1055,11 @@ pub fn verify_contract_with_solver(
                     .filter(|c| {
                         matches!(
                             c.kind,
-                            assura_parser::ast::ClauseKind::Ensures
-                                | assura_parser::ast::ClauseKind::Invariant
-                                | assura_parser::ast::ClauseKind::Rule
-                                | assura_parser::ast::ClauseKind::MustNot
-                                | assura_parser::ast::ClauseKind::Decreases
+                            assura_ast::ClauseKind::Ensures
+                                | assura_ast::ClauseKind::Invariant
+                                | assura_ast::ClauseKind::Rule
+                                | assura_ast::ClauseKind::MustNot
+                                | assura_ast::ClauseKind::Decreases
                         )
                     })
                     .map(|c| {
@@ -1541,12 +1541,12 @@ fn check_implication(
 /// runs the precondition weakening and postcondition strengthening checks.
 /// Returns results for all matched contracts plus warnings for removed contracts.
 pub fn verify_file_evolution(
-    old_source: &assura_parser::ast::SourceFile,
-    new_source: &assura_parser::ast::SourceFile,
+    old_source: &assura_ast::SourceFile,
+    new_source: &assura_ast::SourceFile,
 ) -> Vec<EvolutionResult> {
-    use assura_parser::ast::Decl;
+    use assura_ast::Decl;
 
-    fn collect_contracts(source: &assura_parser::ast::SourceFile) -> Vec<(String, Vec<Clause>)> {
+    fn collect_contracts(source: &assura_ast::SourceFile) -> Vec<(String, Vec<Clause>)> {
         source
             .decls
             .iter()
@@ -1584,7 +1584,7 @@ pub fn verify_file_evolution(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::*;
+    use assura_ast::*;
 
     fn make_clause(kind: ClauseKind) -> Clause {
         Clause {

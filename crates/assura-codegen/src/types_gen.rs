@@ -506,10 +506,7 @@ pub(crate) fn collect_type_refs_from_expr(
 }
 
 /// Find the value for a feature_max constant from the AST.
-pub(crate) fn find_feature_max_value(
-    source: &assura_parser::ast::SourceFile,
-    name: &str,
-) -> String {
+pub(crate) fn find_feature_max_value(source: &assura_ast::SourceFile, name: &str) -> String {
     for decl in &source.decls {
         if let Decl::Block {
             kind,
@@ -648,21 +645,21 @@ pub fn expr_to_rust_static(expr: &SpExpr) -> String {
                 .iter()
                 .map(|arm| {
                     let pat = match &arm.pattern {
-                        assura_parser::ast::Pattern::Ident(s) => s.clone(),
-                        assura_parser::ast::Pattern::Wildcard => "_".to_string(),
-                        assura_parser::ast::Pattern::Literal(lit) => match lit {
+                        assura_ast::Pattern::Ident(s) => s.clone(),
+                        assura_ast::Pattern::Wildcard => "_".to_string(),
+                        assura_ast::Pattern::Literal(lit) => match lit {
                             Literal::Int(s) | Literal::Float(s) => s.clone(),
                             Literal::Str(s) => format!("\"{s}\""),
                             Literal::Bool(b) => b.to_string(),
                         },
-                        assura_parser::ast::Pattern::Constructor { name, fields } => {
+                        assura_ast::Pattern::Constructor { name, fields } => {
                             if fields.is_empty() {
                                 name.clone()
                             } else {
                                 format!("{name}(..)")
                             }
                         }
-                        assura_parser::ast::Pattern::Tuple(pats) => {
+                        assura_ast::Pattern::Tuple(pats) => {
                             let ps: Vec<&str> = pats.iter().map(|_| "_").collect();
                             format!("({})", ps.join(", "))
                         }
@@ -738,7 +735,7 @@ pub(crate) fn extract_base_type_from_refined(tokens: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
 
     // ---- map_type_token ----
 
@@ -1034,14 +1031,14 @@ mod tests {
             name: "Point".into(),
             type_params: vec![],
             body: TypeBody::Struct(vec![
-                assura_parser::ast::FieldDef {
+                assura_ast::FieldDef {
                     name: "x".into(),
-                    ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+                    ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
                     is_pub: true,
                 },
-                assura_parser::ast::FieldDef {
+                assura_ast::FieldDef {
                     name: "y".into(),
-                    ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+                    ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
                     is_pub: true,
                 },
             ]),

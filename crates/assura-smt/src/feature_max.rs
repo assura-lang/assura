@@ -1,6 +1,6 @@
 //! `feature_max` constant collection and refinement narrowing (solver-neutral).
 
-use assura_parser::ast::{BlockKind, Decl};
+use assura_ast::{BlockKind, Decl};
 
 use crate::TypedFile;
 

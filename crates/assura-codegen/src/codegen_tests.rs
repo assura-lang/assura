@@ -1,5 +1,5 @@
 use super::*;
-use assura_parser::ast::Spanned;
+use assura_ast::Spanned;
 
 /// Helper: parse + resolve + type-check source text, then codegen.
 fn codegen_ok(source: &str) -> GeneratedProject {
@@ -716,12 +716,12 @@ fn match_expr_codegen() {
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("status".into()))),
         arms: vec![
-            assura_parser::ast::MatchArm {
-                pattern: assura_parser::ast::Pattern::Ident("Active".into()),
+            assura_ast::MatchArm {
+                pattern: assura_ast::Pattern::Ident("Active".into()),
                 body: Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
             },
-            assura_parser::ast::MatchArm {
-                pattern: assura_parser::ast::Pattern::Wildcard,
+            assura_ast::MatchArm {
+                pattern: assura_ast::Pattern::Wildcard,
                 body: Spanned::no_span(Expr::Literal(Literal::Int("0".into()))),
             },
         ],
@@ -744,15 +744,15 @@ fn match_without_wildcard_gets_fallback() {
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("color".into()))),
         arms: vec![
-            assura_parser::ast::MatchArm {
-                pattern: assura_parser::ast::Pattern::Constructor {
+            assura_ast::MatchArm {
+                pattern: assura_ast::Pattern::Constructor {
                     name: "Red".into(),
                     fields: vec![],
                 },
                 body: Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
             },
-            assura_parser::ast::MatchArm {
-                pattern: assura_parser::ast::Pattern::Constructor {
+            assura_ast::MatchArm {
+                pattern: assura_ast::Pattern::Constructor {
                     name: "Blue".into(),
                     fields: vec![],
                 },
@@ -1045,7 +1045,7 @@ fn codegen_with_config_produces_profile() {
 
 #[test]
 fn pattern_to_rust_constructor_with_fields() {
-    use assura_parser::ast::Pattern;
+    use assura_ast::Pattern;
     let pat = Pattern::Constructor {
         name: "Some".into(),
         fields: vec![Pattern::Ident("x".into())],
@@ -1055,7 +1055,7 @@ fn pattern_to_rust_constructor_with_fields() {
 
 #[test]
 fn pattern_to_rust_constructor_no_fields() {
-    use assura_parser::ast::Pattern;
+    use assura_ast::Pattern;
     let pat = Pattern::Constructor {
         name: "None".into(),
         fields: vec![],
@@ -1065,7 +1065,7 @@ fn pattern_to_rust_constructor_no_fields() {
 
 #[test]
 fn pattern_to_rust_nested_constructor() {
-    use assura_parser::ast::Pattern;
+    use assura_ast::Pattern;
     let pat = Pattern::Constructor {
         name: "Ok".into(),
         fields: vec![Pattern::Constructor {
@@ -1078,7 +1078,7 @@ fn pattern_to_rust_nested_constructor() {
 
 #[test]
 fn pattern_to_rust_tuple_nested() {
-    use assura_parser::ast::Pattern;
+    use assura_ast::Pattern;
     let pat = Pattern::Tuple(vec![
         Pattern::Ident("a".into()),
         Pattern::Tuple(vec![Pattern::Ident("b".into()), Pattern::Wildcard]),
@@ -2435,7 +2435,7 @@ bind "my_crate::divide" as safe_divide {
 
 #[test]
 fn collect_type_refs_from_nested_exprs() {
-    use assura_parser::ast::*;
+    use assura_ast::*;
     let mut out = std::collections::HashSet::new();
 
     // Type ref inside a Match arm body
@@ -2547,7 +2547,7 @@ fn extract_error_variants_non_ident_returns_empty() {
     // BinOp cannot contain error variant names
     let body = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
-        op: assura_parser::ast::BinOp::Add,
+        op: assura_ast::BinOp::Add,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
     let variants = extract_error_variants(&body);
@@ -2557,7 +2557,7 @@ fn extract_error_variants_non_ident_returns_empty() {
 #[test]
 fn generate_trait_method_unsupported_emits_compile_error() {
     // Previously unsupported Expr variants got a silent comment
-    let body = Spanned::no_span(Expr::Literal(assura_parser::ast::Literal::Int("42".into())));
+    let body = Spanned::no_span(Expr::Literal(assura_ast::Literal::Int("42".into())));
     let mut code = String::new();
     generate_trait_method(&body, &mut code);
     assert!(
@@ -2627,7 +2627,7 @@ fn codegen_ordering_constant_in_block() {
 
 #[test]
 fn codegen_codec_registry_dispatch() {
-    use assura_parser::ast::CodecEntry;
+    use assura_ast::CodecEntry;
     let cr = CodecRegistryDecl {
         name: "ImageFormats".into(),
         output_type: vec!["ImageOutput".into()],
@@ -2674,7 +2674,7 @@ fn codegen_codec_registry_dispatch() {
 
 #[test]
 fn codegen_codec_registry_probe() {
-    use assura_parser::ast::CodecEntry;
+    use assura_ast::CodecEntry;
     let cr = CodecRegistryDecl {
         name: "Probed".into(),
         output_type: vec!["Out".into()],
@@ -3548,7 +3548,7 @@ fn raw_tokens_typestate_annotation() {
 
 #[test]
 fn expr_to_rust_match_with_constructor_patterns() {
-    use assura_parser::ast::{MatchArm, Pattern, Spanned};
+    use assura_ast::{MatchArm, Pattern, Spanned};
     let e = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![
@@ -3573,7 +3573,7 @@ fn expr_to_rust_match_with_constructor_patterns() {
 
 #[test]
 fn expr_to_rust_match_adds_wildcard_fallback() {
-    use assura_parser::ast::{MatchArm, Pattern};
+    use assura_ast::{MatchArm, Pattern};
     // Match with only constructor patterns (no wildcard/ident) gets a fallback
     let e = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),

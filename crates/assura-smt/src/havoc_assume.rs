@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use crate::ir::{IrExprKind, IrFunction};
 use crate::ir_encode::IrEncodeContext;
-use assura_parser::ast::{BinOp, Clause, Expr, SpExpr};
+use assura_ast::{BinOp, Clause, Expr, SpExpr};
 
 /// Shared havoc+assume clause and IR context for Z3 and CVC5 backends.
 pub(crate) struct HavocAssumeInput<'a> {
@@ -224,7 +224,7 @@ pub fn describe_ir_expr(expr: &IrExprKind) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{ClauseKind, Literal, Spanned};
+    use assura_ast::{ClauseKind, Literal, Spanned};
 
     fn sp(e: Expr) -> SpExpr {
         Spanned::no_span(e)

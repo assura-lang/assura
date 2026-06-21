@@ -3,7 +3,7 @@
 //! Contains `dump_smt_queries()` for `--dump-smt` support and
 //! `validate_quantifier_bounds()` for detecting infinite-domain quantifiers.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SpExpr};
+use assura_ast::{ClauseKind, Decl, Expr, ServiceItem, SpExpr};
 use assura_types::TypedFile;
 
 // ---------------------------------------------------------------------------
@@ -330,7 +330,7 @@ fn check_raw_quantifier_bounds(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Expr, Literal, Spanned};
+    use assura_ast::{BinOp, Expr, Literal, Spanned};
 
     fn sp(e: Expr) -> SpExpr {
         Spanned::no_span(e)

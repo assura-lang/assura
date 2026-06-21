@@ -41,7 +41,7 @@ pub(crate) fn is_numeric_expr(expr: &SpExpr) -> bool {
 
 /// Resolve an ordering clause body to a Rust `std::sync::atomic::Ordering` variant name.
 pub(crate) fn resolve_ordering_variant(body: &SpExpr) -> Option<&'static str> {
-    use assura_parser::ast::MemoryOrdering;
+    use assura_ast::MemoryOrdering;
     let s = match &body.node {
         Expr::Ident(s) => s.as_str(),
         Expr::Raw(tokens) => {
@@ -193,14 +193,14 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
                 .iter()
                 .map(|arm| {
                     let pat = match &arm.pattern {
-                        assura_parser::ast::Pattern::Ident(name) => name.clone(),
-                        assura_parser::ast::Pattern::Wildcard => "_".into(),
-                        assura_parser::ast::Pattern::Literal(lit) => match lit {
+                        assura_ast::Pattern::Ident(name) => name.clone(),
+                        assura_ast::Pattern::Wildcard => "_".into(),
+                        assura_ast::Pattern::Literal(lit) => match lit {
                             Literal::Int(s) | Literal::Float(s) => s.clone(),
                             Literal::Str(s) => format!("\"{s}\""),
                             Literal::Bool(b) => b.to_string(),
                         },
-                        assura_parser::ast::Pattern::Constructor { name, fields } => {
+                        assura_ast::Pattern::Constructor { name, fields } => {
                             if fields.is_empty() {
                                 name.clone()
                             } else {
@@ -208,7 +208,7 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
                                 format!("{name}({})", fs.join(", "))
                             }
                         }
-                        assura_parser::ast::Pattern::Tuple(pats) => {
+                        assura_ast::Pattern::Tuple(pats) => {
                             let ps: Vec<String> = pats.iter().map(pattern_to_rust).collect();
                             format!("({})", ps.join(", "))
                         }
@@ -221,7 +221,7 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
             let has_wildcard = arms.iter().any(|arm| {
                 matches!(
                     &arm.pattern,
-                    assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Ident(_)
+                    assura_ast::Pattern::Wildcard | assura_ast::Pattern::Ident(_)
                 )
             });
             if !has_wildcard {
@@ -450,16 +450,16 @@ pub(crate) fn generate_debug_assert_indented(
 }
 
 /// Convert a pattern to Rust pattern syntax.
-pub(crate) fn pattern_to_rust(pat: &assura_parser::ast::Pattern) -> String {
+pub(crate) fn pattern_to_rust(pat: &assura_ast::Pattern) -> String {
     match pat {
-        assura_parser::ast::Pattern::Ident(name) => name.clone(),
-        assura_parser::ast::Pattern::Wildcard => "_".into(),
-        assura_parser::ast::Pattern::Literal(lit) => match lit {
+        assura_ast::Pattern::Ident(name) => name.clone(),
+        assura_ast::Pattern::Wildcard => "_".into(),
+        assura_ast::Pattern::Literal(lit) => match lit {
             Literal::Int(s) | Literal::Float(s) => s.clone(),
             Literal::Str(s) => format!("\"{s}\""),
             Literal::Bool(b) => b.to_string(),
         },
-        assura_parser::ast::Pattern::Constructor { name, fields } => {
+        assura_ast::Pattern::Constructor { name, fields } => {
             if fields.is_empty() {
                 name.clone()
             } else {
@@ -467,7 +467,7 @@ pub(crate) fn pattern_to_rust(pat: &assura_parser::ast::Pattern) -> String {
                 format!("{name}({})", fs.join(", "))
             }
         }
-        assura_parser::ast::Pattern::Tuple(pats) => {
+        assura_ast::Pattern::Tuple(pats) => {
             let ps: Vec<String> = pats.iter().map(pattern_to_rust).collect();
             format!("({})", ps.join(", "))
         }
@@ -628,7 +628,7 @@ pub(crate) fn collect_old_exprs_inner(expr: &SpExpr, out: &mut Vec<(String, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
 
     // ---- is_numeric_expr ----
 
@@ -1014,7 +1014,7 @@ mod tests {
 
     #[test]
     fn expr_to_rust_match_with_wildcard_fallback() {
-        use assura_parser::ast::{MatchArm, Pattern, SpExpr, Spanned};
+        use assura_ast::{MatchArm, Pattern, SpExpr, Spanned};
         let e = Spanned::no_span(Expr::Match {
             scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             arms: vec![MatchArm {
@@ -1033,7 +1033,7 @@ mod tests {
 
     #[test]
     fn expr_to_rust_match_has_wildcard() {
-        use assura_parser::ast::{MatchArm, Pattern};
+        use assura_ast::{MatchArm, Pattern};
         let e = Spanned::no_span(Expr::Match {
             scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             arms: vec![
@@ -1159,19 +1159,19 @@ mod tests {
 
     #[test]
     fn pattern_ident() {
-        use assura_parser::ast::Pattern;
+        use assura_ast::Pattern;
         assert_eq!(pattern_to_rust(&Pattern::Ident("x".into())), "x");
     }
 
     #[test]
     fn pattern_wildcard() {
-        use assura_parser::ast::Pattern;
+        use assura_ast::Pattern;
         assert_eq!(pattern_to_rust(&Pattern::Wildcard), "_");
     }
 
     #[test]
     fn pattern_literal() {
-        use assura_parser::ast::Pattern;
+        use assura_ast::Pattern;
         assert_eq!(
             pattern_to_rust(&Pattern::Literal(Literal::Int("42".into()))),
             "42"
@@ -1180,7 +1180,7 @@ mod tests {
 
     #[test]
     fn pattern_constructor() {
-        use assura_parser::ast::Pattern;
+        use assura_ast::Pattern;
         let p = Pattern::Constructor {
             name: "Some".into(),
             fields: vec![Pattern::Ident("v".into())],
@@ -1190,7 +1190,7 @@ mod tests {
 
     #[test]
     fn pattern_constructor_empty() {
-        use assura_parser::ast::Pattern;
+        use assura_ast::Pattern;
         let p = Pattern::Constructor {
             name: "None".into(),
             fields: vec![],
@@ -1200,7 +1200,7 @@ mod tests {
 
     #[test]
     fn pattern_tuple() {
-        use assura_parser::ast::Pattern;
+        use assura_ast::Pattern;
         let p = Pattern::Tuple(vec![Pattern::Ident("a".into()), Pattern::Ident("b".into())]);
         assert_eq!(pattern_to_rust(&p), "(a, b)");
     }

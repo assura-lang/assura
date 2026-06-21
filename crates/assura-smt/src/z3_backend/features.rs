@@ -5,7 +5,7 @@ use super::encoder::Encoder;
 use super::solver::check_validity;
 use crate::measures::MeasureDefinition;
 use crate::*;
-use assura_parser::ast::SpExpr;
+use assura_ast::SpExpr;
 
 use std::collections::HashMap;
 use z3::{Solver, ast};

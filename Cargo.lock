@@ -130,6 +130,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "assura-ast"
+version = "0.1.0"
+
+[[package]]
 name = "assura-bench"
 version = "0.1.0"
 dependencies = [
@@ -145,6 +149,7 @@ dependencies = [
 name = "assura-codegen"
 version = "0.1.0"
 dependencies = [
+ "assura-ast",
  "assura-parser",
  "assura-resolve",
  "assura-types",
@@ -225,6 +230,7 @@ dependencies = [
 name = "assura-parser"
 version = "0.1.0"
 dependencies = [
+ "assura-ast",
  "assura-diagnostics",
  "insta",
  "logos",
@@ -288,6 +294,7 @@ dependencies = [
 name = "assura-smt"
 version = "0.1.0"
 dependencies = [
+ "assura-ast",
  "assura-config",
  "assura-parser",
  "assura-resolve",

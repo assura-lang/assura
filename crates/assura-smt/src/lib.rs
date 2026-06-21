@@ -23,12 +23,12 @@ pub use assura_config::SolverChoice;
 
 // Re-export parser/types that sub-modules import via `use super::*;`
 #[cfg(any(feature = "z3-verify", test))]
-pub(crate) use assura_parser::ast::Expr;
+pub(crate) use assura_ast::Expr;
 #[cfg(feature = "z3-verify")]
-pub(crate) use assura_parser::ast::ServiceItem;
+pub(crate) use assura_ast::ServiceItem;
 #[cfg(test)]
-pub(crate) use assura_parser::ast::Spanned;
-pub(crate) use assura_parser::ast::{ClauseKind, Decl};
+pub(crate) use assura_ast::Spanned;
+pub(crate) use assura_ast::{ClauseKind, Decl};
 pub(crate) use assura_types::TypedFile;
 
 // ---------------------------------------------------------------------------
@@ -320,7 +320,7 @@ contract Good {
 #[cfg(test)]
 mod decrease_tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Expr, Literal, SpExpr};
+    use assura_ast::{BinOp, Expr, Literal, SpExpr};
 
     /// Helper: verify_decrease with trivial preconditions.
     fn check_decrease(measure: &SpExpr, call_arg: &SpExpr, desc: &str) -> VerificationResult {
@@ -460,7 +460,7 @@ mod decrease_tests {
 #[cfg(test)]
 mod verify_contract_tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal};
+    use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal};
 
     #[test]
     fn verify_contract_single_ensures_verified() {
@@ -750,7 +750,7 @@ mod verify_contract_tests {
 #[cfg(test)]
 mod quantified_verification_tests {
     use super::*;
-    use assura_parser::ast::{BinOp, Expr, Literal};
+    use assura_ast::{BinOp, Expr, Literal};
 
     #[test]
     fn forall_trivially_true() {
@@ -1090,7 +1090,7 @@ module safe_division {
                 }],
             }],
         };
-        let contract = assura_parser::ast::ContractDecl {
+        let contract = assura_ast::ContractDecl {
             name: "Test".into(),
             type_params: vec![],
             clauses: vec![],
@@ -1184,7 +1184,7 @@ mod cvc5_tests {
 
     #[test]
     fn cvc5_expr_to_smtlib_literal() {
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let e = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
         assert_eq!(cvc5_backend::expr_to_smtlib(&e), Some("42".to_string()));
 
@@ -1203,7 +1203,7 @@ mod cvc5_tests {
 
     #[test]
     fn cvc5_expr_to_smtlib_binop() {
-        use assura_parser::ast::{BinOp, Literal};
+        use assura_ast::{BinOp, Literal};
         let e = Spanned::no_span(Expr::BinOp {
             op: BinOp::Add,
             lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
@@ -1227,7 +1227,7 @@ mod cvc5_tests {
 
     #[test]
     fn cvc5_expr_to_smtlib_unary() {
-        use assura_parser::ast::UnaryOp;
+        use assura_ast::UnaryOp;
         let e = Spanned::no_span(Expr::UnaryOp {
             op: UnaryOp::Not,
             expr: Box::new(Spanned::no_span(Expr::Ident("p".into()))),
@@ -1240,7 +1240,7 @@ mod cvc5_tests {
 
     #[test]
     fn cvc5_expr_to_smtlib_ite() {
-        use assura_parser::ast::Literal;
+        use assura_ast::Literal;
         let e = Spanned::no_span(Expr::If {
             cond: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
             then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
@@ -1260,11 +1260,11 @@ mod cvc5_tests {
             var: "i".to_string(),
             domain: Box::new(Spanned::no_span(Expr::Ident("S".into()))),
             body: Box::new(Spanned::no_span(Expr::BinOp {
-                op: assura_parser::ast::BinOp::Gt,
+                op: assura_ast::BinOp::Gt,
                 lhs: Box::new(Spanned::no_span(Expr::Ident("i".into()))),
-                rhs: Box::new(Spanned::no_span(Expr::Literal(
-                    assura_parser::ast::Literal::Int("0".into()),
-                ))),
+                rhs: Box::new(Spanned::no_span(Expr::Literal(assura_ast::Literal::Int(
+                    "0".into(),
+                )))),
             })),
         });
         assert_eq!(
@@ -1294,7 +1294,7 @@ mod cvc5_tests {
     fn cvc5_collect_vars() {
         use std::collections::HashSet;
         let e = Spanned::no_span(Expr::BinOp {
-            op: assura_parser::ast::BinOp::Add,
+            op: assura_ast::BinOp::Add,
             lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
         });
@@ -1322,12 +1322,12 @@ mod cvc5_tests {
     #[test]
     fn cvc5_verify_without_binary() {
         // If cvc5 is not installed, verify_contract_cvc5 returns Error results
-        use assura_parser::ast::{Clause, ClauseKind, Literal};
+        use assura_ast::{Clause, ClauseKind, Literal};
         let clauses = vec![
             Clause {
                 kind: ClauseKind::Requires,
                 body: Spanned::no_span(Expr::BinOp {
-                    op: assura_parser::ast::BinOp::Neq,
+                    op: assura_ast::BinOp::Neq,
                     lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
                     rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 }),
@@ -1336,7 +1336,7 @@ mod cvc5_tests {
             Clause {
                 kind: ClauseKind::Ensures,
                 body: Spanned::no_span(Expr::BinOp {
-                    op: assura_parser::ast::BinOp::Gt,
+                    op: assura_ast::BinOp::Gt,
                     lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
                     rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
                 }),

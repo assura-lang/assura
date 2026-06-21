@@ -140,7 +140,7 @@ impl From<CachedResult> for VerificationResult {
 /// Compute a stable content hash of a contract's clauses for cache keying.
 ///
 /// Uses SHA-256 for deterministic hashing across Rust versions and platforms.
-fn hash_clauses(contract_name: &str, clauses: &[assura_parser::ast::Clause]) -> String {
+fn hash_clauses(contract_name: &str, clauses: &[assura_ast::Clause]) -> String {
     use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
@@ -182,7 +182,7 @@ impl VerificationCache {
     pub fn get(
         &self,
         contract_name: &str,
-        clauses: &[assura_parser::ast::Clause],
+        clauses: &[assura_ast::Clause],
     ) -> Option<Vec<VerificationResult>> {
         let hash = hash_clauses(contract_name, clauses);
         let path = self.cache_dir.join(format!("{hash}.json"));
@@ -195,7 +195,7 @@ impl VerificationCache {
     pub fn put(
         &self,
         contract_name: &str,
-        clauses: &[assura_parser::ast::Clause],
+        clauses: &[assura_ast::Clause],
         results: &[VerificationResult],
     ) {
         let hash = hash_clauses(contract_name, clauses);
@@ -312,7 +312,7 @@ mod tests {
     fn test_verification_cache_miss_on_empty() {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         assert!(cache.get("test_contract", &clauses).is_none());
     }
 
@@ -320,7 +320,7 @@ mod tests {
     fn test_verification_cache_put_and_get() {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         let results = vec![VerificationResult::verified("test::ensures")];
         cache.put("my_contract", &clauses, &results);
         let got = cache.get("my_contract", &clauses).unwrap();
@@ -332,7 +332,7 @@ mod tests {
     fn test_verification_cache_clear() {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         cache.put("c", &clauses, &[]);
         assert!(cache.entry_count() > 0);
         cache.clear();
@@ -343,7 +343,7 @@ mod tests {
     fn test_verification_cache_different_contracts() {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         let r1 = vec![VerificationResult::verified("a::ensures")];
         let r2 = vec![VerificationResult::Timeout {
             clause_desc: "b::ensures".into(),
@@ -360,7 +360,7 @@ mod tests {
     fn test_cached_result_roundtrip_counterexample() {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         let results = vec![VerificationResult::Counterexample {
             clause_desc: "c::ensures".into(),
             model: "x -> 5".into(),
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn test_hash_clauses_deterministic() {
         // Regression test for #56: hash must be stable across runs
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         let h1 = super::hash_clauses("contract_a", &clauses);
         let h2 = super::hash_clauses("contract_a", &clauses);
         assert_eq!(h1, h2, "same input must produce same hash");
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_hash_clauses_different_contracts() {
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         let h1 = super::hash_clauses("alpha", &clauses);
         let h2 = super::hash_clauses("beta", &clauses);
         assert_ne!(
@@ -397,7 +397,7 @@ mod tests {
     fn test_cached_result_roundtrip_unknown() {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
-        let clauses: Vec<assura_parser::ast::Clause> = vec![];
+        let clauses: Vec<assura_ast::Clause> = vec![];
         let results = vec![VerificationResult::Unknown {
             clause_desc: "c::ensures".into(),
             reason: "solver error".into(),

@@ -1,5 +1,5 @@
 use super::*;
-use assura_parser::ast::SpExpr;
+use assura_ast::SpExpr;
 
 // ===========================================================================
 // T076: Layer 2 SMT encoding

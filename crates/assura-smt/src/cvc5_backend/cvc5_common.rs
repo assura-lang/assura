@@ -273,10 +273,10 @@ mod tests {
 
     #[test]
     fn flatten_deep_chain() {
-        let expr = Expr::Field(
+        let expr = Spanned::no_span(Expr::Field(
             spb(Expr::Field(spb(Expr::Ident("state".into())), "head".into())),
             "extra".into(),
-        );
+        ));
         assert_eq!(flatten_field_chain_cvc5(&expr), "state__head__extra");
     }
 

@@ -496,7 +496,7 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
 
 /// Check if any contract in the source is testable (needs proptest).
 /// Check if any declaration has an `errors` clause that will generate error types.
-pub(crate) fn source_has_error_types(source: &assura_parser::ast::SourceFile) -> bool {
+pub(crate) fn source_has_error_types(source: &assura_ast::SourceFile) -> bool {
     source.decls.iter().any(|decl| match &decl.node {
         Decl::Contract(c) => c.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors),
         Decl::FnDef(f) => f.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors),
@@ -504,7 +504,7 @@ pub(crate) fn source_has_error_types(source: &assura_parser::ast::SourceFile) ->
     })
 }
 
-pub(crate) fn source_has_testable_contracts(source: &assura_parser::ast::SourceFile) -> bool {
+pub(crate) fn source_has_testable_contracts(source: &assura_ast::SourceFile) -> bool {
     source.decls.iter().any(|decl| {
         if let Decl::Contract(c) = &decl.node {
             contract_is_testable(c)
@@ -576,7 +576,7 @@ pub(crate) fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mu
 /// Uses the shared `extract_clause_params` from assura-parser, then maps
 /// Assura type tokens to Rust types via `map_type_token`/`map_type_tokens`.
 pub(crate) fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
-    use assura_parser::ast::extract_clause_params;
+    use assura_ast::extract_clause_params;
     for param in extract_clause_params(body) {
         let rust_ty = if param.ty.is_none() {
             "i64".to_string()
@@ -787,7 +787,7 @@ pub(crate) fn generate_error_enum(contract_name: &str, variants: &[String], code
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::*;
+    use assura_ast::*;
 
     fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
         Clause {

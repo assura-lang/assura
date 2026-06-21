@@ -640,11 +640,9 @@ fn fs_cache_put_and_get() {
     let dir = std::env::temp_dir().join("assura-test-cache-put-get");
     let _ = std::fs::remove_dir_all(&dir);
     let cache = VerificationCache::new(&dir);
-    let clauses = vec![assura_parser::ast::Clause {
-        kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
-            "result".into(),
-        )),
+    let clauses = vec![assura_ast::Clause {
+        kind: assura_ast::ClauseKind::Ensures,
+        body: assura_ast::Spanned::no_span(assura_ast::Expr::Ident("result".into())),
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
@@ -660,18 +658,14 @@ fn fs_cache_miss_on_different_clauses() {
     let dir = std::env::temp_dir().join("assura-test-cache-miss");
     let _ = std::fs::remove_dir_all(&dir);
     let cache = VerificationCache::new(&dir);
-    let clauses_a = vec![assura_parser::ast::Clause {
-        kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
-            "result".into(),
-        )),
+    let clauses_a = vec![assura_ast::Clause {
+        kind: assura_ast::ClauseKind::Ensures,
+        body: assura_ast::Spanned::no_span(assura_ast::Expr::Ident("result".into())),
         effect_variables: vec![],
     }];
-    let clauses_b = vec![assura_parser::ast::Clause {
-        kind: assura_parser::ast::ClauseKind::Requires,
-        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
-            "result".into(),
-        )),
+    let clauses_b = vec![assura_ast::Clause {
+        kind: assura_ast::ClauseKind::Requires,
+        body: assura_ast::Spanned::no_span(assura_ast::Expr::Ident("result".into())),
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
@@ -685,11 +679,9 @@ fn fs_cache_clear() {
     let dir = std::env::temp_dir().join("assura-test-cache-clear");
     let _ = std::fs::remove_dir_all(&dir);
     let cache = VerificationCache::new(&dir);
-    let clauses = vec![assura_parser::ast::Clause {
-        kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
-            "result".into(),
-        )),
+    let clauses = vec![assura_ast::Clause {
+        kind: assura_ast::ClauseKind::Ensures,
+        body: assura_ast::Spanned::no_span(assura_ast::Expr::Ident("result".into())),
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
@@ -706,11 +698,9 @@ fn fs_cache_entry_count() {
     let _ = std::fs::remove_dir_all(&dir);
     let cache = VerificationCache::new(&dir);
     assert_eq!(cache.entry_count(), 0);
-    let clauses = vec![assura_parser::ast::Clause {
-        kind: assura_parser::ast::ClauseKind::Ensures,
-        body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Ident(
-            "result".into(),
-        )),
+    let clauses = vec![assura_ast::Clause {
+        kind: assura_ast::ClauseKind::Ensures,
+        body: assura_ast::Spanned::no_span(assura_ast::Expr::Ident("result".into())),
         effect_variables: vec![],
     }];
     cache.put("alpha", &clauses, &[]);

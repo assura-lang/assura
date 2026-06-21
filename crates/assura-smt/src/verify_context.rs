@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use assura_parser::ast::{Clause, ClauseKind, Param, SpExpr};
+use assura_ast::{Clause, ClauseKind, Param, SpExpr};
 use assura_types::TypeEnv;
 
 use crate::VerifyFileExtras;

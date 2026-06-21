@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use assura_parser::ast::{Clause, ClauseKind, Param};
+use assura_ast::{Clause, ClauseKind, Param};
 use assura_parser::display::expr_to_string;
 
 use crate::ir_generate::{EnsuresShape, classify_ensures_shape};
@@ -258,14 +258,14 @@ pub fn ir_prompt_contexts_for_typed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{BinOp, ClauseKind, Expr, Spanned};
+    use assura_ast::{BinOp, ClauseKind, Expr, Spanned};
 
     fn copy_bytes_ctx() -> IrPromptContext {
         IrPromptContext {
             decl_name: "CopyBytes".into(),
             params: vec![Param {
                 name: "raw".into(),
-                ty: Some(assura_parser::ast::TypeExpr::Named("Bytes".into())),
+                ty: Some(assura_ast::TypeExpr::Named("Bytes".into())),
             }],
             return_ty: vec!["Bytes".into()],
             clauses: vec![
@@ -278,9 +278,9 @@ mod tests {
                             method: "length".into(),
                             args: vec![],
                         })),
-                        rhs: Box::new(Spanned::no_span(Expr::Literal(
-                            assura_parser::ast::Literal::Int("0".into()),
-                        ))),
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(assura_ast::Literal::Int(
+                            "0".into(),
+                        )))),
                     }),
                     effect_variables: vec![],
                 },
@@ -329,7 +329,7 @@ mod tests {
             decl_name: "Main".into(),
             params: vec![Param {
                 name: "x".into(),
-                ty: Some(assura_parser::ast::TypeExpr::Named("Int".into())),
+                ty: Some(assura_ast::TypeExpr::Named("Int".into())),
             }],
             return_ty: vec!["Int".into()],
             clauses: vec![Clause {

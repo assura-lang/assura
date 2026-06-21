@@ -9,7 +9,7 @@ use crate::cvc5_common::{
 };
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
-use assura_parser::ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, Spanned, UnaryOp};
+use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, Spanned, UnaryOp};
 use std::collections::HashSet;
 
 // -------------------------------------------------------------------
@@ -553,7 +553,7 @@ fn test_smtlib_let_expr() {
 
 #[test]
 fn test_smtlib_match_with_literal_and_wildcard() {
-    use assura_parser::ast::MatchArm;
+    use assura_ast::MatchArm;
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
         arms: vec![
@@ -581,7 +581,7 @@ fn test_smtlib_match_empty_arms() {
 
 #[test]
 fn test_smtlib_match_constructor_pattern() {
-    use assura_parser::ast::MatchArm;
+    use assura_ast::MatchArm;
     // match x { Some(v) => v, None => 0 }
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
@@ -616,7 +616,7 @@ fn test_smtlib_match_constructor_pattern() {
 
 #[test]
 fn test_smtlib_match_tuple_pattern() {
-    use assura_parser::ast::MatchArm;
+    use assura_ast::MatchArm;
     // match t { (a, b) => a }
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("t".into()))),
@@ -632,7 +632,7 @@ fn test_smtlib_match_tuple_pattern() {
 
 #[test]
 fn test_smtlib_match_ident_constructor_like() {
-    use assura_parser::ast::MatchArm;
+    use assura_ast::MatchArm;
     // match x { None => 1, _ => 0 }  (Ident "None" uppercase = constructor)
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
@@ -885,7 +885,7 @@ fn collect_vars_let_expr() {
 
 #[test]
 fn collect_vars_match_expr() {
-    use assura_parser::ast::{MatchArm, Pattern};
+    use assura_ast::{MatchArm, Pattern};
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![MatchArm {
@@ -1271,11 +1271,11 @@ fn test_smtlib_match_float_pattern_rational() {
     let expr = Spanned::no_span(Expr::Match {
         scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         arms: vec![
-            assura_parser::ast::MatchArm {
+            assura_ast::MatchArm {
                 pattern: Pattern::Literal(Literal::Float("1.5".into())),
                 body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
             },
-            assura_parser::ast::MatchArm {
+            assura_ast::MatchArm {
                 pattern: Pattern::Wildcard,
                 body: Spanned::no_span(Expr::Literal(Literal::Bool(false))),
             },
@@ -1294,13 +1294,13 @@ fn test_smtlib_match_float_pattern_rational() {
 #[test]
 fn test_is_self_rooted_cvc5_ident_self() {
     let expr = Spanned::no_span(Expr::Ident("self".into()));
-    assert!(is_self_rooted_cvc5(&expr.node));
+    assert!(is_self_rooted_cvc5(&expr));
 }
 
 #[test]
 fn test_is_self_rooted_cvc5_ident_other() {
     let expr = Spanned::no_span(Expr::Ident("x".into()));
-    assert!(!is_self_rooted_cvc5(&expr.node));
+    assert!(!is_self_rooted_cvc5(&expr));
 }
 
 #[test]
@@ -1310,7 +1310,7 @@ fn test_is_self_rooted_cvc5_field_chain() {
         Box::new(Spanned::no_span(Expr::Ident("self".into()))),
         "value".into(),
     ));
-    assert!(is_self_rooted_cvc5(&expr.node));
+    assert!(is_self_rooted_cvc5(&expr));
 }
 
 #[test]
@@ -1323,12 +1323,15 @@ fn test_is_self_rooted_cvc5_deep_chain() {
         ))),
         "value".into(),
     ));
-    assert!(is_self_rooted_cvc5(&expr.node));
+    assert!(is_self_rooted_cvc5(&expr));
 }
 
 #[test]
 fn test_field_chain_depth_cvc5_ident() {
-    assert_eq!(field_chain_depth_cvc5(&Expr::Ident("x".into())), 0);
+    assert_eq!(
+        field_chain_depth_cvc5(&Spanned::no_span(Expr::Ident("x".into()))),
+        0
+    );
 }
 
 #[test]
@@ -1337,7 +1340,7 @@ fn test_field_chain_depth_cvc5_single() {
         Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         "y".into(),
     ));
-    assert_eq!(field_chain_depth_cvc5(&expr.node), 1);
+    assert_eq!(field_chain_depth_cvc5(&expr), 1);
 }
 
 #[test]
@@ -1350,7 +1353,7 @@ fn test_field_chain_depth_cvc5_deep() {
         ))),
         "c".into(),
     ));
-    assert_eq!(field_chain_depth_cvc5(&expr.node), 2);
+    assert_eq!(field_chain_depth_cvc5(&expr), 2);
 }
 
 #[test]
@@ -1360,7 +1363,7 @@ fn test_has_deep_field_chain_cvc5() {
         Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         "b".into(),
     ));
-    assert!(!has_deep_field_chain_cvc5(&shallow.node));
+    assert!(!has_deep_field_chain_cvc5(&shallow));
 
     // a.b.c -> depth 2, deep
     let deep = Spanned::no_span(Expr::Field(
@@ -1370,7 +1373,7 @@ fn test_has_deep_field_chain_cvc5() {
         ))),
         "c".into(),
     ));
-    assert!(has_deep_field_chain_cvc5(&deep.node));
+    assert!(has_deep_field_chain_cvc5(&deep));
 }
 
 #[test]
@@ -1380,7 +1383,7 @@ fn test_flatten_field_chain_cvc5_simple() {
         Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         "b".into(),
     ));
-    assert_eq!(flatten_field_chain_cvc5(&expr.node), "a__b");
+    assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
 }
 
 #[test]
@@ -1397,7 +1400,7 @@ fn test_flatten_field_chain_cvc5_deep() {
         "extra_max".into(),
     ));
     assert_eq!(
-        flatten_field_chain_cvc5(&expr.node),
+        flatten_field_chain_cvc5(&expr),
         "state__head__extra__extra_max"
     );
 }
@@ -1409,7 +1412,7 @@ fn test_flatten_field_chain_cvc5_ident() {
         Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         "b".into(),
     ));
-    assert_eq!(flatten_field_chain_cvc5(&expr.node), "a__b");
+    assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
 }
 
 #[test]

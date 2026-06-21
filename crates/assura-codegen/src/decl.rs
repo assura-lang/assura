@@ -262,12 +262,12 @@ pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
+    use assura_ast::Spanned;
 
-    fn mk_param(name: &str, ty: &str) -> assura_parser::ast::Param {
-        assura_parser::ast::Param {
+    fn mk_param(name: &str, ty: &str) -> assura_ast::Param {
+        assura_ast::Param {
             name: name.into(),
-            ty: assura_parser::ast::try_parse_type_tokens(&[ty.to_string()]),
+            ty: assura_ast::try_parse_type_tokens(&[ty.to_string()]),
         }
     }
 
@@ -287,7 +287,7 @@ mod tests {
             name: "my_fn".into(),
             target_path: "std::fs::read".into(),
             params: vec![mk_param("path", "String")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Bytes".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Bytes".to_string()]),
             clauses: vec![],
         };
         let mut code = String::new();
@@ -303,7 +303,7 @@ mod tests {
             name: "safe_div".into(),
             target_path: "math::divide".into(),
             params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Requires,
                 Spanned::no_span(Expr::BinOp {
@@ -324,7 +324,7 @@ mod tests {
             name: "abs".into(),
             target_path: "math::abs".into(),
             params: vec![mk_param("x", "Int")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Ensures,
                 Spanned::no_span(Expr::BinOp {
@@ -361,7 +361,7 @@ mod tests {
         let ex = ExternDecl {
             name: "crypto_hash".into(),
             params: vec![mk_param("data", "Bytes")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Bytes".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Bytes".to_string()]),
             clauses: vec![],
         };
         let mut code = String::new();
@@ -375,7 +375,7 @@ mod tests {
         let ex = ExternDecl {
             name: "ffi_call".into(),
             params: vec![],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Other("trust".into()),
                 Spanned::no_span(Expr::Ident("untrusted".into())),
@@ -392,7 +392,7 @@ mod tests {
         let ex = ExternDecl {
             name: "ffi_call".into(),
             params: vec![mk_param("x", "Int")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![
                 mk_clause(
                     ClauseKind::Other("trust".into()),
@@ -440,7 +440,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![],
         };
         let mut code = String::new();
@@ -455,7 +455,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![mk_param("a", "Int"), mk_param("b", "Int")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![
                 mk_clause(
                     ClauseKind::Requires,
@@ -493,7 +493,7 @@ mod tests {
             is_ghost: false,
             is_lemma: false,
             params: vec![mk_param("x", "Int")],
-            return_ty: assura_parser::ast::try_parse_type_tokens(&["Int".to_string()]),
+            return_ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
             clauses: vec![mk_clause(
                 ClauseKind::Ensures,
                 Spanned::no_span(Expr::BinOp {

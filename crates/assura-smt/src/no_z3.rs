@@ -1,4 +1,4 @@
-use assura_parser::ast::SpExpr;
+use assura_ast::SpExpr;
 
 use super::*;
 

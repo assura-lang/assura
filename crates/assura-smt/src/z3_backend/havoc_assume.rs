@@ -11,7 +11,7 @@ use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, I
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
 use crate::ir_lower::{IrSlotContext, IrTermBuilder, encode_ir_expr};
 use crate::ir_type_ctx::base_type_name;
-use assura_parser::ast::Clause;
+use assura_ast::Clause;
 use std::collections::HashMap;
 use z3::ast;
 
@@ -363,7 +363,7 @@ fn encode_ir_pred_arg(
 mod tests {
     use super::*;
     use crate::ir::IrInstr;
-    use assura_parser::ast::{BinOp, ClauseKind, Expr, Literal, Spanned};
+    use assura_ast::{BinOp, ClauseKind, Expr, Literal, Spanned};
     use assura_types::TypeEnv;
     use std::collections::HashMap;
 

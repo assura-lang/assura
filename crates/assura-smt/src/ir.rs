@@ -828,7 +828,7 @@ fn parse_pred_arg_tokens(tokens: &[String]) -> Option<(IrPredArg, usize)> {
 /// 6. All slot references are defined before use
 pub fn validate_ir_against_contract(
     ir: &IrModule,
-    contract: &assura_parser::ast::ContractDecl,
+    contract: &assura_ast::ContractDecl,
 ) -> IrValidation {
     let mut errors = Vec::new();
 
@@ -868,7 +868,7 @@ pub fn validate_ir_against_contract(
         let contract_inputs: Vec<_> = contract
             .clauses
             .iter()
-            .filter(|c| c.kind == assura_parser::ast::ClauseKind::Input)
+            .filter(|c| c.kind == assura_ast::ClauseKind::Input)
             .collect();
         if !contract_inputs.is_empty() {
             // Count params in the first input clause
@@ -905,10 +905,10 @@ fn referenced_slots(expr: &IrExprKind) -> Vec<usize> {
     }
 }
 
-fn count_input_params(body: &assura_parser::ast::SpExpr) -> usize {
+fn count_input_params(body: &assura_ast::SpExpr) -> usize {
     match &body.node {
-        assura_parser::ast::Expr::Tuple(items) => items.len(),
-        assura_parser::ast::Expr::Call { args, .. } => args.len(),
+        assura_ast::Expr::Tuple(items) => items.len(),
+        assura_ast::Expr::Call { args, .. } => args.len(),
         _ => 1,
     }
 }
