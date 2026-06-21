@@ -161,6 +161,14 @@ For full test coverage use `cargo test --workspace` (local machine or end-of-ses
 Inside an agent tool with timeouts, use targeted verification instead:
 `cargo test -p <crate> --lib`, `cargo check -p <crate>`, or the scoped pre-commit script.
 
+**Important for changes touching the main executable or cli_integration:**
+After edits to cli_integration.rs, temp dir handling, or anything that affects
+the `assura` binary build (CARGO_BIN_EXE_assura), always run the *full*
+`cargo test --workspace` (not just the targeted integration test) before
+committing or declaring done. The targeted test only exercises part of the
+suite; the workspace run validates all crates + the complete executable with
+every dependency enabled. See issues #328.
+
 ## Coding Conventions
 
 ### Rust
@@ -409,6 +417,13 @@ were silently ignored until the method was wired in during #62.
 
 ## Pre-Commit Gate
 
+**Verification command hygiene (see #330):**
+Never use patterns like `command 2>&1 | tail -N && echo "step: OK"`.
+The `tail` always succeeds, so the echo runs even on real failures (this
+masked cvc5 clippy and test failures in session bg tasks).
+Use `set -euo pipefail`, run commands directly, and let the script exit on
+error. Prefer the official `scripts/pre-commit-*.sh`.
+
 **Before each push** (fast, ~1–4 min):
 
 ```bash
@@ -432,6 +447,11 @@ cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
 cargo test --workspace   # full gate only — use scoped/targeted tests inside agent tools
 cargo check --no-default-features -p assura-smt
 ```
+
+**After any change that could affect cli_integration races or the main
+executable (see #328), the full gate (including `cargo test --workspace`)
+must be run before the end of the session / before pushing the final
+commit.**
 
 The `cargo clippy -p assura-smt --features cvc5-verify` step mirrors the CI
 `cvc5` job and catches cfg-gate violations in native CVC5 modules that the
@@ -487,6 +507,9 @@ A task in MASTER-PLAN.md is done when ALL of these are true:
 1. The code compiles: `cargo build`
 2. All tests pass: `cargo test --workspace` (on local machine or via full gate).
    Inside an agent tool, targeted tests + scoped gate are acceptable substitutes for the full run.
+   **Exception:** changes that touch `cli_integration`, temp-dir code, or the
+   main `assura` executable (all crates) require a real full `cargo test --workspace`
+   (see #328 and the "Build and Test" section).
 3. No warnings: `cargo clippy --workspace -- -D warnings`
 4. All demo files still parse: run all four
 5. New code has tests (unit tests in the same file, integration tests

@@ -30,6 +30,7 @@ concurrency:
 #   tooling-only   - only CLI/LSP/server/fmt changed (not core pipeline)
 #   editors-ts     - tree-sitter grammar
 #   editors-vscode - VS Code extension
+#   smt            - assura-smt crate (used to gate heavy CVC5 native jobs)
 # ---------------------------------------------------------------------------
 jobs:
   changes:
@@ -44,6 +45,7 @@ jobs:
       tooling-only:   ${{ steps.filter.outputs.tooling-only }}
       editors-ts:     ${{ steps.filter.outputs.editors-ts }}
       editors-vscode: ${{ steps.filter.outputs.editors-vscode }}
+      smt:            ${{ steps.filter.outputs.smt }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -76,6 +78,10 @@ jobs:
               - 'editors/tree-sitter-assura/**'
             editors-vscode:
               - 'editors/vscode/**'
+            smt:
+              - 'crates/assura-smt/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
 
   # ── Clippy + fmt (runner 1) ──────────────────────────────────────────────
   # fmt is folded in here instead of being a separate ubuntu-latest gate job.
@@ -340,7 +346,7 @@ jobs:
   cvc5:
     name: CVC5 native tests
     needs: changes
-    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:

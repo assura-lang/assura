@@ -1014,7 +1014,7 @@ mod tests {
 
     #[test]
     fn expr_to_rust_match_with_wildcard_fallback() {
-        use assura_ast::{MatchArm, Pattern, SpExpr, Spanned};
+        use assura_ast::{MatchArm, Pattern, Spanned};
         let e = Spanned::no_span(Expr::Match {
             scrutinee: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             arms: vec![MatchArm {
