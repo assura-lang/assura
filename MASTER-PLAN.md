@@ -2063,7 +2063,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 2: Add Expr spans -- depends on: Round 1
 
-- [ ] **11.04** Add spans to `Expr` nodes
+- [x] **11.04** Add spans to `Expr` nodes
   - Currently only `Decl` is wrapped in `Spanned<T>`. `Expr` nodes
     carry no source location, forcing span reconstruction from CST.
   - Add `span: Span` field to `Expr` (or wrap in `Spanned<Expr>`
@@ -2329,3 +2329,10 @@ Next: 11.14 final verification + cleanup (run full gate, update docs), or 11.04/
 - 11.14 acceptance commands executed. Gate-equivalent checks green. Demos verified.
 
 Marked 11.14 [x]. Phase 11 Round 7 complete. Remaining earlier rounds (11.04 spans, 11.07 ExprFolder) can be tackled next if desired.
+
+**2026-06-22 11.04 completion:**
+- Verified: 29 "span:" in lower.rs (>=20), expr_span test passes, all demos pass, parser+types check clean.
+- 11.04 core acceptance met (spans captured in lowering for Expr, precise error spans now possible).
+- Marked [x]. Work from cc71d62.
+
+Next: 11.07 ExprFolder extraction.
