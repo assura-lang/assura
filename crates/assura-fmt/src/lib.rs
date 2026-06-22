@@ -2,12 +2,12 @@
 //!
 //! Takes a parsed `SourceFile` AST and produces well-formatted source text.
 
+use assura_ast::ExprFolder;
 use assura_parser::ast::{
     BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
-    Expr, ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl,
-    ServiceItem, SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
+    ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl, ServiceItem,
+    SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
 };
-use assura_ast::ExprFolder;
 
 /// Format a `SourceFile` AST back to well-formatted source text.
 pub fn format_source_file(file: &SourceFile) -> String {
@@ -494,7 +494,9 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
         self.out.push_str(method);
         self.out.push('(');
         for (i, a) in args.iter().enumerate() {
-            if i > 0 { self.out.push_str(", "); }
+            if i > 0 {
+                self.out.push_str(", ");
+            }
             self.fold_expr(a);
         }
         self.out.push(')');
@@ -504,7 +506,9 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
         self.fold_expr(func);
         self.out.push('(');
         for (i, a) in args.iter().enumerate() {
-            if i > 0 { self.out.push_str(", "); }
+            if i > 0 {
+                self.out.push_str(", ");
+            }
             self.fold_expr(a);
         }
         self.out.push(')');
@@ -572,7 +576,9 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
     fn fold_list(&mut self, items: &[SpExpr]) {
         self.out.push('[');
         for (i, item) in items.iter().enumerate() {
-            if i > 0 { self.out.push_str(", "); }
+            if i > 0 {
+                self.out.push_str(", ");
+            }
             self.fold_expr(item);
         }
         self.out.push(']');
@@ -604,7 +610,9 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
         self.out.push_str(name);
         self.out.push('(');
         for (i, a) in args.iter().enumerate() {
-            if i > 0 { self.out.push_str(", "); }
+            if i > 0 {
+                self.out.push_str(", ");
+            }
             self.fold_expr(a);
         }
         self.out.push(')');
@@ -637,7 +645,9 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
     fn fold_tuple(&mut self, items: &[SpExpr]) {
         self.out.push('(');
         for (i, item) in items.iter().enumerate() {
-            if i > 0 { self.out.push_str(", "); }
+            if i > 0 {
+                self.out.push_str(", ");
+            }
             self.fold_expr(item);
         }
         self.out.push(')');
@@ -645,17 +655,6 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
 
     fn fold_raw(&mut self, tokens: &[String]) {
         self.out.push_str(&join_raw_tokens(tokens));
-    }
-
-
-}
-
-pub(crate) fn format_expr_list(items: &[SpExpr], out: &mut String) {
-    for (i, item) in items.iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
-        }
-        format_expr(item, out);
     }
 }
 
@@ -717,16 +716,6 @@ pub(crate) fn join_raw_tokens(tokens: &[String]) -> String {
         }
     }
     out
-}
-
-pub(crate) fn binop_str(op: &BinOp) -> &'static str {
-    // The formatter uses Rust-style operators for most, with overrides
-    // for Assura-specific operators that have no Rust equivalent.
-    match op {
-        BinOp::Implies => "==>",
-        BinOp::In | BinOp::NotIn | BinOp::Concat | BinOp::Range => op.as_str(),
-        _ => op.as_rust_str(),
-    }
 }
 
 #[cfg(test)]

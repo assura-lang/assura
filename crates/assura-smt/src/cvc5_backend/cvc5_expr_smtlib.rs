@@ -1,4 +1,4 @@
-use assura_ast::{Expr, ExprFolder, SpExpr};
+use assura_ast::{Expr, SpExpr};
 use std::sync::OnceLock;
 
 use crate::cvc5_adt::{Cvc5AdtDef, adt_is_constructor_smt, define_adt_cvc5};

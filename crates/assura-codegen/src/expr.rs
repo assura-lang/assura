@@ -86,14 +86,13 @@ impl ExprFolder for RustExprFolder {
         format!("{}.{field}", self.fold_expr(base))
     }
 
-    fn fold_method_call(
-        &mut self,
-        receiver: &SpExpr,
-        method: &str,
-        args: &[SpExpr],
-    ) -> String {
+    fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) -> String {
         let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
-        format!("{}.{method}({})", self.fold_expr(receiver), args_s.join(", "))
+        format!(
+            "{}.{method}({})",
+            self.fold_expr(receiver),
+            args_s.join(", ")
+        )
     }
 
     fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> String {
@@ -118,10 +117,18 @@ impl ExprFolder for RustExprFolder {
                 return format!("{}.contains(&{})", self.fold_expr(rhs), self.fold_expr(lhs));
             }
             BinOp::NotIn => {
-                return format!("!{}.contains(&{})", self.fold_expr(rhs), self.fold_expr(lhs));
+                return format!(
+                    "!{}.contains(&{})",
+                    self.fold_expr(rhs),
+                    self.fold_expr(lhs)
+                );
             }
             BinOp::Concat => {
-                return format!("[{}, {}].concat()", self.fold_expr(lhs), self.fold_expr(rhs));
+                return format!(
+                    "[{}, {}].concat()",
+                    self.fold_expr(lhs),
+                    self.fold_expr(rhs)
+                );
             }
             _ => {}
         }
@@ -165,12 +172,7 @@ impl ExprFolder for RustExprFolder {
         )
     }
 
-    fn fold_if(
-        &mut self,
-        cond: &SpExpr,
-        then_br: &SpExpr,
-        else_br: Option<&SpExpr>,
-    ) -> String {
+    fn fold_if(&mut self, cond: &SpExpr, then_br: &SpExpr, else_br: Option<&SpExpr>) -> String {
         match else_br {
             Some(eb) => format!(
                 "if {} {{ {} }} else {{ {} }}",
