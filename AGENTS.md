@@ -873,6 +873,10 @@ The same principle applies project-wide:
 When you introduce a new helper, document it here and in
 `~/.grok/skills/assura-contrib/SKILL.md`.
 
+### Parser / CST helpers (for correct spans after trivia capture)
+
+- `bump_delim()` on `Parser` (cst.rs) — bump a delimiter token (`{`, `(`, etc.) and immediately call `bump_trivia()`. This ensures expressions inside braced/parenthesized clause bodies (and similar) receive `text_range()` values that match original source offsets rather than being shifted by leading whitespace or comments. Introduced during the #335 spans + trivia work and the subsequent duplication cleanup pass to eliminate ~20 repeated `bump(); bump_trivia();` sites. Use it (instead of the two-liner) after any manual delimiter open that must expose following trivia to child nodes.
+
 ## Expression Parser
 
 The expression parser uses Pratt parsing (binding power) implemented
