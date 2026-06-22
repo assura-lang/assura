@@ -187,6 +187,8 @@ assura explain A05001   # Linear type used twice
 assura explain A07003   # Unknown effect
 ```
 
+Error spans are precise even for expressions inside braced clauses (e.g. `requires { x > 0 }`), thanks to full trivia capture in the parser. A type error on `true` will point exactly at the sub-expression, not the `requires` keyword.
+
 ## Contract Features
 
 ### Refinement types
