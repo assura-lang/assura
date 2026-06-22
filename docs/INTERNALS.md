@@ -70,6 +70,8 @@ optionally invokes `cargo check` on the generated Rust project.
 
 **Entry point:** `assura_parser::parse(source: &str) -> SourceFile`
 
+**Note on layering (Phase 11):** The canonical AST types live in `assura-ast` (the compiler IR crate). `assura-parser` re-exports them for convenience (`assura_parser::ast`). Downstream crates (`assura-codegen`, `assura-smt`) depend only on `assura-ast` (plus `assura-types`/`assura-resolve`) to avoid parser layering violations. `expr_to_string` and the `Feature` registry were moved to `assura-ast` as part of this.
+
 Also: `parse_unwrap(source)` (panics on error, for tests) and
 `parse_cst(source) -> (GreenNode, Vec<ParseError>)` (raw CST access).
 

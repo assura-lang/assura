@@ -70,11 +70,16 @@ assura/
   AGENTS.md                   # This file
   MASTER-PLAN.md              # Actionable task list with dependencies
   crates/
-    assura-parser/            # Lexer (logos), parser (rowan CST + lowering), AST
+    assura-ast/               # Shared AST types (canonical compiler IR, extracted in Phase 11)
+      src/
+        lib.rs
+        ast.rs                # Expr, Decl, Spanned<T>, ExprFolder, Pattern, etc. + expr_to_string, features
+        features.rs           # Registry of all 50 verification features
+    assura-parser/            # Lexer (logos), parser (rowan CST + lowering); reexports AST from assura-ast
       src/
         lib.rs                # Public parse() entry point
         lexer.rs              # Token definitions, logos derive
-        ast.rs                # AST node types
+        ast.rs                # Re-export of assura-ast (for backward compat)
         syntax_kind.rs        # SyntaxKind enum (rowan Language trait)
         cst.rs                # Parser engine, events, GreenNode builder
         lower.rs              # CST -> AST lowering
