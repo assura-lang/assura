@@ -3,10 +3,11 @@
 //! Takes a parsed `SourceFile` AST and produces well-formatted source text.
 
 use assura_ast::ExprFolder;
+#[allow(unused_imports)]
 use assura_parser::ast::{
     BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
-    ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl, ServiceItem,
-    SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
+    Expr, ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl,
+    ServiceItem, SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
 };
 
 /// Format a `SourceFile` AST back to well-formatted source text.
@@ -655,6 +656,15 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
 
     fn fold_raw(&mut self, tokens: &[String]) {
         self.out.push_str(&join_raw_tokens(tokens));
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn binop_str(op: &BinOp) -> &'static str {
+    match op {
+        BinOp::Implies => "==>",
+        BinOp::In | BinOp::NotIn | BinOp::Concat | BinOp::Range => op.as_str(),
+        _ => op.as_rust_str(),
     }
 }
 
