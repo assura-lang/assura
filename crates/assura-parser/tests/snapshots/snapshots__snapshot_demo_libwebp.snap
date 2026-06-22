@@ -1,6 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 66
+assertion_line: 68
 expression: ast
 ---
 SourceFile {
@@ -35,14 +35,34 @@ SourceFile {
                         "Nat",
                         "=",
                         "280",
-                        "feature_max",
-                        "MAX_CODE_LENGTH",
+                    ],
+                ),
+                body: [],
+            },
+            span: 961..1273,
+        },
+        Spanned {
+            node: Block {
+                kind: FeatureMax,
+                name: "MAX_CODE_LENGTH",
+                value: Some(
+                    [
                         ":",
                         "Nat",
                         "=",
                         "15",
-                        "feature_max",
-                        "ROOT_BITS",
+                    ],
+                ),
+                body: [],
+            },
+            span: 1273..1311,
+        },
+        Spanned {
+            node: Block {
+                kind: FeatureMax,
+                name: "ROOT_BITS",
+                value: Some(
+                    [
                         ":",
                         "Nat",
                         "=",
@@ -51,7 +71,7 @@ SourceFile {
                 ),
                 body: [],
             },
-            span: 961..1409,
+            span: 1311..1409,
         },
         Spanned {
             node: FnDef(

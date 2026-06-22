@@ -1,6 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 52
+assertion_line: 54
 expression: ast
 ---
 SourceFile {
@@ -13,28 +13,43 @@ SourceFile {
                 ServiceDecl {
                     name: "OrderService",
                     items: [
-                        Other {
-                            kind: "Order",
-                            body: Spanned {
-                                node: Raw(
+                        TypeDef(
+                            TypeDef {
+                                name: "Order",
+                                type_params: [],
+                                body: Struct(
                                     [
-                                        "id",
-                                        ":",
-                                        "Nat",
-                                        ";",
-                                        "amount",
-                                        ":",
-                                        "Int",
-                                        ";",
-                                        "status",
-                                        ":",
-                                        "String",
-                                        ";",
+                                        FieldDef {
+                                            name: "id",
+                                            ty: Some(
+                                                Named(
+                                                    "Nat",
+                                                ),
+                                            ),
+                                            is_pub: false,
+                                        },
+                                        FieldDef {
+                                            name: "amount",
+                                            ty: Some(
+                                                Named(
+                                                    "Int",
+                                                ),
+                                            ),
+                                            is_pub: false,
+                                        },
+                                        FieldDef {
+                                            name: "status",
+                                            ty: Some(
+                                                Named(
+                                                    "String",
+                                                ),
+                                            ),
+                                            is_pub: false,
+                                        },
                                     ],
                                 ),
-                                span: 103..164,
                             },
-                        },
+                        ),
                         EnumDef(
                             EnumDef {
                                 name: "OrderStatus",
@@ -63,95 +78,259 @@ SourceFile {
                                 ],
                             },
                         ),
-                        Other {
-                            kind: "\n\n  ",
-                            body: Spanned {
-                                node: Raw(
-                                    [
-                                        "Pending",
-                                        "->",
-                                        "Confirmed",
-                                        "->",
-                                        "Shipped",
-                                        "->",
-                                        "Delivered",
-                                    ],
-                                ),
-                                span: 260..316,
-                            },
-                        },
-                        Other {
-                            kind: "\n\n  ",
-                            body: Spanned {
-                                node: BinOp {
-                                    lhs: Spanned {
-                                        node: Ident(
-                                            "amount",
+                        States(
+                            [
+                                "Pending",
+                                "Confirmed",
+                                "Shipped",
+                                "Delivered",
+                            ],
+                        ),
+                        Operation {
+                            name: "PlaceOrder",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "amount",
+                                                ":",
+                                                "Int",
+                                            ],
                                         ),
-                                        span: 406..412,
+                                        span: 342..365,
                                     },
-                                    op: Gt,
-                                    rhs: Spanned {
-                                        node: Literal(
-                                            Int(
-                                                "0",
-                                            ),
-                                        ),
-                                        span: 414..416,
-                                    },
+                                    effect_variables: [],
                                 },
-                                span: 406..416,
-                            },
-                        },
-                        Other {
-                            kind: "\n\n  ",
-                            body: Spanned {
-                                node: BinOp {
-                                    lhs: Spanned {
-                                        node: Ident(
-                                            "id",
+                                Clause {
+                                    kind: Output,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "order",
+                                                ":",
+                                                "Order",
+                                            ],
                                         ),
-                                        span: 579..581,
+                                        span: 365..390,
                                     },
-                                    op: Gt,
-                                    rhs: Spanned {
-                                        node: Literal(
-                                            Int(
-                                                "0",
-                                            ),
-                                        ),
-                                        span: 583..585,
-                                    },
+                                    effect_variables: [],
                                 },
-                                span: 579..585,
-                            },
-                        },
-                        Other {
-                            kind: "\n\n  ",
-                            body: Spanned {
-                                node: BinOp {
-                                    lhs: Spanned {
-                                        node: Ident(
-                                            "id",
-                                        ),
-                                        span: 697..699,
+                                Clause {
+                                    kind: Requires,
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "amount",
+                                                ),
+                                                span: 406..412,
+                                            },
+                                            op: Gt,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Int(
+                                                        "0",
+                                                    ),
+                                                ),
+                                                span: 414..416,
+                                            },
+                                        },
+                                        span: 406..416,
                                     },
-                                    op: Gt,
-                                    rhs: Spanned {
-                                        node: Literal(
-                                            Int(
-                                                "0",
-                                            ),
-                                        ),
-                                        span: 701..703,
-                                    },
+                                    effect_variables: [],
                                 },
-                                span: 697..703,
-                            },
+                                Clause {
+                                    kind: Ensures,
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Field(
+                                                    Spanned {
+                                                        node: Ident(
+                                                            "order",
+                                                        ),
+                                                        span: 434..439,
+                                                    },
+                                                    "status",
+                                                ),
+                                                span: 434..446,
+                                            },
+                                            op: Eq,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Str(
+                                                        "\"Pending\"",
+                                                    ),
+                                                ),
+                                                span: 449..459,
+                                            },
+                                        },
+                                        span: 434..459,
+                                    },
+                                    effect_variables: [],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "db",
+                                                ".",
+                                                "write",
+                                            ],
+                                        ),
+                                        span: 461..487,
+                                    },
+                                    effect_variables: [],
+                                },
+                            ],
                         },
-                        Other {
-                            kind: "\n\n  ",
-                            body: Spanned {
+                        Operation {
+                            name: "ConfirmOrder",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "id",
+                                                ":",
+                                                "Nat",
+                                            ],
+                                        ),
+                                        span: 519..538,
+                                    },
+                                    effect_variables: [],
+                                },
+                                Clause {
+                                    kind: Output,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "order",
+                                                ":",
+                                                "Order",
+                                            ],
+                                        ),
+                                        span: 538..563,
+                                    },
+                                    effect_variables: [],
+                                },
+                                Clause {
+                                    kind: Requires,
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "id",
+                                                ),
+                                                span: 579..581,
+                                            },
+                                            op: Gt,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Int(
+                                                        "0",
+                                                    ),
+                                                ),
+                                                span: 583..585,
+                                            },
+                                        },
+                                        span: 579..585,
+                                    },
+                                    effect_variables: [],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "db",
+                                                ".",
+                                                "write",
+                                            ],
+                                        ),
+                                        span: 587..613,
+                                    },
+                                    effect_variables: [],
+                                },
+                            ],
+                        },
+                        Query {
+                            name: "GetOrder",
+                            clauses: [
+                                Clause {
+                                    kind: Input,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "id",
+                                                ":",
+                                                "Nat",
+                                            ],
+                                        ),
+                                        span: 637..656,
+                                    },
+                                    effect_variables: [],
+                                },
+                                Clause {
+                                    kind: Output,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "order",
+                                                ":",
+                                                "Order",
+                                            ],
+                                        ),
+                                        span: 656..681,
+                                    },
+                                    effect_variables: [],
+                                },
+                                Clause {
+                                    kind: Requires,
+                                    body: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "id",
+                                                ),
+                                                span: 697..699,
+                                            },
+                                            op: Gt,
+                                            rhs: Spanned {
+                                                node: Literal(
+                                                    Int(
+                                                        "0",
+                                                    ),
+                                                ),
+                                                span: 701..703,
+                                            },
+                                        },
+                                        span: 697..703,
+                                    },
+                                    effect_variables: [],
+                                },
+                                Clause {
+                                    kind: Effects,
+                                    body: Spanned {
+                                        node: Raw(
+                                            [
+                                                "db",
+                                                ".",
+                                                "read",
+                                            ],
+                                        ),
+                                        span: 705..730,
+                                    },
+                                    effect_variables: [],
+                                },
+                            ],
+                        },
+                        Invariant(
+                            Spanned {
                                 node: Raw(
                                     [
                                         "forall",
@@ -168,7 +347,7 @@ SourceFile {
                                 ),
                                 span: 734..784,
                             },
-                        },
+                        ),
                     ],
                 },
             ),

@@ -1,6 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 132
+assertion_line: 130
 expression: "&ast"
 ---
 Some(
@@ -14,7 +14,78 @@ Some(
                     ContractDecl {
                         name: "HasBadTokens",
                         type_params: [],
-                        clauses: [],
+                        clauses: [
+                            Clause {
+                                kind: Input,
+                                body: Spanned {
+                                    node: Raw(
+                                        [
+                                            "x",
+                                            ":",
+                                            "Int",
+                                        ],
+                                    ),
+                                    span: 97..110,
+                                },
+                                effect_variables: [],
+                            },
+                            Clause {
+                                kind: Requires,
+                                body: Spanned {
+                                    node: BinOp {
+                                        lhs: Spanned {
+                                            node: Ident(
+                                                "x",
+                                            ),
+                                            span: 124..125,
+                                        },
+                                        op: Gt,
+                                        rhs: Spanned {
+                                            node: Literal(
+                                                Int(
+                                                    "0",
+                                                ),
+                                            ),
+                                            span: 127..129,
+                                        },
+                                    },
+                                    span: 124..129,
+                                },
+                                effect_variables: [],
+                            },
+                            Clause {
+                                kind: Ensures,
+                                body: Spanned {
+                                    node: BinOp {
+                                        lhs: Spanned {
+                                            node: Ident(
+                                                "result",
+                                            ),
+                                            span: 145..151,
+                                        },
+                                        op: Eq,
+                                        rhs: Spanned {
+                                            node: Ident(
+                                                "x",
+                                            ),
+                                            span: 154..156,
+                                        },
+                                    },
+                                    span: 145..156,
+                                },
+                                effect_variables: [],
+                            },
+                            Clause {
+                                kind: Effects,
+                                body: Spanned {
+                                    node: Ident(
+                                        "pure",
+                                    ),
+                                    span: 161..181,
+                                },
+                                effect_variables: [],
+                            },
+                        ],
                         fn_params: [],
                     },
                 ),

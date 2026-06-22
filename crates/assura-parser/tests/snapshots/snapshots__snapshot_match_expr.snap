@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 86
 expression: ast
 ---
 SourceFile {
@@ -21,7 +22,7 @@ SourceFile {
                                         true,
                                     ),
                                 ),
-                                span: 27..31,
+                                span: 189..193,
                             },
                             effect_variables: [],
                         },
@@ -29,7 +30,7 @@ SourceFile {
                     fn_params: [],
                 },
             ),
-            span: 0..33,
+            span: 0..197,
         },
         Spanned {
             node: FnDef(
@@ -61,7 +62,7 @@ SourceFile {
                                         node: Ident(
                                             "result",
                                         ),
-                                        span: 63..69,
+                                        span: 238..244,
                                     },
                                     op: Gte,
                                     rhs: Spanned {
@@ -70,17 +71,17 @@ SourceFile {
                                                 "0",
                                             ),
                                         ),
-                                        span: 71..72,
+                                        span: 247..249,
                                     },
                                 },
-                                span: 63..72,
+                                span: 238..249,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 33..99,
+            span: 197..310,
         },
         Spanned {
             node: FnDef(
@@ -112,24 +113,24 @@ SourceFile {
                                         node: Ident(
                                             "result",
                                         ),
-                                        span: 129..135,
+                                        span: 351..357,
                                     },
                                     op: Gt,
                                     rhs: Spanned {
                                         node: Ident(
                                             "x",
                                         ),
-                                        span: 136..137,
+                                        span: 359..361,
                                     },
                                 },
-                                span: 129..137,
+                                span: 351..361,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 99..151,
+            span: 310..388,
         },
     ],
 }

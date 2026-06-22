@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 36
 expression: ast
 ---
 SourceFile {
@@ -23,7 +24,7 @@ SourceFile {
                                         "Int",
                                     ],
                                 ),
-                                span: 20..32,
+                                span: 54..67,
                             },
                             effect_variables: [],
                         },
@@ -37,7 +38,7 @@ SourceFile {
                                         "Nat",
                                     ],
                                 ),
-                                span: 32..50,
+                                span: 67..89,
                             },
                             effect_variables: [],
                         },
@@ -49,7 +50,7 @@ SourceFile {
                                         node: Ident(
                                             "x",
                                         ),
-                                        span: 59..60,
+                                        span: 103..104,
                                     },
                                     op: Gte,
                                     rhs: Spanned {
@@ -58,10 +59,10 @@ SourceFile {
                                                 "0",
                                             ),
                                         ),
-                                        span: 62..63,
+                                        span: 107..109,
                                     },
                                 },
-                                span: 59..63,
+                                span: 103..109,
                             },
                             effect_variables: [],
                         },
@@ -73,17 +74,17 @@ SourceFile {
                                         node: Ident(
                                             "result",
                                         ),
-                                        span: 72..78,
+                                        span: 125..131,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
                                         node: Ident(
                                             "x",
                                         ),
-                                        span: 80..81,
+                                        span: 134..136,
                                     },
                                 },
-                                span: 72..81,
+                                span: 125..136,
                             },
                             effect_variables: [],
                         },
@@ -93,7 +94,7 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 82..95,
+                                span: 138..158,
                             },
                             effect_variables: [],
                         },
@@ -101,7 +102,7 @@ SourceFile {
                     fn_params: [],
                 },
             ),
-            span: 0..96,
+            span: 0..160,
         },
     ],
 }

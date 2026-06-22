@@ -1,8 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 143
+assertion_line: 141
 expression: "&error_messages"
 ---
-[
-    "284..285: expected clause, type, fn, or closing brace",
-]
+[]

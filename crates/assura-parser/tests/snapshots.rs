@@ -309,10 +309,7 @@ fn recovery_missing_fn_body() {
     let (ast, _errors) = parse_str("fn foo(x: Int) -> Int");
     // Missing body for fn decl at this level -- parser accepts the decl (no parse error here), must not panic
     // (body may be required later or for certain decls)
-    assert!(
-        ast.is_some(),
-        "expected AST for fn decl without body"
-    );
+    assert!(ast.is_some(), "expected AST for fn decl without body");
     // errors may be empty at pure parse level
 }
 
@@ -332,10 +329,7 @@ fn recovery_multiple_contracts_one_broken() {
         "#,
     );
     // Parser should recover from Bad and still parse AlsoGood
-    assert!(
-        ast.is_some(),
-        "expected AST despite one broken contract"
-    );
+    assert!(ast.is_some(), "expected AST despite one broken contract");
     let sf = ast.unwrap();
     // Should have at least 2 contract declarations (Good and AlsoGood)
     let contract_count = sf
@@ -399,10 +393,7 @@ fn assert_parse_ok(source: &str) {
         errors.is_empty(),
         "unexpected parse errors for:\n{source}\nerrors: {errors:?}"
     );
-    assert!(
-        ast.is_some(),
-        "parse returned None for:\n{source}"
-    );
+    assert!(ast.is_some(), "parse returned None for:\n{source}");
 }
 
 // -- Must-reject at parser level --

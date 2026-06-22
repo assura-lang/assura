@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 166
 expression: "&ast"
 ---
 Some(
@@ -24,7 +25,7 @@ Some(
                                             "Int",
                                         ],
                                     ),
-                                    span: 26..38,
+                                    span: 279..292,
                                 },
                                 effect_variables: [],
                             },
@@ -38,7 +39,7 @@ Some(
                                             "Nat",
                                         ],
                                     ),
-                                    span: 38..56,
+                                    span: 292..314,
                                 },
                                 effect_variables: [],
                             },
@@ -50,7 +51,7 @@ Some(
                                             node: Ident(
                                                 "x",
                                             ),
-                                            span: 65..66,
+                                            span: 328..329,
                                         },
                                         op: Gte,
                                         rhs: Spanned {
@@ -59,10 +60,10 @@ Some(
                                                     "0",
                                                 ),
                                             ),
-                                            span: 68..69,
+                                            span: 332..334,
                                         },
                                     },
-                                    span: 65..69,
+                                    span: 328..334,
                                 },
                                 effect_variables: [],
                             },
@@ -74,7 +75,7 @@ Some(
                                             node: Ident(
                                                 "x",
                                             ),
-                                            span: 79..80,
+                                            span: 350..351,
                                         },
                                         op: Lt,
                                         rhs: Spanned {
@@ -83,10 +84,10 @@ Some(
                                                     "1000",
                                                 ),
                                             ),
-                                            span: 81..85,
+                                            span: 353..358,
                                         },
                                     },
-                                    span: 79..85,
+                                    span: 350..358,
                                 },
                                 effect_variables: [],
                             },
@@ -98,17 +99,17 @@ Some(
                                             node: Ident(
                                                 "result",
                                             ),
-                                            span: 94..100,
+                                            span: 374..380,
                                         },
                                         op: Eq,
                                         rhs: Spanned {
                                             node: Ident(
                                                 "x",
                                             ),
-                                            span: 102..103,
+                                            span: 383..385,
                                         },
                                     },
-                                    span: 94..103,
+                                    span: 374..385,
                                 },
                                 effect_variables: [],
                             },
@@ -118,7 +119,7 @@ Some(
                                     node: Ident(
                                         "pure",
                                     ),
-                                    span: 104..117,
+                                    span: 387..407,
                                 },
                                 effect_variables: [],
                             },
@@ -126,7 +127,7 @@ Some(
                         fn_params: [],
                     },
                 ),
-                span: 0..118,
+                span: 0..409,
             },
         ],
     },

@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 42
 expression: ast
 ---
 SourceFile {
@@ -27,7 +28,7 @@ SourceFile {
                                         "Nat",
                                     ],
                                 ),
-                                span: 19..41,
+                                span: 89..114,
                             },
                             effect_variables: [],
                         },
@@ -41,7 +42,7 @@ SourceFile {
                                         "Bool",
                                     ],
                                 ),
-                                span: 41..60,
+                                span: 114..137,
                             },
                             effect_variables: [],
                         },
@@ -53,7 +54,7 @@ SourceFile {
                                         node: Ident(
                                             "n",
                                         ),
-                                        span: 69..70,
+                                        span: 152..153,
                                     },
                                     op: Gt,
                                     rhs: Spanned {
@@ -62,10 +63,10 @@ SourceFile {
                                                 "0",
                                             ),
                                         ),
-                                        span: 71..72,
+                                        span: 155..157,
                                     },
                                 },
-                                span: 69..72,
+                                span: 152..157,
                             },
                             effect_variables: [],
                         },
@@ -77,7 +78,7 @@ SourceFile {
                                         node: Ident(
                                             "result",
                                         ),
-                                        span: 81..87,
+                                        span: 173..179,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
@@ -86,10 +87,10 @@ SourceFile {
                                                 true,
                                             ),
                                         ),
-                                        span: 89..93,
+                                        span: 182..187,
                                     },
                                 },
-                                span: 81..93,
+                                span: 173..187,
                             },
                             effect_variables: [],
                         },
@@ -99,7 +100,7 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 94..107,
+                                span: 189..209,
                             },
                             effect_variables: [],
                         },
@@ -111,7 +112,7 @@ SourceFile {
                                         node: Ident(
                                             "n",
                                         ),
-                                        span: 117..118,
+                                        span: 224..225,
                                     },
                                     op: Gte,
                                     rhs: Spanned {
@@ -120,10 +121,10 @@ SourceFile {
                                                 "0",
                                             ),
                                         ),
-                                        span: 120..121,
+                                        span: 228..230,
                                     },
                                 },
-                                span: 117..121,
+                                span: 224..230,
                             },
                             effect_variables: [],
                         },
@@ -133,7 +134,7 @@ SourceFile {
                                 node: Ident(
                                     "buf",
                                 ),
-                                span: 122..135,
+                                span: 232..251,
                             },
                             effect_variables: [],
                         },
@@ -145,7 +146,7 @@ SourceFile {
                                         node: Ident(
                                             "n",
                                         ),
-                                        span: 140..141,
+                                        span: 261..262,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -154,15 +155,15 @@ SourceFile {
                                                 node: Ident(
                                                     "buf",
                                                 ),
-                                                span: 143..146,
+                                                span: 265..269,
                                             },
                                             method: "length",
                                             args: [],
                                         },
-                                        span: 143..155,
+                                        span: 265..278,
                                     },
                                 },
-                                span: 140..155,
+                                span: 261..278,
                             },
                             effect_variables: [],
                         },
@@ -176,7 +177,7 @@ SourceFile {
                                         "result",
                                     ],
                                 ),
-                                span: 156..178,
+                                span: 280..310,
                             },
                             effect_variables: [],
                         },
@@ -186,7 +187,7 @@ SourceFile {
                                 node: Ident(
                                     "overflow",
                                 ),
-                                span: 187..195,
+                                span: 324..332,
                             },
                             effect_variables: [],
                         },
@@ -194,7 +195,7 @@ SourceFile {
                     fn_params: [],
                 },
             ),
-            span: 0..197,
+            span: 0..336,
         },
     ],
 }
