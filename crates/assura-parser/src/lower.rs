@@ -8,6 +8,7 @@
 //! with error-recovered partial trees.
 
 use crate::ast::*;
+use crate::cst;
 use crate::syntax_kind::SyntaxKind;
 
 type SyntaxNode = crate::syntax_kind::SyntaxNode;
@@ -106,10 +107,7 @@ fn collect_text(n: &SyntaxNode) -> String {
 fn collect_token_texts(n: &SyntaxNode) -> Vec<String> {
     n.descendants_with_tokens()
         .filter_map(|el| el.into_token())
-        .filter(|t| {
-            let k = t.kind();
-            k != SyntaxKind::WHITESPACE && k != SyntaxKind::COMMENT
-        })
+        .filter(|t| !cst::is_trivia(t.kind()))
         .map(|t| t.text().to_string())
         .collect()
 }
@@ -366,7 +364,7 @@ fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
         .filter_map(|el| match el {
             rowan::NodeOrToken::Token(t) => {
                 let k = t.kind();
-                if k == SyntaxKind::WHITESPACE || k == SyntaxKind::COMMENT {
+                if cst::is_trivia(k) {
                     return None;
                 }
                 // Skip the clause keyword (the first significant token under
@@ -517,7 +515,7 @@ fn lower_literal(n: &SyntaxNode) -> Expr {
     let Some(tok) = n
         .children_with_tokens()
         .filter_map(|el| el.into_token())
-        .find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
+        .find(|t| !cst::is_trivia(t.kind()))
     else {
         return Expr::Raw(collect_token_texts(n));
     };
@@ -990,7 +988,7 @@ fn collect_body_after_eq(n: &SyntaxNode) -> Vec<String> {
                         inside_braces = false;
                     }
                 }
-                SyntaxKind::WHITESPACE | SyntaxKind::COMMENT => {}
+                k if cst::is_trivia(k) => {}
                 _ if inside_braces => {
                     tokens.push(tok.text().to_string());
                 }
@@ -1014,7 +1012,7 @@ fn collect_alias_tokens(n: &SyntaxNode) -> Vec<String> {
             if !saw_eq {
                 continue;
             }
-            if tok.kind() == SyntaxKind::WHITESPACE || tok.kind() == SyntaxKind::COMMENT {
+            if cst::is_trivia(tok.kind()) {
                 continue;
             }
             if tok.kind() == SyntaxKind::SEMICOLON {
@@ -1053,13 +1051,9 @@ fn lower_field_def(n: &SyntaxNode) -> FieldDef {
             if !saw_colon {
                 return false;
             }
-            if matches!(
-                t.kind(),
-                SyntaxKind::SEMICOLON
-                    | SyntaxKind::COMMA
-                    | SyntaxKind::WHITESPACE
-                    | SyntaxKind::COMMENT
-            ) {
+            if matches!(t.kind(), SyntaxKind::SEMICOLON | SyntaxKind::COMMA)
+                || cst::is_trivia(t.kind())
+            {
                 return false;
             }
             true
@@ -1126,7 +1120,7 @@ fn collect_paren_tokens(n: &SyntaxNode) -> Vec<String> {
                         break; // closing
                     }
                 }
-                SyntaxKind::WHITESPACE | SyntaxKind::COMMENT => {}
+                k if cst::is_trivia(k) => {}
                 SyntaxKind::COMMA if inside && depth == 0 => {
                     // Skip top-level commas (field separators)
                 }
@@ -1181,7 +1175,7 @@ fn lower_prophecy(n: &SyntaxNode) -> ProphecyDecl {
                 after_colon = true;
                 continue;
             }
-            if after_colon && tok.kind() != SyntaxKind::WHITESPACE {
+            if after_colon && !cst::is_trivia(tok.kind()) {
                 ty_tokens.push(tok.text().to_string());
             }
         }
@@ -1258,7 +1252,7 @@ fn lower_codec_registry(n: &SyntaxNode) -> CodecRegistryDecl {
         .filter_map(|el| el.into_token())
         .filter(|t| {
             let k = t.kind();
-            k != SyntaxKind::WHITESPACE && k != SyntaxKind::COMMENT
+            !cst::is_trivia(k)
         })
         .map(|t| (t.kind(), t.text().to_string()))
         .collect();
@@ -1303,7 +1297,7 @@ fn lower_codec_entry(n: &SyntaxNode) -> CodecEntry {
         .filter_map(|el| el.into_token())
         .filter(|t| {
             let k = t.kind();
-            k != SyntaxKind::WHITESPACE && k != SyntaxKind::COMMENT
+            !cst::is_trivia(k)
         })
         .map(|t| (t.kind(), t.text().to_string()))
         .collect();
@@ -1553,7 +1547,7 @@ fn lower_service_item(n: &SyntaxNode) -> Option<ServiceItem> {
             let first_tok = n
                 .children_with_tokens()
                 .filter_map(|el| el.into_token())
-                .find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
+                .find(|t| !cst::is_trivia(t.kind()))
                 .map(|t| t.kind());
 
             match first_tok {
@@ -1592,7 +1586,7 @@ fn lower_service_item(n: &SyntaxNode) -> Option<ServiceItem> {
                     let kind = n
                         .children_with_tokens()
                         .filter_map(|el| el.into_token())
-                        .find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
+                        .find(|t| !cst::is_trivia(t.kind()))
                         .map(|t| t.text().to_string())
                         .unwrap_or_default();
                     let body = lower_clause_body(n);
@@ -1613,7 +1607,7 @@ fn lower_generic_block(n: &SyntaxNode) -> Decl {
     let mut tokens_iter = n
         .children_with_tokens()
         .filter_map(|el| el.into_token())
-        .filter(|t| t.kind() != SyntaxKind::WHITESPACE && t.kind() != SyntaxKind::COMMENT);
+        .filter(|t| !cst::is_trivia(t.kind()));
 
     let kind_str = tokens_iter
         .next()
@@ -1708,7 +1702,7 @@ fn lower_param(n: &SyntaxNode) -> Param {
                     saw_colon = true;
                     continue;
                 }
-                if tok.kind() == SyntaxKind::WHITESPACE || tok.kind() == SyntaxKind::COMMENT {
+                if cst::is_trivia(tok.kind()) {
                     continue;
                 }
                 if !saw_colon {
@@ -1748,7 +1742,7 @@ fn collect_return_type_tokens(n: &SyntaxNode) -> Vec<String> {
     n.children_with_tokens()
         .filter_map(|el| el.into_token())
         .filter(move |t| {
-            if t.kind() == SyntaxKind::WHITESPACE || t.kind() == SyntaxKind::COMMENT {
+            if cst::is_trivia(t.kind()) {
                 return false;
             }
             if !skipped_leader && (t.kind() == SyntaxKind::ARROW || t.kind() == SyntaxKind::COLON) {

@@ -66,7 +66,7 @@ fn param(p: &mut Parser) {
         if p.at(SyntaxKind::L_BRACKET) {
             p.bump(); // [
             p.bump_trivia();
-            super::body_tokens_inner(p, &[]);
+            super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
             p.eat(SyntaxKind::R_BRACKET);
         }
     }
@@ -218,7 +218,7 @@ pub(crate) fn fn_return_type(p: &mut Parser) {
     // First element can be a refinement type `{...}`
     if p.at(SyntaxKind::L_BRACE) {
         p.bump(); // {
-        super::body_tokens_inner(p, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
         p.eat(SyntaxKind::R_BRACE);
     }
 
