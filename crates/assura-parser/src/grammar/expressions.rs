@@ -258,6 +258,7 @@ fn match_expr(p: &mut Parser) -> CompletedMarker {
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         match_arm(p);
         p.eat(SyntaxKind::COMMA);
+        p.bump_trivia();
     }
     arms.complete(p, SyntaxKind::MATCH_ARM_LIST);
 
