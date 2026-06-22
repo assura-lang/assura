@@ -320,4 +320,18 @@ mod tests {
         assert!(type_node.is_some(), "should have a TYPE_DEF");
         assert!(enum_node.is_some(), "should have an ENUM_DEF");
     }
+
+    #[test]
+    fn parse_trailing_trivia_does_not_infinite_loop() {
+        // Regression test for #335: trailing trivia (final \n) caused
+        // infinite loop in source_file's !eof_raw + bump_raw force loop,
+        // because bump_trivia/bump_raw used the trivia-aware eof().
+        let src = "contract C { requires { true } }\n";
+        let (root, errors) = parse_to_tree(src);
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert!(
+            root.children()
+                .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL)
+        );
+    }
 }

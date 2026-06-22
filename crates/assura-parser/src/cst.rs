@@ -208,7 +208,7 @@ impl Parser {
     /// events under the current parent. Used internally by bump() and
     /// explicitly after manual delimiter bumps in clause bodies etc.
     pub(crate) fn bump_trivia(&mut self) {
-        while !self.eof() && is_trivia(self.tokens[self.pos].kind) {
+        while !self.eof_raw() && is_trivia(self.tokens[self.pos].kind) {
             self.fuel = 256;
             self.events.push(Event::Advance);
             self.pos += 1;
