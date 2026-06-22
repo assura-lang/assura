@@ -58,7 +58,7 @@ fn project_decl(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT);
     if p.at(SyntaxKind::L_BRACE) {
         p.bump(); // {
-                  // profile: [...]
+        // profile: [...]
         if p.at(SyntaxKind::PROFILE_KW) {
             p.bump();
             p.expect(SyntaxKind::COLON);
@@ -157,35 +157,44 @@ fn at_decl_start(p: &mut Parser) -> bool {
 
 /// Collect tokens with balanced delimiters until we hit a stopper or EOF.
 /// Uses raw access so that trivia are included (for correct source offsets).
+/// Uses stack to properly match specific closers for mixed delimiters
+/// (e.g. ( inside { bodies) and multiple sibling blocks.
 fn body_tokens_inner(p: &mut Parser, stoppers: &[SyntaxKind]) {
+    let mut stack: Vec<SyntaxKind> = Vec::new();
+    if stack.is_empty() {
+        // virtual entry level for this collection (body after L bumped by caller)
+        stack.push(SyntaxKind::R_BRACE);
+    }
     while !p.eof() {
         let cur = p.current_raw();
-        if stoppers.contains(&cur) {
+        if stack.len() <= 1 && stoppers.contains(&cur) {
             break;
         }
         match cur {
             SyntaxKind::L_BRACE => {
                 p.bump_raw();
-                body_tokens_inner(p, &[]);
-                if p.current_raw() == SyntaxKind::R_BRACE {
-                    p.bump_raw();
-                }
+                stack.push(SyntaxKind::R_BRACE);
             }
             SyntaxKind::L_PAREN => {
                 p.bump_raw();
-                body_tokens_inner(p, &[]);
-                if p.current_raw() == SyntaxKind::R_PAREN {
-                    p.bump_raw();
-                }
+                stack.push(SyntaxKind::R_PAREN);
             }
             SyntaxKind::L_BRACKET => {
                 p.bump_raw();
-                body_tokens_inner(p, &[]);
-                if p.current_raw() == SyntaxKind::R_BRACKET {
+                stack.push(SyntaxKind::R_BRACKET);
+            }
+            SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => {
+                if stack.last() == Some(&cur) {
+                    stack.pop();
+                    if stack.is_empty() {
+                        // popped the virtual entry: leave this closer un-bumped for caller
+                        break;
+                    }
                     p.bump_raw();
+                } else {
+                    break;
                 }
             }
-            SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
             _ => {
                 p.bump_raw();
             }
@@ -196,7 +205,7 @@ fn body_tokens_inner(p: &mut Parser, stoppers: &[SyntaxKind]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cst::{self, build_tree, LexedToken, TokenSpan};
+    use crate::cst::{self, LexedToken, TokenSpan, build_tree};
     use crate::lexer::Token;
     use crate::syntax_kind::SyntaxNode;
     use logos::Logos;
@@ -329,9 +338,10 @@ mod tests {
         let src = "contract C { requires { true } }\n";
         let (root, errors) = parse_to_tree(src);
         assert!(errors.is_empty(), "errors: {errors:?}");
-        assert!(root
-            .children()
-            .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL));
+        assert!(
+            root.children()
+                .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL)
+        );
     }
 
     #[test]
@@ -370,8 +380,9 @@ contract X {
 "#;
         let (root, errors) = parse_to_tree(src);
         assert!(errors.is_empty(), "parse errors: {errors:?}");
-        assert!(root
-            .children()
-            .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL));
+        assert!(
+            root.children()
+                .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL)
+        );
     }
 }

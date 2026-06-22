@@ -1760,7 +1760,7 @@ fn collect_return_type_tokens(n: &SyntaxNode) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cst::{self, build_tree, LexedToken, TokenSpan};
+    use crate::cst::{self, LexedToken, TokenSpan, build_tree};
     use crate::grammar;
     use crate::lexer::Token;
     use crate::syntax_kind::SyntaxKind;
