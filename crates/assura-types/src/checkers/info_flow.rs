@@ -247,11 +247,7 @@ impl DependentTypeChecker {
                     || !self.index_vars.contains_key(name)
             }
             Expr::BinOp { lhs, op, rhs } => {
-                matches!(
-                    op,
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
-                ) && self.is_nat_expr(lhs)
-                    && self.is_nat_expr(rhs)
+                op.is_arithmetic() && self.is_nat_expr(lhs) && self.is_nat_expr(rhs)
             }
             Expr::UnaryOp {
                 op: UnaryOp::Neg,

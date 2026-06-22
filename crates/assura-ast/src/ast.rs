@@ -412,76 +412,84 @@ pub enum BinOp {
 }
 
 impl BinOp {
+    /// Returns a triple of (assura_source, rust_source, ident) representations.
+    /// This centralizes the per-operator data to avoid duplicating the 17-arm
+    /// match in three different methods.
+    fn repr(&self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            BinOp::Add => ("+", "+", "add"),
+            BinOp::Sub => ("-", "-", "sub"),
+            BinOp::Mul => ("*", "*", "mul"),
+            BinOp::Div => ("/", "/", "div"),
+            BinOp::Mod => ("mod", "%", "mod"),
+            BinOp::Eq => ("==", "==", "eq"),
+            BinOp::Neq => ("!=", "!=", "neq"),
+            BinOp::Lt => ("<", "<", "lt"),
+            BinOp::Lte => ("<=", "<=", "lte"),
+            BinOp::Gt => (">", ">", "gt"),
+            BinOp::Gte => (">=", ">=", "gte"),
+            BinOp::And => ("and", "&&", "and"),
+            BinOp::Or => ("or", "||", "or"),
+            BinOp::Implies => ("=>", "/* implies */", "implies"),
+            BinOp::In => ("in", "/* in */", "in"),
+            BinOp::NotIn => ("not in", "/* not in */", "notin"),
+            BinOp::Concat => ("++", "/* ++ */", "concat"),
+            BinOp::Range => ("..", "..", "range"),
+        }
+    }
+
     /// Returns the Assura source-level string for this operator.
     pub fn as_str(&self) -> &'static str {
-        match self {
-            BinOp::Add => "+",
-            BinOp::Sub => "-",
-            BinOp::Mul => "*",
-            BinOp::Div => "/",
-            BinOp::Mod => "mod",
-            BinOp::Eq => "==",
-            BinOp::Neq => "!=",
-            BinOp::Lt => "<",
-            BinOp::Lte => "<=",
-            BinOp::Gt => ">",
-            BinOp::Gte => ">=",
-            BinOp::And => "and",
-            BinOp::Or => "or",
-            BinOp::Implies => "=>",
-            BinOp::In => "in",
-            BinOp::NotIn => "not in",
-            BinOp::Concat => "++",
-            BinOp::Range => "..",
-        }
+        self.repr().0
     }
 
     /// Returns an identifier-safe name for this operator (e.g., "add", "sub").
     pub fn as_ident(&self) -> &'static str {
-        match self {
-            BinOp::Add => "add",
-            BinOp::Sub => "sub",
-            BinOp::Mul => "mul",
-            BinOp::Div => "div",
-            BinOp::Mod => "mod",
-            BinOp::Eq => "eq",
-            BinOp::Neq => "neq",
-            BinOp::Lt => "lt",
-            BinOp::Lte => "lte",
-            BinOp::Gt => "gt",
-            BinOp::Gte => "gte",
-            BinOp::And => "and",
-            BinOp::Or => "or",
-            BinOp::Implies => "implies",
-            BinOp::In => "in",
-            BinOp::NotIn => "notin",
-            BinOp::Concat => "concat",
-            BinOp::Range => "range",
-        }
+        self.repr().2
     }
 
     /// Returns the Rust code-level string for this operator.
     pub fn as_rust_str(&self) -> &'static str {
-        match self {
-            BinOp::Add => "+",
-            BinOp::Sub => "-",
-            BinOp::Mul => "*",
-            BinOp::Div => "/",
-            BinOp::Mod => "%",
-            BinOp::Eq => "==",
-            BinOp::Neq => "!=",
-            BinOp::Lt => "<",
-            BinOp::Lte => "<=",
-            BinOp::Gt => ">",
-            BinOp::Gte => ">=",
-            BinOp::And => "&&",
-            BinOp::Or => "||",
-            BinOp::Implies => "/* implies */",
-            BinOp::In => "/* in */",
-            BinOp::NotIn => "/* not in */",
-            BinOp::Concat => "/* ++ */",
-            BinOp::Range => "..",
-        }
+        self.repr().1
+    }
+
+    /// Returns true for arithmetic operators (+ - * / %).
+    /// These typically require numeric operands.
+    pub fn is_arithmetic(&self) -> bool {
+        matches!(
+            self,
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
+        )
+    }
+
+    /// Returns true for all comparison/relational operators (== != < <= > >=).
+    pub fn is_comparison(&self) -> bool {
+        matches!(
+            self,
+            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
+        )
+    }
+
+    /// Returns true for ordering comparisons (< <= > >=).
+    /// These are the ones that often need i128 widening casts for mixed-width
+    /// numeric comparisons in generated Rust.
+    pub fn is_ordering_comparison(&self) -> bool {
+        matches!(self, BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte)
+    }
+
+    /// Returns true for logical operators (and, or, implies).
+    pub fn is_logical(&self) -> bool {
+        matches!(self, BinOp::And | BinOp::Or | BinOp::Implies)
+    }
+
+    /// Returns true for division and modulo (special handling for div-by-zero).
+    pub fn is_division_like(&self) -> bool {
+        matches!(self, BinOp::Div | BinOp::Mod)
+    }
+
+    /// Returns true for collection membership tests (in, not in).
+    pub fn is_membership(&self) -> bool {
+        matches!(self, BinOp::In | BinOp::NotIn)
     }
 }
 
@@ -489,6 +497,24 @@ impl BinOp {
 pub enum UnaryOp {
     Neg,
     Not,
+}
+
+impl UnaryOp {
+    /// Assura source string for the operator.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Neg => "-",
+            UnaryOp::Not => "not",
+        }
+    }
+
+    /// Rust source string for the operator.
+    pub fn as_rust_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Neg => "-",
+            UnaryOp::Not => "!",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -717,6 +743,33 @@ pub trait ExprFolder {
     fn fold_raw(&mut self, tokens: &[String]) -> Self::Output;
 }
 
+/// Helpers for String-producing folders to avoid repeating
+/// `let v: Vec<String> = xs.iter().map(|e| self.fold_expr(e)).collect(); v.join(...)`
+pub fn fold_joined(
+    f: &mut (impl ExprFolder<Output = String> + ?Sized),
+    items: &[SpExpr],
+    sep: &str,
+) -> String {
+    let parts: Vec<String> = items.iter().map(|e| f.fold_expr(e)).collect();
+    parts.join(sep)
+}
+
+pub fn fold_arg_list(
+    f: &mut (impl ExprFolder<Output = String> + ?Sized),
+    args: &[SpExpr],
+) -> String {
+    fold_joined(f, args, ", ")
+}
+
+/// Format a literal as it would appear in Assura/Rust source (used by folders).
+pub fn literal_to_string(lit: &Literal) -> String {
+    match lit {
+        Literal::Int(s) | Literal::Float(s) => s.clone(),
+        Literal::Str(s) => format!("\"{s}\""),
+        Literal::Bool(b) => b.to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Structured type expressions
 // ---------------------------------------------------------------------------
@@ -754,16 +807,17 @@ impl TypeExpr {
         match self {
             TypeExpr::Named(name) => name.clone(),
             TypeExpr::Generic(name, args) => {
-                let args_s: Vec<String> = args.iter().map(|a| a.to_display_string()).collect();
-                format!("{}<{}>", name, args_s.join(", "))
+                format!("{}<{}>", name, Self::join_type_list(args, ", "))
             }
             TypeExpr::Tuple(elems) => {
-                let elems_s: Vec<String> = elems.iter().map(|e| e.to_display_string()).collect();
-                format!("({})", elems_s.join(", "))
+                format!("({})", Self::join_type_list(elems, ", "))
             }
             TypeExpr::Fn { params, ret } => {
-                let params_s: Vec<String> = params.iter().map(|p| p.to_display_string()).collect();
-                format!("fn({}) -> {}", params_s.join(", "), ret.to_display_string())
+                format!(
+                    "fn({}) -> {}",
+                    Self::join_type_list(params, ", "),
+                    ret.to_display_string()
+                )
             }
             TypeExpr::Refined { base, .. } => {
                 format!("{{ {} | ... }}", base.to_display_string())
@@ -780,6 +834,11 @@ impl TypeExpr {
     /// Convenience: create a Generic type.
     pub fn generic(name: impl Into<String>, args: Vec<TypeExpr>) -> Self {
         TypeExpr::Generic(name.into(), args)
+    }
+
+    fn join_type_list(items: &[TypeExpr], sep: &str) -> String {
+        let s: Vec<String> = items.iter().map(|e| e.to_display_string()).collect();
+        s.join(sep)
     }
 
     /// Convert back to raw token strings (bridge for consumers that need `Vec<String>`).
@@ -1297,11 +1356,7 @@ impl ExprFolder for AssuraDisplayFolder {
     type Output = String;
 
     fn fold_literal(&mut self, lit: &Literal) -> String {
-        match lit {
-            Literal::Int(s) | Literal::Float(s) => s.clone(),
-            Literal::Str(s) => format!("\"{s}\""),
-            Literal::Bool(b) => b.to_string(),
-        }
+        literal_to_string(lit)
     }
 
     fn fold_ident(&mut self, name: &str) -> String {
@@ -1313,17 +1368,15 @@ impl ExprFolder for AssuraDisplayFolder {
     }
 
     fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) -> String {
-        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
         format!(
             "{}.{method}({})",
             self.fold_expr(receiver),
-            args_s.join(", ")
+            fold_arg_list(self, args)
         )
     }
 
     fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> String {
-        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
-        format!("{}({})", self.fold_expr(func), args_s.join(", "))
+        format!("{}({})", self.fold_expr(func), fold_arg_list(self, args))
     }
 
     fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) -> String {
@@ -1354,11 +1407,7 @@ impl ExprFolder for AssuraDisplayFolder {
     }
 
     fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) -> String {
-        let op_s = match op {
-            UnaryOp::Neg => "-",
-            UnaryOp::Not => "not",
-        };
-        format!("{op_s} {}", self.fold_expr(inner))
+        format!("{} {}", op.as_str(), self.fold_expr(inner))
     }
 
     fn fold_old(&mut self, inner: &SpExpr) -> String {
@@ -1398,8 +1447,7 @@ impl ExprFolder for AssuraDisplayFolder {
     }
 
     fn fold_list(&mut self, items: &[SpExpr]) -> String {
-        let elems_s: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
-        format!("[{}]", elems_s.join(", "))
+        format!("[{}]", fold_joined(self, items, ", "))
     }
 
     fn fold_cast(&mut self, inner: &SpExpr, ty: &str) -> String {
@@ -1407,8 +1455,7 @@ impl ExprFolder for AssuraDisplayFolder {
     }
 
     fn fold_block(&mut self, exprs: &[SpExpr]) -> String {
-        let strs: Vec<String> = exprs.iter().map(|e| self.fold_expr(e)).collect();
-        strs.join(" ")
+        fold_joined(self, exprs, " ")
     }
 
     fn fold_ghost(&mut self, inner: &SpExpr) -> String {
@@ -1416,8 +1463,7 @@ impl ExprFolder for AssuraDisplayFolder {
     }
 
     fn fold_apply(&mut self, name: &str, args: &[SpExpr]) -> String {
-        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
-        format!("apply {name}({})", args_s.join(", "))
+        format!("apply {name}({})", fold_arg_list(self, args))
     }
 
     fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) -> String {
@@ -1442,8 +1488,7 @@ impl ExprFolder for AssuraDisplayFolder {
     }
 
     fn fold_tuple(&mut self, items: &[SpExpr]) -> String {
-        let elems: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
-        format!("({})", elems.join(", "))
+        format!("({})", fold_joined(self, items, ", "))
     }
 
     fn fold_raw(&mut self, tokens: &[String]) -> String {

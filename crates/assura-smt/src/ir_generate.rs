@@ -93,8 +93,7 @@ pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> Ens
             if matches!(&other.node, Expr::Ident(_)) {
                 return EnsuresShape::Identity;
             }
-            if matches!(&other.node, Expr::BinOp { op, .. } if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod))
-            {
+            if matches!(&other.node, Expr::BinOp { op, .. } if op.is_arithmetic()) {
                 return EnsuresShape::Arithmetic;
             }
         }
@@ -338,7 +337,7 @@ fn plan_result_arith(
     ctx: &PlanCtx<'_>,
 ) -> Option<IrGenBody> {
     let ir_op = match op {
-        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => op.as_ident(),
+        _ if op.is_arithmetic() => op.as_ident(),
         _ => return None,
     };
 

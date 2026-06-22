@@ -1,7 +1,7 @@
 //! Type mapping, Cargo.toml generation, and type definition codegen.
 
 use super::*;
-use assura_ast::ExprFolder;
+use assura_ast::{ExprFolder, fold_arg_list, fold_joined, literal_to_string};
 
 pub(crate) fn generate_cargo_toml_impl(
     crate_name: &str,
@@ -557,11 +557,7 @@ impl ExprFolder for RustStaticExprFolder {
     type Output = String;
 
     fn fold_literal(&mut self, lit: &Literal) -> String {
-        match lit {
-            Literal::Int(s) | Literal::Float(s) => s.clone(),
-            Literal::Str(s) => format!("\"{s}\""),
-            Literal::Bool(b) => b.to_string(),
-        }
+        literal_to_string(lit)
     }
 
     fn fold_ident(&mut self, name: &str) -> String {
@@ -579,10 +575,7 @@ impl ExprFolder for RustStaticExprFolder {
 
     fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) -> String {
         let inner_s = self.fold_expr(inner);
-        match op {
-            UnaryOp::Neg => format!("-{inner_s}"),
-            UnaryOp::Not => format!("!{inner_s}"),
-        }
+        format!("{}{inner_s}", op.as_rust_str())
     }
 
     fn fold_field(&mut self, receiver: &SpExpr, field: &str) -> String {
@@ -592,14 +585,12 @@ impl ExprFolder for RustStaticExprFolder {
 
     fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> String {
         let f = self.fold_expr(func);
-        let a: Vec<String> = args.iter().map(|x| self.fold_expr(x)).collect();
-        format!("{f}({})", a.join(", "))
+        format!("{f}({})", fold_arg_list(self, args))
     }
 
     fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) -> String {
         let recv = self.fold_expr(receiver);
-        let a: Vec<String> = args.iter().map(|x| self.fold_expr(x)).collect();
-        format!("{recv}.{method}({})", a.join(", "))
+        format!("{recv}.{method}({})", fold_arg_list(self, args))
     }
 
     fn fold_if(
@@ -640,13 +631,11 @@ impl ExprFolder for RustStaticExprFolder {
     }
 
     fn fold_list(&mut self, items: &[SpExpr]) -> String {
-        let elems: Vec<String> = items.iter().map(|x| self.fold_expr(x)).collect();
-        format!("vec![{}]", elems.join(", "))
+        format!("vec![{}]", fold_joined(self, items, ", "))
     }
 
     fn fold_tuple(&mut self, items: &[SpExpr]) -> String {
-        let elems: Vec<String> = items.iter().map(|x| self.fold_expr(x)).collect();
-        format!("({})", elems.join(", "))
+        format!("({})", fold_joined(self, items, ", "))
     }
 
     fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) -> String {
@@ -688,8 +677,7 @@ impl ExprFolder for RustStaticExprFolder {
     }
 
     fn fold_block(&mut self, exprs: &[SpExpr]) -> String {
-        let strs: Vec<String> = exprs.iter().map(|x| self.fold_expr(x)).collect();
-        strs.join(" ")
+        fold_joined(self, exprs, " ")
     }
 
     fn fold_forall(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
@@ -705,8 +693,7 @@ impl ExprFolder for RustStaticExprFolder {
     }
 
     fn fold_apply(&mut self, lemma_name: &str, args: &[SpExpr]) -> String {
-        let a: Vec<String> = args.iter().map(|x| self.fold_expr(x)).collect();
-        format!("/* apply {lemma_name}({}) */ ()", a.join(", "))
+        format!("/* apply {lemma_name}({}) */ ()", fold_arg_list(self, args))
     }
 
     fn fold_raw(&mut self, tokens: &[String]) -> String {

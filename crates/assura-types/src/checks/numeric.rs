@@ -1,6 +1,6 @@
 //! Numeric, fixed-width, and collection checks.
 
-use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, SpExpr};
+use assura_parser::ast::{ClauseKind, Decl, Expr, SpExpr};
 
 use crate::checkers::*;
 use crate::domain::*;
@@ -67,7 +67,8 @@ fn check_expr_fixed_width_full(
                 && let Some(right_type) = infer_fixed_width_type_ext(rhs, type_env, fw_checker)
             {
                 // Warn when mixing unsigned and signed in arithmetic (not just comparison)
-                if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul)
+                if op.is_arithmetic()
+                    && !op.is_division_like()
                     && FixedWidthChecker::is_unsigned(&left_type)
                         != FixedWidthChecker::is_unsigned(&right_type)
                     && FixedWidthChecker::is_fixed_width(&left_type)

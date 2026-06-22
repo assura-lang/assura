@@ -76,11 +76,13 @@ pub fn infer_expr(expr: &SpExpr, env: &TypeEnv) -> Result<Type, TypeError> {
     infer_expr_spanned(expr, env, 0..0)
 }
 
-/// Infer the type of an expression with a context span for error reporting.
+/// Infer the type of an expression with a context/fallback span for error reporting.
 ///
-/// The span is used in all `TypeError` instances produced during inference
-/// so that diagnostics point to the enclosing clause body rather than the
-/// start of the file.
+/// When the expression has a real (non-zero) span from lowering (post 11.04),
+/// errors use the expression's own span for precision (e.g. pointing to the
+/// bad sub-expression rather than the whole clause/decl).
+/// The passed `span` is used as fallback for recovery nodes (span 0..0) or
+/// top-level clause context.
 pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Type, TypeError> {
     match &expr.node {
         // --- Literals ---
@@ -105,7 +107,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
 
         // --- Unary operations ---
         Expr::UnaryOp { op, expr: inner } => {
-            let inner_ty = infer_expr_spanned(inner, env, span.clone())?;
+            let inner_ty = infer_expr_spanned(inner, env, inner.span.clone())?;
             match op {
                 UnaryOp::Neg => {
                     if inner_ty.is_indeterminate() || is_numeric(&inner_ty) {
@@ -116,7 +118,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                             message: format!(
                                 "unary `-` requires a numeric type, found `{inner_ty}`"
                             ),
-                            span: span.clone(),
+                            span: inner.span.clone(),
                             secondary: None,
                         })
                     }
@@ -128,7 +130,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         Err(TypeError {
                             code: "A03001".into(),
                             message: format!("unary `!` requires Bool, found `{inner_ty}`"),
-                            span: span.clone(),
+                            span: inner.span.clone(),
                             secondary: None,
                         })
                     }
@@ -142,18 +144,18 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
             then_branch,
             else_branch,
         } => {
-            let cond_ty = infer_expr_spanned(cond, env, span.clone())?;
+            let cond_ty = infer_expr_spanned(cond, env, cond.span.clone())?;
             if !cond_ty.is_indeterminate() && cond_ty != Type::Bool {
                 return Err(TypeError {
                     code: "A03001".into(),
                     message: format!("if condition must be Bool, found `{cond_ty}`"),
-                    span: span.clone(),
+                    span: cond.span.clone(),
                     secondary: None,
                 });
             }
-            let then_ty = infer_expr_spanned(then_branch, env, span.clone())?;
+            let then_ty = infer_expr_spanned(then_branch, env, then_branch.span.clone())?;
             if let Some(else_br) = else_branch {
-                let else_ty = infer_expr_spanned(else_br, env, span.clone())?;
+                let else_ty = infer_expr_spanned(else_br, env, else_br.span.clone())?;
                 if then_ty.is_indeterminate() {
                     Ok(else_ty)
                 } else if else_ty.is_indeterminate() || types_compatible(&then_ty, &else_ty) {
@@ -164,7 +166,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         message: format!(
                             "if branches have different types: `{then_ty}` vs `{else_ty}`"
                         ),
-                        span: span.clone(),
+                        span: then_branch.span.clone(), // or whole if; using then for now
                         secondary: None,
                     })
                 }
@@ -176,28 +178,28 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
         // --- Quantifiers ---
         Expr::Forall { var, domain, body } | Expr::Exists { var, domain, body } => {
             // Infer the domain type to determine the quantified variable's type.
-            let domain_ty = infer_expr_spanned(domain, env, span.clone())?;
+            let domain_ty = infer_expr_spanned(domain, env, domain.span.clone())?;
             let elem_ty = element_type_of(&domain_ty);
             // Bind the quantified variable in a child environment so the
             // body can reference it with the correct type.
             let mut child_env = env.clone();
             child_env.insert(var.clone(), elem_ty);
-            let _body_ty = infer_expr_spanned(body, &child_env, span.clone())?;
+            let _body_ty = infer_expr_spanned(body, &child_env, body.span.clone())?;
             Ok(Type::Bool)
         }
 
         // --- old(expr) ---
-        Expr::Old(inner) => infer_expr_spanned(inner, env, span.clone()),
+        Expr::Old(inner) => infer_expr_spanned(inner, env, inner.span.clone()),
 
         // --- List literal ---
         Expr::List(items) => {
             if items.is_empty() {
                 return Ok(Type::List(Box::new(Type::Unknown)));
             }
-            let first_ty = infer_expr_spanned(&items[0], env, span.clone())?;
+            let first_ty = infer_expr_spanned(&items[0], env, items[0].span.clone())?;
             // Check remaining items match the first
             for item in &items[1..] {
-                let item_ty = infer_expr_spanned(item, env, span.clone())?;
+                let item_ty = infer_expr_spanned(item, env, item.span.clone())?;
                 if !item_ty.is_indeterminate()
                     && !first_ty.is_indeterminate()
                     && item_ty != first_ty
@@ -207,7 +209,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         message: format!(
                             "list element type mismatch: expected `{first_ty}`, found `{item_ty}`"
                         ),
-                        span: span.clone(),
+                        span: item.span.clone(),
                         secondary: None,
                     });
                 }
@@ -217,7 +219,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
 
         // --- Field access ---
         Expr::Field(receiver, field) => {
-            let recv_ty = infer_expr_spanned(receiver, env, span.clone())?;
+            let recv_ty = infer_expr_spanned(receiver, env, receiver.span.clone())?;
             // Try to resolve the field on the receiver's type
             let struct_name = match &recv_ty {
                 Type::Named(name) => Some(name.as_str()),
@@ -333,10 +335,10 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
             method,
             args,
         } => {
-            let recv_ty = infer_expr_spanned(receiver, env, span.clone())?;
+            let recv_ty = infer_expr_spanned(receiver, env, receiver.span.clone())?;
             // Infer argument types to surface errors inside them
             for arg in args {
-                let _ = infer_expr_spanned(arg, env, span.clone())?;
+                let _ = infer_expr_spanned(arg, env, arg.span.clone())?;
             }
             // Try to resolve the method as a known function in the env
             if let Some(Type::Fn { ret, .. }) = env.lookup(method) {
@@ -420,7 +422,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                     "ok_or" | "ok_or_else" => {
                         // Infer the error type from the first arg if possible
                         let err_ty = if let Some(first_arg) = args.first() {
-                            infer_expr_spanned(first_arg, env, span.clone())
+                            infer_expr_spanned(first_arg, env, first_arg.span.clone())
                                 .unwrap_or(Type::Unknown)
                         } else {
                             Type::Unknown
@@ -430,7 +432,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                     "zip" => {
                         // Option<T>.zip(Option<U>) -> Option<(T, U)>
                         let other_ty = if let Some(first_arg) = args.first() {
-                            let arg_ty = infer_expr_spanned(first_arg, env, span.clone())
+                            let arg_ty = infer_expr_spanned(first_arg, env, first_arg.span.clone())
                                 .unwrap_or(Type::Unknown);
                             if let Type::Option(other_inner) = arg_ty {
                                 *other_inner
@@ -524,13 +526,13 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
         }
 
         // --- Function call ---
-        Expr::Call { func, args } => infer_call(func, args, env, span.clone()),
+        Expr::Call { func, args } => infer_call(func, args, env, func.span.clone()),
 
         // --- Index access ---
         Expr::Index { expr: base, index } => {
-            let base_ty = infer_expr_spanned(base, env, span.clone())?;
+            let base_ty = infer_expr_spanned(base, env, base.span.clone())?;
             // Infer index type to surface errors inside it.
-            let _index_ty = infer_expr_spanned(index, env, span.clone())?;
+            let _index_ty = infer_expr_spanned(index, env, index.span.clone())?;
             match &base_ty {
                 Type::List(elem) => Ok(*elem.clone()),
                 Type::Map(_key, val) => Ok(*val.clone()),
@@ -566,7 +568,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
         // --- Cast: infer from target type annotation ---
         Expr::Cast { expr: inner, ty } => {
             // Type-check the inner expression for side effects
-            let _ = infer_expr_spanned(inner, env, span.clone())?;
+            let _ = infer_expr_spanned(inner, env, inner.span.clone())?;
             // Parse the target type from the cast annotation
             Ok(parse_type_tokens(std::slice::from_ref(ty)))
         }
@@ -574,7 +576,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
         // --- Apply lemma: type-check args, result is Bool (adds assumption) ---
         Expr::Apply { args, .. } => {
             for arg in args {
-                let _ = infer_expr_spanned(arg, env, span.clone())?;
+                let _ = infer_expr_spanned(arg, env, arg.span.clone())?;
             }
             // apply expressions contribute assumptions; they have Bool type
             // in the verification domain
@@ -586,19 +588,19 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
             // Type-check the inner expression (it must be valid in the
             // verification domain) but the ghost block itself evaluates
             // to Unit since it is erased at runtime.
-            let _inner_ty = infer_expr_spanned(inner, env, span.clone())?;
+            let _inner_ty = infer_expr_spanned(inner, env, inner.span.clone())?;
             Ok(Type::Unit)
         }
 
         // --- Match: bind pattern variables and infer all arm types ---
         Expr::Match { scrutinee, arms } => {
-            let scrut_ty = infer_expr_spanned(scrutinee, env, span.clone())?;
+            let scrut_ty = infer_expr_spanned(scrutinee, env, scrutinee.span.clone())?;
             let mut result_ty = Type::Unknown;
             for arm in arms {
                 // Create a new env with pattern bindings
                 let mut arm_env = env.clone();
                 bind_pattern_vars(&arm.pattern, &scrut_ty, &mut arm_env);
-                let arm_ty = infer_expr_spanned(&arm.body, &arm_env, span.clone())?;
+                let arm_ty = infer_expr_spanned(&arm.body, &arm_env, arm.body.span.clone())?;
                 if arm_ty.is_indeterminate() {
                     continue;
                 }
@@ -621,17 +623,17 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
 
         // --- Let binding: bind value type, infer body type ---
         Expr::Let { name, value, body } => {
-            let val_ty = infer_expr_spanned(value, env, span.clone())?;
+            let val_ty = infer_expr_spanned(value, env, value.span.clone())?;
             let mut inner_env = env.clone();
             inner_env.insert(name.clone(), val_ty);
-            infer_expr_spanned(body, &inner_env, span.clone())
+            infer_expr_spanned(body, &inner_env, body.span.clone())
         }
 
         // --- Tuple: infer element types ---
         Expr::Tuple(elems) => {
             let mut elem_types = Vec::with_capacity(elems.len());
             for elem in elems {
-                elem_types.push(infer_expr_spanned(elem, env, span.clone())?);
+                elem_types.push(infer_expr_spanned(elem, env, elem.span.clone())?);
             }
             Ok(Type::Tuple(elem_types))
         }
@@ -640,7 +642,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
         Expr::Block(exprs) => {
             let mut last_ty = Type::Unit;
             for e in exprs {
-                last_ty = infer_expr_spanned(e, env, span.clone())?;
+                last_ty = infer_expr_spanned(e, env, e.span.clone())?;
             }
             Ok(last_ty)
         }
@@ -709,13 +711,13 @@ fn infer_binop(
     env: &TypeEnv,
     span: Span,
 ) -> Result<Type, TypeError> {
-    let lhs_ty = infer_expr_spanned(lhs, env, span.clone())?;
-    let rhs_ty = infer_expr_spanned(rhs, env, span.clone())?;
+    let lhs_ty = infer_expr_spanned(lhs, env, lhs.span.clone())?;
+    let rhs_ty = infer_expr_spanned(rhs, env, rhs.span.clone())?;
 
     // If either side is indeterminate, be lenient
     if lhs_ty.is_indeterminate() || rhs_ty.is_indeterminate() {
         return match op {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Concat => {
+            _ if op.is_arithmetic() || *op == BinOp::Concat => {
                 // Return whichever side is known, or Unknown
                 if !lhs_ty.is_indeterminate() {
                     Ok(lhs_ty)
@@ -725,31 +727,22 @@ fn infer_binop(
                     Ok(Type::Unknown)
                 }
             }
-            BinOp::Eq
-            | BinOp::Neq
-            | BinOp::Lt
-            | BinOp::Lte
-            | BinOp::Gt
-            | BinOp::Gte
-            | BinOp::And
-            | BinOp::Or
-            | BinOp::Implies
-            | BinOp::In
-            | BinOp::NotIn => Ok(Type::Bool),
+            _ if op.is_comparison() || op.is_logical() || op.is_membership() => Ok(Type::Bool),
             BinOp::Range => Ok(Type::List(Box::new(Type::Int))),
+            _ => unreachable!("BinOp should be covered by guards or Range"),
         };
     }
 
     match op {
         // Arithmetic: both operands same numeric type, result same type
-        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
+        _ if op.is_arithmetic() => {
             // Division/modulo by literal zero
-            if matches!(op, BinOp::Div | BinOp::Mod) && is_literal_zero(rhs) {
+            if op.is_division_like() && is_literal_zero(rhs) {
                 return Err(TypeError {
                     code: "A03010".into(),
                     message: format!(
                         "{} by zero",
-                        if matches!(op, BinOp::Div) {
+                        if *op == BinOp::Div {
                             "division"
                         } else {
                             "modulo"
@@ -781,7 +774,7 @@ fn infer_binop(
         }
 
         // Comparison: operands compatible types, result Bool
-        BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
+        _ if op.is_comparison() => {
             if !types_compatible(&lhs_ty, &rhs_ty) {
                 return Err(TypeError {
                     code: "A03001".into(),
@@ -796,7 +789,7 @@ fn infer_binop(
         }
 
         // Logical: both Bool, result Bool
-        BinOp::And | BinOp::Or | BinOp::Implies => {
+        _ if op.is_logical() => {
             if lhs_ty != Type::Bool {
                 return Err(TypeError {
                     code: "A03001".into(),
@@ -877,6 +870,11 @@ fn infer_binop(
             }
             Ok(Type::Bool)
         }
+
+        _ => unreachable!(
+            "all BinOp variants should be handled by category guards or specific arms: {:?}",
+            op
+        ),
     }
 }
 
@@ -887,13 +885,13 @@ fn infer_call(
     env: &TypeEnv,
     span: Span,
 ) -> Result<Type, TypeError> {
-    let func_ty = infer_expr_spanned(func, env, span.clone())?;
+    let func_ty = infer_expr_spanned(func, env, func.span.clone())?;
 
     // Infer argument types eagerly so errors inside arguments are surfaced
     // even when the callee type is Unknown.
     let mut arg_types = Vec::with_capacity(args.len());
     for arg in args {
-        arg_types.push(infer_expr_spanned(arg, env, span.clone())?);
+        arg_types.push(infer_expr_spanned(arg, env, arg.span.clone())?);
     }
 
     match func_ty {

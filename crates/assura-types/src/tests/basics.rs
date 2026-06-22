@@ -10,7 +10,7 @@ fn empty_file_type_checks() {
 #[test]
 fn expr_span() {
     // Expression type errors should carry the span from the expr (not just the decl).
-    // Exercises that lowering now provides real spans for Expr nodes (11.04).
+    // Exercises precise sub-expression spans from 11.04 + follow-up.
     let src = r#"
 contract BadExpr {
     requires { 1 + true }
@@ -18,8 +18,27 @@ contract BadExpr {
 "#;
     let resolved = resolve_ok(src);
     let res = type_check(&resolved);
-    // Expect error on the expr; the key is that we didn't panic and spans were used.
-    assert!(res.is_err());
+    assert!(res.is_err(), "expected type error");
+    let errs = res.unwrap_err();
+    // Find a relevant type error (A03001 or containing "numeric" or "Bool")
+    let err = errs
+        .iter()
+        .find(|e| e.code == "A03001" || e.message.contains("numeric") || e.message.contains("Bool"))
+        .expect("expected a type mismatch error from the bad subexpr");
+    assert!(
+        err.span != (0..0),
+        "error span must be real (not no_span 0..0), got {:?}",
+        err.span
+    );
+    let decl_span = resolved.source.decls[0].span.clone();
+    assert!(err.span != decl_span, "should not be the whole decl span");
+    // Tight relative to decl (subexpr precision)
+    assert!(
+        err.span.len() < decl_span.len() / 2 && err.span.len() > 0,
+        "span should be tighter than decl, got {:?} vs decl {:?}",
+        err.span,
+        decl_span
+    );
 }
 
 #[test]

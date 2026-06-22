@@ -2343,6 +2343,13 @@ Marked 11.14 [x]. Phase 11 Round 7 complete.
 - 11.04 core acceptance met (spans captured in lowering for Expr, precise error spans now possible).
 - Marked [x]. Work from cc71d62.
 
+**Follow-up (issue #333):**
+- Updated inference.rs recursions and error sites + clauses.rs to prefer `expr.span` (or body.span) over passed ctx/decl spans for TypeErrors.
+- Improved lower_clause_body to use descendants() so braced clause bodies pick inner expr spans.
+- Strengthened expr_span test to assert non-0 and tighter-than-decl spans.
+- All assura-types tests (1447) pass; demos unaffected.
+- Error reporting now uses precise Expr spans (addresses the "update error reporting" bullet).
+
 Next: 11.07 ExprFolder extraction.
 
 **11.07 completed (2026-06-22):**

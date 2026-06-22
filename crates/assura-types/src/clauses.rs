@@ -376,7 +376,15 @@ pub(crate) fn check_clause_expr(
     errors: &mut Vec<TypeError>,
     ctx_span: &std::ops::Range<usize>,
 ) {
-    match infer_expr_spanned(body, env, ctx_span.clone()) {
+    // Prefer the clause body's own span (from 11.04 lowering) for precise
+    // reporting of clause-level issues (e.g. non-Bool clause) and to allow
+    // sub-expression errors inside to use their precise spans.
+    let body_span = if body.span != (0..0) {
+        body.span.clone()
+    } else {
+        ctx_span.clone()
+    };
+    match infer_expr_spanned(body, env, body_span.clone()) {
         Ok(ty) => {
             if clause_requires_bool(kind) && !ty.is_indeterminate() && ty != Type::Bool {
                 errors.push(TypeError {
@@ -385,7 +393,7 @@ pub(crate) fn check_clause_expr(
                         "{} clause must be Bool, found `{ty}`",
                         clause_kind_label(kind),
                     ),
-                    span: ctx_span.clone(),
+                    span: body_span.clone(),
                     secondary: None,
                 });
             }
@@ -399,7 +407,7 @@ pub(crate) fn check_clause_expr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::{Expr, Literal, Pattern, SpExpr, Spanned};
+    use assura_parser::ast::{Expr, Literal, Pattern, Spanned};
 
     #[test]
     fn register_input_params_typed() {

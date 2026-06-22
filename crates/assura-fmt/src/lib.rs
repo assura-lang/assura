@@ -532,10 +532,7 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
     }
 
     fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) {
-        self.out.push_str(match op {
-            UnaryOp::Neg => "-",
-            UnaryOp::Not => "!",
-        });
+        self.out.push_str(op.as_rust_str());
         self.fold_expr(inner);
     }
 
@@ -669,15 +666,7 @@ pub(crate) fn binop_str(op: &BinOp) -> &'static str {
 }
 
 pub(crate) fn format_literal(lit: &Literal, out: &mut String) {
-    match lit {
-        Literal::Int(s) | Literal::Float(s) => out.push_str(s),
-        Literal::Str(s) => {
-            out.push('"');
-            out.push_str(s);
-            out.push('"');
-        }
-        Literal::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-    }
+    out.push_str(&assura_ast::literal_to_string(lit));
 }
 
 pub(crate) fn format_pattern(pat: &Pattern, out: &mut String) {

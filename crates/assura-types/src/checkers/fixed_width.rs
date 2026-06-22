@@ -145,7 +145,7 @@ impl FixedWidthChecker {
         span: &Range<usize>,
     ) -> Option<FixedWidthError> {
         // Only check arithmetic ops
-        if !matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+        if !op.is_arithmetic() || op.is_division_like() {
             return None;
         }
 
@@ -215,10 +215,7 @@ impl FixedWidthChecker {
         span: &Range<usize>,
     ) -> Option<FixedWidthError> {
         // Only flag comparison operators
-        if !matches!(
-            op,
-            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
-        ) {
+        if !op.is_comparison() {
             return None;
         }
         if !Self::is_fixed_width(left_type) || !Self::is_fixed_width(right_type) {
@@ -256,7 +253,7 @@ impl FixedWidthChecker {
         left_type: &Type,
         span: &Range<usize>,
     ) -> Option<FixedWidthError> {
-        if !matches!(op, BinOp::Div | BinOp::Mod) {
+        if !op.is_division_like() {
             return None;
         }
         if !Self::is_fixed_width(left_type) {

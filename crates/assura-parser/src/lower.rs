@@ -25,75 +25,30 @@ pub(crate) fn lower_source_file(root: &SyntaxNode) -> SourceFile {
             SyntaxKind::MODULE_DECL => module = Some(lower_module(&child)),
             SyntaxKind::IMPORT_DECL => imports.push(lower_import(&child)),
             SyntaxKind::CONTRACT_DECL => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::Contract(lower_contract(&child)),
-                    span,
-                });
+                decls.push(spanned(Decl::Contract(lower_contract(&child)), &child))
             }
             SyntaxKind::SERVICE_DECL => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::Service(lower_service(&child)),
-                    span,
-                });
+                decls.push(spanned(Decl::Service(lower_service(&child)), &child))
             }
             SyntaxKind::TYPE_DEF => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::TypeDef(lower_type_def(&child)),
-                    span,
-                });
+                decls.push(spanned(Decl::TypeDef(lower_type_def(&child)), &child))
             }
             SyntaxKind::ENUM_DEF => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::EnumDef(lower_enum_def(&child)),
-                    span,
-                });
+                decls.push(spanned(Decl::EnumDef(lower_enum_def(&child)), &child))
             }
             SyntaxKind::EXTERN_DECL => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::Extern(lower_extern(&child)),
-                    span,
-                });
+                decls.push(spanned(Decl::Extern(lower_extern(&child)), &child))
             }
-            SyntaxKind::BIND_DECL => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::Bind(lower_bind(&child)),
-                    span,
-                });
-            }
+            SyntaxKind::BIND_DECL => decls.push(spanned(Decl::Bind(lower_bind(&child)), &child)),
             SyntaxKind::PROPHECY_DECL => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::Prophecy(lower_prophecy(&child)),
-                    span,
-                });
+                decls.push(spanned(Decl::Prophecy(lower_prophecy(&child)), &child))
             }
-            SyntaxKind::CODEC_REGISTRY_DECL => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::CodecRegistry(lower_codec_registry(&child)),
-                    span,
-                });
-            }
-            SyntaxKind::FN_DEF => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: Decl::FnDef(lower_fn_def(&child)),
-                    span,
-                });
-            }
-            SyntaxKind::GENERIC_BLOCK => {
-                let span = span_of(&child);
-                decls.push(Spanned {
-                    node: lower_generic_block(&child),
-                    span,
-                });
-            }
+            SyntaxKind::CODEC_REGISTRY_DECL => decls.push(spanned(
+                Decl::CodecRegistry(lower_codec_registry(&child)),
+                &child,
+            )),
+            SyntaxKind::FN_DEF => decls.push(spanned(Decl::FnDef(lower_fn_def(&child)), &child)),
+            SyntaxKind::GENERIC_BLOCK => decls.push(spanned(lower_generic_block(&child), &child)),
             _ => {}
         }
     }
@@ -114,6 +69,27 @@ pub(crate) fn lower_source_file(root: &SyntaxNode) -> SourceFile {
 fn span_of(n: &SyntaxNode) -> Span {
     let range = n.text_range();
     (range.start().into())..(range.end().into())
+}
+
+/// Convenience: wrap a lowered node with the source span of the CST node.
+fn spanned<T>(node: T, n: &SyntaxNode) -> Spanned<T> {
+    Spanned {
+        node,
+        span: span_of(n),
+    }
+}
+
+/// Sentinel for a missing sub-expression in recovery (e.g. bad receiver).
+fn missing_expr() -> SpExpr {
+    Spanned::no_span(Expr::Raw(vec![]))
+}
+
+/// Lower the first child expression (if any), else a recovery Raw.
+fn lower_first_child_expr_or_missing(n: &SyntaxNode) -> SpExpr {
+    n.children()
+        .find(|c| is_expr_kind(c.kind()))
+        .map(|c| lower_sp_expr(&c))
+        .unwrap_or(missing_expr())
 }
 
 /// Lower a CST node into a `SpExpr` (expression with span).
@@ -140,9 +116,16 @@ fn collect_token_texts(n: &SyntaxNode) -> Vec<String> {
 
 /// Find the first IDENT token in a node and return its text.
 fn first_ident(n: &SyntaxNode) -> String {
+    first_token_text(n, |k, _| k == SyntaxKind::IDENT)
+}
+
+fn first_token_text<P>(n: &SyntaxNode, pred: P) -> String
+where
+    P: Fn(SyntaxKind, &str) -> bool,
+{
     n.children_with_tokens()
         .filter_map(|el| el.into_token())
-        .find(|t| t.kind() == SyntaxKind::IDENT)
+        .find(|t| pred(t.kind(), t.text()))
         .map(|t| t.text().to_string())
         .unwrap_or_default()
 }
@@ -361,12 +344,12 @@ fn clause_kind_from_syntax(k: SyntaxKind, text: &str) -> Option<ClauseKind> {
 
 /// Lower clause body: try to build an Expr from child nodes, fall back to raw tokens.
 fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
-    // Look for expression nodes in children
-    for child in n.children() {
-        let k = child.kind();
-        if is_expr_kind(k) {
-            return lower_sp_expr(&child);
-        }
+    // Look for expression nodes (use descendants to find inner expr even
+    // when wrapped in braces/parens/blocks for clause bodies like
+    // `requires { 1 + true }`). This ensures the body SpExpr gets the
+    // content's span (post 11.04).
+    if let Some(expr_child) = n.descendants().find(|c| is_expr_kind(c.kind())) {
+        return lower_sp_expr(&expr_child);
     }
 
     // Fall back to raw token collection.
@@ -413,7 +396,6 @@ fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
         .filter(|s| !s.is_empty())
         .collect();
 
-    let span = span_of(n);
     let expr = if tokens.is_empty() {
         Expr::Raw(vec![])
     } else if tokens.len() == 1 && tokens[0].chars().all(|c| c.is_alphanumeric() || c == '_') {
@@ -428,7 +410,7 @@ fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
     } else {
         Expr::Raw(tokens)
     };
-    Spanned { node: expr, span }
+    spanned(expr, n)
 }
 
 // -----------------------------------------------------------------
@@ -465,55 +447,24 @@ fn is_expr_kind(k: SyntaxKind) -> bool {
 }
 
 fn lower_expr(n: &SyntaxNode) -> SpExpr {
-    let sp = span_of(n);
     match n.kind() {
-        SyntaxKind::LITERAL_EXPR => Spanned {
-            node: lower_literal(n),
-            span: sp,
-        },
+        SyntaxKind::LITERAL_EXPR => spanned(lower_literal(n), n),
         SyntaxKind::IDENT_EXPR => {
             let text = collect_text(n).trim().to_string();
-            Spanned {
-                node: Expr::Ident(text),
-                span: sp,
-            }
+            spanned(Expr::Ident(text), n)
         }
-        SyntaxKind::SELF_EXPR => Spanned {
-            node: Expr::Ident("self".into()),
-            span: sp,
-        },
-        SyntaxKind::RESULT_EXPR => Spanned {
-            node: Expr::Ident("result".into()),
-            span: sp,
-        },
+        SyntaxKind::SELF_EXPR => spanned(Expr::Ident("self".into()), n),
+        SyntaxKind::RESULT_EXPR => spanned(Expr::Ident("result".into()), n),
         SyntaxKind::FIELD_EXPR => lower_field_expr(n),
         SyntaxKind::METHOD_CALL_EXPR => lower_method_call(n),
         SyntaxKind::CALL_EXPR => lower_call_expr(n),
         SyntaxKind::INDEX_EXPR => lower_index_expr(n),
-        SyntaxKind::BIN_EXPR => Spanned {
-            node: lower_bin_expr(n),
-            span: sp,
-        },
-        SyntaxKind::UNARY_EXPR => Spanned {
-            node: lower_unary_expr(n),
-            span: sp,
-        },
-        SyntaxKind::OLD_EXPR => Spanned {
-            node: lower_old_expr(n),
-            span: sp,
-        },
-        SyntaxKind::FORALL_EXPR => Spanned {
-            node: lower_quantifier(n, true),
-            span: sp,
-        },
-        SyntaxKind::EXISTS_EXPR => Spanned {
-            node: lower_quantifier(n, false),
-            span: sp,
-        },
-        SyntaxKind::IF_EXPR => Spanned {
-            node: lower_if_expr(n),
-            span: sp,
-        },
+        SyntaxKind::BIN_EXPR => spanned(lower_bin_expr(n), n),
+        SyntaxKind::UNARY_EXPR => spanned(lower_unary_expr(n), n),
+        SyntaxKind::OLD_EXPR => spanned(lower_old_expr(n), n),
+        SyntaxKind::FORALL_EXPR => spanned(lower_quantifier(n, true), n),
+        SyntaxKind::EXISTS_EXPR => spanned(lower_quantifier(n, false), n),
+        SyntaxKind::IF_EXPR => spanned(lower_if_expr(n), n),
         SyntaxKind::PAREN_EXPR => {
             let inner = n.children().find_map(|c| {
                 if is_expr_kind(c.kind()) {
@@ -522,37 +473,17 @@ fn lower_expr(n: &SyntaxNode) -> SpExpr {
                     None
                 }
             });
-            inner.unwrap_or(Spanned {
-                node: Expr::Raw(vec![]),
-                span: sp,
-            })
+            inner.unwrap_or(spanned(Expr::Raw(vec![]), n))
         }
         SyntaxKind::TUPLE_EXPR => {
-            let items: Vec<SpExpr> = n
-                .children()
-                .filter(|c| is_expr_kind(c.kind()))
-                .map(|c| lower_sp_expr(&c))
-                .collect();
-            Spanned {
-                node: Expr::Tuple(items),
-                span: sp,
-            }
+            let items = lower_expr_children(n);
+            spanned(Expr::Tuple(items), n)
         }
         SyntaxKind::LIST_EXPR => {
-            let items: Vec<SpExpr> = n
-                .children()
-                .filter(|c| is_expr_kind(c.kind()))
-                .map(|c| lower_sp_expr(&c))
-                .collect();
-            Spanned {
-                node: Expr::List(items),
-                span: sp,
-            }
+            let items = lower_expr_children(n);
+            spanned(Expr::List(items), n)
         }
-        SyntaxKind::CAST_EXPR => Spanned {
-            node: lower_cast_expr(n),
-            span: sp,
-        },
+        SyntaxKind::CAST_EXPR => spanned(lower_cast_expr(n), n),
         SyntaxKind::GHOST_EXPR => {
             let inner = n.children().find_map(|c| {
                 if is_expr_kind(c.kind()) {
@@ -561,32 +492,14 @@ fn lower_expr(n: &SyntaxNode) -> SpExpr {
                     None
                 }
             });
-            Spanned {
-                node: Expr::Ghost(Box::new(inner.unwrap_or(Spanned {
-                    node: Expr::Raw(vec![]),
-                    span: sp.clone(),
-                }))),
-                span: sp,
-            }
+            spanned(Expr::Ghost(Box::new(inner.unwrap_or(missing_expr()))), n)
         }
-        SyntaxKind::APPLY_EXPR => Spanned {
-            node: lower_apply_expr(n),
-            span: sp,
-        },
-        SyntaxKind::LET_EXPR => Spanned {
-            node: lower_let_expr(n),
-            span: sp,
-        },
-        SyntaxKind::MATCH_EXPR => Spanned {
-            node: lower_match_expr(n),
-            span: sp,
-        },
+        SyntaxKind::APPLY_EXPR => spanned(lower_apply_expr(n), n),
+        SyntaxKind::LET_EXPR => spanned(lower_let_expr(n), n),
+        SyntaxKind::MATCH_EXPR => spanned(lower_match_expr(n), n),
         _ => {
             // Fallback: collect tokens as raw
-            Spanned {
-                node: Expr::Raw(collect_token_texts(n)),
-                span: sp,
-            }
+            spanned(Expr::Raw(collect_token_texts(n)), n)
         }
     }
 }
@@ -607,15 +520,7 @@ fn lower_literal(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_field_expr(n: &SyntaxNode) -> SpExpr {
-    let sp = span_of(n);
-    let mut children_iter = n.children();
-    let obj = children_iter
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned {
-            node: Expr::Raw(vec![]),
-            span: sp.clone(),
-        });
+    let obj = lower_first_child_expr_or_missing(n);
 
     // Field name is the last IDENT or keyword token
     let field = n
@@ -626,18 +531,11 @@ fn lower_field_expr(n: &SyntaxNode) -> SpExpr {
         .map(|t| t.text().to_string())
         .unwrap_or_default();
 
-    Spanned {
-        node: Expr::Field(Box::new(obj), field),
-        span: sp,
-    }
+    spanned(Expr::Field(Box::new(obj), field), n)
 }
 
 fn lower_method_call(n: &SyntaxNode) -> SpExpr {
-    let mut children_iter = n.children();
-    let receiver = children_iter
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let receiver = lower_first_child_expr_or_missing(n);
 
     // Method name: IDENT or keyword token after DOT
     let method = n
@@ -652,14 +550,14 @@ fn lower_method_call(n: &SyntaxNode) -> SpExpr {
         .map(|al| lower_arg_list(&al))
         .unwrap_or_default();
 
-    Spanned {
-        node: Expr::MethodCall {
+    spanned(
+        Expr::MethodCall {
             receiver: Box::new(receiver),
             method,
             args,
         },
-        span: span_of(n),
-    }
+        n,
+    )
 }
 
 fn lower_call_expr(n: &SyntaxNode) -> SpExpr {
@@ -673,62 +571,49 @@ fn lower_call_expr(n: &SyntaxNode) -> SpExpr {
     // For temporal operators with braced bodies (no ARG_LIST node),
     // collect child expressions directly as arguments.
     if args.is_empty() {
-        let child_exprs: Vec<_> = n
-            .children()
-            .filter(|c| is_expr_kind(c.kind()))
-            .map(|c| lower_sp_expr(&c))
-            .collect();
+        let child_exprs = lower_expr_children(n);
         if !child_exprs.is_empty() {
             args = child_exprs;
         }
     }
 
-    Spanned {
-        node: Expr::Call {
-            func: Box::new(Spanned {
-                node: Expr::Ident(func_name),
-                span: span_of(n),
-            }),
+    spanned(
+        Expr::Call {
+            func: Box::new(spanned(Expr::Ident(func_name), n)),
             args,
         },
-        span: span_of(n),
-    }
+        n,
+    )
 }
 
 /// Get the first identifier or keyword text from a node's direct token children.
 fn first_ident_or_keyword(n: &SyntaxNode) -> String {
-    n.children_with_tokens()
-        .filter_map(|el| el.into_token())
-        .find(|t| t.kind() == SyntaxKind::IDENT || t.kind().is_keyword())
-        .map(|t| t.text().to_string())
-        .unwrap_or_default()
+    first_token_text(n, |k, _| k == SyntaxKind::IDENT || k.is_keyword())
 }
 
-fn lower_arg_list(n: &SyntaxNode) -> Vec<SpExpr> {
+fn lower_expr_children(n: &SyntaxNode) -> Vec<SpExpr> {
     n.children()
         .filter(|c| is_expr_kind(c.kind()))
         .map(|c| lower_sp_expr(&c))
         .collect()
 }
 
-fn lower_index_expr(n: &SyntaxNode) -> SpExpr {
-    let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
-    let base = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
-    let index = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+fn lower_arg_list(n: &SyntaxNode) -> Vec<SpExpr> {
+    lower_expr_children(n)
+}
 
-    Spanned {
-        node: Expr::Index {
+fn lower_index_expr(n: &SyntaxNode) -> SpExpr {
+    let mut exprs = lower_expr_children(n).into_iter();
+    let base = exprs.next().unwrap_or(missing_expr());
+    let index = exprs.next().unwrap_or(missing_expr());
+
+    spanned(
+        Expr::Index {
             expr: Box::new(base),
             index: Box::new(index),
         },
-        span: span_of(n),
-    }
+        n,
+    )
 }
 
 fn lower_bin_expr(n: &SyntaxNode) -> Expr {
@@ -758,23 +643,13 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
                 .collect();
             // Can't parse operator; return raw and apply any collected chain.
             let mut result = Spanned::no_span(Expr::Raw(tokens));
-            for (chain_op, chain_rhs) in chain.into_iter().rev() {
-                let combined_span = result.span.start..chain_rhs.span.end;
-                result = Spanned {
-                    node: Expr::BinOp {
-                        lhs: Box::new(result),
-                        op: chain_op,
-                        rhs: Box::new(chain_rhs),
-                    },
-                    span: combined_span,
-                };
-            }
+            result = apply_binop_chain(result, chain);
             return result.node;
         };
 
         let rhs = rhs_node
             .map(|c| lower_sp_expr(&c))
-            .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+            .unwrap_or(missing_expr());
 
         chain.push((op, rhs));
 
@@ -788,23 +663,29 @@ fn lower_bin_expr(n: &SyntaxNode) -> Expr {
                 // Base case: LHS is not a BIN_EXPR, lower it normally.
                 let base = lhs_node
                     .map(|c| lower_sp_expr(&c))
-                    .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
-                let mut result = base;
-                for (chain_op, chain_rhs) in chain.into_iter().rev() {
-                    let combined_span = result.span.start..chain_rhs.span.end;
-                    result = Spanned {
-                        node: Expr::BinOp {
-                            lhs: Box::new(result),
-                            op: chain_op,
-                            rhs: Box::new(chain_rhs),
-                        },
-                        span: combined_span,
-                    };
-                }
+                    .unwrap_or(missing_expr());
+                let result = apply_binop_chain(base, chain);
                 return result.node;
             }
         }
     }
+}
+
+/// Apply collected left-assoc binop chain to a base, building nested BinOp with combined spans.
+/// Used to dedup the chain reconstruction logic in lower_bin_expr.
+fn apply_binop_chain(mut result: SpExpr, chain: Vec<(BinOp, SpExpr)>) -> SpExpr {
+    for (chain_op, chain_rhs) in chain.into_iter().rev() {
+        let combined_span = result.span.start..chain_rhs.span.end;
+        result = Spanned {
+            node: Expr::BinOp {
+                lhs: Box::new(result),
+                op: chain_op,
+                rhs: Box::new(chain_rhs),
+            },
+            span: combined_span,
+        };
+    }
+    result
 }
 
 fn bin_op_from_token(k: SyntaxKind, text: &str) -> Option<BinOp> {
@@ -834,11 +715,7 @@ fn bin_op_from_token(k: SyntaxKind, text: &str) -> Option<BinOp> {
 }
 
 fn lower_unary_expr(n: &SyntaxNode) -> Expr {
-    let inner = n
-        .children()
-        .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let inner = lower_first_child_expr_or_missing(n);
 
     let op = n
         .children_with_tokens()
@@ -859,11 +736,7 @@ fn lower_unary_expr(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_old_expr(n: &SyntaxNode) -> Expr {
-    let inner = n
-        .children()
-        .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let inner = lower_first_child_expr_or_missing(n);
     Expr::Old(Box::new(inner))
 }
 
@@ -878,15 +751,9 @@ fn lower_quantifier(n: &SyntaxNode, is_forall: bool) -> Expr {
 
     let var = idents.first().cloned().unwrap_or_default();
 
-    let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
-    let domain = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
-    let body = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let mut exprs = lower_expr_children(n).into_iter();
+    let domain = exprs.next().unwrap_or(missing_expr());
+    let body = exprs.next().unwrap_or(missing_expr());
 
     if is_forall {
         Expr::Forall {
@@ -904,16 +771,10 @@ fn lower_quantifier(n: &SyntaxNode, is_forall: bool) -> Expr {
 }
 
 fn lower_if_expr(n: &SyntaxNode) -> Expr {
-    let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
-    let cond = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
-    let then_branch = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
-    let else_branch = exprs.next().map(|c| Box::new(lower_sp_expr(&c)));
+    let mut exprs = lower_expr_children(n).into_iter();
+    let cond = exprs.next().unwrap_or(missing_expr());
+    let then_branch = exprs.next().unwrap_or(missing_expr());
+    let else_branch = exprs.next().map(Box::new);
 
     Expr::If {
         cond: Box::new(cond),
@@ -923,11 +784,7 @@ fn lower_if_expr(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_cast_expr(n: &SyntaxNode) -> Expr {
-    let inner = n
-        .children()
-        .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let inner = lower_first_child_expr_or_missing(n);
 
     // Type name: the token after `as`
     let mut saw_as = false;
@@ -960,15 +817,9 @@ fn lower_apply_expr(n: &SyntaxNode) -> Expr {
 
 fn lower_let_expr(n: &SyntaxNode) -> Expr {
     let name = first_ident(n);
-    let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
-    let value = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
-    let body = exprs
-        .next()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let mut exprs = lower_expr_children(n).into_iter();
+    let value = exprs.next().unwrap_or(missing_expr());
+    let body = exprs.next().unwrap_or(missing_expr());
 
     Expr::Let {
         name,
@@ -978,11 +829,7 @@ fn lower_let_expr(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_match_expr(n: &SyntaxNode) -> Expr {
-    let scrutinee = n
-        .children()
-        .find(|c| is_expr_kind(c.kind()))
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let scrutinee = lower_first_child_expr_or_missing(n);
 
     let arms = find_child(n, SyntaxKind::MATCH_ARM_LIST)
         .map(|al| {
@@ -1005,12 +852,8 @@ fn lower_match_arm(n: &SyntaxNode) -> MatchArm {
         .find_map(|c| lower_pattern(&c))
         .unwrap_or(Pattern::Wildcard);
 
-    let body = n
-        .children()
-        .filter(|c| is_expr_kind(c.kind()))
-        .last()
-        .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+    let exprs = lower_expr_children(n);
+    let body = exprs.into_iter().last().unwrap_or(missing_expr());
 
     MatchArm { pattern, body }
 }

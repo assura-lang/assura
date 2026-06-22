@@ -3,7 +3,7 @@
 //! Translates Assura AST expressions into Rust source code strings.
 
 use super::*;
-use assura_ast::ExprFolder;
+use assura_ast::{ExprFolder, fold_arg_list, fold_joined, literal_to_string};
 
 /// Heuristic: returns true if the expression is likely a numeric value
 /// (variable, constant, literal, or arithmetic). Used to decide whether to
@@ -12,10 +12,7 @@ pub(crate) fn is_numeric_expr(expr: &SpExpr) -> bool {
     match &expr.node {
         Expr::Ident(_) | Expr::Literal(Literal::Int(_)) | Expr::Literal(Literal::Float(_)) => true,
         Expr::Field(_, _) => true,
-        Expr::BinOp { op, .. } => matches!(
-            op,
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
-        ),
+        Expr::BinOp { op, .. } => op.is_arithmetic(),
         Expr::UnaryOp {
             op: UnaryOp::Neg, ..
         } => true,
@@ -67,11 +64,7 @@ impl ExprFolder for RustExprFolder {
     type Output = String;
 
     fn fold_literal(&mut self, lit: &Literal) -> String {
-        match lit {
-            Literal::Int(s) | Literal::Float(s) => s.clone(),
-            Literal::Str(s) => format!("\"{s}\""),
-            Literal::Bool(b) => b.to_string(),
-        }
+        literal_to_string(lit)
     }
 
     fn fold_ident(&mut self, name: &str) -> String {
@@ -87,17 +80,15 @@ impl ExprFolder for RustExprFolder {
     }
 
     fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) -> String {
-        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
         format!(
             "{}.{method}({})",
             self.fold_expr(receiver),
-            args_s.join(", ")
+            fold_arg_list(self, args)
         )
     }
 
     fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> String {
-        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
-        format!("{}({})", self.fold_expr(func), args_s.join(", "))
+        format!("{}({})", self.fold_expr(func), fold_arg_list(self, args))
     }
 
     fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) -> String {
@@ -105,9 +96,8 @@ impl ExprFolder for RustExprFolder {
     }
 
     fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> String {
-        let is_numeric_cmp = matches!(op, BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte)
-            && is_numeric_expr(lhs)
-            && is_numeric_expr(rhs);
+        let is_numeric_cmp =
+            op.is_ordering_comparison() && is_numeric_expr(lhs) && is_numeric_expr(rhs);
 
         match op {
             BinOp::Implies => {
@@ -145,11 +135,7 @@ impl ExprFolder for RustExprFolder {
     }
 
     fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) -> String {
-        let op_s = match op {
-            UnaryOp::Neg => "-",
-            UnaryOp::Not => "!",
-        };
-        format!("({op_s}{})", self.fold_expr(inner))
+        format!("({}{})", op.as_rust_str(), self.fold_expr(inner))
     }
 
     fn fold_old(&mut self, inner: &SpExpr) -> String {
@@ -189,8 +175,7 @@ impl ExprFolder for RustExprFolder {
     }
 
     fn fold_list(&mut self, items: &[SpExpr]) -> String {
-        let elems: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
-        format!("vec![{}]", elems.join(", "))
+        format!("vec![{}]", fold_joined(self, items, ", "))
     }
 
     fn fold_cast(&mut self, inner: &SpExpr, ty: &str) -> String {
@@ -198,8 +183,7 @@ impl ExprFolder for RustExprFolder {
     }
 
     fn fold_block(&mut self, exprs: &[SpExpr]) -> String {
-        let strs: Vec<String> = exprs.iter().map(|e| self.fold_expr(e)).collect();
-        strs.join(" ")
+        fold_joined(self, exprs, " ")
     }
 
     fn fold_ghost(&mut self, _inner: &SpExpr) -> String {
@@ -265,8 +249,7 @@ impl ExprFolder for RustExprFolder {
     }
 
     fn fold_tuple(&mut self, items: &[SpExpr]) -> String {
-        let elems: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
-        format!("({})", elems.join(", "))
+        format!("({})", fold_joined(self, items, ", "))
     }
 
     fn fold_raw(&mut self, tokens: &[String]) -> String {
