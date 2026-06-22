@@ -353,18 +353,27 @@ fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
     }
 
     // Fall back to raw token collection.
-    // Skip: the clause keyword, outer delimiters (parens/braces), whitespace.
+    // Skip: the clause keyword (first significant token, which may be
+    // preceded by trivia tokens attached to the CLAUSE node), outer
+    // delimiters (parens/braces), whitespace.
     // Keep: colons inside the body (they separate param names from types),
     //       commas (they separate parameters), all other tokens.
     // The leading colon (separator between keyword and body) is also skipped.
     let mut saw_content = false;
+    let mut skipped_kw = false;
     let tokens: Vec<String> = n
         .children_with_tokens()
-        .skip(1) // skip clause keyword
         .filter_map(|el| match el {
             rowan::NodeOrToken::Token(t) => {
                 let k = t.kind();
                 if k == SyntaxKind::WHITESPACE || k == SyntaxKind::COMMENT {
+                    return None;
+                }
+                // Skip the clause keyword (the first significant token under
+                // this CLAUSE node). Trivia may precede it due to bump_trivia
+                // on entry to clause().
+                if !skipped_kw {
+                    skipped_kw = true;
                     return None;
                 }
                 // Skip outer delimiters

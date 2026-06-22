@@ -112,17 +112,21 @@ fn param_type_tokens(p: &mut Parser) {
                 }
             }
             SyntaxKind::L_ANGLE => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner_angle(p);
-                p.eat(SyntaxKind::R_ANGLE);
+                if p.current_raw() == SyntaxKind::R_ANGLE {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_BRACKET => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_BRACKET);
+                if p.current_raw() == SyntaxKind::R_BRACKET {
+                    p.bump_raw();
+                }
             }
             _ => {
-                p.bump();
+                p.bump_raw();
             }
         }
     }
@@ -165,29 +169,35 @@ fn balanced_inner(p: &mut Parser) {
 /// Balanced inner for angle brackets (also stops at R_ANGLE).
 fn balanced_inner_angle(p: &mut Parser) {
     while !p.eof() {
-        let cur = p.current();
+        let cur = p.current_raw();
         match cur {
             SyntaxKind::R_ANGLE
             | SyntaxKind::R_BRACE
             | SyntaxKind::R_PAREN
             | SyntaxKind::R_BRACKET => break,
             SyntaxKind::L_ANGLE => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner_angle(p);
-                p.eat(SyntaxKind::R_ANGLE);
+                if p.current_raw() == SyntaxKind::R_ANGLE {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_BRACE => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_BRACE);
+                if p.current_raw() == SyntaxKind::R_BRACE {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_PAREN => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_PAREN);
+                if p.current_raw() == SyntaxKind::R_PAREN {
+                    p.bump_raw();
+                }
             }
             _ => {
-                p.bump();
+                p.bump_raw();
             }
         }
     }

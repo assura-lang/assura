@@ -334,4 +334,43 @@ mod tests {
                 .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL)
         );
     }
+
+    #[test]
+    fn table_generic_with_paren_value_and_following_clause_parses() {
+        // Reduced from demos/libwebp-huffman.assura.
+        // Includes axiom with param list + generic in type (Sequence<Nat>),
+        // fn with param, table with = precompute( for ... ) + following
+        // verify_against clause. This pattern triggered "expected parameter name"
+        // etc after the trivia capture changes for #335.
+        let src = r#"
+axiom max_secondary_table_entries(
+    alphabet_size: Nat,
+    root_bits: Nat,
+    code_lengths: Sequence<Nat>
+) : Nat = {
+  define:
+    let max_len = max(code_lengths)
+    num_prefixes * pow(2, secondary_bits)
+  property:
+    forall cl in valid_huffman_codes(alphabet_size):
+      max_secondary_table_entries(alphabet_size, root_bits, cl) <= 1
+}
+
+fn worst_case_table_size(alphabet_size: U16) -> U32
+  requires { alphabet_size <= 280 }
+{
+  primary + max_secondary
+}
+
+contract X {
+  table K_TABLE_SIZE: [U32; 3] = precompute(
+    for i in 0..3 => worst_case_table_size(i as U16)
+  )
+    verify_against: worst
+}
+"#;
+        let (root, errors) = parse_to_tree(src);
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        assert!(root.children().any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL));
+    }
 }
