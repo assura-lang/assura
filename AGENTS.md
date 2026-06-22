@@ -448,6 +448,17 @@ cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
 ```
 
+**Command selection by query type (important for agent sessions)**
+
+When the user's question is reflective, audit-style, or meta ("during the session did we learn...", "did we notice an issue but jump over it", "should we update any skill", "what went wrong in the process"):
+
+- Use *only* inspection tools: `read_file`, `grep`, `gh issue/run/view/list`, `git status`, `git diff --name-only`, `git show`, `list_dir`.
+- Never launch `cargo`, `cargo run`, `cargo test`, `cargo check`, or any build/test command.
+
+Implementation, reproduction, or "make this green" questions are the only time targeted `cargo ... -p <crate> --locked` commands are appropriate.
+
+This rule was reinforced when unnecessary build commands were executed during a pure reflection question.
+
 **After any change that could affect cli_integration races or the main
 executable (see #328), run the full checks + explicitly `cargo test --workspace --locked`
 before the end of the session / before pushing the final commit.**
@@ -877,11 +888,57 @@ When you introduce a new helper, document it here and in
 
 - `bump_delim()` on `Parser` (cst.rs) — bump a delimiter token (`{`, `(`, etc.) and immediately call `bump_trivia()`. This ensures expressions inside braced/parenthesized clause bodies (and similar) receive `text_range()` values that match original source offsets rather than being shifted by leading whitespace or comments. Introduced during the #335 spans + trivia work and the subsequent duplication cleanup pass to eliminate ~20 repeated `bump(); bump_trivia();` sites. Use it (instead of the two-liner) after any manual delimiter open that must expose following trivia to child nodes.
 
+  **Footgun**: In manual token-walking code that does `p.expect(SyntaxKind::L_BRACE); p.bump_delim();` (e.g. `codec_entry` and similar in `grammar/items.rs`), `expect` already bumped the `{`. The extra `bump()` from `bump_delim()` skips the first real token after the brace. This caused "expected `magic`, `decoder`, `contracts`, or `}`" errors and made the codec_registry lower tests fail. Correct pattern for such collectors: `expect(L_BRACE); bump_trivia();` (matching contract_decl, service_decl, etc.). Audit all manual loops inside braces after any span/trivia change.
+
+**eat(COMMA) / list separator trivia footgun (match arms, patterns, etc.)**
+
+In loops that parse comma-separated items (match arms, tuple patterns, etc.):
+
+```rust
+while !p.at(R_BRACE) {
+    match_arm(p);
+    p.eat(SyntaxKind::COMMA);
+    p.bump_trivia();   // <-- required
+}
+```
+
+`eat(COMMA)` consumes the token but does not advance past trivia. `pattern(p)` (and parts of the expression parser) inspect `p.current()` directly to decide `LITERAL_PAT`, `IDENT_PAT`, `WILDCARD_PAT`, etc. Missing `bump_trivia()` causes the next literal/ident to be invisible → `err_and_bump("expected pattern")` → the arm CST has no PAT child.
+
+In lowering (`lower_match_arm`):
+
+```rust
+let pattern = n.children().find_map(|c| lower_pattern(&c))
+    .unwrap_or(Pattern::Wildcard);
+```
+
+Result: second arm silently becomes `Wildcard`. A checker that looks for "no wildcard on unknown scrutinee" (A10002) will see `has_wildcard` and emit nothing. The test `match_unknown_scrutinee_no_wildcard_a10002` (and similar exhaustiveness cases) will fail with "expected A10002, got []".
+
+Same rule applies to any `eat(COMMA)` (or other separator) that sits between calls to `pattern()` or `expr()` inside a list.
+
+Always follow such `eat`s with `bump_trivia()` before the next sub-parser that relies on `current()`.
+
+**Verification checklist after any change to grammar/expressions.rs, lower.rs, or pattern handling**
+
+Before you push:
+1. Inspect the *committed* code, not just your working tree:
+   `git show HEAD:crates/assura-parser/src/grammar/expressions.rs | sed -n '250,280p'`
+2. Run the exact test(s) that would have caught the symptom (targeted only):
+   `cargo test -p assura-types match_unknown_scrutinee_no_wildcard_a10002 --locked`
+   `cargo test -p assura-types 'match_' --locked`
+3. If you temporarily added `eprintln!` of AST or clause bodies for debugging, remove it.
+4. After `git push origin main`, immediately check the new run:
+   `gh run list --branch main --limit 3`
+   and `gh run view <new-run-id>`. Do not assume "it was correct locally."
+
+When a types-level test says "expected error code X, got []", the root cause is frequently a parser/lower decision that produced the wrong AST shape (e.g. unexpected Wildcard).
+
 ## Expression Parser
 
 The expression parser uses Pratt parsing (binding power) implemented
 in `grammar/expressions.rs`. It produces `Expr` AST nodes with full
 operator precedence.
+
+**Trivia rule for lists/arms**: After `p.eat(SyntaxKind::COMMA)` (or similar separators) inside loops that call `match_arm` / `pattern` / `expr`, always follow immediately with `p.bump_trivia()`. See the detailed footgun + verification checklist in the "Parser / CST helpers" section above and the code comment in `match_expr`. Missing it is a common source of "parser accepts it but the AST is wrong (Wildcard instead of Literal)" bugs that only show up in type/exhaustiveness checks.
 
 **Binding power levels** (lowest to highest):
 

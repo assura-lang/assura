@@ -860,6 +860,10 @@ fn lower_match_expr(n: &SyntaxNode) -> Expr {
 }
 
 fn lower_match_arm(n: &SyntaxNode) -> MatchArm {
+    // If this produces Wildcard when the source clearly had a literal/ident/constructor
+    // pattern, the CST for the arm is missing the expected PAT child.
+    // Common cause: missing p.bump_trivia() after eat(COMMA) in match_expr (or similar lists).
+    // See grammar/expressions.rs and the trivia footgun docs in AGENTS.md.
     let pattern = n
         .children()
         .find_map(|c| lower_pattern(&c))

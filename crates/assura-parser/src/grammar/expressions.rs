@@ -255,6 +255,12 @@ fn match_expr(p: &mut Parser) -> CompletedMarker {
     p.bump_trivia();
 
     let arms = p.open();
+    // IMPORTANT: after eat(COMMA) (or any separator that does not itself call bump_trivia),
+    // you MUST bump_trivia() before the next match_arm/pattern/expr call.
+    // Otherwise p.current() will not see the next real token (INT_LIT etc.),
+    // pattern() will err_and_bump, the arm will have no PAT child,
+    // and lower_match_arm will fall back to Wildcard.
+    // This has caused silent missing diagnostics (e.g. A10002) in downstream checkers.
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         match_arm(p);
         p.eat(SyntaxKind::COMMA);
