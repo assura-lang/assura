@@ -2336,3 +2336,9 @@ Marked 11.14 [x]. Phase 11 Round 7 complete. Remaining earlier rounds (11.04 spa
 - Marked [x]. Work from cc71d62.
 
 Next: 11.07 ExprFolder extraction.
+
+**11.07 start (2026-06-22):**
+- Began extraction: converted expr_to_rust in codegen to use RustExprFolder impl of ExprFolder (thin wrapper + per-variant fold_ methods).
+- BinOp::as_str / as_rust_str already in place.
+- Will continue for expr_to_rust_static, format_expr (fmt), expr_to_smtlib.
+- Goal: eliminate duplicate recursion and BinOp matches in the 5 walkers.
