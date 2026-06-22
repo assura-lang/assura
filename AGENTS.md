@@ -839,6 +839,46 @@ for error reporting. The pattern:
 If you add a new compiler pass and it produces errors without spans,
 that's a bug.
 
+### Lowering Helpers (avoid boilerplate)
+
+In `crates/assura-parser/src/lower.rs`, repeated patterns for wrapping
+nodes and handling sub-expressions/recovery have been centralized:
+
+- `spanned(node, n)` — use everywhere instead of manual
+  `Spanned { node, span: span_of(n) }` or `let sp = span_of(n); Spanned...`.
+- `missing_expr()` — the canonical `Spanned::no_span(Expr::Raw(vec![]))`
+  for recovery.
+- `lower_first_child_expr_or_missing(n)` — "first direct expr-kind child
+  or missing_expr()".
+- `lower_expr_children(n)` — `Vec<SpExpr>` of all direct expr children
+  (lower_arg_list now delegates to this for consistency).
+- `apply_binop_chain(base, chain)` — deduplicates the left-associative
+  BinOp chain reconstruction used in `lower_bin_expr`.
+
+**Rule**: If the same Spanned construction, child-filter, or recovery
+snippet appears in 3+ places in lower.rs (or across lowering functions),
+extract a helper and migrate. Grep for remaining duplication:
+
+```bash
+grep -n 'Spanned\s*{' crates/assura-parser/src/lower.rs
+grep -n 'span_of(n)' crates/assura-parser/src/lower.rs
+grep -n 'filter.*is_expr_kind' crates/assura-parser/src/lower.rs
+```
+
+The same principle applies project-wide:
+
+- **BinOp**: Use `as_str`/`as_rust_str`/`as_ident` (backed by internal
+  `repr()`) + `is_arithmetic()`, `is_comparison()`, `is_logical()`,
+  `is_ordering_comparison()`, `is_division_like()`, `is_membership()`.
+  Never repeat long `| BinOp::Add | Sub | ...` lists in match guards.
+- **ExprFolder** consumers (display, codegen, fmt): Use
+  `fold_joined(self, items, sep)`, `fold_arg_list(self, args)`, and
+  `literal_to_string(lit)` instead of inlining the collect/join/map and
+  literal arms in every impl.
+
+When you introduce a new helper, document it here and in
+`~/.grok/skills/assura-contrib/SKILL.md`.
+
 ## Expression Parser
 
 The expression parser uses Pratt parsing (binding power) implemented

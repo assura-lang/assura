@@ -21,6 +21,8 @@ Parser (rowan 0.16 CST)      crates/assura-parser/src/cst.rs
   v
 CST -> AST Lowering          crates/assura-parser/src/lower.rs
   | produces SourceFile (AST)
+  | uses helpers (spanned, missing_expr, lower_expr_children, etc.)
+  | to avoid boilerplate (see AGENTS.md "Lowering Helpers")
   v
 Name Resolution              crates/assura-resolve/src/lib.rs
   | produces ResolvedFile + SymbolTable
