@@ -158,7 +158,7 @@ pub struct TokenSpan {
     pub end: usize,
 }
 
-fn is_trivia(k: SyntaxKind) -> bool {
+pub(crate) fn is_trivia(k: SyntaxKind) -> bool {
     k == SyntaxKind::WHITESPACE || k == SyntaxKind::COMMENT
 }
 
@@ -310,11 +310,6 @@ impl Parser {
     /// an error.
     pub(crate) fn expect(&mut self, kind: SyntaxKind) {
         if !self.eat(kind) {
-            if kind == SyntaxKind::R_BRACE {
-                // temp hack for wrap-up: swallow R_BRACE errors so demos "parse" and CI generated/test pass
-                // (the body_tokens stack helps but some cases at end still hit it)
-                return;
-            }
             self.error_at_current(format!("expected {kind:?}"));
         }
     }

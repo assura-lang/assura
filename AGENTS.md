@@ -860,6 +860,8 @@ nodes and handling sub-expressions/recovery have been centralized:
 - `apply_binop_chain(base, chain)` — deduplicates the left-associative
   BinOp chain reconstruction used in `lower_bin_expr`.
 
+- Use `cst::is_trivia(k)` (not manual `k == WHITESPACE || k == COMMENT` or matches!) for all trivia skipping in token walks and filters in lower.rs (and call sites). See collect_token_texts and the ~15 sites consolidated for #337.
+
 **Rule**: If the same Spanned construction, child-filter, or recovery
 snippet appears in 3+ places in lower.rs (or across lowering functions),
 extract a helper and migrate. Grep for remaining duplication:
@@ -887,6 +889,10 @@ When you introduce a new helper, document it here and in
 ### Parser / CST helpers (for correct spans after trivia capture)
 
 - `bump_delim()` on `Parser` (cst.rs) — bump a delimiter token (`{`, `(`, etc.) and immediately call `bump_trivia()`. This ensures expressions inside braced/parenthesized clause bodies (and similar) receive `text_range()` values that match original source offsets rather than being shifted by leading whitespace or comments. Introduced during the #335 spans + trivia work and the subsequent duplication cleanup pass to eliminate ~20 repeated `bump(); bump_trivia();` sites. Use it (instead of the two-liner) after any manual delimiter open that must expose following trivia to child nodes.
+
+- `body_tokens_inner(p, closer, stoppers)` (grammar/mod.rs) — raw balanced delimiter skipper used for clause bodies, fn/trailing/axiom bodies, generic blocks, type bodies, attr lists, etc. Pass the expected closer (R_BRACE / R_PAREN / R_BRACKET) as the virtual; it uses a stack to handle nesting of mixed delimiters. Updated in #339 to take explicit closer (was always R_BRACE, causing cross-closer theft of outer } when collecting inside ( or [ ).
+
+- `is_trivia(k)` (cst.rs, pub(crate)) — canonical check for WHITESPACE | COMMENT. Use everywhere instead of duplicating the predicate in lower.rs and elsewhere. See #337 consolidation.
 
   **Footgun**: In manual token-walking code that does `p.expect(SyntaxKind::L_BRACE); p.bump_delim();` (e.g. `codec_entry` and similar in `grammar/items.rs`), `expect` already bumped the `{`. The extra `bump()` from `bump_delim()` skips the first real token after the brace. This caused "expected `magic`, `decoder`, `contracts`, or `}`" errors and made the codec_registry lower tests fail. Correct pattern for such collectors: `expect(L_BRACE); bump_trivia();` (matching contract_decl, service_decl, etc.). Audit all manual loops inside braces after any span/trivia change.
 

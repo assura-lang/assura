@@ -155,7 +155,7 @@ fn type_def(p: &mut Parser) {
         if p.at(SyntaxKind::L_BRACE) {
             // Refined: = { ... }
             p.bump_delim();
-            super::body_tokens_inner(p, &[]);
+            super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
             p.expect(SyntaxKind::R_BRACE);
         } else {
             // Alias: = Type tokens until next decl
@@ -255,7 +255,7 @@ fn enum_variant(p: &mut Parser) {
     // Optional fields: (type1, type2)
     if p.at(SyntaxKind::L_PAREN) {
         p.bump(); // (
-        super::body_tokens_inner(p, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
         p.expect(SyntaxKind::R_PAREN);
     }
 
@@ -451,7 +451,7 @@ fn fn_def(p: &mut Parser) {
         p.bump(); // #
         if p.at(SyntaxKind::L_BRACKET) {
             p.bump(); // [
-            super::body_tokens_inner(p, &[]);
+            super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
             p.expect(SyntaxKind::R_BRACKET);
         }
         am.complete(p, SyntaxKind::ATTR);
@@ -491,7 +491,7 @@ fn fn_def(p: &mut Parser) {
         p.bump();
         if p.at(SyntaxKind::L_BRACE) {
             p.bump_delim();
-            super::body_tokens_inner(p, &[]);
+            super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
             p.expect(SyntaxKind::R_BRACE);
         }
     }
@@ -504,7 +504,7 @@ fn fn_def(p: &mut Parser) {
     // Optional trailing body { ... }
     if p.at(SyntaxKind::L_BRACE) {
         p.bump_delim();
-        super::body_tokens_inner(p, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
         p.expect(SyntaxKind::R_BRACE);
     }
 
@@ -596,7 +596,7 @@ pub(crate) fn generic_block(p: &mut Parser) {
         p.bump(); // #
         if p.at(SyntaxKind::L_BRACKET) {
             p.bump(); // [
-            super::body_tokens_inner(p, &[]);
+            super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
             p.expect(SyntaxKind::R_BRACKET);
         }
         am.complete(p, SyntaxKind::ATTR);
@@ -630,11 +630,11 @@ pub(crate) fn generic_block(p: &mut Parser) {
             let cur = p.current();
             if cur == SyntaxKind::L_PAREN {
                 p.bump_delim();
-                super::body_tokens_inner(p, &[]);
+                super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
                 p.eat(SyntaxKind::R_PAREN);
             } else if cur == SyntaxKind::L_BRACKET {
                 p.bump_delim();
-                super::body_tokens_inner(p, &[]);
+                super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
                 p.eat(SyntaxKind::R_BRACKET);
             } else {
                 p.bump();

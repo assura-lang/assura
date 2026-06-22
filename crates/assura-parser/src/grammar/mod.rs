@@ -159,13 +159,11 @@ fn at_decl_start(p: &mut Parser) -> bool {
 /// Uses raw access so that trivia are included (for correct source offsets).
 /// Uses stack to properly match specific closers for mixed delimiters
 /// (e.g. ( inside { bodies) and multiple sibling blocks.
-fn body_tokens_inner(p: &mut Parser, stoppers: &[SyntaxKind]) {
+fn body_tokens_inner(p: &mut Parser, closer: SyntaxKind, stoppers: &[SyntaxKind]) {
     let mut stack: Vec<SyntaxKind> = Vec::new();
-    if stack.is_empty() {
-        // virtual entry level for this collection (body after L bumped by caller)
-        stack.push(SyntaxKind::R_BRACE);
-    }
-    while !p.eof() {
+    // virtual entry for THIS collection's closer (correct for {, (, [ )
+    stack.push(closer);
+    while !p.eof_raw() {
         let cur = p.current_raw();
         if stack.len() <= 1 && stoppers.contains(&cur) {
             break;

@@ -10,9 +10,7 @@ fn parse_file(path: &str) -> assura_parser::ast::SourceFile {
     let source =
         std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
     let (ast, errors) = parse(&source);
-    // Temporarily allow parse errors for some demos to get CI green for PR 338
-    // (parser has "expected R_BRACE" regression for some demos)
-    // assert!(errors.is_empty(), "parse errors in {path}: {errors:?}");
+    assert!(errors.is_empty(), "parse errors in {path}: {errors:?}");
     ast.expect("parse returned None without errors")
 }
 

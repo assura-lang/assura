@@ -491,17 +491,18 @@ fn clause_body_expr(p: &mut Parser) {
 /// Handles tokens that aren't part of the expression grammar (like `@`)
 /// by consuming them as raw tokens.
 fn expr_list_until(p: &mut Parser, closer: SyntaxKind) {
-    while !p.eof() && !p.at(closer) {
+    while !p.eof_raw() && !p.at(closer) {
         let before = p.pos();
         expressions::expr(p);
         // If expr() made no progress, bump tokens until comma or closer
         if p.pos() == before {
-            while !p.eof() && !p.at(closer) && !p.at(SyntaxKind::COMMA) {
+            while !p.eof_raw() && !p.at(closer) && !p.at(SyntaxKind::COMMA) {
                 p.bump();
             }
         }
         if !p.at(closer) {
             p.eat(SyntaxKind::COMMA);
+            p.bump_trivia();
         }
     }
 }
@@ -512,13 +513,13 @@ pub(crate) fn clause_body(p: &mut Parser) {
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_BRACE {
         p.bump(); // :
         p.bump_delim();
-        super::body_tokens_inner(p, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
         p.bump_delim();
-        super::body_tokens_inner(p, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
@@ -527,13 +528,13 @@ pub(crate) fn clause_body(p: &mut Parser) {
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_PAREN {
         p.bump(); // :
         p.bump_delim();
-        super::body_tokens_inner(p, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
         p.bump_delim();
-        super::body_tokens_inner(p, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
@@ -549,19 +550,19 @@ pub(crate) fn clause_body(p: &mut Parser) {
         match cur {
             SyntaxKind::L_PAREN => {
                 p.bump_raw();
-                super::body_tokens_inner(p, &[]);
+                super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
                 if p.current_raw() == SyntaxKind::R_PAREN {
                     p.bump_raw();
                 }
             }
             SyntaxKind::L_BRACKET => {
                 p.bump_raw();
-                super::body_tokens_inner(p, &[]);
+                super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
                 if p.current_raw() == SyntaxKind::R_BRACKET {
                     p.bump_raw();
                 }
             }
-            SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
+            SyntaxKind::L_BRACE | SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
             _ => {
                 p.bump_raw();
             }
