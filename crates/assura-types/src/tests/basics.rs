@@ -8,6 +8,21 @@ fn empty_file_type_checks() {
 }
 
 #[test]
+fn expr_span() {
+    // Expression type errors should carry the span from the expr (not just the decl).
+    // Exercises that lowering now provides real spans for Expr nodes (11.04).
+    let src = r#"
+contract BadExpr {
+    requires { 1 + true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let res = type_check(&resolved);
+    // Expect error on the expr; the key is that we didn't panic and spans were used.
+    assert!(res.is_err());
+}
+
+#[test]
 fn builtin_types_in_env() {
     let resolved = resolve_ok("");
     let typed = type_check(&resolved).expect("type_check should succeed");

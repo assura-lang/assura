@@ -118,10 +118,7 @@ fn span_of(n: &SyntaxNode) -> Span {
 
 /// Lower a CST node into a `SpExpr` (expression with span).
 fn lower_sp_expr(n: &SyntaxNode) -> SpExpr {
-    Spanned {
-        node: lower_expr(n),
-        span: span_of(n),
-    }
+    lower_expr(n)
 }
 
 /// Collect all token text from a node, optionally filtering by kind.
@@ -467,25 +464,26 @@ fn is_expr_kind(k: SyntaxKind) -> bool {
     )
 }
 
-fn lower_expr(n: &SyntaxNode) -> Expr {
+fn lower_expr(n: &SyntaxNode) -> SpExpr {
+    let sp = span_of(n);
     match n.kind() {
-        SyntaxKind::LITERAL_EXPR => lower_literal(n),
+        SyntaxKind::LITERAL_EXPR => Spanned { node: lower_literal(n), span: sp },
         SyntaxKind::IDENT_EXPR => {
             let text = collect_text(n).trim().to_string();
-            Expr::Ident(text)
+            Spanned { node: Expr::Ident(text), span: sp }
         }
-        SyntaxKind::SELF_EXPR => Expr::Ident("self".into()),
-        SyntaxKind::RESULT_EXPR => Expr::Ident("result".into()),
+        SyntaxKind::SELF_EXPR => Spanned { node: Expr::Ident("self".into()), span: sp },
+        SyntaxKind::RESULT_EXPR => Spanned { node: Expr::Ident("result".into()), span: sp },
         SyntaxKind::FIELD_EXPR => lower_field_expr(n),
         SyntaxKind::METHOD_CALL_EXPR => lower_method_call(n),
         SyntaxKind::CALL_EXPR => lower_call_expr(n),
         SyntaxKind::INDEX_EXPR => lower_index_expr(n),
-        SyntaxKind::BIN_EXPR => lower_bin_expr(n),
-        SyntaxKind::UNARY_EXPR => lower_unary_expr(n),
-        SyntaxKind::OLD_EXPR => lower_old_expr(n),
-        SyntaxKind::FORALL_EXPR => lower_quantifier(n, true),
-        SyntaxKind::EXISTS_EXPR => lower_quantifier(n, false),
-        SyntaxKind::IF_EXPR => lower_if_expr(n),
+        SyntaxKind::BIN_EXPR => Spanned { node: lower_bin_expr(n), span: sp },
+        SyntaxKind::UNARY_EXPR => Spanned { node: lower_unary_expr(n), span: sp },
+        SyntaxKind::OLD_EXPR => Spanned { node: lower_old_expr(n), span: sp },
+        SyntaxKind::FORALL_EXPR => Spanned { node: lower_quantifier(n, true), span: sp },
+        SyntaxKind::EXISTS_EXPR => Spanned { node: lower_quantifier(n, false), span: sp },
+        SyntaxKind::IF_EXPR => Spanned { node: lower_if_expr(n), span: sp },
         SyntaxKind::PAREN_EXPR => {
             let inner = n.children().find_map(|c| {
                 if is_expr_kind(c.kind()) {
@@ -494,7 +492,7 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
                     None
                 }
             });
-            inner.unwrap_or(Expr::Raw(vec![]))
+            inner.unwrap_or(Spanned { node: Expr::Raw(vec![]), span: sp })
         }
         SyntaxKind::TUPLE_EXPR => {
             let items: Vec<SpExpr> = n
@@ -502,7 +500,7 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
                 .filter(|c| is_expr_kind(c.kind()))
                 .map(|c| lower_sp_expr(&c))
                 .collect();
-            Expr::Tuple(items)
+            Spanned { node: Expr::Tuple(items), span: sp }
         }
         SyntaxKind::LIST_EXPR => {
             let items: Vec<SpExpr> = n
@@ -510,9 +508,9 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
                 .filter(|c| is_expr_kind(c.kind()))
                 .map(|c| lower_sp_expr(&c))
                 .collect();
-            Expr::List(items)
+            Spanned { node: Expr::List(items), span: sp }
         }
-        SyntaxKind::CAST_EXPR => lower_cast_expr(n),
+        SyntaxKind::CAST_EXPR => Spanned { node: lower_cast_expr(n), span: sp },
         SyntaxKind::GHOST_EXPR => {
             let inner = n.children().find_map(|c| {
                 if is_expr_kind(c.kind()) {
@@ -521,16 +519,19 @@ fn lower_expr(n: &SyntaxNode) -> Expr {
                     None
                 }
             });
-            Expr::Ghost(Box::new(
-                inner.unwrap_or(Spanned::no_span(Expr::Raw(vec![]))),
-            ))
+            Spanned {
+                node: Expr::Ghost(Box::new(
+                    inner.unwrap_or(Spanned { node: Expr::Raw(vec![]), span: sp.clone() }),
+                )),
+                span: sp,
+            }
         }
-        SyntaxKind::APPLY_EXPR => lower_apply_expr(n),
-        SyntaxKind::LET_EXPR => lower_let_expr(n),
-        SyntaxKind::MATCH_EXPR => lower_match_expr(n),
+        SyntaxKind::APPLY_EXPR => Spanned { node: lower_apply_expr(n), span: sp },
+        SyntaxKind::LET_EXPR => Spanned { node: lower_let_expr(n), span: sp },
+        SyntaxKind::MATCH_EXPR => Spanned { node: lower_match_expr(n), span: sp },
         _ => {
             // Fallback: collect tokens as raw
-            Expr::Raw(collect_token_texts(n))
+            Spanned { node: Expr::Raw(collect_token_texts(n)), span: sp }
         }
     }
 }
@@ -550,12 +551,13 @@ fn lower_literal(n: &SyntaxNode) -> Expr {
     }
 }
 
-fn lower_field_expr(n: &SyntaxNode) -> Expr {
+fn lower_field_expr(n: &SyntaxNode) -> SpExpr {
+    let sp = span_of(n);
     let mut children_iter = n.children();
     let obj = children_iter
         .next()
         .map(|c| lower_sp_expr(&c))
-        .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
+        .unwrap_or(Spanned { node: Expr::Raw(vec![]), span: sp.clone() });
 
     // Field name is the last IDENT or keyword token
     let field = n
@@ -566,10 +568,10 @@ fn lower_field_expr(n: &SyntaxNode) -> Expr {
         .map(|t| t.text().to_string())
         .unwrap_or_default();
 
-    Expr::Field(Box::new(obj), field)
+    Spanned { node: Expr::Field(Box::new(obj), field), span: sp }
 }
 
-fn lower_method_call(n: &SyntaxNode) -> Expr {
+fn lower_method_call(n: &SyntaxNode) -> SpExpr {
     let mut children_iter = n.children();
     let receiver = children_iter
         .next()
@@ -589,14 +591,17 @@ fn lower_method_call(n: &SyntaxNode) -> Expr {
         .map(|al| lower_arg_list(&al))
         .unwrap_or_default();
 
-    Expr::MethodCall {
-        receiver: Box::new(receiver),
-        method,
-        args,
+    Spanned {
+        node: Expr::MethodCall {
+            receiver: Box::new(receiver),
+            method,
+            args,
+        },
+        span: span_of(n),
     }
 }
 
-fn lower_call_expr(n: &SyntaxNode) -> Expr {
+fn lower_call_expr(n: &SyntaxNode) -> SpExpr {
     // Function name: prefer IDENT, fall back to first keyword token text
     // (temporal operators like leads_to, eventually are keyword tokens).
     let func_name = first_ident_or_keyword(n);
@@ -617,12 +622,15 @@ fn lower_call_expr(n: &SyntaxNode) -> Expr {
         }
     }
 
-    Expr::Call {
-        func: Box::new(Spanned {
-            node: Expr::Ident(func_name),
-            span: span_of(n),
-        }),
-        args,
+    Spanned {
+        node: Expr::Call {
+            func: Box::new(Spanned {
+                node: Expr::Ident(func_name),
+                span: span_of(n),
+            }),
+            args,
+        },
+        span: span_of(n),
     }
 }
 
@@ -642,7 +650,7 @@ fn lower_arg_list(n: &SyntaxNode) -> Vec<SpExpr> {
         .collect()
 }
 
-fn lower_index_expr(n: &SyntaxNode) -> Expr {
+fn lower_index_expr(n: &SyntaxNode) -> SpExpr {
     let mut exprs = n.children().filter(|c| is_expr_kind(c.kind()));
     let base = exprs
         .next()
@@ -653,9 +661,12 @@ fn lower_index_expr(n: &SyntaxNode) -> Expr {
         .map(|c| lower_sp_expr(&c))
         .unwrap_or(Spanned::no_span(Expr::Raw(vec![])));
 
-    Expr::Index {
-        expr: Box::new(base),
-        index: Box::new(index),
+    Spanned {
+        node: Expr::Index {
+            expr: Box::new(base),
+            index: Box::new(index),
+        },
+        span: span_of(n),
     }
 }
 
