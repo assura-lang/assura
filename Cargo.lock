@@ -150,7 +150,8 @@ name = "assura-codegen"
 version = "0.1.0"
 dependencies = [
  "assura-ast",
- "assura-parser",
+ "assura-config",
+ "assura-pipeline",
  "assura-resolve",
  "assura-types",
  "prettyplease",
@@ -178,6 +179,7 @@ dependencies = [
 name = "assura-fmt"
 version = "0.1.0"
 dependencies = [
+ "assura-ast",
  "assura-parser",
 ]
 
@@ -296,7 +298,7 @@ version = "0.1.0"
 dependencies = [
  "assura-ast",
  "assura-config",
- "assura-parser",
+ "assura-pipeline",
  "assura-resolve",
  "assura-types",
  "cvc5",

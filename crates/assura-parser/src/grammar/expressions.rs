@@ -300,6 +300,7 @@ fn pattern(p: &mut Parser) {
                 pattern(p);
                 if !p.at(SyntaxKind::R_PAREN) {
                     p.eat(SyntaxKind::COMMA);
+                    p.bump_trivia();
                 }
             }
             p.expect(SyntaxKind::R_PAREN);
@@ -320,6 +321,7 @@ fn pattern(p: &mut Parser) {
                     pattern(p);
                     if !p.at(SyntaxKind::R_PAREN) {
                         p.eat(SyntaxKind::COMMA);
+                        p.bump_trivia();
                     }
                 }
                 p.expect(SyntaxKind::R_PAREN);
@@ -389,6 +391,7 @@ fn list_expr(p: &mut Parser) -> CompletedMarker {
         expr(p);
         if !p.at(SyntaxKind::R_BRACKET) {
             p.eat(SyntaxKind::COMMA);
+            p.bump_trivia();
         }
         if p.pos() == before {
             p.err_and_bump("expected expression or `]`");
@@ -441,6 +444,7 @@ fn arg_list(p: &mut Parser) {
         expr(p);
         if !p.at(SyntaxKind::R_PAREN) {
             p.eat(SyntaxKind::COMMA);
+            p.bump_trivia();
         }
         if p.pos() == before {
             p.err_and_bump("expected argument or `)`");
