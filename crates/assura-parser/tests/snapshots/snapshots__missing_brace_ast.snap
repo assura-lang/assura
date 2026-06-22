@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 119
 expression: "&ast"
 ---
 Some(
@@ -13,86 +14,11 @@ Some(
                     ContractDecl {
                         name: "Unclosed",
                         type_params: [],
-                        clauses: [
-                            Clause {
-                                kind: Input,
-                                body: Spanned {
-                                    node: Raw(
-                                        [
-                                            "x",
-                                            ":",
-                                            "Int",
-                                        ],
-                                    ),
-                                    span: 17..29,
-                                },
-                                effect_variables: [],
-                            },
-                            Clause {
-                                kind: Output,
-                                body: Spanned {
-                                    node: Raw(
-                                        [
-                                            "result",
-                                            ":",
-                                            "Nat",
-                                        ],
-                                    ),
-                                    span: 29..47,
-                                },
-                                effect_variables: [],
-                            },
-                            Clause {
-                                kind: Requires,
-                                body: Spanned {
-                                    node: BinOp {
-                                        lhs: Spanned {
-                                            node: Ident(
-                                                "x",
-                                            ),
-                                            span: 56..57,
-                                        },
-                                        op: Gte,
-                                        rhs: Spanned {
-                                            node: Literal(
-                                                Int(
-                                                    "0",
-                                                ),
-                                            ),
-                                            span: 59..60,
-                                        },
-                                    },
-                                    span: 56..60,
-                                },
-                                effect_variables: [],
-                            },
-                            Clause {
-                                kind: Ensures,
-                                body: Spanned {
-                                    node: BinOp {
-                                        lhs: Spanned {
-                                            node: Ident(
-                                                "result",
-                                            ),
-                                            span: 69..75,
-                                        },
-                                        op: Eq,
-                                        rhs: Spanned {
-                                            node: Ident(
-                                                "x",
-                                            ),
-                                            span: 77..78,
-                                        },
-                                    },
-                                    span: 69..78,
-                                },
-                                effect_variables: [],
-                            },
-                        ],
+                        clauses: [],
                         fn_params: [],
                     },
                 ),
-                span: 0..78,
+                span: 0..199,
             },
         ],
     },

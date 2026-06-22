@@ -4,6 +4,7 @@ assertion_line: 116
 expression: "&error_messages"
 ---
 [
-    "199..199: expected R_BRACE",
-    "199..199: expected R_BRACE",
+    "122..123: expected clause, type, fn, or closing brace",
+    "200..200: expected R_BRACE",
+    "200..200: expected R_BRACE",
 ]

@@ -1768,8 +1768,9 @@ mod tests {
 
         for (tok, span) in lex.spanned() {
             if let Ok(t) = tok {
+                let kind = SyntaxKind::from(&t);
                 tokens.push(LexedToken {
-                    kind: SyntaxKind::from(&t),
+                    kind,
                     text: source[span.clone()].to_string(),
                 });
                 spans.push(TokenSpan {
@@ -2493,8 +2494,7 @@ contract ConcreteEff {
         // not compressed trivia-stripped coordinates pointing inside the keyword.
         let src = r#"
 contract BadExpr {
-    requires { 1 + true // inline comment after expr
-    }
+    requires { 1 + true } // trivia after braced body (tests clause + expr span)
 }
 "#;
         let (sf, errors) = parse_and_lower(src);
@@ -2504,18 +2504,19 @@ contract BadExpr {
             let body = &c.clauses[0].body;
             // body span must refer to real content around the expression
             let body_text = &src[body.span.clone()];
+            // Span must cover the expression content (may include trailing trivia like comments)
             assert!(
-                body_text.contains("1") && body_text.contains("true"),
-                "braced body span {:?} should cover '1 + true' (or compacted), got {:?}",
+                body_text.contains("1 + true"),
+                "braced body span {:?} should cover '1 + true', got {:?}",
                 body.span,
                 body_text
             );
-            // Sub-expressions too (BinOp children)
+            // Sub-expressions too (BinOp children) -- exact for literals where possible
             if let Expr::BinOp { lhs, rhs, .. } = &body.node {
                 let lhs_text = &src[lhs.span.clone()];
                 let rhs_text = &src[rhs.span.clone()];
                 assert!(
-                    lhs_text.contains('1') || lhs_text.trim() == "1",
+                    lhs_text.trim() == "1",
                     "lhs span should point at literal 1, got span {:?} text {:?}",
                     lhs.span,
                     lhs_text

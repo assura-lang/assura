@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 28
 expression: ast
 ---
 SourceFile {
@@ -20,7 +21,7 @@ SourceFile {
             ],
             alias: None,
             items: [],
-            span: 19..34,
+            span: 65..83,
         },
         ImportDecl {
             path: [
@@ -32,7 +33,7 @@ SourceFile {
                 "List",
                 "Map",
             ],
-            span: 34..66,
+            span: 83..121,
         },
         ImportDecl {
             path: [
@@ -43,7 +44,7 @@ SourceFile {
                 "hash",
             ),
             items: [],
-            span: 66..90,
+            span: 121..149,
         },
     ],
     decls: [],
