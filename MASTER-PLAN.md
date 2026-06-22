@@ -2344,3 +2344,4 @@ Next: 11.07 ExprFolder extraction.
 - Old fns now thin wrappers.
 - Acceptance: trait exists, BinOp duplicates reduced (walkers no longer have direct), tests pass.
 - Marked [x].
+- Full gate started, targeted clean.
