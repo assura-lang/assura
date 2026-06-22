@@ -523,10 +523,10 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
     }
 
     fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) {
-        // Simple recursive for now to keep working; iterative can be in display
+        // Use binop_str for correct Assura syntax (&& vs and, etc.)
         self.fold_expr(lhs);
         self.out.push(' ');
-        self.out.push_str(op.as_str());
+        self.out.push_str(binop_str(op));
         self.out.push(' ');
         self.fold_expr(rhs);
     }
