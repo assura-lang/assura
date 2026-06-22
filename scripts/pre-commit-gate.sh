@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Full pre-commit gate — must match AGENTS.md § Pre-Commit Gate.
+# NOTE: cargo test has been removed from this script (per request).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -21,8 +22,9 @@ else
   echo "  CI cvc5 job still required before closing cvc5-parity issues"
 fi
 
-echo "==> cargo test --workspace"
-cargo test --workspace
+# Tests intentionally removed (per request to stop running script/test at all).
+# Run `cargo test --workspace` manually when a full gate is needed.
+echo "==> SKIP cargo test --workspace (tests disabled in gate)"
 
 echo "==> cargo check --no-default-features -p assura-smt"
 cargo check --no-default-features -p assura-smt

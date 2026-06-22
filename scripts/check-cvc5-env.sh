@@ -19,7 +19,7 @@ print_setup_hint() {
   echo "  export CVC5_LIB_DIR=..."
   echo "  export CVC5_INCLUDE_DIR=..."
   echo ""
-  echo "Or skip native steps: PRE_COMMIT_SKIP_CVC5_NATIVE=1 bash scripts/pre-commit-scoped.sh"
+  echo "Or skip native steps manually when using pre-commit-gate.sh"
   echo "CI cvc5 job is still required before closing cvc5-parity issues (#304)."
 }
 

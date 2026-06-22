@@ -35,8 +35,8 @@ At the start of every session:
 1. **If the session involves code changes**:
    - **Inside an agent tool / Grok CLI** (or any environment with short command timeouts):
      Use fast targeted commands. Never run the full suite if it will time out.
-     Preferred: `cargo test -p <crate> --lib`, `cargo check -p <crate>`,
-     or `bash scripts/pre-commit-scoped.sh` (infers the crate from git diff).
+     Preferred: `cargo check -p <crate>`, `cargo test -p <crate> --lib`,
+     or `bash scripts/pre-commit-gate.sh` (the scoped script has been removed).
    - **On a local developer machine**:
      Run `cargo test --workspace` in the background while reading the task.
      Do not block on it; start working and check the result before committing.
@@ -50,9 +50,8 @@ At the start of every session:
    writing any code. Know what "done" looks like before you start.
 6. Implement the task.
 7. Run every acceptance test command from the task. See each one pass.
-8. Run the pre-commit gate: `bash scripts/pre-commit-gate.sh` (or
-   `bash scripts/pre-commit-scoped.sh` before each push; full gate before
-   session end — ~30–45 min)
+8. Run the pre-commit gate: `bash scripts/pre-commit-gate.sh` before each push;
+   full gate before session end (~30–45 min)
 9. Mark the task `[x]` in `MASTER-PLAN.md`. Commit and push.
 10. Continue to the next task until the session ends or context runs out.
 11. Before the session ends, update the Progress Notes section with
@@ -431,10 +430,7 @@ error. Prefer the official `scripts/pre-commit-*.sh`.
 
 **Before each push** (fast, ~1–4 min):
 
-```bash
-bash scripts/pre-commit-scoped.sh          # infers crate from git diff
-bash scripts/pre-commit-scoped.sh assura-smt  # explicit crate
-```
+Use `bash scripts/pre-commit-gate.sh` (the scoped script has been removed).
 
 **Before session end or marking a MASTER-PLAN task `[x]`** (full gate,
 ~30–45 min; do not block every push on this):
@@ -443,20 +439,18 @@ bash scripts/pre-commit-scoped.sh assura-smt  # explicit crate
 bash scripts/pre-commit-gate.sh
 ```
 
-The script runs, in order:
+The script runs:
 
 ```bash
 cargo fmt --all
 cargo clippy --workspace -- -D warnings
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
-cargo test --workspace   # full gate only — use scoped/targeted tests inside agent tools
 cargo check --no-default-features -p assura-smt
 ```
 
 **After any change that could affect cli_integration races or the main
-executable (see #328), the full gate (including `cargo test --workspace`)
-must be run before the end of the session / before pushing the final
-commit.**
+executable (see #328), run the gate + explicitly `cargo test --workspace`
+before the end of the session / before pushing the final commit.**
 
 The `cargo clippy -p assura-smt --features cvc5-verify` step mirrors the CI
 `cvc5` job and catches cfg-gate violations in native CVC5 modules that the
@@ -711,7 +705,7 @@ clippy + tests with prebuilt static libs (same URLs as below).
 
 **macOS ARM developers:** `cvc5-sys` source builds often fail on AppleClang
 (Poly-EP / `gmpxx.h` `-Werror`). Run prebuilt setup **before**
-`pre-commit-scoped.sh assura-smt`, not only after a failure:
+the scoped pre-commit (removed), use `pre-commit-gate.sh` or manual commands, not only after a failure:
 
 ```bash
 bash scripts/setup-cvc5.sh

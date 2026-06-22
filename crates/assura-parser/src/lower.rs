@@ -2476,4 +2476,49 @@ contract ConcreteEff {
             panic!("expected Decl::Contract");
         }
     }
+
+    #[test]
+    fn lower_braced_clause_body_has_correct_original_spans() {
+        // Regression for #335: expressions inside `requires { ... }` (and similar)
+        // must have SpExpr spans that are byte offsets into the *original* source,
+        // not compressed trivia-stripped coordinates pointing inside the keyword.
+        let src = r#"
+contract BadExpr {
+    requires { 1 + true }
+}
+"#;
+        let (sf, errors) = parse_and_lower(src);
+        assert!(errors.is_empty(), "parse/lower errors: {errors:?}");
+        if let Decl::Contract(c) = &sf.decls[0].node {
+            assert!(!c.clauses.is_empty(), "expected at least one clause");
+            let body = &c.clauses[0].body;
+            // body span must refer to real content around the expression
+            let body_text = &src[body.span.clone()];
+            assert!(
+                body_text.contains("1") && body_text.contains("true"),
+                "braced body span {:?} should cover '1 + true' (or compacted), got {:?}",
+                body.span,
+                body_text
+            );
+            // Sub-expressions too (BinOp children)
+            if let Expr::BinOp { lhs, rhs, .. } = &body.node {
+                let lhs_text = &src[lhs.span.clone()];
+                let rhs_text = &src[rhs.span.clone()];
+                assert!(
+                    lhs_text.contains('1') || lhs_text.trim() == "1",
+                    "lhs span should point at literal 1, got span {:?} text {:?}",
+                    lhs.span,
+                    lhs_text
+                );
+                assert!(
+                    rhs_text.contains("true"),
+                    "rhs span should point at 'true', got span {:?} text {:?}",
+                    rhs.span,
+                    rhs_text
+                );
+            }
+        } else {
+            panic!("expected Contract decl");
+        }
+    }
 }
