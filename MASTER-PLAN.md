@@ -2328,7 +2328,15 @@ Next: 11.14 final verification + cleanup (run full gate, update docs), or 11.04/
 - Full `cargo test --workspace` attempted (targeted -p codegen/smt passed 1000+ tests; full run times out in agent env but no regressions in changed crates).
 - 11.14 acceptance commands executed. Gate-equivalent checks green. Demos verified.
 
-Marked 11.14 [x]. Phase 11 Round 7 complete. Remaining earlier rounds (11.04 spans, 11.07 ExprFolder) can be tackled next if desired.
+Marked 11.14 [x]. Phase 11 Round 7 complete.
+
+**Phase 11 Architecture Refactoring COMPLETE (2026-06-22):**
+- All 11.01-11.14 done (11.05 cancelled).
+- 11.04: spans in Expr.
+- 11.07: ExprFolder extracted for all 5 walkers.
+- 11.12, 11.14 etc as before.
+- Full targeted tests, checks, demos pass.
+- Plan updated, commits on main.
 
 **2026-06-22 11.04 completion:**
 - Verified: 29 "span:" in lower.rs (>=20), expr_span test passes, all demos pass, parser+types check clean.
