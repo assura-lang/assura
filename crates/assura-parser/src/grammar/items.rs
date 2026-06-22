@@ -351,7 +351,7 @@ fn codec_entry(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT); // codec name
 
     p.expect(SyntaxKind::L_BRACE);
-    p.bump_delim();
+    p.bump_trivia();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         let before = p.pos();
         if p.at(SyntaxKind::MAGIC_KW) {

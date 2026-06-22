@@ -199,14 +199,20 @@ fn recovery_unclosed_paren_in_input() {
 fn recovery_missing_contract_body() {
     let (ast, errors) = parse_str("contract Foo");
     // No braces at all -- should produce error (or at least not panic and produce partial)
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or partial AST for contract without body");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or partial AST for contract without body"
+    );
 }
 
 #[test]
 fn recovery_extra_closing_brace() {
     let (ast, errors) = parse_str("contract Foo { requires: x > 0 } }");
     // Extra } -- parser should recover, produce error(s), and preferably partial AST (no panic)
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or AST after extra closing brace");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or AST after extra closing brace"
+    );
 }
 
 #[test]
@@ -229,14 +235,20 @@ fn recovery_missing_colon_in_param() {
 fn recovery_double_comma_in_params() {
     let (ast, errors) = parse_str("contract Foo { input(x: Int,, y: Bool) }");
     // Double comma -- should produce error, recover without panic
-    assert!(!errors.is_empty() || ast.is_some(), "expected parse error or AST for double comma");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected parse error or AST for double comma"
+    );
 }
 
 #[test]
 fn recovery_garbage_between_clauses() {
     let (ast, errors) = parse_str("contract Foo { requires: x > 0 @@@ ensures: y > 0 }");
     // @@@ is invalid -- parser should recover and continue
-    assert!(ast.is_some() || !errors.is_empty(), "expected recovery for garbage between clauses");
+    assert!(
+        ast.is_some() || !errors.is_empty(),
+        "expected recovery for garbage between clauses"
+    );
 }
 
 #[test]
@@ -254,21 +266,30 @@ fn recovery_keyword_as_identifier() {
 fn recovery_empty_source() {
     let (ast, errors) = parse_str("");
     assert!(errors.is_empty(), "empty source should have no errors");
-    assert!(ast.is_some(), "empty source should still produce a (empty) AST");
+    assert!(
+        ast.is_some(),
+        "empty source should still produce a (empty) AST"
+    );
 }
 
 #[test]
 fn recovery_only_whitespace() {
     let (ast, errors) = parse_str("   \n\n\t  ");
     assert!(errors.is_empty());
-    assert!(ast.is_some(), "whitespace-only source should still produce a (empty) AST");
+    assert!(
+        ast.is_some(),
+        "whitespace-only source should still produce a (empty) AST"
+    );
 }
 
 #[test]
 fn recovery_only_comments() {
     let (ast, errors) = parse_str("// just a comment\n// another comment");
     assert!(errors.is_empty());
-    assert!(ast.is_some(), "comments-only source should still produce a (empty) AST");
+    assert!(
+        ast.is_some(),
+        "comments-only source should still produce a (empty) AST"
+    );
 }
 
 #[test]
@@ -288,7 +309,10 @@ fn recovery_missing_fn_body() {
     let (ast, _errors) = parse_str("fn foo(x: Int) -> Int");
     // Missing body for fn decl at this level -- parser accepts the decl (no parse error here), must not panic
     // (body may be required later or for certain decls)
-    assert!(ast.is_some(), "expected AST for fn decl without body");
+    assert!(
+        ast.is_some(),
+        "expected AST for fn decl without body"
+    );
     // errors may be empty at pure parse level
 }
 
@@ -308,7 +332,10 @@ fn recovery_multiple_contracts_one_broken() {
         "#,
     );
     // Parser should recover from Bad and still parse AlsoGood
-    assert!(ast.is_some(), "expected AST despite one broken contract");
+    assert!(
+        ast.is_some(),
+        "expected AST despite one broken contract"
+    );
     let sf = ast.unwrap();
     // Should have at least 2 contract declarations (Good and AlsoGood)
     let contract_count = sf
@@ -327,14 +354,20 @@ fn recovery_deeply_nested_unclosed() {
     let (ast, errors) = parse_str("contract A { requires { if x then { if y then {");
     // 3 levels of unclosed braces -- must not panic, should produce errors
     // (ast may be None or partial)
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or partial result for deeply nested unclosed");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or partial result for deeply nested unclosed"
+    );
 }
 
 #[test]
 fn recovery_random_tokens() {
     let (ast, errors) = parse_str("+ - * / == != < > <= >= && || ( ) [ ] { }");
     // All operators with no structure -- must not panic, should produce errors
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or result for random tokens");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or result for random tokens"
+    );
 }
 
 #[test]
@@ -343,7 +376,10 @@ fn recovery_very_long_identifier() {
     let source = format!("contract {} {{ requires: true }}", long_name);
     let (ast, errors) = parse_str(&source);
     // very long identifier must not cause panic (main goal); may produce errors in some impls
-    assert!(ast.is_some() || !errors.is_empty(), "long ident should parse or error without panic");
+    assert!(
+        ast.is_some() || !errors.is_empty(),
+        "long ident should parse or error without panic"
+    );
 }
 
 // ===================================================================
@@ -363,7 +399,10 @@ fn assert_parse_ok(source: &str) {
         errors.is_empty(),
         "unexpected parse errors for:\n{source}\nerrors: {errors:?}"
     );
-    assert!(ast.is_some(), "parse returned None for:\n{source}");
+    assert!(
+        ast.is_some(),
+        "parse returned None for:\n{source}"
+    );
 }
 
 // -- Must-reject at parser level --
