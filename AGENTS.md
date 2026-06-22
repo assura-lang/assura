@@ -35,9 +35,9 @@ At the start of every session:
 1. **If the session involves code changes**:
    - **Inside an agent tool / Grok CLI** (or any environment with short command timeouts):
      Use fast targeted commands. Never run the full suite if it will time out.
-     Preferred: `cargo check -p <crate>`, `cargo test -p <crate> --lib`.
+     Preferred: `cargo check -p <crate> --locked`, `cargo test -p <crate> --locked --lib`.
    - **On a local developer machine**:
-     Run `cargo test --workspace` in the background while reading the task.
+     Run `cargo test --workspace --locked` in the background while reading the task.
      Do not block on it; start working and check the result before committing.
    **If the session is read-only** (code review, analysis, questions):
    Skip the test suite entirely. Reading code does not require a green
@@ -50,8 +50,10 @@ At the start of every session:
 6. Implement the task.
 7. Run every acceptance test command from the task. See each one pass.
 8. Before each push and before session end, run manual checks:
-   cargo fmt --check, cargo clippy --workspace -- -D warnings, cargo check -p <crate>,
-   and cargo test --workspace (full) or targeted tests as needed.
+   cargo fmt --check, cargo clippy --workspace --locked -- -D warnings,
+   cargo check -p <crate> --locked,
+   and cargo test --workspace --locked (full) or targeted tests as needed.
+   Using `--locked` prevents Cargo from modifying Cargo.lock unnecessarily.
 9. Mark the task `[x]` in `MASTER-PLAN.md`. Commit and push.
 10. Continue to the next task until the session ends or context runs out.
 11. Before the session ends, update the Progress Notes section with
@@ -151,24 +153,24 @@ cargo run --bin assura -- check demos/libwebp-huffman.assura --verbose
 cargo run --bin assura -- check demos/libwebp-huffman.assura --stats
 
 # Run tests
-cargo test --workspace
+cargo test --workspace --locked
 
 # Check formatting and lints
 cargo fmt --check --all
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --locked -- -D warnings
 ```
 
-Every change must pass `cargo build`, `cargo clippy --workspace -- -D warnings`
+Every change must pass `cargo build`, `cargo clippy --workspace --locked -- -D warnings`
 before committing.
 
-For full test coverage use `cargo test --workspace` (local machine or end-of-session).
+For full test coverage use `cargo test --workspace --locked` (local machine or end-of-session).
 Inside an agent tool with timeouts, use targeted verification instead:
-`cargo test -p <crate> --lib`, `cargo check -p <crate>`, or the scoped pre-commit script.
+`cargo test -p <crate> --locked --lib`, `cargo check -p <crate> --locked`.
 
 **Important for changes touching the main executable or cli_integration:**
 After edits to cli_integration.rs, temp dir handling, or anything that affects
 the `assura` binary build (CARGO_BIN_EXE_assura), always run the *full*
-`cargo test --workspace` (not just the targeted integration test) before
+`cargo test --workspace --locked` (not just the targeted integration test) before
 committing or declaring done. The targeted test only exercises part of the
 suite; the workspace run validates all crates + the complete executable with
 every dependency enabled. See issues #328.
@@ -432,22 +434,22 @@ Pre-commit scripts have been removed per request. Use direct commands:
 **Before each push** (fast):
 ```bash
 cargo fmt -- --check
-cargo clippy --workspace -- -D warnings
-cargo check -p <crate>
-cargo test -p <crate> --lib   # or targeted
+cargo clippy --workspace --locked -- -D warnings
+cargo check -p <crate> --locked
+cargo test -p <crate> --locked --lib   # or targeted
 ```
 
 **Before session end or marking a MASTER-PLAN task `[x]`** (full):
 ```bash
 cargo fmt --all
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --locked -- -D warnings
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
-cargo test --workspace
+cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
 ```
 
 **After any change that could affect cli_integration races or the main
-executable (see #328), run the full checks + explicitly `cargo test --workspace`
+executable (see #328), run the full checks + explicitly `cargo test --workspace --locked`
 before the end of the session / before pushing the final commit.**
 
 The `cargo clippy -p assura-smt --features cvc5-verify` step mirrors the CI
@@ -502,10 +504,10 @@ demo file, the change is wrong. Fix it before pushing.
 A task in MASTER-PLAN.md is done when ALL of these are true:
 
 1. The code compiles: `cargo build`
-2. All tests pass: `cargo test --workspace` (on local machine or via full gate).
-   Inside an agent tool, targeted tests + scoped gate are acceptable substitutes for the full run.
+2. All tests pass: `cargo test --workspace --locked` (on local machine or via full gate).
+   Inside an agent tool, targeted tests + `--locked` are acceptable substitutes for the full run.
    **Exception:** changes that touch `cli_integration`, temp-dir code, or the
-   main `assura` executable (all crates) require a real full `cargo test --workspace`
+   main `assura` executable (all crates) require a real full `cargo test --workspace --locked`
    (see #328 and the "Build and Test" section).
 3. No warnings: `cargo clippy --workspace -- -D warnings`
 4. All demo files still parse: run all four
@@ -543,7 +545,7 @@ mandatory verification steps. The mechanical process is:
 - `cargo test -p crate_name test_name` exits 0 with "test result: ok"
 - `grep` commands return the expected count (0 or >0 as specified)
 - CLI commands exit 0 with expected output
-- `cargo test --workspace` exits 0 at the end (the final gate) — or the equivalent scoped/targeted tests when running inside an agent tool with timeouts
+- `cargo test --workspace --locked` exits 0 at the end (the final gate) — or the equivalent targeted tests with `--locked` when running inside an agent tool with timeouts
 
 **What does NOT count:**
 - "I wrote the test" (did it pass?)
