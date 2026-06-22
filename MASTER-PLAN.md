@@ -2368,3 +2368,5 @@ Next: 11.07 ExprFolder extraction.
 - Verifications passed (fmt, clippy, targeted tests, demos).
 - Plan notes finalized.
 - Everything in Phase 11 done and merged.
+- Fixed remaining fmt binop formatting for logical ops (&&/|| preserved in Assura syntax).
+- All fmt tests now pass (76/76).
