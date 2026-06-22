@@ -2370,3 +2370,4 @@ Next: 11.07 ExprFolder extraction.
 - Everything in Phase 11 done and merged.
 - Fixed remaining fmt binop formatting for logical ops (&&/|| preserved in Assura syntax).
 - All fmt tests now pass (76/76).
+- Updated parser snapshot for 11.04 span adjustments (small off-by-one in spans from precise lowering).
