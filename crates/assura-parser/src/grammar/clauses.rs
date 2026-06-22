@@ -528,13 +528,13 @@ pub(crate) fn clause_body(p: &mut Parser) {
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_PAREN {
         p.bump(); // :
         p.bump_delim();
-        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
         p.bump_delim();
-        super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
+        super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
@@ -562,7 +562,10 @@ pub(crate) fn clause_body(p: &mut Parser) {
                     p.bump_raw();
                 }
             }
-            SyntaxKind::L_BRACE | SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
+            SyntaxKind::L_BRACE
+            | SyntaxKind::R_BRACE
+            | SyntaxKind::R_PAREN
+            | SyntaxKind::R_BRACKET => break,
             _ => {
                 p.bump_raw();
             }
