@@ -2361,4 +2361,4 @@ Next: 11.07 ExprFolder extraction.
 - Tree clean, all on main.
 - No remaining actionable [ ] in Phase 11.
 - Only blocked Phase 6 items left (CodeQL, crates.io).
-- Session complete.
+- Session complete. All fixed.
