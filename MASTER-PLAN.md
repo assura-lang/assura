@@ -2363,6 +2363,12 @@ Next: 11.07 ExprFolder extraction.
 - Only blocked Phase 6 items left (CodeQL, crates.io).
 - Session complete. All fixed.
 
+**What's next (post Phase 11):**
+- Unblock by making repo public: re-enable CodeQL in .github/workflows/security.yml, run acceptance, close #45.
+- Then crates.io: setup publish, dry-run, claim names.
+- Other: full workspace test on local, more features from spec, or new roadmap.
+- Recommend: run full gate on local, then consider public launch or next major feature.
+
 **Continued (gate success confirmed):**
 - Gate background completed exit 0.
 - Verifications passed (fmt, clippy, targeted tests, demos).
