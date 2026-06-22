@@ -383,4 +383,33 @@ contract X {
                 .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL)
         );
     }
+
+    #[test]
+    fn fn_trailing_body_after_paren_clause_and_mixed_delimiters_in_collectors() {
+        // Regression coverage for #339: fn trailing { body } must be collected
+        // by its own body_tokens_inner(R_BRACE) even when preceded by paren-style
+        // clause collectors (input/output/effects/modifies) and when those
+        // collectors contain inner { or [ (refinement types, arrays).
+        // Also exercises body_tokens_inner with R_PAREN/R_BRACKET + inner R_BRACE.
+        let src = r#"
+fn foo(
+    x: {v: Nat | v > 0},
+    y: [U8; 4]
+) effects: pure
+  modifies { state.foo }
+{
+  // trailing body after paren/raw clauses; contains its own { for block
+  let z = bar(x, y);
+  if z { z } else { 0 }
+}
+"#;
+        let (root, errors) = parse_to_tree(src);
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        // Must have produced a FN_DEF (not swallowed by prior collector)
+        let has_fn = root.children().any(|c| node_kind(&c) == SyntaxKind::FN_DEF);
+        assert!(
+            has_fn,
+            "expected FN_DEF to be parsed (trailing body not stolen)"
+        );
+    }
 }

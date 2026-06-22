@@ -106,7 +106,10 @@ fn error_recovery_missing_brace() {
     let (ast, errors) = parse_error_file("../../tests/fixtures/errors/missing_brace.assura");
 
     // Must produce at least one error for the unclosed brace
-    let _ = !errors.is_empty(); // exercised for missing brace recovery (current parser may recover silently)
+    assert!(
+        !errors.is_empty(),
+        "missing brace recovery should produce error(s)"
+    );
 
     // Snapshot the errors for future regression tracking
     let error_messages: Vec<String> = errors.iter().map(|e| format!("{e}")).collect();
