@@ -514,7 +514,11 @@ fn lower_expr(n: &SyntaxNode) -> SpExpr {
 }
 
 fn lower_literal(n: &SyntaxNode) -> Expr {
-    let Some(tok) = n.children_with_tokens().filter_map(|el| el.into_token()).find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT)) else {
+    let Some(tok) = n
+        .children_with_tokens()
+        .filter_map(|el| el.into_token())
+        .find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
+    else {
         return Expr::Raw(collect_token_texts(n));
     };
     let text = tok.text().to_string();
@@ -1541,10 +1545,11 @@ fn lower_service_item(n: &SyntaxNode) -> Option<ServiceItem> {
         SyntaxKind::TYPE_DEF => Some(ServiceItem::TypeDef(lower_type_def(n))),
         SyntaxKind::ENUM_DEF => Some(ServiceItem::EnumDef(lower_enum_def(n))),
         SyntaxKind::SERVICE_ITEM => {
-            // Determine the sub-kind from tokens
+            // Determine the sub-kind from tokens (skip trivia; trivia tokens are now present in CST)
             let first_tok = n
                 .children_with_tokens()
-                .find_map(|el| el.into_token())
+                .filter_map(|el| el.into_token())
+                .find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
                 .map(|t| t.kind());
 
             match first_tok {
@@ -1582,7 +1587,8 @@ fn lower_service_item(n: &SyntaxNode) -> Option<ServiceItem> {
                 _ => {
                     let kind = n
                         .children_with_tokens()
-                        .find_map(|el| el.into_token())
+                        .filter_map(|el| el.into_token())
+                        .find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
                         .map(|t| t.text().to_string())
                         .unwrap_or_default();
                     let body = lower_clause_body(n);
@@ -1754,7 +1760,7 @@ fn collect_return_type_tokens(n: &SyntaxNode) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cst::{self, LexedToken, TokenSpan, build_tree};
+    use crate::cst::{self, build_tree, LexedToken, TokenSpan};
     use crate::grammar;
     use crate::lexer::Token;
     use crate::syntax_kind::SyntaxKind;

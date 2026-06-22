@@ -369,12 +369,18 @@ impl Parser {
         (self.events, self.tokens, self.errors)
     }
 
-    /// The text of the current token.
+    /// The text of the current *significant* (non-trivia) token.
+    /// Matches the token returned by current()/nth().
     pub(crate) fn current_text(&self) -> &str {
-        self.tokens
-            .get(self.pos)
-            .map(|t| t.text.as_str())
-            .unwrap_or("")
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            let t = &self.tokens[i];
+            if !is_trivia(t.kind) {
+                return t.text.as_str();
+            }
+            i += 1;
+        }
+        ""
     }
 
     /// True if the current token is a keyword that can appear as an

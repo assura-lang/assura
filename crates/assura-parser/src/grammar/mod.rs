@@ -58,7 +58,7 @@ fn project_decl(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT);
     if p.at(SyntaxKind::L_BRACE) {
         p.bump(); // {
-        // profile: [...]
+                  // profile: [...]
         if p.at(SyntaxKind::PROFILE_KW) {
             p.bump();
             p.expect(SyntaxKind::COLON);
@@ -196,7 +196,7 @@ fn body_tokens_inner(p: &mut Parser, stoppers: &[SyntaxKind]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cst::{self, LexedToken, TokenSpan, build_tree};
+    use crate::cst::{self, build_tree, LexedToken, TokenSpan};
     use crate::lexer::Token;
     use crate::syntax_kind::SyntaxNode;
     use logos::Logos;
@@ -329,10 +329,9 @@ mod tests {
         let src = "contract C { requires { true } }\n";
         let (root, errors) = parse_to_tree(src);
         assert!(errors.is_empty(), "errors: {errors:?}");
-        assert!(
-            root.children()
-                .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL)
-        );
+        assert!(root
+            .children()
+            .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL));
     }
 
     #[test]
@@ -371,6 +370,8 @@ contract X {
 "#;
         let (root, errors) = parse_to_tree(src);
         assert!(errors.is_empty(), "parse errors: {errors:?}");
-        assert!(root.children().any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL));
+        assert!(root
+            .children()
+            .any(|c| node_kind(&c) == SyntaxKind::CONTRACT_DECL));
     }
 }

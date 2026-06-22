@@ -201,14 +201,20 @@ fn recovery_unclosed_paren_in_input() {
 fn recovery_missing_contract_body() {
     let (ast, errors) = parse_str("contract Foo");
     // No braces at all -- should produce error (or at least not panic and produce partial)
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or partial AST for contract without body");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or partial AST for contract without body"
+    );
 }
 
 #[test]
 fn recovery_extra_closing_brace() {
     let (ast, errors) = parse_str("contract Foo { requires: x > 0 } }");
     // Extra } -- parser should recover, produce error(s), and preferably partial AST (no panic)
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or AST after extra closing brace");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or AST after extra closing brace"
+    );
 }
 
 #[test]
@@ -221,7 +227,10 @@ fn recovery_nested_unclosed_braces() {
 fn recovery_missing_colon_in_param() {
     let (ast, errors) = parse_str("contract Foo { input(x Int) }");
     // Missing colon between name and type -- should produce error, recover without panic
-    assert!(!errors.is_empty(), "expected parse error for missing colon in param");
+    assert!(
+        !errors.is_empty(),
+        "expected parse error for missing colon in param"
+    );
     assert!(ast.is_some(), "expected partial AST despite error");
 }
 
@@ -244,7 +253,10 @@ fn recovery_garbage_between_clauses() {
 fn recovery_keyword_as_identifier() {
     let (ast, errors) = parse_str("contract contract { requires: true }");
     // Using keyword 'contract' as contract name -- should produce error, recover without panic
-    assert!(!errors.is_empty(), "expected parse error for keyword as identifier");
+    assert!(
+        !errors.is_empty(),
+        "expected parse error for keyword as identifier"
+    );
     assert!(ast.is_some(), "expected partial AST despite error");
 }
 
@@ -325,14 +337,20 @@ fn recovery_deeply_nested_unclosed() {
     let (ast, errors) = parse_str("contract A { requires { if x then { if y then {");
     // 3 levels of unclosed braces -- must not panic, should produce errors
     // (ast may be None or partial)
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or partial result for deeply nested unclosed");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or partial result for deeply nested unclosed"
+    );
 }
 
 #[test]
 fn recovery_random_tokens() {
     let (ast, errors) = parse_str("+ - * / == != < > <= >= && || ( ) [ ] { }");
     // All operators with no structure -- must not panic, should produce errors
-    assert!(!errors.is_empty() || ast.is_some(), "expected error or result for random tokens");
+    assert!(
+        !errors.is_empty() || ast.is_some(),
+        "expected error or result for random tokens"
+    );
 }
 
 #[test]
@@ -341,7 +359,10 @@ fn recovery_very_long_identifier() {
     let source = format!("contract {} {{ requires: true }}", long_name);
     let (ast, errors) = parse_str(&source);
     // very long identifier must not cause panic (main goal); may produce errors in some impls
-    assert!(ast.is_some() || !errors.is_empty(), "long ident should parse or error without panic");
+    assert!(
+        ast.is_some() || !errors.is_empty(),
+        "long ident should parse or error without panic"
+    );
 }
 
 // ===================================================================
