@@ -3,5 +3,7 @@
 //! should depend on assura-ast (parser reexports for convenience).
 
 pub mod ast;
+pub mod features;
 
 pub use ast::*;
+pub use features::*;

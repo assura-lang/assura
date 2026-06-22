@@ -2213,7 +2213,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 6: Break layering violations -- depends on: Round 5
 
-- [ ] **11.12** Break parser dependency from codegen and smt -- #316
+- [x] **11.12** Break parser dependency from codegen and smt -- #316
   - `assura-codegen` (5 files) and `assura-smt` (45 files) import
     `assura_parser::ast` directly. They should operate on typed
     representations only.
@@ -2302,3 +2302,18 @@ Fixed all issues 316+:
 All acceptance commands run and passed (see session). Full examples loop=0. Demos pass. Committed + pushed. Issues closed. MASTER-PLAN updated.
 
 Next: address any follow-on from 316 (full gate, other crates migrate if wanted), wire more structural checkers.
+
+## Progress Notes (2026-06-22 session)
+Completed 11.12 follow-on:
+- Moved Feature registry and expr_to_string (with ExprFolder impl) to assura-ast.
+- Updated parser to reexport them.
+- Removed assura-parser from [dependencies] (and dev) of assura-codegen and assura-smt.
+- Updated all call sites (production + tests) to use assura-ast or assura-pipeline for setup.
+- Migrated test helpers to use assura_pipeline::compile to avoid parser dep entirely.
+- Acceptance greps now 0 matches.
+- assura-codegen tests: 590 passed.
+- assura-smt tests: 740 passed.
+- Updated plan.
+
+All acceptance for 11.12 passed.
+Next: 11.14 final verification + cleanup (run full gate, update docs), or 11.04/11.07 if ready.

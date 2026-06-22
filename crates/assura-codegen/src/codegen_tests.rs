@@ -1,11 +1,11 @@
 use super::*;
 use assura_ast::Spanned;
+use assura_config::CompilerConfig;
 
-/// Helper: parse + resolve + type-check source text, then codegen.
+/// Helper: parse + resolve + type-check source text using pipeline, then codegen.
 fn codegen_ok(source: &str) -> GeneratedProject {
-    let file = assura_parser::parse_unwrap(source);
-    let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-    let typed = assura_types::type_check(&resolved).expect("type check failed");
+    let out = assura_pipeline::compile(source, "test.assura", &CompilerConfig::default());
+    let typed = out.typed.expect("type check failed in test");
     codegen(&typed)
 }
 
@@ -557,7 +557,12 @@ fn e2e_safe_division_check_passes() {
     // Parse the e2e test file through the full pipeline
     let source = std::fs::read_to_string("../../tests/e2e/safe_division.assura")
         .expect("failed to read safe_division.assura");
-    let file = assura_parser::parse_unwrap(&source);
+    let out = assura_pipeline::compile(
+        &source,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse");
     let resolved = assura_resolve::resolve(&file).expect("resolution should succeed");
     let typed = assura_types::type_check(&resolved).expect("type check should succeed");
 
@@ -801,7 +806,12 @@ fn backend_cranelift_fast_dev() {
 }
 
 fn codegen_with_config_ok(source: &str, config: super::BackendConfig) -> super::GeneratedProject {
-    let file = assura_parser::parse_unwrap(source);
+    let out = assura_pipeline::compile(
+        source,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse");
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
     let typed = assura_types::type_check(&resolved).expect("type check failed");
     super::codegen_with_config(&typed, &config)
@@ -1034,7 +1044,9 @@ fn codegen_with_config_produces_profile() {
         target: super::CompileTarget::Native,
     };
     let project = {
-        let file = assura_parser::parse_unwrap("");
+        let out =
+            assura_pipeline::compile("", "test.assura", &assura_config::CompilerConfig::default());
+        let file = out.file.expect("parse");
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         let typed = assura_types::type_check(&resolved).expect("type check failed");
         super::codegen_with_config(&typed, &config)
@@ -2325,7 +2337,12 @@ contract NoErrors {
 // --- WASM target tests ---
 
 fn codegen_wasm(source: &str) -> GeneratedProject {
-    let file = assura_parser::parse_unwrap(source);
+    let out = assura_pipeline::compile(
+        source,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse");
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
     let typed = assura_types::type_check(&resolved).expect("type check failed");
     let config = BackendConfig {

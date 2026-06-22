@@ -1284,3 +1284,194 @@ mod tests {
         );
     }
 }
+
+/// Convert an `Expr` to a human-readable string representation.
+pub fn expr_to_string(expr: &SpExpr) -> String {
+    AssuraDisplayFolder.fold_expr(expr)
+}
+
+/// `ExprFolder` implementation that produces Assura source text.
+struct AssuraDisplayFolder;
+
+impl ExprFolder for AssuraDisplayFolder {
+    type Output = String;
+
+    fn fold_literal(&mut self, lit: &Literal) -> String {
+        match lit {
+            Literal::Int(s) | Literal::Float(s) => s.clone(),
+            Literal::Str(s) => format!("\"{s}\""),
+            Literal::Bool(b) => b.to_string(),
+        }
+    }
+
+    fn fold_ident(&mut self, name: &str) -> String {
+        name.to_string()
+    }
+
+    fn fold_field(&mut self, base: &SpExpr, field: &str) -> String {
+        format!("{}.{field}", self.fold_expr(base))
+    }
+
+    fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) -> String {
+        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
+        format!(
+            "{}.{method}({})",
+            self.fold_expr(receiver),
+            args_s.join(", ")
+        )
+    }
+
+    fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> String {
+        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
+        format!("{}({})", self.fold_expr(func), args_s.join(", "))
+    }
+
+    fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) -> String {
+        format!("{}[{}]", self.fold_expr(base), self.fold_expr(index))
+    }
+
+    fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> String {
+        // Iteratively walk left-leaning BinOp chains to avoid stack overflow.
+        let mut parts: Vec<String> = Vec::new();
+        let op_s = op.as_str();
+        parts.push(format!(" {op_s} {}", self.fold_expr(rhs)));
+        let mut cur = lhs;
+        loop {
+            match &cur.node {
+                Expr::BinOp { lhs, op, rhs } => {
+                    let op_s = op.as_str();
+                    parts.push(format!(" {op_s} {}", self.fold_expr(rhs)));
+                    cur = lhs;
+                }
+                _ => {
+                    parts.push(self.fold_expr(cur));
+                    break;
+                }
+            }
+        }
+        parts.reverse();
+        parts.concat()
+    }
+
+    fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) -> String {
+        let op_s = match op {
+            UnaryOp::Neg => "-",
+            UnaryOp::Not => "not",
+        };
+        format!("{op_s} {}", self.fold_expr(inner))
+    }
+
+    fn fold_old(&mut self, inner: &SpExpr) -> String {
+        format!("old({})", self.fold_expr(inner))
+    }
+
+    fn fold_forall(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
+        format!(
+            "forall {var} in {}: {}",
+            self.fold_expr(domain),
+            self.fold_expr(body)
+        )
+    }
+
+    fn fold_exists(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
+        format!(
+            "exists {var} in {}: {}",
+            self.fold_expr(domain),
+            self.fold_expr(body)
+        )
+    }
+
+    fn fold_if(&mut self, cond: &SpExpr, then_br: &SpExpr, else_br: Option<&SpExpr>) -> String {
+        match else_br {
+            Some(eb) => format!(
+                "if {} then {} else {}",
+                self.fold_expr(cond),
+                self.fold_expr(then_br),
+                self.fold_expr(eb)
+            ),
+            None => format!(
+                "if {} then {}",
+                self.fold_expr(cond),
+                self.fold_expr(then_br)
+            ),
+        }
+    }
+
+    fn fold_list(&mut self, items: &[SpExpr]) -> String {
+        let elems_s: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
+        format!("[{}]", elems_s.join(", "))
+    }
+
+    fn fold_cast(&mut self, inner: &SpExpr, ty: &str) -> String {
+        format!("{} as {ty}", self.fold_expr(inner))
+    }
+
+    fn fold_block(&mut self, exprs: &[SpExpr]) -> String {
+        let strs: Vec<String> = exprs.iter().map(|e| self.fold_expr(e)).collect();
+        strs.join(" ")
+    }
+
+    fn fold_ghost(&mut self, inner: &SpExpr) -> String {
+        format!("ghost {{ {} }}", self.fold_expr(inner))
+    }
+
+    fn fold_apply(&mut self, name: &str, args: &[SpExpr]) -> String {
+        let args_s: Vec<String> = args.iter().map(|a| self.fold_expr(a)).collect();
+        format!("apply {name}({})", args_s.join(", "))
+    }
+
+    fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) -> String {
+        format!(
+            "let {} = {} in {}",
+            name,
+            self.fold_expr(value),
+            self.fold_expr(body)
+        )
+    }
+
+    fn fold_match(&mut self, scrutinee: &SpExpr, arms: &[MatchArm]) -> String {
+        let scrut = self.fold_expr(scrutinee);
+        let arms_s: Vec<String> = arms
+            .iter()
+            .map(|arm| {
+                let pat = pattern_to_display(&arm.pattern);
+                format!("{pat} => {}", self.fold_expr(&arm.body))
+            })
+            .collect();
+        format!("match {scrut} {{ {} }}", arms_s.join(", "))
+    }
+
+    fn fold_tuple(&mut self, items: &[SpExpr]) -> String {
+        let elems: Vec<String> = items.iter().map(|e| self.fold_expr(e)).collect();
+        format!("({})", elems.join(", "))
+    }
+
+    fn fold_raw(&mut self, tokens: &[String]) -> String {
+        tokens.join(" ")
+    }
+}
+
+fn pattern_to_display(pat: &Pattern) -> String {
+    match pat {
+        Pattern::Ident(name) => name.clone(),
+        Pattern::Wildcard => "_".into(),
+        Pattern::Literal(lit) => format!("{lit:?}"),
+        Pattern::Constructor { name, fields } => {
+            let fs: Vec<String> = fields.iter().map(pattern_to_display).collect();
+            format!("{name}({})", fs.join(", "))
+        }
+        Pattern::Tuple(pats) => {
+            let ps: Vec<String> = pats.iter().map(pattern_to_display).collect();
+            format!("({})", ps.join(", "))
+        }
+    }
+}
+/// Truncate a string to `max` characters, appending `...` if truncated.
+pub fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() > max {
+        let end = s.char_indices().nth(max).map_or(s.len(), |(idx, _)| idx);
+        format!("{}...", &s[..end])
+    } else {
+        s.to_string()
+    }
+}

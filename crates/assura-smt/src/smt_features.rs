@@ -324,7 +324,7 @@ pub fn verify_feature_clause(
     body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
-    use assura_parser::features::Feature;
+    use assura_ast::features::Feature;
     let feature = match Feature::from_clause_kind(clause_kind) {
         Some(f) => f,
         None => return vec![],
@@ -612,7 +612,7 @@ mod tests {
         // by verify_feature_clause (either returning results or empty vec
         // based on whether SMT verification applies).
         use assura_ast::Literal;
-        use assura_parser::features::Feature;
+        use assura_ast::features::Feature;
         let dummy_body = sp(Expr::Literal(Literal::Bool(true)));
         let dummy_clauses: &[Clause] = &[];
         for info in Feature::all() {

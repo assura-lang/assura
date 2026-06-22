@@ -35,7 +35,12 @@ fn test_result_length_verifies() {
         env!("CARGO_MANIFEST_DIR")
     );
     let src = std::fs::read_to_string(&fixture).expect("test_sec.assura fixture");
-    let file = assura_parser::parse_unwrap(&src);
+    let out = assura_pipeline::compile(
+        &src,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse in test");
     let resolved = assura_resolve::resolve(&file).expect("resolve");
     let typed = assura_types::type_check(&resolved).expect("type_check");
     let results = verify(&typed);
@@ -134,7 +139,12 @@ module copy {
 }
 
 fn verify_source(source: &str) -> Vec<VerificationResult> {
-    let file = assura_parser::parse_unwrap(source);
+    let out = assura_pipeline::compile(
+        source,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse in test");
     let resolved = assura_resolve::resolve(&file).expect("resolve failed in test");
     let typed = assura_types::type_check(&resolved).expect("type_check failed in test");
     verify(&typed)

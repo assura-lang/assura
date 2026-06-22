@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
+use assura_ast::expr_to_string;
 use assura_ast::{Clause, ClauseKind, Param};
-use assura_parser::display::expr_to_string;
 
 use crate::ir_generate::{EnsuresShape, classify_ensures_shape};
 

@@ -716,21 +716,36 @@ fn fs_cache_entry_count() {
 #[test]
 fn has_verifiable_clauses_true_for_requires() {
     let src = "contract Foo { requires x > 0 }";
-    let file = assura_parser::parse_unwrap(src);
+    let out = assura_pipeline::compile(
+        src,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse in test");
     assert!(has_verifiable_clauses(&file));
 }
 
 #[test]
 fn has_verifiable_clauses_false_for_effects_only() {
     let src = "contract Bar { effects io }";
-    let file = assura_parser::parse_unwrap(src);
+    let out = assura_pipeline::compile(
+        src,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse in test");
     assert!(!has_verifiable_clauses(&file));
 }
 
 #[test]
 fn has_verifiable_clauses_false_for_empty() {
     let src = "contract Empty { }";
-    let file = assura_parser::parse_unwrap(src);
+    let out = assura_pipeline::compile(
+        src,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let file = out.file.expect("parse in test");
     assert!(!has_verifiable_clauses(&file));
 }
 

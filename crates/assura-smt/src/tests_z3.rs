@@ -1,9 +1,12 @@
 use super::*;
 
 fn verify_source(source: &str) -> Vec<VerificationResult> {
-    let file = assura_parser::parse_unwrap(source);
-    let resolved = assura_resolve::resolve(&file).expect("resolve failed in test");
-    let typed = assura_types::type_check(&resolved).expect("type_check failed in test");
+    let out = assura_pipeline::compile(
+        source,
+        "test.assura",
+        &assura_config::CompilerConfig::default(),
+    );
+    let typed = out.typed.expect("type_check failed in test");
     verify(&typed)
 }
 

@@ -775,7 +775,7 @@ pub fn generate_scoped_invariant(clause: &Clause, code: &mut String) {
 /// Returns true if the clause was handled as a feature annotation,
 /// false if it should be handled by the default codegen path.
 pub fn generate_feature_clause(clause: &Clause, fn_name: &str, code: &mut String) -> bool {
-    use assura_parser::features::Feature;
+    use assura_ast::features::Feature;
     let kind_str = match &clause.kind {
         ClauseKind::Other(kind) => kind.as_str(),
         _ => return false,
