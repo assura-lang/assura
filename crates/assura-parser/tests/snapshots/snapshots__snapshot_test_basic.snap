@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 58
 expression: ast
 ---
 SourceFile {
@@ -129,10 +130,10 @@ SourceFile {
                                                         span: 130..131,
                                                     },
                                                 },
-                                                span: 125..132,
+                                                span: 126..131,
                                             },
                                         },
-                                        span: 116..132,
+                                        span: 116..131,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
