@@ -169,6 +169,14 @@ pub(crate) fn run_error_propagation_checks(
                         .must_not_mask
                         .push((tokens[0].clone(), tokens[1].clone()));
                 }
+                if clause.kind == ClauseKind::MustNot
+                    && let Expr::Raw(tokens) = &clause.body.node
+                    && tokens.len() >= 2
+                {
+                    policy
+                        .must_not_mask
+                        .push((tokens[0].clone(), tokens[1].clone()));
+                }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_preserve_detail"
                     && let Expr::Raw(tokens) = &clause.body.node

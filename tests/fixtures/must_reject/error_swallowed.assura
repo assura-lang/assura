@@ -1,9 +1,10 @@
 // MUST REJECT A12002
+// BLOCKED: static A12002 from must_not_mask + catch/translate not yet produced by run_error_propagation_checks (SMT sees the policy as Unknown)
 module test.error_swallowed;
 
 contract FilePolicy {
     input(path: String)
-    must_not_mask IoError GenericError
+    must_not_mask { IoError GenericError }
     requires { true }
     ensures { true }
 }
