@@ -39,6 +39,16 @@ contract BadExpr {
         err.span,
         decl_span
     );
+    // Per #333: the error for bad subexpr (the "true") should carry a span
+    // contained within (or tightly around) the offending sub-expression text.
+    let true_start = src.find("true").expect("source must contain 'true'");
+    let true_end = true_start + 4;
+    let overlaps_bad = err.span.start < true_end && err.span.end > true_start;
+    assert!(
+        overlaps_bad,
+        "error span {:?} should overlap the bad subexpr 'true' at {}..{}",
+        err.span, true_start, true_end
+    );
 }
 
 #[test]

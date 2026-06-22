@@ -171,6 +171,7 @@ fn old_expr(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // old
     p.expect(SyntaxKind::L_PAREN);
+    p.bump_trivia();
     expr(p);
     p.expect(SyntaxKind::R_PAREN);
     m.complete(p, SyntaxKind::OLD_EXPR)
@@ -204,6 +205,7 @@ fn ghost_expr(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // ghost
     p.expect(SyntaxKind::L_BRACE);
+    p.bump_trivia();
     expr(p);
     p.expect(SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::GHOST_EXPR)
@@ -219,6 +221,7 @@ fn temporal_expr(p: &mut Parser) -> CompletedMarker {
         arg_list(p);
     } else if p.at(SyntaxKind::L_BRACE) {
         p.bump(); // {
+        p.bump_trivia();
         while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
             let before = p.pos();
             expr_bp(p, 0);
@@ -250,6 +253,7 @@ fn match_expr(p: &mut Parser) -> CompletedMarker {
     p.bump(); // match
     expr_bp(p, 0);
     p.expect(SyntaxKind::L_BRACE);
+    p.bump_trivia();
 
     let arms = p.open();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
@@ -329,6 +333,7 @@ fn pattern(p: &mut Parser) {
 fn paren_or_tuple(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // (
+    p.bump_trivia();
 
     if !p.enter_nesting() {
         // Depth limit exceeded: skip to matching ')' and return error node.
@@ -371,6 +376,7 @@ fn paren_or_tuple(p: &mut Parser) -> CompletedMarker {
 fn list_expr(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // [
+    p.bump_trivia();
 
     while !p.eof() && !p.at(SyntaxKind::R_BRACKET) {
         let before = p.pos();

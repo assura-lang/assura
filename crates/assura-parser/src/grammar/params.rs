@@ -40,6 +40,7 @@ pub(crate) fn param_list(p: &mut Parser) {
     }
     let m = p.open();
     p.bump(); // (
+    p.bump_trivia();
 
     while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
         let before = p.pos();
@@ -64,6 +65,7 @@ fn param(p: &mut Parser) {
         p.bump(); // #
         if p.at(SyntaxKind::L_BRACKET) {
             p.bump(); // [
+            p.bump_trivia();
             super::body_tokens_inner(p, &[]);
             p.eat(SyntaxKind::R_BRACKET);
         }
@@ -87,7 +89,7 @@ fn param(p: &mut Parser) {
 /// Collect type tokens for a parameter, handling balanced delimiters.
 fn param_type_tokens(p: &mut Parser) {
     while !p.eof() {
-        let cur = p.current();
+        let cur = p.current_raw();
         if matches!(
             cur,
             SyntaxKind::COMMA | SyntaxKind::R_PAREN | SyntaxKind::R_BRACE | SyntaxKind::R_BRACKET
@@ -96,14 +98,18 @@ fn param_type_tokens(p: &mut Parser) {
         }
         match cur {
             SyntaxKind::L_BRACE => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_BRACE);
+                if p.current_raw() == SyntaxKind::R_BRACE {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_PAREN => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_PAREN);
+                if p.current_raw() == SyntaxKind::R_PAREN {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_ANGLE => {
                 p.bump();
@@ -125,26 +131,32 @@ fn param_type_tokens(p: &mut Parser) {
 /// Consume tokens until matching closer (brace/paren/bracket).
 fn balanced_inner(p: &mut Parser) {
     while !p.eof() {
-        let cur = p.current();
+        let cur = p.current_raw();
         match cur {
             SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
             SyntaxKind::L_BRACE => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_BRACE);
+                if p.current_raw() == SyntaxKind::R_BRACE {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_PAREN => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_PAREN);
+                if p.current_raw() == SyntaxKind::R_PAREN {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_BRACKET => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_BRACKET);
+                if p.current_raw() == SyntaxKind::R_BRACKET {
+                    p.bump_raw();
+                }
             }
             _ => {
-                p.bump();
+                p.bump_raw();
             }
         }
     }
@@ -314,19 +326,25 @@ fn field_type_tokens(p: &mut Parser) {
         }
         match cur {
             SyntaxKind::L_BRACE => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_BRACE);
+                if p.current_raw() == SyntaxKind::R_BRACE {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_PAREN => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_PAREN);
+                if p.current_raw() == SyntaxKind::R_PAREN {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_BRACKET => {
-                p.bump();
+                p.bump_raw();
                 balanced_inner(p);
-                p.eat(SyntaxKind::R_BRACKET);
+                if p.current_raw() == SyntaxKind::R_BRACKET {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
             _ => {

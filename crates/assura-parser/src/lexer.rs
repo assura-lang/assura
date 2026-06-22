@@ -1,9 +1,6 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, Clone, PartialEq, Eq, Hash)]
-#[logos(skip r"[ \t\r\n\f]+")]
-#[logos(skip(r"//[^\n]*", allow_greedy = true))]
-#[logos(skip r"/\*([^*]|\*[^/])*\*/")]
 pub enum Token {
     // ===================================================================
     // Keywords — full spec coverage (~199 keywords, Appendix A)
@@ -498,6 +495,16 @@ pub enum Token {
     DotDot,
     #[token("^")]
     Caret,
+
+    // Trivia tokens (captured explicitly so GreenNode text concat matches original
+    // source, making SyntaxNode::text_range() return correct byte offsets for
+    // expressions inside braced clauses etc.)
+    #[regex(r"[ \t\r\n\f]+")]
+    Whitespace,
+    #[regex(r"//[^\r\n]*", allow_greedy = true)]
+    LineComment,
+    #[regex(r"/\*([^*]|\*[^/])*\*/", allow_greedy = true)]
+    BlockComment,
 }
 
 impl std::fmt::Display for Token {
@@ -590,9 +597,22 @@ mod tests {
         Token::lexer(input).filter_map(|r| r.ok()).collect()
     }
 
+    fn lex_sig(input: &str) -> Vec<Token> {
+        // For tests that only care about significant tokens (ignores trivia for brevity in asserts)
+        Token::lexer(input)
+            .filter_map(|r| r.ok())
+            .filter(|t| {
+                !matches!(
+                    t,
+                    Token::Whitespace | Token::LineComment | Token::BlockComment
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn lex_keywords() {
-        let tokens = lex("contract requires ensures effects invariant");
+        let tokens = lex_sig("contract requires ensures effects invariant");
         assert_eq!(
             tokens,
             vec![
@@ -607,7 +627,7 @@ mod tests {
 
     #[test]
     fn lex_operators() {
-        let tokens = lex("== != <= >= && || + - * /");
+        let tokens = lex_sig("== != <= >= && || + - * /");
         assert_eq!(
             tokens,
             vec![
@@ -627,7 +647,7 @@ mod tests {
 
     #[test]
     fn lex_literals() {
-        let tokens = lex("42 3.14 \"hello\" true false");
+        let tokens = lex_sig("42 3.14 \"hello\" true false");
         assert_eq!(
             tokens,
             vec![
@@ -642,7 +662,7 @@ mod tests {
 
     #[test]
     fn lex_identifiers() {
-        let tokens = lex("foo bar_baz x123");
+        let tokens = lex_sig("foo bar_baz x123");
         assert_eq!(
             tokens,
             vec![
@@ -655,7 +675,7 @@ mod tests {
 
     #[test]
     fn lex_delimiters() {
-        let tokens = lex("( ) { } [ ] , : ; .");
+        let tokens = lex_sig("( ) { } [ ] , : ; .");
         assert_eq!(
             tokens,
             vec![
@@ -675,25 +695,30 @@ mod tests {
 
     #[test]
     fn lex_skips_line_comments() {
+        // We now capture trivia (for correct spans); verify comment token appears
         let tokens = lex("contract // this is a comment\nrequires");
-        assert_eq!(tokens, vec![Token::Contract, Token::Requires]);
+        assert!(tokens.contains(&Token::Contract));
+        assert!(tokens.contains(&Token::Requires));
+        assert!(tokens.iter().any(|t| matches!(t, Token::LineComment)));
     }
 
     #[test]
     fn lex_skips_block_comments() {
         let tokens = lex("contract /* block comment */ requires");
-        assert_eq!(tokens, vec![Token::Contract, Token::Requires]);
+        assert!(tokens.contains(&Token::Contract));
+        assert!(tokens.contains(&Token::Requires));
+        assert!(tokens.iter().any(|t| matches!(t, Token::BlockComment)));
     }
 
     #[test]
     fn lex_arrows() {
-        let tokens = lex("-> =>");
+        let tokens = lex_sig("-> =>");
         assert_eq!(tokens, vec![Token::Arrow, Token::FatArrow]);
     }
 
     #[test]
     fn lex_modifier_keywords() {
-        let tokens = lex("ghost pure opaque lemma fn axiom");
+        let tokens = lex_sig("ghost pure opaque lemma fn axiom");
         assert_eq!(
             tokens,
             vec![
@@ -709,7 +734,7 @@ mod tests {
 
     #[test]
     fn lex_type_keywords() {
-        let tokens = lex("type enum extern bind service prophecy");
+        let tokens = lex_sig("type enum extern bind service prophecy");
         assert_eq!(
             tokens,
             vec![

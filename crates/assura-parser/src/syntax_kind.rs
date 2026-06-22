@@ -684,6 +684,11 @@ impl From<&Token> for SyntaxKind {
             Token::Amp => Self::AMP,
             Token::DotDot => Self::DOT_DOT,
             Token::Caret => Self::CARET,
+
+            // Trivia (now lexed so ranges match source bytes)
+            Token::Whitespace => Self::WHITESPACE,
+            Token::LineComment => Self::COMMENT,
+            Token::BlockComment => Self::COMMENT,
         }
     }
 }

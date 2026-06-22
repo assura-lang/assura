@@ -758,15 +758,17 @@ fn infer_binop(
                     message: format!(
                         "arithmetic operator requires numeric types, found `{lhs_ty}`"
                     ),
-                    span: span.clone(),
+                    span: lhs.span.clone(),
                     secondary: None,
                 });
             }
             if !types_compatible(&lhs_ty, &rhs_ty) {
+                // Prefer the rhs span for the "bad" operand in mismatch (for precise
+                // sub-expr diagnostics per 11.04/333).
                 return Err(TypeError {
                     code: "A03001".into(),
                     message: format!("type mismatch in arithmetic: `{lhs_ty}` vs `{rhs_ty}`"),
-                    span: span.clone(),
+                    span: rhs.span.clone(),
                     secondary: None,
                 });
             }
@@ -781,7 +783,7 @@ fn infer_binop(
                     message: format!(
                         "comparison requires same types, found `{lhs_ty}` vs `{rhs_ty}`"
                     ),
-                    span: span.clone(),
+                    span: rhs.span.clone(),
                     secondary: None,
                 });
             }

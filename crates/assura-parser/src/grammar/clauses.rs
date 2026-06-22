@@ -453,12 +453,14 @@ fn clause_body_expr(p: &mut Parser) {
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_BRACE {
         p.bump(); // :
         p.bump(); // {
+        p.bump_trivia(); // emit ws after { under CLAUSE so inner expr spans are tight
         expr_list_until(p, SyntaxKind::R_BRACE);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
         p.bump(); // {
+        p.bump_trivia(); // emit ws after { under CLAUSE
         expr_list_until(p, SyntaxKind::R_BRACE);
         p.expect(SyntaxKind::R_BRACE);
         return;
@@ -468,12 +470,14 @@ fn clause_body_expr(p: &mut Parser) {
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_PAREN {
         p.bump(); // :
         p.bump(); // (
+        p.bump_trivia(); // emit ws after (
         expr_list_until(p, SyntaxKind::R_PAREN);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
         p.bump(); // (
+        p.bump_trivia(); // emit ws after (
         expr_list_until(p, SyntaxKind::R_PAREN);
         p.expect(SyntaxKind::R_PAREN);
         return;
@@ -512,12 +516,14 @@ pub(crate) fn clause_body(p: &mut Parser) {
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_BRACE {
         p.bump(); // :
         p.bump(); // {
+        p.bump_trivia();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
         p.bump(); // {
+        p.bump_trivia();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_BRACE);
         return;
@@ -527,12 +533,14 @@ pub(crate) fn clause_body(p: &mut Parser) {
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_PAREN {
         p.bump(); // :
         p.bump(); // (
+        p.bump_trivia();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
         p.bump(); // (
+        p.bump_trivia();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;
@@ -545,21 +553,25 @@ pub(crate) fn clause_body(p: &mut Parser) {
 
     // Collect tokens until clause stopper
     while !p.eof() && !is_clause_stopper(p) {
-        let cur = p.current();
+        let cur = p.current_raw();
         match cur {
             SyntaxKind::L_PAREN => {
-                p.bump();
+                p.bump_raw();
                 super::body_tokens_inner(p, &[]);
-                p.eat(SyntaxKind::R_PAREN);
+                if p.current_raw() == SyntaxKind::R_PAREN {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_BRACKET => {
-                p.bump();
+                p.bump_raw();
                 super::body_tokens_inner(p, &[]);
-                p.eat(SyntaxKind::R_BRACKET);
+                if p.current_raw() == SyntaxKind::R_BRACKET {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
             _ => {
-                p.bump();
+                p.bump_raw();
             }
         }
     }

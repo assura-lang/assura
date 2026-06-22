@@ -42,6 +42,12 @@ pub(crate) fn source_file(p: &mut Parser) {
         }
     }
 
+    // Emit any trailing trivia and remaining under SOURCE to ensure Advance
+    // count matches token count (prevents builder children >1 at finish).
+    p.bump_trivia();
+    while !p.eof_raw() {
+        p.bump_raw();
+    }
     m.complete(p, SyntaxKind::SOURCE_FILE);
 }
 
@@ -150,31 +156,38 @@ fn at_decl_start(p: &mut Parser) -> bool {
 }
 
 /// Collect tokens with balanced delimiters until we hit a stopper or EOF.
+/// Uses raw access so that trivia are included (for correct source offsets).
 fn body_tokens_inner(p: &mut Parser, stoppers: &[SyntaxKind]) {
     while !p.eof() {
-        let cur = p.current();
+        let cur = p.current_raw();
         if stoppers.contains(&cur) {
             break;
         }
         match cur {
             SyntaxKind::L_BRACE => {
-                p.bump();
+                p.bump_raw();
                 body_tokens_inner(p, &[]);
-                p.eat(SyntaxKind::R_BRACE);
+                if p.current_raw() == SyntaxKind::R_BRACE {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_PAREN => {
-                p.bump();
+                p.bump_raw();
                 body_tokens_inner(p, &[]);
-                p.eat(SyntaxKind::R_PAREN);
+                if p.current_raw() == SyntaxKind::R_PAREN {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::L_BRACKET => {
-                p.bump();
+                p.bump_raw();
                 body_tokens_inner(p, &[]);
-                p.eat(SyntaxKind::R_BRACKET);
+                if p.current_raw() == SyntaxKind::R_BRACKET {
+                    p.bump_raw();
+                }
             }
             SyntaxKind::R_BRACE | SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
             _ => {
-                p.bump();
+                p.bump_raw();
             }
         }
     }

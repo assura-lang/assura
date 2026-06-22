@@ -108,6 +108,7 @@ fn contract_decl(p: &mut Parser) {
     params::type_params(p);
 
     p.expect(SyntaxKind::L_BRACE);
+    p.bump_trivia();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         if clauses::at_clause_start(p) {
             clauses::clause(p);
@@ -294,6 +295,7 @@ fn bind_decl(p: &mut Parser) {
 
     // Body: { input(...) output(...) requires/ensures/effects }
     p.expect(SyntaxKind::L_BRACE);
+    p.bump_trivia();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         if clauses::at_clause_start(p) {
             clauses::clause(p);
@@ -314,6 +316,7 @@ fn codec_registry_decl(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT); // registry name
 
     p.expect(SyntaxKind::L_BRACE);
+    p.bump_trivia();
     // output: Type,
     if p.at(SyntaxKind::OUTPUT_KW) {
         p.bump(); // output
@@ -348,6 +351,7 @@ fn codec_entry(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT); // codec name
 
     p.expect(SyntaxKind::L_BRACE);
+    p.bump_trivia();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         let before = p.pos();
         if p.at(SyntaxKind::MAGIC_KW) {
@@ -514,6 +518,7 @@ fn service_decl(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT);
 
     p.expect(SyntaxKind::L_BRACE);
+    p.bump_trivia();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         let before = p.pos();
         service_item(p);

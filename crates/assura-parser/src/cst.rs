@@ -158,6 +158,10 @@ pub struct TokenSpan {
     pub end: usize,
 }
 
+fn is_trivia(k: SyntaxKind) -> bool {
+    k == SyntaxKind::WHITESPACE || k == SyntaxKind::COMMENT
+}
+
 impl Parser {
     /// Create a new parser from a sequence of lexed tokens with spans.
     pub(crate) fn new(tokens: Vec<LexedToken>, spans: Vec<TokenSpan>) -> Self {
@@ -187,23 +191,68 @@ impl Parser {
         }
     }
 
-    /// Consume the current token and advance.
+    /// Consume the current *significant* (non-trivia) token and advance.
+    /// Any trivia tokens immediately before it are emitted first (so their
+    /// lengths pad the source offsets for correct text_range() on nodes).
     pub(crate) fn bump(&mut self) {
-        assert!(!self.eof());
+        self.bump_trivia();
+        if self.eof() {
+            return;
+        }
         self.fuel = 256;
         self.events.push(Event::Advance);
         self.pos += 1;
     }
 
-    /// The `SyntaxKind` of the current token, or `ERROR_TOKEN` at EOF.
+    /// Emit all immediately following trivia tokens (ws/comments) as Advance
+    /// events under the current parent. Used internally by bump() and
+    /// explicitly after manual delimiter bumps in clause bodies etc.
+    pub(crate) fn bump_trivia(&mut self) {
+        while !self.eof() && is_trivia(self.tokens[self.pos].kind) {
+            self.fuel = 256;
+            self.events.push(Event::Advance);
+            self.pos += 1;
+        }
+    }
+
+    /// Always consume exactly the next token (trivia or not) as Advance.
+    /// Used by raw token collectors (clause_body for effects etc) that want
+    /// to include everything for correct offset reconstruction.
+    pub(crate) fn bump_raw(&mut self) {
+        if self.eof() {
+            return;
+        }
+        self.fuel = 256;
+        self.events.push(Event::Advance);
+        self.pos += 1;
+    }
+
+    /// The `SyntaxKind` of the next *significant* (non-trivia) token.
     pub(crate) fn current(&self) -> SyntaxKind {
         self.nth(0)
     }
 
-    /// Lookahead: the kind of the token `n` positions ahead.
+    /// Lookahead for the n-th significant (non-trivia) token ahead.
     pub(crate) fn nth(&self, n: usize) -> SyntaxKind {
+        let mut seen = 0;
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            let k = self.tokens[i].kind;
+            if !is_trivia(k) {
+                if seen == n {
+                    return k;
+                }
+                seen += 1;
+            }
+            i += 1;
+        }
+        SyntaxKind::ERROR_TOKEN
+    }
+
+    /// Raw current without skipping trivia (for raw collectors and EOF checks).
+    pub(crate) fn current_raw(&self) -> SyntaxKind {
         self.tokens
-            .get(self.pos + n)
+            .get(self.pos)
             .map(|t| t.kind)
             .unwrap_or(SyntaxKind::ERROR_TOKEN)
     }
@@ -255,8 +304,21 @@ impl Parser {
         }
     }
 
-    /// True if we've consumed all tokens.
+    /// True if we've consumed all *significant* (non-trivia) tokens.
+    /// Trivia at the end do not count as content.
     pub(crate) fn eof(&self) -> bool {
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            if !is_trivia(self.tokens[i].kind) {
+                return false;
+            }
+            i += 1;
+        }
+        true
+    }
+
+    /// True if pos reached end of token list (raw, no trivia skip).
+    pub(crate) fn eof_raw(&self) -> bool {
         self.pos >= self.tokens.len()
     }
 
@@ -312,18 +374,28 @@ impl Parser {
         k == SyntaxKind::IDENT || k.is_keyword()
     }
 
-    /// The source span of the current token (byte offsets).
+    /// The source span of the current *significant* token (skips trivia for error location).
     pub(crate) fn current_span(&self) -> TokenSpan {
-        self.spans.get(self.pos).cloned().unwrap_or_else(|| {
-            // At EOF, point to end of last token
-            self.spans
-                .last()
-                .map(|s| TokenSpan {
-                    start: s.end,
-                    end: s.end,
-                })
-                .unwrap_or(TokenSpan { start: 0, end: 0 })
-        })
+        let mut i = self.pos;
+        while i < self.spans.len() {
+            let k = self
+                .tokens
+                .get(i)
+                .map(|t| t.kind)
+                .unwrap_or(SyntaxKind::ERROR_TOKEN);
+            if !is_trivia(k) {
+                return self.spans[i].clone();
+            }
+            i += 1;
+        }
+        // EOF or only trivia: end of last
+        self.spans
+            .last()
+            .map(|s| TokenSpan {
+                start: s.end,
+                end: s.end,
+            })
+            .unwrap_or(TokenSpan { start: 0, end: 0 })
     }
 
     /// Wrap the current token in an ERROR node and skip it (error recovery).
