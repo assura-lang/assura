@@ -2132,7 +2132,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
   - **Acceptance**:
     ```bash
     # ExprFolder trait exists
-    grep -n "trait ExprFolder" crates/assura-parser/src/
+    grep -n "trait ExprFolder" crates/assura-ast/src/ast.rs
     # Duplicate BinOp match blocks eliminated
     grep -rn "BinOp::Add =>" crates/ | wc -l
     # Should be <= 3 (one canonical, one Rust, one SMT)
