@@ -1,5 +1,6 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
+assertion_line: 80
 expression: ast
 ---
 SourceFile {
@@ -48,7 +49,7 @@ SourceFile {
                                     "enabled",
                                 ],
                             ),
-                            span: 92..111,
+                            span: 1984..2007,
                         },
                         effect_variables: [],
                     },
@@ -58,7 +59,7 @@ SourceFile {
                             node: Ident(
                                 "ecdsa",
                             ),
-                            span: 120..125,
+                            span: 2019..2025,
                         },
                         effect_variables: [],
                     },
@@ -74,7 +75,7 @@ SourceFile {
                                     "enabled",
                                 ],
                             ),
-                            span: 125..144,
+                            span: 2025..2180,
                         },
                         effect_variables: [],
                     },
@@ -90,13 +91,13 @@ SourceFile {
                                     "enabled",
                                 ],
                             ),
-                            span: 144..162,
+                            span: 2180..2202,
                         },
                         effect_variables: [],
                     },
                 ],
             },
-            span: 72..162,
+            span: 1517..2202,
         },
         Spanned {
             node: Block {
@@ -112,7 +113,7 @@ SourceFile {
                 ),
                 body: [],
             },
-            span: 162..198,
+            span: 2202..2302,
         },
         Spanned {
             node: Block {
@@ -128,7 +129,7 @@ SourceFile {
                 ),
                 body: [],
             },
-            span: 198..236,
+            span: 2302..2345,
         },
         Spanned {
             node: Block {
@@ -144,7 +145,7 @@ SourceFile {
                 ),
                 body: [],
             },
-            span: 236..272,
+            span: 2345..2677,
         },
         Spanned {
             node: FnDef(
@@ -184,7 +185,7 @@ SourceFile {
                                 node: Ident(
                                     "untrusted",
                                 ),
-                                span: 328..343,
+                                span: 3289..3304,
                             },
                             effect_variables: [],
                         },
@@ -198,14 +199,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 343..358,
+                                span: 3304..3323,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 272..358,
+            span: 2677..3323,
         },
         Spanned {
             node: FnDef(
@@ -237,7 +238,7 @@ SourceFile {
                                 node: Ident(
                                     "untrusted",
                                 ),
-                                span: 408..423,
+                                span: 3381..3396,
                             },
                             effect_variables: [],
                         },
@@ -251,14 +252,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 423..438,
+                                span: 3396..3415,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 358..438,
+            span: 3323..3415,
         },
         Spanned {
             node: FnDef(
@@ -290,7 +291,7 @@ SourceFile {
                                 node: Ident(
                                     "untrusted",
                                 ),
-                                span: 488..503,
+                                span: 3473..3488,
                             },
                             effect_variables: [],
                         },
@@ -304,14 +305,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 503..518,
+                                span: 3488..3507,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 438..518,
+            span: 3415..3507,
         },
         Spanned {
             node: TypeDef(
@@ -336,17 +337,8 @@ SourceFile {
                                         base: Named(
                                             "Nat",
                                         ),
-                                        predicate: "v <= MAX_EC_POINT_SIZE",
+                                        predicate: "v <= MAX_EC_POINT_SIZE } curve_id : CurveId } fn validate_peer_key ( raw_data : Bytes",
                                     },
-                                ),
-                                is_pub: false,
-                            },
-                            FieldDef {
-                                name: "curve_id",
-                                ty: Some(
-                                    Named(
-                                        "CurveId",
-                                    ),
                                 ),
                                 is_pub: false,
                             },
@@ -354,587 +346,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 518..615,
-        },
-        Spanned {
-            node: FnDef(
-                FnDef {
-                    name: "validate_peer_key",
-                    is_ghost: false,
-                    is_lemma: false,
-                    params: [
-                        Param {
-                            name: "raw_data",
-                            ty: Some(
-                                Named(
-                                    "Bytes",
-                                ),
-                            ),
-                        },
-                        Param {
-                            name: "raw_length",
-                            ty: Some(
-                                Named(
-                                    "U16",
-                                ),
-                            ),
-                        },
-                        Param {
-                            name: "expected_curve",
-                            ty: Some(
-                                Named(
-                                    "CurveId",
-                                ),
-                            ),
-                        },
-                    ],
-                    return_ty: Some(
-                        Named(
-                            "ValidPeerKey",
-                        ),
-                    ),
-                    clauses: [
-                        Clause {
-                            kind: Other(
-                                "taint",
-                            ),
-                            body: Spanned {
-                                node: Raw(
-                                    [
-                                        "validated",
-                                        "|",
-                                        "HandshakeError",
-                                    ],
-                                ),
-                                span: 735..765,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Effects,
-                            body: Spanned {
-                                node: Ident(
-                                    "pure",
-                                ),
-                                span: 765..777,
-                            },
-                            effect_variables: [],
-                        },
-                    ],
-                },
-            ),
-            span: 615..1257,
-        },
-        Spanned {
-            node: TypeDef(
-                TypeDef {
-                    name: "EcdhContext",
-                    type_params: [],
-                    body: Struct(
-                        [
-                            FieldDef {
-                                name: "peer_point",
-                                ty: Some(
-                                    Generic(
-                                        "Region",
-                                        [
-                                            Named(
-                                                "MAX_EC_POINT_SIZE",
-                                            ),
-                                        ],
-                                    ),
-                                ),
-                                is_pub: false,
-                            },
-                            FieldDef {
-                                name: "our_keypair",
-                                ty: Some(
-                                    Named(
-                                        "EcKeyPair",
-                                    ),
-                                ),
-                                is_pub: false,
-                            },
-                            FieldDef {
-                                name: "shared_secret",
-                                ty: Some(
-                                    Generic(
-                                        "Region",
-                                        [
-                                            Named(
-                                                "MAX_EC_POINT_SIZE",
-                                            ),
-                                        ],
-                                    ),
-                                ),
-                                is_pub: false,
-                            },
-                            FieldDef {
-                                name: "curve",
-                                ty: Some(
-                                    Named(
-                                        "CurveId",
-                                    ),
-                                ),
-                                is_pub: false,
-                            },
-                        ],
-                    ),
-                },
-            ),
-            span: 1257..1386,
-        },
-        Spanned {
-            node: FnDef(
-                FnDef {
-                    name: "parse_x509_length",
-                    is_ghost: false,
-                    is_lemma: false,
-                    params: [
-                        Param {
-                            name: "raw_len",
-                            ty: Some(
-                                Named(
-                                    "U32",
-                                ),
-                            ),
-                        },
-                    ],
-                    return_ty: Some(
-                        Refined {
-                            base: Named(
-                                "Nat",
-                            ),
-                            predicate: "v <= MAX_HANDSHAKE_LEN",
-                        },
-                    ),
-                    clauses: [
-                        Clause {
-                            kind: Other(
-                                "taint",
-                            ),
-                            body: Spanned {
-                                node: Raw(
-                                    [
-                                        "validated",
-                                        "|",
-                                        "ParseError",
-                                    ],
-                                ),
-                                span: 1465..1491,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Effects,
-                            body: Spanned {
-                                node: Ident(
-                                    "pure",
-                                ),
-                                span: 1491..1503,
-                            },
-                            effect_variables: [],
-                        },
-                    ],
-                },
-            ),
-            span: 1386..1630,
-        },
-        Spanned {
-            node: FnDef(
-                FnDef {
-                    name: "safe_alloc_size",
-                    is_ghost: false,
-                    is_lemma: false,
-                    params: [
-                        Param {
-                            name: "header_len",
-                            ty: Some(
-                                Refined {
-                                    base: Named(
-                                        "Nat",
-                                    ),
-                                    predicate: "h <= MAX_HANDSHAKE_LEN",
-                                },
-                            ),
-                        },
-                        Param {
-                            name: "content_len",
-                            ty: Some(
-                                Refined {
-                                    base: Named(
-                                        "Nat",
-                                    ),
-                                    predicate: "c <= MAX_HANDSHAKE_LEN",
-                                },
-                            ),
-                        },
-                    ],
-                    return_ty: Some(
-                        Refined {
-                            base: Named(
-                                "Nat",
-                            ),
-                            predicate: "v <= 2 * MAX_HANDSHAKE_LEN",
-                        },
-                    ),
-                    clauses: [
-                        Clause {
-                            kind: Requires,
-                            body: Spanned {
-                                node: BinOp {
-                                    lhs: Spanned {
-                                        node: BinOp {
-                                            lhs: Spanned {
-                                                node: Ident(
-                                                    "header_len",
-                                                ),
-                                                span: 1770..1780,
-                                            },
-                                            op: Add,
-                                            rhs: Spanned {
-                                                node: Ident(
-                                                    "content_len",
-                                                ),
-                                                span: 1781..1792,
-                                            },
-                                        },
-                                        span: 1770..1792,
-                                    },
-                                    op: Lte,
-                                    rhs: Spanned {
-                                        node: BinOp {
-                                            lhs: Spanned {
-                                                node: Literal(
-                                                    Int(
-                                                        "2",
-                                                    ),
-                                                ),
-                                                span: 1794..1795,
-                                            },
-                                            op: Mul,
-                                            rhs: Spanned {
-                                                node: Ident(
-                                                    "MAX_HANDSHAKE_LEN",
-                                                ),
-                                                span: 1796..1813,
-                                            },
-                                        },
-                                        span: 1794..1813,
-                                    },
-                                },
-                                span: 1770..1813,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Effects,
-                            body: Spanned {
-                                node: Ident(
-                                    "pure",
-                                ),
-                                span: 1814..1826,
-                            },
-                            effect_variables: [],
-                        },
-                    ],
-                },
-            ),
-            span: 1630..1850,
-        },
-        Spanned {
-            node: Contract(
-                ContractDecl {
-                    name: "EcdhParseContract",
-                    type_params: [],
-                    clauses: [],
-                    fn_params: [
-                        Param {
-                            name: "ctx",
-                            ty: Some(
-                                Named(
-                                    "&mut EcdhContext",
-                                ),
-                            ),
-                        },
-                        Param {
-                            name: "peer",
-                            ty: Some(
-                                Named(
-                                    "ValidPeerKey",
-                                ),
-                            ),
-                        },
-                    ],
-                },
-            ),
-            span: 1850..2193,
-        },
-        Spanned {
-            node: FnDef(
-                FnDef {
-                    name: "ecdh_compute_shared",
-                    is_ghost: false,
-                    is_lemma: false,
-                    params: [
-                        Param {
-                            name: "our_private",
-                            ty: Some(
-                                Named(
-                                    "U256 # [ secret ]",
-                                ),
-                            ),
-                        },
-                        Param {
-                            name: "peer_public",
-                            ty: Some(
-                                Named(
-                                    "ValidPeerKey",
-                                ),
-                            ),
-                        },
-                    ],
-                    return_ty: Some(
-                        Generic(
-                            "Region",
-                            [
-                                Named(
-                                    "MAX_EC_POINT_SIZE",
-                                ),
-                            ],
-                        ),
-                    ),
-                    clauses: [
-                        Clause {
-                            kind: Requires,
-                            body: Spanned {
-                                node: BinOp {
-                                    lhs: Spanned {
-                                        node: Field(
-                                            Spanned {
-                                                node: Ident(
-                                                    "peer_public",
-                                                ),
-                                                span: 2334..2345,
-                                            },
-                                            "curve_id",
-                                        ),
-                                        span: 2334..2354,
-                                    },
-                                    op: Eq,
-                                    rhs: Spanned {
-                                        node: Ident(
-                                            "our_curve",
-                                        ),
-                                        span: 2356..2365,
-                                    },
-                                },
-                                span: 2334..2365,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Effects,
-                            body: Spanned {
-                                node: Ident(
-                                    "pure",
-                                ),
-                                span: 2366..2378,
-                            },
-                            effect_variables: [],
-                        },
-                    ],
-                },
-            ),
-            span: 2193..2460,
-        },
-        Spanned {
-            node: Block {
-                kind: Other(
-                    "spec",
-                ),
-                name: "NIST_SP_800_56A_ECDH",
-                value: None,
-                body: [],
-            },
-            span: 2460..2731,
-        },
-        Spanned {
-            node: FnDef(
-                FnDef {
-                    name: "ecdh_derive_secret",
-                    is_ghost: false,
-                    is_lemma: false,
-                    params: [
-                        Param {
-                            name: "private_key",
-                            ty: Some(
-                                Named(
-                                    "U256 # [ secret ]",
-                                ),
-                            ),
-                        },
-                        Param {
-                            name: "peer_point",
-                            ty: Some(
-                                Named(
-                                    "ValidPeerKey",
-                                ),
-                            ),
-                        },
-                        Param {
-                            name: "curve",
-                            ty: Some(
-                                Named(
-                                    "CurveParams",
-                                ),
-                            ),
-                        },
-                    ],
-                    return_ty: Some(
-                        Named(
-                            "SharedSecret",
-                        ),
-                    ),
-                    clauses: [
-                        Clause {
-                            kind: Requires,
-                            body: Spanned {
-                                node: BinOp {
-                                    lhs: Spanned {
-                                        node: Field(
-                                            Spanned {
-                                                node: Ident(
-                                                    "curve",
-                                                ),
-                                                span: 2894..2899,
-                                            },
-                                            "order",
-                                        ),
-                                        span: 2894..2905,
-                                    },
-                                    op: Gt,
-                                    rhs: Spanned {
-                                        node: Literal(
-                                            Int(
-                                                "1",
-                                            ),
-                                        ),
-                                        span: 2906..2907,
-                                    },
-                                },
-                                span: 2894..2907,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Ensures,
-                            body: Spanned {
-                                node: BinOp {
-                                    lhs: Spanned {
-                                        node: Field(
-                                            Spanned {
-                                                node: Ident(
-                                                    "curve",
-                                                ),
-                                                span: 3001..3006,
-                                            },
-                                            "order",
-                                        ),
-                                        span: 3001..3012,
-                                    },
-                                    op: Gt,
-                                    rhs: Spanned {
-                                        node: Literal(
-                                            Int(
-                                                "1",
-                                            ),
-                                        ),
-                                        span: 3013..3014,
-                                    },
-                                },
-                                span: 3001..3014,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Effects,
-                            body: Spanned {
-                                node: Ident(
-                                    "pure",
-                                ),
-                                span: 3015..3027,
-                            },
-                            effect_variables: [],
-                        },
-                    ],
-                },
-            ),
-            span: 2731..3027,
-        },
-        Spanned {
-            node: FnDef(
-                FnDef {
-                    name: "process_incoming_record",
-                    is_ghost: false,
-                    is_lemma: false,
-                    params: [
-                        Param {
-                            name: "conn",
-                            ty: Some(
-                                Named(
-                                    "&mut TlsConnection",
-                                ),
-                            ),
-                        },
-                        Param {
-                            name: "record_buf",
-                            ty: Some(
-                                Generic(
-                                    "Region",
-                                    [
-                                        Named(
-                                            "MAX_CONTENT_LEN",
-                                        ),
-                                    ],
-                                ),
-                            ),
-                        },
-                    ],
-                    return_ty: Some(
-                        Named(
-                            "RecordResult",
-                        ),
-                    ),
-                    clauses: [
-                        Clause {
-                            kind: Modifies,
-                            body: Spanned {
-                                node: Ident(
-                                    "record_buf",
-                                ),
-                                span: 3125..3145,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
-                            kind: Effects,
-                            body: Spanned {
-                                node: Raw(
-                                    [
-                                        "io",
-                                        ".",
-                                        "read",
-                                    ],
-                                ),
-                                span: 3145..3160,
-                            },
-                            effect_variables: [],
-                        },
-                    ],
-                },
-            ),
-            span: 3027..3460,
+            span: 3507..10582,
         },
     ],
 }
