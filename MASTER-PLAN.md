@@ -2338,7 +2338,8 @@ Marked 11.14 [x]. Phase 11 Round 7 complete. Remaining earlier rounds (11.04 spa
 Next: 11.07 ExprFolder extraction.
 
 **11.07 start (2026-06-22):**
-- Began extraction: converted expr_to_rust in codegen to use RustExprFolder impl of ExprFolder (thin wrapper + per-variant fold_ methods).
-- BinOp::as_str / as_rust_str already in place.
-- Will continue for expr_to_rust_static, format_expr (fmt), expr_to_smtlib.
+- Began extraction: converted expr_to_rust and expr_to_rust_static in codegen to use *ExprFolder impls (thin wrappers + per-variant fold_ methods). Uses as_rust_str().
+- Added direct assura-ast dep to assura-fmt (prep for format_expr).
+- BinOp::as_str / as_rust_str already canonical in ast.
 - Goal: eliminate duplicate recursion and BinOp matches in the 5 walkers.
+- Partial: trait + 2/5 done, compiles.

@@ -1,6 +1,7 @@
 //! Type mapping, Cargo.toml generation, and type definition codegen.
 
 use super::*;
+use assura_ast::ExprFolder;
 
 pub(crate) fn generate_cargo_toml_impl(
     crate_name: &str,
@@ -547,161 +548,176 @@ pub(crate) fn find_feature_max_value(source: &assura_ast::SourceFile, name: &str
 
 /// Convert an Expr to a Rust expression for use in const context.
 pub fn expr_to_rust_static(expr: &SpExpr) -> String {
-    match &expr.node {
-        Expr::Literal(lit) => match lit {
+    RustStaticExprFolder.fold_expr(expr)
+}
+
+struct RustStaticExprFolder;
+
+impl ExprFolder for RustStaticExprFolder {
+    type Output = String;
+
+    fn fold_literal(&mut self, lit: &Literal) -> String {
+        match lit {
             Literal::Int(s) | Literal::Float(s) => s.clone(),
             Literal::Str(s) => format!("\"{s}\""),
             Literal::Bool(b) => b.to_string(),
-        },
-        Expr::Ident(s) => s.clone(),
-        Expr::BinOp { lhs, op, rhs } => {
-            format!(
-                "({} {} {})",
-                expr_to_rust_static(lhs),
-                op.as_rust_str(),
-                expr_to_rust_static(rhs)
-            )
         }
-        Expr::UnaryOp {
-            op: UnaryOp::Neg,
-            expr: e,
-        } => {
-            let inner = expr_to_rust_static(e);
-            format!("-{inner}")
+    }
+
+    fn fold_ident(&mut self, name: &str) -> String {
+        name.to_string()
+    }
+
+    fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> String {
+        format!(
+            "({} {} {})",
+            self.fold_expr(lhs),
+            op.as_rust_str(),
+            self.fold_expr(rhs)
+        )
+    }
+
+    fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) -> String {
+        let inner_s = self.fold_expr(inner);
+        match op {
+            UnaryOp::Neg => format!("-{inner_s}"),
+            UnaryOp::Not => format!("!{inner_s}"),
         }
-        Expr::UnaryOp {
-            op: UnaryOp::Not,
-            expr: e,
-        } => {
-            let inner = expr_to_rust_static(e);
-            format!("!{inner}")
+    }
+
+    fn fold_field(&mut self, receiver: &SpExpr, field: &str) -> String {
+        let recv = self.fold_expr(receiver);
+        format!("{recv}.{field}")
+    }
+
+    fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> String {
+        let f = self.fold_expr(func);
+        let a: Vec<String> = args.iter().map(|x| self.fold_expr(x)).collect();
+        format!("{f}({})", a.join(", "))
+    }
+
+    fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) -> String {
+        let recv = self.fold_expr(receiver);
+        let a: Vec<String> = args.iter().map(|x| self.fold_expr(x)).collect();
+        format!("{recv}.{method}({})", a.join(", "))
+    }
+
+    fn fold_if(
+        &mut self,
+        cond: &SpExpr,
+        then_branch: &SpExpr,
+        else_branch: Option<&SpExpr>,
+    ) -> String {
+        let c = self.fold_expr(cond);
+        let t = self.fold_expr(then_branch);
+        if let Some(e) = else_branch {
+            let e = self.fold_expr(e);
+            format!("if {c} {{ {t} }} else {{ {e} }}")
+        } else {
+            format!("if {c} {{ {t} }}")
         }
-        Expr::Field(receiver, field) => {
-            let recv = expr_to_rust_static(receiver);
-            format!("{recv}.{field}")
-        }
-        Expr::Call { func, args } => {
-            let f = expr_to_rust_static(func);
-            let a: Vec<String> = args.iter().map(expr_to_rust_static).collect();
-            format!("{f}({})", a.join(", "))
-        }
-        Expr::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            let recv = expr_to_rust_static(receiver);
-            let a: Vec<String> = args.iter().map(expr_to_rust_static).collect();
-            format!("{recv}.{method}({})", a.join(", "))
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            let c = expr_to_rust_static(cond);
-            let t = expr_to_rust_static(then_branch);
-            if let Some(e) = else_branch {
-                let e = expr_to_rust_static(e);
-                format!("if {c} {{ {t} }} else {{ {e} }}")
-            } else {
-                format!("if {c} {{ {t} }}")
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            let base = expr_to_rust_static(e);
-            let idx = expr_to_rust_static(index);
-            format!("{base}[{idx}]")
-        }
-        Expr::Old(inner) => {
-            // old() is a verification concept; in generated Rust, just emit the inner expr
-            expr_to_rust_static(inner)
-        }
-        Expr::Ghost(inner) => {
-            // Ghost expressions are erased at runtime; emit as comment
-            let inner_s = expr_to_rust_static(inner);
-            format!("/* ghost: {inner_s} */ ()")
-        }
-        Expr::Cast { expr: e, ty } => {
-            let inner = expr_to_rust_static(e);
-            format!("({inner} as {ty})")
-        }
-        Expr::List(items) => {
-            let elems: Vec<String> = items.iter().map(expr_to_rust_static).collect();
-            format!("vec![{}]", elems.join(", "))
-        }
-        Expr::Tuple(items) => {
-            let elems: Vec<String> = items.iter().map(expr_to_rust_static).collect();
-            format!("({})", elems.join(", "))
-        }
-        Expr::Let { name, value, body } => {
-            let v = expr_to_rust_static(value);
-            let b = expr_to_rust_static(body);
-            format!("{{ let {name} = {v}; {b} }}")
-        }
-        Expr::Match { scrutinee, arms } => {
-            let scrut = expr_to_rust_static(scrutinee);
-            let arm_strs: Vec<String> = arms
-                .iter()
-                .map(|arm| {
-                    let pat = match &arm.pattern {
-                        assura_ast::Pattern::Ident(s) => s.clone(),
-                        assura_ast::Pattern::Wildcard => "_".to_string(),
-                        assura_ast::Pattern::Literal(lit) => match lit {
-                            Literal::Int(s) | Literal::Float(s) => s.clone(),
-                            Literal::Str(s) => format!("\"{s}\""),
-                            Literal::Bool(b) => b.to_string(),
-                        },
-                        assura_ast::Pattern::Constructor { name, fields } => {
-                            if fields.is_empty() {
-                                name.clone()
-                            } else {
-                                format!("{name}(..)")
-                            }
+    }
+
+    fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) -> String {
+        let b = self.fold_expr(base);
+        let i = self.fold_expr(index);
+        format!("{b}[{i}]")
+    }
+
+    fn fold_old(&mut self, inner: &SpExpr) -> String {
+        // old() is verification-only; emit inner for static
+        self.fold_expr(inner)
+    }
+
+    fn fold_ghost(&mut self, inner: &SpExpr) -> String {
+        let s = self.fold_expr(inner);
+        format!("/* ghost: {s} */ ()")
+    }
+
+    fn fold_cast(&mut self, inner: &SpExpr, ty: &str) -> String {
+        let i = self.fold_expr(inner);
+        format!("({i} as {ty})")
+    }
+
+    fn fold_list(&mut self, items: &[SpExpr]) -> String {
+        let elems: Vec<String> = items.iter().map(|x| self.fold_expr(x)).collect();
+        format!("vec![{}]", elems.join(", "))
+    }
+
+    fn fold_tuple(&mut self, items: &[SpExpr]) -> String {
+        let elems: Vec<String> = items.iter().map(|x| self.fold_expr(x)).collect();
+        format!("({})", elems.join(", "))
+    }
+
+    fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) -> String {
+        let v = self.fold_expr(value);
+        let b = self.fold_expr(body);
+        format!("{{ let {name} = {v}; {b} }}")
+    }
+
+    fn fold_match(&mut self, scrutinee: &SpExpr, arms: &[assura_ast::MatchArm]) -> String {
+        let scrut = self.fold_expr(scrutinee);
+        let arm_strs: Vec<String> = arms
+            .iter()
+            .map(|arm| {
+                let pat = match &arm.pattern {
+                    assura_ast::Pattern::Ident(s) => s.clone(),
+                    assura_ast::Pattern::Wildcard => "_".to_string(),
+                    assura_ast::Pattern::Literal(lit) => match lit {
+                        Literal::Int(s) | Literal::Float(s) => s.clone(),
+                        Literal::Str(s) => format!("\"{s}\""),
+                        Literal::Bool(b) => b.to_string(),
+                    },
+                    assura_ast::Pattern::Constructor { name, fields } => {
+                        if fields.is_empty() {
+                            name.clone()
+                        } else {
+                            format!("{name}(..)")
                         }
-                        assura_ast::Pattern::Tuple(pats) => {
-                            let ps: Vec<&str> = pats.iter().map(|_| "_").collect();
-                            format!("({})", ps.join(", "))
-                        }
-                    };
-                    let body = expr_to_rust_static(&arm.body);
-                    format!("{pat} => {body}")
-                })
-                .collect();
-            format!("match {scrut} {{ {} }}", arm_strs.join(", "))
+                    }
+                    assura_ast::Pattern::Tuple(pats) => {
+                        let ps: Vec<&str> = pats.iter().map(|_| "_").collect();
+                        format!("({})", ps.join(", "))
+                    }
+                };
+                let body = self.fold_expr(&arm.body);
+                format!("{pat} => {body}")
+            })
+            .collect();
+        format!("match {scrut} {{ {} }}", arm_strs.join(", "))
+    }
+
+    fn fold_block(&mut self, exprs: &[SpExpr]) -> String {
+        let strs: Vec<String> = exprs.iter().map(|x| self.fold_expr(x)).collect();
+        strs.join(" ")
+    }
+
+    fn fold_forall(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
+        let d = self.fold_expr(domain);
+        let b = self.fold_expr(body);
+        format!("/* forall {var} in {d}: {b} */ true")
+    }
+
+    fn fold_exists(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
+        let d = self.fold_expr(domain);
+        let b = self.fold_expr(body);
+        format!("/* exists {var} in {d}: {b} */ true")
+    }
+
+    fn fold_apply(&mut self, lemma_name: &str, args: &[SpExpr]) -> String {
+        let a: Vec<String> = args.iter().map(|x| self.fold_expr(x)).collect();
+        format!("/* apply {lemma_name}({}) */ ()", a.join(", "))
+    }
+
+    fn fold_raw(&mut self, tokens: &[String]) -> String {
+        let clean: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
+        if clean.len() == 1 {
+            return clean[0].to_string();
         }
-        Expr::Block(exprs) => {
-            let strs: Vec<String> = exprs.iter().map(expr_to_rust_static).collect();
-            strs.join(" ")
+        if clean.len() >= 2 && clean[0] == "=" {
+            return clean[1..].join(" ");
         }
-        Expr::Forall { var, domain, body } => {
-            // Verification-only; emit as a comment in generated Rust
-            let d = expr_to_rust_static(domain);
-            let b = expr_to_rust_static(body);
-            format!("/* forall {var} in {d}: {b} */ true")
-        }
-        Expr::Exists { var, domain, body } => {
-            let d = expr_to_rust_static(domain);
-            let b = expr_to_rust_static(body);
-            format!("/* exists {var} in {d}: {b} */ true")
-        }
-        Expr::Apply { lemma_name, args } => {
-            // Verification-only; emit as comment
-            let a: Vec<String> = args.iter().map(expr_to_rust_static).collect();
-            format!("/* apply {lemma_name}({}) */ ()", a.join(", "))
-        }
-        Expr::Raw(tokens) => {
-            // Try to extract a simple numeric literal from raw tokens
-            let clean: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
-            if clean.len() == 1 {
-                return clean[0].to_string();
-            }
-            // For "= value" patterns (common in feature_max)
-            if clean.len() >= 2 && clean[0] == "=" {
-                return clean[1..].join(" ");
-            }
-            clean.join(" ")
-        }
+        clean.join(" ")
     }
 }
 
