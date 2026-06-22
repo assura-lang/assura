@@ -2377,3 +2377,9 @@ Next: 11.07 ExprFolder extraction.
 - Fixed remaining fmt binop formatting for logical ops (&&/|| preserved in Assura syntax).
 - All fmt tests now pass (76/76).
 - Updated parser snapshot for 11.04 span adjustments (small off-by-one in spans from precise lowering).
+
+**Latest verification (background task exit 0):**
+- cargo test -p assura-parser -p assura-ast -p assura-fmt -p assura-codegen -p assura-smt: OK
+- All demos: OK
+- cargo check --no-default-features -p assura-smt: OK
+- Full state green.
