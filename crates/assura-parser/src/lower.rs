@@ -505,7 +505,7 @@ fn lower_expr(n: &SyntaxNode) -> SpExpr {
 }
 
 fn lower_literal(n: &SyntaxNode) -> Expr {
-    let Some(tok) = n.children_with_tokens().find_map(|el| el.into_token()) else {
+    let Some(tok) = n.children_with_tokens().filter_map(|el| el.into_token()).find(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT)) else {
         return Expr::Raw(collect_token_texts(n));
     };
     let text = tok.text().to_string();

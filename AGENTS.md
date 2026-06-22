@@ -35,8 +35,7 @@ At the start of every session:
 1. **If the session involves code changes**:
    - **Inside an agent tool / Grok CLI** (or any environment with short command timeouts):
      Use fast targeted commands. Never run the full suite if it will time out.
-     Preferred: `cargo check -p <crate>`, `cargo test -p <crate> --lib`,
-     or `bash scripts/pre-commit-gate.sh` (the scoped script has been removed).
+     Preferred: `cargo check -p <crate>`, `cargo test -p <crate> --lib`.
    - **On a local developer machine**:
      Run `cargo test --workspace` in the background while reading the task.
      Do not block on it; start working and check the result before committing.
@@ -50,8 +49,9 @@ At the start of every session:
    writing any code. Know what "done" looks like before you start.
 6. Implement the task.
 7. Run every acceptance test command from the task. See each one pass.
-8. Run the pre-commit gate: `bash scripts/pre-commit-gate.sh` before each push;
-   full gate before session end (~30–45 min)
+8. Before each push and before session end, run manual checks:
+   cargo fmt --check, cargo clippy --workspace -- -D warnings, cargo check -p <crate>,
+   and cargo test --workspace (full) or targeted tests as needed.
 9. Mark the task `[x]` in `MASTER-PLAN.md`. Commit and push.
 10. Continue to the next task until the session ends or context runs out.
 11. Before the session ends, update the Progress Notes section with
@@ -419,37 +419,35 @@ with passing unit tests but was never called from `verify()` or the
 Z3 backend across multiple sessions. Unconstrained prophecy variables
 were silently ignored until the method was wired in during #62.
 
-## Pre-Commit Gate
+## Pre-Commit Checks
 
 **Verification command hygiene (see #330):**
 Never use patterns like `command 2>&1 | tail -N && echo "step: OK"`.
 The `tail` always succeeds, so the echo runs even on real failures (this
 masked cvc5 clippy and test failures in session bg tasks).
-Use `set -euo pipefail`, run commands directly, and let the script exit on
-error. Prefer the official `scripts/pre-commit-*.sh`.
+Use `set -euo pipefail`, run commands directly.
 
-**Before each push** (fast, ~1–4 min):
+Pre-commit scripts have been removed per request. Use direct commands:
 
-Use `bash scripts/pre-commit-gate.sh` (the scoped script has been removed).
-
-**Before session end or marking a MASTER-PLAN task `[x]`** (full gate,
-~30–45 min; do not block every push on this):
-
+**Before each push** (fast):
 ```bash
-bash scripts/pre-commit-gate.sh
+cargo fmt -- --check
+cargo clippy --workspace -- -D warnings
+cargo check -p <crate>
+cargo test -p <crate> --lib   # or targeted
 ```
 
-The script runs:
-
+**Before session end or marking a MASTER-PLAN task `[x]`** (full):
 ```bash
 cargo fmt --all
 cargo clippy --workspace -- -D warnings
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
+cargo test --workspace
 cargo check --no-default-features -p assura-smt
 ```
 
 **After any change that could affect cli_integration races or the main
-executable (see #328), run the gate + explicitly `cargo test --workspace`
+executable (see #328), run the full checks + explicitly `cargo test --workspace`
 before the end of the session / before pushing the final commit.**
 
 The `cargo clippy -p assura-smt --features cvc5-verify` step mirrors the CI
@@ -705,7 +703,7 @@ clippy + tests with prebuilt static libs (same URLs as below).
 
 **macOS ARM developers:** `cvc5-sys` source builds often fail on AppleClang
 (Poly-EP / `gmpxx.h` `-Werror`). Run prebuilt setup **before**
-the scoped pre-commit (removed), use `pre-commit-gate.sh` or manual commands, not only after a failure:
+manual commands (pre-commit scripts removed), not only after a failure:
 
 ```bash
 bash scripts/setup-cvc5.sh
