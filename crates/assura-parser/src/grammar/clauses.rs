@@ -452,15 +452,13 @@ fn clause_body_expr(p: &mut Parser) {
     // Braced body: [:]{ expr [, expr]* }
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_BRACE {
         p.bump(); // :
-        p.bump(); // {
-        p.bump_trivia(); // emit ws after { under CLAUSE so inner expr spans are tight
+        p.bump_delim(); // { + trailing trivia for tight inner spans (see #335)
         expr_list_until(p, SyntaxKind::R_BRACE);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
-        p.bump(); // {
-        p.bump_trivia(); // emit ws after { under CLAUSE
+        p.bump_delim(); // { + trailing trivia
         expr_list_until(p, SyntaxKind::R_BRACE);
         p.expect(SyntaxKind::R_BRACE);
         return;
@@ -469,15 +467,13 @@ fn clause_body_expr(p: &mut Parser) {
     // Parened body: [:]( expr [, expr]* )
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_PAREN {
         p.bump(); // :
-        p.bump(); // (
-        p.bump_trivia(); // emit ws after (
+        p.bump_delim(); // ( + trailing trivia
         expr_list_until(p, SyntaxKind::R_PAREN);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
-        p.bump(); // (
-        p.bump_trivia(); // emit ws after (
+        p.bump_delim(); // ( + trailing trivia
         expr_list_until(p, SyntaxKind::R_PAREN);
         p.expect(SyntaxKind::R_PAREN);
         return;
@@ -515,15 +511,13 @@ pub(crate) fn clause_body(p: &mut Parser) {
     // Braced body: [:]{ tokens }
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_BRACE {
         p.bump(); // :
-        p.bump(); // {
-        p.bump_trivia();
+        p.bump_delim();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
-        p.bump(); // {
-        p.bump_trivia();
+        p.bump_delim();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_BRACE);
         return;
@@ -532,15 +526,13 @@ pub(crate) fn clause_body(p: &mut Parser) {
     // Parened body: [:]( tokens )
     if p.at(SyntaxKind::COLON) && p.nth(1) == SyntaxKind::L_PAREN {
         p.bump(); // :
-        p.bump(); // (
-        p.bump_trivia();
+        p.bump_delim();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
-        p.bump(); // (
-        p.bump_trivia();
+        p.bump_delim();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_PAREN);
         return;

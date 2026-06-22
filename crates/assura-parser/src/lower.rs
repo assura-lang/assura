@@ -2493,7 +2493,8 @@ contract ConcreteEff {
         // not compressed trivia-stripped coordinates pointing inside the keyword.
         let src = r#"
 contract BadExpr {
-    requires { 1 + true }
+    requires { 1 + true // inline comment after expr
+    }
 }
 "#;
         let (sf, errors) = parse_and_lower(src);

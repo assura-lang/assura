@@ -220,8 +220,7 @@ fn temporal_expr(p: &mut Parser) -> CompletedMarker {
     if p.at(SyntaxKind::L_PAREN) {
         arg_list(p);
     } else if p.at(SyntaxKind::L_BRACE) {
-        p.bump(); // {
-        p.bump_trivia();
+        p.bump_delim(); // { + trivia
         while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
             let before = p.pos();
             expr_bp(p, 0);

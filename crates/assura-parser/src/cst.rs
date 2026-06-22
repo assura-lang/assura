@@ -215,6 +215,16 @@ impl Parser {
         }
     }
 
+    /// Bump a delimiter (e.g. '{' or '(' after a clause keyword) and
+    /// immediately emit any following trivia. This ensures child expression
+    /// nodes get text_range() that point to original source content rather
+    /// than being offset by leading whitespace/comments inside the braces.
+    /// Added during #335 trivia/spans work to eliminate repeated boilerplate.
+    pub(crate) fn bump_delim(&mut self) {
+        self.bump();
+        self.bump_trivia();
+    }
+
     /// Always consume exactly the next token (trivia or not) as Advance.
     /// Used by raw token collectors (clause_body for effects etc) that want
     /// to include everything for correct offset reconstruction.

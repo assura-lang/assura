@@ -108,7 +108,7 @@ fn contract_decl(p: &mut Parser) {
     params::type_params(p);
 
     p.expect(SyntaxKind::L_BRACE);
-    p.bump_trivia();
+    p.bump_delim();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         if clauses::at_clause_start(p) {
             clauses::clause(p);
@@ -154,8 +154,7 @@ fn type_def(p: &mut Parser) {
         p.bump(); // =
         if p.at(SyntaxKind::L_BRACE) {
             // Refined: = { ... }
-            p.bump(); // {
-            p.bump_trivia();
+            p.bump_delim();
             super::body_tokens_inner(p, &[]);
             p.expect(SyntaxKind::R_BRACE);
         } else {
@@ -164,7 +163,7 @@ fn type_def(p: &mut Parser) {
         }
     } else if p.at(SyntaxKind::L_BRACE) {
         // Struct body: { fields, optional clauses }
-        p.bump(); // {
+        p.bump_delim();
         while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
             let before = p.pos();
             if clauses::at_clause_start(p) {
@@ -296,7 +295,7 @@ fn bind_decl(p: &mut Parser) {
 
     // Body: { input(...) output(...) requires/ensures/effects }
     p.expect(SyntaxKind::L_BRACE);
-    p.bump_trivia();
+    p.bump_delim();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         if clauses::at_clause_start(p) {
             clauses::clause(p);
@@ -317,7 +316,7 @@ fn codec_registry_decl(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT); // registry name
 
     p.expect(SyntaxKind::L_BRACE);
-    p.bump_trivia();
+    p.bump_delim();
     // output: Type,
     if p.at(SyntaxKind::OUTPUT_KW) {
         p.bump(); // output
@@ -352,7 +351,7 @@ fn codec_entry(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT); // codec name
 
     p.expect(SyntaxKind::L_BRACE);
-    p.bump_trivia();
+    p.bump_delim();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         let before = p.pos();
         if p.at(SyntaxKind::MAGIC_KW) {
@@ -491,8 +490,7 @@ fn fn_def(p: &mut Parser) {
     if p.at(SyntaxKind::EQUALS) {
         p.bump();
         if p.at(SyntaxKind::L_BRACE) {
-            p.bump(); // {
-            p.bump_trivia();
+            p.bump_delim();
             super::body_tokens_inner(p, &[]);
             p.expect(SyntaxKind::R_BRACE);
         }
@@ -505,8 +503,7 @@ fn fn_def(p: &mut Parser) {
 
     // Optional trailing body { ... }
     if p.at(SyntaxKind::L_BRACE) {
-        p.bump(); // {
-        p.bump_trivia();
+        p.bump_delim();
         super::body_tokens_inner(p, &[]);
         p.expect(SyntaxKind::R_BRACE);
     }
@@ -521,7 +518,7 @@ fn service_decl(p: &mut Parser) {
     p.expect(SyntaxKind::IDENT);
 
     p.expect(SyntaxKind::L_BRACE);
-    p.bump_trivia();
+    p.bump_delim();
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
         let before = p.pos();
         service_item(p);
@@ -632,13 +629,11 @@ pub(crate) fn generic_block(p: &mut Parser) {
             }
             let cur = p.current();
             if cur == SyntaxKind::L_PAREN {
-                p.bump();
-                p.bump_trivia();
+                p.bump_delim();
                 super::body_tokens_inner(p, &[]);
                 p.eat(SyntaxKind::R_PAREN);
             } else if cur == SyntaxKind::L_BRACKET {
-                p.bump();
-                p.bump_trivia();
+                p.bump_delim();
                 super::body_tokens_inner(p, &[]);
                 p.eat(SyntaxKind::R_BRACKET);
             } else {
@@ -649,8 +644,7 @@ pub(crate) fn generic_block(p: &mut Parser) {
 
     // Block body or inline clauses
     if p.at(SyntaxKind::L_BRACE) {
-        p.bump(); // {
-        p.bump_trivia();
+        p.bump_delim();
         while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
             if clauses::at_clause_start(p) {
                 clauses::clause(p);
