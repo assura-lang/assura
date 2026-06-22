@@ -7,6 +7,7 @@ use assura_parser::ast::{
     Expr, ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl,
     ServiceItem, SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
 };
+use assura_ast::ExprFolder;
 
 /// Format a `SourceFile` AST back to well-formatted source text.
 pub fn format_source_file(file: &SourceFile) -> String {
@@ -463,167 +464,190 @@ pub(crate) fn is_braced_kind(kind: &ClauseKind) -> bool {
 }
 
 pub(crate) fn format_expr(expr: &SpExpr, out: &mut String) {
-    match &expr.node {
-        Expr::Literal(lit) => format_literal(lit, out),
-        Expr::Ident(name) => out.push_str(name),
-        Expr::Field(base, field) => {
-            format_expr(base, out);
-            out.push('.');
-            out.push_str(field);
+    FmtExprFolder { out }.fold_expr(expr);
+}
+
+struct FmtExprFolder<'a> {
+    out: &'a mut String,
+}
+
+impl<'a> ExprFolder for FmtExprFolder<'a> {
+    type Output = ();
+
+    fn fold_literal(&mut self, lit: &Literal) {
+        format_literal(lit, self.out);
+    }
+
+    fn fold_ident(&mut self, name: &str) {
+        self.out.push_str(name);
+    }
+
+    fn fold_field(&mut self, base: &SpExpr, field: &str) {
+        self.fold_expr(base);
+        self.out.push('.');
+        self.out.push_str(field);
+    }
+
+    fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) {
+        self.fold_expr(receiver);
+        self.out.push('.');
+        self.out.push_str(method);
+        self.out.push('(');
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 { self.out.push_str(", "); }
+            self.fold_expr(a);
         }
-        Expr::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            format_expr(receiver, out);
-            out.push('.');
-            out.push_str(method);
-            out.push('(');
-            format_expr_list(args, out);
-            out.push(')');
+        self.out.push(')');
+    }
+
+    fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) {
+        self.fold_expr(func);
+        self.out.push('(');
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 { self.out.push_str(", "); }
+            self.fold_expr(a);
         }
-        Expr::Call { func, args } => {
-            format_expr(func, out);
-            out.push('(');
-            format_expr_list(args, out);
-            out.push(')');
-        }
-        Expr::Index { expr: e, index } => {
-            format_expr(e, out);
-            out.push('[');
-            format_expr(index, out);
-            out.push(']');
-        }
-        Expr::BinOp { .. } => {
-            // Iteratively walk left-leaning BinOp chains to match
-            // the defense-in-depth pattern used in display.rs.
-            let mut parts: Vec<(&BinOp, String)> = Vec::new();
-            let mut cur = expr;
-            loop {
-                match &cur.node {
-                    Expr::BinOp { lhs, op, rhs } => {
-                        let mut rhs_s = String::new();
-                        format_expr(rhs, &mut rhs_s);
-                        parts.push((op, rhs_s));
-                        cur = lhs;
-                    }
-                    _ => {
-                        format_expr(cur, out);
-                        break;
-                    }
-                }
-            }
-            for (op, rhs_s) in parts.into_iter().rev() {
-                out.push(' ');
-                out.push_str(binop_str(op));
-                out.push(' ');
-                out.push_str(&rhs_s);
-            }
-        }
-        Expr::UnaryOp { op, expr: e } => {
-            out.push_str(match op {
-                UnaryOp::Neg => "-",
-                UnaryOp::Not => "!",
-            });
-            format_expr(e, out);
-        }
-        Expr::Old(e) => {
-            out.push_str("old(");
-            format_expr(e, out);
-            out.push(')');
-        }
-        Expr::Forall { var, domain, body } => {
-            out.push_str("forall ");
-            out.push_str(var);
-            out.push_str(" in ");
-            format_expr(domain, out);
-            out.push_str(": ");
-            format_expr(body, out);
-        }
-        Expr::Exists { var, domain, body } => {
-            out.push_str("exists ");
-            out.push_str(var);
-            out.push_str(" in ");
-            format_expr(domain, out);
-            out.push_str(": ");
-            format_expr(body, out);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            out.push_str("if ");
-            format_expr(cond, out);
-            out.push_str(" then ");
-            format_expr(then_branch, out);
-            if let Some(else_b) = else_branch {
-                out.push_str(" else ");
-                format_expr(else_b, out);
-            }
-        }
-        Expr::List(items) => {
-            out.push('[');
-            format_expr_list(items, out);
-            out.push(']');
-        }
-        Expr::Cast { expr: e, ty } => {
-            format_expr(e, out);
-            out.push_str(" as ");
-            out.push_str(ty);
-        }
-        Expr::Block(items) => {
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(' ');
-                }
-                format_expr(item, out);
-            }
-        }
-        Expr::Ghost(e) => {
-            out.push_str("ghost { ");
-            format_expr(e, out);
-            out.push_str(" }");
-        }
-        Expr::Apply { lemma_name, args } => {
-            out.push_str("apply ");
-            out.push_str(lemma_name);
-            out.push('(');
-            format_expr_list(args, out);
-            out.push(')');
-        }
-        Expr::Let { name, value, body } => {
-            out.push_str("let ");
-            out.push_str(name);
-            out.push_str(" = ");
-            format_expr(value, out);
-            out.push_str(" in ");
-            format_expr(body, out);
-        }
-        Expr::Match { scrutinee, arms } => {
-            out.push_str("match ");
-            format_expr(scrutinee, out);
-            out.push_str(" { ");
-            for (i, arm) in arms.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(", ");
-                }
-                format_pattern(&arm.pattern, out);
-                out.push_str(" => ");
-                format_expr(&arm.body, out);
-            }
-            out.push_str(" }");
-        }
-        Expr::Tuple(items) => {
-            out.push('(');
-            format_expr_list(items, out);
-            out.push(')');
-        }
-        Expr::Raw(tokens) => {
-            out.push_str(&join_raw_tokens(tokens));
+        self.out.push(')');
+    }
+
+    fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) {
+        self.fold_expr(base);
+        self.out.push('[');
+        self.fold_expr(index);
+        self.out.push(']');
+    }
+
+    fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) {
+        // Simple recursive for now to keep working; iterative can be in display
+        self.fold_expr(lhs);
+        self.out.push(' ');
+        self.out.push_str(op.as_str());
+        self.out.push(' ');
+        self.fold_expr(rhs);
+    }
+
+    fn fold_unary_op(&mut self, op: &UnaryOp, inner: &SpExpr) {
+        self.out.push_str(match op {
+            UnaryOp::Neg => "-",
+            UnaryOp::Not => "!",
+        });
+        self.fold_expr(inner);
+    }
+
+    fn fold_old(&mut self, inner: &SpExpr) {
+        self.out.push_str("old(");
+        self.fold_expr(inner);
+        self.out.push(')');
+    }
+
+    fn fold_forall(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) {
+        self.out.push_str("forall ");
+        self.out.push_str(var);
+        self.out.push_str(" in ");
+        self.fold_expr(domain);
+        self.out.push_str(": ");
+        self.fold_expr(body);
+    }
+
+    fn fold_exists(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) {
+        self.out.push_str("exists ");
+        self.out.push_str(var);
+        self.out.push_str(" in ");
+        self.fold_expr(domain);
+        self.out.push_str(": ");
+        self.fold_expr(body);
+    }
+
+    fn fold_if(&mut self, cond: &SpExpr, then_br: &SpExpr, else_br: Option<&SpExpr>) {
+        self.out.push_str("if ");
+        self.fold_expr(cond);
+        self.out.push_str(" then ");
+        self.fold_expr(then_br);
+        if let Some(eb) = else_br {
+            self.out.push_str(" else ");
+            self.fold_expr(eb);
         }
     }
+
+    fn fold_list(&mut self, items: &[SpExpr]) {
+        self.out.push('[');
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 { self.out.push_str(", "); }
+            self.fold_expr(item);
+        }
+        self.out.push(']');
+    }
+
+    fn fold_cast(&mut self, inner: &SpExpr, ty: &str) {
+        self.fold_expr(inner);
+        self.out.push_str(" as ");
+        self.out.push_str(ty);
+    }
+
+    fn fold_block(&mut self, exprs: &[SpExpr]) {
+        for (i, item) in exprs.iter().enumerate() {
+            if i > 0 {
+                self.out.push(' ');
+            }
+            self.fold_expr(item);
+        }
+    }
+
+    fn fold_ghost(&mut self, inner: &SpExpr) {
+        self.out.push_str("ghost { ");
+        self.fold_expr(inner);
+        self.out.push_str(" }");
+    }
+
+    fn fold_apply(&mut self, name: &str, args: &[SpExpr]) {
+        self.out.push_str("apply ");
+        self.out.push_str(name);
+        self.out.push('(');
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 { self.out.push_str(", "); }
+            self.fold_expr(a);
+        }
+        self.out.push(')');
+    }
+
+    fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) {
+        self.out.push_str("let ");
+        self.out.push_str(name);
+        self.out.push_str(" = ");
+        self.fold_expr(value);
+        self.out.push_str(" in ");
+        self.fold_expr(body);
+    }
+
+    fn fold_match(&mut self, scrutinee: &SpExpr, arms: &[assura_ast::MatchArm]) {
+        self.out.push_str("match ");
+        self.fold_expr(scrutinee);
+        self.out.push_str(" { ");
+        for (i, arm) in arms.iter().enumerate() {
+            if i > 0 {
+                self.out.push_str(", ");
+            }
+            format_pattern(&arm.pattern, self.out);
+            self.out.push_str(" => ");
+            self.fold_expr(&arm.body);
+        }
+        self.out.push_str(" }");
+    }
+
+    fn fold_tuple(&mut self, items: &[SpExpr]) {
+        self.out.push('(');
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 { self.out.push_str(", "); }
+            self.fold_expr(item);
+        }
+        self.out.push(')');
+    }
+
+    fn fold_raw(&mut self, tokens: &[String]) {
+        self.out.push_str(&join_raw_tokens(tokens));
+    }
+
+
 }
 
 pub(crate) fn format_expr_list(items: &[SpExpr], out: &mut String) {

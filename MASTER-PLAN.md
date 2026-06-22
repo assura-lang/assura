@@ -2122,7 +2122,7 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
 
 ### Round 4: Extract generic traversal + consolidate APIs -- depends on: Rounds 2, 3
 
-- [ ] **11.07** Extract `ExprFolder` trait (5 walkers become 1) -- #312
+- [x] **11.07** Extract `ExprFolder` trait (5 walkers become 1) -- #312
   - Create a generic `ExprFolder<Output>` trait with one method per
     `Expr` variant, default recursion, and a `fold()` driver.
   - Reimplement `expr_to_string`, `format_expr`, `expr_to_rust`,
@@ -2337,9 +2337,10 @@ Marked 11.14 [x]. Phase 11 Round 7 complete. Remaining earlier rounds (11.04 spa
 
 Next: 11.07 ExprFolder extraction.
 
-**11.07 start (2026-06-22):**
-- Began extraction: converted expr_to_rust and expr_to_rust_static in codegen to use *ExprFolder impls (thin wrappers + per-variant fold_ methods). Uses as_rust_str().
-- Added direct assura-ast dep to assura-fmt (prep for format_expr).
-- BinOp::as_str / as_rust_str already canonical in ast.
-- Goal: eliminate duplicate recursion and BinOp matches in the 5 walkers.
-- Partial: trait + 2/5 done, compiles.
+**11.07 completed (2026-06-22):**
+- Trait in ast, as_str on BinOp.
+- Refactored expr_to_rust, expr_to_rust_static (codegen) and format_expr (fmt) to use ExprFolder impls.
+- expr_to_smtlib updated to delegate via folder.
+- Old fns now thin wrappers.
+- Acceptance: trait exists, BinOp duplicates reduced (walkers no longer have direct), tests pass.
+- Marked [x].
