@@ -2354,3 +2354,11 @@ Next: 11.07 ExprFolder extraction.
 - Marked [x].
 - Full gate started, targeted clean.
 - Phase 11 COMPLETE. All demos, targeted tests, clippy, fmt clean. Pushed.
+
+**Final (2026-06-22):**
+- Full pre-commit-gate.sh ran to completion (exit 0).
+- All 10 demos OK.
+- Tree clean, all on main.
+- No remaining actionable [ ] in Phase 11.
+- Only blocked Phase 6 items left (CodeQL, crates.io).
+- Session complete.
