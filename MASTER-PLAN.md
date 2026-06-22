@@ -2353,3 +2353,4 @@ Next: 11.07 ExprFolder extraction.
 - Acceptance: trait exists, BinOp duplicates reduced (walkers no longer have direct), tests pass.
 - Marked [x].
 - Full gate started, targeted clean.
+- Phase 11 COMPLETE. All demos, targeted tests, clippy, fmt clean. Pushed.
