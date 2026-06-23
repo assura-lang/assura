@@ -34,7 +34,7 @@ contract BadExpr {
     assert!(err.span != decl_span, "should not be the whole decl span");
     // Tight relative to decl (subexpr precision)
     assert!(
-        err.span.len() < decl_span.len() / 2 && err.span.len() > 0,
+        err.span.len() < decl_span.len() / 2 && !err.span.is_empty(),
         "span should be tighter than decl, got {:?} vs decl {:?}",
         err.span,
         decl_span

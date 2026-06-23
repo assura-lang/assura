@@ -1,5 +1,3 @@
-use super::*;
-
 /// Run the full pipeline: parse -> resolve -> type-check -> codegen
 fn full_pipeline(source: &str) -> Result<assura_codegen::GeneratedProject, String> {
     let (file, errs) = assura_parser::parse(source);
@@ -304,9 +302,11 @@ fn test_must_reject_fixtures() {
     // Zero is the healthy default; any BLOCKED fixture must have a tracking
     // GitHub issue referenced in the `// BLOCKED:` line. Raising this limit
     // is allowed only when adding a justified temporary gap (prefer fixing).
+    // Zero BLOCKED fixtures allowed; use == so clippy does not treat `<= 0` as absurd.
     const MAX_BLOCKED_MUST_REJECT: usize = 0;
-    assert!(
-        blocked_paths.len() <= MAX_BLOCKED_MUST_REJECT,
+    assert_eq!(
+        blocked_paths.len(),
+        MAX_BLOCKED_MUST_REJECT,
         "must_reject has {} BLOCKED fixture(s) (max allowed {MAX_BLOCKED_MUST_REJECT}). \
              Fix the wiring or add a tracking issue and temporarily raise MAX_BLOCKED_MUST_REJECT. \
              Blocked: {blocked_paths:?}",
@@ -874,7 +874,7 @@ timeout = 5000
 [profile]
 type = "database"
 "#;
-    let config: super::ProjectConfig = toml::from_str(toml_str).unwrap();
+    let config: crate::ProjectConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(config.package.name, "my-project");
     assert_eq!(config.package.version, "1.2.3");
     assert_eq!(config.build.target, "wasm32-wasi");
@@ -891,7 +891,7 @@ fn parse_minimal_config() {
 [package]
 name = "test"
 "#;
-    let config: super::ProjectConfig = toml::from_str(toml_str).unwrap();
+    let config: crate::ProjectConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(config.package.name, "test");
     assert_eq!(config.package.version, "0.1.0"); // default
     assert_eq!(config.build.target, "native"); // default
@@ -904,7 +904,7 @@ name = "test"
 
 #[test]
 fn parse_empty_config() {
-    let config: super::ProjectConfig = toml::from_str("").unwrap();
+    let config: crate::ProjectConfig = toml::from_str("").unwrap();
     assert_eq!(config.package.name, ""); // default
     assert_eq!(config.verify.layer, 1);
 }
@@ -931,7 +931,7 @@ timeout = 2000
     let file = sub.join("main.assura");
     std::fs::write(&file, "").unwrap();
 
-    let result = super::load_project_config(&file);
+    let result = crate::load_project_config(&file);
     assert!(result.is_some(), "should find config");
     let (cfg, root) = result.unwrap();
     assert_eq!(cfg.package.name, "disk-test");
@@ -952,7 +952,7 @@ fn load_config_missing_returns_none() {
     std::fs::write(&file, "").unwrap();
 
     // Temp dir with no assura.toml should return None.
-    let result = super::load_project_config(&file);
+    let result = crate::load_project_config(&file);
     assert!(
         result.is_none(),
         "expected None for directory without assura.toml, got {:?}",
@@ -1106,7 +1106,7 @@ fn discover_rs_files_finds_nested_files() {
     std::fs::write(dir.join("notes.txt"), "not rust").unwrap();
     std::fs::write(dir.join("sub/readme.md"), "docs").unwrap();
 
-    let found = super::discover_rs_files(&dir);
+    let found = crate::discover_rs_files(&dir);
     assert_eq!(found.len(), 3, "should find exactly 3 .rs files");
     assert!(
         found.iter().any(|p| p.ends_with("main.rs")),
@@ -1129,7 +1129,7 @@ fn discover_rs_files_empty_dir_returns_empty() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let found = super::discover_rs_files(&dir);
+    let found = crate::discover_rs_files(&dir);
     assert!(found.is_empty(), "empty dir should yield no files");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1139,7 +1139,7 @@ fn discover_rs_files_nonexistent_returns_empty() {
     let dir = std::env::temp_dir().join("assura_test_discover_nonexistent");
     let _ = std::fs::remove_dir_all(&dir);
 
-    let found = super::discover_rs_files(&dir);
+    let found = crate::discover_rs_files(&dir);
     assert!(found.is_empty(), "nonexistent dir should yield no files");
 }
 
@@ -1150,7 +1150,7 @@ fn discover_rs_files_nonexistent_returns_empty() {
 #[test]
 fn extract_sigs_simple_pub_fn() {
     let source = "pub fn add(a: i64, b: i64) -> i64 { a + b }";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     assert_eq!(sigs[0].name, "add");
     assert!(sigs[0].is_pub);
@@ -1161,7 +1161,7 @@ fn extract_sigs_simple_pub_fn() {
 #[test]
 fn extract_sigs_skips_private_fn() {
     let source = "fn helper(x: i32) -> i32 { x }";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     assert!(!sigs[0].is_pub);
 }
@@ -1169,7 +1169,7 @@ fn extract_sigs_skips_private_fn() {
 #[test]
 fn extract_sigs_multiline() {
     let source = "pub fn long_name(\n    a: String,\n    b: Vec<u8>,\n) -> bool {\n    true\n}";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     assert_eq!(sigs[0].name, "long_name");
     assert_eq!(sigs[0].params.len(), 2);
@@ -1179,7 +1179,7 @@ fn extract_sigs_multiline() {
 #[test]
 fn extract_sigs_with_self_param() {
     let source = "pub fn get(&self, key: &str) -> Option<String> {";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     // &self should be skipped
     assert_eq!(sigs[0].params.len(), 1);
@@ -1189,7 +1189,7 @@ fn extract_sigs_with_self_param() {
 #[test]
 fn extract_sigs_pub_crate() {
     let source = "pub(crate) fn internal(x: u32) -> u32 { x }";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     assert!(sigs[0].is_pub);
     assert_eq!(sigs[0].name, "internal");
@@ -1198,27 +1198,27 @@ fn extract_sigs_pub_crate() {
 #[test]
 fn extract_sigs_no_return_type() {
     let source = "pub fn do_stuff(x: i32) { println!(\"{x}\"); }";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     assert_eq!(sigs[0].return_type, "()");
 }
 
 #[test]
 fn parse_param_list_empty() {
-    let result = super::parse_param_list("");
+    let result = crate::parse_param_list("");
     assert!(result.is_empty());
 }
 
 #[test]
 fn parse_param_list_single() {
-    let result = super::parse_param_list("x: i64");
+    let result = crate::parse_param_list("x: i64");
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], ("x".to_string(), "i64".to_string()));
 }
 
 #[test]
 fn parse_param_list_multiple() {
-    let result = super::parse_param_list("a: i32, b: String, c: bool");
+    let result = crate::parse_param_list("a: i32, b: String, c: bool");
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].0, "a");
     assert_eq!(result[1].0, "b");
@@ -1227,7 +1227,7 @@ fn parse_param_list_multiple() {
 
 #[test]
 fn parse_param_list_nested_generics() {
-    let result = super::parse_param_list("data: HashMap<String, Vec<Option<i32>>>, count: usize");
+    let result = crate::parse_param_list("data: HashMap<String, Vec<Option<i32>>>, count: usize");
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].0, "data");
     assert_eq!(result[0].1, "HashMap<String, Vec<Option<i32>>>");
@@ -1236,14 +1236,14 @@ fn parse_param_list_nested_generics() {
 
 #[test]
 fn parse_param_list_skips_self() {
-    let result = super::parse_param_list("&self, x: i32");
+    let result = crate::parse_param_list("&self, x: i32");
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].0, "x");
 }
 
 #[test]
 fn parse_param_list_mut_self() {
-    let result = super::parse_param_list("&mut self, key: String, val: i64");
+    let result = crate::parse_param_list("&mut self, key: String, val: i64");
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].0, "key");
     assert_eq!(result[1].0, "val");
@@ -1251,7 +1251,7 @@ fn parse_param_list_mut_self() {
 
 #[test]
 fn parse_fn_sig_basic() {
-    let sig = super::parse_fn_signature("add(a: i64, b: i64) -> i64 {", true).unwrap();
+    let sig = crate::parse_fn_signature("add(a: i64, b: i64) -> i64 {", true).unwrap();
     assert_eq!(sig.name, "add");
     assert_eq!(sig.params.len(), 2);
     assert_eq!(sig.return_type, "i64");
@@ -1260,14 +1260,14 @@ fn parse_fn_sig_basic() {
 
 #[test]
 fn parse_fn_sig_with_where() {
-    let sig = super::parse_fn_signature("process(x: T) -> T where T: Clone {", true).unwrap();
+    let sig = crate::parse_fn_signature("process(x: T) -> T where T: Clone {", true).unwrap();
     assert_eq!(sig.name, "process");
     assert_eq!(sig.return_type, "T");
 }
 
 #[test]
 fn parse_fn_sig_no_return() {
-    let sig = super::parse_fn_signature("do_work(x: i32) {", false).unwrap();
+    let sig = crate::parse_fn_signature("do_work(x: i32) {", false).unwrap();
     assert_eq!(sig.name, "do_work");
     assert_eq!(sig.return_type, "()");
     assert!(!sig.is_pub);
@@ -1275,7 +1275,7 @@ fn parse_fn_sig_no_return() {
 
 #[test]
 fn generate_bind_skeleton_roundtrip() {
-    let sig = super::RustFnSig {
+    let sig = crate::RustFnSig {
         name: "add".to_string(),
         params: vec![
             ("a".to_string(), "i64".to_string()),
@@ -1285,7 +1285,7 @@ fn generate_bind_skeleton_roundtrip() {
         is_pub: true,
     };
     let mut out = String::new();
-    super::generate_bind_skeleton("crate::math", &sig, &mut out);
+    crate::generate_bind_skeleton("crate::math", &sig, &mut out);
     assert!(out.contains("bind \"crate::math::add\" as add"));
     assert!(out.contains("input(a: Int, b: Int)"));
     assert!(out.contains("output(result: Int)"));
@@ -1319,14 +1319,14 @@ fn generate_bind_skeleton_roundtrip() {
 
 #[test]
 fn generate_bind_skeleton_no_return() {
-    let sig = super::RustFnSig {
+    let sig = crate::RustFnSig {
         name: "log".to_string(),
         params: vec![("msg".to_string(), "&str".to_string())],
         return_type: "()".to_string(),
         is_pub: true,
     };
     let mut out = String::new();
-    super::generate_bind_skeleton("crate::util", &sig, &mut out);
+    crate::generate_bind_skeleton("crate::util", &sig, &mut out);
     assert!(out.contains("bind \"crate::util::log\" as log"));
     assert!(out.contains("input(msg: String)"));
     // Unit return should not produce output line
@@ -1341,7 +1341,7 @@ fn generate_bind_skeleton_no_return() {
 #[test]
 fn generate_bind_skeleton_mixed_params() {
     // Mix of numeric and non-numeric params; only numeric ones get requires
-    let sig = super::RustFnSig {
+    let sig = crate::RustFnSig {
         name: "process".to_string(),
         params: vec![
             ("label".to_string(), "String".to_string()),
@@ -1351,7 +1351,7 @@ fn generate_bind_skeleton_mixed_params() {
         is_pub: true,
     };
     let mut out = String::new();
-    super::generate_bind_skeleton("crate::ops", &sig, &mut out);
+    crate::generate_bind_skeleton("crate::ops", &sig, &mut out);
     assert!(
         out.contains("requires { count >= 0 }"),
         "expected requires for numeric param count:\n{out}"
@@ -1383,7 +1383,7 @@ fn discover_rs_files_results_are_sorted() {
     std::fs::write(dir.join("a/a.rs"), "").unwrap();
     std::fs::write(dir.join("c.rs"), "").unwrap();
 
-    let found = super::discover_rs_files(&dir);
+    let found = crate::discover_rs_files(&dir);
     let sorted = found.clone();
     assert_eq!(found, sorted, "results should be sorted");
     let _ = std::fs::remove_dir_all(&dir);
@@ -1405,7 +1405,7 @@ fn derive_module_path_crate_with_hyphen() {
     .unwrap();
 
     let path = format!("{}/crates/my-crate/src/type_map.rs", dir.display());
-    let module = super::derive_rust_module_path(&path);
+    let module = crate::derive_rust_module_path(&path);
     assert_eq!(
         module, "my_crate::type_map",
         "hyphens must become underscores"
@@ -1413,7 +1413,7 @@ fn derive_module_path_crate_with_hyphen() {
 
     // lib.rs should resolve to just the crate name
     let lib_path = format!("{}/crates/my-crate/src/lib.rs", dir.display());
-    let lib_module = super::derive_rust_module_path(&lib_path);
+    let lib_module = crate::derive_rust_module_path(&lib_path);
     assert_eq!(lib_module, "my_crate");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -1431,7 +1431,7 @@ fn derive_module_path_nested_module() {
     .unwrap();
 
     let path = format!("{}/src/foo/bar.rs", dir.display());
-    let module = super::derive_rust_module_path(&path);
+    let module = crate::derive_rust_module_path(&path);
     assert_eq!(module, "example::foo::bar");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -1450,7 +1450,7 @@ fn discover_workspace_src_dirs_single_crate() {
     )
     .unwrap();
 
-    let dirs = super::discover_workspace_src_dirs(&dir);
+    let dirs = crate::discover_workspace_src_dirs(&dir);
     assert_eq!(dirs.len(), 1);
     assert!(dirs[0].ends_with("src"));
 
@@ -1469,7 +1469,7 @@ fn discover_workspace_src_dirs_workspace_glob() {
     )
     .unwrap();
 
-    let dirs = super::discover_workspace_src_dirs(&dir);
+    let dirs = crate::discover_workspace_src_dirs(&dir);
     assert_eq!(dirs.len(), 2, "should find both workspace members");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -1487,7 +1487,7 @@ fn discover_workspace_src_dirs_explicit_members() {
     )
     .unwrap();
 
-    let dirs = super::discover_workspace_src_dirs(&dir);
+    let dirs = crate::discover_workspace_src_dirs(&dir);
     assert_eq!(dirs.len(), 2);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -1498,7 +1498,7 @@ fn discover_workspace_src_dirs_explicit_members() {
 #[test]
 fn extract_sigs_async_fn() {
     let source = "pub async fn fetch(url: &str) -> Result<String, Error> {";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1, "should match pub async fn");
     assert_eq!(sigs[0].name, "fetch");
     assert!(sigs[0].is_pub);
@@ -1507,7 +1507,7 @@ fn extract_sigs_async_fn() {
 #[test]
 fn extract_sigs_const_fn() {
     let source = "pub const fn max_size() -> usize { 1024 }";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1, "should match pub const fn");
     assert_eq!(sigs[0].name, "max_size");
 }
@@ -1515,7 +1515,7 @@ fn extract_sigs_const_fn() {
 #[test]
 fn extract_sigs_unsafe_fn() {
     let source = "pub unsafe fn raw_ptr(p: *const u8) -> u8 {";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1, "should match pub unsafe fn");
     assert_eq!(sigs[0].name, "raw_ptr");
 }
@@ -1523,7 +1523,7 @@ fn extract_sigs_unsafe_fn() {
 #[test]
 fn extract_sigs_pub_crate_async_fn() {
     let source = "pub(crate) async fn internal_fetch(url: &str) -> String {";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1, "should match pub(crate) async fn");
     assert_eq!(sigs[0].name, "internal_fetch");
     assert!(sigs[0].is_pub);
@@ -1532,7 +1532,7 @@ fn extract_sigs_pub_crate_async_fn() {
 #[test]
 fn extract_sigs_generic_fn_name_stripped() {
     let source = "pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     assert_eq!(
         sigs[0].name, "encode",
@@ -1543,7 +1543,7 @@ fn extract_sigs_generic_fn_name_stripped() {
 #[test]
 fn extract_sigs_generic_with_where() {
     let source = "pub fn process<T>(items: Vec<T>) -> Vec<T> where T: Clone + Debug {";
-    let sigs = super::extract_rust_fn_signatures(source);
+    let sigs = crate::extract_rust_fn_signatures(source);
     assert_eq!(sigs.len(), 1);
     assert_eq!(sigs[0].name, "process");
     assert_eq!(sigs[0].return_type, "Vec<T>");
