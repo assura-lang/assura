@@ -52,6 +52,7 @@ pub use result::{
 
 /// Shared IR expression encoding helpers.
 mod ir_encode;
+mod ir_exec;
 mod ir_generate;
 mod ir_lower;
 #[cfg(test)]

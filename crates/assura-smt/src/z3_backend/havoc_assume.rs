@@ -2,14 +2,14 @@
 //! length inference, and IR body constraints (#267).
 
 use super::encoder::Encoder;
-use crate::cvc5_builtins::{KnownBuiltin, classify_known_builtin, pattern_hash_name};
+use crate::cvc5_builtins::{KnownBuiltin, classify_known_builtin};
 use crate::havoc_assume::{
     HavocAssumeInput, RESULT_SLOT, infer_length_identity_links, ir_param_names,
     is_collection_return,
 };
-use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, IrPredArg};
+use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
-use crate::ir_lower::{IrSlotContext, IrTermBuilder, encode_ir_expr};
+use crate::ir_lower::{IrSlotContext, IrTermBuilder};
 use crate::ir_type_ctx::base_type_name;
 use assura_ast::Clause;
 use std::collections::HashMap;
@@ -195,6 +195,12 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
             .collect();
         self.nary_uf(&format!("__ir_construct_{type_id}"), &arg_ints)
     }
+
+    fn push_ir_post(&mut self, pred: &IrPred, slots: &HashMap<usize, Self::Term>) {
+        if let Some(b) = encode_ir_pred_z3(self.encoder, pred, slots) {
+            self.encoder.background_axioms.push(b);
+        }
+    }
 }
 
 /// Apply havoc+assume axioms before verifying ensures clauses.
@@ -202,7 +208,7 @@ pub(crate) fn apply_havoc_assume_z3(encoder: &mut Encoder, input: &HavocAssumeIn
     apply_structural_result_axioms(encoder, input.return_ty);
     apply_length_identity_axioms(encoder, input.requires, input.ensures);
     if let Some(func) = input.ir {
-        apply_ir_body_constraints(encoder, func, input.param_names, input.enc_ctx);
+        apply_ir_body_constraints_z3(encoder, func, input.param_names, input.enc_ctx);
     }
 }
 
@@ -223,7 +229,7 @@ fn apply_length_identity_axioms(encoder: &mut Encoder, requires: &[&Clause], ens
     }
 }
 
-fn apply_ir_body_constraints(
+fn apply_ir_body_constraints_z3(
     encoder: &mut Encoder,
     func: &IrFunction,
     contract_param_names: &[String],
@@ -250,50 +256,7 @@ fn apply_ir_body_constraints(
         enc_ctx,
     };
 
-    let ctx = IrSlotContext {
-        slot_to_name: &slot_to_name,
-        slot_types: &slot_types,
-    };
-    for instr in &func.body {
-        if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
-            let name = format!("__ir_slot_{}", instr.target);
-            let v = builder.get_or_create_named(&name);
-            slots.insert(instr.target, v);
-        }
-        let computed = encode_ir_expr(&mut builder, &instr.expr, &slots, ctx);
-        if let Some(target) = slots.get(&instr.target) {
-            builder.push_eq_axiom(computed, target.clone());
-        }
-        if instr.target == RESULT_SLOT
-            && let IrExprKind::Load(src) = &instr.expr
-            && let Some(param) = slot_to_name.get(src)
-        {
-            let len_result = builder.encoder.canonical_length("result");
-            let len_param = builder.encoder.canonical_length(param);
-            builder
-                .encoder
-                .background_axioms
-                .push(len_result.eq(&len_param));
-        }
-        if instr.target == RESULT_SLOT
-            && let IrExprKind::Construct { type_id, .. } = &instr.expr
-        {
-            let tag = pattern_hash_name(type_id);
-            let tag_val = builder
-                .encoder
-                .get_or_create_int(&format!("__ir_tag_{type_id}"));
-            builder
-                .encoder
-                .background_axioms
-                .push(tag_val.eq(ast::Int::from_i64(tag)));
-        }
-    }
-
-    if let Some(post) = &func.post
-        && let Some(pred) = encode_ir_pred_z3(builder.encoder, post, &slots)
-    {
-        builder.encoder.background_axioms.push(pred);
-    }
+    crate::ir_exec::apply_ir_body_constraints(&mut builder, func, contract_param_names, &mut slots);
 }
 
 fn encode_ir_pred_z3(

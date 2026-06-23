@@ -6,9 +6,9 @@ use crate::cvc5_adt::define_adt_cvc5;
 use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_common::sanitize_smtlib_name;
 use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
-use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrPred, IrPredArg};
+use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
-use crate::ir_lower::{IrSlotContext, IrTermBuilder, encode_ir_expr};
+use crate::ir_lower::{IrSlotContext, IrTermBuilder};
 use crate::ir_type_ctx::base_type_name;
 
 struct IrSmtlibEncoder {
@@ -20,6 +20,8 @@ struct SmtlibIrBuilder<'a, 'b> {
     enc: &'a mut IrSmtlibEncoder,
     script: &'a mut String,
     vars: &'a mut HashSet<String>,
+    /// Retained so field/construct helpers match Z3/CVC5 builder shape (ctx uses copies).
+    #[allow(dead_code)]
     slot_to_name: &'b HashMap<usize, String>,
     #[allow(dead_code)]
     slot_types: &'b HashMap<usize, String>,
@@ -158,6 +160,20 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
     fn canonical_length_for_name(&mut self, name: &str) -> Self::Term {
         declare_canonical_len(self.script, self.vars, name);
         canonical_length_smtlib_name(name)
+    }
+
+    fn on_result_construct(&mut self, type_id: &str) {
+        let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
+        let tag_name = sanitize_smtlib_name(&format!("__ir_tag_{type_id}"));
+        declare_int_var(self.script, self.vars, &tag_name);
+        self.script
+            .push_str(&format!("(assert (= {tag_name} {tag}))\n"));
+    }
+
+    fn push_ir_post(&mut self, pred: &crate::ir::IrPred, slots: &HashMap<usize, Self::Term>) {
+        if let Some(p) = encode_ir_pred_smtlib(pred, slots, self.enc) {
+            self.script.push_str(&format!("(assert {p})\n"));
+        }
     }
 
     fn try_known_builtin(&mut self, func: &str, args: &[Self::Term]) -> Option<Self::Term> {
@@ -332,10 +348,6 @@ pub(crate) fn append_ir_body_constraints_smtlib(
         .collect();
     let slot_types = slot_type_map(func);
 
-    let ctx = IrSlotContext {
-        slot_to_name: &slot_to_name,
-        slot_types: &slot_types,
-    };
     let mut builder = SmtlibIrBuilder {
         enc: &mut enc,
         script,
@@ -345,48 +357,7 @@ pub(crate) fn append_ir_body_constraints_smtlib(
         enc_ctx,
     };
 
-    for instr in &func.body {
-        if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
-            let name = format!("__ir_slot_{}", instr.target);
-            declare_int_var(builder.script, builder.vars, &name);
-            slots.insert(instr.target, sanitize_smtlib_name(&name));
-        }
-        let computed = encode_ir_expr(&mut builder, &instr.expr, &slots, ctx);
-        if let Some(target) = slots.get(&instr.target) {
-            builder
-                .script
-                .push_str(&format!("(assert (= {computed} {target}))\n"));
-        }
-        if instr.target == RESULT_SLOT
-            && let IrExprKind::Load(src) = &instr.expr
-            && let Some(param) = builder.slot_to_name.get(src)
-        {
-            let len_result = canonical_length_smtlib_name("result");
-            let len_param = canonical_length_smtlib_name(param);
-            declare_canonical_len(builder.script, builder.vars, "result");
-            declare_canonical_len(builder.script, builder.vars, param);
-            builder
-                .script
-                .push_str(&format!("(assert (= {len_result} {len_param}))\n"));
-        }
-        // Construct tag axiom: align with Z3 backend (#303)
-        if instr.target == RESULT_SLOT
-            && let IrExprKind::Construct { type_id, .. } = &instr.expr
-        {
-            let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
-            let tag_name = sanitize_smtlib_name(&format!("__ir_tag_{type_id}"));
-            declare_int_var(builder.script, builder.vars, &tag_name);
-            builder
-                .script
-                .push_str(&format!("(assert (= {tag_name} {tag}))\n"));
-        }
-    }
-
-    if let Some(post) = &func.post
-        && let Some(pred) = encode_ir_pred_smtlib(post, &slots, builder.enc)
-    {
-        builder.script.push_str(&format!("(assert {pred})\n"));
-    }
+    crate::ir_exec::apply_ir_body_constraints(&mut builder, func, contract_param_names, &mut slots);
 }
 
 #[cfg(test)]
