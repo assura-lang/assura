@@ -59,6 +59,11 @@ fn snapshot_test_basic() {
 }
 
 // --- Demo file tests ---
+//
+// Primary canary for demos during parser recovery work: `demos_all_parse_clean`
+// below (parse-only, no insta). Full AST insta snapshots are retained for
+// structural regressions but are expensive to maintain when spans/trivia shift
+// (#344). Prefer fixing parse errors via the canary before batch-accepting snaps.
 
 #[test]
 fn snapshot_demo_libwebp() {
@@ -76,6 +81,41 @@ fn snapshot_demo_zlib() {
 fn snapshot_demo_mbedtls() {
     let ast = parse_file("../../demos/mbedtls-x509.assura");
     insta::assert_debug_snapshot!(ast);
+}
+
+/// Hard parse-only gate for every demo under `demos/` (#344).
+/// Catches recovery/collector regressions without insta span maintenance.
+#[test]
+fn demos_all_parse_clean() {
+    let demo_dir = "../../demos";
+    let entries =
+        std::fs::read_dir(demo_dir).unwrap_or_else(|e| panic!("failed to read {demo_dir}: {e}"));
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().map(|e| e == "assura").unwrap_or(false) {
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+            let (ast, errors) = parse(&source);
+            assert!(
+                errors.is_empty(),
+                "demo {} must parse with zero errors (no recovery), got: {:?}",
+                path.display(),
+                errors
+            );
+            assert!(
+                ast.is_some(),
+                "demo {} returned None without errors",
+                path.display()
+            );
+            count += 1;
+        }
+    }
+    assert!(
+        count >= 4,
+        "expected at least 4 demo .assura files, found {count}"
+    );
 }
 
 #[test]
@@ -120,27 +160,34 @@ fn error_recovery_missing_brace() {
 
 /// Regression for the structures that caused "expected R_BRACE" on real demos
 /// (trailing impl body after clauses/effects, containing validate { } followed
-/// by `or return`, at EOF). The minimal missing_brace fixture did not cover this.
+/// by `or return`, struct lits, calls, at EOF). The minimal missing_brace
+/// fixture did not cover this (#343). Would have failed before 9563fb7 / collector fixes.
 #[test]
 fn recovery_trailing_fn_body_with_validate_or_return_parses_clean() {
     let source = r#"
 fn example(x: Int) -> Int
   effects: pure
+  modifies: state
 {
   let y = validate {
     x > 0
   } x
     or return -1
-  y + 1
+  let rec = Record { field: y, flag: true }
+  helper(rec, y + 1)
 }
+// trailing comment at EOF
 "#;
     let (ast, errors) = parse(&source);
     assert!(
         errors.is_empty(),
-        "trailing body with validate block + or-return must parse with zero errors, got: {:?}",
+        "trailing body with validate/or-return/struct lit must parse with zero errors, got: {:?}",
         errors
     );
-    let _ = ast;
+    assert!(
+        ast.is_some(),
+        "expected partial/full AST for valid trailing body"
+    );
 }
 
 #[test]

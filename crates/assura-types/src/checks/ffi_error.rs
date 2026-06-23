@@ -133,6 +133,15 @@ pub(crate) fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
     errors
 }
 
+/// Collect identifier-like tokens from a clause body (Raw list or single Ident).
+fn clause_body_tokens(body: &assura_parser::ast::Expr) -> Vec<String> {
+    match body {
+        Expr::Raw(tokens) => tokens.clone(),
+        Expr::Ident(name) => vec![name.clone()],
+        _ => Vec::new(),
+    }
+}
+
 /// T064: Run error propagation checks on functions that return error types.
 pub(crate) fn run_error_propagation_checks(
     source: &assura_parser::ast::SourceFile,
@@ -148,40 +157,38 @@ pub(crate) fn run_error_propagation_checks(
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_propagate"
                 {
-                    match &clause.body.node {
-                        Expr::Raw(tokens) => policy.must_propagate.extend(tokens.iter().cloned()),
-                        Expr::Ident(name) => policy.must_propagate.push(name.clone()),
-                        _ => {}
-                    }
+                    let tokens = clause_body_tokens(&clause.body.node);
+                    policy.must_propagate.extend(tokens);
                 }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_check"
-                    && let Expr::Raw(tokens) = &clause.body.node
                 {
-                    policy.must_check.extend(tokens.iter().cloned());
+                    let tokens = clause_body_tokens(&clause.body.node);
+                    policy.must_check.extend(tokens);
                 }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_not_mask"
-                    && let Expr::Raw(tokens) = &clause.body.node
-                    && tokens.len() >= 2
                 {
-                    policy
-                        .must_not_mask
-                        .push((tokens[0].clone(), tokens[1].clone()));
+                    let tokens = clause_body_tokens(&clause.body.node);
+                    if tokens.len() >= 2 {
+                        policy
+                            .must_not_mask
+                            .push((tokens[0].clone(), tokens[1].clone()));
+                    }
                 }
-                if clause.kind == ClauseKind::MustNot
-                    && let Expr::Raw(tokens) = &clause.body.node
-                    && tokens.len() >= 2
-                {
-                    policy
-                        .must_not_mask
-                        .push((tokens[0].clone(), tokens[1].clone()));
+                if clause.kind == ClauseKind::MustNot {
+                    let tokens = clause_body_tokens(&clause.body.node);
+                    if tokens.len() >= 2 {
+                        policy
+                            .must_not_mask
+                            .push((tokens[0].clone(), tokens[1].clone()));
+                    }
                 }
                 if let ClauseKind::Other(ref k) = clause.kind
                     && k == "must_preserve_detail"
-                    && let Expr::Raw(tokens) = &clause.body.node
                 {
-                    policy.must_preserve_detail.extend(tokens.iter().cloned());
+                    let tokens = clause_body_tokens(&clause.body.node);
+                    policy.must_preserve_detail.extend(tokens);
                 }
             }
             if !policy.must_propagate.is_empty()
@@ -194,55 +201,73 @@ pub(crate) fn run_error_propagation_checks(
         }
     }
 
-    // Pass 2: check functions that catch errors for propagation violations
+    // Pass 2: check functions for propagation / masking violations (#345).
+    // Catch / must_not_mask policies apply to any function that declares a
+    // catch clause, not only those whose return type mentions Result/Error.
     for decl in &source.decls {
         if let Decl::FnDef(f) = &decl.node {
-            // Check if return type is an error type
             let rt_tokens = f
                 .return_ty
                 .as_ref()
                 .map(|t| t.to_tokens())
                 .unwrap_or_default();
             let returns_error = rt_tokens.iter().any(|t| t == "Result" || t == "Error");
-            if returns_error {
-                for clause in &f.clauses {
-                    if clause.kind == ClauseKind::Errors
-                        && let Expr::Raw(tokens) = &clause.body.node
-                    {
-                        for error_code in tokens {
-                            if checker.is_must_propagate(error_code) {
-                                errors.push(TypeError {
-                                    code: "A64001".into(),
-                                    message: format!(
-                                        "error code `{error_code}` in function `{}` must be \
-                                         propagated, not caught",
-                                        f.name
-                                    ),
-                                    span: decl.span.clone(),
-                                    secondary: None,
-                                });
-                            }
+
+            for clause in &f.clauses {
+                if returns_error
+                    && clause.kind == ClauseKind::Errors
+                    && let Expr::Raw(tokens) = &clause.body.node
+                {
+                    for error_code in tokens {
+                        if checker.is_must_propagate(error_code) {
+                            errors.push(TypeError {
+                                code: "A64001".into(),
+                                message: format!(
+                                    "error code `{error_code}` in function `{}` must be \
+                                     propagated, not caught",
+                                    f.name
+                                ),
+                                span: decl.span.clone(),
+                                secondary: None,
+                            });
                         }
                     }
+                }
 
-                    // Check "catch" clauses for error action violations
-                    if let ClauseKind::Other(ref k) = clause.kind
-                        && k == "catch"
-                        && let Expr::Raw(tokens) = &clause.body.node
+                // Check "catch" clauses for error action violations (always,
+                // including must_not_mask on non-Result helpers).
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "catch"
+                {
+                    let tokens = clause_body_tokens(&clause.body.node);
+                    let error_code = tokens.first().cloned().unwrap_or_default();
+                    let action_kw = tokens.get(1).map(|s| s.as_str()).unwrap_or("");
+                    let action = match action_kw {
+                        "swallow" | "ignore" => ErrorAction::Swallow,
+                        "translate" | "translate_to" => {
+                            let target = tokens.get(2).cloned().unwrap_or_default();
+                            ErrorAction::TranslateTo(target)
+                        }
+                        "propagate" | "rethrow" => ErrorAction::Propagate,
+                        _ => ErrorAction::Handle,
+                    };
+                    if let Some(te) = checker.validate_catch(&error_code, action, decl.span.clone())
                     {
-                        let error_code = tokens.first().cloned().unwrap_or_default();
-                        let action_kw = tokens.get(1).map(|s| s.as_str()).unwrap_or("");
-                        let action = match action_kw {
-                            "swallow" | "ignore" => ErrorAction::Swallow,
-                            "translate" | "translate_to" => {
-                                let target = tokens.get(2).cloned().unwrap_or_default();
-                                ErrorAction::TranslateTo(target)
-                            }
-                            "propagate" | "rethrow" => ErrorAction::Propagate,
-                            _ => ErrorAction::Handle,
-                        };
-                        if let Some(te) =
-                            checker.validate_catch(&error_code, action, decl.span.clone())
+                        errors.push(TypeError {
+                            code: te.code,
+                            message: te.message,
+                            span: te.span,
+                            secondary: None,
+                        });
+                    }
+                }
+
+                if returns_error
+                    && matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Requires)
+                {
+                    let refs = collect_ident_references(&clause.body);
+                    for fn_ref in &refs {
+                        if let Some(te) = checker.validate_unchecked_call(fn_ref, decl.span.clone())
                         {
                             errors.push(TypeError {
                                 code: te.code,
@@ -250,23 +275,6 @@ pub(crate) fn run_error_propagation_checks(
                                 span: te.span,
                                 secondary: None,
                             });
-                        }
-                    }
-
-                    // Check function calls in ensures/requires for unchecked returns
-                    if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Requires) {
-                        let refs = collect_ident_references(&clause.body);
-                        for fn_ref in &refs {
-                            if let Some(te) =
-                                checker.validate_unchecked_call(fn_ref, decl.span.clone())
-                            {
-                                errors.push(TypeError {
-                                    code: te.code,
-                                    message: te.message,
-                                    span: te.span,
-                                    secondary: None,
-                                });
-                            }
                         }
                     }
                 }
@@ -338,6 +346,31 @@ mod tests {
         assert!(
             run_error_propagation_checks(&sf).is_empty(),
             "fn without Result return should not trigger error propagation checks"
+        );
+    }
+
+    /// Pipeline-level A12002 for must_not_mask + catch translate_to (#345).
+    /// Depends on return-type slurp stopping at ident clause starters (`catch`).
+    #[test]
+    fn error_propagation_must_not_mask_catch_translate_a12002() {
+        let src = r#"
+contract FilePolicy {
+    input(path: String)
+    must_not_mask { IoError GenericError }
+    requires { true }
+    ensures { true }
+}
+
+fn read_file(path: String) -> Result
+    catch IoError translate_to GenericError
+    requires { true }
+    ensures { true }
+"#;
+        let sf = parse_source(src);
+        let errs = run_error_propagation_checks(&sf);
+        assert!(
+            errs.iter().any(|e| e.code == "A12002"),
+            "expected A12002 for forbidden catch/translate, got: {errs:?}"
         );
     }
 }

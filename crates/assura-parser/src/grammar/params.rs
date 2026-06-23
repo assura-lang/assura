@@ -304,9 +304,12 @@ fn is_return_type_stopper(k: SyntaxKind, p: &Parser) -> bool {
     if super::clauses::is_domain_keyword_clause_kind(k) {
         return true;
     }
-    // Ident-based clause starters
+    // Ident-based clause starters. Use current_text() (skips trivia), not
+    // tokens[pos] which may be WHITESPACE while current() is IDENT — that
+    // mismatch caused `catch` / other clause idents to be slurped into the
+    // return type (#345 error_swallowed A12002 regression).
     if k == SyntaxKind::IDENT {
-        let text = p.tokens.get(p.pos()).map(|t| t.text.as_str()).unwrap_or("");
+        let text = p.current_text();
         // "taint" appears in @taint:foo return type annotations (after the type name,
         // e.g. ") -> ValidXlen @taint:validated"). Do not stop the return type slurp
         // on it, otherwise the annotation tokens are left behind and misparsed as a

@@ -207,7 +207,7 @@ fn ghost_expr(p: &mut Parser) -> CompletedMarker {
     p.expect(SyntaxKind::L_BRACE);
     p.bump_trivia();
     expr(p);
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::GHOST_EXPR)
 }
 
@@ -230,7 +230,7 @@ fn temporal_expr(p: &mut Parser) -> CompletedMarker {
             p.eat(SyntaxKind::COMMA);
             p.bump_trivia();
         }
-        p.expect(SyntaxKind::R_BRACE);
+        super::expect_closer(p, SyntaxKind::R_BRACE);
     } else {
         // Inline: eventually expr
         expr_bp(p, 0);
@@ -269,7 +269,7 @@ fn match_expr(p: &mut Parser) -> CompletedMarker {
     }
     arms.complete(p, SyntaxKind::MATCH_ARM_LIST);
 
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::MATCH_EXPR)
 }
 

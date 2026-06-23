@@ -243,7 +243,7 @@ fn enum_def(p: &mut Parser) {
             p.err_and_bump("expected enum variant or closing brace");
         }
     }
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::ENUM_DEF);
 }
 
@@ -256,7 +256,7 @@ fn enum_variant(p: &mut Parser) {
     if p.at(SyntaxKind::L_PAREN) {
         p.bump(); // (
         super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
-        p.expect(SyntaxKind::R_PAREN);
+        super::expect_closer(p, SyntaxKind::R_PAREN);
     }
 
     p.eat(SyntaxKind::COMMA);
@@ -304,7 +304,7 @@ fn bind_decl(p: &mut Parser) {
             p.bump();
         }
     }
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
 
     m.complete(p, SyntaxKind::BIND_DECL);
 }
@@ -340,7 +340,7 @@ fn codec_registry_decl(p: &mut Parser) {
             p.err_and_bump("expected `codec` or `}`");
         }
     }
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::CODEC_REGISTRY_DECL);
 }
 
@@ -381,7 +381,7 @@ fn codec_entry(p: &mut Parser) {
                     p.err_and_bump("expected clause or `}`");
                 }
             }
-            p.expect(SyntaxKind::R_BRACE);
+            super::expect_closer(p, SyntaxKind::R_BRACE);
         } else {
             // Skip unknown fields
             p.err_and_bump("expected `magic`, `decoder`, `contracts`, or `}`");
@@ -391,7 +391,7 @@ fn codec_entry(p: &mut Parser) {
             break;
         }
     }
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::CODEC_ENTRY);
 }
 
@@ -403,21 +403,21 @@ fn magic_pattern(p: &mut Parser) {
         while !p.eof() && !p.at(SyntaxKind::R_BRACKET) {
             p.bump(); // byte literal, comma, or ..
         }
-        p.expect(SyntaxKind::R_BRACKET);
+        super::expect_closer(p, SyntaxKind::R_BRACKET);
     } else if p.at_keyword_or_ident() && p.current_text() == "extension" {
         p.bump(); // extension
         p.expect(SyntaxKind::L_PAREN);
         while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
             p.bump(); // string literals and commas
         }
-        p.expect(SyntaxKind::R_PAREN);
+        super::expect_closer(p, SyntaxKind::R_PAREN);
     } else if p.at_keyword_or_ident() && p.current_text() == "probe" {
         p.bump(); // probe
         p.expect(SyntaxKind::L_PAREN);
         while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
             p.bump(); // function name
         }
-        p.expect(SyntaxKind::R_PAREN);
+        super::expect_closer(p, SyntaxKind::R_PAREN);
     } else {
         p.error_at_current(
             "expected byte pattern `[...]`, `extension(...)`, or `probe(...)`".into(),
@@ -452,7 +452,7 @@ fn fn_def(p: &mut Parser) {
         if p.at(SyntaxKind::L_BRACKET) {
             p.bump(); // [
             super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
-            p.expect(SyntaxKind::R_BRACKET);
+            super::expect_closer(p, SyntaxKind::R_BRACKET);
         }
         am.complete(p, SyntaxKind::ATTR);
     }
@@ -505,12 +505,7 @@ fn fn_def(p: &mut Parser) {
     if p.at(SyntaxKind::L_BRACE) {
         p.bump_delim();
         super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
-        if !p.at(SyntaxKind::R_BRACE) {
-            while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
-                p.bump();
-            }
-        }
-        p.expect(SyntaxKind::R_BRACE);
+        super::expect_closer(p, SyntaxKind::R_BRACE);
     }
 
     m.complete(p, SyntaxKind::FN_DEF);
@@ -564,7 +559,7 @@ fn service_item(p: &mut Parser) {
                         p.err_and_bump("expected clause or closing brace");
                     }
                 }
-                p.expect(SyntaxKind::R_BRACE);
+                super::expect_closer(p, SyntaxKind::R_BRACE);
             } else {
                 while !p.eof() && clauses::at_clause_start(p) {
                     clauses::clause(p);
@@ -602,7 +597,7 @@ pub(crate) fn generic_block(p: &mut Parser) {
         if p.at(SyntaxKind::L_BRACKET) {
             p.bump(); // [
             super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
-            p.expect(SyntaxKind::R_BRACKET);
+            super::expect_closer(p, SyntaxKind::R_BRACKET);
         }
         am.complete(p, SyntaxKind::ATTR);
     }
@@ -675,7 +670,7 @@ pub(crate) fn generic_block(p: &mut Parser) {
                 p.err_and_bump("expected clause, declaration, or closing brace");
             }
         }
-        p.expect(SyntaxKind::R_BRACE);
+        super::expect_closer(p, SyntaxKind::R_BRACE);
     } else {
         // Inline clauses (no brace block)
         while !p.eof() && clauses::at_clause_start(p) {

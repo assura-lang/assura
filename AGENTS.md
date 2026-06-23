@@ -891,7 +891,33 @@ When you introduce a new helper, document it here and in
 - `bump_delim()` on `Parser` (cst.rs) — bump a delimiter token (`{`, `(`, etc.) and immediately call `bump_trivia()`. This ensures expressions inside braced/parenthesized clause bodies (and similar) receive `text_range()` values that match original source offsets rather than being shifted by leading whitespace or comments. Introduced during the #335 spans + trivia work and the subsequent duplication cleanup pass to eliminate ~20 repeated `bump(); bump_trivia();` sites. Use it (instead of the two-liner) after any manual delimiter open that must expose following trivia to child nodes.
 
 - `body_tokens_inner(p, closer, stoppers)` (grammar/mod.rs) — raw balanced delimiter skipper used for clause bodies, fn/trailing/axiom bodies, generic blocks, type bodies, attr lists, etc. Pass the expected closer (R_BRACE / R_PAREN / R_BRACKET) as the virtual; it uses a stack to handle nesting of mixed delimiters. Updated in #339 to take explicit closer (was always R_BRACE, causing cross-closer theft of outer } when collecting inside ( or [ ).
-- `expect_closer(p, closer)` (grammar/mod.rs) — helper introduced post-#339 for raw body collectors. After body_tokens_inner (or manual loops over illustrative code), call this instead of bare expect. It does a tolerant sync (skip to closer if not already there) then the strict expect. This handles good demo input (validate{}, struct lits, or-return exprs, EOF trivia after last fn body) without swallowing real errors. Unclosed recovery cases still produce the error because no closer exists. Use for R_BRACE/R_PAREN/R_BRACKET after collectors.
+
+  **Collector contract** (`body_tokens_inner` + `expect_closer`, #342):
+  1. Caller must already have consumed the opening delimiter (or be in a context
+     where the virtual closer on the stack is the only thing that needs matching).
+  2. On success, the collector stops with `current()` at the matching closer
+     (the closer is **not** consumed; the caller must expect it).
+  3. On stoppers / EOF / mismatched closer, the collector may leave the parser
+     before the closer (e.g. illustrative fn bodies with `validate { } … or return`,
+     struct lits, `constant_time { }`, comments/trivia at EOF). That is expected.
+  4. Prefer fixing the collector (stoppers, stack discipline, `current_raw`/`bump_raw`)
+     when good input systematically fails. Use `expect_closer` as the safety net
+     for the known "slightly off" cases above, not as a substitute for correct
+     collection.
+  5. `expect_closer` only bumps on the error path when not already at the closer;
+     on well-formed input it is a single `expect` with no extra tree nodes.
+  6. Truly unclosed input still errors: if EOF is reached with no closer in the
+     stream, `expect` emits the usual "expected `}`" (or paren/bracket) diagnostic.
+  7. Debug builds can assert after collection that when `at(closer)` is false and
+     not at EOF, a future collector improvement may be warranted; do not turn that
+     into a production-only panic.
+
+- `expect_closer(p, closer)` (grammar/mod.rs) — tolerant sync then strict expect
+  after `body_tokens_inner` or item loops that may leave trivia/mixed constructs
+  between the last inner token and the outer closer. Use for R_BRACE / R_PAREN /
+  R_BRACKET in those paths. Bare `p.expect(R_*)` remains correct when the parser
+  is structurally guaranteed to be on the closer (e.g. `old(expr)`, `param_list`,
+  arg/index lists after normal expression parsing).
 
 - `is_trivia(k)` (cst.rs, pub(crate)) — canonical check for WHITESPACE | COMMENT. Use everywhere instead of duplicating the predicate in lower.rs and elsewhere. See #337 consolidation.
 

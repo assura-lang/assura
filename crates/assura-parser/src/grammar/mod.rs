@@ -73,11 +73,11 @@ fn project_decl(p: &mut Parser) {
                         p.err_and_bump("expected profile name or `]`");
                     }
                 }
-                p.expect(SyntaxKind::R_BRACKET);
+                expect_closer(p, SyntaxKind::R_BRACKET);
                 pl.complete(p, SyntaxKind::PROFILE_LIST);
             }
         }
-        p.expect(SyntaxKind::R_BRACE);
+        expect_closer(p, SyntaxKind::R_BRACE);
     }
     m.complete(p, SyntaxKind::PROJECT_DECL);
 }
@@ -117,7 +117,7 @@ fn import_decl(p: &mut Parser) {
                 p.err_and_bump("expected import name or `}`");
             }
         }
-        p.expect(SyntaxKind::R_BRACE);
+        expect_closer(p, SyntaxKind::R_BRACE);
         il.complete(p, SyntaxKind::IMPORT_ITEM_LIST);
     }
 
@@ -159,6 +159,14 @@ fn at_decl_start(p: &mut Parser) -> bool {
 /// Uses raw access so that trivia are included (for correct source offsets).
 /// Uses stack to properly match specific closers for mixed delimiters
 /// (e.g. ( inside { bodies) and multiple sibling blocks.
+///
+/// # Contract (see AGENTS.md "Parser / CST helpers", issue #342)
+///
+/// - Caller has already consumed the opening delimiter when applicable.
+/// - On success, stops with `p.current()` at the matching `closer` (not consumed).
+/// - On stoppers / EOF / mismatch, may stop *before* the closer; pair with
+///   [`expect_closer`] rather than bare `expect` for illustrative bodies.
+/// - Prefer improving stoppers / stack discipline over widening the sync loop.
 fn body_tokens_inner(p: &mut Parser, closer: SyntaxKind, stoppers: &[SyntaxKind]) {
     let mut stack: Vec<SyntaxKind> = Vec::new();
     // virtual entry for THIS collection's closer (correct for {, (, [ )
@@ -201,6 +209,9 @@ fn body_tokens_inner(p: &mut Parser, closer: SyntaxKind, stoppers: &[SyntaxKind]
             }
         }
     }
+    // Note: stopping before `closer` with empty stoppers is normal for
+    // illustrative bodies (validate/or-return, struct lits at EOF). Pair with
+    // expect_closer; only investigate if simple well-formed input fails.
 }
 
 /// Expect a closing delimiter (R_BRACE, R_PAREN, etc.) after a raw body
