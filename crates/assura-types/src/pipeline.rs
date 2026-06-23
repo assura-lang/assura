@@ -441,12 +441,6 @@ impl Default for TypeChecker {
 mod tests {
     use super::*;
 
-    fn type_check_source(src: &str) -> Result<TypedFile, Vec<TypeError>> {
-        let file = assura_parser::parse_unwrap(src);
-        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-        type_check(&resolved)
-    }
-
     #[test]
     fn checker_pipeline_has_expected_breadth() {
         // Guard against accidentally clearing CHECKER_PIPELINE or removing
@@ -469,7 +463,16 @@ mod tests {
                 ensures(result: Int)
             }
         "#;
-        let result = type_check_source(src);
+        let out = assura_test_support::compile_result(src, "fx.assura");
+        assert!(
+            assura_test_support::has_error_code(&out, "A07003"),
+            "expected A07003 for unknown effect 'memory', got: {:?}",
+            assura_test_support::error_codes(&out)
+        );
+        // Keep legacy shape check for type_check direct path (errors vec)
+        let file = assura_parser::parse_unwrap(src);
+        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+        let result = type_check(&resolved);
         match result {
             Err(errors) => {
                 assert!(
@@ -491,7 +494,16 @@ mod tests {
                 ensures(result: Int)
             }
         "#;
-        let result = type_check_source(src);
+        // compile_result is fine here (no TypedFile return from support into this crate)
+        let out = assura_test_support::compile_result(src, "add.assura");
+        assert!(
+            !out.has_errors,
+            "valid contract should type-check: {:?}",
+            assura_test_support::error_codes(&out)
+        );
+        let file = assura_parser::parse_unwrap(src);
+        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
+        let result = type_check(&resolved);
         assert!(
             result.is_ok(),
             "valid contract should type-check: {result:?}"

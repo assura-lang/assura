@@ -1,12 +1,7 @@
 use super::*;
 
 fn verify_source(source: &str) -> Vec<VerificationResult> {
-    let out = assura_pipeline::compile(
-        source,
-        "test.assura",
-        &assura_config::CompilerConfig::default(),
-    );
-    let typed = out.typed.expect("type_check failed in test");
+    let typed = assura_test_support::typecheck_ok(source);
     verify(&typed)
 }
 

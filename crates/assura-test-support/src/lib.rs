@@ -18,19 +18,18 @@
 //! | [`verify_strict_ok`] | same + no non-limitation Unknown |
 //! | [`codegen_ok`] | typecheck + codegen (**not for assura-codegen tests**) |
 //!
-//! # Important: `codegen_ok` and the `assura-codegen` crate
+//! # Important: do not return in-crate types through this helper from the
+//! crate under test
 //!
-//! Do **not** call [`codegen_ok`] from `assura-codegen`'s own unit tests.
-//! `assura-test-support` depends on `assura-codegen`, so returning
-//! `GeneratedProject` from this crate yields a *different type instance*
-//! than the crate under test. In `assura-codegen` tests, use:
+//! | Crate under test | Do not use | Use instead |
+//! |------------------|------------|-------------|
+//! | `assura-codegen` | [`codegen_ok`] | `typecheck_ok` + local `codegen(&typed)` |
+//! | `assura-types` | [`typecheck_ok`] (as a `TypedFile` return in unit tests) | `resolve_ok` + in-crate `type_check` |
 //!
-//! ```ignore
-//! let typed = assura_test_support::typecheck_ok(source);
-//! let project = assura_codegen::codegen(&typed); // or `codegen(&typed)` in-crate
-//! ```
-//!
-//! Other crates may call [`codegen_ok`] normally.
+//! `assura-test-support` depends on the full pipeline, so `TypedFile` /
+//! `GeneratedProject` from this crate are different type instances than the
+//! crate being tested. Other crates (smt, cli, pipeline tests) may call
+//! [`typecheck_ok`] / [`codegen_ok`] normally.
 
 use assura_config::CompilerConfig;
 use assura_pipeline::CompilationOutput;
