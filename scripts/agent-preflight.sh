@@ -5,6 +5,10 @@
 #   bash scripts/agent-preflight.sh              # types + pipeline + smt lib + CLI bin
 #   bash scripts/agent-preflight.sh assura-types # one crate only
 #   bash scripts/agent-preflight.sh assura-types assura-smt
+#
+# Related scaffolds (print-only, not run here):
+#   bash scripts/agent-new-checker.sh <name> [--category <stem>]
+#   bash scripts/agent-new-decl.sh <Variant>
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

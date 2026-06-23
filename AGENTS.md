@@ -19,16 +19,50 @@ wrong test helpers, wrong Unknown policy).
 | New type checker | implement `run_*_checks` in `crates/assura-types/src/checks/`, register in `CHECKER_PIPELINE` in `pipeline.rs` | struct + unit tests only (orphan / dead code) |
 | Known SMT limitation? | `assura_smt::is_known_smt_limitation(reason)` or `KNOWN_SMT_LIMITATION_MARKER` | open-code `"not yet encoded in SMT"` with a different string |
 
+### Decision tree (if X, then Y)
+
+Do not improvise a parallel pipeline. Follow the branch that matches your task.
+
+| If you are… | Then do this | Not this |
+|-------------|--------------|----------|
+| Adding a **type checker** (Layer 0) | `bash scripts/agent-new-checker.sh <name> [--category <stem>]` then implement; register in `CHECKER_PIPELINE` same PR; `bash scripts/agent-guards.sh` | Struct + unit tests only (orphan / dead code) |
+| Adding **SMT encoding** (Layer 1–3) | Encode in `assura-smt`; wire from `verify()` / entry; for unimplemented paths emit `Unknown` with `KNOWN_SMT_LIMITATION_MARKER` via smt helpers | Hand-roll `Verifier` in CLI/LSP/MCP; invent a different limitation string |
+| Asking “did verify succeed?” | `verification_succeeded` (lenient) or `verification_strict_succeeded` (strict) | `!output.has_errors` alone (SMT does not set `has_errors`) |
+| Adding a **`Decl` variant** | `bash scripts/agent-new-decl.sh VariantName` then fix every non-exhaustive match | Grep only one crate and ship |
+| Walking existing decls | `DeclVisitor` / `walk_decls` / `Decl` accessors (`clauses`, `name`) | Copy-paste 20-arm `match Decl` in a new pass |
+| Writing a **test** in smt/cli/pipeline | `assura_test_support::{typecheck_ok, compile_result, expect_type_errors, verify_ok, verify_strict_ok}` | Re-implement parse→resolve→type_check |
+| Writing a **test** in `assura-types` unit tests | `resolve_ok` + in-crate `type_check` (or `compile_result` only for error **codes**, not `TypedFile` from support) | `assura_test_support::typecheck_ok` returning `TypedFile` into this crate |
+| Writing a **test** in `assura-codegen` unit tests | `typecheck_ok` + local `codegen(&typed)` | `assura_test_support::codegen_ok` (type instance footgun) |
+| Comparing indeterminate types | `ty.is_indeterminate()` | `ty == Type::Unknown` (misses `Type::Error`) |
+| Classifying SMT `Unknown` | `assura_smt::is_known_smt_limitation(reason)` | Open-code `"not yet encoded in SMT"` with different wording outside `assura-smt` |
+| Unsure which types layer to edit | Read `crates/assura-types/src/CHECKER-LAYERS.md` (`domain/` / `checkers/` / `checks/` / `pipeline.rs`) | Put feature logic only in `checks/` wiring |
+
+### `assura-types` layer map (summary)
+
+| Directory | Role |
+|-----------|------|
+| `domain/` | Feature / CVE / invariant logic (the *what*) |
+| `checkers/` | Structural AST / symbol / type analysis (the *how* on syntax) |
+| `checks/` | Thin `run_*_checks` wiring only; must appear in `CHECKER_PIPELINE` or be called from a peer `run_*` |
+| `pipeline.rs` | `CHECKER_PIPELINE` registry + `TypeChecker`; agent-guards fails on orphans |
+
+Full detail: `crates/assura-types/src/CHECKER-LAYERS.md`.
+
 ### Fast agent commands (prefer over full workspace test)
 
 ```bash
-# Static anti-pattern greps (Verifier::new, Type::Unknown ==, pipeline size)
+# Static anti-pattern greps (Verifier::new, Type::Unknown ==, orphan run_*_checks,
+# open-coded SMT limitation marker, ergonomics APIs, CHECKER_PIPELINE breadth).
 # Also runs in CI (clippy job) so regressions fail PRs, not only local sessions.
 bash scripts/agent-guards.sh
 
 # fmt + guards + clippy on key crates + one demo
 bash scripts/agent-preflight.sh
 bash scripts/agent-preflight.sh assura-types assura-smt   # subset
+
+# Scaffolds (print steps; do not auto-edit source)
+bash scripts/agent-new-checker.sh my_feature --category safety
+bash scripts/agent-new-decl.sh Widget
 
 # Decl variant touch list (grep sites; then cargo build for non-exhaustive)
 bash scripts/check-decl-variant.sh
@@ -62,8 +96,11 @@ There, use `resolve_ok` (types) or `typecheck_ok` + local `codegen` (codegen) on
 5. **`codegen_ok` in assura-codegen tests**: do not call `assura_test_support::codegen_ok`
    from inside `assura-codegen` (dependency type mismatch). Use `typecheck_ok` then
    local `codegen(&typed)`.
-6. **New `run_*_checks`**: add to `CHECKER_PIPELINE` in the same PR; breadth test
-   and `agent-guards.sh` will flag a too-small registry.
+6. **New `run_*_checks`**: add to `CHECKER_PIPELINE` in the same PR (or call from a
+   peer `run_*` entry point). `agent-guards.sh` fails on orphans and too-small
+   registries; start with `bash scripts/agent-new-checker.sh <name>`.
+7. **New `Decl` variant**: start with `bash scripts/agent-new-decl.sh <Variant>`;
+   then `cargo build` until zero non-exhaustive matches.
 
 ### Crate map (where to edit)
 
