@@ -401,7 +401,7 @@ mod tests {
         let mut state = default_cvc5_encoder_state();
         let slots: HashMap<usize, cvc5::Term<'_>> = HashMap::new();
         let mut vars: HashMap<String, cvc5::Term<'_>> = HashMap::new();
-        let expr = IrExprKind::Arith {
+        let _expr = IrExprKind::Arith {
             op: IrArithOp::Add,
             lhs: 0,
             rhs: 1,
@@ -414,7 +414,7 @@ mod tests {
         };
         // Test construction of Cvc5IrBuilder temporarily stubbed to avoid 'a lifetime + drop order borrow
         // issues with local vars/state under cvc5-verify test build. Core IR + native paths tested via fixtures.
-        let _ = (&mut vars, &mut state, &tm, &slots, &ctx);
+        let _ = (&mut vars, &mut state, &tm, &slots, &ctx, _expr);
     }
 
     #[test]
