@@ -165,6 +165,18 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
 /// This is the canonical verify entry point for pipeline consumers. Prefer it
 /// over constructing `Verifier::new(...).parallel().with_decrease_checks()` by
 /// hand so CLI, server, MCP, and tests stay behaviorally aligned.
+///
+/// # Agent / caller invariants
+///
+/// - **Layer 0**: `config.verify.layer < 1` returns an empty vec (no solver).
+/// - **Options**: always pass full `CompilerConfig.verify` (or
+///   `Verifier::apply_options`); do not re-chain `.parallel()` ad hoc.
+/// - **`has_errors`**: this function does **not** mutate any error flag.
+///   Counterexamples live only in the returned `Vec<VerificationResult>`.
+/// - **Unknown reasons** containing [`assura_smt::KNOWN_SMT_LIMITATION_MARKER`]
+///   are compiler limitations (warnings in CLI), not necessarily failures.
+/// - **Contracts are spec-only**: `result` / output vars may be unconstrained;
+///   `ensures` that mention only outputs often counterexample legitimately.
 pub fn verify_typed(
     typed: &assura_types::TypedFile,
     filename: &str,
@@ -186,6 +198,14 @@ pub fn verify_typed(
 /// Codegen runs whenever type checking succeeded (SMT counterexamples are
 /// recorded in `verification` but do not block codegen; callers decide how
 /// to treat them via `verification` results or [`verification_succeeded`]).
+///
+/// # Agent / caller invariants
+///
+/// - Early return when `output.has_errors` after `compile()` (parse/resolve/type only).
+/// - SMT results are stored in `output.verification`; they do **not** set `has_errors`.
+/// - For “did verify succeed?” use [`verification_succeeded`], not `!has_errors` alone.
+/// - Defaults in `CompilerConfig::default().verify` enable parallel + decrease checks
+///   (CLI parity). Tests should use `VerifyOptions::for_tests()` via `test_config`.
 pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> CompilationOutput {
     let mut output = compile(source, filename, config);
 
@@ -212,9 +232,10 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
 
 /// True when no verification result is a counterexample or timeout.
 ///
-/// `Unknown` (including "not yet encoded in SMT") is treated as non-fatal here,
-/// matching lightweight test / MCP success heuristics. Callers that need stricter
-/// policy should inspect `verification` directly.
+/// `Unknown` (including [`assura_smt::KNOWN_SMT_LIMITATION_MARKER`]) is treated
+/// as non-fatal here, matching lightweight test / MCP success heuristics.
+/// Callers that need stricter policy should inspect `verification` directly,
+/// or use [`verification_strict_succeeded`].
 pub fn verification_succeeded(results: &[assura_smt::VerificationResult]) -> bool {
     !results.iter().any(|r| {
         matches!(
@@ -222,6 +243,23 @@ pub fn verification_succeeded(results: &[assura_smt::VerificationResult]) -> boo
             assura_smt::VerificationResult::Counterexample { .. }
                 | assura_smt::VerificationResult::Timeout { .. }
         )
+    })
+}
+
+/// Like [`verification_succeeded`], but also fails on any `Unknown` whose
+/// reason is **not** a known compiler limitation (`is_known_smt_limitation`).
+///
+/// Use for tests annotated conceptually as `// MUST VERIFY` (solver must
+/// decide Verified or only limitation-Unknowns).
+pub fn verification_strict_succeeded(results: &[assura_smt::VerificationResult]) -> bool {
+    if !verification_succeeded(results) {
+        return false;
+    }
+    !results.iter().any(|r| match r {
+        assura_smt::VerificationResult::Unknown { reason, .. } => {
+            !assura_smt::is_known_smt_limitation(reason)
+        }
+        _ => false,
     })
 }
 

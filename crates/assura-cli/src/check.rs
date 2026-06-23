@@ -1109,7 +1109,7 @@ fn lookup_clause_span(
 /// a known compiler limitation (warning, exit 0) rather than a genuine solver
 /// inconclusive result (error, exit 1).
 fn is_known_smt_limitation(reason: &str) -> bool {
-    reason.contains("not yet encoded in SMT")
+    assura_smt::is_known_smt_limitation(reason)
 }
 
 #[cfg(test)]
@@ -1118,28 +1118,36 @@ mod tests {
 
     #[test]
     fn unknown_classification_known_limitation_is_warning() {
-        assert!(is_known_smt_limitation(
+        assert!(assura_smt::is_known_smt_limitation(
             "clause uses features not yet encoded in SMT (method call, deep field chain)"
         ));
     }
 
     #[test]
     fn unknown_classification_solver_reason_is_error() {
-        assert!(!is_known_smt_limitation("non-linear arithmetic"));
-        assert!(!is_known_smt_limitation(
+        assert!(!assura_smt::is_known_smt_limitation(
+            "non-linear arithmetic"
+        ));
+        assert!(!assura_smt::is_known_smt_limitation(
             "Z3 not available (compiled without z3-verify feature)"
         ));
-        assert!(!is_known_smt_limitation(
+        assert!(!assura_smt::is_known_smt_limitation(
             "could not encode clause to SMT-LIB2"
         ));
-        assert!(!is_known_smt_limitation("no result from solver"));
+        assert!(!assura_smt::is_known_smt_limitation(
+            "no result from solver"
+        ));
     }
 
     #[test]
     fn unknown_classification_boundary_near_miss() {
-        assert!(!is_known_smt_limitation("clause not encoded in SMT yet"));
-        assert!(!is_known_smt_limitation("not yet supported in SMT"));
-        assert!(!is_known_smt_limitation("features not encoded"));
+        assert!(!assura_smt::is_known_smt_limitation(
+            "clause not encoded in SMT yet"
+        ));
+        assert!(!assura_smt::is_known_smt_limitation(
+            "not yet supported in SMT"
+        ));
+        assert!(!assura_smt::is_known_smt_limitation("features not encoded"));
     }
 
     #[test]

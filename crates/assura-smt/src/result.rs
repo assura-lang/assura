@@ -64,6 +64,18 @@ pub enum VerificationResult {
     },
 }
 
+/// Substring in [`VerificationResult::Unknown`] reasons that means a known
+/// compiler limitation (CLI treats as warning / exit 0), not a solver failure.
+pub const KNOWN_SMT_LIMITATION_MARKER: &str = "not yet encoded in SMT";
+
+/// True when an `Unknown` reason is a known unimplemented encoding path.
+///
+/// Use this in CLI, MCP, and tests instead of open-coding the substring so
+/// agents do not invent slightly different markers (e.g. "not encoded yet").
+pub fn is_known_smt_limitation(reason: &str) -> bool {
+    reason.contains(KNOWN_SMT_LIMITATION_MARKER)
+}
+
 impl VerificationResult {
     /// Build a verified result without an unsat core.
     pub fn verified(clause_desc: impl Into<String>) -> Self {

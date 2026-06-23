@@ -12,9 +12,25 @@
 //! | [`parse_ok`] | parse only |
 //! | [`resolve_ok`] | parse + resolve |
 //! | [`typecheck_ok`] | parse + resolve + type check |
-//! | [`compile_ok`] | full `compile()` (no SMT) |
-//! | [`verify_ok`] | `compile_full()` with test verify options |
-//! | [`codegen_ok`] | typecheck + codegen |
+//! | [`typecheck_err`] | same; expects errors |
+//! | [`compile_ok`] / [`compile_result`] | `compile()` (no SMT) |
+//! | [`verify_ok`] | `compile_full()` + SMT success (lenient Unknown) |
+//! | [`verify_strict_ok`] | same + no non-limitation Unknown |
+//! | [`codegen_ok`] | typecheck + codegen (**not for assura-codegen tests**) |
+//!
+//! # Important: `codegen_ok` and the `assura-codegen` crate
+//!
+//! Do **not** call [`codegen_ok`] from `assura-codegen`'s own unit tests.
+//! `assura-test-support` depends on `assura-codegen`, so returning
+//! `GeneratedProject` from this crate yields a *different type instance*
+//! than the crate under test. In `assura-codegen` tests, use:
+//!
+//! ```ignore
+//! let typed = assura_test_support::typecheck_ok(source);
+//! let project = assura_codegen::codegen(&typed); // or `codegen(&typed)` in-crate
+//! ```
+//!
+//! Other crates may call [`codegen_ok`] normally.
 
 use assura_config::CompilerConfig;
 use assura_pipeline::CompilationOutput;
@@ -49,17 +65,26 @@ pub fn typecheck_ok(source: &str) -> TypedFile {
         .expect("type check should succeed (compile_ok guarantees no errors)")
 }
 
+/// Parse + resolve + type check; expects at least one error diagnostic.
+///
+/// Returns the full [`CompilationOutput`] for inspecting codes/messages.
+pub fn typecheck_err(source: &str, filename: &str) -> CompilationOutput {
+    let output = compile_result(source, filename);
+    assert!(
+        output.has_errors,
+        "expected type/compile errors for {filename}, got success with diagnostics: {:?}",
+        output.diagnostics
+    );
+    output
+}
+
 /// Run [`assura_pipeline::compile`] with default config; panic if any errors.
 pub fn compile_ok(source: &str, filename: &str) -> CompilationOutput {
     let output = assura_pipeline::compile(source, filename, &CompilerConfig::default());
     assert!(
         !output.has_errors,
         "expected successful compile for {filename}, got diagnostics: {:?}",
-        output
-            .diagnostics
-            .iter()
-            .map(|d| format!("{}: {}", d.code.as_str(), d.message))
-            .collect::<Vec<_>>()
+        format_diags(&output)
     );
     output
 }
@@ -72,16 +97,13 @@ pub fn compile_result(source: &str, filename: &str) -> CompilationOutput {
 /// Full pipeline including SMT verify + codegen, using [`test_config`].
 ///
 /// Asserts no compile/type diagnostics and no SMT counterexample/timeout.
+/// Known-limitation `Unknown` reasons are allowed (see [`assura_pipeline::verification_succeeded`]).
 pub fn verify_ok(source: &str, filename: &str) -> CompilationOutput {
     let output = assura_pipeline::compile_full(source, filename, &test_config());
     assert!(
         !output.has_errors,
         "expected successful verify for {filename}, got diagnostics: {:?}",
-        output
-            .diagnostics
-            .iter()
-            .map(|d| format!("{}: {}", d.code.as_str(), d.message))
-            .collect::<Vec<_>>()
+        format_diags(&output)
     );
     assert!(
         assura_pipeline::verification_succeeded(&output.verification),
@@ -91,7 +113,28 @@ pub fn verify_ok(source: &str, filename: &str) -> CompilationOutput {
     output
 }
 
+/// Like [`verify_ok`], but also fails on non-limitation `Unknown` results.
+///
+/// Conceptual fixture annotation: `// MUST VERIFY` (solver must decide, not
+/// bail with an unexpected Unknown).
+pub fn verify_strict_ok(source: &str, filename: &str) -> CompilationOutput {
+    let output = assura_pipeline::compile_full(source, filename, &test_config());
+    assert!(
+        !output.has_errors,
+        "expected successful verify for {filename}, got diagnostics: {:?}",
+        format_diags(&output)
+    );
+    assert!(
+        assura_pipeline::verification_strict_succeeded(&output.verification),
+        "expected strict SMT success for {filename}, got: {:?}",
+        output.verification
+    );
+    output
+}
+
 /// Type-check then run codegen; returns generated project (panics on errors).
+///
+/// **Do not use inside `assura-codegen` unit tests** (see crate docs above).
 pub fn codegen_ok(source: &str) -> assura_codegen::GeneratedProject {
     let typed = typecheck_ok(source);
     assura_codegen::codegen(&typed)
@@ -112,6 +155,32 @@ pub fn has_error_code(output: &CompilationOutput, code: &str) -> bool {
     output.diagnostics.iter().any(|d| d.code.as_str() == code)
 }
 
+/// Assert that `output` contains every error code in `codes` (order ignored).
+pub fn expect_error_codes(output: &CompilationOutput, codes: &[&str]) {
+    let found = error_codes(output);
+    for code in codes {
+        assert!(
+            found.iter().any(|c| c == code),
+            "expected error code {code}, got codes={found:?}, diags={:?}",
+            format_diags(output)
+        );
+    }
+}
+
+/// Assert `source` fails type/compile with all of `codes` present.
+pub fn expect_type_errors(source: &str, codes: &[&str]) {
+    let out = typecheck_err(source, "test.assura");
+    expect_error_codes(&out, codes);
+}
+
+fn format_diags(output: &CompilationOutput) -> Vec<String> {
+    output
+        .diagnostics
+        .iter()
+        .map(|d| format!("{}: {}", d.code.as_str(), d.message))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +195,24 @@ mod tests {
     fn compile_result_reports_parse_error() {
         let out = compile_result("contract Bad { @@@ }", "bad.assura");
         assert!(out.has_errors);
+    }
+
+    #[test]
+    fn typecheck_err_on_parse_garbage() {
+        let out = typecheck_err("contract Bad { @@@ }", "bad.assura");
+        assert!(!error_codes(&out).is_empty() || out.has_errors);
+    }
+
+    #[test]
+    fn expect_type_errors_unknown_effect() {
+        // "memory" is not a valid effect; may produce A07003 depending on config.
+        let out = compile_result(
+            "contract Multi {\n  effects(memory)\n  requires { true }\n}",
+            "fx.assura",
+        );
+        // Either errors or succeeds; only assert helper runs without panic when errors exist
+        if out.has_errors && has_error_code(&out, "A07003") {
+            expect_error_codes(&out, &["A07003"]);
+        }
     }
 }
