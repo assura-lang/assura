@@ -89,7 +89,9 @@ pub(crate) fn check_clause_cvc5_native(
         assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
         if kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
-            let frame_vars = prepared.frame_checker.frame_axiom_vars(ensures_body);
+            let frame_vars = prepared
+                .frame_checker
+                .frame_axiom_vars_with_candidates(ensures_body, &prepared.param_names);
             assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
         }
 

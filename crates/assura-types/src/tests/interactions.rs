@@ -1135,6 +1135,28 @@ fn frame_checker_has_modifies() {
 }
 
 #[test]
+fn frame_checker_candidates_frame_unmodified_param() {
+    // modifies { x }, ensures only mentions x; candidate y still gets a frame axiom.
+    let modifies_body = Spanned::no_span(AstExpr::Ident("x".into()));
+    let checker = FrameChecker::new(&[&modifies_body]);
+    let ensures_body = Spanned::no_span(AstExpr::BinOp {
+        lhs: Box::new(Spanned::no_span(AstExpr::Ident("x".into()))),
+        op: AstBinOp::Gt,
+        rhs: Box::new(Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())))),
+    });
+    let candidates = vec!["x".into(), "y".into()];
+    let frame_vars = checker.frame_axiom_vars_with_candidates(&ensures_body, &candidates);
+    assert!(
+        frame_vars.contains(&"y".to_string()),
+        "unmodified param y should be framed, got {frame_vars:?}"
+    );
+    assert!(
+        !frame_vars.contains(&"x".to_string()),
+        "modified x must not get frame axiom"
+    );
+}
+
+#[test]
 fn frame_checker_is_modified() {
     let body = Spanned::no_span(AstExpr::Block(vec![
         Spanned::no_span(AstExpr::Ident("x".into())),

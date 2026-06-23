@@ -132,6 +132,9 @@ where
 }
 
 /// Infer CVC5 trigger patterns from function calls referencing the bound variable.
+///
+/// When `trigger_mgr` is provided (shared contract-level manager with registered
+/// functions), AST-based inference runs first; otherwise only direct Call scan.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     tm: &'a cvc5::TermManager,
@@ -139,11 +142,24 @@ pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     bound_var_name: &str,
     bound_cvc5: &cvc5::Term<'a>,
 ) -> Vec<cvc5::Term<'a>> {
+    infer_quantifier_patterns_cvc5_with_mgr(tm, body, bound_var_name, bound_cvc5, None)
+}
+
+/// Tier A2: same as [`infer_quantifier_patterns_cvc5`] with optional shared
+/// [`TriggerManager`] so known functions/method names participate in inference.
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn infer_quantifier_patterns_cvc5_with_mgr<'a>(
+    tm: &'a cvc5::TermManager,
+    body: &SpExpr,
+    bound_var_name: &str,
+    bound_cvc5: &cvc5::Term<'a>,
+    trigger_mgr: Option<&crate::advanced::TriggerManager>,
+) -> Vec<cvc5::Term<'a>> {
     let mut patterns = Vec::new();
 
-    let trigger_mgr = crate::advanced::TriggerManager::new();
-    let body_str = format!("{body:?}");
-    if let Some(trigger) = trigger_mgr.infer_trigger(&body_str) {
+    if let Some(mgr) = trigger_mgr
+        && let Some(trigger) = mgr.infer_trigger_from_expr(body, bound_var_name)
+    {
         for term in &trigger.terms {
             if let Some(fname) = term.split('(').next() {
                 let fname = fname.trim();

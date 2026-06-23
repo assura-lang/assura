@@ -136,7 +136,9 @@ fn verify_contract_cvc5_native_incremental(
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, havoc_axiom_end);
 
         if clause.kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
-            let frame_vars = prepared.frame_checker.frame_axiom_vars(&clause.body);
+            let frame_vars = prepared
+                .frame_checker
+                .frame_axiom_vars_with_candidates(&clause.body, &prepared.param_names);
             assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
         }
 

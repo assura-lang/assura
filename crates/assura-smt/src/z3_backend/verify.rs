@@ -322,11 +322,12 @@ fn verify_clauses_with_types(
             );
         }
 
-        // T045: For ensures clauses with a modifies set, inject frame
-        // axioms: for every variable referenced in the ensures that is
-        // NOT in the modifies set, assert `var == old(var)`.
+        // T045 / Tier A3: For ensures clauses with a modifies set, inject frame
+        // axioms: for every variable referenced in the ensures (plus contract
+        // params/inputs) that is NOT in the modifies set, assert `var == old(var)`.
         if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
-            let frame_vars = frame_checker.frame_axiom_vars(&clause.body);
+            let frame_vars =
+                frame_checker.frame_axiom_vars_with_candidates(&clause.body, &param_names);
             for var_name in &frame_vars {
                 let current = clause_encoder.get_or_create_int(var_name);
                 let old_name = format!("{var_name}__old");

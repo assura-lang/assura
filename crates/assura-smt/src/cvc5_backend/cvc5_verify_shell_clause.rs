@@ -83,7 +83,9 @@ pub(crate) fn check_clause_cvc5_shellout(
     }
 
     if kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
-        let frame_vars = prepared.frame_checker.frame_axiom_vars(ensures_body);
+        let frame_vars = prepared
+            .frame_checker
+            .frame_axiom_vars_with_candidates(ensures_body, &prepared.param_names);
         append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
     }
 

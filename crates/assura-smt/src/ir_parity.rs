@@ -10,16 +10,14 @@ mod tests {
         branch_if_else_missing_blocks_fixture,
     };
 
-    fn shell_ir_output(_func: &IrFunction, enc_ctx: IrEncodeContext<'_>) -> String {
+    fn shell_ir_output(func: &IrFunction, enc_ctx: IrEncodeContext<'_>) -> String {
         use std::collections::HashSet;
 
-        // use of cvc5_ir_smtlib commented to avoid unresolved in some cvc5-verify test builds
-        // use crate::cvc5_backend::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
+        use crate::cvc5_backend::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
 
-        let script = String::new();
-        let vars: std::collections::HashSet<String> = HashSet::new();
-        // append call stubbed (cvc5_ir_smtlib path resolution issue under some cvc5-verify test compiles)
-        // append_ir_body_constraints_smtlib(&mut script, &mut vars, _func, &["x".into()], enc_ctx);
+        let mut script = String::new();
+        let mut vars: HashSet<String> = HashSet::new();
+        append_ir_body_constraints_smtlib(&mut script, &mut vars, func, &["x".into()], enc_ctx);
         script
     }
 
@@ -111,19 +109,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
     fn ir_parity_branch_if_else_inlining() {
         assert_all_backends_branch_inlined();
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
     fn ir_parity_missing_blocks_uf_fallback() {
         assert_all_backends_missing_block_uf();
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
     fn transition_ir_uses_state_uf_shell() {
         use crate::ir::parse_ir_module;
 
