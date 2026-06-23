@@ -515,22 +515,25 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     }
 
     // Count contracts and services to decide on module structure.
-    let mut contract_names: Vec<String> = Vec::new();
-    let mut service_names: Vec<String> = Vec::new();
-    for decl in &source.decls {
-        match &decl.node {
-            Decl::Contract(c) => contract_names.push(c.name.clone()),
-            Decl::Service(s) => service_names.push(s.name.clone()),
-            Decl::TypeDef(_)
-            | Decl::EnumDef(_)
-            | Decl::FnDef(_)
-            | Decl::Extern(_)
-            | Decl::Bind(_)
-            | Decl::Prophecy(_)
-            | Decl::CodecRegistry(_)
-            | Decl::Block { .. } => {}
+    struct CollectModuleNames {
+        contract_names: Vec<String>,
+        service_names: Vec<String>,
+    }
+    impl assura_ast::DeclVisitor for CollectModuleNames {
+        fn visit_contract(&mut self, c: &assura_ast::ContractDecl) {
+            self.contract_names.push(c.name.clone());
+        }
+        fn visit_service(&mut self, s: &assura_ast::ServiceDecl) {
+            self.service_names.push(s.name.clone());
         }
     }
+    let mut collector = CollectModuleNames {
+        contract_names: Vec::new(),
+        service_names: Vec::new(),
+    };
+    assura_ast::walk_decls(&mut collector, &source.decls);
+    let contract_names = collector.contract_names;
+    let service_names = collector.service_names;
     let total_modules = contract_names.len() + service_names.len();
     let use_multi_file = total_modules >= 2;
 

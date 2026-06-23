@@ -159,11 +159,33 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
     }
 }
 
+/// Run SMT verification on an already type-checked file using options from
+/// `CompilerConfig.verify` (solver, timeout, parallel, decrease checks).
+///
+/// This is the canonical verify entry point for pipeline consumers. Prefer it
+/// over constructing `Verifier::new(...).parallel().with_decrease_checks()` by
+/// hand so CLI, server, MCP, and tests stay behaviorally aligned.
+pub fn verify_typed(
+    typed: &assura_types::TypedFile,
+    filename: &str,
+    config: &CompilerConfig,
+) -> Vec<assura_smt::VerificationResult> {
+    if config.verify.layer < 1 {
+        return Vec::new();
+    }
+    assura_smt::Verifier::new(typed)
+        .source(std::path::Path::new(filename))
+        .apply_options(config.verify.clone())
+        .verify()
+}
+
 /// Run the full pipeline: lex -> parse -> resolve -> type check -> verify -> codegen.
 ///
 /// Unlike `compile()`, this also runs SMT verification and code generation.
-/// Verification is skipped if type checking failed.
-/// Codegen is skipped if type checking or verification produced errors.
+/// Verification is skipped if type checking failed or `config.verify.layer < 1`.
+/// Codegen runs whenever type checking succeeded (SMT counterexamples are
+/// recorded in `verification` but do not block codegen; callers decide how
+/// to treat them via `verification` results or [`verification_succeeded`]).
 pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> CompilationOutput {
     let mut output = compile(source, filename, config);
 
@@ -171,17 +193,10 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
         return output;
     }
 
-    // --- SMT verification (same path as CLI: parallel + disk cache) ---
+    // --- SMT verification (options from CompilerConfig.verify) ---
     let verify_start = Instant::now();
-    if config.verify.layer >= 1
-        && let Some(ref typed) = output.typed
-    {
-        output.verification = assura_smt::Verifier::new(typed)
-            .source(std::path::Path::new(filename))
-            .solver(config.verify.solver)
-            .parallel()
-            .with_decrease_checks()
-            .verify();
+    if let Some(ref typed) = output.typed {
+        output.verification = verify_typed(typed, filename, config);
     }
     output.timing.verify_ms = Some(verify_start.elapsed().as_secs_f64() * 1000.0);
 
@@ -193,6 +208,21 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
     output.timing.codegen_ms = Some(codegen_start.elapsed().as_secs_f64() * 1000.0);
 
     output
+}
+
+/// True when no verification result is a counterexample or timeout.
+///
+/// `Unknown` (including "not yet encoded in SMT") is treated as non-fatal here,
+/// matching lightweight test / MCP success heuristics. Callers that need stricter
+/// policy should inspect `verification` directly.
+pub fn verification_succeeded(results: &[assura_smt::VerificationResult]) -> bool {
+    !results.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Counterexample { .. }
+                | assura_smt::VerificationResult::Timeout { .. }
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -231,18 +261,7 @@ impl PipelineResult {
 
 /// Extract a human-readable summary name from a declaration.
 fn decl_summary(decl: &Decl) -> String {
-    match decl {
-        Decl::Contract(c) => format!("contract {}", c.name),
-        Decl::Bind(b) => format!("bind {}", b.name),
-        Decl::FnDef(f) => format!("fn {}", f.name),
-        Decl::Service(s) => format!("service {}", s.name),
-        Decl::TypeDef(t) => format!("type {}", t.name),
-        Decl::EnumDef(e) => format!("enum {}", e.name),
-        Decl::Extern(e) => format!("extern {}", e.name),
-        Decl::Prophecy(p) => format!("prophecy {}", p.name),
-        Decl::CodecRegistry(c) => format!("codec_registry {}", c.name),
-        Decl::Block { kind, name, .. } => format!("{kind} {name}"),
-    }
+    decl.summary_label()
 }
 
 /// Run the full compiler pipeline: parse -> resolve -> HIR -> typecheck -> verify.
@@ -302,13 +321,7 @@ pub fn run_at(source: &str, filename: &str) -> PipelineResult {
         .map(assura_smt::VerificationSummary::from)
         .collect();
 
-    let success = !output.verification.iter().any(|r| {
-        matches!(
-            r,
-            assura_smt::VerificationResult::Counterexample { .. }
-                | assura_smt::VerificationResult::Timeout { .. }
-        )
-    });
+    let success = verification_succeeded(&output.verification);
 
     PipelineResult {
         success,
