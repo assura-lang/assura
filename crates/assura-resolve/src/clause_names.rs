@@ -129,9 +129,7 @@ pub(crate) fn resolve_clause_body_names(
                             self.errors,
                         );
                     }
-                    ServiceItem::TypeDef(_)
-                    | ServiceItem::EnumDef(_)
-                    | ServiceItem::States(_) => {}
+                    ServiceItem::TypeDef(_) | ServiceItem::EnumDef(_) | ServiceItem::States(_) => {}
                 }
             }
         }

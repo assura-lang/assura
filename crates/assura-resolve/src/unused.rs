@@ -63,8 +63,7 @@ pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                             }
                         }
                     }
-                    ServiceItem::Operation { clauses, .. }
-                    | ServiceItem::Query { clauses, .. } => {
+                    ServiceItem::Operation { clauses, .. } | ServiceItem::Query { clauses, .. } => {
                         for clause in clauses {
                             collect_expr_names(&clause.body, self.names);
                         }
