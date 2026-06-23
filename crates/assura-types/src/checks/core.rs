@@ -120,10 +120,8 @@ pub(crate) fn run_axiomatic_checks(
     }
     // Mark axioms as used if they are referenced in clause bodies
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
@@ -210,11 +208,8 @@ pub(crate) fn run_quantifier_trigger_checks(
     let mut checker = QuantifierTriggerChecker::new();
 
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Extern(e) => &e.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_extern(&decl.node) else {
+            continue;
         };
 
         // Only check quantifiers if the decl has `strict_triggers true`
@@ -334,10 +329,8 @@ pub(crate) fn run_prophecy_resolution_checks(
     let mut referenced_names = std::collections::HashSet::new();
     let mut resolved_names = std::collections::HashSet::new();
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             collect_resolve_calls(&clause.body, &mut resolved_names);

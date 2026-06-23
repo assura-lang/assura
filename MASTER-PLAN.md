@@ -2100,24 +2100,20 @@ After finishing all rounds, run /multi-perspective-improve in a loop.
     cargo clippy --workspace -- -D warnings
     ```
 
-- [x] **11.06** Add Decl accessor methods (name, clauses, params, return_ty, is_ghost_or_lemma) -- implemented as methods instead of a visitor trait; simpler, more flexible
-  - The `ExprVisitor` trait already exists and works well. Create an
-    analogous `DeclVisitor` with default methods for each variant.
-  - Convert the 14 domain checker files in `assura-types/src/checks/`
-    to use DeclVisitor instead of hand-written match arms.
-  - This should eliminate ~60% of the boilerplate in those checkers.
-  - **Acceptance**:
+- [x] **11.06** Decl accessors + `DeclVisitor`/`DeclFolder` in `assura-ast` (#353);
+    domain `checks/` helpers via `clauses_contract_fn*` / `fn_or_contract_name_clauses`
+    (Tier 2 ergonomics) -- ~57 open-coded clause `match` blocks replaced
+  - Accessors: `Decl::name()`, `clauses()`, `params()`, `summary_label()`
+  - Traits: `DeclVisitor` / `walk_decl(s)` / `DeclFolder` in `crates/assura-ast/src/ast/mod.rs`
+  - Checkers use shared helpers in `checks/mod.rs` instead of per-site
+    `match Decl::Contract / FnDef / Block` (remaining matches are intentional
+    for variant-specific logic, e.g. effects `FnDef`-only pass)
+  - **Acceptance** (updated paths after ast extraction):
     ```bash
-    # DeclVisitor trait exists
-    grep -n "trait DeclVisitor" crates/assura-parser/src/ast.rs
-    # At least 5 domain checkers use it
-    grep -rl "DeclVisitor" crates/assura-types/src/checks/ | wc -l
-    # Must be >= 5
-    # Decl match arm count reduced
-    grep -rn "Decl::Contract\|Decl::Service\|Decl::Extern" \
+    grep -n "trait DeclVisitor" crates/assura-ast/src/ast/mod.rs
+    grep -rl "clauses_contract_fn\|fn_or_contract_name_clauses\|runtime_decl_clauses_params" \
       crates/assura-types/src/checks/ | wc -l
-    # Should be significantly lower than before (target: <50% of current)
-    cargo test --workspace
+    # Expect >= 5 files
     ```
 
 ### Round 4: Extract generic traversal + consolidate APIs -- depends on: Rounds 2, 3

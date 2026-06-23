@@ -269,10 +269,8 @@ pub(crate) fn run_numerical_precision_checks(
     let mut checker = NumericalPrecisionChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -334,10 +332,8 @@ pub(crate) fn run_numerical_precision_checks(
     // Check precision in ensures clauses for referenced variables
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if matches!(
@@ -459,11 +455,8 @@ pub(crate) fn run_precomputed_table_checks(
     let mut checker = PrecomputedTableChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -526,11 +519,8 @@ pub(crate) fn run_precomputed_table_checks(
     }
     // Mark entries as verified if verification clauses exist
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind

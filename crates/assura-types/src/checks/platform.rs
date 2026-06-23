@@ -2,7 +2,7 @@
 //!
 //! Platform abstraction, feature flags, resource limits.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr};
+use assura_parser::ast::{ClauseKind, Expr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -15,11 +15,8 @@ pub(crate) fn run_platform_abstraction_checks(
     let mut checker = PlatformAbstractionChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
@@ -72,10 +69,8 @@ pub(crate) fn run_platform_abstraction_checks(
     errors.extend(checker.check_unknown_platforms());
     // Check for direct platform use in clause bodies
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
@@ -96,11 +91,8 @@ pub(crate) fn run_feature_flag_checks(source: &assura_parser::ast::SourceFile) -
     let mut checker = FeatureFlagChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -154,10 +146,8 @@ pub(crate) fn run_feature_flag_checks(source: &assura_parser::ast::SourceFile) -
     }
     // Mark flags as used and check for undeclared references in clause bodies
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
@@ -186,11 +176,8 @@ pub(crate) fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile)
     let mut checker = ResourceLimitChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -248,11 +235,8 @@ pub(crate) fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile)
     let mut errors = Vec::new();
     // Track resource usage and release from clause bodies
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {

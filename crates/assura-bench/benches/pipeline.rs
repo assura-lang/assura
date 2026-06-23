@@ -95,9 +95,8 @@ fn bench_smt_verify(c: &mut Criterion) {
             &(typed, demo_path),
             |b, (typed, path)| {
                 b.iter(|| {
-                    assura_smt::Verifier::new(typed)
-                        .source(std::path::Path::new(path))
-                        .verify()
+                    let config = assura_config::CompilerConfig::default();
+                    assura_pipeline::verify_typed(typed, path, &config)
                 });
             },
         );
@@ -114,15 +113,11 @@ fn bench_full_pipeline(c: &mut Criterion) {
             &demo.source,
             |b, src| {
                 b.iter(|| {
-                    let (file, _) = assura_parser::parse(src);
-                    let file = file.expect("parse");
-                    let resolved = assura_resolve::resolve(&file).expect("resolve");
-                    let typed = assura_types::type_check(&resolved).expect("typecheck");
                     let demo_path = format!("demos/{}.assura", demo.name);
-                    let _results = assura_smt::Verifier::new(&typed)
-                        .source(std::path::Path::new(&demo_path))
-                        .verify();
-                    let _project = assura_codegen::codegen(&typed);
+                    let config = assura_config::CompilerConfig::default();
+                    let out = assura_pipeline::compile_full(src, &demo_path, &config);
+                    let _ = &out.verification;
+                    let _ = &out.generated;
                 });
             },
         );

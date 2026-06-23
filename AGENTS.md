@@ -135,8 +135,14 @@ Use `VerifyOptions::for_tests()` for fast unit tests.
 
 **Test helpers.** Prefer `assura_test_support::{parse_ok, resolve_ok,
 typecheck_ok, compile_ok, verify_ok, codegen_ok}` over duplicating pipeline
-shims in each crate's `tests/` module. The crate is new; migrate tests
-incrementally (do not block other work on full adoption).
+shims in each crate's `tests/` module. `assura-types` tests delegate
+`resolve_ok` through it; `assura-codegen` tests use `codegen_ok`.
+
+**Domain checkers (`assura-types/src/checks/`).** Prefer helpers in
+`checks/mod.rs` (`clauses_contract_fn`, `clauses_contract_fn_block`,
+`fn_or_contract_name_clauses`, `runtime_decl_clauses_params`) or
+`Decl::clauses()` / `Decl::name()` over open-coding `match &decl.node`
+for every contract/fn/block triple.
 
 ## Build and Test
 

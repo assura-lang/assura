@@ -18,11 +18,8 @@ pub(crate) fn run_constant_time_checks(source: &assura_parser::ast::SourceFile) 
     let mut all_errors = Vec::new();
 
     for decl in &source.decls {
-        let (clauses, params) = match &decl.node {
-            Decl::FnDef(f) => (&f.clauses, f.params.as_slice()),
-            Decl::Contract(c) => (&c.clauses, &[] as &[_]),
-            Decl::Extern(e) => (&e.clauses, e.params.as_slice()),
-            _ => continue,
+        let Some((clauses, params)) = super::runtime_decl_clauses_params(&decl.node) else {
+            continue;
         };
 
         // Check if function has a constant_time clause
@@ -70,10 +67,8 @@ pub(crate) fn run_crypto_conformance_checks(
 
     // Pre-register custom algorithm specs from "crypto_spec" clauses
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => c.clauses.as_slice(),
-            Decl::FnDef(f) => f.clauses.as_slice(),
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -102,11 +97,8 @@ pub(crate) fn run_crypto_conformance_checks(
     }
 
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Extern(e) => &e.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_extern(&decl.node) else {
+            continue;
         };
 
         // Look for conforms/crypto/spec clauses

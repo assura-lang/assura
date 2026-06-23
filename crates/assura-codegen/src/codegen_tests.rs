@@ -1,11 +1,13 @@
 use super::*;
 use assura_ast::Spanned;
-use assura_config::CompilerConfig;
 
-/// Helper: parse + resolve + type-check source text using pipeline, then codegen.
+/// Helper: parse + resolve + type-check via shared test support, then local codegen.
+///
+/// Uses `typecheck_ok` (not `codegen_ok`) so `GeneratedProject` is always
+/// produced by *this* crate instance (avoiding duplicate assura-codegen types
+/// when assura-test-support also depends on assura-codegen).
 fn codegen_ok(source: &str) -> GeneratedProject {
-    let out = assura_pipeline::compile(source, "test.assura", &CompilerConfig::default());
-    let typed = out.typed.expect("type check failed in test");
+    let typed = assura_test_support::typecheck_ok(source);
     codegen(&typed)
 }
 
