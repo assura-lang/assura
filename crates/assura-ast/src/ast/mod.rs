@@ -1,3 +1,9 @@
+//! Assura AST types (canonical compiler IR).
+//!
+//! Kept as a single module body for type ordering (Expr/SpExpr/visitors).
+//! Large sections are delimited by comments; further physical splits need
+//! a dependency DAG (Spanned -> Expr -> SpExpr -> clauses/decls).
+
 pub type Span = std::ops::Range<usize>;
 
 #[derive(Debug, Clone)]
