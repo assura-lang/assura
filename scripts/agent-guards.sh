@@ -137,14 +137,43 @@ fi
 if [[ ! -x scripts/agent-new-decl.sh ]]; then
   die "scripts/agent-new-decl.sh missing or not executable"
 fi
+if [[ ! -f docs/error-codes-agent.md ]]; then
+  die "docs/error-codes-agent.md missing (agent error-code index)"
+fi
 
 # ---------------------------------------------------------------------------
-# 7) Soft warn: unwrap() in production lib code — does not fail CI
+# 7) Guard v2 (WARN only): high-signal SMT methods that should appear outside
+#    their definition/test modules (promote to die after allowlist stabilizes).
+# ---------------------------------------------------------------------------
+smt_wire_checks=(
+  "ProphecyManager::check_all_resolved|check_all_resolved"
+  "ProphecyManager::check_unconstrained|check_unconstrained"
+  "TriggerManager::validate_trigger|validate_trigger"
+  "validate_quantifier_bounds|validate_quantifier_bounds"
+  "dispatch_decrease_checks|dispatch_decrease_checks"
+)
+for item in "${smt_wire_checks[@]}"; do
+  label="${item%%|*}"
+  meth="${item##*|}"
+  hits=$(rg -n "$meth" crates/assura-smt/src --glob '*.rs' 2>/dev/null \
+    | rg -v '_test|tests_|/tests/' \
+    | rg -v 'crates/assura-smt/src/advanced.rs' \
+    || true)
+  if [[ -z "$hits" ]]; then
+    def_only=$(rg -n "fn $meth" crates/assura-smt/src --glob '*.rs' 2>/dev/null || true)
+    if [[ -n "$def_only" ]]; then
+      warn "SMT method may be unwired (only def / tests?): $label ($meth)"
+      warn "  fix: call from assura-smt entry/verify path (or document intentional test-only API)"
+    fi
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 8) Soft warn: unwrap() in production src (sample only; does not fail CI)
 # ---------------------------------------------------------------------------
 unwrap_hits=$(rg -n '\.unwrap\(\)' crates --glob '*.rs' 2>/dev/null \
-  | rg -v '_test\.rs|/tests/|benches/' \
+  | rg -v '_test\.rs|/tests/|benches/|tests_' \
   | rg 'crates/[^/]+/src/' \
-  | rg -v 'mod tests|#\[cfg\(test\)\]' \
   | head -5 || true)
 if [[ -n "$unwrap_hits" ]]; then
   warn "unwrap() in production src (sample, not failing):"
