@@ -137,7 +137,7 @@ fn example(x: Int) -> Int
     let (ast, errors) = parse(&source);
     assert!(
         errors.is_empty(),
-        "trailing body with validate{} + or-return must parse with zero errors, got: {:?}",
+        "trailing body with validate block + or-return must parse with zero errors, got: {:?}",
         errors
     );
     let _ = ast;
