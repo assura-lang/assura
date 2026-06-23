@@ -10,6 +10,9 @@ mod tests {
         branch_if_else_missing_blocks_fixture,
     };
 
+    /// SMT-LIB2 shell path is only compiled when `cvc5-verify` is off
+    /// (`cvc5_ir_smtlib` is `cfg(not(feature = "cvc5-verify"))`).
+    #[cfg(not(feature = "cvc5-verify"))]
     fn shell_ir_output(func: &IrFunction, enc_ctx: IrEncodeContext<'_>) -> String {
         use std::collections::HashSet;
 
@@ -77,9 +80,12 @@ mod tests {
             assert_ir_blocks_inlined(&out, out.matches("(=").count());
         }
 
-        let shell = shell_ir_output(&func, enc_ctx);
-        let shell_axioms = shell.lines().filter(|l| l.contains("(assert")).count();
-        assert_ir_blocks_inlined(&shell, shell_axioms);
+        #[cfg(not(feature = "cvc5-verify"))]
+        {
+            let shell = shell_ir_output(&func, enc_ctx);
+            let shell_axioms = shell.lines().filter(|l| l.contains("(assert")).count();
+            assert_ir_blocks_inlined(&shell, shell_axioms);
+        }
 
         #[cfg(feature = "cvc5-verify")]
         {
@@ -98,8 +104,11 @@ mod tests {
             assert_ir_blocks_missing_uf_fallback(&out);
         }
 
-        let shell = shell_ir_output(&func, enc_ctx);
-        assert_ir_blocks_missing_uf_fallback(&shell);
+        #[cfg(not(feature = "cvc5-verify"))]
+        {
+            let shell = shell_ir_output(&func, enc_ctx);
+            assert_ir_blocks_missing_uf_fallback(&shell);
+        }
 
         #[cfg(feature = "cvc5-verify")]
         {
@@ -119,6 +128,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "cvc5-verify"))]
     fn transition_ir_uses_state_uf_shell() {
         use crate::ir::parse_ir_module;
 
@@ -154,7 +164,7 @@ module ts {
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
+    #[cfg(not(feature = "cvc5-verify"))]
     fn construct_ir_untyped_uses_opaque_uf_shell() {
         use crate::ir::parse_ir_module;
 
@@ -181,7 +191,6 @@ module adt {
 
     /// Verify Construct tag axiom is present in all backends (#303).
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
     fn construct_ir_result_tag_axiom_parity() {
         use crate::ir::parse_ir_module;
 
@@ -201,12 +210,15 @@ module adt {
 
         let enc_ctx = IrEncodeContext::default();
 
-        // Shell backend should emit tag axiom
-        let shell = shell_ir_output(&func, enc_ctx);
-        assert!(
-            shell.contains("__ir_tag_MyStruct"),
-            "shell backend should emit __ir_tag_MyStruct axiom, got:\n{shell}"
-        );
+        // Shell backend should emit tag axiom (only compiled without cvc5-verify)
+        #[cfg(not(feature = "cvc5-verify"))]
+        {
+            let shell = shell_ir_output(&func, enc_ctx);
+            assert!(
+                shell.contains("__ir_tag_MyStruct"),
+                "shell backend should emit __ir_tag_MyStruct axiom, got:\n{shell}"
+            );
+        }
 
         // Z3 backend should emit tag axiom
         #[cfg(feature = "z3-verify")]
