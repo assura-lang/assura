@@ -141,6 +141,17 @@ fn parse_error_file(
     parse(&source)
 }
 
+/// Span-stable error summary for insta: code + message only (no byte offsets).
+/// Full `Display` includes `start..end:` which can drift if tests embed source
+/// as string literals; recovery fixtures use external `.assura` files but
+/// message-only snapshots stay robust either way (#347).
+fn error_codes_and_messages(errors: &[assura_parser::ParseError]) -> Vec<String> {
+    errors
+        .iter()
+        .map(|e| format!("{}: {}", e.code, e.message))
+        .collect()
+}
+
 #[test]
 fn error_recovery_missing_brace() {
     let (ast, errors) = parse_error_file("../../tests/fixtures/errors/missing_brace.assura");
@@ -161,8 +172,16 @@ fn error_recovery_missing_brace() {
             || joined.contains("expected"),
         "missing brace errors should mention expected/brace closer, got: {error_messages:?}"
     );
-    // Parser should still attempt a partial AST rather than panicking
-    let _ = ast;
+    assert!(
+        ast.is_some(),
+        "missing_brace should still produce a partial AST"
+    );
+
+    // Span-stable insta: code+message only (#347)
+    insta::assert_debug_snapshot!(
+        "missing_brace_error_codes",
+        error_codes_and_messages(&errors)
+    );
 }
 
 /// Return-type slurp must stop at ident clause starters (`catch`, etc.) even

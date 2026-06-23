@@ -263,7 +263,13 @@ Output modes:
 - **Snapshot tests**: Parse .assura files, serialize AST, compare to
   golden files. Use `insta` crate.
 - **Error tests**: .assura files with `// MUST REJECT Axxxxx` annotations
-  that must produce the specified error code.
+  that must produce the specified error code. The CLI harness
+  (`test_must_reject_fixtures` in `assura-cli/src/diff.rs`) scans
+  `tests/fixtures/errors/` and `tests/fixtures/must_reject/`. Fixtures may
+  include `// BLOCKED: <reason>` (ideally with a GitHub issue number) to
+  skip execution; the harness logs skipped paths and fails if the blocked
+  count exceeds `MAX_BLOCKED_MUST_REJECT` (currently 0, see #349). Do not
+  block a fixture to get CI green without filing an issue.
 - **Pass tests**: .assura files with `// MUST COMPILE` that must parse
   and type-check without errors. The CLI harness only scans
   `tests/fixtures/must_compile/` (`test_must_compile_fixtures` in
@@ -928,6 +934,15 @@ When you introduce a new helper, document it here and in
   in `crates/assura-parser/tests/snapshots.rs`.
 
 - `is_trivia(k)` (cst.rs, pub(crate)) — canonical check for WHITESPACE | COMMENT. Use everywhere instead of duplicating the predicate in lower.rs and elsewhere. See #337 consolidation.
+
+- **`current()` / `current_text()` vs `tokens[pos]`** (#345, #348): `current()` and
+  `current_text()` skip leading trivia at `pos`. Reading `tokens.get(p.pos())`
+  while branching on `current() == IDENT` can see WHITESPACE text and fail to
+  treat ident clause starters (`catch`, `must_check`, etc.) as return-type
+  stoppers, slurping them into `return_ty`. Always use `current_text()` when
+  matching on `current()` kind. Documented on `Parser::pos` / `current_text` in
+  `cst.rs`. Grep audit: `tokens.get(p.pos())`, `tokens[p.pos()]` (should be zero
+  in grammar code). Fixed in `is_return_type_stopper` (params.rs).
 
   **Footgun**: In manual token-walking code that does `p.expect(SyntaxKind::L_BRACE); p.bump_delim();` (e.g. `codec_entry` and similar in `grammar/items.rs`), `expect` already bumped the `{`. The extra `bump()` from `bump_delim()` skips the first real token after the brace. This caused "expected `magic`, `decoder`, `contracts`, or `}`" errors and made the codec_registry lower tests fail. Correct pattern for such collectors: `expect(L_BRACE); bump_trivia();` (matching contract_decl, service_decl, etc.). Audit all manual loops inside braces after any span/trivia change.
 

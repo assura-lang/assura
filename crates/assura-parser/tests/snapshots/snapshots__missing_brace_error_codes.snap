@@ -1,0 +1,8 @@
+---
+source: crates/assura-parser/tests/snapshots.rs
+expression: error_codes_and_messages(&errors)
+---
+[
+    "A01002: expected R_BRACE",
+    "A01002: expected R_BRACE",
+]

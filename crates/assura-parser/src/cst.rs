@@ -349,7 +349,18 @@ impl Parser {
         self.depth += 1;
     }
 
-    /// Current position in the token stream.
+    /// Current position in the token stream (may sit on trivia).
+    ///
+    /// # Trivia / text pairing (#348, #345)
+    ///
+    /// `pos()` is the raw index in `tokens`. Leading trivia may sit at this
+    /// index while [`current`] / [`nth`] skip it. Do **not** read
+    /// `self.tokens[self.pos()].text` (or `tokens.get(p.pos())`) when you
+    /// branched on `current() == IDENT` or another significant kind: you may
+    /// see WHITESPACE/COMMENT text and miss ident clause starters (`catch`,
+    /// etc.). Use [`current_text`] for significant-token text, or
+    /// [`current_raw`] when intentionally inspecting the token at `pos`
+    /// including trivia.
     pub(crate) fn pos(&self) -> usize {
         self.pos
     }
@@ -370,7 +381,10 @@ impl Parser {
     }
 
     /// The text of the current *significant* (non-trivia) token.
-    /// Matches the token returned by current()/nth().
+    /// Matches the token returned by [`current`]/[`nth`].
+    ///
+    /// Always prefer this over `tokens[pos()].text` when matching on
+    /// `current()` kind (see [`pos`] docs / issue #348).
     pub(crate) fn current_text(&self) -> &str {
         let mut i = self.pos;
         while i < self.tokens.len() {
