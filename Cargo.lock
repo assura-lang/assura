@@ -318,6 +318,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "assura-test-support"
+version = "0.1.0"
+dependencies = [
+ "assura-codegen",
+ "assura-config",
+ "assura-diagnostics",
+ "assura-parser",
+ "assura-pipeline",
+ "assura-resolve",
+ "assura-smt",
+ "assura-types",
+]
+
+[[package]]
 name = "assura-types"
 version = "0.1.0"
 dependencies = [

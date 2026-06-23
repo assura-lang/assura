@@ -67,79 +67,76 @@ makes sense.
 
 ```
 assura/
-  Cargo.toml                  # Workspace root
+  Cargo.toml                  # Workspace root (members = crates/*)
   AGENTS.md                   # This file
   MASTER-PLAN.md              # Actionable task list with dependencies
   crates/
-    assura-ast/               # Shared AST types (canonical compiler IR, extracted in Phase 11)
-      src/
-        lib.rs
-        ast.rs                # Expr, Decl, Spanned<T>, ExprFolder, Pattern, etc. + expr_to_string, features
-        features.rs           # Registry of all 50 verification features
-    assura-parser/            # Lexer (logos), parser (rowan CST + lowering); reexports AST from assura-ast
-      src/
-        lib.rs                # Public parse() entry point
-        lexer.rs              # Token definitions, logos derive
-        ast.rs                # Re-export of assura-ast (for backward compat)
-        syntax_kind.rs        # SyntaxKind enum (rowan Language trait)
-        cst.rs                # Parser engine, events, GreenNode builder
-        lower.rs              # CST -> AST lowering
-        grammar/              # Recursive descent grammar
-          mod.rs              # source_file, project, module, import
-          items.rs            # contract, type, enum, fn, service, extern
-          clauses.rs          # requires, ensures, invariant, effects, etc.
-          expressions.rs      # Pratt expression parser (8 precedence levels)
-          params.rs           # param_list, return_type, type_params
-    assura-cli/               # CLI binary (assura check/build/init/explain)
-      src/
-        main.rs               # Entry point, error reporting (ariadne)
-    assura-resolve/           # Name resolution, symbol table, scopes
-      src/
-        lib.rs
-    assura-types/             # Type checker (Layer 0): 50+ domain checkers
-      src/
-        lib.rs
-    assura-smt/               # Z3 SMT integration (Layer 1-3), IR, caching
-      src/
-        lib.rs
-    assura-codegen/           # Rust code generation, backend config
-      src/
-        lib.rs
+    assura-ast/               # Canonical AST IR: Decl, Expr, Spanned, visitors
+      src/ast/mod.rs          # ExprVisitor/ExprFolder, DeclVisitor/DeclFolder
+      src/features.rs         # Registry of all 50 verification features
+    assura-parser/            # Lexer (logos), parser (rowan CST + lowering)
+      src/grammar/            # Recursive descent (items, clauses, expressions, params)
+      src/lower/              # CST -> AST lowering
+      src/ast.rs              # Re-export of assura-ast (backward compat)
+    assura-resolve/           # Name resolution, symbol table, imports, project roots
+    assura-types/             # Layer 0 type checker + domain checkers
+      src/checkers/           # effects, linear, taint, security/*, etc.
+      src/checks/             # run_*_checks entry points wired into pipeline
+      src/domain/             # Domain checker structs
+      src/pipeline.rs         # TypeChecker orchestration
+    assura-smt/               # Layer 1-3 SMT (Z3/CVC5), IR, cache, measures
+      src/entry/              # Verifier builder API (apply_options / verify)
+      src/z3_backend/         # Z3 encoder + verify
+      src/cvc5_backend/       # CVC5 shell + native (feature-gated)
+    assura-codegen/           # Rust codegen (prettyplease), multi-file projects
+    assura-pipeline/          # CANONICAL compile path: compile / compile_full / verify_typed / run_at
+    assura-config/            # ProjectConfig, CompilerConfig, VerifyOptions
+    assura-diagnostics/       # Error codes, Diagnostic, ariadne/JSON rendering
+    assura-cli/               # Binary: check/build/init/diff/fmt/repl/audit/...
+      src/check.rs, build.rs  # Use assura_pipeline (not hand-rolled passes)
+      src/shared.rs           # compile / compile_with_config wrappers
+    assura-fmt/               # Formatter
     assura-lsp/               # LSP server (tower-lsp)
-      src/
-        lib.rs
-        main.rs
-    assura-server/            # gRPC (tonic) + HTTP (axum) API server
-      proto/
-        assura.proto
-      src/
-        main.rs
-  docs/
-    SPECIFICATION.md          # Language specification (source of truth)
-    INVESTIGATION.md          # Competitive analysis, architecture decisions
-    ROADMAP.md                # High-level phased roadmap
-    LANDING.md                # Marketing content
-    TUTORIAL.md               # Getting started tutorial
-    INTERNALS.md              # Architecture and internals documentation
-  demos/                      # Example .assura contract files
-    libwebp-huffman.assura    # CVE-2023-4863 prevention demo
-    zlib-inflate.assura       # CVE-2022-37434 prevention demo
-    mbedtls-x509.assura       # 4 CVSS 9.8 CVE prevention demo
-  templates/                  # AI prompt templates for contract generation
-    single-function.md        # Template for single-function contracts
-    module-level.md           # Template for module-level contracts
-    cve-patterns.md           # Template for CVE prevention patterns
-  editors/
-    vscode/                   # VS Code extension (TextMate + LSP)
-    tree-sitter-assura/       # tree-sitter grammar for editors
-  tests/
-    fixtures/                 # Test .assura files
-      test_basic.assura
-    e2e/                      # End-to-end verification test contracts
+    assura-mcp/               # MCP server (rmcp) for agent tools
+    assura-server/            # gRPC (tonic) + HTTP (axum)
+    assura-macros/            # Proc macros
+    assura-stdlib/            # Standard library .assura contracts
+    assura-rust-analyzer/     # RA integration helpers
+    assura-bench/             # Criterion benchmarks
+    assura-test-support/      # Shared test helpers (parse_ok, typecheck_ok, verify_ok)
+  docs/                       # SPECIFICATION, INVESTIGATION, ROADMAP, TUTORIAL, INTERNALS
+  demos/                      # CVE-prevention example contracts
+  templates/                  # AI contract-generation prompt templates
+  editors/vscode/             # VS Code extension
+  tests/fixtures/             # MUST COMPILE / MUST REJECT fixtures
+  tests/e2e/                  # End-to-end verification contracts
+  scripts/                    # verify-task.sh, setup-cvc5.sh, CI helpers
 ```
 
 New crates are added as `crates/assura-{name}/`. Every crate uses
 workspace-inherited version, edition, license, and repository fields.
+
+### Agent ergonomics (Tier 1 conventions)
+
+**Single pipeline.** All entry points (CLI, LSP, server, MCP, tests) should
+go through `assura_pipeline::{compile, compile_full, verify_typed, run_at}`.
+Do not re-implement parse -> resolve -> typecheck -> verify in a new crate.
+
+**Verify options.** `assura_config::VerifyOptions` is the source of truth
+for solver, timeout, layer, parallel, decrease_checks, and enable_cache.
+Pass it via `CompilerConfig` or `Verifier::apply_options(opts)`. Defaults
+match historical CLI behavior (`parallel: true`, `decrease_checks: true`).
+Use `VerifyOptions::for_tests()` for fast unit tests.
+
+**AST visitors.** Prefer `ExprVisitor`/`ExprFolder` and `DeclVisitor`/
+`DeclFolder` in `assura-ast` over open-coding large `match` blocks on
+`Expr`/`Decl` in every pass. `Decl::name()`, `Decl::clauses()`, and
+`Decl::summary_label()` cover the common accessors.
+
+**Test helpers.** Prefer `assura_test_support::{parse_ok, resolve_ok,
+typecheck_ok, compile_ok, verify_ok, codegen_ok}` over duplicating pipeline
+shims in each crate's `tests/` module. The crate is new; migrate tests
+incrementally (do not block other work on full adoption).
 
 ## Build and Test
 
@@ -330,37 +327,25 @@ These are final. Do not revisit without explicit discussion.
 
 ## Integration Rule: No Orphan Code
 
-**Every new compiler pass must be wired into the CLI pipeline in the
+**Every new compiler pass must be wired into the shared pipeline in the
 same task that creates it.** Do not create crates that compile but are
 never called.
 
-The pipeline is a chain. After each task, verify the chain works
-end-to-end by running `cargo run --bin assura -- check demos/libwebp-huffman.assura`:
+The canonical chain lives in `assura-pipeline` (not hand-rolled in CLI/LSP/server):
 
 ```
-CLI main.rs
-  -> assura-parser::parser::source_file()   # parse
-  -> assura-resolve::resolve()              # name resolution (T009+)
-  -> assura-types::type_check()             # single-file type checking
-  -> assura-types::type_check_with_modules()  # multi-file (cross-module imports)
-  -> assura-smt::verify()                   # SMT verification (T038+)
-  -> assura-codegen::codegen()              # Rust code generation (T019+)
+assura_pipeline::compile / compile_full / verify_typed / run_at
+  -> assura_parser::parse_full()              # lex + parse
+  -> assura_resolve::resolve()                # name resolution
+  -> assura_types::TypeChecker::check()       # Layer 0 (+ multi-file via types APIs)
+  -> assura_smt::Verifier::apply_options()    # SMT (via verify_typed / compile_full)
+  -> assura_codegen::codegen()                # Rust generation (compile_full / build)
 ```
 
-**Concrete rules:**
-
-1. When you create `assura-resolve` (T009), update `assura-cli/src/main.rs`
-   to call `resolve()` after parsing. If resolution finds errors, print
-   them and exit 1. Verify by running a demo file through the CLI.
-
-2. When you create `assura-types` (T013), update `main.rs` to call
-   `type_check()` after resolution. Same pattern.
-
-3. When you create `assura-smt` (T038), update `main.rs` to call
-   `verify()` after type checking. Same pattern.
-
-4. When you create `assura-codegen` (T019), update `main.rs` to call
-   `codegen()` and write output. Same pattern.
+CLI (`check.rs`, `build.rs`), server, MCP, and LSP should call these
+helpers (or thin wrappers in `assura-cli/src/shared.rs`), not rebuild
+the chain. Verification options always come from
+`assura_config::VerifyOptions` on `CompilerConfig`.
 
 **Validation after every new pass**: Run this and verify the output
 changes (new errors reported, new output produced, etc.):
@@ -375,8 +360,8 @@ not wired in. Fix it before marking the task done.
 
 **Test that the passes interact**: Each new pass must have at least one
 integration test that feeds the output of the previous pass into the
-new pass. Unit tests of the pass in isolation are necessary but not
-sufficient. The test must prove the pipeline works, not just the crate.
+new pass. Prefer `assura_test_support` helpers so tests exercise the
+real pipeline, not hand-built intermediate structs.
 
 Example: a `resolve` test must start from a parsed `SourceFile` (not
 hand-built AST), and a `type_check` test must start from a resolved
@@ -384,17 +369,20 @@ file (not hand-built resolved AST).
 
 **This rule applies at BOTH levels, not just top-level passes:**
 
-- **Compiler passes**: new crates must be called from `main.rs`
+- **Compiler passes**: new crates must be reachable from `assura-pipeline`
+  or a documented entry point (`assura-cli`, `assura-lsp`, `assura-server`,
+  `assura-mcp`)
 - **Analysis components**: new checker structs in `assura-types` must
-  have a corresponding `run_*_checks()` function wired into BOTH
-  `type_check()` and `type_check_hir()`. New manager structs in
-  `assura-smt` must be called from `verify()`.
+  have a corresponding `run_*_checks()` function wired into the type
+  checker pipeline. New manager structs in `assura-smt` must be called
+  from `Verifier` / verify dispatch.
 
 Verification after adding any new checker or manager struct:
 
 ```bash
 # Must appear in the entry-point function's call chain
 grep -n "StructName\|run_structname_checks" crates/assura-types/src/lib.rs
+grep -n "StructName\|run_structname_checks" crates/assura-types/src/pipeline.rs
 ```
 
 If the struct exists but the grep returns zero matches in the entry
@@ -426,6 +414,13 @@ This was learned when `ProphecyManager::check_unconstrained()` existed
 with passing unit tests but was never called from `verify()` or the
 Z3 backend across multiple sessions. Unconstrained prophecy variables
 were silently ignored until the method was wired in during #62.
+
+### Pipeline skew (behavioral divergence)
+
+If CLI does X but `compile_full` does Y, agents and users get different
+results from the same source. Always fix skew by converging on
+`assura-pipeline` + `VerifyOptions`, not by copying more ad-hoc logic
+into CLI/server/MCP.
 
 ## Pre-Commit Checks
 

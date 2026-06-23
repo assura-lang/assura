@@ -147,8 +147,11 @@ pub(crate) fn run_check_rust(
                     has_errors: &mut has_err,
                     output_mode,
                     verbosity,
-                    layer,
-                    solver: solver_choice,
+                    verify_options: assura_config::VerifyOptions {
+                        layer,
+                        solver: solver_choice,
+                        ..Default::default()
+                    },
                     show_cores: false,
                 });
                 if has_err {
@@ -297,8 +300,9 @@ pub(crate) struct VerifyContext<'a> {
     pub(crate) has_errors: &'a mut bool,
     pub(crate) output_mode: OutputMode,
     pub(crate) verbosity: Verbosity,
-    pub(crate) layer: u8,
-    pub(crate) solver: assura_smt::SolverChoice,
+    /// Full verify options (timeout, string_theory, parallel, etc.) with
+    /// layer/solver already resolved from CLI + assura.toml.
+    pub(crate) verify_options: assura_config::VerifyOptions,
     pub(crate) show_cores: bool,
 }
 
@@ -427,8 +431,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         has_errors: &mut has_errors,
         output_mode,
         verbosity,
-        layer,
-        solver,
+        verify_options: compiler_config.verify.clone(),
         show_cores,
     });
 
@@ -652,10 +655,10 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         has_errors,
         output_mode,
         verbosity,
-        layer,
-        solver,
+        verify_options,
         show_cores,
     } = ctx;
+    let layer = verify_options.layer;
     // Short-circuit: skip cache/thread-pool init when there are no
     // verifiable clauses (requires/ensures/invariant) in the source.
     let has_clauses = file
@@ -664,12 +667,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
 
     let verification_results = if layer >= 1 && has_clauses {
         typed.as_ref().map_or_else(Vec::new, |typed| {
-            assura_smt::Verifier::new(typed)
-                .source(std::path::Path::new(filename))
-                .solver(solver)
-                .parallel()
-                .with_decrease_checks()
-                .verify()
+            let config = assura_config::CompilerConfig {
+                verify: verify_options,
+                ..Default::default()
+            };
+            assura_pipeline::verify_typed(typed, filename, &config)
         })
     } else {
         Vec::new()
@@ -857,8 +859,11 @@ pub(crate) fn check_file_once(
         has_errors: &mut has_errors,
         output_mode,
         verbosity,
-        layer,
-        solver: assura_smt::SolverChoice::Z3,
+        verify_options: assura_config::VerifyOptions {
+            layer,
+            solver: assura_smt::SolverChoice::Z3,
+            ..Default::default()
+        },
         show_cores: false,
     });
 
@@ -1064,20 +1069,20 @@ pub(crate) fn run_check_project(
 fn build_decl_span_map(
     file: &Option<assura_parser::ast::SourceFile>,
 ) -> std::collections::HashMap<String, std::ops::Range<usize>> {
-    use assura_parser::ast::Decl;
-
     let mut map = std::collections::HashMap::new();
     if let Some(f) = file {
         for spanned in &f.decls {
-            let name = match &spanned.node {
-                Decl::Contract(c) => Some(c.name.clone()),
-                Decl::FnDef(f) => Some(f.name.clone()),
-                Decl::Block { name, .. } => Some(name.clone()),
-                Decl::Service(s) => Some(s.name.clone()),
-                _ => None,
-            };
-            if let Some(n) = name {
-                map.insert(n, spanned.span.clone());
+            // Contracts, services, functions, and blocks are the names that
+            // appear as clause_desc prefixes in SMT diagnostics.
+            let include = matches!(
+                &spanned.node,
+                assura_parser::ast::Decl::Contract(_)
+                    | assura_parser::ast::Decl::FnDef(_)
+                    | assura_parser::ast::Decl::Block { .. }
+                    | assura_parser::ast::Decl::Service(_)
+            );
+            if include && let Some(n) = spanned.node.name() {
+                map.insert(n.to_string(), spanned.span.clone());
             }
         }
     }

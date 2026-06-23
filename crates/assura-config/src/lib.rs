@@ -306,6 +306,7 @@ impl CompilerConfig {
                 timeout_ms: project.verify.timeout,
                 solver: project.verify.smt_solver,
                 string_theory: project.verify.string_theory,
+                ..VerifyOptions::default()
             },
             codegen: CodegenConfig {
                 output_dir: project.build.output.clone(),
@@ -347,6 +348,11 @@ impl Default for TypeCheckConfig {
 }
 
 /// SMT verification options.
+///
+/// This is the single source of truth for how [`assura_smt::Verifier`] is
+/// configured from the pipeline, CLI, server, and MCP. Prefer threading
+/// `VerifyOptions` (or full `CompilerConfig`) rather than re-building
+/// `.parallel()` / `.with_decrease_checks()` ad hoc at each call site.
 #[derive(Debug, Clone)]
 pub struct VerifyOptions {
     /// Verification layer (0 = structural only, 1 = SMT).
@@ -357,6 +363,16 @@ pub struct VerifyOptions {
     pub solver: SolverChoice,
     /// Use native SMT string theory instead of integer encoding.
     pub string_theory: bool,
+    /// Run clause verification in parallel via rayon (CLI / `compile_full` default).
+    pub parallel: bool,
+    /// Include pending decrease (termination) checks from the type checker.
+    pub decrease_checks: bool,
+    /// Prefer disk-backed verification caching when a source path is set
+    /// (parallel path creates `VerificationCache` under the source parent dir).
+    /// When `false`, the parallel path still uses an in-process cache handle
+    /// (required by the parallel API) but does not treat it as a project cache
+    /// preference; tests should set this `false` via [`VerifyOptions::for_tests`].
+    pub enable_cache: bool,
 }
 
 impl Default for VerifyOptions {
@@ -366,6 +382,24 @@ impl Default for VerifyOptions {
             timeout_ms: 1000,
             solver: SolverChoice::Z3,
             string_theory: false,
+            // Match historical CLI / compile_full defaults so all entry points
+            // behave the same unless explicitly overridden.
+            parallel: true,
+            decrease_checks: true,
+            enable_cache: true,
+        }
+    }
+}
+
+impl VerifyOptions {
+    /// Lightweight options for unit tests and fast smoke checks (serial, no
+    /// decrease checks, no cache). Keeps layer/solver/timeout at normal defaults.
+    pub fn for_tests() -> Self {
+        Self {
+            parallel: false,
+            decrease_checks: false,
+            enable_cache: false,
+            ..Self::default()
         }
     }
 }
@@ -642,6 +676,19 @@ output = "out/gen"
         assert_eq!(config.timeout_ms, 1000);
         assert_eq!(config.solver, SolverChoice::Z3);
         assert!(!config.string_theory);
+        assert!(config.parallel);
+        assert!(config.decrease_checks);
+        assert!(config.enable_cache);
+    }
+
+    #[test]
+    fn verify_options_for_tests_disables_heavy_flags() {
+        let opts = VerifyOptions::for_tests();
+        assert!(!opts.parallel);
+        assert!(!opts.decrease_checks);
+        assert!(!opts.enable_cache);
+        assert_eq!(opts.layer, 1);
+        assert_eq!(opts.solver, SolverChoice::Z3);
     }
 
     #[test]

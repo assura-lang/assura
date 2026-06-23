@@ -185,6 +185,24 @@ impl Decl {
         }
     }
 
+    /// Human-readable kind + name label, e.g. `"contract SafeDiv"`, `"fn foo"`.
+    ///
+    /// Useful for pipeline/MCP declaration lists and debug output.
+    pub fn summary_label(&self) -> String {
+        match self {
+            Decl::Contract(c) => format!("contract {}", c.name),
+            Decl::Bind(b) => format!("bind {}", b.name),
+            Decl::FnDef(f) => format!("fn {}", f.name),
+            Decl::Service(s) => format!("service {}", s.name),
+            Decl::TypeDef(t) => format!("type {}", t.name),
+            Decl::EnumDef(e) => format!("enum {}", e.name),
+            Decl::Extern(e) => format!("extern {}", e.name),
+            Decl::Prophecy(p) => format!("prophecy {}", p.name),
+            Decl::CodecRegistry(c) => format!("codec_registry {}", c.name),
+            Decl::Block { kind, name, .. } => format!("{kind} {name}"),
+        }
+    }
+
     /// Returns the parameters, if the declaration has them.
     pub fn params(&self) -> &[Param] {
         match self {
@@ -529,6 +547,113 @@ pub enum Literal {
     Float(String),
     Str(String),
     Bool(bool),
+}
+
+// ---------------------------------------------------------------------------
+// Declaration visitor trait
+// ---------------------------------------------------------------------------
+
+/// Visitor trait for walking top-level `Decl` nodes. Each `visit_*` method has
+/// a default no-op (or clause-walking) implementation. Override only the
+/// variants you care about.
+///
+/// Prefer this over open-coding `match &decl.node { Decl::Contract ... }` in
+/// every pass that only needs a subset of declarations (codegen name collection,
+/// span maps, MCP declaration lists, etc.).
+pub trait DeclVisitor {
+    /// Called for every declaration. Default dispatches to variant methods.
+    fn visit_decl(&mut self, decl: &Decl) {
+        walk_decl(self, decl);
+    }
+
+    fn visit_contract(&mut self, _c: &ContractDecl) {}
+    fn visit_service(&mut self, _s: &ServiceDecl) {}
+    fn visit_type_def(&mut self, _t: &TypeDef) {}
+    fn visit_enum_def(&mut self, _e: &EnumDef) {}
+    fn visit_extern(&mut self, _e: &ExternDecl) {}
+    fn visit_bind(&mut self, _b: &BindDecl) {}
+    fn visit_prophecy(&mut self, _p: &ProphecyDecl) {}
+    fn visit_fn_def(&mut self, _f: &FnDef) {}
+    fn visit_codec_registry(&mut self, _c: &CodecRegistryDecl) {}
+    fn visit_block(
+        &mut self,
+        _kind: &BlockKind,
+        _name: &str,
+        _value: &Option<Vec<String>>,
+        _body: &[Clause],
+    ) {
+    }
+}
+
+/// Walk a `Decl`, dispatching to the appropriate `visit_*` method.
+pub fn walk_decl(visitor: &mut (impl DeclVisitor + ?Sized), decl: &Decl) {
+    match decl {
+        Decl::Contract(c) => visitor.visit_contract(c),
+        Decl::Service(s) => visitor.visit_service(s),
+        Decl::TypeDef(t) => visitor.visit_type_def(t),
+        Decl::EnumDef(e) => visitor.visit_enum_def(e),
+        Decl::Extern(e) => visitor.visit_extern(e),
+        Decl::Bind(b) => visitor.visit_bind(b),
+        Decl::Prophecy(p) => visitor.visit_prophecy(p),
+        Decl::FnDef(f) => visitor.visit_fn_def(f),
+        Decl::CodecRegistry(c) => visitor.visit_codec_registry(c),
+        Decl::Block {
+            kind,
+            name,
+            value,
+            body,
+        } => visitor.visit_block(kind, name, value, body),
+    }
+}
+
+/// Walk all declarations in a source file.
+pub fn walk_decls(visitor: &mut (impl DeclVisitor + ?Sized), decls: &[Spanned<Decl>]) {
+    for d in decls {
+        visitor.visit_decl(&d.node);
+    }
+}
+
+/// Value-producing walker over `Decl` nodes. Unlike `DeclVisitor` (side-effecting),
+/// `DeclFolder` returns an `Output` for every declaration.
+pub trait DeclFolder {
+    type Output;
+
+    fn fold_decl(&mut self, decl: &Decl) -> Self::Output {
+        match decl {
+            Decl::Contract(c) => self.fold_contract(c),
+            Decl::Service(s) => self.fold_service(s),
+            Decl::TypeDef(t) => self.fold_type_def(t),
+            Decl::EnumDef(e) => self.fold_enum_def(e),
+            Decl::Extern(e) => self.fold_extern(e),
+            Decl::Bind(b) => self.fold_bind(b),
+            Decl::Prophecy(p) => self.fold_prophecy(p),
+            Decl::FnDef(f) => self.fold_fn_def(f),
+            Decl::CodecRegistry(c) => self.fold_codec_registry(c),
+            Decl::Block {
+                kind,
+                name,
+                value,
+                body,
+            } => self.fold_block(kind, name, value, body),
+        }
+    }
+
+    fn fold_contract(&mut self, c: &ContractDecl) -> Self::Output;
+    fn fold_service(&mut self, s: &ServiceDecl) -> Self::Output;
+    fn fold_type_def(&mut self, t: &TypeDef) -> Self::Output;
+    fn fold_enum_def(&mut self, e: &EnumDef) -> Self::Output;
+    fn fold_extern(&mut self, e: &ExternDecl) -> Self::Output;
+    fn fold_bind(&mut self, b: &BindDecl) -> Self::Output;
+    fn fold_prophecy(&mut self, p: &ProphecyDecl) -> Self::Output;
+    fn fold_fn_def(&mut self, f: &FnDef) -> Self::Output;
+    fn fold_codec_registry(&mut self, c: &CodecRegistryDecl) -> Self::Output;
+    fn fold_block(
+        &mut self,
+        kind: &BlockKind,
+        name: &str,
+        value: &Option<Vec<String>>,
+        body: &[Clause],
+    ) -> Self::Output;
 }
 
 // ---------------------------------------------------------------------------

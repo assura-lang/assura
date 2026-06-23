@@ -1,0 +1,18 @@
+[package]
+name = "assura-test-support"
+description = "Shared test helpers for Assura compiler crates (parse/resolve/typecheck/verify shims)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+assura-parser = { path = "../assura-parser" }
+assura-resolve = { path = "../assura-resolve" }
+assura-types = { path = "../assura-types" }
+assura-smt = { path = "../assura-smt" }
+assura-codegen = { path = "../assura-codegen" }
+assura-pipeline = { path = "../assura-pipeline" }
+assura-config = { path = "../assura-config" }
+assura-diagnostics = { path = "../assura-diagnostics" }

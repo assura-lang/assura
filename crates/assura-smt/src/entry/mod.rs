@@ -165,10 +165,11 @@ impl<'a> Verifier<'a> {
         self
     }
 
-    /// Set verification options (solver, timeout, layer).
-    pub fn options(mut self, options: assura_config::VerifyOptions) -> Self {
-        self.options = options;
-        self
+    /// Set verification options (solver, timeout, layer, parallel, decrease checks).
+    ///
+    /// Equivalent to [`Self::apply_options`]; prefer that name at new call sites.
+    pub fn options(self, options: assura_config::VerifyOptions) -> Self {
+        self.apply_options(options)
     }
 
     /// Set the solver backend.
@@ -201,6 +202,17 @@ impl<'a> Verifier<'a> {
         self
     }
 
+    /// Apply all flags from [`assura_config::VerifyOptions`] (solver, timeout,
+    /// parallel, decrease checks). Call sites that already have a
+    /// `CompilerConfig` / `VerifyOptions` should prefer this over chaining
+    /// individual builder methods.
+    pub fn apply_options(mut self, options: assura_config::VerifyOptions) -> Self {
+        self.parallel = options.parallel;
+        self.include_decrease_checks = options.decrease_checks;
+        self.options = options;
+        self
+    }
+
     /// Run verification and return results.
     pub fn verify(self) -> Vec<VerificationResult> {
         let loaded_storage = self
@@ -208,16 +220,22 @@ impl<'a> Verifier<'a> {
             .map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, self.typed));
         let extras = build_verify_extras(self.typed, loaded_storage.as_ref());
 
+        let enable_cache = self.options.enable_cache;
         let mut results = if self.parallel {
             let default_cache;
             let cache = match self.cache {
                 Some(c) => c,
-                None => {
+                None if enable_cache => {
                     let dir = self
                         .source
                         .and_then(|p| p.parent())
                         .unwrap_or_else(|| std::path::Path::new("."));
                     default_cache = VerificationCache::new(dir);
+                    &default_cache
+                }
+                None => {
+                    // Ephemeral in-memory cache (no disk dir from source path).
+                    default_cache = VerificationCache::new(std::path::Path::new("."));
                     &default_cache
                 }
             };

@@ -9,31 +9,15 @@ pub(crate) fn extract_decl_summary(
     let mut result = std::collections::BTreeMap::new();
     for spanned_decl in &sf.decls {
         let decl = &spanned_decl.node;
-        let name = match decl {
-            Decl::Contract(c) => c.name.clone(),
-            Decl::Bind(b) => b.name.clone(),
-            Decl::FnDef(f) => f.name.clone(),
-            Decl::Service(s) => s.name.clone(),
-            Decl::TypeDef(t) => t.name.clone(),
-            Decl::EnumDef(e) => e.name.clone(),
-            Decl::Extern(e) => e.name.clone(),
-            Decl::Prophecy(p) => p.name.clone(),
-            Decl::CodecRegistry(c) => c.name.clone(),
-            Decl::Block { name, .. } => name.clone(),
-        };
-        let clauses: Vec<String> = match decl {
-            Decl::Contract(c) => c
-                .clauses
-                .iter()
-                .map(|cl| format!("{:?}: {}", cl.kind, format_clause_body(cl)))
-                .collect(),
-            Decl::Bind(b) => b
-                .clauses
-                .iter()
-                .map(|cl| format!("{:?}: {}", cl.kind, format_clause_body(cl)))
-                .collect(),
-            _ => Vec::new(),
-        };
+        let name = decl
+            .name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "<anon>".to_string());
+        let clauses: Vec<String> = decl
+            .clauses()
+            .iter()
+            .map(|cl| format!("{:?}: {}", cl.kind, format_clause_body(cl)))
+            .collect();
         result.insert(name, clauses);
     }
     result
