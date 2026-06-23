@@ -185,6 +185,18 @@ impl FrameChecker {
     /// Returns the list of variable names for which frame axioms should
     /// be injected.
     pub fn frame_axiom_vars(&self, ensures_body: &SpExpr) -> Vec<String> {
+        self.frame_axiom_vars_with_candidates(ensures_body, &[])
+    }
+
+    /// Like [`Self::frame_axiom_vars`], but also considers explicit candidate
+    /// names (typically contract parameters / input fields). This strengthens
+    /// frame reasoning when ensures only mentions modified state or `result`
+    /// while unmodified inputs must still be framed for soundness.
+    pub fn frame_axiom_vars_with_candidates(
+        &self,
+        ensures_body: &SpExpr,
+        candidates: &[String],
+    ) -> Vec<String> {
         if !self.has_modifies() {
             return Vec::new();
         }
@@ -192,7 +204,8 @@ impl FrameChecker {
         let old_refs = collect_old_references(ensures_body);
         let ident_refs = collect_ident_references(ensures_body);
 
-        // Collect all referenced variables (both in old() and directly)
+        // Collect all referenced variables (both in old() and directly),
+        // plus any explicit candidates (params/inputs).
         let mut all_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
         for r in &old_refs {
             all_refs.insert(r.clone());
@@ -200,28 +213,32 @@ impl FrameChecker {
         for r in &ident_refs {
             all_refs.insert(r.clone());
         }
+        for c in candidates {
+            if c != "result" && !c.starts_with("__") {
+                all_refs.insert(c.clone());
+            }
+        }
 
         // Variables NOT in the modifies set get frame axioms
         let mut frame_vars: Vec<String> = all_refs
             .into_iter()
-            .filter(|name| !self.modified.contains(name))
-            .filter(|name| {
-                // Also check if any prefix is in the modified set
-                // e.g., if "node" is modified, "node.keys" is also modified
-                !self
-                    .modified
-                    .iter()
-                    .any(|m| name.starts_with(&format!("{m}.")))
-                    && !self
-                        .modified
-                        .iter()
-                        .any(|m| m.starts_with(&format!("{name}.")))
-            })
+            .filter(|name| !self.is_modified_or_under_modified(name))
             .collect();
 
         frame_vars.sort();
         frame_vars.dedup();
         frame_vars
+    }
+
+    /// Returns true if `name` is modified or is a sub-field/prefix of a
+    /// modified target (e.g. `node.keys` when `node` is modified).
+    pub fn is_modified_or_under_modified(&self, name: &str) -> bool {
+        if self.modified.contains(name) {
+            return true;
+        }
+        self.modified
+            .iter()
+            .any(|m| name.starts_with(&format!("{m}.")) || m.starts_with(&format!("{name}.")))
     }
 
     /// Returns true if a variable name is in the modifies set.

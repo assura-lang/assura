@@ -96,14 +96,26 @@ pub(crate) fn encode_expr_cvc5<'a>(
                 .and_then(|eb| encode_expr_cvc5(tm, eb, &mut *vars, &mut *state));
             Some(encode_if_cvc5(tm, c, t, e))
         }
-        Expr::Forall { .. } | Expr::Exists { .. } => {
-            // Return a bool to avoid "Boolean subexpression" in cvc5 when a quant is used in ensures/requires.
-            // Real encoding has lifetime issues on Ctx construction in this arm after migration; covered by shell or other paths for now.
-            Some(tm.mk_boolean(true))
+        Expr::Forall { var, domain, body } => {
+            let mut qctx = Cvc5QuantifierEncodeCtx { tm, vars, state };
+            encode_ast_quantifier_cvc5(&mut qctx, true, var, domain, body, |e, ctx| {
+                encode_expr_cvc5(ctx.tm, e, ctx.vars, ctx.state)
+            })
         }
-        Expr::Call { func, args } => encode_call_cvc5(tm, func, args, vars, state, |e, v, s| {
-            encode_expr_cvc5(tm, e, v, s)
-        }),
+        Expr::Exists { var, domain, body } => {
+            let mut qctx = Cvc5QuantifierEncodeCtx { tm, vars, state };
+            encode_ast_quantifier_cvc5(&mut qctx, false, var, domain, body, |e, ctx| {
+                encode_expr_cvc5(ctx.tm, e, ctx.vars, ctx.state)
+            })
+        }
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = &func.as_ref().node {
+                state.trigger_manager.register_function(name.clone());
+            }
+            encode_call_cvc5(tm, func, args, vars, state, |e, v, s| {
+                encode_expr_cvc5(tm, e, v, s)
+            })
+        }
         // old(expr): add __old suffix for Ident, recurse for Field/MethodCall
         Expr::Old(inner) => encode_old_cvc5(tm, inner.as_ref(), vars, state, |e, v, s| {
             encode_expr_cvc5(tm, e, v, s)
@@ -162,9 +174,12 @@ pub(crate) fn encode_expr_cvc5<'a>(
             receiver,
             method,
             args,
-        } => encode_method_call_cvc5(tm, receiver, method, args, vars, state, |e, v, s| {
-            encode_expr_cvc5(tm, e, v, s)
-        }),
+        } => {
+            state.trigger_manager.register_function(method.clone());
+            encode_method_call_cvc5(tm, receiver, method, args, vars, state, |e, v, s| {
+                encode_expr_cvc5(tm, e, v, s)
+            })
+        }
         // List: fresh Int with element-access and length axioms
         Expr::List(elems) => {
             let elem_vals: Option<Vec<_>> = elems

@@ -28,6 +28,23 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
 
     let verification_results = if layer >= 1 && has_clauses {
         typed.as_ref().map_or_else(Vec::new, |typed| {
+            // Report IR sidecars discovered next to the source (`{Name}.ir` or
+            // `generated/{Name}.ir`) before verify so agents/users see when
+            // implementation bodies constrain result/post-state.
+            if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
+                let loaded =
+                    assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
+                if loaded.is_empty() {
+                    eprintln!("  ir:        no sidecars (searched source dir + generated/)");
+                } else {
+                    let names = loaded.loaded_names();
+                    eprintln!(
+                        "  ir:        {} sidecar(s) loaded: {}",
+                        names.len(),
+                        names.join(", ")
+                    );
+                }
+            }
             let config = assura_config::CompilerConfig {
                 verify: verify_options,
                 ..Default::default()

@@ -7,6 +7,7 @@ use assura_ast::SpExpr;
 
 use crate::VerificationResult;
 use crate::cvc5_collect::collect_cvc5_var_names_from_clauses;
+use crate::cvc5_encoder_state::seed_cvc5_trigger_manager_from_clauses;
 use crate::cvc5_native_encoder::{
     apply_havoc_assume_cvc5, default_cvc5_encoder_state, encode_expr_cvc5,
 };
@@ -77,6 +78,7 @@ fn verify_contract_cvc5_native_incremental(
     );
 
     let mut enc_state = default_cvc5_encoder_state();
+    seed_cvc5_trigger_manager_from_clauses(&mut enc_state, contract.clauses);
 
     assert_cvc5_requires(
         &tm,
@@ -136,7 +138,9 @@ fn verify_contract_cvc5_native_incremental(
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, havoc_axiom_end);
 
         if clause.kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
-            let frame_vars = prepared.frame_checker.frame_axiom_vars(&clause.body);
+            let frame_vars = prepared
+                .frame_checker
+                .frame_axiom_vars_with_candidates(&clause.body, &prepared.param_names);
             assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
         }
 

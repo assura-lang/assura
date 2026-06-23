@@ -189,11 +189,12 @@ impl Encoder {
     ) -> Vec<z3::Pattern> {
         let mut patterns = Vec::new();
 
-        // Check TriggerManager for user-provided or inferred triggers
-        let body_str = format!("{body:?}");
-        if let Some(trigger) = self.trigger_manager.infer_trigger(&body_str) {
-            // Production wiring for validate_trigger (agent-guards SMT v2):
-            // surface unknown function names as solver-side signal, not only unit tests.
+        // Prefer AST-based trigger inference (Tier A2), then string fallback.
+        if let Some(trigger) = self
+            .trigger_manager
+            .infer_trigger_from_expr(body, bound_var)
+        {
+            // Production wiring for validate_trigger: record warnings on the manager.
             let _trigger_warnings = self.trigger_manager.validate_trigger(&trigger);
             for term in &trigger.terms {
                 if let Some(fname) = term.split('(').next() {

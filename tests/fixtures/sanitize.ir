@@ -1,0 +1,8 @@
+// IR for `sanitize` in tests/fixtures/test_sec.assura (and similar demos).
+// Identity on Bytes: result.length() == raw.length() => result.length() <= raw.length().
+module sanitize {
+  fn #0 : ($0: Bytes) -> Bytes ! pure
+  {
+    $result = load $0 : Bytes
+  }
+}

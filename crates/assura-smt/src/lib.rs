@@ -193,6 +193,10 @@ mod tests_z3;
 #[path = "tests_havoc_assume.rs"]
 mod tests_havoc_assume;
 
+#[cfg(test)]
+#[path = "tests_tier_a.rs"]
+mod tests_tier_a;
+
 // ---------------------------------------------------------------------------
 // Additional verification modules
 // ---------------------------------------------------------------------------

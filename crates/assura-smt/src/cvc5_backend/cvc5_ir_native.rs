@@ -376,7 +376,29 @@ fn encode_ir_pred_cvc5<'a>(
     }
 }
 
+/// STUB-CONTRACT (SpExpr / IR builder migration): this function is intentionally
+/// a no-op. It does **not** push IR body axioms onto `state.axioms`.
+///
+/// Rules while `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` is `true`:
+/// - Production callers (`cvc5_native_encoder` havoc path) may call it; effect is
+///   "skip IR body encoding" (soundness gap, not a panic).
+/// - Do **not** add cross-backend tests that assert on `state.axioms` after this
+///   call (see `ir_parity.rs`: only Z3 + shell paths assert; shell is
+///   `cfg(not(cvc5-verify))` because `cvc5_ir_smtlib` is not compiled with
+///   `cvc5-verify`).
+/// - Backend-local tests that would exercise the real builder must be
+///   `#[ignore = "STUB: CVC5_IR_BODY_CONSTRAINTS_IS_STUB"]` (see tests below).
+/// - When restoring the real `Cvc5IrBuilder` path: set the constant to `false`,
+///   implement the body, un-ignore tests, and re-enable CVC5-native asserts in
+///   `ir_parity`.
+///
+/// Grep: `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` / `STUB-CONTRACT`.
+#[cfg(feature = "cvc5-verify")]
+pub(crate) const CVC5_IR_BODY_CONSTRAINTS_IS_STUB: bool = true;
+
 /// Apply havoc-assume IR body constraints as background axioms.
+///
+/// **Currently a stub** (`CVC5_IR_BODY_CONSTRAINTS_IS_STUB`). See constant docs.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
     _tm: &'a cvc5::TermManager,
@@ -386,7 +408,9 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
     _state: &mut Cvc5EncoderState<'a>,
     _enc_ctx: IrEncodeContext<'a>,
 ) {
-    // Stub: avoids builder construction and lifetime pin for cvc5 native after migration.
+    // Intentionally empty while CVC5_IR_BODY_CONSTRAINTS_IS_STUB is true.
+    // Do not add assertions here; restore via Cvc5IrBuilder (see STUB-CONTRACT above).
+    let _ = CVC5_IR_BODY_CONSTRAINTS_IS_STUB;
 }
 
 #[cfg(all(test, feature = "cvc5-verify"))]
@@ -401,7 +425,7 @@ mod tests {
         let mut state = default_cvc5_encoder_state();
         let slots: HashMap<usize, cvc5::Term<'_>> = HashMap::new();
         let mut vars: HashMap<String, cvc5::Term<'_>> = HashMap::new();
-        let expr = IrExprKind::Arith {
+        let _expr = IrExprKind::Arith {
             op: IrArithOp::Add,
             lhs: 0,
             rhs: 1,
@@ -414,11 +438,20 @@ mod tests {
         };
         // Test construction of Cvc5IrBuilder temporarily stubbed to avoid 'a lifetime + drop order borrow
         // issues with local vars/state under cvc5-verify test build. Core IR + native paths tested via fixtures.
-        let _ = (&mut vars, &mut state, &tm, &slots, &ctx);
+        let _ = (&mut vars, &mut state, &tm, &slots, &ctx, _expr);
+    }
+
+    /// Test-only: if the stub is active, non-ignored tests must not expect axioms.
+    #[test]
+    fn cvc5_ir_body_stub_contract_is_documented() {
+        assert!(
+            super::CVC5_IR_BODY_CONSTRAINTS_IS_STUB,
+            "when clearing the stub, update ir_parity CVC5 asserts and un-ignore tests below"
+        );
     }
 
     #[test]
-    #[ignore = "temporarily ignored due to IR builder lifetime stubs during SpExpr migration; fixtures cover main paths"]
+    #[ignore = "STUB: CVC5_IR_BODY_CONSTRAINTS_IS_STUB — IR builder lifetime stubs during SpExpr migration"]
     fn cvc5_ir_call_inlines_callee_sidecar() {
         use crate::ir::parse_ir_module;
 
@@ -475,7 +508,7 @@ module double {
     }
 
     #[test]
-    #[ignore = "temporarily ignored due to IR builder lifetime stubs during SpExpr migration; fixtures cover main paths"]
+    #[ignore = "STUB: CVC5_IR_BODY_CONSTRAINTS_IS_STUB — IR builder lifetime stubs during SpExpr migration"]
     fn cvc5_ir_blocks_inlines_sibling_functions() {
         let (func, blocks) = crate::ir_encode::branch_if_else_ir_fixture();
         let enc_ctx = IrEncodeContext::new(None, None, Some(&blocks));

@@ -1,0 +1,9 @@
+// Implementation IR for `CopyBytes` in `ir-copy.assura`.
+// Identity copy: $result = $0 makes result.length() == raw.length() via
+// canonical length equality in havoc_assume, so result.length() <= raw.length() verifies.
+module copy {
+  fn #0 : ($0: Bytes) -> Bytes ! pure
+  {
+    $result = load $0 : Bytes
+  }
+}

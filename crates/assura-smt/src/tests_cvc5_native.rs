@@ -2069,6 +2069,73 @@ mod frame_tests {
         );
     }
 
+    /// Contract-level TriggerManager is seeded from clauses and used when
+    /// encoding quantifiers that mention known functions (e.g. `f(i)`).
+    #[test]
+    fn test_cvc5_contract_trigger_manager_seeds_from_clauses() {
+        use crate::cvc5_encoder_state::{
+            default_cvc5_encoder_state, seed_cvc5_trigger_manager_from_clauses,
+        };
+
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Requires,
+                body: Spanned::no_span(Expr::Call {
+                    func: Box::new(Spanned::no_span(Expr::Ident("lookup".into()))),
+                    args: vec![Spanned::no_span(Expr::Ident("x".into()))],
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: Spanned::no_span(Expr::Forall {
+                    var: "i".into(),
+                    domain: Box::new(Spanned::no_span(Expr::BinOp {
+                        op: BinOp::Range,
+                        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                        rhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    })),
+                    body: Box::new(Spanned::no_span(Expr::BinOp {
+                        op: BinOp::Gte,
+                        lhs: Box::new(Spanned::no_span(Expr::Call {
+                            func: Box::new(Spanned::no_span(Expr::Ident("lookup".into()))),
+                            args: vec![Spanned::no_span(Expr::Ident("i".into()))],
+                        })),
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    })),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+
+        let mut state = default_cvc5_encoder_state();
+        seed_cvc5_trigger_manager_from_clauses(&mut state, &clauses);
+        assert!(
+            state
+                .trigger_manager
+                .known_functions()
+                .iter()
+                .any(|f| f == "lookup"),
+            "lookup should be registered from requires/ensures: {:?}",
+            state.trigger_manager.known_functions()
+        );
+
+        let body = &clauses[1].body;
+        if let Expr::Forall { body: qbody, .. } = &body.node {
+            let trigger = state
+                .trigger_manager
+                .infer_trigger_from_expr(qbody, "i")
+                .expect("should infer lookup(i) trigger from seeded manager");
+            assert!(
+                trigger.terms.iter().any(|t| t.contains("lookup")),
+                "expected lookup trigger, got {:?}",
+                trigger.terms
+            );
+        } else {
+            panic!("expected Forall in ensures");
+        }
+    }
+
     #[test]
     fn test_cvc5_multi_arg_trigger() {
         let tm = cvc5::TermManager::new();

@@ -216,7 +216,10 @@ fn build_incremental_shell_script(
         append_havoc_assume_smtlib(&mut havoc_target, &havoc_input);
 
         if clause.kind == ClauseKind::Ensures && input.prepared.frame_checker.has_modifies() {
-            let frame_vars = input.prepared.frame_checker.frame_axiom_vars(&clause.body);
+            let frame_vars = input
+                .prepared
+                .frame_checker
+                .frame_axiom_vars_with_candidates(&clause.body, &input.prepared.param_names);
             append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
         }
 

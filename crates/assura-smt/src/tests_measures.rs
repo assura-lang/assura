@@ -247,7 +247,8 @@ fn trigger_validate_known() {
 
 #[test]
 fn trigger_validate_unknown() {
-    let mgr = TriggerManager::new();
+    let mut mgr = TriggerManager::new();
+    mgr.register_function("some_known".into());
     let pattern = TriggerPattern {
         terms: vec!["unknown(x)".into()],
         is_user_provided: true,

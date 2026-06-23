@@ -50,8 +50,8 @@ where
 
 /// Combine a domain guard with a quantifier body (native API).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
-    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+pub(crate) fn guard_quantifier_body_cvc5<'a, 'v, 's, E>(
+    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     domain: &SpExpr,
     bound_var: &cvc5::Term<'a>,
     body: cvc5::Term<'a>,
@@ -61,7 +61,7 @@ pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
 where
     E: FnMut(
         &SpExpr,
-        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     ) -> Option<cvc5::Term<'a>>,
 {
     let guard = if let Some((lo, hi)) = domain_as_range(domain) {
@@ -90,8 +90,8 @@ where
 
 /// Encode an AST `forall`/`exists` as a native CVC5 quantifier (with optional triggers).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_ast_quantifier_cvc5<'a, E>(
-    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+pub(crate) fn encode_ast_quantifier_cvc5<'a, 'v, 's, E>(
+    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     is_forall: bool,
     var: &str,
     domain: &SpExpr,
@@ -101,7 +101,7 @@ pub(crate) fn encode_ast_quantifier_cvc5<'a, E>(
 where
     E: FnMut(
         &SpExpr,
-        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     ) -> Option<cvc5::Term<'a>>,
 {
     let v_name = sanitize_smtlib_name(var);
@@ -117,7 +117,26 @@ where
     let bound_list = ctx
         .tm
         .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&bound_var));
-    let trigger_terms = infer_quantifier_patterns_cvc5(ctx.tm, body, &v_name, &bound_var);
+    // Register calls in the quantifier body itself (may refine contract-level manager).
+    crate::cvc5_encoder_state::register_trigger_functions_from_expr(
+        body,
+        &mut ctx.state.trigger_manager,
+    );
+    let trigger_terms = infer_quantifier_patterns_cvc5_with_mgr(
+        ctx.tm,
+        body,
+        &v_name,
+        &bound_var,
+        Some(&ctx.state.trigger_manager),
+    );
+    // Surface validate_trigger warnings for user/inferred patterns (non-fatal).
+    if let Some(trigger) = ctx
+        .state
+        .trigger_manager
+        .infer_trigger_from_expr(body, &v_name)
+    {
+        let _ = ctx.state.trigger_manager.validate_trigger(&trigger);
+    }
     let kind = if is_forall {
         cvc5::Kind::Forall
     } else {
@@ -132,6 +151,9 @@ where
 }
 
 /// Infer CVC5 trigger patterns from function calls referencing the bound variable.
+///
+/// When `trigger_mgr` is provided (shared contract-level manager with registered
+/// functions), AST-based inference runs first; otherwise only direct Call scan.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     tm: &'a cvc5::TermManager,
@@ -139,11 +161,24 @@ pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
     bound_var_name: &str,
     bound_cvc5: &cvc5::Term<'a>,
 ) -> Vec<cvc5::Term<'a>> {
+    infer_quantifier_patterns_cvc5_with_mgr(tm, body, bound_var_name, bound_cvc5, None)
+}
+
+/// Tier A2: same as [`infer_quantifier_patterns_cvc5`] with optional shared
+/// [`TriggerManager`] so known functions/method names participate in inference.
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn infer_quantifier_patterns_cvc5_with_mgr<'a>(
+    tm: &'a cvc5::TermManager,
+    body: &SpExpr,
+    bound_var_name: &str,
+    bound_cvc5: &cvc5::Term<'a>,
+    trigger_mgr: Option<&crate::advanced::TriggerManager>,
+) -> Vec<cvc5::Term<'a>> {
     let mut patterns = Vec::new();
 
-    let trigger_mgr = crate::advanced::TriggerManager::new();
-    let body_str = format!("{body:?}");
-    if let Some(trigger) = trigger_mgr.infer_trigger(&body_str) {
+    if let Some(mgr) = trigger_mgr
+        && let Some(trigger) = mgr.infer_trigger_from_expr(body, bound_var_name)
+    {
         for term in &trigger.terms {
             if let Some(fname) = term.split('(').next() {
                 let fname = fname.trim();

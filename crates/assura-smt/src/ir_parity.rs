@@ -10,16 +10,17 @@ mod tests {
         branch_if_else_missing_blocks_fixture,
     };
 
-    fn shell_ir_output(_func: &IrFunction, enc_ctx: IrEncodeContext<'_>) -> String {
+    /// SMT-LIB2 shell path is only compiled when `cvc5-verify` is off
+    /// (`cvc5_ir_smtlib` is `cfg(not(feature = "cvc5-verify"))`).
+    #[cfg(not(feature = "cvc5-verify"))]
+    fn shell_ir_output(func: &IrFunction, enc_ctx: IrEncodeContext<'_>) -> String {
         use std::collections::HashSet;
 
-        // use of cvc5_ir_smtlib commented to avoid unresolved in some cvc5-verify test builds
-        // use crate::cvc5_backend::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
+        use crate::cvc5_backend::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
 
-        let script = String::new();
-        let vars: std::collections::HashSet<String> = HashSet::new();
-        // append call stubbed (cvc5_ir_smtlib path resolution issue under some cvc5-verify test compiles)
-        // append_ir_body_constraints_smtlib(&mut script, &mut vars, _func, &["x".into()], enc_ctx);
+        let mut script = String::new();
+        let mut vars: HashSet<String> = HashSet::new();
+        append_ir_body_constraints_smtlib(&mut script, &mut vars, func, &["x".into()], enc_ctx);
         script
     }
 
@@ -50,24 +51,11 @@ mod tests {
         })
     }
 
-    #[cfg(feature = "cvc5-verify")]
-    fn native_ir_output(func: &IrFunction, enc_ctx: IrEncodeContext<'_>) -> String {
-        use std::collections::HashMap;
-
-        use crate::cvc5_encoder_state::default_cvc5_encoder_state;
-        use crate::cvc5_ir_native::apply_ir_body_constraints_cvc5;
-
-        let tm = cvc5::TermManager::new();
-        let mut state = default_cvc5_encoder_state();
-        let mut vars = HashMap::new();
-        apply_ir_body_constraints_cvc5(&tm, func, &["x".into()], &mut vars, &mut state, enc_ctx);
-        state
-            .axioms
-            .iter()
-            .map(|t| t.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
+    // Note: while `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` is true (`cvc5_ir_native.rs`
+    // STUB-CONTRACT), do not call `apply_ir_body_constraints_cvc5` or assert on
+    // its axioms here; dedicated `cvc5_ir_native` tests are `#[ignore]`d with
+    // the same marker. Under `cvc5-verify` we only exercise Z3 (+ shell is
+    // gated off because `cvc5_ir_smtlib` is not compiled).
 
     fn assert_all_backends_branch_inlined() {
         let (func, blocks) = branch_if_else_ir_fixture();
@@ -79,14 +67,11 @@ mod tests {
             assert_ir_blocks_inlined(&out, out.matches("(=").count());
         }
 
-        let shell = shell_ir_output(&func, enc_ctx);
-        let shell_axioms = shell.lines().filter(|l| l.contains("(assert")).count();
-        assert_ir_blocks_inlined(&shell, shell_axioms);
-
-        #[cfg(feature = "cvc5-verify")]
+        #[cfg(not(feature = "cvc5-verify"))]
         {
-            let out = native_ir_output(&func, enc_ctx);
-            assert_ir_blocks_inlined(&out, out.matches("(=").count());
+            let shell = shell_ir_output(&func, enc_ctx);
+            let shell_axioms = shell.lines().filter(|l| l.contains("(assert")).count();
+            assert_ir_blocks_inlined(&shell, shell_axioms);
         }
     }
 
@@ -100,30 +85,25 @@ mod tests {
             assert_ir_blocks_missing_uf_fallback(&out);
         }
 
-        let shell = shell_ir_output(&func, enc_ctx);
-        assert_ir_blocks_missing_uf_fallback(&shell);
-
-        #[cfg(feature = "cvc5-verify")]
+        #[cfg(not(feature = "cvc5-verify"))]
         {
-            let out = native_ir_output(&func, enc_ctx);
-            assert_ir_blocks_missing_uf_fallback(&out);
+            let shell = shell_ir_output(&func, enc_ctx);
+            assert_ir_blocks_missing_uf_fallback(&shell);
         }
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
     fn ir_parity_branch_if_else_inlining() {
         assert_all_backends_branch_inlined();
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
     fn ir_parity_missing_blocks_uf_fallback() {
         assert_all_backends_missing_block_uf();
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
+    #[cfg(not(feature = "cvc5-verify"))]
     fn transition_ir_uses_state_uf_shell() {
         use crate::ir::parse_ir_module;
 
@@ -159,7 +139,7 @@ module ts {
     }
 
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
+    #[cfg(not(feature = "cvc5-verify"))]
     fn construct_ir_untyped_uses_opaque_uf_shell() {
         use crate::ir::parse_ir_module;
 
@@ -186,7 +166,6 @@ module adt {
 
     /// Verify Construct tag axiom is present in all backends (#303).
     #[test]
-    #[ignore = "ir parity shell tests not fully active under pure cvc5-verify; main fixtures pass"]
     fn construct_ir_result_tag_axiom_parity() {
         use crate::ir::parse_ir_module;
 
@@ -206,12 +185,15 @@ module adt {
 
         let enc_ctx = IrEncodeContext::default();
 
-        // Shell backend should emit tag axiom
-        let shell = shell_ir_output(&func, enc_ctx);
-        assert!(
-            shell.contains("__ir_tag_MyStruct"),
-            "shell backend should emit __ir_tag_MyStruct axiom, got:\n{shell}"
-        );
+        // Shell backend should emit tag axiom (only compiled without cvc5-verify)
+        #[cfg(not(feature = "cvc5-verify"))]
+        {
+            let shell = shell_ir_output(&func, enc_ctx);
+            assert!(
+                shell.contains("__ir_tag_MyStruct"),
+                "shell backend should emit __ir_tag_MyStruct axiom, got:\n{shell}"
+            );
+        }
 
         // Z3 backend should emit tag axiom
         #[cfg(feature = "z3-verify")]
@@ -223,14 +205,6 @@ module adt {
             );
         }
 
-        // CVC5 native backend should emit tag axiom
-        #[cfg(feature = "cvc5-verify")]
-        {
-            let out = native_ir_output(&func, enc_ctx);
-            assert!(
-                out.contains("__ir_tag_MyStruct"),
-                "CVC5 native backend should emit __ir_tag_MyStruct axiom, got:\n{out}"
-            );
-        }
+        // CVC5 native: skipped while CVC5_IR_BODY_CONSTRAINTS_IS_STUB (STUB-CONTRACT).
     }
 }
