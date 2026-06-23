@@ -2436,6 +2436,16 @@ Next: product/MASTER-PLAN work; Tier C only if agents still thrash.
 
 Next: commit/push branch `feat/split-agent-hot-monoliths`; resume product tasks.
 
+## Progress Notes (2026-06-23 session, encoder split + min/max SMT)
+
+- **PR3 encoder**: `z3_backend/encoder/mod.rs` (~2.7k) → `value`, `core_impl`,
+  `methods`, `unmodelable`, `bitvector`; public `Encoder` / `Z3Value` / BV API
+  paths unchanged.
+- **Product gap**: `min`/`max` in `encode_call` use Z3 `ite` (not UF); test
+  `test_min_max_bounds_verify` proves bounds ensures verify.
+
+Next: more encoder semantics (string/collection methods) or CVC5 parity.
+
 **2026-06-22 11.04 completion:**
 - Verified: 29 "span:" in lower.rs (>=20), expr_span test passes, all demos pass, parser+types check clean.
 - 11.04 core acceptance met (spans captured in lowering for Expr, precise error spans now possible).

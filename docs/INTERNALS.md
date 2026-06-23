@@ -202,7 +202,7 @@ CVC5 fallback via external binary in portfolio mode.
 | Results / limitation marker | `result.rs` | `VerificationResult`, `KNOWN_SMT_LIMITATION_MARKER` |
 | Managers (prophecy, trigger, weak memory) | `advanced.rs` | New manager methods (must call from entry/encoder, not tests only) |
 | Z3 solve loop | `z3_backend/verify.rs` | Per-clause solve, timeouts, portfolio |
-| Z3 encoding | `z3_backend/encoder/` | Expr → Z3 AST, triggers, quantifiers |
+| Z3 encoding | `z3_backend/encoder/` (`value`, `core_impl`, `methods`, `unmodelable`, `bitvector`) | Expr → Z3 AST; edit `methods` for `encode_expr`/raw/binop, `core_impl` for ADT/call/field |
 | CVC5 | `cvc5_backend.rs` (+ `cvc5_*`) | CVC5 parity / shell-out |
 | IR / layer 2 | `ir_*.rs`, `layer2.rs` | Intermediate IR, quantifier layer |
 | SMT-LIB dump | `smt_dump.rs` | `--dump-smt` offline scripts |
