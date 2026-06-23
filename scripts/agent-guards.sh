@@ -142,17 +142,18 @@ if [[ ! -f docs/error-codes-agent.md ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 7) Guard v2 (WARN only): high-signal SMT methods that should appear outside
-#    their definition/test modules (promote to die after allowlist stabilizes).
+# 7) Guard v2 (HARD fail): high-signal SMT methods must appear outside
+#    advanced.rs and outside tests. Prevents dead ProphecyManager/TriggerManager
+#    APIs that only pass unit tests.
 # ---------------------------------------------------------------------------
-smt_wire_checks=(
+smt_wire_hard=(
   "ProphecyManager::check_all_resolved|check_all_resolved"
   "ProphecyManager::check_unconstrained|check_unconstrained"
   "TriggerManager::validate_trigger|validate_trigger"
   "validate_quantifier_bounds|validate_quantifier_bounds"
   "dispatch_decrease_checks|dispatch_decrease_checks"
 )
-for item in "${smt_wire_checks[@]}"; do
+for item in "${smt_wire_hard[@]}"; do
   label="${item%%|*}"
   meth="${item##*|}"
   hits=$(rg -n "$meth" crates/assura-smt/src --glob '*.rs' 2>/dev/null \
@@ -162,8 +163,9 @@ for item in "${smt_wire_checks[@]}"; do
   if [[ -z "$hits" ]]; then
     def_only=$(rg -n "fn $meth" crates/assura-smt/src --glob '*.rs' 2>/dev/null || true)
     if [[ -n "$def_only" ]]; then
-      warn "SMT method may be unwired (only def / tests?): $label ($meth)"
-      warn "  fix: call from assura-smt entry/verify path (or document intentional test-only API)"
+      die "SMT method unwired (only def / tests): $label ($meth)"
+      die "  fix: call from assura-smt entry/verify/encoder (or remove dead API)"
+      die "  see agent-guards section 7 / AGENTS decision tree"
     fi
   fi
 done

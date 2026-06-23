@@ -18,6 +18,16 @@
 > 4. Mark the task `[x]`. Commit MASTER-PLAN.md with the change.
 > 5. Continue to the next task.
 >
+> ## Agent entrypoint (LLM / agent sessions)
+>
+> Before implementing a task, open the **agent entrypoint** line if present
+> (one primary file + where to wire). If missing, use AGENTS.md
+> "Agent entrypoint" table (`AGENTS.md` ergonomics map) and
+> `docs/error-codes-agent.md` for error codes. Never mark `[x]` without
+> acceptance tests; agent-guards (`bash scripts/agent-guards.sh`) must pass
+> when touching types pipeline or SMT managers (section 7 hard-fails unwired
+> SMT methods).
+>
 > ## Rules (non-negotiable)
 >
 > - **Never mark `[x]` without running every acceptance test command.**
@@ -2332,6 +2342,21 @@ Marked 11.14 [x]. Phase 11 Round 7 complete.
 - 11.07: ExprFolder extracted for all 5 walkers.
 - 11.12, 11.14 etc as before.
 - Full targeted tests, checks, demos pass.
+
+## Progress Notes (2026-06-23 session, LLM ergonomics Priority A)
+
+- **Guard v2 hard-fail**: `scripts/agent-guards.sh` section 7 now `die`s if
+  SMT methods only appear in `advanced.rs` / tests (`check_all_resolved`,
+  `check_unconstrained`, `validate_trigger`, `validate_quantifier_bounds`,
+  `dispatch_decrease_checks`).
+- **Wire `validate_trigger`**: `z3_backend/encoder` calls
+  `TriggerManager::validate_trigger` on inferred triggers (production path).
+- **resolve `type_refs`**: `TypeRefVisitor` via `DeclVisitor` (same pattern as
+  `unused` / `clause_names` in Priority 1 / #358).
+- **Agent entrypoint docs**: AGENTS.md table + MASTER-PLAN "Agent entrypoint"
+  convention for future tasks.
+
+Next: Priority B / remaining ergonomics if any; otherwise normal MASTER-PLAN tasks.
 - Plan updated, commits on main.
 
 **2026-06-22 11.04 completion:**

@@ -2,8 +2,8 @@
 //! parameters, and return types resolve to known types.
 
 use assura_parser::ast::{
-    Decl, EnumDef, ExternDecl, FieldDef, FnDef, Param, ServiceItem, SourceFile, Span, TypeBody,
-    TypeDef,
+    BindDecl, DeclVisitor, EnumDef, ExternDecl, FieldDef, FnDef, Param, ServiceDecl, ServiceItem,
+    SourceFile, Span, TypeBody, TypeDef,
 };
 
 use crate::errors::ResolutionError;
@@ -270,6 +270,10 @@ pub(crate) fn find_scope_for(
 }
 
 /// Walk all declarations and resolve type references.
+///
+/// Uses [`DeclVisitor`] so new `Decl` variants only need a `visit_*` arm here
+/// (and in `walk_decl`), not another open-coded match in this pass. Per-decl
+/// walk preserves `decl.span` accuracy.
 pub(crate) fn resolve_type_refs(
     source: &SourceFile,
     table: &SymbolTable,
@@ -278,71 +282,121 @@ pub(crate) fn resolve_type_refs(
     errors: &mut Vec<ResolutionError>,
 ) {
     let lenient = should_be_lenient(source, imports);
-    let decls = &source.decls;
 
-    for decl in decls {
-        match &decl.node {
-            Decl::TypeDef(t) => {
-                resolve_typedef_refs(t, table, &decl.span, module_scope, lenient, errors);
-            }
-            Decl::FnDef(f) => {
-                resolve_fndef_refs(f, table, &decl.span, module_scope, lenient, errors);
-            }
-            Decl::Extern(ex) => {
-                resolve_extern_refs(ex, table, &decl.span, module_scope, lenient, errors);
-            }
-            Decl::Bind(b) => {
-                // Bind has the same param/return structure as extern
-                resolve_extern_refs_generic(
-                    &b.params,
-                    b.return_ty.as_ref(),
-                    table,
-                    &decl.span,
-                    module_scope,
-                    lenient,
-                    errors,
-                );
-            }
-            Decl::Contract(_) => {
-                // Contract clauses don't have structured type refs in
-                // the current AST; nothing to check here yet.
-            }
-            Decl::Service(s) => {
-                let svc_scope =
-                    find_scope_for(table, &s.name, module_scope).unwrap_or(module_scope);
-                for item in &s.items {
-                    match item {
-                        ServiceItem::TypeDef(t) => {
-                            resolve_typedef_refs(t, table, &decl.span, svc_scope, lenient, errors);
-                        }
-                        ServiceItem::EnumDef(e) => {
-                            // Check enum variant field types
-                            let enum_scope =
-                                find_scope_for(table, &e.name, svc_scope).unwrap_or(svc_scope);
-                            check_enum_variant_types(
-                                e, table, enum_scope, &decl.span, lenient, errors,
-                            );
-                        }
-                        ServiceItem::States(_)
-                        | ServiceItem::Operation { .. }
-                        | ServiceItem::Query { .. }
-                        | ServiceItem::Invariant(_)
-                        | ServiceItem::Other { .. } => {}
+    struct TypeRefVisitor<'a> {
+        table: &'a SymbolTable,
+        module_scope: usize,
+        lenient: bool,
+        errors: &'a mut Vec<ResolutionError>,
+        decl_span: Span,
+    }
+
+    impl DeclVisitor for TypeRefVisitor<'_> {
+        fn visit_type_def(&mut self, t: &TypeDef) {
+            resolve_typedef_refs(
+                t,
+                self.table,
+                &self.decl_span,
+                self.module_scope,
+                self.lenient,
+                self.errors,
+            );
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            resolve_fndef_refs(
+                f,
+                self.table,
+                &self.decl_span,
+                self.module_scope,
+                self.lenient,
+                self.errors,
+            );
+        }
+        fn visit_extern(&mut self, ex: &ExternDecl) {
+            resolve_extern_refs(
+                ex,
+                self.table,
+                &self.decl_span,
+                self.module_scope,
+                self.lenient,
+                self.errors,
+            );
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            // Bind has the same param/return structure as extern
+            resolve_extern_refs_generic(
+                &b.params,
+                b.return_ty.as_ref(),
+                self.table,
+                &self.decl_span,
+                self.module_scope,
+                self.lenient,
+                self.errors,
+            );
+        }
+        fn visit_contract(&mut self, _c: &assura_parser::ast::ContractDecl) {
+            // Contract clauses don't have structured type refs in
+            // the current AST; nothing to check here yet.
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            let svc_scope =
+                find_scope_for(self.table, &s.name, self.module_scope).unwrap_or(self.module_scope);
+            for item in &s.items {
+                match item {
+                    ServiceItem::TypeDef(t) => {
+                        resolve_typedef_refs(
+                            t,
+                            self.table,
+                            &self.decl_span,
+                            svc_scope,
+                            self.lenient,
+                            self.errors,
+                        );
                     }
+                    ServiceItem::EnumDef(e) => {
+                        let enum_scope =
+                            find_scope_for(self.table, &e.name, svc_scope).unwrap_or(svc_scope);
+                        check_enum_variant_types(
+                            e,
+                            self.table,
+                            enum_scope,
+                            &self.decl_span,
+                            self.lenient,
+                            self.errors,
+                        );
+                    }
+                    ServiceItem::States(_)
+                    | ServiceItem::Operation { .. }
+                    | ServiceItem::Query { .. }
+                    | ServiceItem::Invariant(_)
+                    | ServiceItem::Other { .. } => {}
                 }
             }
-            Decl::EnumDef(e) => {
-                // Check enum variant field types against the symbol table
-                let enum_scope =
-                    find_scope_for(table, &e.name, module_scope).unwrap_or(module_scope);
-                check_enum_variant_types(e, table, enum_scope, &decl.span, lenient, errors);
-            }
-            // Prophecy variables have a type annotation but it's stored as
-            // raw tokens, not structured params. No type ref resolution needed.
-            Decl::Prophecy(_) => {}
-            Decl::CodecRegistry(_) => {}
-            Decl::Block { .. } => {}
         }
+        fn visit_enum_def(&mut self, e: &EnumDef) {
+            let enum_scope =
+                find_scope_for(self.table, &e.name, self.module_scope).unwrap_or(self.module_scope);
+            check_enum_variant_types(
+                e,
+                self.table,
+                enum_scope,
+                &self.decl_span,
+                self.lenient,
+                self.errors,
+            );
+        }
+        // Prophecy / CodecRegistry / Block: default no-op (no structured type refs yet)
+    }
+
+    for decl in &source.decls {
+        let mut visitor = TypeRefVisitor {
+            table,
+            module_scope,
+            lenient,
+            errors,
+            decl_span: decl.span.clone(),
+        };
+        visitor.visit_decl(&decl.node);
     }
 }
 

@@ -55,11 +55,33 @@ Full meanings: `docs/SPECIFICATION.md` §7.2 / Appendix D. Do not fix an `A02` i
 
 Full detail: `crates/assura-types/src/CHECKER-LAYERS.md`.
 
+### Agent entrypoint (one-line start for common tasks)
+
+Use this table before grepping the whole repo. It reduces wrong-crate edits.
+
+| Task | Start here | Wire / register here | Guard / verify |
+|------|------------|----------------------|----------------|
+| New type checker (Layer 0) | `bash scripts/agent-new-checker.sh <name>` then `crates/assura-types/src/checks/<name>.rs` | `CHECKER_PIPELINE` in `crates/assura-types/src/pipeline.rs` | `bash scripts/agent-guards.sh` (orphan `run_*_checks`) |
+| New domain / CVE logic | `crates/assura-types/src/domain/` or `checkers/` (see `CHECKER-LAYERS.md`) | Thin `run_*_checks` in `checks/` + pipeline row | same guards |
+| SMT manager method (Prophecy / Trigger / decrease / quantifier) | `crates/assura-smt/src/advanced.rs` (or backend modules) | Call from `verify()` / `z3_backend/encoder` / entry, not tests only | agent-guards **section 7 hard-fails** unwired `check_all_resolved`, `check_unconstrained`, `validate_trigger`, `validate_quantifier_bounds`, `dispatch_decrease_checks` |
+| SMT limitation (skip with warning) | `assura_smt::KNOWN_SMT_LIMITATION_MARKER` / `is_known_smt_limitation` | Emit `VerificationResult::Unknown` with that marker | guards reject open-coded marker strings elsewhere |
+| Full compile path (CLI/LSP/MCP/tests) | `assura_pipeline::{compile, compile_full, verify_typed, run_at}` | Do not hand-roll Verifier in CLI/LSP/MCP | guards warn/fail on `Verifier::new` outside smt/pipeline |
+| Name resolution pass on decls | `crates/assura-resolve/src/` (`unused.rs`, `clause_names.rs`, `type_refs.rs` use `DeclVisitor`) | Prefer `visit_decl` over copy-paste `match Decl` | `cargo test -p assura-resolve --locked --lib` |
+| Error code `Axxxxx` | [`docs/error-codes-agent.md`](docs/error-codes-agent.md) | Phase crate from index, then `rg 'A0xxxx' crates` | wrong phase = wasted work |
+| `MASTER-PLAN.md` task | Task section + **Acceptance Tests** block | Implement only that task's scope | Run every acceptance command before `[x]` |
+
+**MASTER-PLAN agent entrypoint convention:** when adding or editing a plan task, include one line under the task title:
+
+`**Agent entrypoint:** \`path/to/primary/file.rs\` (wire in \`other.rs\` / \`pipeline.rs\`)`
+
+That line is the first file an agent should open; acceptance tests remain the done gate.
+
 ### Fast agent commands (prefer over full workspace test)
 
 ```bash
 # Static anti-pattern greps (Verifier::new, Type::Unknown ==, orphan run_*_checks,
-# open-coded SMT limitation marker, ergonomics APIs, CHECKER_PIPELINE breadth).
+# open-coded SMT limitation marker, ergonomics APIs, CHECKER_PIPELINE breadth,
+# SMT manager wiring hard-fail section 7).
 # Also runs in CI (clippy job) so regressions fail PRs, not only local sessions.
 bash scripts/agent-guards.sh
 
