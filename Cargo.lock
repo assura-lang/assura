@@ -303,6 +303,7 @@ dependencies = [
  "assura-config",
  "assura-pipeline",
  "assura-resolve",
+ "assura-test-support",
  "assura-types",
  "cvc5",
  "rayon",

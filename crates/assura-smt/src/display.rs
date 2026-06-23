@@ -7,7 +7,10 @@
 
 use std::io::Write;
 
-use assura_ast::{ClauseKind, Decl, SourceFile};
+use assura_ast::{
+    BindDecl, ClauseKind, ContractDecl, DeclVisitor, ExternDecl, FnDef, ServiceDecl, SourceFile,
+    walk_decls,
+};
 use assura_types::TypedFile;
 
 use crate::VerificationResult;
@@ -250,48 +253,51 @@ pub fn clean_z3_value(value: &str) -> String {
 
 /// Collect names of all contracts, services, and extern fns that could
 /// potentially have verifiable clauses.
+///
+/// Uses [`DeclVisitor`] so new `Decl` variants only need an arm in `walk_decl`,
+/// not another open-coded match here.
 pub fn collect_contract_names(file: &SourceFile) -> Vec<String> {
-    let mut names = Vec::new();
-    for decl in &file.decls {
-        match &decl.node {
-            Decl::Contract(c) => names.push(c.name.clone()),
-            Decl::Service(s) => names.push(s.name.clone()),
-            Decl::Extern(ex) => {
-                if ex
-                    .clauses
-                    .iter()
-                    .any(|cl| matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant))
-                {
-                    names.push(ex.name.clone());
-                }
+    struct VerifiableNames(Vec<String>);
+
+    impl DeclVisitor for VerifiableNames {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            self.0.push(c.name.clone());
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            self.0.push(s.name.clone());
+        }
+        fn visit_extern(&mut self, ex: &ExternDecl) {
+            if ex
+                .clauses
+                .iter()
+                .any(|cl| matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant))
+            {
+                self.0.push(ex.name.clone());
             }
-            Decl::FnDef(f) => {
-                if f.clauses.iter().any(|cl| {
-                    matches!(
-                        cl.kind,
-                        ClauseKind::Ensures | ClauseKind::Invariant | ClauseKind::Decreases
-                    )
-                }) {
-                    names.push(f.name.clone());
-                }
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            if f.clauses.iter().any(|cl| {
+                matches!(
+                    cl.kind,
+                    ClauseKind::Ensures | ClauseKind::Invariant | ClauseKind::Decreases
+                )
+            }) {
+                self.0.push(f.name.clone());
             }
-            Decl::Bind(b) => {
-                if b.clauses
-                    .iter()
-                    .any(|cl| matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant))
-                {
-                    names.push(b.name.clone());
-                }
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            if b.clauses
+                .iter()
+                .any(|cl| matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant))
+            {
+                self.0.push(b.name.clone());
             }
-            // Prophecy variables don't have verifiable clauses.
-            Decl::Prophecy(_)
-            | Decl::CodecRegistry(_)
-            | Decl::TypeDef(_)
-            | Decl::EnumDef(_)
-            | Decl::Block { .. } => {}
         }
     }
-    names
+
+    let mut v = VerifiableNames(Vec::new());
+    walk_decls(&mut v, &file.decls);
+    v.0
 }
 
 /// Dispatch pending decrease checks from the type checker to the SMT solver.

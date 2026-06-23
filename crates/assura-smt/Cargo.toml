@@ -29,4 +29,5 @@ sha2 = "0.11"
 assura-pipeline = { path = "../assura-pipeline" }
 assura-config = { path = "../assura-config" }
 assura-resolve = { path = "../assura-resolve" }
+assura-test-support = { path = "../assura-test-support" }
 tempfile = "3"

@@ -61,6 +61,8 @@ jobs:
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'scripts/**'
+              - 'AGENTS.md'
               - '.github/workflows/ci.yml'
             codegen:
               - 'crates/assura-parser/**'
@@ -141,6 +143,12 @@ jobs:
 
       - name: Format check
         run: cargo fmt --check --all
+
+      # Fast static greps: Verifier::new outside smt/pipeline, Type::Unknown ==,
+      # missing ergonomics APIs, CHECKER_PIPELINE breadth. No compile required.
+      - name: Agent ergonomics guards
+        if: ${{ !cancelled() }}
+        run: bash scripts/agent-guards.sh
 
       - name: Clippy
         if: ${{ !cancelled() }}

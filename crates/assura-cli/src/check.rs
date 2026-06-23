@@ -553,21 +553,58 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
                 }
                 file_info["imports"] = serde_json::json!(f.imports.len());
                 let mut decl_counts = serde_json::Map::new();
-                let (mut contracts, mut types, mut enums, mut externs, mut fns, mut services) =
-                    (0u32, 0, 0, 0, 0, 0);
-                for d in &f.decls {
-                    match &d.node {
-                        Decl::Contract(_) => contracts += 1,
-                        Decl::TypeDef(_) => types += 1,
-                        Decl::EnumDef(_) => enums += 1,
-                        Decl::Extern(_) | Decl::Bind(_) => externs += 1,
-                        Decl::FnDef(_) => fns += 1,
-                        Decl::Service(_) => services += 1,
-                        Decl::Prophecy(_) => {}
-                        Decl::CodecRegistry(_) => {}
-                        Decl::Block { .. } => {}
+                use assura_parser::ast::{
+                    BindDecl, ContractDecl, DeclVisitor, EnumDef, ExternDecl, FnDef, ServiceDecl,
+                    TypeDef, walk_decls,
+                };
+                struct DeclCounts {
+                    contracts: u32,
+                    types: u32,
+                    enums: u32,
+                    externs: u32,
+                    fns: u32,
+                    services: u32,
+                }
+                impl DeclVisitor for DeclCounts {
+                    fn visit_contract(&mut self, _: &ContractDecl) {
+                        self.contracts += 1;
+                    }
+                    fn visit_type_def(&mut self, _: &TypeDef) {
+                        self.types += 1;
+                    }
+                    fn visit_enum_def(&mut self, _: &EnumDef) {
+                        self.enums += 1;
+                    }
+                    fn visit_extern(&mut self, _: &ExternDecl) {
+                        self.externs += 1;
+                    }
+                    fn visit_bind(&mut self, _: &BindDecl) {
+                        self.externs += 1;
+                    }
+                    fn visit_fn_def(&mut self, _: &FnDef) {
+                        self.fns += 1;
+                    }
+                    fn visit_service(&mut self, _: &ServiceDecl) {
+                        self.services += 1;
                     }
                 }
+                let mut counts = DeclCounts {
+                    contracts: 0,
+                    types: 0,
+                    enums: 0,
+                    externs: 0,
+                    fns: 0,
+                    services: 0,
+                };
+                walk_decls(&mut counts, &f.decls);
+                let (contracts, types, enums, externs, fns, services) = (
+                    counts.contracts,
+                    counts.types,
+                    counts.enums,
+                    counts.externs,
+                    counts.fns,
+                    counts.services,
+                );
                 if contracts > 0 {
                     decl_counts.insert("contracts".into(), contracts.into());
                 }

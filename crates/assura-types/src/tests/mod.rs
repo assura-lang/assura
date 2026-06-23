@@ -18,7 +18,15 @@ pub(super) use assura_resolve::ResolvedFile;
 /// Helper: parse + resolve source text, panicking on errors.
 ///
 /// Delegates to [`assura_test_support::resolve_ok`] so tests share the same
-/// pipeline entry as other crates (Tier 2 agent ergonomics).
+/// parse/resolve entry as other crates. Do **not** add a `typecheck_ok` shim
+/// that returns [`TypedFile`] from `assura_test_support`: that crate depends
+/// on `assura-types` via the pipeline, so the returned `TypedFile` is a
+/// *different type instance* than this crate under test (same footgun as
+/// `codegen_ok` inside `assura-codegen` tests). For happy-path type checks
+/// here, use `resolve_ok` + `type_check(&resolved).expect(...)`. For
+/// error-code-only negative tests, call `assura_test_support::expect_type_errors`
+/// / `compile_result` directly (inspect codes via support helpers, not
+/// `TypedFile`).
 pub(super) fn resolve_ok(source: &str) -> ResolvedFile {
     assura_test_support::resolve_ok(source)
 }

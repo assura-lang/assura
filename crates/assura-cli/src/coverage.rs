@@ -178,19 +178,38 @@ pub(crate) fn collect_contract_names_from_dir(
         };
         let (parsed, _) = assura_parser::parse(&source);
         if let Some(file) = parsed {
-            for decl in &file.decls {
-                let name = match &decl.node {
-                    Decl::Contract(c) => Some(c.name.clone()),
-                    Decl::Bind(b) => Some(b.name.clone()),
-                    Decl::FnDef(f) => Some(f.name.clone()),
-                    Decl::Service(s) => Some(s.name.clone()),
-                    _ => None,
-                };
-                if let Some(n) = name {
-                    names.insert(n.clone());
-                    files.insert(n, rel.clone());
+            use assura_parser::ast::{
+                BindDecl, ContractDecl, DeclVisitor, FnDef, ServiceDecl, walk_decls,
+            };
+            struct CoverageNames<'a> {
+                names: &'a mut std::collections::HashSet<String>,
+                files: &'a mut std::collections::HashMap<String, String>,
+                rel: &'a str,
+            }
+            impl DeclVisitor for CoverageNames<'_> {
+                fn visit_contract(&mut self, c: &ContractDecl) {
+                    self.names.insert(c.name.clone());
+                    self.files.insert(c.name.clone(), self.rel.to_string());
+                }
+                fn visit_bind(&mut self, b: &BindDecl) {
+                    self.names.insert(b.name.clone());
+                    self.files.insert(b.name.clone(), self.rel.to_string());
+                }
+                fn visit_fn_def(&mut self, f: &FnDef) {
+                    self.names.insert(f.name.clone());
+                    self.files.insert(f.name.clone(), self.rel.to_string());
+                }
+                fn visit_service(&mut self, s: &ServiceDecl) {
+                    self.names.insert(s.name.clone());
+                    self.files.insert(s.name.clone(), self.rel.to_string());
                 }
             }
+            let mut visitor = CoverageNames {
+                names,
+                files,
+                rel: &rel,
+            };
+            walk_decls(&mut visitor, &file.decls);
         }
     }
 }

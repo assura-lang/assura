@@ -243,12 +243,7 @@ mod quantifier_bound_tests {
     use super::*;
 
     fn type_check_source(source: &str) -> assura_types::TypedFile {
-        let out = assura_pipeline::compile(
-            source,
-            "test.assura",
-            &assura_config::CompilerConfig::default(),
-        );
-        out.typed.expect("type_check failed")
+        assura_test_support::typecheck_ok(source)
     }
 
     #[test]

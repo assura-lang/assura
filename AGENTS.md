@@ -23,6 +23,7 @@ wrong test helpers, wrong Unknown policy).
 
 ```bash
 # Static anti-pattern greps (Verifier::new, Type::Unknown ==, pipeline size)
+# Also runs in CI (clippy job) so regressions fail PRs, not only local sessions.
 bash scripts/agent-guards.sh
 
 # fmt + guards + clippy on key crates + one demo
@@ -39,6 +40,12 @@ cargo clippy -p assura-types --lib --locked -- -D warnings
 ```
 
 Full `cargo test --workspace --locked` is for session end / pre-push, not every edit.
+
+Prefer `assura_test_support::{typecheck_ok, compile_result, expect_type_errors, verify_ok}`
+in new tests **except** inside `assura-types` and `assura-codegen` unit tests:
+those crates appear in the test-support dependency graph, so returning
+`TypedFile` / `GeneratedProject` from support yields a different type instance.
+There, use `resolve_ok` (types) or `typecheck_ok` + local `codegen` (codegen) only.
 
 ### Pipeline invariants agents must respect
 
