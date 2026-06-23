@@ -342,7 +342,7 @@ fn tier_a2_trigger_manager_registers_known_fn_and_validates() {
 #[test]
 fn tier_a3_frame_checker_frames_unmodified_candidates() {
     use assura_ast::{Expr, Spanned};
-    use assura_types::checkers::error_propagation::FrameChecker;
+    use assura_types::FrameChecker;
 
     let modifies_a = Spanned::no_span(Expr::Ident("a".into()));
     let checker = FrameChecker::new(&[&modifies_a]);
