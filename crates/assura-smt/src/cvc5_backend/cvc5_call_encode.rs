@@ -14,6 +14,7 @@ use crate::cvc5_encoder_state::{Cvc5EncoderState, canonical_length_cvc5};
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_native_builtins::{
     encode_known_builtin_cvc5, encode_uf_call_cvc5, field_len_of_receiver_cvc5,
+    link_ident_length_cvc5,
 };
 
 /// Encode `f(args)` as SMT-LIB2 (builtin table or generic UF).
@@ -89,6 +90,22 @@ where
     Some(field_len_of_receiver_cvc5(tm, &recv_val, state))
 }
 
+/// If `expr` is a simple ident, link `len`/`__field_len` UFs on its term to the
+/// canonical length variable (Z3 `collection_len_of` parity for named bindings).
+#[cfg(feature = "cvc5-verify")]
+fn maybe_link_ident_length_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    expr: &SpExpr,
+    term: &cvc5::Term<'a>,
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+) {
+    if let Expr::Ident(name) = &expr.node {
+        let canon = canonical_length_cvc5(tm, name, vars, state);
+        link_ident_length_cvc5(tm, state, term, &canon);
+    }
+}
+
 /// Encode `f(args)` as a native CVC5 term (builtin table or generic UF).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_call_cvc5<'a, F>(
@@ -114,9 +131,12 @@ where
                 .cloned()
                 .or_else(|| Some(tm.mk_const(tm.integer_sort(), &f_name)));
         }
-        let encoded_args: Option<Vec<cvc5::Term>> =
-            args.iter().map(|a| encode(a, vars, state)).collect();
-        let encoded_args = encoded_args?;
+        let mut encoded_args = Vec::with_capacity(args.len());
+        for a in args {
+            let t = encode(a, vars, state)?;
+            maybe_link_ident_length_cvc5(tm, a, &t, vars, state);
+            encoded_args.push(t);
+        }
         if let Some(term) = encode_known_builtin_cvc5(tm, f_name.as_str(), &encoded_args, state) {
             return Some(term);
         }
@@ -149,9 +169,12 @@ where
     }
 
     let recv_val = encode(receiver, vars, state)?;
+    maybe_link_ident_length_cvc5(tm, receiver, &recv_val, vars, state);
     let mut all_encoded = vec![recv_val];
     for arg in args {
-        all_encoded.push(encode(arg, vars, state)?);
+        let t = encode(arg, vars, state)?;
+        maybe_link_ident_length_cvc5(tm, arg, &t, vars, state);
+        all_encoded.push(t);
     }
     let f_name = sanitize_smtlib_name(method);
     if let Some(term) = encode_known_builtin_cvc5(tm, f_name.as_str(), &all_encoded, state) {

@@ -12,6 +12,9 @@ pub(crate) struct Cvc5EncoderState<'a> {
     pub(crate) fresh_counter: usize,
     pub(crate) use_string_theory: bool,
     field_len_fn: Option<cvc5::Term<'a>>,
+    /// Cached uninterpreted function symbols (`name@arity@bool|int`) so axioms
+    /// from requires share the same UF with ensures (CVC5 does not intern by name).
+    uf_cache: HashMap<String, cvc5::Term<'a>>,
     pub(crate) struct_adt_symbols: HashMap<String, Cvc5AdtNativeSymbols<'a>>,
     pub(crate) struct_adt_defs: HashMap<String, Cvc5AdtDef>,
 }
@@ -24,6 +27,7 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
         fresh_counter: 0,
         use_string_theory: false,
         field_len_fn: None,
+        uf_cache: HashMap::new(),
         struct_adt_symbols: HashMap::new(),
         struct_adt_defs: HashMap::new(),
     }
@@ -69,5 +73,44 @@ pub(crate) fn field_len_fn_cvc5<'a>(
     let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
     let len_func = tm.mk_const(len_sort, "__field_len");
     state.field_len_fn = Some(len_func.clone());
+    // Keep uf_cache aligned so `collection_len_of("__field_len")` reuses this symbol.
+    state
+        .uf_cache
+        .insert(uf_cache_key("__field_len", 1, false), len_func.clone());
     len_func
+}
+
+/// Cache key for uninterpreted functions (name, arity, returns_bool).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn uf_cache_key(name: &str, arity: usize, returns_bool: bool) -> String {
+    let sort_tag = if returns_bool { "b" } else { "i" };
+    format!("{name}@{arity}@{sort_tag}")
+}
+
+/// Interned UF symbol for the encoder session (avoids per-call `mk_const` divergence).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn intern_uf_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    state: &mut Cvc5EncoderState<'a>,
+    name: &str,
+    arity: usize,
+    returns_bool: bool,
+) -> cvc5::Term<'a> {
+    let key = uf_cache_key(name, arity, returns_bool);
+    if let Some(f) = state.uf_cache.get(&key) {
+        return f.clone();
+    }
+    let domain: Vec<cvc5::Sort> = (0..arity).map(|_| tm.integer_sort()).collect();
+    let codomain = if returns_bool {
+        tm.boolean_sort()
+    } else {
+        tm.integer_sort()
+    };
+    let func_sort = tm.mk_fun_sort(&domain, codomain);
+    let func_const = tm.mk_const(func_sort, name);
+    if name == "__field_len" && arity == 1 && !returns_bool {
+        state.field_len_fn = Some(func_const.clone());
+    }
+    state.uf_cache.insert(key, func_const.clone());
+    func_const
 }
