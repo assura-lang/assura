@@ -335,6 +335,49 @@ mod tests {
         assert!(fn_node.is_some(), "should have a FN_DEF");
     }
 
+    /// CST-level: return type node must not include following clause tokens
+    /// separated by trivia (same class of bug as #345 / current_text fix).
+    #[test]
+    fn parse_fn_return_type_stops_before_catch() {
+        let src = r#"
+            fn f(x: Int) -> Result
+                catch E translate_to F
+                requires { true }
+        "#;
+        let (root, errors) = parse_to_tree(src);
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        let fn_node = root
+            .children()
+            .find(|c| node_kind(c) == SyntaxKind::FN_DEF)
+            .expect("FN_DEF");
+        let ret = fn_node
+            .children()
+            .find(|c| node_kind(c) == SyntaxKind::RETURN_TYPE)
+            .expect("RETURN_TYPE");
+        let ret_text: String = ret
+            .descendants_with_tokens()
+            .filter_map(|el| match el {
+                rowan::NodeOrToken::Token(t) if !cst::is_trivia(t.kind()) => {
+                    Some(t.text().to_string())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            !ret_text.contains("catch"),
+            "RETURN_TYPE CST must stop before catch, got: {ret_text:?}"
+        );
+        let clause_count = fn_node
+            .children()
+            .filter(|c| node_kind(c) == SyntaxKind::CLAUSE)
+            .count();
+        assert!(
+            clause_count >= 2,
+            "expected catch + requires clauses, got {clause_count}"
+        );
+    }
+
     #[test]
     fn parse_type_and_enum() {
         let src = r#"
