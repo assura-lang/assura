@@ -9,5 +9,7 @@ module demo.trigger_quant;
 contract TriggerQuantDemo {
   input { xs: List<Int> }
   requires { xs.length() >= 0 }
-  ensures { forall (i: Int) in xs { xs.length() >= 0 } }
+  // Quantifier domain `xs` plus method call `length` surfaces trigger heads
+  // for e-matching (TriggerManager). Body is a length tautology.
+  ensures { forall i in xs: xs.length() >= 0 }
 }
