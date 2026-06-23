@@ -28,6 +28,27 @@
 > when touching types pipeline or SMT managers (section 7 hard-fails unwired
 > SMT methods).
 >
+> ### Real open / realistic next work (agent entrypoints)
+>
+> Most Phase 1–11 tasks are `[x]`. When starting a session without a specific
+> issue, use one of these **agent entrypoint** lines (first file to open +
+> where to wire). Do not implement only in `domain/` without `checks/` +
+> `CHECKER_PIPELINE`.
+>
+> | Work area | Agent entrypoint | Wire / register |
+> |-----------|------------------|-----------------|
+> | New Layer 0 checker | `crates/assura-types/src/checks/<name>.rs` (scaffold: `bash scripts/agent-new-checker.sh <name>`) | `CHECKER_PIPELINE` in `crates/assura-types/src/pipeline.rs` |
+> | Domain / CVE feature logic | `crates/assura-types/src/domain/` or `checkers/` (see `CHECKER-LAYERS.md`) | Thin `run_*_checks` in `checks/` + pipeline row |
+> | SMT encoding / manager method | `crates/assura-smt/src/advanced.rs` or `z3_backend/encoder/` | `entry/mod.rs` `verify()` or encoder; agent-guards §7 |
+> | CVC5 parity follow-on | `crates/assura-smt/src/cvc5_backend.rs` (+ `cvc5_*`) | Mirror Z3 path; `cargo test -p assura-smt --features cvc5-verify` |
+> | Codegen type stubs / contracts | `crates/assura-codegen/src/lib.rs` (phases 1–2 use `DeclVisitor`) | `contract.rs` / `decl.rs` / `types_gen.rs` |
+> | CLI check / verify UX | `crates/assura-cli/src/check.rs` | Prefer `assura_pipeline::{compile, compile_full, verify_typed}` |
+> | 6.01 CodeQL (blocked: public repo) | `.github/workflows/` CodeQL / security workflows | Enable only after repo is public |
+> | 6.03 crates.io placeholder | `crates/assura-cli/Cargo.toml` / release workflow | `cargo publish --dry-run` / cargo-dist config |
+>
+> **Convention for new tasks:** under each `### N.NN:` heading add:
+> `**Agent entrypoint:** \`path/to/primary.rs\` (wire in \`other.rs\`)`
+>
 > ## Rules (non-negotiable)
 >
 > - **Never mark `[x]` without running every acceptance test command.**
@@ -242,6 +263,8 @@ Stdlib, IR parser, Cranelift backend.
 
 ### 2.01: Wire CallbackReentrancyChecker
 
+**Agent entrypoint:** `crates/assura-types/src/domain.rs` (or `domain/`/`checkers/` callback reentrancy) + `crates/assura-types/src/checks/` `run_callback_reentrancy_checks` (wire in `pipeline.rs` `CHECKER_PIPELINE`)
+
 - Depends on: none
 - **What**: `run_callback_reentrancy_checks()` marks non-reentrant
   functions but returns `Vec::new()` unconditionally after marking.
@@ -357,6 +380,8 @@ Stdlib, IR parser, Cranelift backend.
   ```
 
 ### 2.10: Wire SMT ProphecyManager into verify()
+
+**Agent entrypoint:** `crates/assura-smt/src/advanced.rs` (`ProphecyManager`) (wire in `crates/assura-smt/src/entry/mod.rs` / `z3_backend/verify.rs`; agent-guards §7 requires production callers)
 
 - Depends on: none
 - **What**: `ProphecyManager` in `advanced.rs` has declare/resolve/
@@ -793,6 +818,8 @@ Stdlib, IR parser, Cranelift backend.
 
 ### 6.01: Enable CodeQL when repo goes public (#45)
 
+**Agent entrypoint:** `.github/workflows/` (security / CodeQL jobs) (wire in branch protection / required checks after public)
+
 - Depends on: repo going public
 - **What**: CodeQL is disabled because the repo is private.
 - [ ] **Acceptance Tests** (BLOCKED: repo is still private):
@@ -820,6 +847,8 @@ Stdlib, IR parser, Cranelift backend.
   ```
 
 ### 6.03: crates.io placeholder
+
+**Agent entrypoint:** `crates/assura-cli/Cargo.toml` + release / cargo-dist config (wire in `.github/workflows/` publish job)
 
 - Depends on: 6.02
 - **What**: Claim the `assura` crate name on crates.io.
@@ -1872,6 +1901,10 @@ compiles" failure on taint-tracking.assura.
 >
 > **Execution strategy**: Independent issues within a round run in
 > parallel subagents with worktree isolation. Merge after each round.
+>
+> **Agent entrypoint (Phase 10 / CVC5 parity):** `crates/assura-smt/src/cvc5_backend.rs`
+> (+ `cvc5_*` modules); mirror Z3 in `z3_backend/encoder/`; verify with
+> `cargo test -p assura-smt --features cvc5-verify` and CI `cvc5` job.
 
 ### Round 1: Critical correctness (#246, #249, #258) -- depends on: none
 
@@ -2377,6 +2410,19 @@ generator, mass types test migration, compile-time checker registry.
 Next: normal MASTER-PLAN tasks, or Tier C only if agents still thrash on the
 same large files.
 - Plan updated, commits on main.
+
+## Progress Notes (2026-06-23 session, LLM ergonomics "do soon")
+
+- **MASTER-PLAN agent entrypoints**: table of realistic next-work entrypoints;
+  concrete lines on 2.01, 2.10, Phase 10, 6.01, 6.03.
+- **codegen phases 1–2**: `TypeCollectVisitor` (`DeclVisitor`) for defined
+  types / feature_max / referenced types in `lib.rs`.
+- **error-codes-agent**: high-traffic impl codes agents hit (A02007, A03007,
+  A10001, A14001, A52001, …) plus maintenance note.
+- **AGENTS**: skill vs AGENTS mirror rule; error-index maintenance; codegen
+  visitor note.
+
+Next: product/MASTER-PLAN work; Tier C only if agents still thrash.
 
 **2026-06-22 11.04 completion:**
 - Verified: 29 "span:" in lower.rs (>=20), expr_span test passes, all demos pass, parser+types check clean.

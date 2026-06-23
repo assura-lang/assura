@@ -106,6 +106,50 @@ Linked from `AGENTS.md` (LLM decision tree). Regenerated/curated; not exhaustive
 | A05100 | smt+cli | assura-smt / assura-cli | SMT Unknown / inconclusive (limitation vs error) | (implementation; see CLI/SMT Unknown policy) | (impl) | result.rs, check.rs |
 | A10002 | types | assura-types | Match on unknown scrutinee without wildcard | (implementation; see CLI/SMT Unknown policy) | (impl) | checks/meta.rs (match exhaustiveness) |
 
+## High-traffic implementation codes (not always in SPEC §7.2 table above)
+
+Agents often hit these in tests/checkers before finding them in Appendix D. Prefer
+this table over guessing the phase.
+
+| Code | Phase | Primary crate | Typical meaning | Start in tree |
+|------|-------|---------------|-----------------|---------------|
+| A02006 | resolve | assura-resolve | Import / path resolution failure | imports.rs |
+| A02007 | resolve | assura-resolve | Unused import | unused.rs |
+| A02008 | resolve | assura-resolve | Import / module path error | imports.rs |
+| A03006 | types | assura-types | Clause body not `Bool` where required | clauses.rs |
+| A03007 | types | assura-types | Numeric / refinement constraint failure | checks/numeric.rs, domain/numeric.rs |
+| A03010 | types | assura-types | Type / annotation mismatch (impl) | inference.rs, clauses.rs, checks/ |
+| A07003 | types | assura-types | Unknown / denied effect | checks/effects.rs (known effect names only) |
+| A08102 | types | assura-types | Info-flow / taint violation (impl) | checks/info_flow.rs, checkers/taint.rs |
+| A10001 | types | assura-types | Non-exhaustive match | checks/meta.rs |
+| A10101 | types | assura-types | Numeric / match interaction (impl) | checks/numeric.rs, checks/meta.rs |
+| A11005 | types | assura-types | Invariant / FFI-related type issue | checks/ffi_error.rs, entry/invariant paths |
+| A14001 | types | assura-types | Frame / modifies violation | checks/frame_totality.rs |
+| A23016 | types | assura-types | Domain / feature checker (impl) | domain/, checks/ |
+| A24001 | types | assura-types | Domain / feature checker (impl) | domain/, checks/ |
+| A27003 | types | assura-types | Domain / feature checker (impl) | domain/, checks/ |
+| A28001 | types | assura-types | Domain / feature checker (impl) | domain/, checks/ |
+| A33001 | types | assura-types | Storage / resource checker | checks/storage.rs |
+| A37003 | types | assura-types | Storage / resource checker | checks/storage.rs |
+| A38001 | types | assura-types | Storage / resource checker | checks/storage.rs |
+| A42003 | types | assura-types | Numeric precision / bounds | checks/numeric.rs |
+| A43001 | types | assura-types | Numeric precision / bounds | checks/numeric.rs |
+| A43002 | types | assura-types | Numeric precision / bounds | checks/numeric.rs |
+| A44001 | types | assura-types | Platform / target checker | checks/platform.rs |
+| A45001 | types | assura-types | Platform / target checker | checks/platform.rs |
+| A47001 | types | assura-types | Safety / CVE pattern checker | checks/safety.rs |
+| A48002 | types | assura-types | Meta / match / totality (impl) | checks/meta.rs |
+| A49001 | types | assura-types | Meta / match / totality (impl) | checks/meta.rs |
+| A49002 | types | assura-types | Meta / match / totality (impl) | checks/meta.rs |
+| A50001 | types | assura-types | Meta / feature checker (impl) | checks/meta.rs, domain/ |
+| A52001 | types | assura-types | Meta / feature checker (impl) | checks/meta.rs |
+| A54001 | types | assura-types | Meta / feature checker (impl) | checks/meta.rs |
+| A55001 | types | assura-types | Meta / feature checker (impl) | checks/meta.rs, domain/ |
+| A64001 | types | assura-types | FFI / error propagation (impl) | checks/ffi_error.rs |
+
+If a code is still missing: `rg 'A0xxxx' crates --glob '*.rs'` then add a row here
+in the same PR when agents are likely to hit it again.
+
 ## Agent decision shortcuts
 
 | Symptom | First action |
@@ -118,12 +162,15 @@ Linked from `AGENTS.md` (LLM decision tree). Regenerated/curated; not exhaustive
 | `A06xxx` typestate | `checkers/typestate.rs` |
 | `A07xxx` effects | `checks/effects.rs`; known effect names only (see AGENTS pipeline trap) |
 | `A08xxx` taint/flow | `checks/info_flow.rs` / `checkers/taint.rs` |
-| `A09xxx` match/totality | `checks/meta.rs` / `checkers/totality.rs`; parser arm trivia footgun |
+| `A09xxx` / `A10xxx` match/totality | `checks/meta.rs` / `checkers/totality.rs`; parser arm trivia footgun |
+| `A14xxx` frame/modifies | `checks/frame_totality.rs` |
 | `A05100` Unknown | `assura_smt::is_known_smt_limitation`; limitation = warning, else error |
+| `A52xxx` / `A54xxx` / high A-series | domain/meta features: `checks/meta.rs`, `domain/`, then `rg 'Axxxxx' crates` |
 | Wrong phase suspicion | `bash scripts/agent-guards.sh` then re-read AGENTS decision tree |
 
 ## Maintenance
 
 - Source of truth for meanings: `docs/SPECIFICATION.md` §7.2.
-- When adding a new `Axxxxx` in code, add a row here in the same PR if agents are likely to hit it.
+- When adding a new `Axxxxx` in code, add a row here (or in "High-traffic implementation codes") in the same PR if agents are likely to hit it.
+- Do **not** try to generate all of Appendix D unless agents repeatedly miss phase; curated + high-traffic is enough.
 - Full phase/wiring rules: `AGENTS.md`, `crates/assura-types/src/CHECKER-LAYERS.md`.

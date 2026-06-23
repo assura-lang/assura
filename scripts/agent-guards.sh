@@ -217,7 +217,8 @@ fi
 # 9) Soft inform: open-coded match &decl.node counts (agent should prefer
 #    DeclVisitor / Decl::name|clauses for new passes). Does not fail CI.
 # ---------------------------------------------------------------------------
-for pair in "assura-codegen:9" "assura-smt:12" "assura-resolve:2" "assura-lsp:2"; do
+# Baselines post Priority B / do-soon codegen visitor (phases 1–2 no longer match &decl.node).
+for pair in "assura-codegen:7" "assura-smt:12" "assura-resolve:2" "assura-lsp:2"; do
   crate="${pair%%:*}"
   baseline="${pair##*:}"
   # rg exits 1 when no matches; under set -e that would abort the script.

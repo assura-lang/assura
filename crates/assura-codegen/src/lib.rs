@@ -30,9 +30,9 @@ use service::*;
 use types_gen::*;
 
 use assura_ast::{
-    BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
-    Expr, ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem, SpExpr, TypeBody,
-    TypeDef, UnaryOp,
+    BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl,
+    DeclVisitor, EnumDef, Expr, ExternDecl, FnDef, Literal, MagicPattern, ServiceDecl, ServiceItem,
+    SpExpr, TypeBody, TypeDef, UnaryOp,
 };
 use assura_types::TypedFile;
 
@@ -159,20 +159,41 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
 
     let mut code = String::new();
 
-    // Phase 1: Collect all defined type names and feature_max constants
+    // Phase 1+2: defined types, feature_max consts, and referenced types via DeclVisitor
+    // (new Decl variants only need arms in walk_decl, not another open-coded match here).
     let mut defined_types = std::collections::HashSet::new();
     let mut feature_max_consts: Vec<(String, String)> = Vec::new();
-    for decl in &source.decls {
-        match &decl.node {
-            Decl::TypeDef(t) => {
-                defined_types.insert(t.name.clone());
+    let mut referenced_types = std::collections::HashSet::new();
+
+    struct TypeCollectVisitor<'a> {
+        defined_types: &'a mut std::collections::HashSet<String>,
+        feature_max_consts: &'a mut Vec<(String, String)>,
+        referenced_types: &'a mut std::collections::HashSet<String>,
+    }
+
+    impl DeclVisitor for TypeCollectVisitor<'_> {
+        fn visit_type_def(&mut self, t: &TypeDef) {
+            self.defined_types.insert(t.name.clone());
+            if let TypeBody::Struct(fields) = &t.body {
+                for f in fields {
+                    collect_type_refs_from_tokens(
+                        &type_expr_to_token_vec(f.ty.as_ref()),
+                        self.referenced_types,
+                    );
+                }
             }
-            Decl::EnumDef(e) => {
-                defined_types.insert(e.name.clone());
-            }
-            Decl::Block {
-                kind, name, value, ..
-            } if *kind == BlockKind::FeatureMax => {
+        }
+        fn visit_enum_def(&mut self, e: &EnumDef) {
+            self.defined_types.insert(e.name.clone());
+        }
+        fn visit_block(
+            &mut self,
+            kind: &BlockKind,
+            name: &str,
+            value: &Option<Vec<String>>,
+            _body: &[Clause],
+        ) {
+            if *kind == BlockKind::FeatureMax {
                 // Extract type from inline value tokens (e.g., ["Nat", "=", "280"] -> "Nat")
                 let ty = value
                     .as_ref()
@@ -183,20 +204,80 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                     })
                     .map(|t| map_type_token(t).to_string())
                     .unwrap_or_else(|| "u64".to_string());
-                feature_max_consts.push((name.clone(), ty));
+                self.feature_max_consts.push((name.to_string(), ty));
             }
-            // Contract, Service, FnDef, Extern, Prophecy, and non-feature_max
-            // blocks don't define type names or feature_max constants.
-            Decl::Contract(_)
-            | Decl::Service(_)
-            | Decl::FnDef(_)
-            | Decl::Extern(_)
-            | Decl::Bind(_)
-            | Decl::Prophecy(_)
-            | Decl::CodecRegistry(_)
-            | Decl::Block { .. } => {}
         }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            collect_type_refs_from_tokens(
+                &type_expr_to_token_vec(f.return_ty.as_ref()),
+                self.referenced_types,
+            );
+            for p in &f.params {
+                collect_type_refs_from_tokens(
+                    &type_expr_to_token_vec(p.ty.as_ref()),
+                    self.referenced_types,
+                );
+            }
+        }
+        fn visit_extern(&mut self, ex: &ExternDecl) {
+            collect_type_refs_from_tokens(
+                &type_expr_to_token_vec(ex.return_ty.as_ref()),
+                self.referenced_types,
+            );
+            for p in &ex.params {
+                collect_type_refs_from_tokens(
+                    &type_expr_to_token_vec(p.ty.as_ref()),
+                    self.referenced_types,
+                );
+            }
+        }
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            for clause in &c.clauses {
+                collect_type_refs_from_expr(&clause.body, self.referenced_types);
+            }
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            for item in &s.items {
+                match item {
+                    ServiceItem::TypeDef(t) => {
+                        self.defined_types.insert(t.name.clone());
+                    }
+                    ServiceItem::EnumDef(e) => {
+                        self.defined_types.insert(e.name.clone());
+                    }
+                    ServiceItem::Operation { clauses, .. } | ServiceItem::Query { clauses, .. } => {
+                        for clause in clauses {
+                            collect_type_refs_from_expr(&clause.body, self.referenced_types);
+                        }
+                    }
+                    ServiceItem::States(_)
+                    | ServiceItem::Invariant(_)
+                    | ServiceItem::Other { .. } => {}
+                }
+            }
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            collect_type_refs_from_tokens(
+                &type_expr_to_token_vec(b.return_ty.as_ref()),
+                self.referenced_types,
+            );
+            for p in &b.params {
+                collect_type_refs_from_tokens(
+                    &type_expr_to_token_vec(p.ty.as_ref()),
+                    self.referenced_types,
+                );
+            }
+        }
+        // Prophecy / CodecRegistry: default no-op
     }
+
+    let mut type_visitor = TypeCollectVisitor {
+        defined_types: &mut defined_types,
+        feature_max_consts: &mut feature_max_consts,
+        referenced_types: &mut referenced_types,
+    };
+    assura_ast::walk_decls(&mut type_visitor, &source.decls);
+
     // Add built-in type names that should never generate stubs
     for builtin in &[
         "Int", "Nat", "Float", "Bool", "String", "Bytes", "Unit", "Never", "U8", "U16", "U32",
@@ -205,86 +286,6 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         "f32", "f64",
     ] {
         defined_types.insert(builtin.to_string());
-    }
-
-    // Phase 2: Collect all referenced type names from function params/return types
-    let mut referenced_types = std::collections::HashSet::new();
-    for decl in &source.decls {
-        match &decl.node {
-            Decl::FnDef(f) => {
-                collect_type_refs_from_tokens(
-                    &type_expr_to_token_vec(f.return_ty.as_ref()),
-                    &mut referenced_types,
-                );
-                for p in &f.params {
-                    collect_type_refs_from_tokens(
-                        &type_expr_to_token_vec(p.ty.as_ref()),
-                        &mut referenced_types,
-                    );
-                }
-            }
-            Decl::Extern(ex) => {
-                collect_type_refs_from_tokens(
-                    &type_expr_to_token_vec(ex.return_ty.as_ref()),
-                    &mut referenced_types,
-                );
-                for p in &ex.params {
-                    collect_type_refs_from_tokens(
-                        &type_expr_to_token_vec(p.ty.as_ref()),
-                        &mut referenced_types,
-                    );
-                }
-            }
-            Decl::TypeDef(t) => {
-                if let TypeBody::Struct(fields) = &t.body {
-                    for f in fields {
-                        collect_type_refs_from_tokens(
-                            &type_expr_to_token_vec(f.ty.as_ref()),
-                            &mut referenced_types,
-                        );
-                    }
-                }
-            }
-            Decl::Contract(c) => {
-                for clause in &c.clauses {
-                    collect_type_refs_from_expr(&clause.body, &mut referenced_types);
-                }
-            }
-            Decl::Service(s) => {
-                for item in &s.items {
-                    match item {
-                        ServiceItem::TypeDef(t) => {
-                            defined_types.insert(t.name.clone());
-                        }
-                        ServiceItem::EnumDef(e) => {
-                            defined_types.insert(e.name.clone());
-                        }
-                        ServiceItem::Operation { clauses, .. }
-                        | ServiceItem::Query { clauses, .. } => {
-                            for clause in clauses {
-                                collect_type_refs_from_expr(&clause.body, &mut referenced_types);
-                            }
-                        }
-                        ServiceItem::States(_)
-                        | ServiceItem::Invariant(_)
-                        | ServiceItem::Other { .. } => {}
-                    }
-                }
-            }
-            Decl::Bind(b) => {
-                collect_type_refs_from_tokens(
-                    &type_expr_to_token_vec(b.return_ty.as_ref()),
-                    &mut referenced_types,
-                );
-                for p in &b.params {
-                    collect_type_refs_from_tokens(
-                        &type_expr_to_token_vec(p.ty.as_ref()),
-                        &mut referenced_types,
-                    );
-                }
-            }
-            Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::Block { .. } => {}
-        }
     }
 
     // Phase 3: Generate feature_max constants BEFORE any code that uses them.
