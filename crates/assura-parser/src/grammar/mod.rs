@@ -203,6 +203,25 @@ fn body_tokens_inner(p: &mut Parser, closer: SyntaxKind, stoppers: &[SyntaxKind]
     }
 }
 
+/// Expect a closing delimiter (R_BRACE, R_PAREN, etc.) after a raw body
+/// collector (body_tokens_inner) or manual item loop.
+///
+/// For "illustrative" bodies in demos (validate { } or-return, struct lits,
+/// constant_time { }, etc. at EOF) the collector may leave the parser
+/// slightly before or after the closer due to trivia or mixed constructs.
+/// This helper syncs to the closer (if present) before the strict expect,
+/// so good input succeeds while truly unclosed cases still error.
+///
+/// Use after body_tokens + in places that had manual while !at(R_...) + expect.
+pub(crate) fn expect_closer(p: &mut Parser, closer: SyntaxKind) {
+    if !p.at(closer) {
+        while !p.eof() && !p.at(closer) {
+            p.bump();
+        }
+    }
+    p.expect(closer);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

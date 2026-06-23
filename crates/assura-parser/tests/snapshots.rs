@@ -118,6 +118,31 @@ fn error_recovery_missing_brace() {
     let _ = &ast;
 }
 
+/// Regression for the structures that caused "expected R_BRACE" on real demos
+/// (trailing impl body after clauses/effects, containing validate { } followed
+/// by `or return`, at EOF). The minimal missing_brace fixture did not cover this.
+#[test]
+fn recovery_trailing_fn_body_with_validate_or_return_parses_clean() {
+    let source = r#"
+fn example(x: Int) -> Int
+  effects: pure
+{
+  let y = validate {
+    x > 0
+  } x
+    or return -1
+  y + 1
+}
+"#;
+    let (ast, errors) = parse(&source);
+    assert!(
+        errors.is_empty(),
+        "trailing body with validate{} + or-return must parse with zero errors, got: {:?}",
+        errors
+    );
+    let _ = ast;
+}
+
 #[test]
 fn error_recovery_bad_token() {
     let (ast, errors) = parse_error_file("../../tests/fixtures/errors/bad_token.assura");

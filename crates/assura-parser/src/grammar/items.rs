@@ -139,12 +139,7 @@ fn contract_decl(p: &mut Parser) {
             p.err_and_bump("expected clause, type, fn, or closing brace");
         }
     }
-    if !p.at(SyntaxKind::R_BRACE) {
-        while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
-            p.bump();
-        }
-    }
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::CONTRACT_DECL);
 }
 
@@ -161,12 +156,7 @@ fn type_def(p: &mut Parser) {
             // Refined: = { ... }
             p.bump_delim();
             super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
-            if !p.at(SyntaxKind::R_BRACE) {
-                while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
-                    p.bump();
-                }
-            }
-            p.expect(SyntaxKind::R_BRACE);
+            super::expect_closer(p, SyntaxKind::R_BRACE);
         } else {
             // Alias: = Type tokens until next decl
             type_alias_tokens(p);
@@ -185,12 +175,7 @@ fn type_def(p: &mut Parser) {
                 p.err_and_bump("expected field, clause, or `}`");
             }
         }
-        if !p.at(SyntaxKind::R_BRACE) {
-            while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
-                p.bump();
-            }
-        }
-        p.expect(SyntaxKind::R_BRACE);
+        super::expect_closer(p, SyntaxKind::R_BRACE);
     }
     // else: empty type (just `type Foo`)
 
@@ -507,12 +492,7 @@ fn fn_def(p: &mut Parser) {
         if p.at(SyntaxKind::L_BRACE) {
             p.bump_delim();
             super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
-            if !p.at(SyntaxKind::R_BRACE) {
-                while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
-                    p.bump();
-                }
-            }
-            p.expect(SyntaxKind::R_BRACE);
+            super::expect_closer(p, SyntaxKind::R_BRACE);
         }
     }
 
@@ -551,12 +531,7 @@ fn service_decl(p: &mut Parser) {
             p.err_and_bump("expected service item or `}`");
         }
     }
-    if !p.at(SyntaxKind::R_BRACE) {
-        while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
-            p.bump();
-        }
-    }
-    p.expect(SyntaxKind::R_BRACE);
+    super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::SERVICE_DECL);
 }
 
