@@ -919,6 +919,14 @@ When you introduce a new helper, document it here and in
   is structurally guaranteed to be on the closer (e.g. `old(expr)`, `param_list`,
   arg/index lists after normal expression parsing).
 
+- **`current()` / `current_text()` vs `tokens[pos]`** (params.rs `is_return_type_stopper`,
+  #345): `current()` and `current_text()` skip leading trivia at `pos`. Reading
+  `tokens.get(p.pos())` while branching on `current() == IDENT` can see WHITESPACE
+  text and fail to treat ident clause starters (`catch`, `must_check`, etc.) as
+  stoppers, slurping them into return types. Always use `current_text()` when
+  matching on `current()` kind. Regression: `return_type_does_not_slurp_catch_clause`
+  in `crates/assura-parser/tests/snapshots.rs`.
+
 - `is_trivia(k)` (cst.rs, pub(crate)) — canonical check for WHITESPACE | COMMENT. Use everywhere instead of duplicating the predicate in lower.rs and elsewhere. See #337 consolidation.
 
   **Footgun**: In manual token-walking code that does `p.expect(SyntaxKind::L_BRACE); p.bump_delim();` (e.g. `codec_entry` and similar in `grammar/items.rs`), `expect` already bumped the `{`. The extra `bump()` from `bump_delim()` skips the first real token after the brace. This caused "expected `magic`, `decoder`, `contracts`, or `}`" errors and made the codec_registry lower tests fail. Correct pattern for such collectors: `expect(L_BRACE); bump_trivia();` (matching contract_decl, service_decl, etc.). Audit all manual loops inside braces after any span/trivia change.

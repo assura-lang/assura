@@ -151,11 +151,59 @@ fn error_recovery_missing_brace() {
         "missing brace recovery should produce error(s)"
     );
 
-    // Snapshot the errors for future regression tracking
     let error_messages: Vec<String> = errors.iter().map(|e| format!("{e}")).collect();
-    // insta snapshots skipped to avoid span drift in this session; exercised the parse
-    let _ = &error_messages;
-    let _ = &ast;
+    let joined = error_messages.join(" ");
+    // Recovery must mention a missing/expected closer (brace or R_BRACE), not just any error
+    assert!(
+        joined.contains('}')
+            || joined.contains("R_BRACE")
+            || joined.to_lowercase().contains("brace")
+            || joined.contains("expected"),
+        "missing brace errors should mention expected/brace closer, got: {error_messages:?}"
+    );
+    // Parser should still attempt a partial AST rather than panicking
+    let _ = ast;
+}
+
+/// Return-type slurp must stop at ident clause starters (`catch`, etc.) even
+/// when preceded by newline/trivia (#345). Without current_text() alignment,
+/// `catch` was absorbed into return_ty and error propagation never ran.
+#[test]
+fn return_type_does_not_slurp_catch_clause() {
+    let source = r#"
+fn read_file(path: String) -> Result
+    catch IoError translate_to GenericError
+    requires { true }
+"#;
+    let (ast, errors) = parse(source);
+    assert!(errors.is_empty(), "should parse cleanly, got: {errors:?}");
+    let sf = ast.expect("expected AST");
+    let f = sf
+        .decls
+        .iter()
+        .find_map(|d| match &d.node {
+            assura_parser::ast::Decl::FnDef(f) => Some(f),
+            _ => None,
+        })
+        .expect("expected FnDef");
+    let ret = f
+        .return_ty
+        .as_ref()
+        .map(|t| format!("{t:?}"))
+        .unwrap_or_default();
+    assert!(
+        !ret.contains("catch"),
+        "return_ty must not include catch clause tokens, got: {ret}"
+    );
+    let has_catch = f
+        .clauses
+        .iter()
+        .any(|c| matches!(&c.kind, assura_parser::ast::ClauseKind::Other(k) if k == "catch"));
+    assert!(
+        has_catch,
+        "expected a catch clause on fn, clauses: {:?}",
+        f.clauses
+    );
 }
 
 /// Regression for the structures that caused "expected R_BRACE" on real demos

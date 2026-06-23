@@ -64,17 +64,35 @@ under `crates/`.
 
 ### 2. Run the pre-commit gate
 
-Every change must pass all four checks:
+Session-end / full gate (matches [AGENTS.md](AGENTS.md) and CI). Use
+`--locked` so `Cargo.lock` is not rewritten accidentally:
 
 ```bash
-cargo fmt --all
-cargo clippy --workspace -- -D warnings
-cargo test --workspace
+cargo fmt --all -- --check
+cargo clippy --workspace --locked -- -D warnings
+cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
+cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
 ```
 
-The final check verifies the no-Z3 build. Any code in `assura-smt` that
-imports Z3 must be behind `#[cfg(feature = "z3-verify")]` with a fallback.
+While iterating on a single crate (faster, agent-friendly):
+
+```bash
+cargo fmt -- <changed files>
+cargo clippy -p <crate> --locked -- -D warnings
+cargo check -p <crate> --locked
+cargo test -p <crate> --locked --lib
+```
+
+The `cvc5-verify` clippy pass mirrors the CI `cvc5` job and catches
+cfg-gate mistakes in native CVC5 modules that default workspace clippy
+skips. The final `cargo check --no-default-features` verifies the no-Z3
+build: any code in `assura-smt` that imports Z3 must be behind
+`#[cfg(feature = "z3-verify")]` with a fallback.
+
+For local CVC5 on macOS ARM, run `bash scripts/setup-cvc5.sh` and export
+the printed `CVC5_LIB_DIR` / `CVC5_INCLUDE_DIR` before the cvc5 clippy/test
+commands (source builds often fail under AppleClang).
 
 ### 3. Verify demo files still parse
 
