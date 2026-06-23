@@ -165,7 +165,10 @@ fn body_tokens_inner(p: &mut Parser, closer: SyntaxKind, stoppers: &[SyntaxKind]
     stack.push(closer);
     while !p.eof_raw() {
         let cur = p.current_raw();
-        if stack.len() <= 1 && stoppers.contains(&cur) {
+        if cur == SyntaxKind::ERROR_TOKEN {
+            break;
+        }
+        if stack.len() <= 1 && stoppers.contains(&cur) && cur != closer {
             break;
         }
         match cur {

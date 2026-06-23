@@ -228,6 +228,7 @@ fn temporal_expr(p: &mut Parser) -> CompletedMarker {
                 p.bump(); // skip unrecognized tokens
             }
             p.eat(SyntaxKind::COMMA);
+            p.bump_trivia();
         }
         p.expect(SyntaxKind::R_BRACE);
     } else {

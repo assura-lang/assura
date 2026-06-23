@@ -454,12 +454,22 @@ fn clause_body_expr(p: &mut Parser) {
         p.bump(); // :
         p.bump_delim(); // { + trailing trivia for tight inner spans (see #335)
         expr_list_until(p, SyntaxKind::R_BRACE);
+        if !p.at(SyntaxKind::R_BRACE) {
+            while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
         p.bump_delim(); // { + trailing trivia
         expr_list_until(p, SyntaxKind::R_BRACE);
+        if !p.at(SyntaxKind::R_BRACE) {
+            while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
@@ -469,12 +479,22 @@ fn clause_body_expr(p: &mut Parser) {
         p.bump(); // :
         p.bump_delim(); // ( + trailing trivia
         expr_list_until(p, SyntaxKind::R_PAREN);
+        if !p.at(SyntaxKind::R_PAREN) {
+            while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
         p.bump_delim(); // ( + trailing trivia
         expr_list_until(p, SyntaxKind::R_PAREN);
+        if !p.at(SyntaxKind::R_PAREN) {
+            while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
@@ -514,12 +534,22 @@ pub(crate) fn clause_body(p: &mut Parser) {
         p.bump(); // :
         p.bump_delim();
         super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
+        if !p.at(SyntaxKind::R_BRACE) {
+            while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
     if p.at(SyntaxKind::L_BRACE) {
         p.bump_delim();
         super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
+        if !p.at(SyntaxKind::R_BRACE) {
+            while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_BRACE);
         return;
     }
@@ -529,12 +559,22 @@ pub(crate) fn clause_body(p: &mut Parser) {
         p.bump(); // :
         p.bump_delim();
         super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
+        if !p.at(SyntaxKind::R_PAREN) {
+            while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
     if p.at(SyntaxKind::L_PAREN) {
         p.bump_delim();
         super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
+        if !p.at(SyntaxKind::R_PAREN) {
+            while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                p.bump();
+            }
+        }
         p.expect(SyntaxKind::R_PAREN);
         return;
     }
@@ -565,7 +605,9 @@ pub(crate) fn clause_body(p: &mut Parser) {
             SyntaxKind::L_BRACE
             | SyntaxKind::R_BRACE
             | SyntaxKind::R_PAREN
-            | SyntaxKind::R_BRACKET => break,
+            | SyntaxKind::R_BRACKET => {
+                break;
+            }
             _ => {
                 p.bump_raw();
             }

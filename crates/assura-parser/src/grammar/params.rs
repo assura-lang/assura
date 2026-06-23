@@ -99,14 +99,32 @@ fn param_type_tokens(p: &mut Parser) {
         match cur {
             SyntaxKind::L_BRACE => {
                 p.bump_raw();
-                balanced_inner(p);
+                super::body_tokens_inner(
+                    p,
+                    SyntaxKind::R_BRACE,
+                    &[
+                        SyntaxKind::COMMA,
+                        SyntaxKind::R_PAREN,
+                        SyntaxKind::R_BRACE,
+                        SyntaxKind::R_BRACKET,
+                    ],
+                );
                 if p.current_raw() == SyntaxKind::R_BRACE {
                     p.bump_raw();
                 }
             }
             SyntaxKind::L_PAREN => {
                 p.bump_raw();
-                balanced_inner(p);
+                super::body_tokens_inner(
+                    p,
+                    SyntaxKind::R_PAREN,
+                    &[
+                        SyntaxKind::COMMA,
+                        SyntaxKind::R_PAREN,
+                        SyntaxKind::R_BRACE,
+                        SyntaxKind::R_BRACKET,
+                    ],
+                );
                 if p.current_raw() == SyntaxKind::R_PAREN {
                     p.bump_raw();
                 }
@@ -120,7 +138,16 @@ fn param_type_tokens(p: &mut Parser) {
             }
             SyntaxKind::L_BRACKET => {
                 p.bump_raw();
-                balanced_inner(p);
+                super::body_tokens_inner(
+                    p,
+                    SyntaxKind::R_BRACKET,
+                    &[
+                        SyntaxKind::COMMA,
+                        SyntaxKind::R_PAREN,
+                        SyntaxKind::R_BRACE,
+                        SyntaxKind::R_BRACKET,
+                    ],
+                );
                 if p.current_raw() == SyntaxKind::R_BRACKET {
                     p.bump_raw();
                 }
@@ -217,7 +244,7 @@ pub(crate) fn fn_return_type(p: &mut Parser) {
 
     // First element can be a refinement type `{...}`
     if p.at(SyntaxKind::L_BRACE) {
-        p.bump(); // {
+        p.bump_delim(); // { + trivia
         super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
         p.eat(SyntaxKind::R_BRACE);
     }
@@ -337,21 +364,45 @@ fn field_type_tokens(p: &mut Parser) {
         match cur {
             SyntaxKind::L_BRACE => {
                 p.bump_raw();
-                balanced_inner(p);
+                super::body_tokens_inner(
+                    p,
+                    SyntaxKind::R_BRACE,
+                    &[
+                        SyntaxKind::SEMICOLON,
+                        SyntaxKind::COMMA,
+                        SyntaxKind::R_BRACE,
+                    ],
+                );
                 if p.current_raw() == SyntaxKind::R_BRACE {
                     p.bump_raw();
                 }
             }
             SyntaxKind::L_PAREN => {
                 p.bump_raw();
-                balanced_inner(p);
+                super::body_tokens_inner(
+                    p,
+                    SyntaxKind::R_PAREN,
+                    &[
+                        SyntaxKind::SEMICOLON,
+                        SyntaxKind::COMMA,
+                        SyntaxKind::R_BRACE,
+                    ],
+                );
                 if p.current_raw() == SyntaxKind::R_PAREN {
                     p.bump_raw();
                 }
             }
             SyntaxKind::L_BRACKET => {
                 p.bump_raw();
-                balanced_inner(p);
+                super::body_tokens_inner(
+                    p,
+                    SyntaxKind::R_BRACKET,
+                    &[
+                        SyntaxKind::SEMICOLON,
+                        SyntaxKind::COMMA,
+                        SyntaxKind::R_BRACE,
+                    ],
+                );
                 if p.current_raw() == SyntaxKind::R_BRACKET {
                     p.bump_raw();
                 }

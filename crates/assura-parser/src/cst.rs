@@ -229,7 +229,7 @@ impl Parser {
     /// Used by raw token collectors (clause_body for effects etc) that want
     /// to include everything for correct offset reconstruction.
     pub(crate) fn bump_raw(&mut self) {
-        if self.eof() {
+        if self.eof_raw() {
             return;
         }
         self.fuel = 256;
