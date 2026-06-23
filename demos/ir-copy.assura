@@ -1,0 +1,17 @@
+// Demo: implementation IR sidecar constrains `result` during SMT verify.
+//
+// `assura check demos/ir-copy.assura --verbose` loads `demos/ir-copy.ir` (or
+// `demos/generated/CopyBytes.ir`) and uses havoc+assume so
+// `ensures result.length() <= raw.length()` verifies via identity copy IR.
+//
+// Without the sidecar, `result` is unconstrained and the same ensures would
+// counterexample.
+
+module demo.ir_copy;
+
+// Contract-style fn: body lives in sibling `ir-copy.ir` keyed as `CopyBytes`.
+// The CLI resolves `{ContractName}.ir` using verification job names.
+fn CopyBytes(raw: Bytes) -> Bytes
+  requires { raw.length() > 0 }
+  ensures  { result.length() <= raw.length() }
+  effects  { pure }

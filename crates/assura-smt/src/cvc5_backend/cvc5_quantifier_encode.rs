@@ -117,7 +117,26 @@ where
     let bound_list = ctx
         .tm
         .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&bound_var));
-    let trigger_terms = infer_quantifier_patterns_cvc5(ctx.tm, body, &v_name, &bound_var);
+    // Register calls in the quantifier body itself (may refine contract-level manager).
+    crate::cvc5_encoder_state::register_trigger_functions_from_expr(
+        body,
+        &mut ctx.state.trigger_manager,
+    );
+    let trigger_terms = infer_quantifier_patterns_cvc5_with_mgr(
+        ctx.tm,
+        body,
+        &v_name,
+        &bound_var,
+        Some(&ctx.state.trigger_manager),
+    );
+    // Surface validate_trigger warnings for user/inferred patterns (non-fatal).
+    if let Some(trigger) = ctx
+        .state
+        .trigger_manager
+        .infer_trigger_from_expr(body, &v_name)
+    {
+        let _ = ctx.state.trigger_manager.validate_trigger(&trigger);
+    }
     let kind = if is_forall {
         cvc5::Kind::Forall
     } else {

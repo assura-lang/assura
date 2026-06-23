@@ -226,6 +226,71 @@ fn tier_a3_frame_preserves_unmodified_param_not_in_ensures_text() {
     );
 }
 
+/// End-to-end: load real `.ir` sidecar from disk and verify via `Verifier::source`.
+#[cfg(feature = "z3-verify")]
+#[test]
+fn tier_a_ir_sidecar_from_disk_via_verifier_source() {
+    use std::io::Write;
+
+    let dir = std::env::temp_dir().join(format!("assura-tier-a-ir-sidecar-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let assura_path = dir.join("CopyBytes.assura");
+    let mut f = std::fs::File::create(&assura_path).unwrap();
+    writeln!(
+        f,
+        r#"fn CopyBytes(raw: Bytes) -> Bytes
+  requires {{ raw.length() > 0 }}
+  ensures  {{ result.length() <= raw.length() }}
+  effects  {{ pure }}
+"#
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.join("CopyBytes.ir"),
+        r#"
+module copy {
+  fn #0 : ($0: Bytes) -> Bytes ! pure
+  {
+    $result = load $0 : Bytes
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let src = std::fs::read_to_string(&assura_path).unwrap();
+    let typed = assura_test_support::typecheck_ok(&src);
+    let loaded = crate::ir_loader::LoadedVerifyExtras::load(&assura_path, &typed);
+    assert!(
+        !loaded.is_empty(),
+        "expected CopyBytes.ir sidecar next to source"
+    );
+    assert!(loaded.loaded_names().contains(&"CopyBytes".to_string()));
+
+    let results = Verifier::new(&typed).source(&assura_path).verify();
+    let ensures = results.iter().find(|r| match r {
+        VerificationResult::Verified { clause_desc, .. }
+        | VerificationResult::Counterexample { clause_desc, .. } => {
+            clause_desc.contains("ensures") || clause_desc.contains("Ensures")
+        }
+        _ => false,
+    });
+    assert!(
+        ensures.is_some(),
+        "expected ensures result with IR sidecar, got: {results:?}"
+    );
+    assert!(
+        matches!(ensures.unwrap(), VerificationResult::Verified { .. }),
+        "CopyBytes.ir identity should verify result.length() <= raw.length(), got: {:?}",
+        ensures.unwrap()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(feature = "z3-verify")]
 #[test]
 fn tier_a3_old_ident_in_ensures_with_modifies_verifies_tautology() {

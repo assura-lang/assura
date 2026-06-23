@@ -27,6 +27,13 @@ impl LoadedVerifyExtras {
         self.ir_map.is_empty()
     }
 
+    /// Names of contracts/functions that have a loaded IR sidecar (sorted).
+    pub fn loaded_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.ir_map.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     /// `Some(VerifyFileExtras)` when sidecars exist; `None` otherwise.
     pub fn extras(&self) -> Option<VerifyFileExtras<'_>> {
         (!self.ir_map.is_empty()).then_some(VerifyFileExtras {

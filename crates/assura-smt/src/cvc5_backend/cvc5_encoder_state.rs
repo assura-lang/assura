@@ -17,6 +17,8 @@ pub(crate) struct Cvc5EncoderState<'a> {
     uf_cache: HashMap<String, cvc5::Term<'a>>,
     pub(crate) struct_adt_symbols: HashMap<String, Cvc5AdtNativeSymbols<'a>>,
     pub(crate) struct_adt_defs: HashMap<String, Cvc5AdtDef>,
+    /// Contract-level quantifier trigger manager (seeded from clauses, refined during encode).
+    pub(crate) trigger_manager: crate::advanced::TriggerManager,
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -30,6 +32,98 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
         uf_cache: HashMap::new(),
         struct_adt_symbols: HashMap::new(),
         struct_adt_defs: HashMap::new(),
+        trigger_manager: crate::advanced::TriggerManager::new(),
+    }
+}
+
+/// Seed the encoder's trigger manager from all contract clauses (requires/ensures/etc.).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn seed_cvc5_trigger_manager_from_clauses(
+    state: &mut Cvc5EncoderState<'_>,
+    clauses: &[assura_ast::Clause],
+) {
+    for clause in clauses {
+        register_trigger_functions_from_expr(&clause.body, &mut state.trigger_manager);
+    }
+}
+
+/// Register Call/MethodCall names from an expression tree for quantifier e-matching.
+pub(crate) fn register_trigger_functions_from_expr(
+    expr: &assura_ast::SpExpr,
+    tm: &mut crate::advanced::TriggerManager,
+) {
+    use assura_ast::Expr;
+    match &expr.node {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = &func.as_ref().node {
+                tm.register_function(name.clone());
+            }
+            for a in args {
+                register_trigger_functions_from_expr(a, tm);
+            }
+        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            tm.register_function(method.clone());
+            register_trigger_functions_from_expr(receiver, tm);
+            for a in args {
+                register_trigger_functions_from_expr(a, tm);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            register_trigger_functions_from_expr(lhs, tm);
+            register_trigger_functions_from_expr(rhs, tm);
+        }
+        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
+            register_trigger_functions_from_expr(inner, tm);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            register_trigger_functions_from_expr(cond, tm);
+            register_trigger_functions_from_expr(then_branch, tm);
+            if let Some(eb) = else_branch {
+                register_trigger_functions_from_expr(eb, tm);
+            }
+        }
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            register_trigger_functions_from_expr(domain, tm);
+            register_trigger_functions_from_expr(body, tm);
+        }
+        Expr::Index { expr: e, index } => {
+            register_trigger_functions_from_expr(e, tm);
+            register_trigger_functions_from_expr(index, tm);
+        }
+        Expr::Field(obj, _) => register_trigger_functions_from_expr(obj, tm),
+        Expr::Block(items) | Expr::Tuple(items) | Expr::List(items) => {
+            for e in items {
+                register_trigger_functions_from_expr(e, tm);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for a in args {
+                register_trigger_functions_from_expr(a, tm);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            register_trigger_functions_from_expr(value, tm);
+            register_trigger_functions_from_expr(body, tm);
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            register_trigger_functions_from_expr(scrutinee, tm);
+            for arm in arms {
+                register_trigger_functions_from_expr(&arm.body, tm);
+            }
+        }
+        Expr::Cast { expr: inner, .. } => register_trigger_functions_from_expr(inner, tm),
+        _ => {}
     }
 }
 
