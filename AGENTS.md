@@ -40,9 +40,13 @@ Do not improvise a parallel pipeline. Follow the branch that matches your task.
 
 ### Error codes (agent index)
 
-**Quick lookup:** [`docs/error-codes-agent.md`](docs/error-codes-agent.md) maps `Axxxxx` → compiler phase, primary crate, and start-here paths (SPEC §7.2 plus high-traffic impl codes like `A05100`).
+**Quick lookup:** [`docs/error-codes-agent.md`](docs/error-codes-agent.md) maps `Axxxxx` → compiler phase, primary crate, and start-here paths (SPEC §7.2 plus high-traffic impl codes like `A05100`, `A10001`, `A14001`, `A52001`).
 
 Full meanings: `docs/SPECIFICATION.md` §7.2 / Appendix D. Do not fix an `A02` in `assura-smt` or an `A01` in `assura-types` unless the index explicitly says cross-phase.
+
+**When you introduce or rely on a code not in the index:** append one row to
+`docs/error-codes-agent.md` in the same PR (high-traffic section is fine). Do not
+regenerate all of Appendix D.
 
 ### `assura-types` layer map (summary)
 
@@ -70,13 +74,14 @@ Use this table before grepping the whole repo. It reduces wrong-crate edits.
 | SMT verify jobs / entry passes | `crates/assura-smt/src/entry/mod.rs` (see `docs/INTERNALS.md` smt module map) | Wire from `verify()`; collect jobs via `DeclVisitor` where possible | agent-guards section 7 |
 | Error code `Axxxxx` | [`docs/error-codes-agent.md`](docs/error-codes-agent.md) | Phase crate from index, then `rg 'A0xxxx' crates` | wrong phase = wasted work |
 | Load demo/fixture in tests | `assura_test_support::{load_fixture, fixture_path, verify_result, expect_verify_limitation}` | smt/cli/pipeline tests only (not types/codegen type returns) | unit test in test-support crate |
-| `MASTER-PLAN.md` task | Task section + **Acceptance Tests** block | Implement only that task's scope | Run every acceptance command before `[x]` |
+| Codegen name/type collection (phases 1–2) | `crates/assura-codegen/src/lib.rs` (`TypeCollectVisitor` / `DeclVisitor`) | Later phases still use explicit matches; prefer visitor for **new** collection passes | `cargo test -p assura-codegen --locked --lib` |
+| `MASTER-PLAN.md` task | Task section + **Agent entrypoint** line + **Acceptance Tests** | Implement only that task's scope | Run every acceptance command before `[x]` |
 
 **MASTER-PLAN agent entrypoint convention:** when adding or editing a plan task, include one line under the task title:
 
 `**Agent entrypoint:** \`path/to/primary/file.rs\` (wire in \`other.rs\` / \`pipeline.rs\`)`
 
-That line is the first file an agent should open; acceptance tests remain the done gate.
+That line is the first file an agent should open; acceptance tests remain the done gate. Realistic next-work table: `MASTER-PLAN.md` (top "Agent entrypoint" section).
 
 ### Fast agent commands (prefer over full workspace test)
 
@@ -1066,6 +1071,19 @@ The same principle applies project-wide:
 
 When you introduce a new helper, document it here and in
 `~/.grok/skills/assura-contrib/SKILL.md`.
+
+### Skill vs AGENTS (mirror non-secret conventions)
+
+- **`AGENTS.md` (this file, in-repo):** rules, decision trees, entrypoints, and
+  conventions any agent/tool must see. After ergonomics PRs, mirror **non-secret**
+  lessons here (pipeline invariants, test-support footguns, guards, error-index
+  maintenance).
+- **`~/.grok/skills/assura-contrib/SKILL.md`:** session history, PR numbers,
+  maintainer notes, and anything not suitable for the public repo. Other tools
+  (Copilot, Cursor without your skill dir) **never** see the skill.
+- **Do not** store only-in-skill guidance that affects how to edit this codebase
+  correctly; if an agent needs it to avoid a bug, put it in `AGENTS.md` (or
+  `docs/error-codes-agent.md` / `CHECKER-LAYERS.md` as appropriate).
 
 ### Parser / CST helpers (for correct spans after trivia capture)
 
