@@ -411,7 +411,7 @@ impl Encoder {
             };
             return Z3Value::Int(result);
         }
-        // Methods known to return Bool (UF with optional length links below).
+        // Methods known to return Bool (UF with optional length / size links below).
         if matches!(
             func_name,
             "contains"
@@ -447,8 +447,46 @@ impl Encoder {
                 self.background_axioms.push(b.implies(&len_is_zero));
                 self.background_axioms.push(len_is_zero.implies(&b));
             }
-            // contains_key(m, k): size(m) >= 0 only (weak); if true, size >= 1 is unsound
-            // for empty-map false positives. Skip.
+            // contains(s, sub) => len(s) >= len(sub) (contiguous substring; sound).
+            if func_name == "contains" && arg_vals.len() == 2 {
+                let hay_expr = &args[0].node;
+                let needle_expr = &args[1].node;
+                let hay_len = self.collection_len_of(hay_expr, &arg_vals[0], "len");
+                let needle_len = self.collection_len_of(needle_expr, &arg_vals[1], "len");
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(hay_len.ge(&zero));
+                self.background_axioms.push(needle_len.ge(&zero));
+                let hay_ge_needle = hay_len.ge(&needle_len);
+                self.background_axioms.push(b.implies(&hay_ge_needle));
+            }
+            // starts_with(s, pre) / ends_with(s, suf) => len(s) >= len(pre/suf) (sound).
+            if matches!(func_name, "starts_with" | "ends_with") && arg_vals.len() == 2 {
+                let s_expr = &args[0].node;
+                let aff_expr = &args[1].node;
+                let s_len = self.collection_len_of(s_expr, &arg_vals[0], "len");
+                let aff_len = self.collection_len_of(aff_expr, &arg_vals[1], "len");
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(s_len.ge(&zero));
+                self.background_axioms.push(aff_len.ge(&zero));
+                let s_ge_aff = s_len.ge(&aff_len);
+                self.background_axioms.push(b.implies(&s_ge_aff));
+                // Empty affix: starts_with/ends_with always hold (prefix/suffix of length 0).
+                let aff_is_zero = aff_len.eq(&zero);
+                self.background_axioms.push(aff_is_zero.implies(&b));
+            }
+            // contains_key(m, k) => size(m) >= 1 (key present implies non-empty map; sound).
+            if func_name == "contains_key" && arg_vals.len() == 2 {
+                let map_expr = &args[0].node;
+                let map_size = self.collection_len_of(map_expr, &arg_vals[0], "size");
+                // Also link size <-> len for maps (size method vs len).
+                let map_len = self.collection_len_of(map_expr, &arg_vals[0], "len");
+                self.background_axioms.push(map_size.eq(&map_len));
+                let one = ast::Int::from_i64(1);
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(map_size.ge(&zero));
+                let size_ge_one = map_size.ge(&one);
+                self.background_axioms.push(b.implies(&size_ge_one));
+            }
             return Z3Value::Bool(b);
         }
         // String / sequence methods with known semantics
@@ -716,48 +754,55 @@ impl Encoder {
             }
             _ => {}
         }
-        // Array set(arr, index, value): Z3 store axiom
-        // set(a, i, v) returns a new array where a[i] == v and
-        // all other elements are unchanged.
+        // get(coll, key_or_idx): uninterpreted; unify `get` with `__index` for arrays.
+        if func_name == "get" && arg_vals.len() == 2 {
+            let coll = &arg_vals[0];
+            let key = &arg_vals[1];
+            let get_decl = self.make_func("get", 2);
+            let via_get = get_decl
+                .apply(&[coll as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            let idx_decl = self.make_func("__index", 2);
+            let via_idx = idx_decl
+                .apply(&[coll as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            self.background_axioms.push(via_get.eq(&via_idx));
+            return Z3Value::Int(via_get);
+        }
+        // Array set(arr, index, value): store axiom + length preserve.
+        // set(a, i, v) returns a new array where get(result, i) == v.
         if func_name == "set" && arg_vals.len() == 3 {
             let arr_expr = &args[0].node;
             let arr = &arg_vals[0];
             let idx = &arg_vals[1];
             let val = &arg_vals[2];
             let result = self.fresh_int();
-            // After set(a, i, v): get(result, i) == v
-            let get_decl = self.make_func("__index", 2);
+            let zero = ast::Int::from_i64(0);
+            // Weak index non-negativity (callers often require i >= 0 separately).
+            self.background_axioms.push(idx.ge(&zero));
+            // Read-over-write via both get and __index (keep aliases aligned).
+            let get_decl = self.make_func("get", 2);
             let get_at_idx = get_decl
                 .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
             self.background_axioms.push(get_at_idx.eq(val));
-            // len(result) == len(original); use canonical length for named arrays (#267).
-            let old_len = if let Expr::Ident(name) = arr_expr {
-                self.canonical_length(name)
-            } else {
-                let len_decl = self.make_func("len", 1);
-                len_decl
-                    .apply(&[arr as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int())
-            };
-            let len_decl = self.make_func("len", 1);
-            let new_len = len_decl
-                .apply(&[&result as &dyn z3::ast::Ast])
+            let idx_decl = self.make_func("__index", 2);
+            let via_idx = idx_decl
+                .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
-            self.background_axioms.push(new_len.eq(&old_len));
-            let zero = ast::Int::from_i64(0);
-            self.background_axioms.push(new_len.ge(&zero));
+            self.background_axioms.push(via_idx.eq(val));
+            // len(result) == len(original); use canonical length for named arrays (#267).
+            let old_len = self.collection_len_of(arr_expr, arr, "len");
+            self.assert_collection_len_eq(&result, &old_len, "len");
             return Z3Value::Int(result);
         }
-        // Map get/put with read-over-write axioms
-        // get(map, key) -> value (uninterpreted with consistency)
-        // put(map, key, value) -> new_map with axiom:
-        //   get(put(m, k, v), k) == v  (write-then-read)
+        // Map put(map, key, value): get(put(m,k,v), k) == v; size non-decreasing.
         if func_name == "put" && arg_vals.len() == 3 {
-            // put(map, key, value) returns a new map
+            let map_expr = &args[0].node;
             let map_val = &arg_vals[0];
             let key = &arg_vals[1];
             let value = &arg_vals[2];
@@ -769,19 +814,36 @@ impl Encoder {
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
             self.background_axioms.push(get_result.eq(value));
-            // size(new_map) >= size(map)
+            // contains_key(put(m, k, v), k) always holds (write implies key present).
+            let bool_sort = z3::Sort::bool();
+            let int_sort = z3::Sort::int();
+            let ck_decl = z3::FuncDecl::new("contains_key", &[&int_sort, &int_sort], &bool_sort);
+            let ck = ck_decl
+                .apply(&[&new_map as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
+                .as_bool()
+                .unwrap_or_else(|| self.fresh_bool());
+            self.background_axioms.push(ck);
+            // size(new_map) >= size(map); link size <-> len on both maps.
+            let old_size = self.collection_len_of(map_expr, map_val, "size");
+            let old_len = self.collection_len_of(map_expr, map_val, "len");
+            self.background_axioms.push(old_size.eq(&old_len));
             let size_decl = self.make_func("size", 1);
-            let old_size = size_decl
-                .apply(&[map_val as &dyn z3::ast::Ast])
-                .as_int()
-                .unwrap_or_else(|| self.fresh_int());
             let new_size = size_decl
                 .apply(&[&new_map as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
             let zero = ast::Int::from_i64(0);
+            let one = ast::Int::from_i64(1);
             self.background_axioms.push(new_size.ge(&old_size));
             self.background_axioms.push(new_size.ge(&zero));
+            // Key present => size at least 1.
+            self.background_axioms.push(new_size.ge(&one));
+            let len_decl = self.make_func("len", 1);
+            let new_len = len_decl
+                .apply(&[&new_map as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            self.background_axioms.push(new_len.eq(&new_size));
             return Z3Value::Int(new_map);
         }
         // Size-like methods get non-negativity axiom; unify len/length/size/__field_len.

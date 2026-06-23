@@ -81,6 +81,8 @@ pub(crate) enum KnownBuiltin {
     Drop,
     Tail,
     First,
+    /// Array/map element access (`get(coll, key)`); not a bool predicate.
+    Get,
     Set,
     Put,
 }
@@ -113,6 +115,7 @@ pub(crate) fn classify_known_builtin(op: &str, arity: usize) -> Option<KnownBuil
         ("drop", 2) => Some(KnownBuiltin::Drop),
         ("tail" | "rest", 1) => Some(KnownBuiltin::Tail),
         ("first" | "last" | "head" | "front" | "back", 1) => Some(KnownBuiltin::First),
+        ("get", 2) => Some(KnownBuiltin::Get),
         ("set", 3) => Some(KnownBuiltin::Set),
         ("put", 3) => Some(KnownBuiltin::Put),
         _ => None,
@@ -153,6 +156,7 @@ pub(crate) fn known_builtin_to_smtlib(op: &str, args: &[String]) -> Option<Strin
         KnownBuiltin::Push | KnownBuiltin::Remove | KnownBuiltin::Take | KnownBuiltin::Drop => {
             Some(format!("({op} {} {})", args[0], args[1]))
         }
+        KnownBuiltin::Get => Some(format!("(get {} {})", args[0], args[1])),
         KnownBuiltin::Insert | KnownBuiltin::Slice => {
             Some(format!("({op} {} {} {})", args[0], args[1], args[2]))
         }
@@ -225,6 +229,7 @@ mod tests {
             classify_known_builtin("first", 1),
             Some(KnownBuiltin::First)
         );
+        assert_eq!(classify_known_builtin("get", 2), Some(KnownBuiltin::Get));
     }
 
     #[test]
@@ -232,6 +237,7 @@ mod tests {
         assert_eq!(classify_known_builtin("abs", 2), None);
         assert_eq!(classify_known_builtin("unknown", 1), None);
         assert_eq!(classify_known_builtin("push", 1), None);
+        assert_eq!(classify_known_builtin("get", 1), None);
     }
 
     #[cfg(feature = "cvc5-verify")]
