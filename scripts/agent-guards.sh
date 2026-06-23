@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Static greps that catch common agent mistakes. Exit non-zero on violations.
+# Runs in CI (clippy job) and via scripts/agent-preflight.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fail=0
@@ -7,9 +8,12 @@ fail=0
 warn() { echo "agent-guards WARN: $*" >&2; }
 die()  { echo "agent-guards FAIL: $*" >&2; fail=1; }
 
-# 1) Verifier::new outside allowed crates (production code only; tests/benches OK)
+# ---------------------------------------------------------------------------
+# 1) Verifier::new outside allowed crates (production code only)
 #    Allowed: assura-smt (implementation), assura-pipeline (canonical entry)
+# ---------------------------------------------------------------------------
 while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
   file="${line%%:*}"
   case "$file" in
     crates/assura-smt/*|crates/assura-pipeline/*) continue ;;
@@ -22,8 +26,11 @@ while IFS= read -r line; do
   fi
 done < <(rg -n 'Verifier::new\s*\(' crates --glob '*.rs' 2>/dev/null || true)
 
+# ---------------------------------------------------------------------------
 # 2) Type::Unknown direct equality (should use is_indeterminate())
+# ---------------------------------------------------------------------------
 while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
   file="${line%%:*}"
   case "$file" in
     *tests*|*test*.rs) continue ;;
@@ -32,15 +39,74 @@ while IFS= read -r line; do
   die "direct Type::Unknown compare (use ty.is_indeterminate()): $line"
 done < <(rg -n '==\s*Type::Unknown|Type::Unknown\s*==' crates --glob '*.rs' 2>/dev/null || true)
 
-# 3) Reminder: new run_*_checks should appear in CHECKER_PIPELINE (soft: count only)
+# ---------------------------------------------------------------------------
+# 3) CHECKER_PIPELINE breadth
+# ---------------------------------------------------------------------------
 pipeline_count=$(rg -c 'CheckerDispatch::' crates/assura-types/src/pipeline.rs 2>/dev/null | tail -1 || echo 0)
-run_checks=$(rg -l 'pub\(crate\) fn run_.*_checks' crates/assura-types/src/checks 2>/dev/null | wc -l | tr -d ' ')
+run_checks_files=$(rg -l 'pub\(crate\) fn run_.*_checks' crates/assura-types/src/checks 2>/dev/null | wc -l | tr -d ' ')
 if [[ "${pipeline_count:-0}" -lt 50 ]]; then
   die "CHECKER_PIPELINE looks too small ($pipeline_count CheckerDispatch refs)"
 fi
-echo "agent-guards: CHECKER_PIPELINE refs=$pipeline_count run_*_checks files≈$run_checks"
+echo "agent-guards: CHECKER_PIPELINE refs=$pipeline_count run_*_checks files≈$run_checks_files"
 
-# 4) DeclVisitor / accessors exist (sanity)
+# ---------------------------------------------------------------------------
+# 4) Orphan run_*_checks: defined but never referenced from pipeline or peers
+#    Internal helpers (called by another run_* in checks/, even same file) are OK.
+# ---------------------------------------------------------------------------
+while IFS= read -r def_line; do
+  [[ -z "$def_line" ]] && continue
+  fn=$(echo "$def_line" | sed -n 's/.*fn \(run_[a-z0-9_]*_checks\).*/\1/p')
+  [[ -z "$fn" ]] && continue
+  def_file="${def_line%%:*}"
+  def_lineno="${def_line#*:}"
+  def_lineno="${def_lineno%%:*}"
+
+  if rg -q "$fn" crates/assura-types/src/pipeline.rs 2>/dev/null; then
+    continue
+  fi
+
+  # Any reference that is not exactly the definition line?
+  peer_hits=$(rg -n "$fn" crates/assura-types/src/checks crates/assura-types/src/generics.rs 2>/dev/null \
+    | grep -v "^${def_file}:${def_lineno}:" \
+    || true)
+  if [[ -n "$peer_hits" ]]; then
+    continue
+  fi
+
+  die "orphan run_*_checks (not in CHECKER_PIPELINE and not called by peers): $fn"
+  die "  defined at: $def_line"
+  die "  fix: add CheckerDispatch::Source($fn) (or Env/Symbols/…) in crates/assura-types/src/pipeline.rs"
+  die "       or call it from an existing run_*_checks entry point (see run_info_flow_checks → run_dependent_type_checks)"
+done < <(rg -n 'pub\(crate\) fn run_[a-z0-9_]*_checks' \
+  crates/assura-types/src/checks \
+  crates/assura-types/src/generics.rs \
+  2>/dev/null || true)
+
+# ---------------------------------------------------------------------------
+# 5) Open-coded known-SMT-limitation marker outside assura-smt (production only)
+#    Test modules may embed the marker string to assert classification behavior.
+# ---------------------------------------------------------------------------
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  file="${line%%:*}"
+  case "$file" in
+    crates/assura-smt/*) continue ;;
+    *tests*|*test*.rs) continue ;;
+  esac
+  # Skip lines inside #[cfg(test)] modules (heuristic: after mod tests in same file is hard;
+  # allow assura-cli/src/check.rs if classifier is present and only tests use the string)
+  if [[ "$file" == crates/assura-cli/src/check.rs ]] \
+    && rg -q 'is_known_smt_limitation|assura_smt::is_known_smt_limitation' "$file" 2>/dev/null; then
+    # Production check.rs delegates; only test assertions embed the marker string.
+    continue
+  fi
+  die "open-coded SMT limitation marker outside assura-smt: $line"
+  die "  fix: emit reasons via assura_smt (KNOWN_SMT_LIMITATION_MARKER), classify with is_known_smt_limitation"
+done < <(rg -n 'not yet encoded in SMT' crates --glob '*.rs' 2>/dev/null || true)
+
+# ---------------------------------------------------------------------------
+# 6) Ergonomics APIs must exist (sanity)
+# ---------------------------------------------------------------------------
 if ! rg -q 'trait DeclVisitor' crates/assura-ast/src/ast/mod.rs; then
   die "DeclVisitor missing from assura-ast"
 fi
@@ -53,8 +119,38 @@ fi
 if ! rg -q 'fn is_known_smt_limitation' crates/assura-smt/src/result.rs; then
   die "is_known_smt_limitation missing from assura-smt"
 fi
+if ! rg -q 'pub const KNOWN_SMT_LIMITATION_MARKER' crates/assura-smt/src/result.rs; then
+  die "KNOWN_SMT_LIMITATION_MARKER missing from assura-smt"
+fi
 if ! rg -q 'pub fn typecheck_err' crates/assura-test-support/src/lib.rs; then
   die "typecheck_err missing from assura-test-support"
+fi
+if ! rg -q 'const CHECKER_PIPELINE' crates/assura-types/src/pipeline.rs; then
+  die "CHECKER_PIPELINE missing from assura-types/src/pipeline.rs"
+fi
+if [[ ! -f crates/assura-types/src/CHECKER-LAYERS.md ]]; then
+  die "CHECKER-LAYERS.md missing (agents need checks/ vs checkers/ vs domain map)"
+fi
+if [[ ! -x scripts/agent-new-checker.sh ]]; then
+  die "scripts/agent-new-checker.sh missing or not executable"
+fi
+if [[ ! -x scripts/agent-new-decl.sh ]]; then
+  die "scripts/agent-new-decl.sh missing or not executable"
+fi
+
+# ---------------------------------------------------------------------------
+# 7) Soft warn: unwrap() in production lib code — does not fail CI
+# ---------------------------------------------------------------------------
+unwrap_hits=$(rg -n '\.unwrap\(\)' crates --glob '*.rs' 2>/dev/null \
+  | rg -v '_test\.rs|/tests/|benches/' \
+  | rg 'crates/[^/]+/src/' \
+  | rg -v 'mod tests|#\[cfg\(test\)\]' \
+  | head -5 || true)
+if [[ -n "$unwrap_hits" ]]; then
+  warn "unwrap() in production src (sample, not failing):"
+  while IFS= read -r uh; do
+    [[ -n "$uh" ]] && warn "  $uh"
+  done <<< "$unwrap_hits"
 fi
 
 if [[ "$fail" -ne 0 ]]; then
