@@ -1,0 +1,620 @@
+//! Core `verify()` / `Verifier` / contract and standalone verification APIs.
+
+use assura_ast::{BindDecl, BlockKind, Clause, ContractDecl, ExternDecl, FnDef, SpExpr};
+use assura_types::TypedFile;
+
+use crate::SolverChoice;
+use crate::cache::{SessionCache, VerificationCache};
+use crate::measures::MeasureDefinition;
+use crate::result::VerificationResult;
+use crate::verify_context::ContractVerifyContext;
+
+use super::advanced_passes::{
+    merge_portfolio_results, verify_file_with_cvc5, verify_portfolio_parallel,
+};
+use super::helpers::{VerifyFileExtras, build_verify_extras};
+use super::jobs::collect_verification_jobs;
+
+// ---------------------------------------------------------------------------
+// Builder API (consolidates file-level verify entry points)
+// ---------------------------------------------------------------------------
+
+/// Builder for SMT verification. Consolidates 7 file-level `verify*` functions
+/// into a single composable API:
+///
+/// ```ignore
+/// Verifier::new(&typed)
+///     .source(path)            // auto-load IR sidecars
+///     .solver(SolverChoice::Z3)
+///     .cache(&cache)           // enable result caching
+///     .parallel()              // enable rayon parallelism
+///     .verify()
+/// ```
+pub struct Verifier<'a> {
+    typed: &'a TypedFile,
+    source: Option<&'a std::path::Path>,
+    options: assura_config::VerifyOptions,
+    cache: Option<&'a VerificationCache>,
+    parallel: bool,
+    include_decrease_checks: bool,
+}
+
+impl<'a> Verifier<'a> {
+    /// Create a new verifier for a type-checked file.
+    pub fn new(typed: &'a TypedFile) -> Self {
+        Self {
+            typed,
+            source: None,
+            options: assura_config::VerifyOptions::default(),
+            cache: None,
+            parallel: false,
+            include_decrease_checks: false,
+        }
+    }
+
+    /// Set the source file path (auto-loads IR sidecars).
+    pub fn source(mut self, path: &'a std::path::Path) -> Self {
+        self.source = Some(path);
+        self
+    }
+
+    /// Set verification options (solver, timeout, layer, parallel, decrease checks).
+    ///
+    /// Equivalent to [`Self::apply_options`]; prefer that name at new call sites.
+    pub fn options(self, options: assura_config::VerifyOptions) -> Self {
+        self.apply_options(options)
+    }
+
+    /// Set the solver backend.
+    pub fn solver(mut self, solver: SolverChoice) -> Self {
+        self.options.solver = solver;
+        self
+    }
+
+    /// Set the per-query solver timeout in milliseconds.
+    pub fn timeout_ms(mut self, ms: u64) -> Self {
+        self.options.timeout_ms = ms;
+        self
+    }
+
+    /// Enable result caching.
+    pub fn cache(mut self, cache: &'a VerificationCache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// Enable parallel verification using rayon.
+    pub fn parallel(mut self) -> Self {
+        self.parallel = true;
+        self
+    }
+
+    /// Include pending decrease (termination) checks from the type checker.
+    pub fn with_decrease_checks(mut self) -> Self {
+        self.include_decrease_checks = true;
+        self
+    }
+
+    /// Apply all flags from [`assura_config::VerifyOptions`] (solver, timeout,
+    /// parallel, decrease checks). Call sites that already have a
+    /// `CompilerConfig` / `VerifyOptions` should prefer this over chaining
+    /// individual builder methods.
+    pub fn apply_options(mut self, options: assura_config::VerifyOptions) -> Self {
+        self.parallel = options.parallel;
+        self.include_decrease_checks = options.decrease_checks;
+        self.options = options;
+        self
+    }
+
+    /// Run verification and return results.
+    pub fn verify(self) -> Vec<VerificationResult> {
+        let loaded_storage = self
+            .source
+            .map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, self.typed));
+        let extras = build_verify_extras(self.typed, loaded_storage.as_ref());
+
+        let enable_cache = self.options.enable_cache;
+        let mut results = if self.parallel {
+            let default_cache;
+            let cache = match self.cache {
+                Some(c) => c,
+                None if enable_cache => {
+                    let dir = self
+                        .source
+                        .and_then(|p| p.parent())
+                        .unwrap_or_else(|| std::path::Path::new("."));
+                    default_cache = VerificationCache::new(dir);
+                    &default_cache
+                }
+                None => {
+                    // Ephemeral in-memory cache (no disk dir from source path).
+                    default_cache = VerificationCache::new(std::path::Path::new("."));
+                    &default_cache
+                }
+            };
+            verify_parallel_with_solver(self.typed, cache, self.options.solver, Some(&extras))
+        } else {
+            verify_with_options_impl(self.typed, &self.options, Some(&extras))
+        };
+
+        if self.include_decrease_checks {
+            results.extend(crate::display::dispatch_decrease_checks(self.typed));
+        }
+
+        results
+    }
+}
+
+/// Verify all contract clauses in a type-checked file (convenience function).
+///
+/// For custom options, use [`Verifier`] builder instead.
+pub fn verify(typed: &TypedFile) -> Vec<VerificationResult> {
+    Verifier::new(typed).verify()
+}
+
+/// Internal: verify with options (non-parallel path).
+fn verify_with_options_impl(
+    typed: &TypedFile,
+    options: &assura_config::VerifyOptions,
+    extras: Option<&VerifyFileExtras<'_>>,
+) -> Vec<VerificationResult> {
+    match options.solver {
+        SolverChoice::Cvc5 => verify_file_with_cvc5(typed, extras),
+        SolverChoice::Portfolio => {
+            // Run Z3 and CVC5 concurrently, take the best result (#245)
+            #[cfg(feature = "z3-verify")]
+            {
+                verify_portfolio_parallel(typed, options.timeout_ms, extras)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                verify_file_with_cvc5(typed, extras)
+            }
+        }
+        SolverChoice::Z3 => {
+            #[cfg(feature = "z3-verify")]
+            {
+                crate::z3_backend::verify_impl_with_timeout(typed, options.timeout_ms, extras)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let _ = extras;
+                crate::no_z3::verify_stub(typed)
+            }
+        }
+    }
+}
+
+pub fn has_verifiable_clauses(source: &assura_ast::SourceFile) -> bool {
+    use assura_ast::{ClauseKind, DeclVisitor, ServiceDecl};
+
+    fn clauses_verifiable(clauses: &[assura_ast::Clause]) -> bool {
+        clauses.iter().any(|c| {
+            matches!(
+                c.kind,
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
+            )
+        })
+    }
+
+    struct HasVerifiable(bool);
+    impl DeclVisitor for HasVerifiable {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            if clauses_verifiable(&c.clauses) {
+                self.0 = true;
+            }
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            if clauses_verifiable(&f.clauses) {
+                self.0 = true;
+            }
+        }
+        fn visit_extern(&mut self, e: &ExternDecl) {
+            if clauses_verifiable(&e.clauses) {
+                self.0 = true;
+            }
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            if s.items.iter().any(|item| match item {
+                assura_ast::ServiceItem::Operation { clauses, .. }
+                | assura_ast::ServiceItem::Query { clauses, .. } => clauses_verifiable(clauses),
+                assura_ast::ServiceItem::Invariant(_) => true,
+                _ => false,
+            }) {
+                self.0 = true;
+            }
+        }
+        fn visit_block(
+            &mut self,
+            _kind: &BlockKind,
+            _name: &str,
+            _value: &Option<Vec<String>>,
+            body: &[Clause],
+        ) {
+            if clauses_verifiable(body) {
+                self.0 = true;
+            }
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            if clauses_verifiable(&b.clauses) {
+                self.0 = true;
+            }
+        }
+    }
+
+    let mut v = HasVerifiable(false);
+    assura_ast::walk_decls(&mut v, &source.decls);
+    v.0
+}
+
+/// Verify all declarations in parallel using the specified solver.
+pub(crate) fn verify_parallel_with_solver(
+    typed: &TypedFile,
+    cache: &VerificationCache,
+    solver: SolverChoice,
+    extras: Option<&VerifyFileExtras<'_>>,
+) -> Vec<VerificationResult> {
+    use rayon::prelude::*;
+
+    let constants = crate::feature_max::collect_feature_max_constants(typed);
+
+    // Collect verification jobs (#213: shared with CVC5 and Z3 paths)
+    let jobs = collect_verification_jobs(typed);
+
+    // Verify in parallel: each job gets its own solver context
+    let per_job_results: Vec<Vec<VerificationResult>> = jobs
+        .par_iter()
+        .map(|(name, clauses, params, return_ty)| {
+            // Check cache first
+            if let Some(cached) = cache.get(name, clauses) {
+                return cached;
+            }
+            let ctx = ContractVerifyContext {
+                contract_name: name,
+                clauses,
+                params,
+                return_ty,
+                constants: &constants,
+                ir: crate::verify_context::LoadedIrContext::for_contract(
+                    name,
+                    extras,
+                    Some(&typed.type_env),
+                ),
+            };
+            let results = verify_contract_with_types_and_solver(&ctx, solver);
+            cache.put(name, clauses, &results);
+            results
+        })
+        .collect();
+
+    // Flatten into a single results vec
+    per_job_results.into_iter().flatten().collect()
+}
+
+/// Verify a single contract's clauses using the default solver (Z3).
+///
+/// Unlike `verify()` which processes all declarations in a `TypedFile`,
+/// this function verifies just the given contract's clauses. Each
+/// ensures/invariant clause gets its own solver query with all requires
+/// clauses asserted as assumptions.
+///
+/// Returns one `VerificationResult` per verifiable clause.
+pub fn verify_contract(
+    contract_name: &str,
+    clauses: &[assura_ast::Clause],
+) -> Vec<VerificationResult> {
+    verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3)
+}
+
+/// Verify a single contract's clauses using the specified solver.
+pub fn verify_contract_with_solver(
+    contract_name: &str,
+    clauses: &[assura_ast::Clause],
+    solver: SolverChoice,
+) -> Vec<VerificationResult> {
+    match solver {
+        SolverChoice::Z3 => {
+            #[cfg(feature = "z3-verify")]
+            {
+                crate::z3_backend::verify_contract_impl(contract_name, clauses)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let _ = contract_name;
+                clauses
+                    .iter()
+                    .filter(|c| {
+                        matches!(
+                            c.kind,
+                            assura_ast::ClauseKind::Ensures
+                                | assura_ast::ClauseKind::Invariant
+                                | assura_ast::ClauseKind::Rule
+                                | assura_ast::ClauseKind::MustNot
+                                | assura_ast::ClauseKind::Decreases
+                        )
+                    })
+                    .map(|c| {
+                        let desc = format!("{contract_name}::{:?}", c.kind);
+                        VerificationResult::Unknown {
+                            clause_desc: desc,
+                            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+                        }
+                    })
+                    .collect()
+            }
+        }
+        SolverChoice::Cvc5 => crate::cvc5_backend::verify_contract_cvc5(contract_name, clauses),
+        SolverChoice::Portfolio => {
+            // Run Z3 and CVC5 concurrently per-contract (#245)
+            let z3_results = verify_contract_with_solver(contract_name, clauses, SolverChoice::Z3);
+            let cvc5_results = crate::cvc5_backend::verify_contract_cvc5(contract_name, clauses);
+            #[cfg(feature = "z3-verify")]
+            {
+                merge_portfolio_results(z3_results, cvc5_results)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let _ = z3_results;
+                cvc5_results
+            }
+        }
+    }
+}
+
+/// Verify a contract with type-level constraints from params and return type.
+fn verify_contract_with_types_and_solver(
+    ctx: &ContractVerifyContext<'_>,
+    solver: SolverChoice,
+) -> Vec<VerificationResult> {
+    match solver {
+        SolverChoice::Z3 => {
+            #[cfg(feature = "z3-verify")]
+            {
+                crate::z3_backend::verify_contract_impl_with_types_and_ir(ctx)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let _ = (ctx.constants, ctx.ir_body());
+                verify_contract_with_solver(ctx.contract_name, ctx.clauses, solver)
+            }
+        }
+        SolverChoice::Cvc5 | SolverChoice::Portfolio => {
+            let mut cache = SessionCache::new();
+            crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache)
+        }
+    }
+}
+
+/// Check whether a refinement subtype relation holds:
+///
+/// `{v: T | antecedent} <: {v: T | consequent}`
+///
+/// Encodes: `(assert antecedent) (assert (not consequent)) (check-sat)`
+///
+/// UNSAT => subtyping holds (Verified).
+/// SAT  => counterexample exists.
+pub fn check_refinement_subtype(antecedent: &SpExpr, consequent: &SpExpr) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::check_refinement_subtype_impl(antecedent, consequent)
+    }
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::check_refinement_subtype_cvc5(antecedent, consequent)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
+    {
+        crate::no_z3::refinement_stub(antecedent, consequent)
+    }
+}
+
+/// Verify buffer bounds safety for a contract.
+///
+/// Given a set of requires (assumptions) and an ensures clause that
+/// references buffer access, checks whether the requires clauses are
+/// sufficient to prove bounds safety. Specifically:
+///
+/// - Buffer capacity is modeled as an uninterpreted non-negative integer
+/// - Offset and length constraints from requires are asserted
+/// - The ensures clause is checked for validity under those assumptions
+///
+/// This is the SMT encoding for MEM.1 memory region contracts.
+pub fn verify_buffer_bounds(requires: &[SpExpr], ensures: &SpExpr) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::verify_buffer_bounds_impl(requires, ensures)
+    }
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_buffer_bounds_cvc5(requires, ensures)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
+    {
+        let _ = (requires, ensures);
+        VerificationResult::Unknown {
+            clause_desc: "buffer_bounds".into(),
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}
+
+/// Verify region containment: that all indices in sub_region are within parent_region.
+///
+/// SMT encoding: `forall i: sub_lo <= i < sub_hi => parent_lo <= i < parent_hi`
+///
+/// The `context` expressions provide additional assumptions (e.g., bounds on
+/// the buffer capacity). Returns Verified if the containment holds for all
+/// possible values satisfying the context, or Counterexample otherwise.
+pub fn verify_region_containment(
+    context: &[SpExpr],
+    sub_lo: &SpExpr,
+    sub_hi: &SpExpr,
+    parent_lo: &SpExpr,
+    parent_hi: &SpExpr,
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::verify_region_containment_impl(
+            context, sub_lo, sub_hi, parent_lo, parent_hi,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_region_containment_cvc5(
+            context, sub_lo, sub_hi, parent_lo, parent_hi,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
+    {
+        let _ = (context, sub_lo, sub_hi, parent_lo, parent_hi);
+        VerificationResult::Unknown {
+            clause_desc: "region_containment".into(),
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}
+
+/// Check refinement subtyping with extra context assumptions.
+///
+/// The `context` expressions are asserted alongside the antecedent before
+/// negating the consequent. Useful when the subtyping depends on
+/// constraints from enclosing scopes (e.g., function parameters).
+pub fn check_refinement_subtype_with_context(
+    context: &[SpExpr],
+    antecedent: &SpExpr,
+    consequent: &SpExpr,
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::check_refinement_subtype_with_context_impl(
+            context, antecedent, consequent,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::check_refinement_subtype_with_context_cvc5(
+            context, antecedent, consequent,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
+    {
+        crate::no_z3::refinement_ctx_stub(context, antecedent, consequent)
+    }
+}
+
+/// Verify taint safety for a contract: prove that tainted data cannot flow
+/// to sensitive positions without validation.
+///
+/// The SMT encoding models taint labels as integers in the lattice:
+/// `Untrusted(0) < Validated(1) < Trusted(2)`.
+///
+/// For each variable with a taint label, a Z3 integer represents its taint
+/// level. Flow constraints assert that taint propagates through operations
+/// (union semantics: result taint = min of operand taints), and sensitive
+/// positions require a minimum taint level (Validated or Trusted).
+///
+/// Returns `Verified` if the taint constraints are satisfiable with no
+/// violations, or `Counterexample` with the violating variable assignment.
+pub fn verify_taint_safety(
+    taint_labels: &[(String, assura_types::TaintLabel)],
+    validation_fns: &[String],
+    sensitive_uses: &[(String, assura_types::TaintLabel)],
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::verify_taint_safety_impl(taint_labels, validation_fns, sensitive_uses)
+    }
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_taint_safety_cvc5(taint_labels, validation_fns, sensitive_uses)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
+    {
+        let _ = (taint_labels, validation_fns, sensitive_uses);
+        VerificationResult::Unknown {
+            clause_desc: "taint_safety".into(),
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}
+
+/// Verify a contract using measure-enriched SMT context.
+///
+/// Each measure in `measures` is encoded as an uninterpreted function in Z3,
+/// with its standard axioms asserted. The `requires` expressions are asserted
+/// as assumptions, and the `ensures` expression is checked for validity under
+/// those assumptions plus the measure axioms.
+///
+/// This is the primary entry point for measure-aware verification.
+pub fn verify_with_measures(
+    requires: &[SpExpr],
+    ensures: &SpExpr,
+    measures: &[MeasureDefinition],
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::verify_with_measures_impl(requires, ensures, measures)
+    }
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_with_measures_cvc5(requires, ensures, measures)
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
+    {
+        let _ = (requires, ensures, measures);
+        VerificationResult::Unknown {
+            clause_desc: "verify_with_measures".into(),
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Termination (decreases) verification
+// ---------------------------------------------------------------------------
+
+/// Verify that a decreases measure strictly decreases at a recursive call site.
+///
+/// Given:
+/// - `preconditions`: the function's requires clauses (assumed true)
+/// - `measure_expr`: the decreases expression in terms of function params
+/// - `call_arg_expr`: the argument at the call site corresponding to the measure
+/// - `clause_desc`: description for the verification result
+///
+/// Checks: `preconditions => measure(call_args) < measure(fn_args) && measure(call_args) >= 0`
+///
+/// UNSAT on the negation => verified (measure decreases).
+/// SAT => counterexample (measure does not decrease).
+pub fn verify_decrease(
+    preconditions: &[SpExpr],
+    measure_expr: &SpExpr,
+    call_arg_expr: &SpExpr,
+    clause_desc: String,
+) -> VerificationResult {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::verify_decrease_impl(
+            preconditions,
+            measure_expr,
+            call_arg_expr,
+            clause_desc,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), feature = "cvc5-verify"))]
+    {
+        crate::cvc5_backend::verify_decrease_cvc5(
+            preconditions,
+            measure_expr,
+            call_arg_expr,
+            clause_desc,
+        )
+    }
+    #[cfg(all(not(feature = "z3-verify"), not(feature = "cvc5-verify")))]
+    {
+        let _ = (preconditions, measure_expr, call_arg_expr);
+        VerificationResult::Unknown {
+            clause_desc,
+            reason: "Z3 not available (compiled without z3-verify feature)".into(),
+        }
+    }
+}

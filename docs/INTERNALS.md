@@ -197,7 +197,8 @@ CVC5 fallback via external binary in portfolio mode.
 
 | Area | Path | Edit here for… |
 |------|------|----------------|
-| Public verify API | `entry/mod.rs` | `verify()`, job collection, advanced passes, decrease dispatch |
+| Public verify API | `entry/` (`verify.rs`, `jobs.rs`, `advanced_passes.rs`, `helpers.rs`, `evolution.rs`) | `verify()`, job collection, advanced passes, decrease dispatch |
+| CLI check command | `assura-cli/src/check/` (`run.rs`, `report.rs`, `watch.rs`, `project.rs`, `check_rust.rs`) | `assura check` / verify reporting / watch / project |
 | Results / limitation marker | `result.rs` | `VerificationResult`, `KNOWN_SMT_LIMITATION_MARKER` |
 | Managers (prophecy, trigger, weak memory) | `advanced.rs` | New manager methods (must call from entry/encoder, not tests only) |
 | Z3 solve loop | `z3_backend/verify.rs` | Per-clause solve, timeouts, portfolio |

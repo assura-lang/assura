@@ -71,7 +71,8 @@ Use this table before grepping the whole repo. It reduces wrong-crate edits.
 | SMT limitation (skip with warning) | `assura_smt::KNOWN_SMT_LIMITATION_MARKER` / `is_known_smt_limitation` | Emit `VerificationResult::Unknown` with that marker | guards reject open-coded marker strings elsewhere |
 | Full compile path (CLI/LSP/MCP/tests) | `assura_pipeline::{compile, compile_full, verify_typed, run_at}` | Do not hand-roll Verifier in CLI/LSP/MCP | guards warn/fail on `Verifier::new` outside smt/pipeline |
 | Name resolution pass on decls | `crates/assura-resolve/src/` (`unused.rs`, `clause_names.rs`, `type_refs.rs` use `DeclVisitor`) | Prefer `visit_decl` over copy-paste `match Decl` | `cargo test -p assura-resolve --locked --lib` |
-| SMT verify jobs / entry passes | `crates/assura-smt/src/entry/mod.rs` (see `docs/INTERNALS.md` smt module map) | Wire from `verify()`; collect jobs via `DeclVisitor` where possible | agent-guards section 7 |
+| SMT verify jobs / entry passes | `crates/assura-smt/src/entry/` (`verify.rs` / `jobs.rs` / `advanced_passes.rs`; see `docs/INTERNALS.md` smt module map) | Wire from `verify()`; collect jobs via `DeclVisitor` where possible | agent-guards section 7 |
+| CLI `assura check` / verify UX | `crates/assura-cli/src/check/` (`run.rs` entry, `report.rs` diagnostics/Unknown policy) | Prefer `assura_pipeline::{compile, compile_full, verify_typed}` | agent-guards `Verifier::new` |
 | Error code `Axxxxx` | [`docs/error-codes-agent.md`](docs/error-codes-agent.md) | Phase crate from index, then `rg 'A0xxxx' crates` | wrong phase = wasted work |
 | Load demo/fixture in tests | `assura_test_support::{load_fixture, fixture_path, verify_result, expect_verify_limitation}` | smt/cli/pipeline tests only (not types/codegen type returns) | unit test in test-support crate |
 | Codegen name/type collection (phases 1–2) | `crates/assura-codegen/src/lib.rs` (`TypeCollectVisitor` / `DeclVisitor`) | Later phases still use explicit matches; prefer visitor for **new** collection passes | `cargo test -p assura-codegen --locked --lib` |
@@ -272,7 +273,7 @@ assura/
     assura-config/            # ProjectConfig, CompilerConfig, VerifyOptions
     assura-diagnostics/       # Error codes, Diagnostic, ariadne/JSON rendering
     assura-cli/               # Binary: check/build/init/diff/fmt/repl/audit/...
-      src/check.rs, build.rs  # Use assura_pipeline (not hand-rolled passes)
+      src/check/, build.rs    # check/ split (run/report/watch/project); use assura_pipeline
       src/shared.rs           # compile / compile_with_config wrappers
     assura-fmt/               # Formatter
     assura-lsp/               # LSP server (tower-lsp)
@@ -1399,7 +1400,7 @@ like `"SafeDivision: ensures"`. Do not pattern-match assuming struct
 fields that do not exist.
 
 **Unknown severity classification**: Not all `Unknown` results are errors.
-The CLI (`check.rs`) classifies them by reason string:
+The CLI (`check/report.rs`) classifies them by reason string:
 
 | Reason contains | Severity | Exit code | Rationale |
 |-----------------|----------|-----------|-----------|

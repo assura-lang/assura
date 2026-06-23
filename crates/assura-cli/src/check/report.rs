@@ -1,0 +1,228 @@
+//! Verification result reporting (human/JSON) and SMT Unknown classification.
+
+use super::super::*;
+use super::types::VerifyContext;
+
+/// Shared verification + reporting logic used by both `run_check` and
+/// `check_file_once` (watch mode). Returns the verification results and
+/// whether errors were found.
+pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::VerificationResult> {
+    let VerifyContext {
+        filename,
+        source,
+        typed,
+        file,
+        diagnostics,
+        has_errors,
+        output_mode,
+        verbosity,
+        verify_options,
+        show_cores,
+    } = ctx;
+    let layer = verify_options.layer;
+    // Short-circuit: skip cache/thread-pool init when there are no
+    // verifiable clauses (requires/ensures/invariant) in the source.
+    let has_clauses = file
+        .as_ref()
+        .is_some_and(assura_smt::has_verifiable_clauses);
+
+    let verification_results = if layer >= 1 && has_clauses {
+        typed.as_ref().map_or_else(Vec::new, |typed| {
+            let config = assura_config::CompilerConfig {
+                verify: verify_options,
+                ..Default::default()
+            };
+            assura_pipeline::verify_typed(typed, filename, &config)
+        })
+    } else {
+        Vec::new()
+    };
+
+    // Build a lookup from contract/decl name to source span so SMT
+    // diagnostics point to the originating declaration, not 0..0.
+    let decl_spans = build_decl_span_map(file);
+
+    if let Some(typed) = typed {
+        let qwarnings = assura_smt::validate_quantifier_bounds(typed);
+        for w in &qwarnings {
+            let span = lookup_clause_span(&w.context, &decl_spans);
+            diagnostics.push(
+                assura_diagnostics::Diagnostic::warning(
+                    "A05200",
+                    format!(
+                        "unbounded quantifier in {}: {} ({})",
+                        w.context, w.domain_desc, w.reason
+                    ),
+                    span,
+                )
+                .with_file(filename),
+            );
+        }
+    }
+
+    for vr in &verification_results {
+        let clause_desc = match vr {
+            assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+            | assura_smt::VerificationResult::Timeout { clause_desc }
+            | assura_smt::VerificationResult::Unknown { clause_desc, .. }
+            | assura_smt::VerificationResult::Verified { clause_desc, .. } => clause_desc,
+        };
+        let span = lookup_clause_span(clause_desc, &decl_spans);
+
+        match vr {
+            assura_smt::VerificationResult::Counterexample {
+                clause_desc,
+                model,
+                counter_model,
+            } => {
+                *has_errors = true;
+                let summary = format_counterexample_summary(counter_model, model);
+                diagnostics.push(
+                    assura_diagnostics::Diagnostic::error(
+                        "A05100",
+                        format!("verification failed for {clause_desc}: {summary}"),
+                        span.clone(),
+                    )
+                    .with_file(filename),
+                );
+            }
+            assura_smt::VerificationResult::Timeout { clause_desc } => {
+                *has_errors = true;
+                diagnostics.push(
+                    assura_diagnostics::Diagnostic::error(
+                        "A05100",
+                        format!("verification timeout for {clause_desc}"),
+                        span.clone(),
+                    )
+                    .with_file(filename),
+                );
+            }
+            assura_smt::VerificationResult::Unknown {
+                clause_desc,
+                reason,
+            } => {
+                if is_known_smt_limitation(reason) {
+                    diagnostics.push(
+                        assura_diagnostics::Diagnostic::warning(
+                            "A05100",
+                            format!("verification skipped for {clause_desc}: {reason}"),
+                            span.clone(),
+                        )
+                        .with_file(filename),
+                    );
+                } else {
+                    *has_errors = true;
+                    diagnostics.push(
+                        assura_diagnostics::Diagnostic::error(
+                            "A05100",
+                            format!("verification inconclusive for {clause_desc}: {reason}"),
+                            span.clone(),
+                        )
+                        .with_file(filename),
+                    );
+                }
+            }
+            assura_smt::VerificationResult::Verified { .. } => {}
+        }
+    }
+
+    if output_mode == OutputMode::Human {
+        let non_lex: Vec<_> = diagnostics.iter().filter(|d| d.code != "A01001").collect();
+        if *has_errors || verbosity != Verbosity::Quiet {
+            for d in &non_lex {
+                assura_diagnostics::render_diagnostic(d, filename, source);
+            }
+        }
+
+        if verbosity != Verbosity::Quiet {
+            if !verification_results.is_empty() {
+                eprintln!();
+                eprintln!("Verification ({} clause(s)):", verification_results.len());
+                let _ = assura_smt::display::write_grouped_verification_with_cores(
+                    &mut std::io::stderr(),
+                    &verification_results,
+                    "  ",
+                    show_cores,
+                );
+            } else if layer == 0 {
+                eprintln!();
+                eprintln!("Verification skipped (--layer 0: structural checks only)");
+            } else if layer >= 1
+                && let Some(f) = file
+            {
+                let contract_names = assura_smt::display::collect_contract_names(f);
+                if !contract_names.is_empty() {
+                    eprintln!();
+                    eprintln!("Verification:");
+                    for name in &contract_names {
+                        eprintln!("  {name}:  (no verifiable clauses)");
+                    }
+                }
+            }
+
+            if !*has_errors {
+                eprintln!("{filename}: check passed (no errors)");
+            } else {
+                eprintln!("{filename}: {} error(s) found", diagnostics.len());
+            }
+        } else if *has_errors {
+            eprintln!("{filename}: {} error(s) found", diagnostics.len());
+        }
+    }
+
+    verification_results
+}
+
+// ---------------------------------------------------------------------------
+// Span lookup + SMT limitation helper
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+
+/// Build a map from declaration name to source span.
+/// Used to give SMT diagnostics real source locations instead of 0..0.
+fn build_decl_span_map(
+    file: &Option<assura_parser::ast::SourceFile>,
+) -> std::collections::HashMap<String, std::ops::Range<usize>> {
+    let mut map = std::collections::HashMap::new();
+    if let Some(f) = file {
+        for spanned in &f.decls {
+            // Contracts, services, functions, and blocks are the names that
+            // appear as clause_desc prefixes in SMT diagnostics.
+            let include = matches!(
+                &spanned.node,
+                assura_parser::ast::Decl::Contract(_)
+                    | assura_parser::ast::Decl::FnDef(_)
+                    | assura_parser::ast::Decl::Block { .. }
+                    | assura_parser::ast::Decl::Service(_)
+            );
+            if include && let Some(n) = spanned.node.name() {
+                map.insert(n.to_string(), spanned.span.clone());
+            }
+        }
+    }
+    map
+}
+
+/// Extract a source span for a verification result's clause_desc.
+/// clause_desc format: "ContractName::ClauseKind" or "ContractName: kind".
+fn lookup_clause_span(
+    clause_desc: &str,
+    decl_spans: &std::collections::HashMap<String, std::ops::Range<usize>>,
+) -> std::ops::Range<usize> {
+    // Extract the name before "::" or ":"
+    let name = clause_desc
+        .split("::")
+        .next()
+        .or_else(|| clause_desc.split(':').next())
+        .unwrap_or(clause_desc)
+        .trim();
+    decl_spans.get(name).cloned().unwrap_or(0..0)
+}
+
+/// Returns `true` if the given `VerificationResult::Unknown` reason represents
+/// a known compiler limitation (warning, exit 0) rather than a genuine solver
+/// inconclusive result (error, exit 1).
+fn is_known_smt_limitation(reason: &str) -> bool {
+    assura_smt::is_known_smt_limitation(reason)
+}

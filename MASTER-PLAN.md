@@ -2424,6 +2424,18 @@ same large files.
 
 Next: product/MASTER-PLAN work; Tier C only if agents still thrash.
 
+## Progress Notes (2026-06-23 session, agent-hot monolith splits)
+
+- **PR1 `assura-cli` `check.rs` → `check/`**: `run.rs`, `report.rs`, `watch.rs`,
+  `project.rs`, `check_rust.rs`, `types.rs`, `tests.rs`; thin `mod.rs` re-exports.
+- **PR2 `assura-smt` `entry.rs` → `entry/`**: `helpers.rs`, `jobs.rs`, `verify.rs`,
+  `advanced_passes.rs`, `evolution.rs`, `tests.rs`; external `crate::entry::…`
+  paths preserved for z3/cvc5/ir_loader.
+- **Docs**: AGENTS ergonomics map + INTERNALS module map already point at dirs.
+- **Deferred (PR3)**: `z3_backend/encoder` further split (optional follow-up).
+
+Next: commit/push branch `feat/split-agent-hot-monoliths`; resume product tasks.
+
 **2026-06-22 11.04 completion:**
 - Verified: 29 "span:" in lower.rs (>=20), expr_span test passes, all demos pass, parser+types check clean.
 - 11.04 core acceptance met (spans captured in lowering for Expr, precise error spans now possible).
