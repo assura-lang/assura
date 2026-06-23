@@ -1912,6 +1912,162 @@ fn nat_param(n: Nat) -> Int
 }
 
 // -----------------------------------------------------------------------
+// encode_call: string / collection method axioms
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_concat_length_additive() {
+    // len(concat(a, b)) == len(a) + len(b) verifies via background axioms
+    let src = r#"
+contract ConcatLen {
+  input(a: String, b: String)
+  requires { len(a) == 2 }
+  requires { len(b) == 3 }
+  ensures { len(concat(a, b)) == 5 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "concat length should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_substring_length_diff() {
+    let src = r#"
+contract SubstrLen {
+  input(s: String, start: Int, end: Int)
+  requires { start >= 0 }
+  requires { start <= end }
+  requires { end <= len(s) }
+  ensures { len(substring(s, start, end)) == end - start }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "substring length should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_push_increments_length() {
+    let src = r#"
+contract PushLen {
+  input(xs: List<Int>, x: Int)
+  requires { len(xs) == n }
+  requires { n >= 0 }
+  ensures { len(push(xs, x)) == n + 1 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "push length should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_reverse_preserves_length() {
+    let src = r#"
+contract ReverseLen {
+  input(xs: List<Int>)
+  requires { len(xs) == n }
+  ensures { len(reverse(xs)) == n }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "reverse length should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_clear_zero_length() {
+    let src = r#"
+contract ClearLen {
+  input(xs: List<Int>)
+  ensures { len(clear(xs)) == 0 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "clear length should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_take_length_bounded() {
+    let src = r#"
+contract TakeLen {
+  input(xs: List<Int>, k: Int)
+  requires { k >= 0 }
+  requires { len(xs) == 10 }
+  requires { k <= 10 }
+  ensures { len(take(xs, k)) == k }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "take length should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_is_empty_iff_len_zero() {
+    // is_empty(xs) implies len(xs) == 0 (bidirectional axiom)
+    let src = r#"
+contract IsEmptyLen {
+  input(xs: List<Int>)
+  requires { is_empty(xs) }
+  ensures { len(xs) == 0 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "is_empty => len==0 should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_method_call_push_length() {
+    // Method form: xs.push(x) routes receiver as first arg to encode_call
+    let src = r#"
+contract MethodPush {
+  input(xs: List<Int>, x: Int)
+  requires { xs.length() == 3 }
+  ensures { xs.push(x).length() == 4 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "method push length should verify, got: {results:?}"
+    );
+}
+
+// -----------------------------------------------------------------------
 // min/max: ite encoding (not unconstrained UF)
 // -----------------------------------------------------------------------
 

@@ -304,6 +304,54 @@ impl Encoder {
         z3::FuncDecl::new(name, &param_sorts, &int_sort)
     }
 
+    /// Length of a sequence/collection encoded as an `Int` proxy.
+    /// Uses canonical length for named identifiers (`s.length()` / `len(s)`).
+    pub(crate) fn collection_len_of(
+        &mut self,
+        coll_expr: &Expr,
+        coll_int: &ast::Int,
+        len_uf: &str,
+    ) -> ast::Int {
+        if let Expr::Ident(name) = coll_expr {
+            return self.canonical_length(name);
+        }
+        let len_decl = self.make_func(len_uf, 1);
+        len_decl
+            .apply(&[coll_int as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap_or_else(|| self.fresh_int())
+    }
+
+    /// Assert `len_uf(obj) == val` and `val >= 0`.
+    /// When `len_uf` is `len` or `__field_len`, also links the other alias.
+    pub(crate) fn assert_collection_len_eq(
+        &mut self,
+        obj: &ast::Int,
+        val: &ast::Int,
+        len_uf: &str,
+    ) {
+        let len_decl = self.make_func(len_uf, 1);
+        let got = len_decl
+            .apply(&[obj as &dyn z3::ast::Ast])
+            .as_int()
+            .unwrap_or_else(|| self.fresh_int());
+        let zero = ast::Int::from_i64(0);
+        self.background_axioms.push(got.eq(val));
+        self.background_axioms.push(val.ge(&zero));
+        if len_uf == "len" || len_uf == "__field_len" {
+            for other in ["len", "__field_len"] {
+                if other != len_uf {
+                    let d = self.make_func(other, 1);
+                    let o = d
+                        .apply(&[obj as &dyn z3::ast::Ast])
+                        .as_int()
+                        .unwrap_or_else(|| self.fresh_int());
+                    self.background_axioms.push(o.eq(val));
+                }
+            }
+        }
+    }
+
     /// Encode a function call as an uninterpreted function application.
     /// Known boolean methods return Bool; everything else returns Int.
     pub(crate) fn adt_for_constructor(&self, ctor_name: &str) -> Option<String> {
@@ -363,7 +411,7 @@ impl Encoder {
             };
             return Z3Value::Int(result);
         }
-        // Methods known to return Bool
+        // Methods known to return Bool (UF with optional length links below).
         if matches!(
             func_name,
             "contains"
@@ -387,128 +435,112 @@ impl Encoder {
             let arg_refs: Vec<&dyn z3::ast::Ast> =
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
             let result = decl.apply(&arg_refs);
-            return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
+            let b = result.as_bool().unwrap_or_else(|| self.fresh_bool());
+            // is_empty(x) <=> len(x) == 0 (sound for sequences/maps with size).
+            if func_name == "is_empty" && arg_vals.len() == 1 {
+                let coll = &arg_vals[0];
+                let coll_expr = &args[0].node;
+                let len_val = self.collection_len_of(coll_expr, coll, "len");
+                let zero = ast::Int::from_i64(0);
+                let len_is_zero = len_val.eq(&zero);
+                // Both directions: empty iff length zero.
+                self.background_axioms.push(b.implies(&len_is_zero));
+                self.background_axioms.push(len_is_zero.implies(&b));
+            }
+            // contains_key(m, k): size(m) >= 0 only (weak); if true, size >= 1 is unsound
+            // for empty-map false positives. Skip.
+            return Z3Value::Bool(b);
         }
-        // String methods with known semantics
+        // String / sequence methods with known semantics
         match func_name {
-            // substring(str, start, end): fresh value with length == end - start
-            // and bounds axioms: 0 <= start <= end <= len(str)
+            // substring(str, start, end): length == end - start; 0 <= start <= end <= len(str)
             "substring" | "substr" if arg_vals.len() == 3 => {
+                let str_expr = &args[0].node;
                 let str_val = &arg_vals[0];
                 let start = &arg_vals[1];
                 let end = &arg_vals[2];
                 let result = self.fresh_int();
                 let zero = ast::Int::from_i64(0);
-                // 0 <= start
                 self.background_axioms.push(start.ge(&zero));
-                // start <= end
                 self.background_axioms.push(start.le(end));
-                // end <= len(str)
-                let len_decl = self.make_func("__field_len", 1);
-                let str_len = len_decl
-                    .apply(&[str_val as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
+                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
                 self.background_axioms.push(end.le(&str_len));
-                // len(result) == end - start
-                let res_len = len_decl
-                    .apply(&[&result as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
                 let diff = ast::Int::sub(&[end, start]);
-                self.background_axioms.push(res_len.eq(&diff));
-                self.background_axioms.push(res_len.ge(&zero));
+                self.assert_collection_len_eq(&result, &diff, "__field_len");
                 return Z3Value::Int(result);
             }
-            // concat(a, b): same semantics as BinOp::Concat
-            "concat" if arg_vals.len() == 2 => {
+            // concat(a, b) / append(a, b): len(result) == len(a) + len(b)
+            "concat" | "append" if arg_vals.len() == 2 => {
+                let l_expr = &args[0].node;
+                let r_expr = &args[1].node;
                 let l = &arg_vals[0];
                 let r = &arg_vals[1];
                 let result = self.fresh_int();
-                let len_decl = self.make_func("__field_len", 1);
-                let len_l = len_decl
-                    .apply(&[l as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                let len_r = len_decl
-                    .apply(&[r as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                let len_result = len_decl
-                    .apply(&[&result as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
+                let len_l = self.collection_len_of(l_expr, l, "__field_len");
+                let len_r = self.collection_len_of(r_expr, r, "__field_len");
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(len_l.ge(&zero));
                 self.background_axioms.push(len_r.ge(&zero));
                 let sum = ast::Int::add(&[&len_l, &len_r]);
-                self.background_axioms.push(len_result.eq(&sum));
-                self.background_axioms.push(len_result.ge(&zero));
+                self.assert_collection_len_eq(&result, &sum, "__field_len");
+                // Also result length >= each operand (redundant but helps some goals).
+                self.background_axioms.push(sum.ge(&len_l));
+                self.background_axioms.push(sum.ge(&len_r));
                 return Z3Value::Int(result);
             }
-            // index_of(str, substr): returns Int with -1 <= result < len(str)
+            // index_of(str, substr): -1 <= result < len(str)
             "index_of" | "find" | "indexOf" if arg_vals.len() == 2 => {
+                let str_expr = &args[0].node;
                 let str_val = &arg_vals[0];
                 let result = self.fresh_int();
                 let neg_one = ast::Int::from_i64(-1);
                 self.background_axioms.push(result.ge(&neg_one));
-                let len_decl = self.make_func("__field_len", 1);
-                let str_len = len_decl
-                    .apply(&[str_val as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
+                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
+                // result < len(str) covers both found indices and -1 when len >= 0.
                 self.background_axioms.push(result.lt(&str_len));
                 return Z3Value::Int(result);
             }
-            // char_at(str, idx): returns Int with bounds axiom
-            "char_at" | "charAt" if arg_vals.len() == 2 => {
+            // char_at(str, idx): 0 <= idx < len(str)
+            "char_at" | "charAt" | "code_unit_at" if arg_vals.len() == 2 => {
+                let str_expr = &args[0].node;
                 let str_val = &arg_vals[0];
                 let idx = &arg_vals[1];
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(idx.ge(&zero));
-                let len_decl = self.make_func("__field_len", 1);
-                let str_len = len_decl
-                    .apply(&[str_val as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
+                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
                 self.background_axioms.push(idx.lt(&str_len));
                 return Z3Value::Int(self.fresh_int());
             }
-            // replace(str, old, new): result length is bounded
+            // replace(str, old, new): result length >= 0 (weak; no exact length)
             "replace" if arg_vals.len() == 3 => {
                 let result = self.fresh_int();
-                let len_decl = self.make_func("__field_len", 1);
-                let res_len = len_decl
-                    .apply(&[&result as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
+                let res_len = self.fresh_int();
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(res_len.ge(&zero));
+                self.assert_collection_len_eq(&result, &res_len, "__field_len");
                 return Z3Value::Int(result);
             }
-            // split(str, delim): returns a fresh collection with len >= 1
+            // split(str, delim): returns collection with len >= 1
             "split" if arg_vals.len() == 2 => {
                 let result = self.fresh_int();
-                let len_decl = self.make_func("__field_len", 1);
+                let one = ast::Int::from_i64(1);
+                let len_decl = self.make_func("len", 1);
                 let res_len = len_decl
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
                     .unwrap_or_else(|| self.fresh_int());
-                let one = ast::Int::from_i64(1);
                 self.background_axioms.push(res_len.ge(&one));
                 return Z3Value::Int(result);
             }
-            // trim/to_lower/to_upper: result length <= input length
+            // trim/to_lower/to_upper/clone/to_string: length preserved or <= input
             "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
                 if arg_vals.len() == 1 =>
             {
+                let str_expr = &args[0].node;
                 let str_val = &arg_vals[0];
                 let result = self.fresh_int();
+                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
                 let len_decl = self.make_func("__field_len", 1);
-                let str_len = len_decl
-                    .apply(&[str_val as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
                 let res_len = len_decl
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
@@ -516,6 +548,148 @@ impl Encoder {
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(res_len.ge(&zero));
                 self.background_axioms.push(res_len.le(&str_len));
+                return Z3Value::Int(result);
+            }
+            "clone" | "to_string" | "to_owned" | "as_str" if arg_vals.len() == 1 => {
+                // Length-preserving views/copies.
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let result = self.fresh_int();
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                self.assert_collection_len_eq(&result, &old_len, "len");
+                return Z3Value::Int(result);
+            }
+            // reverse(seq): length preserved
+            "reverse" if arg_vals.len() == 1 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let result = self.fresh_int();
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                self.assert_collection_len_eq(&result, &old_len, "len");
+                return Z3Value::Int(result);
+            }
+            // clear(seq): length == 0
+            "clear" if arg_vals.len() == 1 => {
+                let result = self.fresh_int();
+                let zero = ast::Int::from_i64(0);
+                self.assert_collection_len_eq(&result, &zero, "len");
+                return Z3Value::Int(result);
+            }
+            // push(seq, elem) / push_back: length = old + 1
+            "push" | "push_back" | "push_front" if arg_vals.len() == 2 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let result = self.fresh_int();
+                let one = ast::Int::from_i64(1);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                let new_len = ast::Int::add(&[&old_len, &one]);
+                self.assert_collection_len_eq(&result, &new_len, "len");
+                return Z3Value::Int(result);
+            }
+            // pop / pop_back: length = max(0, old - 1)
+            "pop" | "pop_back" | "pop_front" if arg_vals.len() == 1 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let result = self.fresh_int();
+                let zero = ast::Int::from_i64(0);
+                let one = ast::Int::from_i64(1);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                let dec = ast::Int::sub(&[&old_len, &one]);
+                let new_len = old_len.ge(&one).ite(&dec, &zero);
+                self.assert_collection_len_eq(&result, &new_len, "len");
+                return Z3Value::Int(result);
+            }
+            // insert(seq, idx, val): length = old + 1; get(result, idx) == val
+            "insert" if arg_vals.len() == 3 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let idx = &arg_vals[1];
+                let val = &arg_vals[2];
+                let result = self.fresh_int();
+                let one = ast::Int::from_i64(1);
+                let zero = ast::Int::from_i64(0);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                let new_len = ast::Int::add(&[&old_len, &one]);
+                self.assert_collection_len_eq(&result, &new_len, "len");
+                self.background_axioms.push(idx.ge(&zero));
+                self.background_axioms.push(idx.le(&old_len));
+                let get_decl = self.make_func("__index", 2);
+                let at_idx = get_decl
+                    .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                self.background_axioms.push(at_idx.eq(val));
+                return Z3Value::Int(result);
+            }
+            // remove(seq, idx) / remove_at: length = max(0, old - 1)
+            "remove" | "remove_at" if arg_vals.len() == 2 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let result = self.fresh_int();
+                let zero = ast::Int::from_i64(0);
+                let one = ast::Int::from_i64(1);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                let dec = ast::Int::sub(&[&old_len, &one]);
+                let new_len = old_len.ge(&one).ite(&dec, &zero);
+                self.assert_collection_len_eq(&result, &new_len, "len");
+                return Z3Value::Int(result);
+            }
+            // slice(seq, start, end) / take(seq, n) / drop(seq, n)
+            "slice" if arg_vals.len() == 3 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let start = &arg_vals[1];
+                let end = &arg_vals[2];
+                let result = self.fresh_int();
+                let zero = ast::Int::from_i64(0);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                self.background_axioms.push(start.ge(&zero));
+                self.background_axioms.push(start.le(end));
+                self.background_axioms.push(end.le(&old_len));
+                let diff = ast::Int::sub(&[end, start]);
+                self.assert_collection_len_eq(&result, &diff, "len");
+                return Z3Value::Int(result);
+            }
+            "take" if arg_vals.len() == 2 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let n = &arg_vals[1];
+                let result = self.fresh_int();
+                let zero = ast::Int::from_i64(0);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                self.background_axioms.push(n.ge(&zero));
+                let taken = n.le(&old_len).ite(n, &old_len);
+                self.assert_collection_len_eq(&result, &taken, "len");
+                return Z3Value::Int(result);
+            }
+            "drop" if arg_vals.len() == 2 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let n = &arg_vals[1];
+                let result = self.fresh_int();
+                let zero = ast::Int::from_i64(0);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                self.background_axioms.push(n.ge(&zero));
+                let rem = ast::Int::sub(&[&old_len, n]);
+                let dropped = n.le(&old_len).ite(&rem, &zero);
+                self.assert_collection_len_eq(&result, &dropped, "len");
+                return Z3Value::Int(result);
+            }
+            // first/last/head: weak (no value); length of source > 0 if used in requires separately
+            "first" | "last" | "head" | "front" | "back" if arg_vals.len() == 1 => {
+                return Z3Value::Int(self.fresh_int());
+            }
+            // tail/rest: length = max(0, old - 1)
+            "tail" | "rest" if arg_vals.len() == 1 => {
+                let src_expr = &args[0].node;
+                let src = &arg_vals[0];
+                let result = self.fresh_int();
+                let zero = ast::Int::from_i64(0);
+                let one = ast::Int::from_i64(1);
+                let old_len = self.collection_len_of(src_expr, src, "len");
+                let dec = ast::Int::sub(&[&old_len, &one]);
+                let new_len = old_len.ge(&one).ite(&dec, &zero);
+                self.assert_collection_len_eq(&result, &new_len, "len");
                 return Z3Value::Int(result);
             }
             _ => {}
@@ -610,7 +784,37 @@ impl Encoder {
             self.background_axioms.push(new_size.ge(&zero));
             return Z3Value::Int(new_map);
         }
-        // Size-like methods get non-negativity axiom
+        // Size-like methods get non-negativity axiom; unify len/length/size/__field_len.
+        if matches!(func_name, "len" | "length" | "size" | "count" | "capacity")
+            && arg_vals.len() == 1
+        {
+            let coll_expr = &args[0].node;
+            let coll = &arg_vals[0];
+            // Named collections: always use the canonical length variable.
+            if let Expr::Ident(name) = coll_expr {
+                return Z3Value::Int(self.canonical_length(name));
+            }
+            let len_val = self.collection_len_of(coll_expr, coll, "len");
+            let zero = ast::Int::from_i64(0);
+            self.background_axioms.push(len_val.ge(&zero));
+            // Link the requested method UF to the same length value.
+            if func_name != "len" {
+                let decl = self.make_func(func_name, 1);
+                let via_method = decl
+                    .apply(&[coll as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                self.background_axioms.push(via_method.eq(&len_val));
+            }
+            // Keep __field_len aligned (string/method `.length()` on temporaries).
+            let fl = self.make_func("__field_len", 1);
+            let via_fl = fl
+                .apply(&[coll as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            self.background_axioms.push(via_fl.eq(&len_val));
+            return Z3Value::Int(len_val);
+        }
         if matches!(func_name, "len" | "length" | "size" | "count" | "capacity") {
             let decl = self.make_func(func_name, arg_vals.len());
             let arg_refs: Vec<&dyn z3::ast::Ast> =
