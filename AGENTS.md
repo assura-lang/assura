@@ -290,7 +290,7 @@ assura/
   editors/vscode/             # VS Code extension
   tests/fixtures/             # MUST COMPILE / MUST REJECT fixtures
   tests/e2e/                  # End-to-end verification contracts
-  scripts/                    # verify-task.sh, setup-cvc5.sh, CI helpers
+  scripts/                    # verify-task.sh, setup-cvc5.sh, check-smt-feature-matrix.sh, CI helpers
 ```
 
 New crates are added as `crates/assura-{name}/`. Every crate uses
@@ -624,7 +624,36 @@ cargo fmt -- --check
 cargo clippy --workspace --locked -- -D warnings
 cargo check -p <crate> --locked
 cargo test -p <crate> --locked --lib   # or targeted
+# If you touched crates/assura-smt (cvc5_*, ir_parity, ir_encode, ir_lower):
+bash scripts/check-smt-feature-matrix.sh
 ```
+
+**SMT / CVC5 feature matrix (mandatory when touching assura-smt CVC5 or IR encode paths)**
+
+Default `cargo test` / `cargo check` only exercise `z3-verify` (default feature).
+The CI job **CVC5 native tests** builds with `--features cvc5-verify`, which
+**disables** shell-only modules such as `cvc5_ir_smtlib`
+(`cfg(not(feature = "cvc5-verify"))`). Code that imports those modules without
+a matching `cfg` gate compiles in the agent loop and fails only in CI (PR #367).
+
+Run the matrix script (lint + compile under default, `--no-default-features`,
+and `cvc5-verify` when CVC5 env is set via `scripts/setup-cvc5.sh`):
+
+```bash
+bash scripts/check-smt-feature-matrix.sh           # lint + compile matrix
+bash scripts/check-smt-feature-matrix.sh --lint    # fast cfg lint only
+bash scripts/setup-cvc5.sh && export CVC5_LIB_DIR=... CVC5_INCLUDE_DIR=...
+bash scripts/check-smt-feature-matrix.sh --require-cvc5
+```
+
+Do not treat an assura-smt PR as green until the **CVC5 native tests** job
+passes on the latest SHA (not only `test` / `clippy`).
+
+**`apply_ir_body_constraints_cvc5` stub:** while
+`CVC5_IR_BODY_CONSTRAINTS_IS_STUB` is `true` in `cvc5_ir_native.rs`, the
+function is a no-op (STUB-CONTRACT). Do not assert on `state.axioms` after
+calling it; `ir_parity` only asserts Z3 + shell. Grep
+`CVC5_IR_BODY_CONSTRAINTS_IS_STUB` / `STUB-CONTRACT` before adding IR tests.
 
 **Before session end or marking a MASTER-PLAN task `[x]`** (full):
 ```bash
@@ -633,6 +662,7 @@ cargo clippy --workspace --locked -- -D warnings
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
 cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
+bash scripts/check-smt-feature-matrix.sh   # if assura-smt changed this session
 ```
 
 **Command selection by query type (important for agent sessions)**

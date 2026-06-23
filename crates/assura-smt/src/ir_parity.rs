@@ -51,10 +51,10 @@ mod tests {
         })
     }
 
-    // Note: `apply_ir_body_constraints_cvc5` is intentionally a stub during the
-    // SpExpr/IR builder migration (`cvc5_ir_native.rs`). Do not assert on
-    // `state.axioms` here; dedicated `cvc5_ir_native` tests are `#[ignore]`d
-    // for the same reason. Under `cvc5-verify` we only exercise Z3 (+ shell is
+    // Note: while `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` is true (`cvc5_ir_native.rs`
+    // STUB-CONTRACT), do not call `apply_ir_body_constraints_cvc5` or assert on
+    // its axioms here; dedicated `cvc5_ir_native` tests are `#[ignore]`d with
+    // the same marker. Under `cvc5-verify` we only exercise Z3 (+ shell is
     // gated off because `cvc5_ir_smtlib` is not compiled).
 
     fn assert_all_backends_branch_inlined() {
@@ -205,7 +205,6 @@ module adt {
             );
         }
 
-        // CVC5 native IR body encode is stubbed (see `apply_ir_body_constraints_cvc5`);
-        // tag-axiom parity for that backend is covered once the builder is restored.
+        // CVC5 native: skipped while CVC5_IR_BODY_CONSTRAINTS_IS_STUB (STUB-CONTRACT).
     }
 }
