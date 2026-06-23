@@ -11,7 +11,10 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use assura_parser::ast::{Decl, ServiceItem, SourceFile};
+use assura_parser::ast::{
+    BindDecl, BlockKind, Clause, CodecRegistryDecl, ContractDecl, DeclVisitor, EnumDef, ExternDecl,
+    FnDef, ProphecyDecl, ServiceDecl, ServiceItem, SourceFile, TypeDef,
+};
 use assura_resolve::{ResolvedFile, SymbolKind, SymbolTable};
 use assura_types::TypeEnv;
 
@@ -634,144 +637,99 @@ fn is_valid_identifier(s: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Collect top-level declarations as flat `SymbolInformation` entries.
+///
+/// Uses [`DeclVisitor`] for variant dispatch; walks decls manually so each
+/// symbol keeps its source span (walk_decls does not pass spans).
 #[allow(deprecated)] // SymbolInformation::deprecated is deprecated but required by the type
 fn collect_document_symbols(
     ast: &SourceFile,
     rope: &Rope,
     doc_uri: &Url,
 ) -> Vec<SymbolInformation> {
-    let mut result = Vec::new();
+    struct SymbolCollector<'a> {
+        result: Vec<SymbolInformation>,
+        doc_uri: &'a Url,
+        range: Range,
+    }
 
-    for decl in &ast.decls {
-        let range = byte_span_to_range(rope, &decl.span);
-        match &decl.node {
-            Decl::Contract(c) => {
-                result.push(SymbolInformation {
-                    name: c.name.clone(),
-                    kind: SymbolKind2::CLASS,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::Service(s) => {
-                result.push(SymbolInformation {
-                    name: s.name.clone(),
-                    kind: SymbolKind2::MODULE,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-                // Add service items as children
-                for item in &s.items {
-                    let child_name = match item {
-                        ServiceItem::TypeDef(t) => Some((t.name.clone(), SymbolKind2::CLASS)),
-                        ServiceItem::EnumDef(e) => Some((e.name.clone(), SymbolKind2::ENUM)),
-                        ServiceItem::Operation { name, .. } => {
-                            Some((name.clone(), SymbolKind2::METHOD))
-                        }
-                        ServiceItem::Query { name, .. } => {
-                            Some((name.clone(), SymbolKind2::METHOD))
-                        }
-                        _ => None,
-                    };
-                    if let Some((name, kind)) = child_name {
-                        result.push(SymbolInformation {
-                            name,
-                            kind,
-                            tags: None,
-                            deprecated: None,
-                            location: Location::new(doc_uri.clone(), range),
-                            container_name: Some(s.name.clone()),
-                        });
+    impl SymbolCollector<'_> {
+        fn push(&mut self, name: String, kind: SymbolKind2, container: Option<String>) {
+            self.result.push(SymbolInformation {
+                name,
+                kind,
+                tags: None,
+                deprecated: None,
+                location: Location::new(self.doc_uri.clone(), self.range),
+                container_name: container,
+            });
+        }
+    }
+
+    impl DeclVisitor for SymbolCollector<'_> {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            self.push(c.name.clone(), SymbolKind2::CLASS, None);
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            self.push(s.name.clone(), SymbolKind2::MODULE, None);
+            for item in &s.items {
+                let child_name = match item {
+                    ServiceItem::TypeDef(t) => Some((t.name.clone(), SymbolKind2::CLASS)),
+                    ServiceItem::EnumDef(e) => Some((e.name.clone(), SymbolKind2::ENUM)),
+                    ServiceItem::Operation { name, .. } => {
+                        Some((name.clone(), SymbolKind2::METHOD))
                     }
-                }
-            }
-            Decl::TypeDef(t) => {
-                result.push(SymbolInformation {
-                    name: t.name.clone(),
-                    kind: SymbolKind2::STRUCT,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::EnumDef(e) => {
-                result.push(SymbolInformation {
-                    name: e.name.clone(),
-                    kind: SymbolKind2::ENUM,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::FnDef(f) => {
-                result.push(SymbolInformation {
-                    name: f.name.clone(),
-                    kind: SymbolKind2::FUNCTION,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::Extern(ex) => {
-                result.push(SymbolInformation {
-                    name: ex.name.clone(),
-                    kind: SymbolKind2::FUNCTION,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::Bind(b) => {
-                result.push(SymbolInformation {
-                    name: b.name.clone(),
-                    kind: SymbolKind2::FUNCTION,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::Prophecy(p) => {
-                result.push(SymbolInformation {
-                    name: p.name.clone(),
-                    kind: SymbolKind2::VARIABLE,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::CodecRegistry(cr) => {
-                result.push(SymbolInformation {
-                    name: cr.name.clone(),
-                    kind: SymbolKind2::MODULE,
-                    tags: None,
-                    deprecated: None,
-                    location: Location::new(doc_uri.clone(), range),
-                    container_name: None,
-                });
-            }
-            Decl::Block { name, .. } => {
-                if !name.is_empty() {
-                    result.push(SymbolInformation {
-                        name: name.clone(),
-                        kind: SymbolKind2::NAMESPACE,
-                        tags: None,
-                        deprecated: None,
-                        location: Location::new(doc_uri.clone(), range),
-                        container_name: None,
-                    });
+                    ServiceItem::Query { name, .. } => Some((name.clone(), SymbolKind2::METHOD)),
+                    _ => None,
+                };
+                if let Some((name, kind)) = child_name {
+                    self.push(name, kind, Some(s.name.clone()));
                 }
             }
         }
+        fn visit_type_def(&mut self, t: &TypeDef) {
+            self.push(t.name.clone(), SymbolKind2::STRUCT, None);
+        }
+        fn visit_enum_def(&mut self, e: &EnumDef) {
+            self.push(e.name.clone(), SymbolKind2::ENUM, None);
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            self.push(f.name.clone(), SymbolKind2::FUNCTION, None);
+        }
+        fn visit_extern(&mut self, ex: &ExternDecl) {
+            self.push(ex.name.clone(), SymbolKind2::FUNCTION, None);
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            self.push(b.name.clone(), SymbolKind2::FUNCTION, None);
+        }
+        fn visit_prophecy(&mut self, p: &ProphecyDecl) {
+            self.push(p.name.clone(), SymbolKind2::VARIABLE, None);
+        }
+        fn visit_codec_registry(&mut self, cr: &CodecRegistryDecl) {
+            self.push(cr.name.clone(), SymbolKind2::MODULE, None);
+        }
+        fn visit_block(
+            &mut self,
+            _kind: &BlockKind,
+            name: &str,
+            _value: &Option<Vec<String>>,
+            _body: &[Clause],
+        ) {
+            if !name.is_empty() {
+                self.push(name.to_string(), SymbolKind2::NAMESPACE, None);
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+    for decl in &ast.decls {
+        let range = byte_span_to_range(rope, &decl.span);
+        let mut visitor = SymbolCollector {
+            result: Vec::new(),
+            doc_uri,
+            range,
+        };
+        visitor.visit_decl(&decl.node);
+        result.append(&mut visitor.result);
     }
 
     result

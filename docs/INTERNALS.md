@@ -179,6 +179,9 @@ The largest crate (33,800 lines). Runs 50+ checkers organized into phases:
 
 **Entry point:** `assura_smt::verify(typed: &TypedFile) -> Vec<VerificationResult>`
 
+Callers outside this crate should prefer `assura_pipeline::verify_typed` /
+`compile_full` (CLI, LSP, MCP, tests via `assura_test_support::verify_ok`).
+
 Z3 integration behind the `z3-verify` feature flag (enabled by default).
 CVC5 fallback via external binary in portfolio mode.
 
@@ -190,9 +193,28 @@ CVC5 fallback via external binary in portfolio mode.
 - `Encoder`: Translates `Expr` into Z3 AST (arithmetic, comparisons,
   quantifiers, field access, function calls)
 
-**Source files:**
-- `lib.rs`: Entry point, `Encoder`, Z3 feature-gated wiring
-- `z3_backend.rs`: Z3-specific encoding and solving
+**Module map (agent edit surface — encode here / verify here / result here):**
+
+| Area | Path | Edit here for… |
+|------|------|----------------|
+| Public verify API | `entry/mod.rs` | `verify()`, job collection, advanced passes, decrease dispatch |
+| Results / limitation marker | `result.rs` | `VerificationResult`, `KNOWN_SMT_LIMITATION_MARKER` |
+| Managers (prophecy, trigger, weak memory) | `advanced.rs` | New manager methods (must call from entry/encoder, not tests only) |
+| Z3 solve loop | `z3_backend/verify.rs` | Per-clause solve, timeouts, portfolio |
+| Z3 encoding | `z3_backend/encoder/` | Expr → Z3 AST, triggers, quantifiers |
+| CVC5 | `cvc5_backend.rs` (+ `cvc5_*`) | CVC5 parity / shell-out |
+| IR / layer 2 | `ir_*.rs`, `layer2.rs` | Intermediate IR, quantifier layer |
+| SMT-LIB dump | `smt_dump.rs` | `--dump-smt` offline scripts |
+| Display / stats | `display.rs` | Contract name collection (`DeclVisitor`), verify stats |
+| Measures / termination | `measures.rs` | Decrease / measure definitions |
+
+**Agent rule:** add SMT behavior in the row above, then wire from `entry/mod.rs` or
+`z3_backend/encoder`. `scripts/agent-guards.sh` section 7 fails if high-signal
+methods exist only in `advanced.rs` / tests.
+
+**Source files (legacy list, still accurate):**
+- `lib.rs`: Crate root, re-exports, feature-gated backends
+- `z3_backend/`: Z3-specific encoding and solving (split modules)
 - `cvc5_backend.rs`: CVC5 SMT-LIB output and external binary invocation
 - `layer2.rs`: Layer 2 quantifier verification (10s timeout)
 - `advanced.rs`: Advanced verification (prophecy variables, triggers)
@@ -204,6 +226,9 @@ CVC5 fallback via external binary in portfolio mode.
 
 **Graceful fallback:** When compiled without `z3-verify`, all verification
 functions return `VerificationResult::Skipped` with a message.
+
+**assura-types layering** (checks vs checkers vs domain): see
+`crates/assura-types/src/CHECKER-LAYERS.md` and the AGENTS ergonomics map.
 
 ### assura-codegen
 

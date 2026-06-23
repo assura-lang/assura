@@ -67,7 +67,9 @@ Use this table before grepping the whole repo. It reduces wrong-crate edits.
 | SMT limitation (skip with warning) | `assura_smt::KNOWN_SMT_LIMITATION_MARKER` / `is_known_smt_limitation` | Emit `VerificationResult::Unknown` with that marker | guards reject open-coded marker strings elsewhere |
 | Full compile path (CLI/LSP/MCP/tests) | `assura_pipeline::{compile, compile_full, verify_typed, run_at}` | Do not hand-roll Verifier in CLI/LSP/MCP | guards warn/fail on `Verifier::new` outside smt/pipeline |
 | Name resolution pass on decls | `crates/assura-resolve/src/` (`unused.rs`, `clause_names.rs`, `type_refs.rs` use `DeclVisitor`) | Prefer `visit_decl` over copy-paste `match Decl` | `cargo test -p assura-resolve --locked --lib` |
+| SMT verify jobs / entry passes | `crates/assura-smt/src/entry/mod.rs` (see `docs/INTERNALS.md` smt module map) | Wire from `verify()`; collect jobs via `DeclVisitor` where possible | agent-guards section 7 |
 | Error code `Axxxxx` | [`docs/error-codes-agent.md`](docs/error-codes-agent.md) | Phase crate from index, then `rg 'A0xxxx' crates` | wrong phase = wasted work |
+| Load demo/fixture in tests | `assura_test_support::{load_fixture, fixture_path, verify_result, expect_verify_limitation}` | smt/cli/pipeline tests only (not types/codegen type returns) | unit test in test-support crate |
 | `MASTER-PLAN.md` task | Task section + **Acceptance Tests** block | Implement only that task's scope | Run every acceptance command before `[x]` |
 
 **MASTER-PLAN agent entrypoint convention:** when adding or editing a plan task, include one line under the task title:
@@ -104,11 +106,20 @@ cargo clippy -p assura-types --lib --locked -- -D warnings
 
 Full `cargo test --workspace --locked` is for session end / pre-push, not every edit.
 
-Prefer `assura_test_support::{typecheck_ok, compile_result, expect_type_errors, verify_ok}`
+Prefer `assura_test_support::{typecheck_ok, compile_result, expect_type_errors, verify_ok,
+verify_result, expect_verify_limitation, load_fixture, fixture_path}`
 in new tests **except** inside `assura-types` and `assura-codegen` unit tests:
 those crates appear in the test-support dependency graph, so returning
 `TypedFile` / `GeneratedProject` from support yields a different type instance.
 There, use `resolve_ok` (types) or `typecheck_ok` + local `codegen` (codegen) only.
+For SMT limitation cases, use `expect_verify_limitation` (or `verify_result` + inspect
+`output.verification`) instead of hand-rolling `compile_full` in every test.
+
+**New production passes that walk `Decl`:** prefer `DeclVisitor` / `walk_decls` /
+`Decl::name()` / `Decl::clauses()` over open-coding `match &decl.node`. Existing
+hotspots (codegen main loop, resolve symbol registration, some smt entry helpers)
+still use explicit matches; do not add new match blocks without justification.
+`agent-guards.sh` section 9 warns if match counts grow far past baselines.
 
 ### Pipeline invariants agents must respect
 

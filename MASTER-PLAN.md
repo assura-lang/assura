@@ -2357,6 +2357,25 @@ Marked 11.14 [x]. Phase 11 Round 7 complete.
   convention for future tasks.
 
 Next: Priority B / remaining ergonomics if any; otherwise normal MASTER-PLAN tasks.
+
+## Progress Notes (2026-06-23 session, LLM ergonomics Priority B)
+
+- **test-support**: `load_fixture` / `fixture_path`, `verify_result`,
+  `expect_verify_limitation` (smt/cli/pipeline negative/limitation tests).
+- **DeclVisitor adoption (incremental)**: smt `collect_verification_jobs`,
+  has-verifiable / incremental-contract collect; codegen
+  `source_has_error_types` / `source_has_testable_contracts`; lsp
+  `collect_document_symbols`.
+- **agent-guards**: quieter `unwrap()` sampling (exclude assert/test noise);
+  section 9 soft warn if open `match &decl.node` counts grow past baselines.
+- **Docs**: INTERNALS smt module map; AGENTS entrypoint + test-support helpers;
+  DeclVisitor guidance for new passes.
+
+Deferred (Tier C / not Priority B): monolith splits (`check.rs`), spec-index
+generator, mass types test migration, compile-time checker registry.
+
+Next: normal MASTER-PLAN tasks, or Tier C only if agents still thrash on the
+same large files.
 - Plan updated, commits on main.
 
 **2026-06-22 11.04 completion:**
