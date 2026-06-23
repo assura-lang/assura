@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 68
 expression: ast
 ---
 SourceFile {
@@ -299,18 +298,6 @@ SourceFile {
                     ),
                     clauses: [
                         Clause {
-                            kind: Other(
-                                "taint",
-                            ),
-                            body: Spanned {
-                                node: Ident(
-                                    "untrusted",
-                                ),
-                                span: 4859..4874,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
                             kind: Effects,
                             body: Spanned {
                                 node: Raw(
@@ -368,18 +355,6 @@ SourceFile {
                     ),
                     clauses: [
                         Clause {
-                            kind: Other(
-                                "taint",
-                            ),
-                            body: Spanned {
-                                node: Ident(
-                                    "untrusted",
-                                ),
-                                span: 5073..5088,
-                            },
-                            effect_variables: [],
-                        },
-                        Clause {
                             kind: Effects,
                             body: Spanned {
                                 node: Raw(
@@ -436,22 +411,6 @@ SourceFile {
                         ),
                     ),
                     clauses: [
-                        Clause {
-                            kind: Other(
-                                "taint",
-                            ),
-                            body: Spanned {
-                                node: Raw(
-                                    [
-                                        "validated",
-                                        "|",
-                                        "HuffmanError",
-                                    ],
-                                ),
-                                span: 5866..5896,
-                            },
-                            effect_variables: [],
-                        },
                         Clause {
                             kind: Effects,
                             body: Spanned {

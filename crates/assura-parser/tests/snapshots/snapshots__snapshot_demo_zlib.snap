@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 74
 expression: ast
 ---
 SourceFile {
@@ -55,7 +54,7 @@ SourceFile {
                                         base: Named(
                                             "Nat",
                                         ),
-                                        predicate: "v == MaxLen } ghost var bytes_written : Nat invariant { bytes_written <= extra_max } } type GzipHeader { extra : GzipExtraBuffer < EXTRA_MAX > name : Option < String > comment : Option < String > done : Bool } fn read_u16_le ( stream : &mut InflateStream ) -> U16",
+                                        predicate: "v == MaxLen",
                                     },
                                 ),
                                 is_pub: false,
@@ -64,7 +63,513 @@ SourceFile {
                     ),
                 },
             ),
-            span: 988..9096,
+            span: 988..1446,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "GzipHeader",
+                    type_params: [],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "extra",
+                                ty: Some(
+                                    Generic(
+                                        "GzipExtraBuffer",
+                                        [
+                                            Named(
+                                                "EXTRA_MAX",
+                                            ),
+                                        ],
+                                    ),
+                                ),
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "name",
+                                ty: Some(
+                                    Generic(
+                                        "Option",
+                                        [
+                                            Named(
+                                                "String",
+                                            ),
+                                        ],
+                                    ),
+                                ),
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "comment",
+                                ty: Some(
+                                    Generic(
+                                        "Option",
+                                        [
+                                            Named(
+                                                "String",
+                                            ),
+                                        ],
+                                    ),
+                                ),
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "done",
+                                ty: Some(
+                                    Named(
+                                        "Bool",
+                                    ),
+                                ),
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 1446..1568,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "read_u16_le",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "stream",
+                            ty: Some(
+                                Named(
+                                    "&mut InflateStream",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Named(
+                            "U16",
+                        ),
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "io",
+                                        ".",
+                                        "read",
+                                    ],
+                                ),
+                                span: 2119..2138,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 1568..2138,
+        },
+        Spanned {
+            node: TypeDef(
+                TypeDef {
+                    name: "ValidXlen",
+                    type_params: [],
+                    body: Struct(
+                        [
+                            FieldDef {
+                                name: "value",
+                                ty: Some(
+                                    Named(
+                                        "U16",
+                                    ),
+                                ),
+                                is_pub: false,
+                            },
+                            FieldDef {
+                                name: "capped_len",
+                                ty: Some(
+                                    Refined {
+                                        base: Named(
+                                            "Nat",
+                                        ),
+                                        predicate: "v <= EXTRA_MAX",
+                                    },
+                                ),
+                                is_pub: false,
+                            },
+                        ],
+                    ),
+                },
+            ),
+            span: 2138..2300,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "validate_xlen",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "raw_xlen",
+                            ty: Some(
+                                Named(
+                                    "U16",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "extra_max",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Named(
+                            "ValidXlen",
+                        ),
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 2406..2422,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 2300..2841,
+        },
+        Spanned {
+            node: Contract(
+                ContractDecl {
+                    name: "InflateExtraFieldContract",
+                    type_params: [],
+                    clauses: [],
+                    fn_params: [
+                        Param {
+                            name: "head",
+                            ty: Some(
+                                Named(
+                                    "&mut GzipHeader",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "stream",
+                            ty: Some(
+                                Named(
+                                    "& InflateStream",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "xlen",
+                            ty: Some(
+                                Named(
+                                    "ValidXlen",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "available",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                },
+            ),
+            span: 2841..4168,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "zmemcpy_safe",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "dst",
+                            ty: Some(
+                                Generic(
+                                    "Region",
+                                    [
+                                        Named(
+                                            "DstSize",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "dst_offset",
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "off <= DstSize",
+                                },
+                            ),
+                        },
+                        Param {
+                            name: "src",
+                            ty: Some(
+                                Named(
+                                    "& [ U8 ]",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "len",
+                            ty: Some(
+                                Refined {
+                                    base: Named(
+                                        "Nat",
+                                    ),
+                                    predicate: "dst_offset + n <= DstSize and n <= src . len ( )",
+                                },
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Generic(
+                            "Region",
+                            [
+                                Named(
+                                    "DstSize",
+                                ),
+                            ],
+                        ),
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Modifies,
+                            body: Spanned {
+                                node: Ident(
+                                    "dst",
+                                ),
+                                span: 4764..4783,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 4783..4799,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Other(
+                                "incremental",
+                            ),
+                            body: Spanned {
+                                node: Ident(
+                                    "InflateDecoder",
+                                ),
+                                span: 4799..5562,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 4168..7449,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "inflate_extra_field_step",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "state",
+                            ty: Some(
+                                Named(
+                                    "&mut InflateDecoder",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "input",
+                            ty: Some(
+                                Named(
+                                    "& [ U8 ]",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Named(
+                            "InflateStepResult",
+                        ),
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: Field(
+                                    Spanned {
+                                        node: Ident(
+                                            "state",
+                                        ),
+                                        span: 7808..7813,
+                                    },
+                                    "state",
+                                ),
+                                span: 7808..7819,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Ident(
+                                                    "state",
+                                                ),
+                                                span: 7854..7859,
+                                            },
+                                            "extra_bytes_copied",
+                                        ),
+                                        span: 7854..7878,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Field(
+                                                    Spanned {
+                                                        node: Field(
+                                                            Spanned {
+                                                                node: Ident(
+                                                                    "state",
+                                                                ),
+                                                                span: 7881..7887,
+                                                            },
+                                                            "head",
+                                                        ),
+                                                        span: 7881..7892,
+                                                    },
+                                                    "extra",
+                                                ),
+                                                span: 7881..7898,
+                                            },
+                                            "extra_max",
+                                        ),
+                                        span: 7881..7908,
+                                    },
+                                },
+                                span: 7854..7908,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Modifies,
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "state",
+                                        ".",
+                                        "head",
+                                        ".",
+                                        "extra",
+                                        ".",
+                                        "data",
+                                        ",",
+                                        "state",
+                                        ".",
+                                        "extra_bytes_copied",
+                                        ",",
+                                        "state",
+                                        ".",
+                                        "extra_bytes_remaining",
+                                    ],
+                                ),
+                                span: 7912..8017,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Ident(
+                                                    "state",
+                                                ),
+                                                span: 8100..8105,
+                                            },
+                                            "extra_bytes_copied",
+                                        ),
+                                        span: 8100..8124,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Field(
+                                            Spanned {
+                                                node: Field(
+                                                    Spanned {
+                                                        node: Field(
+                                                            Spanned {
+                                                                node: Ident(
+                                                                    "state",
+                                                                ),
+                                                                span: 8127..8133,
+                                                            },
+                                                            "head",
+                                                        ),
+                                                        span: 8127..8138,
+                                                    },
+                                                    "extra",
+                                                ),
+                                                span: 8127..8144,
+                                            },
+                                            "extra_max",
+                                        ),
+                                        span: 8127..8154,
+                                    },
+                                },
+                                span: 8100..8154,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 8158..8174,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 7449..9096,
         },
     ],
 }
