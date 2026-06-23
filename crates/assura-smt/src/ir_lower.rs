@@ -88,6 +88,26 @@ pub trait IrTermBuilder {
         let val = self.load_slot(slots, slot);
         self.unary_uf(&format!("__ir_state_{state}"), val)
     }
+
+    /// `$result = load $param` for identity copy: `length(result) == length(param)`.
+    fn on_result_load_from_param(&mut self, param_name: &str) {
+        let len_result = self.canonical_length_for_name("result");
+        let len_param = self.canonical_length_for_name(param_name);
+        self.push_eq_axiom(len_result, len_param);
+    }
+
+    /// `$result = construct T …`: bind a deterministic tag constant for the type id.
+    fn on_result_construct(&mut self, type_id: &str) {
+        let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
+        let tag_val = self.get_or_create_named(&format!("__ir_tag_{type_id}"));
+        let tag_const = self.int_const(tag);
+        self.push_eq_axiom(tag_val, tag_const);
+    }
+
+    /// Assert IR function `post:` predicate as a background axiom (backend-specific bool type).
+    fn push_ir_post(&mut self, _pred: &crate::ir::IrPred, _slots: &HashMap<usize, Self::Term>) {
+        // Default: backends that cannot encode IR postconditions skip them.
+    }
 }
 
 /// Evaluate a sibling `fn #N` block with a block-local `RESULT_SLOT` (#297).

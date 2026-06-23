@@ -9,7 +9,7 @@ use crate::cvc5_native_builtins::encode_known_builtin_cvc5;
 #[cfg(feature = "cvc5-verify")]
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
 #[cfg(feature = "cvc5-verify")]
-use crate::ir_lower::{IrSlotContext, IrTermBuilder, encode_ir_expr};
+use crate::ir_lower::{IrSlotContext, IrTermBuilder};
 use crate::ir_type_ctx::base_type_name;
 
 #[cfg(feature = "cvc5-verify")]
@@ -170,6 +170,12 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
 
     fn try_known_builtin(&mut self, func: &str, args: &[Self::Term]) -> Option<Self::Term> {
         encode_known_builtin_cvc5(self.tm, func, args, self.state)
+    }
+
+    fn push_ir_post(&mut self, pred: &crate::ir::IrPred, slots: &HashMap<usize, Self::Term>) {
+        if let Some(p) = encode_ir_pred_cvc5(self.tm, pred, slots, self.vars, self.state) {
+            self.state.axioms.push(p);
+        }
     }
 
     fn encode_field(
@@ -386,8 +392,8 @@ fn encode_ir_pred_cvc5<'a>(
 #[cfg(feature = "cvc5-verify")]
 pub(crate) const CVC5_IR_BODY_CONSTRAINTS_IS_STUB: bool = false;
 
-/// Apply havoc-assume IR body constraints as background axioms (mirrors Z3
-/// `z3_backend::havoc_assume::apply_ir_body_constraints`).
+/// Apply havoc-assume IR body constraints as background axioms (shared
+/// [`crate::ir_exec::apply_ir_body_constraints`]; mirrors Z3 builder path).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
     tm: &'a cvc5::TermManager,
@@ -397,9 +403,7 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
     enc_ctx: IrEncodeContext<'a>,
 ) {
-    use crate::cvc5_builtins::pattern_hash_name;
     use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
-    use crate::ir::IrExprKind;
 
     let mut slots: HashMap<usize, cvc5::Term<'a>> = HashMap::new();
 
@@ -423,10 +427,6 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
         .into_iter()
         .collect();
     let slot_types = slot_type_map(func);
-    let ctx = IrSlotContext {
-        slot_to_name: &slot_to_name,
-        slot_types: &slot_types,
-    };
     {
         let mut builder = Cvc5IrBuilder {
             tm,
@@ -437,46 +437,12 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
             slot_types: &slot_types,
             enc_ctx,
         };
-
-        for instr in &func.body {
-            if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
-                let name = format!("__ir_slot_{}", instr.target);
-                let v = builder.get_or_create_named(&name);
-                slots.insert(instr.target, v);
-            }
-            let computed = encode_ir_expr(&mut builder, &instr.expr, &slots, ctx);
-            if let Some(target) = slots.get(&instr.target) {
-                builder.push_eq_axiom(computed, target.clone());
-            }
-            if instr.target == RESULT_SLOT
-                && let IrExprKind::Load(src) = &instr.expr
-                && let Some(param) = slot_to_name.get(src)
-            {
-                let len_result = builder.canonical_length_for_name("result");
-                let len_param = builder.canonical_length_for_name(param);
-                builder
-                    .state
-                    .axioms
-                    .push(tm.mk_term(cvc5::Kind::Equal, &[len_result, len_param]));
-            }
-            if instr.target == RESULT_SLOT
-                && let IrExprKind::Construct { type_id, .. } = &instr.expr
-            {
-                let tag = pattern_hash_name(type_id);
-                let tag_key = format!("__ir_tag_{type_id}");
-                let tag_val = builder.get_or_create_named(&tag_key);
-                builder
-                    .state
-                    .axioms
-                    .push(tm.mk_term(cvc5::Kind::Equal, &[tag_val, tm.mk_integer(tag)]));
-            }
-        }
-    }
-
-    if let Some(post) = &func.post
-        && let Some(pred) = encode_ir_pred_cvc5(tm, post, &slots, vars, state)
-    {
-        state.axioms.push(pred);
+        crate::ir_exec::apply_ir_body_constraints(
+            &mut builder,
+            func,
+            contract_param_names,
+            &mut slots,
+        );
     }
 }
 
