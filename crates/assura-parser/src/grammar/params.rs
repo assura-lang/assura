@@ -362,7 +362,7 @@ pub(crate) fn field_def(p: &mut Parser) {
 /// Collect field type tokens until semicolon, comma, or unbalanced closer.
 fn field_type_tokens(p: &mut Parser) {
     while !p.eof() {
-        let cur = p.current();
+        let cur = p.current_raw();
         if matches!(
             cur,
             SyntaxKind::SEMICOLON | SyntaxKind::COMMA | SyntaxKind::R_BRACE
@@ -417,7 +417,7 @@ fn field_type_tokens(p: &mut Parser) {
             }
             SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
             _ => {
-                p.bump();
+                p.bump_raw();
             }
         }
     }
