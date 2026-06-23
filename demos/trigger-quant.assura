@@ -1,0 +1,15 @@
+// Demo: quantifier in ensures with method-call trigger surface (Tier A2).
+//
+// `forall` over a collection bound mentions `xs.length()` so TriggerManager
+// can register `length` for e-matching. The ensures is a tautology on lengths
+// so Z3/CVC5 can verify without an implementation body.
+
+module demo.trigger_quant;
+
+contract TriggerQuantDemo {
+  input { xs: List<Int> }
+  requires { xs.length() >= 0 }
+  // Quantifier domain `xs` plus method call `length` surfaces trigger heads
+  // for e-matching (TriggerManager). Body is a length tautology.
+  ensures { forall i in xs: xs.length() >= 0 }
+}

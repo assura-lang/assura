@@ -2432,6 +2432,20 @@ Next: product/MASTER-PLAN work; Tier C only if agents still thrash.
   `advanced_passes.rs`, `evolution.rs`, `tests.rs`; external `crate::entry::…`
   paths preserved for z3/cvc5/ir_loader.
 - **Docs**: AGENTS ergonomics map + INTERNALS module map already point at dirs.
+
+## Progress Notes (2026-06-23 session, CVC5 IR body restore + Tier A depth)
+
+- **CVC5 IR body unstubbed**: `apply_ir_body_constraints_cvc5` implements full
+  havoc+assume IR encode via `Cvc5IrBuilder` with split lifetimes (`'a`/`'v`/`'s`)
+  fixing E0621 that caused the original stub. `CVC5_IR_BODY_CONSTRAINTS_IS_STUB=false`.
+- **ir_parity**: CVC5-native asserts restored; `cvc5_ir_native` tests un-ignored.
+- **Tier A demos**: `frame-old.assura`, `trigger-quant.assura`, `ir-inc.assura`+`.ir`.
+- **Soundness**: Z3 `Z3Value::Bv` `as_int` uses `bv2int` (not free UF); `as_bv` uses
+  `int2bv` / bool ite; MustNot path documented (assert P, UNSAT=verified).
+- **Process**: `scripts/check-smt-feature-matrix.sh` still required on assura-smt
+  CVC5/IR edits; prevention gate from #367 already on main.
+
+Next: continue encode_call/quantifier depth; Tier C ergonomics only if agents thrash.
 - **Deferred (PR3)**: `z3_backend/encoder` further split (optional follow-up).
 
 Next: commit/push branch `feat/split-agent-hot-monoliths`; resume product tasks.

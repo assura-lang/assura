@@ -140,7 +140,11 @@ impl From<CachedResult> for VerificationResult {
 /// Compute a stable content hash of a contract's clauses for cache keying.
 ///
 /// Uses SHA-256 for deterministic hashing across Rust versions and platforms.
-fn hash_clauses(contract_name: &str, clauses: &[assura_ast::Clause]) -> String {
+fn hash_clauses(
+    contract_name: &str,
+    clauses: &[assura_ast::Clause],
+    ir_fingerprint: Option<&str>,
+) -> String {
     use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
@@ -148,6 +152,14 @@ fn hash_clauses(contract_name: &str, clauses: &[assura_ast::Clause]) -> String {
     for clause in clauses {
         hasher.update(format!("{:?}", clause.kind).as_bytes());
         hasher.update(format!("{:?}", clause.body).as_bytes());
+    }
+    // IR sidecars affect havoc+assume results; without this, a prior run with a
+    // stub/wrong `.ir` body can poison later runs that fix the sidecar.
+    if let Some(ir) = ir_fingerprint {
+        hasher.update(b"ir:");
+        hasher.update(ir.as_bytes());
+    } else {
+        hasher.update(b"ir:none");
     }
     hasher
         .finalize()
@@ -159,8 +171,9 @@ fn hash_clauses(contract_name: &str, clauses: &[assura_ast::Clause]) -> String {
 /// Verification cache backed by the filesystem.
 ///
 /// Each contract's results are stored as a JSON file in `.assura-cache/verify/`
-/// keyed by the content hash of its clauses. When the contract changes, the
-/// hash changes, and the old cache entry is naturally invalidated.
+/// keyed by the content hash of its clauses and optional IR body fingerprint.
+/// When the contract or IR sidecar changes, the hash changes and the old entry
+/// is naturally invalidated.
 pub struct VerificationCache {
     cache_dir: std::path::PathBuf,
 }
@@ -179,12 +192,16 @@ impl VerificationCache {
     }
 
     /// Look up cached verification results for a contract.
+    ///
+    /// `ir_fingerprint` should summarize loaded IR for this contract (or be
+    /// `None` when no sidecar applies).
     pub fn get(
         &self,
         contract_name: &str,
         clauses: &[assura_ast::Clause],
+        ir_fingerprint: Option<&str>,
     ) -> Option<Vec<VerificationResult>> {
-        let hash = hash_clauses(contract_name, clauses);
+        let hash = hash_clauses(contract_name, clauses, ir_fingerprint);
         let path = self.cache_dir.join(format!("{hash}.json"));
         let data = std::fs::read_to_string(&path).ok()?;
         let cached: Vec<CachedResult> = serde_json::from_str(&data).ok()?;
@@ -196,9 +213,10 @@ impl VerificationCache {
         &self,
         contract_name: &str,
         clauses: &[assura_ast::Clause],
+        ir_fingerprint: Option<&str>,
         results: &[VerificationResult],
     ) {
-        let hash = hash_clauses(contract_name, clauses);
+        let hash = hash_clauses(contract_name, clauses, ir_fingerprint);
         let path = self.cache_dir.join(format!("{hash}.json"));
         let cached: Vec<CachedResult> = results.iter().map(CachedResult::from).collect();
         if let Ok(json) = serde_json::to_string(&cached) {
@@ -313,7 +331,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
         let clauses: Vec<assura_ast::Clause> = vec![];
-        assert!(cache.get("test_contract", &clauses).is_none());
+        assert!(cache.get("test_contract", &clauses, None).is_none());
     }
 
     #[test]
@@ -322,8 +340,8 @@ mod tests {
         let cache = VerificationCache::new(dir.path());
         let clauses: Vec<assura_ast::Clause> = vec![];
         let results = vec![VerificationResult::verified("test::ensures")];
-        cache.put("my_contract", &clauses, &results);
-        let got = cache.get("my_contract", &clauses).unwrap();
+        cache.put("my_contract", &clauses, None, &results);
+        let got = cache.get("my_contract", &clauses, None).unwrap();
         assert_eq!(got.len(), 1);
         assert!(matches!(got[0], VerificationResult::Verified { .. }));
     }
@@ -333,7 +351,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache = VerificationCache::new(dir.path());
         let clauses: Vec<assura_ast::Clause> = vec![];
-        cache.put("c", &clauses, &[]);
+        cache.put("c", &clauses, None, &[]);
         assert!(cache.entry_count() > 0);
         cache.clear();
         assert_eq!(cache.entry_count(), 0);
@@ -348,10 +366,10 @@ mod tests {
         let r2 = vec![VerificationResult::Timeout {
             clause_desc: "b::ensures".into(),
         }];
-        cache.put("a", &clauses, &r1);
-        cache.put("b", &clauses, &r2);
-        let got_a = cache.get("a", &clauses).unwrap();
-        let got_b = cache.get("b", &clauses).unwrap();
+        cache.put("a", &clauses, None, &r1);
+        cache.put("b", &clauses, None, &r2);
+        let got_a = cache.get("a", &clauses, None).unwrap();
+        let got_b = cache.get("b", &clauses, None).unwrap();
         assert!(matches!(got_a[0], VerificationResult::Verified { .. }));
         assert!(matches!(got_b[0], VerificationResult::Timeout { .. }));
     }
@@ -366,8 +384,8 @@ mod tests {
             model: "x -> 5".into(),
             counter_model: None,
         }];
-        cache.put("c", &clauses, &results);
-        let got = cache.get("c", &clauses).unwrap();
+        cache.put("c", &clauses, None, &results);
+        let got = cache.get("c", &clauses, None).unwrap();
         assert!(matches!(got[0], VerificationResult::Counterexample { .. }));
     }
 
@@ -375,8 +393,8 @@ mod tests {
     fn test_hash_clauses_deterministic() {
         // Regression test for #56: hash must be stable across runs
         let clauses: Vec<assura_ast::Clause> = vec![];
-        let h1 = super::hash_clauses("contract_a", &clauses);
-        let h2 = super::hash_clauses("contract_a", &clauses);
+        let h1 = super::hash_clauses("contract_a", &clauses, None);
+        let h2 = super::hash_clauses("contract_a", &clauses, None);
         assert_eq!(h1, h2, "same input must produce same hash");
         // SHA-256 produces 64 hex chars
         assert_eq!(h1.len(), 64, "SHA-256 hex output is 64 chars");
@@ -385,12 +403,23 @@ mod tests {
     #[test]
     fn test_hash_clauses_different_contracts() {
         let clauses: Vec<assura_ast::Clause> = vec![];
-        let h1 = super::hash_clauses("alpha", &clauses);
-        let h2 = super::hash_clauses("beta", &clauses);
+        let h1 = super::hash_clauses("alpha", &clauses, None);
+        let h2 = super::hash_clauses("beta", &clauses, None);
         assert_ne!(
             h1, h2,
             "different contract names must produce different hashes"
         );
+    }
+
+    #[test]
+    fn test_hash_clauses_includes_ir_fingerprint() {
+        let clauses: Vec<assura_ast::Clause> = vec![];
+        let h_none = super::hash_clauses("c", &clauses, None);
+        let h_stub = super::hash_clauses("c", &clauses, Some("stub_identity"));
+        let h_inc = super::hash_clauses("c", &clauses, Some("result_eq_x_plus_1"));
+        assert_ne!(h_none, h_stub);
+        assert_ne!(h_stub, h_inc);
+        assert_ne!(h_none, h_inc);
     }
 
     #[test]
@@ -402,8 +431,8 @@ mod tests {
             clause_desc: "c::ensures".into(),
             reason: "solver error".into(),
         }];
-        cache.put("c", &clauses, &results);
-        let got = cache.get("c", &clauses).unwrap();
+        cache.put("c", &clauses, None, &results);
+        let got = cache.get("c", &clauses, None).unwrap();
         match &got[0] {
             VerificationResult::Unknown { reason, .. } => {
                 assert_eq!(reason, "solver error");

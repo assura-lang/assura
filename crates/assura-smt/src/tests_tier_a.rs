@@ -318,3 +318,43 @@ fn tier_a3_old_ident_in_ensures_with_modifies_verifies_tautology() {
         ensures.unwrap()
     );
 }
+
+/// Registered functions pass `validate_trigger` (no false A-style warnings).
+#[test]
+fn tier_a2_trigger_manager_registers_known_fn_and_validates() {
+    use crate::advanced::{TriggerManager, TriggerPattern};
+
+    let mut tm = TriggerManager::new();
+    tm.register_function("len".into());
+    let pat = TriggerPattern {
+        terms: vec!["len(xs)".into()],
+        is_user_provided: true,
+    };
+    let warnings = tm.validate_trigger(&pat);
+    assert!(
+        warnings.is_empty(),
+        "registered function should pass validate_trigger, got: {warnings:?}"
+    );
+}
+
+/// Unmodified parameters are framed when modifies is declared (Z3/CVC5 inject
+/// `x == x__old` for candidates not in the modifies set).
+#[test]
+fn tier_a3_frame_checker_frames_unmodified_candidates() {
+    use assura_ast::{Expr, Spanned};
+    use assura_types::FrameChecker;
+
+    let modifies_a = Spanned::no_span(Expr::Ident("a".into()));
+    let checker = FrameChecker::new(&[&modifies_a]);
+    let ensures_body = Spanned::no_span(Expr::Ident("ok".into()));
+    let vars = checker
+        .frame_axiom_vars_with_candidates(&ensures_body, &["a".into(), "b".into(), "ok".into()]);
+    assert!(
+        vars.iter().any(|v| v == "b"),
+        "unmodified candidate `b` should get a frame axiom, got: {vars:?}"
+    );
+    assert!(
+        !vars.iter().any(|v| v == "a"),
+        "modified `a` should not be framed, got: {vars:?}"
+    );
+}

@@ -15,12 +15,16 @@ use crate::ir_type_ctx::base_type_name;
 #[cfg(feature = "cvc5-verify")]
 use assura_ast::SpExpr;
 
+/// `'a` = term/manager lifetime; `'v`/`'s` = encoder session borrows (independent
+/// so we can construct the builder without requiring `vars`/`state` to outlive
+/// the function with the same lifetime as `tm` — that E0621 is why this path
+/// was temporarily stubbed).
 #[cfg(feature = "cvc5-verify")]
-struct Cvc5IrBuilder<'a, 'b> {
+struct Cvc5IrBuilder<'a, 'v, 's, 'b> {
     tm: &'a cvc5::TermManager,
     slots: HashMap<usize, cvc5::Term<'a>>,
-    vars: &'a mut HashMap<String, cvc5::Term<'a>>,
-    state: &'a mut Cvc5EncoderState<'a>,
+    vars: &'v mut HashMap<String, cvc5::Term<'a>>,
+    state: &'s mut Cvc5EncoderState<'a>,
     slot_to_name: &'b HashMap<usize, String>,
     slot_types: &'b HashMap<usize, String>,
     enc_ctx: IrEncodeContext<'b>,
@@ -30,7 +34,7 @@ struct Cvc5IrBuilder<'a, 'b> {
 use std::collections::HashMap;
 
 #[cfg(feature = "cvc5-verify")]
-impl<'a> Cvc5IrBuilder<'a, '_> {
+impl<'a, 'v, 's> Cvc5IrBuilder<'a, 'v, 's, '_> {
     fn mk_named_const(&mut self, name: &str) -> cvc5::Term<'a> {
         let key = sanitize_smtlib_name(name);
         self.vars
@@ -70,7 +74,7 @@ impl<'a> Cvc5IrBuilder<'a, '_> {
 }
 
 #[cfg(feature = "cvc5-verify")]
-impl<'a> IrTermBuilder for Cvc5IrBuilder<'a, '_> {
+impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
     type Term = cvc5::Term<'a>;
 
     fn int_const(&mut self, n: i64) -> Self::Term {
@@ -234,8 +238,8 @@ fn ensure_struct_adt_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-fn encode_ir_construct_typed_cvc5<'a>(
-    builder: &mut Cvc5IrBuilder<'a, '_>,
+fn encode_ir_construct_typed_cvc5<'a, 'v, 's>(
+    builder: &mut Cvc5IrBuilder<'a, 'v, 's, '_>,
     type_id: &str,
     fields: &[(usize, usize)],
     slots: &HashMap<usize, cvc5::Term<'a>>,
@@ -376,41 +380,104 @@ fn encode_ir_pred_cvc5<'a>(
     }
 }
 
-/// STUB-CONTRACT (SpExpr / IR builder migration): this function is intentionally
-/// a no-op. It does **not** push IR body axioms onto `state.axioms`.
-///
-/// Rules while `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` is `true`:
-/// - Production callers (`cvc5_native_encoder` havoc path) may call it; effect is
-///   "skip IR body encoding" (soundness gap, not a panic).
-/// - Do **not** add cross-backend tests that assert on `state.axioms` after this
-///   call (see `ir_parity.rs`: only Z3 + shell paths assert; shell is
-///   `cfg(not(cvc5-verify))` because `cvc5_ir_smtlib` is not compiled with
-///   `cvc5-verify`).
-/// - Backend-local tests that would exercise the real builder must be
-///   `#[ignore = "STUB: CVC5_IR_BODY_CONSTRAINTS_IS_STUB"]` (see tests below).
-/// - When restoring the real `Cvc5IrBuilder` path: set the constant to `false`,
-///   implement the body, un-ignore tests, and re-enable CVC5-native asserts in
-///   `ir_parity`.
-///
-/// Grep: `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` / `STUB-CONTRACT`.
+/// Historical flag from the SpExpr/IR builder migration. Kept at `false` so
+/// agents and `scripts/check-smt-feature-matrix.sh` can detect regressions if
+/// the body is stubbed again. Grep: `CVC5_IR_BODY_CONSTRAINTS_IS_STUB`.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) const CVC5_IR_BODY_CONSTRAINTS_IS_STUB: bool = true;
+pub(crate) const CVC5_IR_BODY_CONSTRAINTS_IS_STUB: bool = false;
 
-/// Apply havoc-assume IR body constraints as background axioms.
-///
-/// **Currently a stub** (`CVC5_IR_BODY_CONSTRAINTS_IS_STUB`). See constant docs.
+/// Apply havoc-assume IR body constraints as background axioms (mirrors Z3
+/// `z3_backend::havoc_assume::apply_ir_body_constraints`).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
-    _tm: &'a cvc5::TermManager,
-    _func: &crate::ir::IrFunction,
-    _contract_param_names: &[String],
-    _vars: &mut HashMap<String, cvc5::Term<'a>>,
-    _state: &mut Cvc5EncoderState<'a>,
-    _enc_ctx: IrEncodeContext<'a>,
+    tm: &'a cvc5::TermManager,
+    func: &crate::ir::IrFunction,
+    contract_param_names: &[String],
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+    enc_ctx: IrEncodeContext<'a>,
 ) {
-    // Intentionally empty while CVC5_IR_BODY_CONSTRAINTS_IS_STUB is true.
-    // Do not add assertions here; restore via Cvc5IrBuilder (see STUB-CONTRACT above).
-    let _ = CVC5_IR_BODY_CONSTRAINTS_IS_STUB;
+    use crate::cvc5_builtins::pattern_hash_name;
+    use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
+    use crate::ir::IrExprKind;
+
+    let mut slots: HashMap<usize, cvc5::Term<'a>> = HashMap::new();
+
+    for (slot, name) in ir_param_names(func, contract_param_names) {
+        let key = sanitize_smtlib_name(&name);
+        let v = vars
+            .entry(key.clone())
+            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
+            .clone();
+        slots.insert(slot, v);
+    }
+
+    let result_key = sanitize_smtlib_name("result");
+    let result = vars
+        .entry(result_key.clone())
+        .or_insert_with(|| tm.mk_const(tm.integer_sort(), &result_key))
+        .clone();
+    slots.insert(RESULT_SLOT, result);
+
+    let slot_to_name: HashMap<usize, String> = ir_param_names(func, contract_param_names)
+        .into_iter()
+        .collect();
+    let slot_types = slot_type_map(func);
+    let ctx = IrSlotContext {
+        slot_to_name: &slot_to_name,
+        slot_types: &slot_types,
+    };
+    {
+        let mut builder = Cvc5IrBuilder {
+            tm,
+            slots: HashMap::new(),
+            vars,
+            state,
+            slot_to_name: &slot_to_name,
+            slot_types: &slot_types,
+            enc_ctx,
+        };
+
+        for instr in &func.body {
+            if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
+                let name = format!("__ir_slot_{}", instr.target);
+                let v = builder.get_or_create_named(&name);
+                slots.insert(instr.target, v);
+            }
+            let computed = encode_ir_expr(&mut builder, &instr.expr, &slots, ctx);
+            if let Some(target) = slots.get(&instr.target) {
+                builder.push_eq_axiom(computed, target.clone());
+            }
+            if instr.target == RESULT_SLOT
+                && let IrExprKind::Load(src) = &instr.expr
+                && let Some(param) = slot_to_name.get(src)
+            {
+                let len_result = builder.canonical_length_for_name("result");
+                let len_param = builder.canonical_length_for_name(param);
+                builder
+                    .state
+                    .axioms
+                    .push(tm.mk_term(cvc5::Kind::Equal, &[len_result, len_param]));
+            }
+            if instr.target == RESULT_SLOT
+                && let IrExprKind::Construct { type_id, .. } = &instr.expr
+            {
+                let tag = pattern_hash_name(type_id);
+                let tag_key = format!("__ir_tag_{type_id}");
+                let tag_val = builder.get_or_create_named(&tag_key);
+                builder
+                    .state
+                    .axioms
+                    .push(tm.mk_term(cvc5::Kind::Equal, &[tag_val, tm.mk_integer(tag)]));
+            }
+        }
+    }
+
+    if let Some(post) = &func.post
+        && let Some(pred) = encode_ir_pred_cvc5(tm, post, &slots, vars, state)
+    {
+        state.axioms.push(pred);
+    }
 }
 
 #[cfg(all(test, feature = "cvc5-verify"))]
@@ -441,17 +508,16 @@ mod tests {
         let _ = (&mut vars, &mut state, &tm, &slots, &ctx, _expr);
     }
 
-    /// Test-only: if the stub is active, non-ignored tests must not expect axioms.
+    /// Guard: if someone re-stubs the IR body path, fail fast in tests.
     #[test]
-    fn cvc5_ir_body_stub_contract_is_documented() {
+    fn cvc5_ir_body_stub_is_cleared() {
         assert!(
-            super::CVC5_IR_BODY_CONSTRAINTS_IS_STUB,
-            "when clearing the stub, update ir_parity CVC5 asserts and un-ignore tests below"
+            !super::CVC5_IR_BODY_CONSTRAINTS_IS_STUB,
+            "IR body encode was re-stubbed; restore apply_ir_body_constraints_cvc5 and ir_parity"
         );
     }
 
     #[test]
-    #[ignore = "STUB: CVC5_IR_BODY_CONSTRAINTS_IS_STUB — IR builder lifetime stubs during SpExpr migration"]
     fn cvc5_ir_call_inlines_callee_sidecar() {
         use crate::ir::parse_ir_module;
 
@@ -508,7 +574,6 @@ module double {
     }
 
     #[test]
-    #[ignore = "STUB: CVC5_IR_BODY_CONSTRAINTS_IS_STUB — IR builder lifetime stubs during SpExpr migration"]
     fn cvc5_ir_blocks_inlines_sibling_functions() {
         let (func, blocks) = crate::ir_encode::branch_if_else_ir_fixture();
         let enc_ctx = IrEncodeContext::new(None, None, Some(&blocks));

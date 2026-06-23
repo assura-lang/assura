@@ -357,6 +357,10 @@ fn verify_clauses_with_types(
                 solver.assert(&clause_bool);
                 check_satisfiability(&solver, desc, results);
             }
+            // must_not { P }: assert P; UNSAT means P is impossible (verified),
+            // SAT means a counterexample exists (P is possible). Reuses
+            // check_validity's result mapping (UNSAT=ok, SAT=counterexample).
+            // Mirrors CVC5 assert_formula(body) + unsat/sat interpretation.
             ClauseKind::MustNot => {
                 solver.assert(&clause_bool);
                 check_validity(&solver, desc, results);

@@ -1,0 +1,11 @@
+// Demo: arithmetic IR body constrains result (Tier A1, vertical IR).
+//
+// Loader resolves `IncOne.ir` (this dir or `generated/`), not `ir-inc.ir`.
+// `IncOne.ir` implements $result = $0 + 1 so ensures verifies via havoc+assume.
+
+module demo.ir_inc;
+
+fn IncOne(x: Int) -> Int
+  requires { x >= 0 }
+  ensures  { result == x + 1 }
+  effects  { pure }

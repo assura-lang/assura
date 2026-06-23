@@ -107,18 +107,16 @@ lint_cvc5_ir_smtlib_imports() {
     done < <(grep -n 'cvc5_ir_smtlib' "$f" || true)
   done < <(grep -rl 'cvc5_ir_smtlib' crates/assura-smt --include='*.rs' 2>/dev/null || true)
 
-  # Stub contract marker must exist while the function is a no-op.
+  # Flag must exist; if stub is re-enabled, ir_parity must not call the no-op path.
   if grep -q 'fn apply_ir_body_constraints_cvc5' \
     crates/assura-smt/src/cvc5_backend/cvc5_ir_native.rs 2>/dev/null; then
-    if ! grep -q 'STUB-CONTRACT' crates/assura-smt/src/cvc5_backend/cvc5_ir_native.rs || \
-       ! grep -q 'CVC5_IR_BODY_CONSTRAINTS_IS_STUB' \
-         crates/assura-smt/src/cvc5_backend/cvc5_ir_native.rs; then
-      fail "apply_ir_body_constraints_cvc5 missing STUB-CONTRACT / CVC5_IR_BODY_CONSTRAINTS_IS_STUB"
+    if ! grep -q 'CVC5_IR_BODY_CONSTRAINTS_IS_STUB' \
+      crates/assura-smt/src/cvc5_backend/cvc5_ir_native.rs; then
+      fail "apply_ir_body_constraints_cvc5 missing CVC5_IR_BODY_CONSTRAINTS_IS_STUB marker"
       errs=$((errs + 1))
     fi
   fi
 
-  # ir_parity must not *call* the stubbed function (comments/doc OK).
   if grep -q 'CVC5_IR_BODY_CONSTRAINTS_IS_STUB: bool = true' \
     crates/assura-smt/src/cvc5_backend/cvc5_ir_native.rs 2>/dev/null; then
     if code_lines crates/assura-smt/src/ir_parity.rs | grep -qE \
@@ -127,6 +125,7 @@ lint_cvc5_ir_smtlib_imports() {
       fail "  (assert only Z3/shell; mirror ignored tests in cvc5_ir_native)"
       errs=$((errs + 1))
     fi
+    warn "CVC5_IR_BODY_CONSTRAINTS_IS_STUB=true (IR body no-op); production CVC5 skips IR axioms"
   fi
 
   if [[ "$errs" -gt 0 ]]; then

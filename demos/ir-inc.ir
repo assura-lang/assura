@@ -1,0 +1,10 @@
+// Documentation mirror only — `assura check` loads `IncOne.ir` / `generated/IncOne.ir`.
+// Keep in sync with those files.
+module inc {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = const 1 : Int
+    $2 = arith add $0 $1 : Int
+    $result = load $2 : Int
+  }
+}

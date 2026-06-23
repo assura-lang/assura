@@ -1,0 +1,13 @@
+// Demo: frame condition + old() in ensures (Tier A3).
+//
+// `modifies { a }` frames `b` at its pre-state; `old(b)` reads that snapshot.
+// The ensures tautology is trivial but exercises the encoder path that injects
+// frame axioms for unmodified inputs (Z3 + CVC5).
+
+module demo.frame_old;
+
+contract FrameOldDemo {
+  input { a: Int, b: Int }
+  modifies { a }
+  ensures { old(b) >= 0 || old(b) < 0 }
+}

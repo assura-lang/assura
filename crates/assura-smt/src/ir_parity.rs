@@ -51,11 +51,24 @@ mod tests {
         })
     }
 
-    // Note: while `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` is true (`cvc5_ir_native.rs`
-    // STUB-CONTRACT), do not call `apply_ir_body_constraints_cvc5` or assert on
-    // its axioms here; dedicated `cvc5_ir_native` tests are `#[ignore]`d with
-    // the same marker. Under `cvc5-verify` we only exercise Z3 (+ shell is
-    // gated off because `cvc5_ir_smtlib` is not compiled).
+    #[cfg(feature = "cvc5-verify")]
+    fn native_ir_output(func: &IrFunction, enc_ctx: IrEncodeContext<'_>) -> String {
+        use std::collections::HashMap;
+
+        use crate::cvc5_encoder_state::default_cvc5_encoder_state;
+        use crate::cvc5_ir_native::apply_ir_body_constraints_cvc5;
+
+        let tm = cvc5::TermManager::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut vars = HashMap::new();
+        apply_ir_body_constraints_cvc5(&tm, func, &["x".into()], &mut vars, &mut state, enc_ctx);
+        state
+            .axioms
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 
     fn assert_all_backends_branch_inlined() {
         let (func, blocks) = branch_if_else_ir_fixture();
@@ -73,6 +86,12 @@ mod tests {
             let shell_axioms = shell.lines().filter(|l| l.contains("(assert")).count();
             assert_ir_blocks_inlined(&shell, shell_axioms);
         }
+
+        #[cfg(feature = "cvc5-verify")]
+        {
+            let out = native_ir_output(&func, enc_ctx);
+            assert_ir_blocks_inlined(&out, out.matches("(=").count());
+        }
     }
 
     fn assert_all_backends_missing_block_uf() {
@@ -89,6 +108,12 @@ mod tests {
         {
             let shell = shell_ir_output(&func, enc_ctx);
             assert_ir_blocks_missing_uf_fallback(&shell);
+        }
+
+        #[cfg(feature = "cvc5-verify")]
+        {
+            let out = native_ir_output(&func, enc_ctx);
+            assert_ir_blocks_missing_uf_fallback(&out);
         }
     }
 
@@ -205,6 +230,14 @@ module adt {
             );
         }
 
-        // CVC5 native: skipped while CVC5_IR_BODY_CONSTRAINTS_IS_STUB (STUB-CONTRACT).
+        // CVC5 native backend should emit tag axiom
+        #[cfg(feature = "cvc5-verify")]
+        {
+            let out = native_ir_output(&func, enc_ctx);
+            assert!(
+                out.contains("__ir_tag_MyStruct"),
+                "CVC5 native backend should emit __ir_tag_MyStruct axiom, got:\n{out}"
+            );
+        }
     }
 }

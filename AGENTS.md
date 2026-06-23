@@ -649,11 +649,11 @@ bash scripts/check-smt-feature-matrix.sh --require-cvc5
 Do not treat an assura-smt PR as green until the **CVC5 native tests** job
 passes on the latest SHA (not only `test` / `clippy`).
 
-**`apply_ir_body_constraints_cvc5` stub:** while
-`CVC5_IR_BODY_CONSTRAINTS_IS_STUB` is `true` in `cvc5_ir_native.rs`, the
-function is a no-op (STUB-CONTRACT). Do not assert on `state.axioms` after
-calling it; `ir_parity` only asserts Z3 + shell. Grep
-`CVC5_IR_BODY_CONSTRAINTS_IS_STUB` / `STUB-CONTRACT` before adding IR tests.
+**`apply_ir_body_constraints_cvc5`:** implemented via `Cvc5IrBuilder` +
+`ir_lower` (mirrors Z3 `havoc_assume::apply_ir_body_constraints`). The flag
+`CVC5_IR_BODY_CONSTRAINTS_IS_STUB` must stay `false`; if it is re-set to
+`true`, `scripts/check-smt-feature-matrix.sh` warns and `ir_parity` must not
+call the no-op path.
 
 **Before session end or marking a MASTER-PLAN task `[x]`** (full):
 ```bash
