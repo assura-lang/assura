@@ -3,7 +3,7 @@
 //! Crash recovery, page cache, MVCC, rollback,
 //! monotonic state, storage failure.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, SpExpr};
+use assura_parser::ast::{ClauseKind, Expr, SpExpr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -14,11 +14,8 @@ pub(crate) fn run_crash_recovery_checks(source: &assura_parser::ast::SourceFile)
     let mut checker = CrashRecoveryChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
@@ -61,11 +58,8 @@ pub(crate) fn run_crash_recovery_checks(source: &assura_parser::ast::SourceFile)
 pub(crate) fn run_page_cache_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut checker: Option<PageCacheChecker> = None;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -136,11 +130,8 @@ pub(crate) fn run_mvcc_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
     let mut checker = MvccChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -162,10 +153,8 @@ pub(crate) fn run_mvcc_checks(source: &assura_parser::ast::SourceFile) -> Vec<Ty
     let mut errors = checker.check_write_conflicts();
     // Check snapshot read isolation for referenced keys
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Ensures {
@@ -233,11 +222,8 @@ pub(crate) fn run_rollback_checks(source: &assura_parser::ast::SourceFile) -> Ve
     let mut scan_errors = Vec::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -328,10 +314,8 @@ pub(crate) fn run_monotonic_state_checks(
     let mut checker = MonotonicStateChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
@@ -399,10 +383,8 @@ pub(crate) fn run_monotonic_state_checks(
     // Check ensures clauses for monotonicity violations via identifier usage
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Ensures {
@@ -428,11 +410,8 @@ pub(crate) fn run_storage_failure_checks(
     let mut checker = StorageFailureChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {

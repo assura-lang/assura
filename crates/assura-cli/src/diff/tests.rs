@@ -269,7 +269,15 @@ fn test_must_reject_fixtures() {
                     // Type check passed; try SMT verification for
                     // error codes in the A05xxx range (prophecy,
                     // verification failures).
-                    let vr = assura_smt::Verifier::new(&typed).source(&path).verify();
+                    let config = assura_config::CompilerConfig {
+                        verify: assura_config::VerifyOptions::for_tests(),
+                        ..Default::default()
+                    };
+                    let vr = assura_pipeline::verify_typed(
+                        &typed,
+                        path.to_str().unwrap_or("test.assura"),
+                        &config,
+                    );
                     let found = vr.iter().any(|r| match r {
                         assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
                             clause_desc.contains(&code)
@@ -1014,14 +1022,9 @@ fn run_e2e_pipeline(source: &str, source_path: &std::path::Path) -> (bool, bool)
         Ok(t) => t,
         Err(_) => return (true, false),
     };
-    let cache_dir = std::env::temp_dir().join("assura_e2e_cache");
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let cache = assura_smt::VerificationCache::new(&cache_dir);
-    let results = assura_smt::Verifier::new(&typed)
-        .source(source_path)
-        .cache(&cache)
-        .parallel()
-        .verify();
+    let path_str = source_path.to_str().unwrap_or("test.assura");
+    let config = assura_config::CompilerConfig::default();
+    let results = assura_pipeline::verify_typed(&typed, path_str, &config);
     let has_counterexample = results
         .iter()
         .any(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }));

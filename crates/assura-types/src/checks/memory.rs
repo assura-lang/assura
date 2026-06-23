@@ -175,10 +175,8 @@ pub(crate) fn run_shared_mem_checks(source: &assura_parser::ast::SourceFile) -> 
     let mut errors = Vec::new();
 
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Contract(c) => &c.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
 
         let has_shared = clauses.iter().any(|c| {
@@ -278,10 +276,8 @@ pub(crate) fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> 
             }
         }
         // Also pick up inline lock_order clauses inside contracts/fns
-        let clauses = match &decl.node {
-            Decl::Contract(c) => c.clauses.as_slice(),
-            Decl::FnDef(f) => f.clauses.as_slice(),
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         let mut inline_priority = 0u32;
         for clause in clauses {
@@ -298,10 +294,8 @@ pub(crate) fn run_lock_order_checks(source: &assura_parser::ast::SourceFile) -> 
 
     // Second pass: check lock acquisitions in function bodies
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Contract(c) => &c.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
 
         for clause in clauses {
@@ -421,10 +415,8 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
     let mut checker = AllocatorChecker::new();
     let mut has_alloc = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
@@ -445,10 +437,8 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
     }
     // Wire arena lifecycle: declare arenas and track drop/use-after-drop
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
@@ -471,10 +461,8 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
     }
     // Check bounded annotations: mark allocations that have a proved bound
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -488,10 +476,8 @@ pub(crate) fn run_allocator_checks(source: &assura_parser::ast::SourceFile) -> V
     // Check arena use-after-drop for all allocations
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Ensures {
@@ -516,10 +502,8 @@ pub(crate) fn run_circular_buffer_checks(
     let mut checker = CircularBufferChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -566,10 +550,8 @@ pub(crate) fn run_circular_buffer_checks(
     // Process push/pop operations and index checks via collected references
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {

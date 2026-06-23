@@ -553,15 +553,11 @@ pub(crate) fn run_complexity_bound_checks(
     let mut checker = ComplexityBoundChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Contract(c) => &c.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
-        let name = match &decl.node {
-            Decl::FnDef(f) => f.name.clone(),
-            Decl::Contract(c) => c.name.clone(),
-            _ => continue,
+        let Some(name) = decl.node.name().map(|s| s.to_string()) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -589,15 +585,11 @@ pub(crate) fn run_complexity_bound_checks(
     }
     // Record measured complexity from annotations
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Contract(c) => &c.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
-        let name = match &decl.node {
-            Decl::FnDef(f) => f.name.as_str(),
-            Decl::Contract(c) => c.name.as_str(),
-            _ => continue,
+        let Some(name) = decl.node.name() else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -662,11 +654,8 @@ pub(crate) fn run_behavioral_equivalence_checks(
     }
     // Mark equivalences as verified if proof clauses exist
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -690,11 +679,8 @@ pub(crate) fn run_multi_pass_refinement_checks(
     let mut checker = MultiPassRefinementChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -768,11 +754,8 @@ pub(crate) fn run_multi_pass_refinement_checks(
     }
     // Discharge refinement obligations from proof annotations
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -800,11 +783,8 @@ pub(crate) fn run_incremental_contract_checks(
     let mut checker = IncrementalContractChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         // Count requires/ensures clauses for this declaration
         let requires_count = clauses
@@ -898,11 +878,8 @@ pub(crate) fn run_scoped_invariant_checks(
     let mut errors = Vec::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
@@ -929,11 +906,8 @@ pub(crate) fn run_scoped_invariant_checks(
     }
     // Check individual invariant suspension status in clause bodies
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Block { body, .. } => body,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {

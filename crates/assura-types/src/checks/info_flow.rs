@@ -55,10 +55,8 @@ pub(crate) fn run_dependent_type_checks(source: &assura_parser::ast::SourceFile)
 
     // Pass 2: check type/contract declarations for dependent type annotations
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => c.clauses.as_slice(),
-            Decl::FnDef(f) => f.clauses.as_slice(),
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
 
         for clause in clauses {

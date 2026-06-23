@@ -16,9 +16,11 @@ pub(super) use assura_parser::ast::{
 pub(super) use assura_resolve::ResolvedFile;
 
 /// Helper: parse + resolve source text, panicking on errors.
+///
+/// Delegates to [`assura_test_support::resolve_ok`] so tests share the same
+/// pipeline entry as other crates (Tier 2 agent ergonomics).
 pub(super) fn resolve_ok(source: &str) -> ResolvedFile {
-    let file = assura_parser::parse_unwrap(source);
-    assura_resolve::resolve(&file).expect("resolve should succeed")
+    assura_test_support::resolve_ok(source)
 }
 
 mod basics;

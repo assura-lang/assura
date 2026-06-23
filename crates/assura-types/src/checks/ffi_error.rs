@@ -108,10 +108,8 @@ pub(crate) fn run_ffi_checks(source: &assura_parser::ast::SourceFile) -> Vec<Typ
 
     // Check FFI call sites in function/contract clause bodies
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::FnDef(f) => f.clauses.as_slice(),
-            Decl::Contract(c) => c.clauses.as_slice(),
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Requires) {

@@ -2,7 +2,7 @@
 //!
 //! Determinism, callback re-entrancy, temporal deadlines.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr};
+use assura_parser::ast::{ClauseKind, Expr};
 
 use crate::TypeError;
 use crate::checkers::*;
@@ -20,10 +20,8 @@ pub(crate) fn run_determinism_checks(source: &assura_parser::ast::SourceFile) ->
     let mut checker = DeterminismChecker::new();
 
     for decl in &source.decls {
-        let (fn_name, clauses) = match &decl.node {
-            Decl::FnDef(f) => (f.name.as_str(), f.clauses.as_slice()),
-            Decl::Contract(c) => (c.name.as_str(), c.clauses.as_slice()),
-            _ => continue,
+        let Some((fn_name, clauses)) = super::fn_or_contract_name_clauses(&decl.node) else {
+            continue;
         };
 
         // Check if the function has a pure effects clause
@@ -77,10 +75,8 @@ pub(crate) fn run_callback_reentrancy_checks(
     let mut found = false;
     let mut max_depth_override: Option<usize> = None;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -116,10 +112,8 @@ pub(crate) fn run_callback_reentrancy_checks(
     // - A contract with non_reentrant annotation that references the guarded fn
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let (fn_name, clauses) = match &decl.node {
-            Decl::FnDef(f) => (f.name.as_str(), &f.clauses),
-            Decl::Contract(c) => (c.name.as_str(), &c.clauses),
-            _ => continue,
+        let Some((fn_name, clauses)) = super::fn_or_contract_name_clauses(&decl.node) else {
+            continue;
         };
         // Enter the function scope
         let enter_errors = checker.enter_call(fn_name, &decl.span);
@@ -148,10 +142,8 @@ pub(crate) fn run_callback_reentrancy_checks(
     // non_reentrant and also references that function in clause bodies,
     // flag the potential re-entrant invocation.
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => c.clauses.as_slice(),
-            Decl::FnDef(f) => f.clauses.as_slice(),
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         // Collect non-reentrant targets declared in this decl
         let mut nr_targets: Vec<String> = Vec::new();
@@ -205,10 +197,8 @@ pub(crate) fn run_temporal_deadline_checks(
     let mut checker = TemporalDeadlineChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
@@ -275,10 +265,8 @@ pub(crate) fn run_temporal_deadline_checks(
     // Check operations within deadline contexts
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let clauses = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {

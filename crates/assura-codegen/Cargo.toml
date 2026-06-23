@@ -20,3 +20,4 @@ syn = "2"
 assura-pipeline = { path = "../assura-pipeline" }
 assura-config = { path = "../assura-config" }
 assura-resolve = { path = "../assura-resolve" }
+assura-test-support = { path = "../assura-test-support" }

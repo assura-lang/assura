@@ -14,3 +14,6 @@ assura-parser = { path = "../assura-parser" }
 assura-resolve = { path = "../assura-resolve" }
 assura-config = { path = "../assura-config" }
 assura-diagnostics = { path = "../assura-diagnostics" }
+
+[dev-dependencies]
+assura-test-support = { path = "../assura-test-support" }
