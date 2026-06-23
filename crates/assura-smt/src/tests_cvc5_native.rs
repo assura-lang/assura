@@ -799,6 +799,332 @@ mod native_tests {
             );
         }
     }
+
+    // -----------------------------------------------------------------------
+    // encode_call parity (#364 / CVC5 mirror): collection + min/max axioms
+    // -----------------------------------------------------------------------
+
+    fn ident_expr(name: &str) -> Expr {
+        Expr::Ident(name.into())
+    }
+
+    fn lit_int(n: &str) -> Expr {
+        Expr::Literal(Literal::Int(n.into()))
+    }
+
+    fn call_expr(func: &str, args: Vec<Expr>) -> Expr {
+        Expr::Call {
+            func: Box::new(Spanned::no_span(ident_expr(func))),
+            args: args.into_iter().map(Spanned::no_span).collect(),
+        }
+    }
+
+    fn method_expr(receiver: Expr, method: &str, args: Vec<Expr>) -> Expr {
+        Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(receiver)),
+            method: method.into(),
+            args: args.into_iter().map(Spanned::no_span).collect(),
+        }
+    }
+
+    fn binop_expr(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
+        Expr::BinOp {
+            op,
+            lhs: Box::new(Spanned::no_span(lhs)),
+            rhs: Box::new(Spanned::no_span(rhs)),
+        }
+    }
+
+    fn assert_no_cex(label: &str, results: &[VerificationResult]) {
+        assert!(!results.is_empty(), "{label}: expected results");
+        for r in results {
+            assert!(
+                !matches!(r, VerificationResult::Counterexample { .. }),
+                "{label}: unexpected counterexample: {r:?}"
+            );
+        }
+    }
+
+    fn assert_ensures_verified(label: &str, results: &[VerificationResult]) {
+        assert!(
+            results.iter().any(|r| matches!(
+                r,
+                VerificationResult::Verified { clause_desc, .. }
+                    if clause_desc.contains("Ensures") || clause_desc.contains("ensures")
+            )),
+            "{label}: expected Verified ensures, got {results:?}"
+        );
+    }
+
+    #[test]
+    fn test_cvc5_push_increments_length() {
+        // requires { len(xs) == n } && { n >= 0 }
+        // ensures  { len(push(xs, x)) == n + 1 }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("xs")]),
+                    ident_expr("n"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Gte, ident_expr("n"), lit_int("0")),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr(
+                        "len",
+                        vec![call_expr("push", vec![ident_expr("xs"), ident_expr("x")])],
+                    ),
+                    binop_expr(BinOp::Add, ident_expr("n"), lit_int("1")),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5PushLen", &clauses);
+        assert_ensures_verified("push increments length", &results);
+    }
+
+    #[test]
+    fn test_cvc5_reverse_preserves_length() {
+        // requires { len(xs) == n }
+        // ensures  { len(reverse(xs)) == n }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("xs")]),
+                    ident_expr("n"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![call_expr("reverse", vec![ident_expr("xs")])]),
+                    ident_expr("n"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5ReverseLen", &clauses);
+        assert_ensures_verified("reverse preserves length", &results);
+    }
+
+    #[test]
+    fn test_cvc5_clear_zero_length() {
+        // ensures { len(clear(xs)) == 0 }
+        let clauses = vec![make_clause(
+            ClauseKind::Ensures,
+            binop_expr(
+                BinOp::Eq,
+                call_expr("len", vec![call_expr("clear", vec![ident_expr("xs")])]),
+                lit_int("0"),
+            ),
+        )];
+        let results = verify_contract_cvc5("Cvc5ClearLen", &clauses);
+        assert_ensures_verified("clear zero length", &results);
+    }
+
+    #[test]
+    fn test_cvc5_take_length_bounded() {
+        // requires { k >= 0 } && { len(xs) == 10 } && { k <= 10 }
+        // ensures  { len(take(xs, k)) == k }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Gte, ident_expr("k"), lit_int("0")),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("xs")]),
+                    lit_int("10"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Lte, ident_expr("k"), lit_int("10")),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr(
+                        "len",
+                        vec![call_expr("take", vec![ident_expr("xs"), ident_expr("k")])],
+                    ),
+                    ident_expr("k"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5TakeLen", &clauses);
+        assert_ensures_verified("take length bounded", &results);
+    }
+
+    #[test]
+    fn test_cvc5_is_empty_iff_len_zero() {
+        // requires { is_empty(xs) }
+        // ensures  { len(xs) == 0 }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                call_expr("is_empty", vec![ident_expr("xs")]),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("xs")]),
+                    lit_int("0"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5IsEmptyLen", &clauses);
+        assert_ensures_verified("is_empty => len==0", &results);
+    }
+
+    #[test]
+    fn test_cvc5_method_call_push_length() {
+        // requires { xs.length() == 3 }
+        // ensures  { xs.push(x).length() == 4 }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    method_expr(ident_expr("xs"), "length", vec![]),
+                    lit_int("3"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    method_expr(
+                        method_expr(ident_expr("xs"), "push", vec![ident_expr("x")]),
+                        "length",
+                        vec![],
+                    ),
+                    lit_int("4"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5MethodPush", &clauses);
+        assert_ensures_verified("method push length", &results);
+    }
+
+    #[test]
+    fn test_cvc5_concat_length_additive_exact() {
+        // requires { len(a) == 2 } && { len(b) == 3 }
+        // ensures  { len(concat(a, b)) == 5 }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("a")]),
+                    lit_int("2"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("b")]),
+                    lit_int("3"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr(
+                        "len",
+                        vec![call_expr("concat", vec![ident_expr("a"), ident_expr("b")])],
+                    ),
+                    lit_int("5"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5ConcatLenExact", &clauses);
+        assert_ensures_verified("concat length additive", &results);
+    }
+
+    #[test]
+    fn test_cvc5_min_max_bounds_verify() {
+        // min/max ite encoding: min(a,b) <= a,b and max(a,b) >= a,b
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Gte, ident_expr("a"), lit_int("0")),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Gte, ident_expr("b"), lit_int("0")),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Lte,
+                    call_expr("min", vec![ident_expr("a"), ident_expr("b")]),
+                    ident_expr("a"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Lte,
+                    call_expr("min", vec![ident_expr("a"), ident_expr("b")]),
+                    ident_expr("b"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Gte,
+                    call_expr("max", vec![ident_expr("a"), ident_expr("b")]),
+                    ident_expr("a"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Gte,
+                    call_expr("max", vec![ident_expr("a"), ident_expr("b")]),
+                    ident_expr("b"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5MinMaxBounds", &clauses);
+        let ensures: Vec<_> = results
+            .iter()
+            .filter(|r| match r {
+                VerificationResult::Verified { clause_desc, .. }
+                | VerificationResult::Counterexample { clause_desc, .. }
+                | VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("Ensures") || clause_desc.contains("ensures")
+                }
+                _ => false,
+            })
+            .collect();
+        assert!(
+            ensures.len() >= 4,
+            "expected 4 ensures results, got {ensures:?} (all: {results:?})"
+        );
+        for r in &ensures {
+            assert!(
+                matches!(r, VerificationResult::Verified { .. }),
+                "min/max ite encoding should verify bounds, got: {r:?}"
+            );
+        }
+        assert_no_cex("min_max_bounds", &results);
+    }
 }
 
 #[cfg(feature = "cvc5-verify")]

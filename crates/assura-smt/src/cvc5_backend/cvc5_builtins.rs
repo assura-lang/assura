@@ -55,6 +55,7 @@ pub(crate) fn is_size_field(name: &str) -> bool {
 }
 
 /// Builtin operations shared between native and shell-out backends.
+/// Mirrors Z3 `encode_call` semantics (#364) for CVC5 parity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KnownBuiltin {
     Abs,
@@ -62,11 +63,24 @@ pub(crate) enum KnownBuiltin {
     Max,
     Substring,
     Concat,
+    Append,
     IndexOf,
     CharAt,
     Replace,
     Split,
     Trim,
+    Clone,
+    Reverse,
+    Clear,
+    Push,
+    Pop,
+    Insert,
+    Remove,
+    Slice,
+    Take,
+    Drop,
+    Tail,
+    First,
     Set,
     Put,
 }
@@ -79,13 +93,26 @@ pub(crate) fn classify_known_builtin(op: &str, arity: usize) -> Option<KnownBuil
         ("max", 2) => Some(KnownBuiltin::Max),
         ("substring" | "substr", 3) => Some(KnownBuiltin::Substring),
         ("concat", 2) => Some(KnownBuiltin::Concat),
+        ("append", 2) => Some(KnownBuiltin::Append),
         ("index_of" | "find" | "indexOf", 2) => Some(KnownBuiltin::IndexOf),
-        ("char_at" | "charAt", 2) => Some(KnownBuiltin::CharAt),
+        ("char_at" | "charAt" | "code_unit_at", 2) => Some(KnownBuiltin::CharAt),
         ("replace", 3) => Some(KnownBuiltin::Replace),
         ("split", 2) => Some(KnownBuiltin::Split),
         ("trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper", 1) => {
             Some(KnownBuiltin::Trim)
         }
+        ("clone" | "to_string" | "to_owned" | "as_str", 1) => Some(KnownBuiltin::Clone),
+        ("reverse", 1) => Some(KnownBuiltin::Reverse),
+        ("clear", 1) => Some(KnownBuiltin::Clear),
+        ("push" | "push_back" | "push_front", 2) => Some(KnownBuiltin::Push),
+        ("pop" | "pop_back" | "pop_front", 1) => Some(KnownBuiltin::Pop),
+        ("insert", 3) => Some(KnownBuiltin::Insert),
+        ("remove" | "remove_at", 2) => Some(KnownBuiltin::Remove),
+        ("slice", 3) => Some(KnownBuiltin::Slice),
+        ("take", 2) => Some(KnownBuiltin::Take),
+        ("drop", 2) => Some(KnownBuiltin::Drop),
+        ("tail" | "rest", 1) => Some(KnownBuiltin::Tail),
+        ("first" | "last" | "head" | "front" | "back", 1) => Some(KnownBuiltin::First),
         ("set", 3) => Some(KnownBuiltin::Set),
         ("put", 3) => Some(KnownBuiltin::Put),
         _ => None,
@@ -109,12 +136,26 @@ pub(crate) fn known_builtin_to_smtlib(op: &str, args: &[String]) -> Option<Strin
             Some(format!("(ite (>= {a} {b}) {a} {b})"))
         }
         KnownBuiltin::Substring => Some(format!("(substring {} {} {})", args[0], args[1], args[2])),
-        KnownBuiltin::Concat => Some(format!("(__concat {} {})", args[0], args[1])),
+        KnownBuiltin::Concat | KnownBuiltin::Append => {
+            Some(format!("(__concat {} {})", args[0], args[1]))
+        }
         KnownBuiltin::IndexOf => Some(format!("(index_of {} {})", args[0], args[1])),
         KnownBuiltin::CharAt => Some(format!("(char_at {} {})", args[0], args[1])),
         KnownBuiltin::Replace => Some(format!("(replace {} {} {})", args[0], args[1], args[2])),
         KnownBuiltin::Split => Some(format!("(split {} {})", args[0], args[1])),
-        KnownBuiltin::Trim => Some(format!("({op} {})", args[0])),
+        KnownBuiltin::Trim
+        | KnownBuiltin::Clone
+        | KnownBuiltin::Reverse
+        | KnownBuiltin::Clear
+        | KnownBuiltin::Pop
+        | KnownBuiltin::Tail
+        | KnownBuiltin::First => Some(format!("({op} {})", args[0])),
+        KnownBuiltin::Push | KnownBuiltin::Remove | KnownBuiltin::Take | KnownBuiltin::Drop => {
+            Some(format!("({op} {} {})", args[0], args[1]))
+        }
+        KnownBuiltin::Insert | KnownBuiltin::Slice => {
+            Some(format!("({op} {} {} {})", args[0], args[1], args[2]))
+        }
         KnownBuiltin::Set => Some(format!("(set {} {} {})", args[0], args[1], args[2])),
         KnownBuiltin::Put => Some(format!("(put {} {} {})", args[0], args[1], args[2])),
     }
@@ -142,9 +183,55 @@ mod tests {
     }
 
     #[test]
+    fn classify_collection_methods_parity() {
+        assert_eq!(classify_known_builtin("push", 2), Some(KnownBuiltin::Push));
+        assert_eq!(
+            classify_known_builtin("push_back", 2),
+            Some(KnownBuiltin::Push)
+        );
+        assert_eq!(classify_known_builtin("pop", 1), Some(KnownBuiltin::Pop));
+        assert_eq!(
+            classify_known_builtin("reverse", 1),
+            Some(KnownBuiltin::Reverse)
+        );
+        assert_eq!(
+            classify_known_builtin("clear", 1),
+            Some(KnownBuiltin::Clear)
+        );
+        assert_eq!(classify_known_builtin("take", 2), Some(KnownBuiltin::Take));
+        assert_eq!(classify_known_builtin("drop", 2), Some(KnownBuiltin::Drop));
+        assert_eq!(
+            classify_known_builtin("slice", 3),
+            Some(KnownBuiltin::Slice)
+        );
+        assert_eq!(
+            classify_known_builtin("insert", 3),
+            Some(KnownBuiltin::Insert)
+        );
+        assert_eq!(
+            classify_known_builtin("remove", 2),
+            Some(KnownBuiltin::Remove)
+        );
+        assert_eq!(
+            classify_known_builtin("append", 2),
+            Some(KnownBuiltin::Append)
+        );
+        assert_eq!(
+            classify_known_builtin("clone", 1),
+            Some(KnownBuiltin::Clone)
+        );
+        assert_eq!(classify_known_builtin("tail", 1), Some(KnownBuiltin::Tail));
+        assert_eq!(
+            classify_known_builtin("first", 1),
+            Some(KnownBuiltin::First)
+        );
+    }
+
+    #[test]
     fn classify_unknown_arity_returns_none() {
         assert_eq!(classify_known_builtin("abs", 2), None);
         assert_eq!(classify_known_builtin("unknown", 1), None);
+        assert_eq!(classify_known_builtin("push", 1), None);
     }
 
     #[cfg(feature = "cvc5-verify")]
