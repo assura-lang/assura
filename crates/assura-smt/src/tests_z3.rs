@@ -1912,6 +1912,47 @@ fn nat_param(n: Nat) -> Int
 }
 
 // -----------------------------------------------------------------------
+// min/max: ite encoding (not unconstrained UF)
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_min_max_bounds_verify() {
+    // min(a,b) <= a and max(a,b) >= a are tautologies when min/max use ite.
+    // With unconstrained UF encoding these would produce counterexamples.
+    let src = r#"
+contract MinMaxBounds {
+  input(a: Int, b: Int)
+  requires { a >= 0 }
+  requires { b >= 0 }
+  ensures { min(a, b) <= a }
+  ensures { min(a, b) <= b }
+  ensures { max(a, b) >= a }
+  ensures { max(a, b) >= b }
+}
+    "#;
+    let results = verify_source(src);
+    let ensures: Vec<_> = results
+        .iter()
+        .filter(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. } => clause_desc.contains("ensures"),
+            _ => false,
+        })
+        .collect();
+    assert!(
+        ensures.len() >= 4,
+        "expected 4 ensures results, got {ensures:?}"
+    );
+    for r in &ensures {
+        assert!(
+            matches!(r, VerificationResult::Verified { .. }),
+            "min/max ite encoding should verify bounds, got: {r:?}"
+        );
+    }
+}
+
+// -----------------------------------------------------------------------
 // #180: feature_max constants bound to concrete values
 // -----------------------------------------------------------------------
 
