@@ -149,11 +149,14 @@ pub(crate) fn canonical_length_cvc5<'a>(
 }
 
 /// Native CVC5 quantifier encoding session (term manager + var map + state).
+///
+/// `vars` / `state` borrows are independent of the term lifetime `'a` so
+/// `encode_expr_cvc5` can pass its normal `&mut` parameters without E0621.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) struct Cvc5QuantifierEncodeCtx<'a> {
+pub(crate) struct Cvc5QuantifierEncodeCtx<'a, 'v, 's> {
     pub tm: &'a cvc5::TermManager,
-    pub vars: &'a mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    pub state: &'a mut Cvc5EncoderState<'a>,
+    pub vars: &'v mut std::collections::HashMap<String, cvc5::Term<'a>>,
+    pub state: &'s mut Cvc5EncoderState<'a>,
 }
 
 #[cfg(feature = "cvc5-verify")]

@@ -50,8 +50,8 @@ where
 
 /// Combine a domain guard with a quantifier body (native API).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
-    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+pub(crate) fn guard_quantifier_body_cvc5<'a, 'v, 's, E>(
+    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     domain: &SpExpr,
     bound_var: &cvc5::Term<'a>,
     body: cvc5::Term<'a>,
@@ -61,7 +61,7 @@ pub(crate) fn guard_quantifier_body_cvc5<'a, E>(
 where
     E: FnMut(
         &SpExpr,
-        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     ) -> Option<cvc5::Term<'a>>,
 {
     let guard = if let Some((lo, hi)) = domain_as_range(domain) {
@@ -90,8 +90,8 @@ where
 
 /// Encode an AST `forall`/`exists` as a native CVC5 quantifier (with optional triggers).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_ast_quantifier_cvc5<'a, E>(
-    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+pub(crate) fn encode_ast_quantifier_cvc5<'a, 'v, 's, E>(
+    ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     is_forall: bool,
     var: &str,
     domain: &SpExpr,
@@ -101,7 +101,7 @@ pub(crate) fn encode_ast_quantifier_cvc5<'a, E>(
 where
     E: FnMut(
         &SpExpr,
-        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a>,
+        &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     ) -> Option<cvc5::Term<'a>>,
 {
     let v_name = sanitize_smtlib_name(var);
