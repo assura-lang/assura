@@ -2068,6 +2068,153 @@ contract MethodPush {
 }
 
 // -----------------------------------------------------------------------
+// encode_call wave 2: string/collection predicates + array/map get/set/put
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_contains_implies_length_ge_needle() {
+    // contains(s, sub) => len(s) >= len(sub)
+    let src = r#"
+contract ContainsLen {
+  input(s: String, sub: String)
+  requires { contains(s, sub) }
+  requires { len(sub) == 3 }
+  ensures { len(s) >= 3 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "contains length axiom should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_starts_with_implies_length_ge_prefix() {
+    let src = r#"
+contract StartsWithLen {
+  input(s: String, pre: String)
+  requires { starts_with(s, pre) }
+  requires { len(pre) == 2 }
+  ensures { len(s) >= 2 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "starts_with length axiom should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_ends_with_empty_affix_always_true() {
+    // ends_with(s, aff) when len(aff) == 0 is always true (empty suffix).
+    let src = r#"
+contract EndsWithEmpty {
+  input(s: String, aff: String)
+  requires { len(aff) == 0 }
+  ensures { ends_with(s, aff) }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "empty affix ends_with should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_contains_key_implies_size_ge_one() {
+    let src = r#"
+contract ContainsKeySize {
+  input(m: Map<Int, Int>, k: Int)
+  requires { contains_key(m, k) }
+  ensures { size(m) >= 1 }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "contains_key => size>=1 should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_get_set_read_over_write() {
+    // get(set(arr, i, v), i) == v
+    let src = r#"
+contract GetSetRow {
+  input(arr: List<Int>, i: Int, v: Int)
+  requires { i >= 0 }
+  ensures { get(set(arr, i, v), i) == v }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "get/set read-over-write should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_set_preserves_length() {
+    let src = r#"
+contract SetLen {
+  input(arr: List<Int>, i: Int, v: Int)
+  requires { len(arr) == n }
+  requires { n >= 0 }
+  requires { i >= 0 }
+  ensures { len(set(arr, i, v)) == n }
+}
+    "#;
+    let results = verify_source(src);
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures"))),
+        "set preserves length should verify, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_put_read_over_write_and_contains_key() {
+    let src = r#"
+contract PutGet {
+  input(m: Map<Int, Int>, k: Int, v: Int)
+  ensures { get(put(m, k, v), k) == v }
+  ensures { contains_key(put(m, k, v), k) }
+}
+    "#;
+    let results = verify_source(src);
+    let ensures: Vec<_> = results
+        .iter()
+        .filter(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. } => clause_desc.contains("ensures"),
+            _ => false,
+        })
+        .collect();
+    assert!(ensures.len() >= 2, "expected 2 ensures, got {ensures:?}");
+    for r in &ensures {
+        assert!(
+            matches!(r, VerificationResult::Verified { .. }),
+            "put get/contains_key should verify, got: {r:?}"
+        );
+    }
+}
+
+// -----------------------------------------------------------------------
 // min/max: ite encoding (not unconstrained UF)
 // -----------------------------------------------------------------------
 

@@ -1125,6 +1125,234 @@ mod native_tests {
         }
         assert_no_cex("min_max_bounds", &results);
     }
+
+    // -----------------------------------------------------------------------
+    // encode_call wave 2: predicates + array/map (Z3 #364 follow-on)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_cvc5_contains_implies_length_ge_needle() {
+        // requires { contains(s, sub) } && { len(sub) == 3 }
+        // ensures  { len(s) >= 3 }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                call_expr("contains", vec![ident_expr("s"), ident_expr("sub")]),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("sub")]),
+                    lit_int("3"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Gte,
+                    call_expr("len", vec![ident_expr("s")]),
+                    lit_int("3"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5ContainsLen", &clauses);
+        assert_ensures_verified("contains length axiom", &results);
+    }
+
+    #[test]
+    fn test_cvc5_starts_with_implies_length_ge_prefix() {
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                call_expr("starts_with", vec![ident_expr("s"), ident_expr("pre")]),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("pre")]),
+                    lit_int("2"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Gte,
+                    call_expr("len", vec![ident_expr("s")]),
+                    lit_int("2"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5StartsWithLen", &clauses);
+        assert_ensures_verified("starts_with length axiom", &results);
+    }
+
+    #[test]
+    fn test_cvc5_ends_with_empty_affix_always_true() {
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("aff")]),
+                    lit_int("0"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                call_expr("ends_with", vec![ident_expr("s"), ident_expr("aff")]),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5EndsWithEmpty", &clauses);
+        assert_ensures_verified("empty affix ends_with", &results);
+    }
+
+    #[test]
+    fn test_cvc5_contains_key_implies_size_ge_one() {
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                call_expr("contains_key", vec![ident_expr("m"), ident_expr("k")]),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Gte,
+                    call_expr("size", vec![ident_expr("m")]),
+                    lit_int("1"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5ContainsKeySize", &clauses);
+        assert_ensures_verified("contains_key => size>=1", &results);
+    }
+
+    #[test]
+    fn test_cvc5_get_set_read_over_write() {
+        // ensures { get(set(arr, i, v), i) == v }
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Gte, ident_expr("i"), lit_int("0")),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr(
+                        "get",
+                        vec![
+                            call_expr(
+                                "set",
+                                vec![ident_expr("arr"), ident_expr("i"), ident_expr("v")],
+                            ),
+                            ident_expr("i"),
+                        ],
+                    ),
+                    ident_expr("v"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5GetSetRow", &clauses);
+        assert_ensures_verified("get/set read-over-write", &results);
+    }
+
+    #[test]
+    fn test_cvc5_set_preserves_length() {
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr("len", vec![ident_expr("arr")]),
+                    ident_expr("n"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Gte, ident_expr("n"), lit_int("0")),
+            ),
+            make_clause(
+                ClauseKind::Requires,
+                binop_expr(BinOp::Gte, ident_expr("i"), lit_int("0")),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr(
+                        "len",
+                        vec![call_expr(
+                            "set",
+                            vec![ident_expr("arr"), ident_expr("i"), ident_expr("v")],
+                        )],
+                    ),
+                    ident_expr("n"),
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5SetLen", &clauses);
+        assert_ensures_verified("set preserves length", &results);
+    }
+
+    #[test]
+    fn test_cvc5_put_read_over_write_and_contains_key() {
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Ensures,
+                binop_expr(
+                    BinOp::Eq,
+                    call_expr(
+                        "get",
+                        vec![
+                            call_expr(
+                                "put",
+                                vec![ident_expr("m"), ident_expr("k"), ident_expr("v")],
+                            ),
+                            ident_expr("k"),
+                        ],
+                    ),
+                    ident_expr("v"),
+                ),
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                call_expr(
+                    "contains_key",
+                    vec![
+                        call_expr(
+                            "put",
+                            vec![ident_expr("m"), ident_expr("k"), ident_expr("v")],
+                        ),
+                        ident_expr("k"),
+                    ],
+                ),
+            ),
+        ];
+        let results = verify_contract_cvc5("Cvc5PutGet", &clauses);
+        let ensures: Vec<_> = results
+            .iter()
+            .filter(|r| match r {
+                VerificationResult::Verified { clause_desc, .. }
+                | VerificationResult::Counterexample { clause_desc, .. }
+                | VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("Ensures") || clause_desc.contains("ensures")
+                }
+                _ => false,
+            })
+            .collect();
+        assert!(
+            ensures.len() >= 2,
+            "expected 2 ensures, got {ensures:?} (all: {results:?})"
+        );
+        for r in &ensures {
+            assert!(
+                matches!(r, VerificationResult::Verified { .. }),
+                "put get/contains_key should verify, got: {r:?}"
+            );
+        }
+    }
 }
 
 #[cfg(feature = "cvc5-verify")]

@@ -129,6 +129,84 @@ fn encode_is_empty_cvc5<'a>(
     b
 }
 
+/// `contains(hay, needle) => len(hay) >= len(needle)` (contiguous substring; sound).
+#[cfg(feature = "cvc5-verify")]
+fn encode_contains_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    args: &[cvc5::Term<'a>],
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    let b = apply_int_uf_cvc5(tm, state, "contains", args, true);
+    let hay_len = collection_len_of_cvc5(tm, state, &args[0], "len");
+    let needle_len = collection_len_of_cvc5(tm, state, &args[1], "len");
+    let zero = tm.mk_integer(0);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[hay_len.clone(), zero.clone()]));
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[needle_len.clone(), zero]));
+    let ge = tm.mk_term(cvc5::Kind::Geq, &[hay_len, needle_len]);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Implies, &[b.clone(), ge]));
+    b
+}
+
+/// `starts_with` / `ends_with`: affix length bounds + empty affix always true.
+#[cfg(feature = "cvc5-verify")]
+fn encode_affix_pred_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    name: &str,
+    args: &[cvc5::Term<'a>],
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    let b = apply_int_uf_cvc5(tm, state, name, args, true);
+    let s_len = collection_len_of_cvc5(tm, state, &args[0], "len");
+    let aff_len = collection_len_of_cvc5(tm, state, &args[1], "len");
+    let zero = tm.mk_integer(0);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[s_len.clone(), zero.clone()]));
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[aff_len.clone(), zero.clone()]));
+    let ge = tm.mk_term(cvc5::Kind::Geq, &[s_len, aff_len.clone()]);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Implies, &[b.clone(), ge]));
+    let aff_is_zero = tm.mk_term(cvc5::Kind::Equal, &[aff_len, zero]);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Implies, &[aff_is_zero, b.clone()]));
+    b
+}
+
+/// `contains_key(m, k) => size(m) >= 1` with size/len unification on the map.
+#[cfg(feature = "cvc5-verify")]
+fn encode_contains_key_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    args: &[cvc5::Term<'a>],
+    state: &mut Cvc5EncoderState<'a>,
+) -> cvc5::Term<'a> {
+    let b = apply_int_uf_cvc5(tm, state, "contains_key", args, true);
+    let map_size = collection_len_of_cvc5(tm, state, &args[0], "size");
+    let map_len = collection_len_of_cvc5(tm, state, &args[0], "len");
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Equal, &[map_size.clone(), map_len]));
+    let zero = tm.mk_integer(0);
+    let one = tm.mk_integer(1);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Geq, &[map_size.clone(), zero]));
+    let ge_one = tm.mk_term(cvc5::Kind::Geq, &[map_size, one]);
+    state
+        .axioms
+        .push(tm.mk_term(cvc5::Kind::Implies, &[b.clone(), ge_one]));
+    b
+}
+
 /// Length-preserving view/copy (`clone`, `reverse`, etc.).
 #[cfg(feature = "cvc5-verify")]
 fn encode_len_preserving_cvc5<'a>(
@@ -386,17 +464,38 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             Some(result)
         }
         KnownBuiltin::First => Some(fresh_int_cvc5(tm, state)),
+        KnownBuiltin::Get => {
+            let coll = &args[0];
+            let key = &args[1];
+            let get_func = intern_uf_cvc5(tm, state, "get", 2, false);
+            let via_get = tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, coll.clone(), key.clone()]);
+            let idx_func = intern_uf_cvc5(tm, state, "__index", 2, false);
+            let via_idx = tm.mk_term(cvc5::Kind::ApplyUf, &[idx_func, coll.clone(), key.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[via_get.clone(), via_idx]));
+            Some(via_get)
+        }
         KnownBuiltin::Set => {
             let arr = &args[0];
             let i = &args[1];
             let v = &args[2];
             let result = fresh_int_cvc5(tm, state);
+            let zero = tm.mk_integer(0);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[i.clone(), zero]));
             let get_func = intern_uf_cvc5(tm, state, "get", 2, false);
             let get_result_i =
                 tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), i.clone()]);
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_i, v.clone()]));
+            let idx_func = intern_uf_cvc5(tm, state, "__index", 2, false);
+            let via_idx = tm.mk_term(cvc5::Kind::ApplyUf, &[idx_func, result.clone(), i.clone()]);
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[via_idx, v.clone()]));
             // Preserve length (link via both len and __field_len).
             let old_len = collection_len_of_cvc5(tm, state, arr, "len");
             assert_collection_len_eq_cvc5(tm, state, &result, &old_len, "len");
@@ -413,16 +512,37 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_k, v.clone()]));
+            // contains_key(put(m,k,v), k) always holds.
+            let ck = apply_int_uf_cvc5(
+                tm,
+                state,
+                "contains_key",
+                &[result.clone(), k.clone()],
+                true,
+            );
+            state.axioms.push(ck);
             let size_func = intern_uf_cvc5(tm, state, "size", 1, false);
             let size_result = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func.clone(), result.clone()]);
             let size_map = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func, map.clone()]);
+            let old_len = collection_len_of_cvc5(tm, state, map, "len");
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[size_map.clone(), old_len]));
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), size_map]));
             let zero = tm.mk_integer(0);
+            let one = tm.mk_integer(1);
             state
                 .axioms
-                .push(tm.mk_term(cvc5::Kind::Geq, &[size_result, zero]));
+                .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), zero]));
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), one]));
+            let new_len = collection_len_of_cvc5(tm, state, &result, "len");
+            state
+                .axioms
+                .push(tm.mk_term(cvc5::Kind::Equal, &[new_len, size_result]));
             Some(result)
         }
     }
@@ -438,6 +558,15 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
     // is_empty(x) <=> len(x) == 0 (before generic bool-UF fallthrough).
     if f_name == "is_empty" && encoded_args.len() == 1 {
         return Some(encode_is_empty_cvc5(tm, &encoded_args[0], state));
+    }
+    if f_name == "contains" && encoded_args.len() == 2 {
+        return Some(encode_contains_cvc5(tm, encoded_args, state));
+    }
+    if matches!(f_name, "starts_with" | "ends_with") && encoded_args.len() == 2 {
+        return Some(encode_affix_pred_cvc5(tm, f_name, encoded_args, state));
+    }
+    if f_name == "contains_key" && encoded_args.len() == 2 {
+        return Some(encode_contains_key_cvc5(tm, encoded_args, state));
     }
     if is_bool_returning_uf(f_name) {
         return Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, true));
