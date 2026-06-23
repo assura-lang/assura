@@ -3,7 +3,7 @@
 //! Walks clause bodies (requires, ensures, invariant, etc.) and checks
 //! that `Expr::Ident` references resolve to a known name in scope.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem, SourceFile, SpExpr, Span};
+use assura_parser::ast::{ClauseKind, Expr, ServiceItem, SourceFile, SpExpr, Span};
 
 use crate::BUILTIN_VALUE_NAMES;
 use crate::errors::ResolutionError;
@@ -30,144 +30,146 @@ pub(crate) fn resolve_clause_body_names(
 ) {
     let lenient = should_be_lenient(source, imports);
 
-    for decl in &source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                let scope = find_scope_for(table, &c.name, module_scope).unwrap_or(module_scope);
-                for clause in &c.clauses {
-                    if is_body_clause(&clause.kind) {
-                        check_expr_idents(
-                            &clause.body,
-                            table,
-                            scope,
-                            &decl.span,
-                            lenient,
-                            &mut Vec::new(),
-                            errors,
-                        );
-                    }
+    use assura_parser::ast::{
+        BindDecl, BlockKind, Clause, ContractDecl, DeclVisitor, ExternDecl, FnDef, ServiceDecl,
+    };
+
+    struct ClauseBodyNames<'a> {
+        table: &'a SymbolTable,
+        imports_lenient: bool,
+        module_scope: usize,
+        errors: &'a mut Vec<ResolutionError>,
+        decl_span: assura_parser::ast::Span,
+    }
+
+    impl ClauseBodyNames<'_> {
+        fn check_clauses(
+            &mut self,
+            scope_name: &str,
+            clauses: &[assura_parser::ast::Clause],
+            span: &Span,
+        ) {
+            let scope = find_scope_for(self.table, scope_name, self.module_scope)
+                .unwrap_or(self.module_scope);
+            for clause in clauses {
+                if is_body_clause(&clause.kind) {
+                    check_expr_idents(
+                        &clause.body,
+                        self.table,
+                        scope,
+                        span,
+                        self.imports_lenient,
+                        &mut Vec::new(),
+                        self.errors,
+                    );
                 }
             }
-            Decl::FnDef(f) => {
-                let scope = find_scope_for(table, &f.name, module_scope).unwrap_or(module_scope);
-                for clause in &f.clauses {
-                    if is_body_clause(&clause.kind) {
-                        check_expr_idents(
-                            &clause.body,
-                            table,
-                            scope,
-                            &decl.span,
-                            lenient,
-                            &mut Vec::new(),
-                            errors,
-                        );
-                    }
-                }
-            }
-            Decl::Extern(ex) => {
-                let scope = find_scope_for(table, &ex.name, module_scope).unwrap_or(module_scope);
-                for clause in &ex.clauses {
-                    if is_body_clause(&clause.kind) {
-                        check_expr_idents(
-                            &clause.body,
-                            table,
-                            scope,
-                            &decl.span,
-                            lenient,
-                            &mut Vec::new(),
-                            errors,
-                        );
-                    }
-                }
-            }
-            Decl::Bind(b) => {
-                let scope = find_scope_for(table, &b.name, module_scope).unwrap_or(module_scope);
-                for clause in &b.clauses {
-                    if is_body_clause(&clause.kind) {
-                        check_expr_idents(
-                            &clause.body,
-                            table,
-                            scope,
-                            &decl.span,
-                            lenient,
-                            &mut Vec::new(),
-                            errors,
-                        );
-                    }
-                }
-            }
-            Decl::Service(s) => {
-                let svc_scope =
-                    find_scope_for(table, &s.name, module_scope).unwrap_or(module_scope);
-                for item in &s.items {
-                    match item {
-                        ServiceItem::Operation { name, clauses, .. }
-                        | ServiceItem::Query { name, clauses, .. } => {
-                            let op_scope =
-                                find_scope_for(table, name, svc_scope).unwrap_or(svc_scope);
-                            for clause in clauses {
-                                if is_body_clause(&clause.kind) {
-                                    check_expr_idents(
-                                        &clause.body,
-                                        table,
-                                        op_scope,
-                                        &Span::default(),
-                                        lenient,
-                                        &mut Vec::new(),
-                                        errors,
-                                    );
-                                }
+        }
+    }
+
+    impl DeclVisitor for ClauseBodyNames<'_> {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            let span = self.decl_span.clone();
+            self.check_clauses(&c.name, &c.clauses, &span);
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            let span = self.decl_span.clone();
+            self.check_clauses(&f.name, &f.clauses, &span);
+        }
+        fn visit_extern(&mut self, ex: &ExternDecl) {
+            let span = self.decl_span.clone();
+            self.check_clauses(&ex.name, &ex.clauses, &span);
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            let span = self.decl_span.clone();
+            self.check_clauses(&b.name, &b.clauses, &span);
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            let svc_scope =
+                find_scope_for(self.table, &s.name, self.module_scope).unwrap_or(self.module_scope);
+            for item in &s.items {
+                match item {
+                    ServiceItem::Operation { name, clauses, .. }
+                    | ServiceItem::Query { name, clauses, .. } => {
+                        let op_scope =
+                            find_scope_for(self.table, name, svc_scope).unwrap_or(svc_scope);
+                        for clause in clauses {
+                            if is_body_clause(&clause.kind) {
+                                check_expr_idents(
+                                    &clause.body,
+                                    self.table,
+                                    op_scope,
+                                    &Span::default(),
+                                    self.imports_lenient,
+                                    &mut Vec::new(),
+                                    self.errors,
+                                );
                             }
                         }
-                        ServiceItem::Invariant(expr) => {
-                            check_expr_idents(
-                                expr,
-                                table,
-                                svc_scope,
-                                &Span::default(),
-                                lenient,
-                                &mut Vec::new(),
-                                errors,
-                            );
-                        }
-                        ServiceItem::Other { body, .. } => {
-                            check_expr_idents(
-                                body,
-                                table,
-                                svc_scope,
-                                &Span::default(),
-                                lenient,
-                                &mut Vec::new(),
-                                errors,
-                            );
-                        }
-                        // TypeDef, EnumDef, and States don't contain
-                        // expressions that need ident checking.
-                        ServiceItem::TypeDef(_)
-                        | ServiceItem::EnumDef(_)
-                        | ServiceItem::States(_) => {}
                     }
-                }
-            }
-            Decl::Block { body, .. } => {
-                for clause in body {
-                    if is_body_clause(&clause.kind) {
+                    ServiceItem::Invariant(expr) => {
                         check_expr_idents(
-                            &clause.body,
-                            table,
-                            module_scope,
-                            &decl.span,
-                            lenient,
+                            expr,
+                            self.table,
+                            svc_scope,
+                            &Span::default(),
+                            self.imports_lenient,
                             &mut Vec::new(),
-                            errors,
+                            self.errors,
                         );
                     }
+                    ServiceItem::Other { body, .. } => {
+                        check_expr_idents(
+                            body,
+                            self.table,
+                            svc_scope,
+                            &Span::default(),
+                            self.imports_lenient,
+                            &mut Vec::new(),
+                            self.errors,
+                        );
+                    }
+                    ServiceItem::TypeDef(_)
+                    | ServiceItem::EnumDef(_)
+                    | ServiceItem::States(_) => {}
                 }
             }
-            // TypeDef, EnumDef, Prophecy, and CodecRegistry don't contain expressions
-            // (codec registry contracts are checked separately).
-            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
         }
+        fn visit_block(
+            &mut self,
+            _kind: &BlockKind,
+            _name: &str,
+            _value: &Option<Vec<String>>,
+            body: &[Clause],
+        ) {
+            let span = self.decl_span.clone();
+            for clause in body {
+                if is_body_clause(&clause.kind) {
+                    check_expr_idents(
+                        &clause.body,
+                        self.table,
+                        self.module_scope,
+                        &span,
+                        self.imports_lenient,
+                        &mut Vec::new(),
+                        self.errors,
+                    );
+                }
+            }
+        }
+        // TypeDef, EnumDef, Prophecy, CodecRegistry: default no-op (no clause exprs here)
+    }
+
+    // walk_decls does not pass spans; walk manually to keep decl.span accuracy.
+    for decl in &source.decls {
+        let mut visitor = ClauseBodyNames {
+            table,
+            imports_lenient: lenient,
+            module_scope,
+            errors,
+            decl_span: decl.span.clone(),
+        };
+        visitor.visit_decl(&decl.node);
     }
 }
 

@@ -36,6 +36,13 @@ Do not improvise a parallel pipeline. Follow the branch that matches your task.
 | Comparing indeterminate types | `ty.is_indeterminate()` | `ty == Type::Unknown` (misses `Type::Error`) |
 | Classifying SMT `Unknown` | `assura_smt::is_known_smt_limitation(reason)` | Open-code `"not yet encoded in SMT"` with different wording outside `assura-smt` |
 | Unsure which types layer to edit | Read `crates/assura-types/src/CHECKER-LAYERS.md` (`domain/` / `checkers/` / `checks/` / `pipeline.rs`) | Put feature logic only in `checks/` wiring |
+| See error code `Axxxxx` | Open [`docs/error-codes-agent.md`](docs/error-codes-agent.md) (phase + primary crate); then `rg 'A0xxxx' crates` | Edit SMT backend for an `A03` type error (wrong phase) |
+
+### Error codes (agent index)
+
+**Quick lookup:** [`docs/error-codes-agent.md`](docs/error-codes-agent.md) maps `Axxxxx` → compiler phase, primary crate, and start-here paths (SPEC §7.2 plus high-traffic impl codes like `A05100`).
+
+Full meanings: `docs/SPECIFICATION.md` §7.2 / Appendix D. Do not fix an `A02` in `assura-smt` or an `A01` in `assura-types` unless the index explicitly says cross-phase.
 
 ### `assura-types` layer map (summary)
 
@@ -126,6 +133,7 @@ then `cargo build` and fix every non-exhaustive match. Full checklist is in
 ### Spec and tasks
 
 - Language source of truth: `docs/SPECIFICATION.md` (grep; do not read all 11k lines).
+- Error codes (agent-sized): [`docs/error-codes-agent.md`](docs/error-codes-agent.md).
 - Actionable work: `MASTER-PLAN.md` (acceptance tests are mandatory, not optional).
 - Coverage of 50 verification features: `bash scripts/verify-task.sh SEC.1` (example).
 

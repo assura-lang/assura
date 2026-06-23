@@ -2,7 +2,11 @@
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{Decl, Expr, FnDef, ServiceItem, SourceFile, SpExpr, TypeBody, TypeExpr};
+use assura_parser::ast::{
+    BindDecl, BlockKind, Clause, CodecRegistryDecl, ContractDecl, DeclVisitor, EnumDef, Expr,
+    ExternDecl, FnDef, ProphecyDecl, ServiceDecl, ServiceItem, SourceFile, SpExpr, TypeBody,
+    TypeDef, TypeExpr, walk_decls,
+};
 
 use crate::errors::ResolutionError;
 use crate::imports::{ImportStatus, ResolvedImport};
@@ -10,94 +14,105 @@ use crate::type_refs::TYPE_SYNTAX_TOKENS;
 
 /// Collect all identifier-like names referenced in the AST. This includes
 /// type annotations, expression identifiers, and field/param type tokens.
+///
+/// Uses [`DeclVisitor`] so new `Decl` variants only need a `visit_*` arm here
+/// (and in `walk_decl`), not another open-coded match in this pass.
 pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
-    let mut names = HashSet::new();
-    for decl in &source.decls {
-        match &decl.node {
-            Decl::TypeDef(t) => {
-                collect_type_body_names(&t.body, &mut names);
+    struct CollectNames<'a> {
+        names: &'a mut HashSet<String>,
+    }
+
+    impl DeclVisitor for CollectNames<'_> {
+        fn visit_type_def(&mut self, t: &TypeDef) {
+            collect_type_body_names(&t.body, self.names);
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            collect_fn_names(f, self.names);
+        }
+        fn visit_extern(&mut self, ex: &ExternDecl) {
+            for p in &ex.params {
+                collect_type_expr_names(p.ty.as_ref(), self.names);
             }
-            Decl::FnDef(f) => {
-                collect_fn_names(f, &mut names);
+            collect_type_expr_names(ex.return_ty.as_ref(), self.names);
+            for clause in &ex.clauses {
+                collect_expr_names(&clause.body, self.names);
             }
-            Decl::Extern(ex) => {
-                for p in &ex.params {
-                    collect_type_expr_names(p.ty.as_ref(), &mut names);
-                }
-                collect_type_expr_names(ex.return_ty.as_ref(), &mut names);
-                for clause in &ex.clauses {
-                    collect_expr_names(&clause.body, &mut names);
-                }
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            for p in &b.params {
+                collect_type_expr_names(p.ty.as_ref(), self.names);
             }
-            Decl::Bind(b) => {
-                for p in &b.params {
-                    collect_type_expr_names(p.ty.as_ref(), &mut names);
-                }
-                collect_type_expr_names(b.return_ty.as_ref(), &mut names);
-                for clause in &b.clauses {
-                    collect_expr_names(&clause.body, &mut names);
-                }
+            collect_type_expr_names(b.return_ty.as_ref(), self.names);
+            for clause in &b.clauses {
+                collect_expr_names(&clause.body, self.names);
             }
-            Decl::Contract(c) => {
-                for clause in &c.clauses {
-                    collect_expr_names(&clause.body, &mut names);
-                }
+        }
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            for clause in &c.clauses {
+                collect_expr_names(&clause.body, self.names);
             }
-            Decl::Service(s) => {
-                for item in &s.items {
-                    match item {
-                        ServiceItem::TypeDef(t) => collect_type_body_names(&t.body, &mut names),
-                        ServiceItem::EnumDef(e) => {
-                            for v in &e.variants {
-                                for f in &v.fields {
-                                    names.insert(f.clone());
-                                }
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            for item in &s.items {
+                match item {
+                    ServiceItem::TypeDef(t) => collect_type_body_names(&t.body, self.names),
+                    ServiceItem::EnumDef(e) => {
+                        for v in &e.variants {
+                            for f in &v.fields {
+                                self.names.insert(f.clone());
                             }
                         }
-                        ServiceItem::Operation { clauses, .. }
-                        | ServiceItem::Query { clauses, .. } => {
-                            for clause in clauses {
-                                collect_expr_names(&clause.body, &mut names);
-                            }
+                    }
+                    ServiceItem::Operation { clauses, .. }
+                    | ServiceItem::Query { clauses, .. } => {
+                        for clause in clauses {
+                            collect_expr_names(&clause.body, self.names);
                         }
-                        ServiceItem::Invariant(expr) => collect_expr_names(expr, &mut names),
-                        ServiceItem::Other { body, .. } => collect_expr_names(body, &mut names),
-                        // States don't contribute expression names.
-                        ServiceItem::States(_) => {}
                     }
-                }
-            }
-            Decl::EnumDef(e) => {
-                for v in &e.variants {
-                    for f in &v.fields {
-                        names.insert(f.clone());
-                    }
-                }
-            }
-            Decl::Prophecy(p) => {
-                // Prophecy type may reference user-defined types
-                collect_type_expr_names(p.ty.as_ref(), &mut names);
-            }
-            Decl::CodecRegistry(cr) => {
-                // Output type tokens may reference user-defined types
-                for tok in &cr.output_type {
-                    if tok.chars().next().is_some_and(|c| c.is_uppercase()) {
-                        names.insert(tok.clone());
-                    }
-                }
-                for codec in &cr.codecs {
-                    for clause in &codec.contracts {
-                        collect_expr_names(&clause.body, &mut names);
-                    }
-                }
-            }
-            Decl::Block { body, .. } => {
-                for clause in body {
-                    collect_expr_names(&clause.body, &mut names);
+                    ServiceItem::Invariant(expr) => collect_expr_names(expr, self.names),
+                    ServiceItem::Other { body, .. } => collect_expr_names(body, self.names),
+                    ServiceItem::States(_) => {}
                 }
             }
         }
+        fn visit_enum_def(&mut self, e: &EnumDef) {
+            for v in &e.variants {
+                for f in &v.fields {
+                    self.names.insert(f.clone());
+                }
+            }
+        }
+        fn visit_prophecy(&mut self, p: &ProphecyDecl) {
+            collect_type_expr_names(p.ty.as_ref(), self.names);
+        }
+        fn visit_codec_registry(&mut self, cr: &CodecRegistryDecl) {
+            for tok in &cr.output_type {
+                if tok.chars().next().is_some_and(|c| c.is_uppercase()) {
+                    self.names.insert(tok.clone());
+                }
+            }
+            for codec in &cr.codecs {
+                for clause in &codec.contracts {
+                    collect_expr_names(&clause.body, self.names);
+                }
+            }
+        }
+        fn visit_block(
+            &mut self,
+            _kind: &BlockKind,
+            _name: &str,
+            _value: &Option<Vec<String>>,
+            body: &[Clause],
+        ) {
+            for clause in body {
+                collect_expr_names(&clause.body, self.names);
+            }
+        }
     }
+
+    let mut names = HashSet::new();
+    let mut visitor = CollectNames { names: &mut names };
+    walk_decls(&mut visitor, &source.decls);
     names
 }
 
