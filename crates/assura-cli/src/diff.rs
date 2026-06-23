@@ -524,6 +524,7 @@ contract Typed {
         ];
 
         let mut tested = 0;
+        let mut blocked_paths: Vec<String> = Vec::new();
         for dir in &dirs {
             if !dir.exists() {
                 continue;
@@ -549,11 +550,13 @@ contract Typed {
                     continue; // No annotation, skip
                 };
 
-                // Skip BLOCKED fixtures (known wiring gaps)
+                // Skip BLOCKED fixtures (known wiring gaps). Track paths so
+                // silent debt cannot accumulate without failing the harness (#349).
                 let is_blocked = source
                     .lines()
                     .any(|line| line.trim().starts_with("// BLOCKED:"));
                 if is_blocked {
+                    blocked_paths.push(path.display().to_string());
                     continue;
                 }
 
@@ -613,6 +616,24 @@ contract Typed {
                 tested += 1;
             }
         }
+        if !blocked_paths.is_empty() {
+            eprintln!(
+                "test_must_reject_fixtures: skipped {} BLOCKED fixture(s): {}",
+                blocked_paths.len(),
+                blocked_paths.join(", ")
+            );
+        }
+        // Zero is the healthy default; any BLOCKED fixture must have a tracking
+        // GitHub issue referenced in the `// BLOCKED:` line. Raising this limit
+        // is allowed only when adding a justified temporary gap (prefer fixing).
+        const MAX_BLOCKED_MUST_REJECT: usize = 0;
+        assert!(
+            blocked_paths.len() <= MAX_BLOCKED_MUST_REJECT,
+            "must_reject has {} BLOCKED fixture(s) (max allowed {MAX_BLOCKED_MUST_REJECT}). \
+             Fix the wiring or add a tracking issue and temporarily raise MAX_BLOCKED_MUST_REJECT. \
+             Blocked: {blocked_paths:?}",
+            blocked_paths.len()
+        );
         assert!(
             tested >= 86,
             "expected at least 86 MUST REJECT fixtures, found {tested}"
