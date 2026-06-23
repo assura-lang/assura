@@ -647,8 +647,8 @@ fn fs_cache_put_and_get() {
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
-    cache.put("test", &clauses, &results);
-    let cached = cache.get("test", &clauses);
+    cache.put("test", &clauses, None, &results);
+    let cached = cache.get("test", &clauses, None);
     assert!(cached.is_some());
     assert_eq!(cached.unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
@@ -670,8 +670,8 @@ fn fs_cache_miss_on_different_clauses() {
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
-    cache.put("test", &clauses_a, &results);
-    assert!(cache.get("test", &clauses_b).is_none());
+    cache.put("test", &clauses_a, None, &results);
+    assert!(cache.get("test", &clauses_b, None).is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -686,7 +686,7 @@ fn fs_cache_clear() {
         effect_variables: vec![],
     }];
     let results = vec![VerificationResult::verified("test.ensures")];
-    cache.put("test", &clauses, &results);
+    cache.put("test", &clauses, None, &results);
     assert_eq!(cache.entry_count(), 1);
     cache.clear();
     assert_eq!(cache.entry_count(), 0);
@@ -704,8 +704,8 @@ fn fs_cache_entry_count() {
         body: assura_ast::Spanned::no_span(assura_ast::Expr::Ident("result".into())),
         effect_variables: vec![],
     }];
-    cache.put("alpha", &clauses, &[]);
-    cache.put("beta", &clauses, &[]);
+    cache.put("alpha", &clauses, None, &[]);
+    cache.put("beta", &clauses, None, &[]);
     assert_eq!(cache.entry_count(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -1,3 +1,5 @@
+// Documentation mirror only — `assura check` loads `IncOne.ir` / `generated/IncOne.ir`.
+// Keep in sync with those files.
 module inc {
   fn #0 : ($0: Int) -> Int ! pure
   {

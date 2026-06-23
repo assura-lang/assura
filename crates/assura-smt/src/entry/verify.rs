@@ -265,8 +265,14 @@ pub(crate) fn verify_parallel_with_solver(
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
         .par_iter()
         .map(|(name, clauses, params, return_ty)| {
-            // Check cache first
-            if let Some(cached) = cache.get(name, clauses) {
+            let ir_fp_owned = extras
+                .and_then(|e| e.ir_bodies)
+                .and_then(|m| m.get(name.as_str()))
+                .map(|f| format!("{f:?}"));
+            let ir_fp = ir_fp_owned.as_deref();
+            // Check cache first (IR fingerprint prevents stale hits when only
+            // the `.ir` sidecar changed, not the contract clauses).
+            if let Some(cached) = cache.get(name, clauses, ir_fp) {
                 return cached;
             }
             let ctx = ContractVerifyContext {
@@ -282,7 +288,7 @@ pub(crate) fn verify_parallel_with_solver(
                 ),
             };
             let results = verify_contract_with_types_and_solver(&ctx, solver);
-            cache.put(name, clauses, &results);
+            cache.put(name, clauses, ir_fp, &results);
             results
         })
         .collect();

@@ -1,0 +1,10 @@
+// Implementation IR for `IncOne` in `ir-inc.assura` (also mirrored in `ir-inc.ir`).
+// $result = $0 + 1 so `ensures { result == x + 1 }` verifies via havoc+assume.
+module inc {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = const 1 : Int
+    $2 = arith add $0 $1 : Int
+    $result = load $2 : Int
+  }
+}

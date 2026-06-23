@@ -1,7 +1,7 @@
 // Demo: arithmetic IR body constrains result (Tier A1, vertical IR).
 //
-// Sibling `ir-inc.ir` implements $result = $0 + 1 so
-// `ensures { result == x + 1 }` verifies via havoc+assume.
+// Loader resolves `IncOne.ir` (this dir or `generated/`), not `ir-inc.ir`.
+// `IncOne.ir` implements $result = $0 + 1 so ensures verifies via havoc+assume.
 
 module demo.ir_inc;
 
