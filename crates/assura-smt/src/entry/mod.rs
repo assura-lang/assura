@@ -24,6 +24,7 @@ mod tests;
 // Submodules use `super::foo` / `super::helpers::` internally; do not add
 // re-exports here unless another file outside `entry/` needs them.
 // `verify_parallel_with_solver` lives at `entry::verify::` (module is pub(crate)).
+#[cfg(feature = "z3-verify")]
 pub(crate) use advanced_passes::run_advanced_passes;
 pub use evolution::{EvolutionResult, verify_evolution, verify_file_evolution};
 pub use helpers::VerifyFileExtras;

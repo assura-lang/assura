@@ -9,9 +9,9 @@ use crate::measures::MeasureDefinition;
 use crate::result::VerificationResult;
 use crate::verify_context::ContractVerifyContext;
 
-use super::advanced_passes::{
-    merge_portfolio_results, verify_file_with_cvc5, verify_portfolio_parallel,
-};
+#[cfg(feature = "z3-verify")]
+use super::advanced_passes::{merge_portfolio_results, verify_portfolio_parallel};
+use super::advanced_passes::verify_file_with_cvc5;
 use super::helpers::{VerifyFileExtras, build_verify_extras};
 use super::jobs::collect_verification_jobs;
 
