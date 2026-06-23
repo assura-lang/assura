@@ -45,7 +45,10 @@ pub use measures::{
 
 /// Verification result types: `VerificationResult` and `CounterexampleModel`.
 pub mod result;
-pub use result::{CounterexampleModel, VerificationResult, VerificationSummary};
+pub use result::{
+    CounterexampleModel, KNOWN_SMT_LIMITATION_MARKER, VerificationResult, VerificationSummary,
+    is_known_smt_limitation,
+};
 
 /// Shared IR expression encoding helpers.
 mod ir_encode;

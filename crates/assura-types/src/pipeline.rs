@@ -48,6 +48,11 @@ enum CheckerDispatch {
 }
 
 /// Ordered checker registry (order matches original `run_all_checks` wiring).
+///
+/// **Agent rule:** every new `run_*_checks` in `checks/` must appear here in
+/// the same PR, or it is dead code. `checker_pipeline_has_expected_breadth`
+/// below guards against accidental empty registries. Run
+/// `bash scripts/agent-guards.sh` after adding a checker.
 const CHECKER_PIPELINE: &[CheckerDispatch] = &[
     CheckerDispatch::Symbols(run_axiomatic_checks),
     CheckerDispatch::Source(run_liveness_checks),
@@ -108,6 +113,12 @@ const CHECKER_PIPELINE: &[CheckerDispatch] = &[
     CheckerDispatch::Source(run_quantifier_trigger_checks),
     CheckerDispatch::Source(run_prophecy_resolution_checks),
 ];
+
+/// Number of entries in [`CHECKER_PIPELINE`] (for tests / agent guards).
+#[cfg(test)]
+pub(crate) fn checker_pipeline_len() -> usize {
+    CHECKER_PIPELINE.len()
+}
 
 fn run_effect_checks_filtered(
     source: &assura_parser::ast::SourceFile,
@@ -434,6 +445,18 @@ mod tests {
         let file = assura_parser::parse_unwrap(src);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         type_check(&resolved)
+    }
+
+    #[test]
+    fn checker_pipeline_has_expected_breadth() {
+        // Guard against accidentally clearing CHECKER_PIPELINE or removing
+        // most checkers without noticing. Update the floor only when
+        // intentionally shrinking the registry.
+        assert!(
+            checker_pipeline_len() >= 50,
+            "CHECKER_PIPELINE has only {} entries; new run_*_checks must be registered here",
+            checker_pipeline_len()
+        );
     }
 
     #[test]

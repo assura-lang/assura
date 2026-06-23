@@ -1,5 +1,92 @@
 # Assura Compiler - Agent Instructions
 
+## LLM / agent: read this first (ergonomics map)
+
+Skim this section before changing compiler code. It encodes the patterns that
+prevent the most common agent mistakes (orphan checkers, hand-rolled verify,
+wrong test helpers, wrong Unknown policy).
+
+### Canonical entry points (do not re-implement)
+
+| Goal | Use this | Not this |
+|------|----------|----------|
+| Parse only | `assura_parser::parse` / `parse_unwrap` | hand-built CST |
+| Full pipeline (no SMT) | `assura_pipeline::compile` | copy-paste resolve+type_check in callers |
+| Full pipeline + SMT + codegen | `assura_pipeline::compile_full` | ad-hoc `Verifier` chains in CLI/LSP/MCP |
+| SMT on already-typed file | `assura_pipeline::verify_typed(&typed, path, &config)` | `Verifier::new(...).parallel().with_decrease_checks()` outside smt/pipeline |
+| Tests (ok / err / codes) | `assura_test_support::*` (`typecheck_ok`, `typecheck_err`, `verify_ok`, `verify_strict_ok`, `expect_error_codes`) | hand-roll parse→resolve→type_check in every test |
+| Walk all decls | `assura_ast::walk_decls` + `DeclVisitor` | copy 20-arm `match Decl` blocks |
+| New type checker | implement `run_*_checks` in `crates/assura-types/src/checks/`, register in `CHECKER_PIPELINE` in `pipeline.rs` | struct + unit tests only (orphan / dead code) |
+| Known SMT limitation? | `assura_smt::is_known_smt_limitation(reason)` or `KNOWN_SMT_LIMITATION_MARKER` | open-code `"not yet encoded in SMT"` with a different string |
+
+### Fast agent commands (prefer over full workspace test)
+
+```bash
+# Static anti-pattern greps (Verifier::new, Type::Unknown ==, pipeline size)
+bash scripts/agent-guards.sh
+
+# fmt + guards + clippy on key crates + one demo
+bash scripts/agent-preflight.sh
+bash scripts/agent-preflight.sh assura-types assura-smt   # subset
+
+# Decl variant touch list (grep sites; then cargo build for non-exhaustive)
+bash scripts/check-decl-variant.sh
+
+# Targeted compile/test (agent tools with short timeouts)
+cargo check -p assura-types --locked
+cargo test -p assura-types --locked --lib
+cargo clippy -p assura-types --lib --locked -- -D warnings
+```
+
+Full `cargo test --workspace --locked` is for session end / pre-push, not every edit.
+
+### Pipeline invariants agents must respect
+
+1. **`CompilationOutput.has_errors`** reflects parse / resolve / type only.
+   SMT counterexamples live in `output.verification` and do **not** set `has_errors`.
+2. **Success checks for verify:**
+   - lenient (tests/MCP): `assura_pipeline::verification_succeeded`
+   - strict (`// MUST VERIFY` style): `assura_pipeline::verification_strict_succeeded`
+3. **`Unknown` with marker** `"not yet encoded in SMT"` is a **warning** in CLI
+   (exit 0), not a hard failure. Do not invent alternate marker strings when
+   emitting `VerificationResult::Unknown`.
+4. **`Type::Error` vs `Type::Unknown`**: always use `ty.is_indeterminate()`,
+   never `ty == Type::Unknown` (misses `Error` and causes cascade false positives).
+5. **`codegen_ok` in assura-codegen tests**: do not call `assura_test_support::codegen_ok`
+   from inside `assura-codegen` (dependency type mismatch). Use `typecheck_ok` then
+   local `codegen(&typed)`.
+6. **New `run_*_checks`**: add to `CHECKER_PIPELINE` in the same PR; breadth test
+   and `agent-guards.sh` will flag a too-small registry.
+
+### Crate map (where to edit)
+
+```
+assura-ast        # Expr, Decl, DeclVisitor, features registry
+assura-parser     # lexer, CST, grammar, lower -> AST
+assura-resolve    # names, scopes
+assura-types      # Layer 0: TypeChecker, checks/*, pipeline.rs CHECKER_PIPELINE
+assura-smt        # Layer 1-3: Verifier, IR, Z3/CVC5 backends, result.rs
+assura-codegen    # Rust source generation
+assura-pipeline   # compile / compile_full / verify_typed (canonical glue)
+assura-config     # CompilerConfig, VerifyOptions (incl. for_tests())
+assura-test-support  # test helpers only (dev-dep from other crates)
+assura-cli / lsp / server / mcp  # frontends; must call pipeline, not re-chain passes
+```
+
+### Adding a `Decl` variant
+
+High blast radius (17+ match sites). Run `bash scripts/check-decl-variant.sh`,
+then `cargo build` and fix every non-exhaustive match. Full checklist is in
+**Adding a New Decl Variant** below.
+
+### Spec and tasks
+
+- Language source of truth: `docs/SPECIFICATION.md` (grep; do not read all 11k lines).
+- Actionable work: `MASTER-PLAN.md` (acceptance tests are mandatory, not optional).
+- Coverage of 50 verification features: `bash scripts/verify-task.sh SEC.1` (example).
+
+---
+
 ## Grok Filename Bug Workaround
 
 This file is named `AGENTS.md` in git. Grok scans for project rules
@@ -35,7 +122,9 @@ At the start of every session:
 1. **If the session involves code changes**:
    - **Inside an agent tool / Grok CLI** (or any environment with short command timeouts):
      Use fast targeted commands. Never run the full suite if it will time out.
-     Preferred: `cargo check -p <crate> --locked`, `cargo test -p <crate> --locked --lib`.
+     Preferred: `bash scripts/agent-preflight.sh` (or subset), then
+     `cargo check -p <crate> --locked`, `cargo test -p <crate> --locked --lib`.
+     Run `bash scripts/agent-guards.sh` after touching verify/checkers/types.
    - **On a local developer machine**:
      Run `cargo test --workspace --locked` in the background while reading the task.
      Do not block on it; start working and check the result before committing.
@@ -1181,6 +1270,13 @@ counterexamples from unconstrained output variables, and
 constants were treated as unconstrained by the encoder.
 
 ## SMT API Shape
+
+Prefer `assura_pipeline::verify_typed` from outside `assura-smt`. Only construct
+`Verifier` directly inside `assura-smt` or the pipeline crate.
+
+Classify `Unknown` reasons with `assura_smt::is_known_smt_limitation` (marker:
+`KNOWN_SMT_LIMITATION_MARKER` = `"not yet encoded in SMT"`), not ad-hoc string
+checks with different wording.
 
 The `assura_smt::VerificationResult` is an **enum**, not a struct with
 result/kind/name fields:
