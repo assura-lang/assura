@@ -5,7 +5,8 @@
 //! taint safety, measures, termination).
 
 use assura_ast::{
-    BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, Param, ServiceItem, SpExpr, TypeExpr,
+    BinOp, BindDecl, BlockKind, Clause, ClauseKind, ContractDecl, Decl, DeclVisitor, Expr,
+    ExternDecl, FnDef, Param, ServiceDecl, ServiceItem, SpExpr, TypeExpr,
 };
 use assura_types::TypedFile;
 use assura_types::checkers::expr_references_var;
@@ -304,83 +305,95 @@ pub(crate) type VerificationJob = (String, Vec<Clause>, Vec<Param>, Vec<String>)
 ///
 /// Each job is a (name, clauses, params, return_ty) tuple suitable for
 /// passing to either the Z3 or CVC5 backend.
+///
+/// Uses [`DeclVisitor`] so new `Decl` variants only need an arm in `walk_decl`,
+/// not another open-coded match here.
 pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJob> {
-    let mut jobs = Vec::new();
-    for decl in &typed.resolved.source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                let output_ty = extract_output_return_type(&c.clauses);
-                let mut input_params = extract_input_params(&c.clauses);
-                input_params.extend_from_slice(&c.fn_params);
-                jobs.push((c.name.clone(), c.clauses.clone(), input_params, output_ty));
-            }
-            Decl::FnDef(f) => {
-                jobs.push((
-                    f.name.clone(),
-                    f.clauses.clone(),
-                    f.params.clone(),
-                    type_expr_to_token_vec(f.return_ty.as_ref()),
-                ));
-            }
-            Decl::Extern(e) => {
-                jobs.push((
-                    e.name.clone(),
-                    e.clauses.clone(),
-                    e.params.clone(),
-                    type_expr_to_token_vec(e.return_ty.as_ref()),
-                ));
-            }
-            Decl::Service(s) => {
-                for item in &s.items {
-                    match item {
-                        ServiceItem::Operation { name, clauses } => {
-                            jobs.push((
-                                format!("{}.{}", s.name, name),
-                                clauses.clone(),
-                                vec![],
-                                vec![],
-                            ));
-                        }
-                        ServiceItem::Query { name, clauses } => {
-                            jobs.push((
-                                format!("{}.{}", s.name, name),
-                                clauses.clone(),
-                                vec![],
-                                vec![],
-                            ));
-                        }
-                        ServiceItem::Invariant(expr) => {
-                            let inv_clause = Clause {
-                                kind: ClauseKind::Invariant,
-                                body: expr.clone(),
-                                effect_variables: vec![],
-                            };
-                            jobs.push((
-                                format!("{}::invariant", s.name),
-                                vec![inv_clause],
-                                vec![],
-                                vec![],
-                            ));
-                        }
-                        _ => {}
+    struct JobCollector(Vec<VerificationJob>);
+
+    impl DeclVisitor for JobCollector {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            let output_ty = extract_output_return_type(&c.clauses);
+            let mut input_params = extract_input_params(&c.clauses);
+            input_params.extend_from_slice(&c.fn_params);
+            self.0
+                .push((c.name.clone(), c.clauses.clone(), input_params, output_ty));
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            self.0.push((
+                f.name.clone(),
+                f.clauses.clone(),
+                f.params.clone(),
+                type_expr_to_token_vec(f.return_ty.as_ref()),
+            ));
+        }
+        fn visit_extern(&mut self, e: &ExternDecl) {
+            self.0.push((
+                e.name.clone(),
+                e.clauses.clone(),
+                e.params.clone(),
+                type_expr_to_token_vec(e.return_ty.as_ref()),
+            ));
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            for item in &s.items {
+                match item {
+                    ServiceItem::Operation { name, clauses } => {
+                        self.0.push((
+                            format!("{}.{}", s.name, name),
+                            clauses.clone(),
+                            vec![],
+                            vec![],
+                        ));
                     }
+                    ServiceItem::Query { name, clauses } => {
+                        self.0.push((
+                            format!("{}.{}", s.name, name),
+                            clauses.clone(),
+                            vec![],
+                            vec![],
+                        ));
+                    }
+                    ServiceItem::Invariant(expr) => {
+                        let inv_clause = Clause {
+                            kind: ClauseKind::Invariant,
+                            body: expr.clone(),
+                            effect_variables: vec![],
+                        };
+                        self.0.push((
+                            format!("{}::invariant", s.name),
+                            vec![inv_clause],
+                            vec![],
+                            vec![],
+                        ));
+                    }
+                    _ => {}
                 }
             }
-            Decl::Block { name, body, .. } => {
-                jobs.push((name.clone(), body.clone(), vec![], vec![]));
-            }
-            Decl::Bind(b) => {
-                jobs.push((
-                    b.name.clone(),
-                    b.clauses.clone(),
-                    b.params.clone(),
-                    type_expr_to_token_vec(b.return_ty.as_ref()),
-                ));
-            }
-            Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
+        }
+        fn visit_block(
+            &mut self,
+            _kind: &BlockKind,
+            name: &str,
+            _value: &Option<Vec<String>>,
+            body: &[Clause],
+        ) {
+            self.0
+                .push((name.to_string(), body.to_vec(), vec![], vec![]));
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            self.0.push((
+                b.name.clone(),
+                b.clauses.clone(),
+                b.params.clone(),
+                type_expr_to_token_vec(b.return_ty.as_ref()),
+            ));
         }
     }
-    jobs
+
+    let mut collector = JobCollector(Vec::new());
+    assura_ast::walk_decls(&mut collector, &typed.resolved.source.decls);
+    collector.0
 }
 
 // ---------------------------------------------------------------------------
@@ -967,31 +980,65 @@ fn pick_better_result(z3r: VerificationResult, cvc5r: VerificationResult) -> Ver
 /// (requires, ensures, invariant).  Returns false if there is nothing to
 /// send to the solver, allowing callers to skip thread-pool and cache init.
 pub fn has_verifiable_clauses(source: &assura_ast::SourceFile) -> bool {
-    use assura_ast::{ClauseKind, Decl};
+    use assura_ast::{ClauseKind, DeclVisitor, ServiceDecl};
 
-    let verifiable = |clauses: &[assura_ast::Clause]| {
+    fn clauses_verifiable(clauses: &[assura_ast::Clause]) -> bool {
         clauses.iter().any(|c| {
             matches!(
                 c.kind,
                 ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
             )
         })
-    };
+    }
 
-    source.decls.iter().any(|d| match &d.node {
-        Decl::Contract(c) => verifiable(&c.clauses),
-        Decl::FnDef(f) => verifiable(&f.clauses),
-        Decl::Extern(e) => verifiable(&e.clauses),
-        Decl::Service(s) => s.items.iter().any(|item| match item {
-            assura_ast::ServiceItem::Operation { clauses, .. }
-            | assura_ast::ServiceItem::Query { clauses, .. } => verifiable(clauses),
-            assura_ast::ServiceItem::Invariant(_) => true,
-            _ => false,
-        }),
-        Decl::Block { body, .. } => verifiable(body),
-        Decl::Bind(b) => verifiable(&b.clauses),
-        _ => false,
-    })
+    struct HasVerifiable(bool);
+    impl DeclVisitor for HasVerifiable {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            if clauses_verifiable(&c.clauses) {
+                self.0 = true;
+            }
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            if clauses_verifiable(&f.clauses) {
+                self.0 = true;
+            }
+        }
+        fn visit_extern(&mut self, e: &ExternDecl) {
+            if clauses_verifiable(&e.clauses) {
+                self.0 = true;
+            }
+        }
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            if s.items.iter().any(|item| match item {
+                assura_ast::ServiceItem::Operation { clauses, .. }
+                | assura_ast::ServiceItem::Query { clauses, .. } => clauses_verifiable(clauses),
+                assura_ast::ServiceItem::Invariant(_) => true,
+                _ => false,
+            }) {
+                self.0 = true;
+            }
+        }
+        fn visit_block(
+            &mut self,
+            _kind: &BlockKind,
+            _name: &str,
+            _value: &Option<Vec<String>>,
+            body: &[Clause],
+        ) {
+            if clauses_verifiable(body) {
+                self.0 = true;
+            }
+        }
+        fn visit_bind(&mut self, b: &BindDecl) {
+            if clauses_verifiable(&b.clauses) {
+                self.0 = true;
+            }
+        }
+    }
+
+    let mut v = HasVerifiable(false);
+    assura_ast::walk_decls(&mut v, &source.decls);
+    v.0
 }
 
 /// Verify all declarations in parallel using the specified solver.
@@ -1562,20 +1609,25 @@ pub fn verify_file_evolution(
     old_source: &assura_ast::SourceFile,
     new_source: &assura_ast::SourceFile,
 ) -> Vec<EvolutionResult> {
-    use assura_ast::Decl;
-
     fn collect_contracts(source: &assura_ast::SourceFile) -> Vec<(String, Vec<Clause>)> {
-        source
-            .decls
-            .iter()
-            .filter_map(|d| match &d.node {
-                Decl::Contract(c) => Some((c.name.clone(), c.clauses.clone())),
-                Decl::FnDef(f) => Some((f.name.clone(), f.clauses.clone())),
-                Decl::Extern(e) => Some((e.name.clone(), e.clauses.clone())),
-                Decl::Bind(b) => Some((b.name.clone(), b.clauses.clone())),
-                _ => None,
-            })
-            .collect()
+        struct Collect(Vec<(String, Vec<Clause>)>);
+        impl DeclVisitor for Collect {
+            fn visit_contract(&mut self, c: &ContractDecl) {
+                self.0.push((c.name.clone(), c.clauses.clone()));
+            }
+            fn visit_fn_def(&mut self, f: &FnDef) {
+                self.0.push((f.name.clone(), f.clauses.clone()));
+            }
+            fn visit_extern(&mut self, e: &ExternDecl) {
+                self.0.push((e.name.clone(), e.clauses.clone()));
+            }
+            fn visit_bind(&mut self, b: &BindDecl) {
+                self.0.push((b.name.clone(), b.clauses.clone()));
+            }
+        }
+        let mut c = Collect(Vec::new());
+        assura_ast::walk_decls(&mut c, &source.decls);
+        c.0
     }
 
     let old_contracts = collect_contracts(old_source);

@@ -52,10 +52,11 @@ pub struct SmtQuery {
 pub fn dump_smt_queries(typed: &TypedFile) -> Vec<SmtQuery> {
     let mut queries = Vec::new();
     for decl in &typed.resolved.source.decls {
+        // Prefer Decl::name/clauses accessors for simple contract/fn/extern jobs.
         let (name, clauses) = match &decl.node {
-            Decl::Contract(c) => (c.name.clone(), &c.clauses[..]),
-            Decl::FnDef(f) => (f.name.clone(), &f.clauses[..]),
-            Decl::Extern(e) => (e.name.clone(), &e.clauses[..]),
+            Decl::Contract(c) => (c.name.clone(), c.clauses.as_slice()),
+            Decl::FnDef(f) => (f.name.clone(), f.clauses.as_slice()),
+            Decl::Extern(e) => (e.name.clone(), e.clauses.as_slice()),
             _ => continue,
         };
 

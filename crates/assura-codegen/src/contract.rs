@@ -497,21 +497,40 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
 /// Check if any contract in the source is testable (needs proptest).
 /// Check if any declaration has an `errors` clause that will generate error types.
 pub(crate) fn source_has_error_types(source: &assura_ast::SourceFile) -> bool {
-    source.decls.iter().any(|decl| match &decl.node {
-        Decl::Contract(c) => c.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors),
-        Decl::FnDef(f) => f.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors),
-        _ => false,
-    })
+    use assura_ast::{ContractDecl, DeclVisitor, FnDef};
+
+    struct HasErrors(bool);
+    impl DeclVisitor for HasErrors {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            if c.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors) {
+                self.0 = true;
+            }
+        }
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            if f.clauses.iter().any(|cl| cl.kind == ClauseKind::Errors) {
+                self.0 = true;
+            }
+        }
+    }
+    let mut v = HasErrors(false);
+    assura_ast::walk_decls(&mut v, &source.decls);
+    v.0
 }
 
 pub(crate) fn source_has_testable_contracts(source: &assura_ast::SourceFile) -> bool {
-    source.decls.iter().any(|decl| {
-        if let Decl::Contract(c) = &decl.node {
-            contract_is_testable(c)
-        } else {
-            false
+    use assura_ast::{ContractDecl, DeclVisitor};
+
+    struct HasTestable(bool);
+    impl DeclVisitor for HasTestable {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            if contract_is_testable(c) {
+                self.0 = true;
+            }
         }
-    })
+    }
+    let mut v = HasTestable(false);
+    assura_ast::walk_decls(&mut v, &source.decls);
+    v.0
 }
 
 /// Generate a Rust trait from a contract that has an `interface` clause.

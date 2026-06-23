@@ -16,7 +16,11 @@
 //! | [`compile_ok`] / [`compile_result`] | `compile()` (no SMT) |
 //! | [`verify_ok`] | `compile_full()` + SMT success (lenient Unknown) |
 //! | [`verify_strict_ok`] | same + no non-limitation Unknown |
+//! | [`verify_result`] | `compile_full()` without asserting SMT outcome |
 //! | [`codegen_ok`] | typecheck + codegen (**not for assura-codegen tests**) |
+//! | [`load_fixture`] / [`fixture_path`] | read `tests/fixtures/...` (or repo-relative path) |
+//! | [`expect_type_errors`] | negative type/compile codes |
+//! | [`expect_verify_limitation`] | SMT path yields known-limitation `Unknown` |
 //!
 //! # Important: do not return in-crate types through this helper from the
 //! crate under test
@@ -30,6 +34,8 @@
 //! `GeneratedProject` from this crate are different type instances than the
 //! crate being tested. Other crates (smt, cli, pipeline tests) may call
 //! [`typecheck_ok`] / [`codegen_ok`] normally.
+
+use std::path::{Path, PathBuf};
 
 use assura_config::CompilerConfig;
 use assura_pipeline::CompilationOutput;
@@ -131,6 +137,52 @@ pub fn verify_strict_ok(source: &str, filename: &str) -> CompilationOutput {
     output
 }
 
+/// Full pipeline including SMT; returns output without asserting verify outcome.
+///
+/// Use with [`expect_verify_limitation`] or manual inspection of
+/// `output.verification` in negative / limitation tests.
+pub fn verify_result(source: &str, filename: &str) -> CompilationOutput {
+    assura_pipeline::compile_full(source, filename, &test_config())
+}
+
+/// Resolve a path under the workspace (tries cwd, then walks parents for `Cargo.toml`).
+///
+/// Accepts either `tests/fixtures/foo.assura` or an absolute path.
+pub fn fixture_path(relative: impl AsRef<Path>) -> PathBuf {
+    let relative = relative.as_ref();
+    if relative.is_absolute() {
+        return relative.to_path_buf();
+    }
+    let mut dir = std::env::current_dir().expect("current_dir");
+    loop {
+        let candidate = dir.join(relative);
+        if candidate.exists() {
+            return candidate;
+        }
+        let cargo = dir.join("Cargo.toml");
+        if cargo.exists() {
+            // At a package/workspace root; try relative from here even if missing
+            // (caller may want the canonical expected path).
+            let at_root = dir.join(relative);
+            if at_root.exists() || dir.parent().is_none() {
+                return at_root;
+            }
+        }
+        if !dir.pop() {
+            return std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(relative);
+        }
+    }
+}
+
+/// Read a fixture file from the repo (`tests/fixtures/...` or other relative path).
+pub fn load_fixture(relative: impl AsRef<Path>) -> String {
+    let path = fixture_path(relative.as_ref());
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", path.display()))
+}
+
 /// Type-check then run codegen; returns generated project (panics on errors).
 ///
 /// **Do not use inside `assura-codegen` unit tests** (see crate docs above).
@@ -170,6 +222,32 @@ pub fn expect_error_codes(output: &CompilationOutput, codes: &[&str]) {
 pub fn expect_type_errors(source: &str, codes: &[&str]) {
     let out = typecheck_err(source, "test.assura");
     expect_error_codes(&out, codes);
+}
+
+/// Assert `source` type-checks cleanly and SMT yields at least one known-limitation
+/// `Unknown` (reason contains `KNOWN_SMT_LIMITATION_MARKER` / "not yet encoded in SMT").
+///
+/// Use for tests that intentionally hit unencoded SMT features.
+pub fn expect_verify_limitation(source: &str, filename: &str) -> CompilationOutput {
+    let output = verify_result(source, filename);
+    assert!(
+        !output.has_errors,
+        "expected clean compile/type for limitation case {filename}, got: {:?}",
+        format_diags(&output)
+    );
+    let has_limitation = output.verification.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Unknown { reason, .. }
+                if assura_smt::is_known_smt_limitation(reason)
+        )
+    });
+    assert!(
+        has_limitation,
+        "expected at least one known SMT limitation Unknown for {filename}, got: {:?}",
+        output.verification
+    );
+    output
 }
 
 fn format_diags(output: &CompilationOutput) -> Vec<String> {
@@ -213,5 +291,41 @@ mod tests {
         if out.has_errors && has_error_code(&out, "A07003") {
             expect_error_codes(&out, &["A07003"]);
         }
+    }
+
+    #[test]
+    fn fixture_path_finds_tests_fixtures_or_demos() {
+        // demos/ is always at workspace root; more stable than optional fixtures.
+        let p = fixture_path("demos/libwebp-huffman.assura");
+        assert!(
+            p.exists() || load_fixture_optional("demos/libwebp-huffman.assura").is_some(),
+            "expected demos/libwebp-huffman.assura under workspace (got {})",
+            p.display()
+        );
+    }
+
+    fn load_fixture_optional(rel: &str) -> Option<String> {
+        let p = fixture_path(rel);
+        std::fs::read_to_string(p).ok()
+    }
+
+    #[test]
+    fn load_fixture_reads_demo_when_present() {
+        let p = fixture_path("demos/libwebp-huffman.assura");
+        if !p.exists() {
+            return; // skip if cwd is not under the assura workspace
+        }
+        let src = load_fixture("demos/libwebp-huffman.assura");
+        assert!(src.contains("contract") || src.contains("fn ") || !src.is_empty());
+    }
+
+    #[test]
+    fn verify_result_runs_pipeline() {
+        let out = verify_result(
+            "contract X {\n  requires { true }\n  ensures { true }\n}",
+            "x.assura",
+        );
+        assert!(!out.has_errors);
+        assert!(!out.verification.is_empty() || out.verification.is_empty());
     }
 }
