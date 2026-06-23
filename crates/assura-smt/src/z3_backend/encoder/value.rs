@@ -60,19 +60,23 @@ impl Z3Value {
             Z3Value::Real(r) => ast::Real::to_int(r),
             // Str: coerce to length for integer context
             Z3Value::Str(s) => s.length(),
-            // BV values should use encode_binop BV paths; fallback UF for mixed contexts.
-            Z3Value::Bv(b) => ast::Int::new_const(format!("__bv_as_int_{b}")),
+            // BV: sound unsigned int interpretation (not a free UF).
+            // Free `__bv_as_int_*` UFs were unsound: equal BVs could coerce to different ints.
+            Z3Value::Bv(b) => b.to_int(false),
         }
     }
 
     pub(crate) fn as_bv(&self, width: u32) -> ast::BV {
         match self {
             Z3Value::Bv(b) => b.clone(),
-            Z3Value::Int(i) => {
-                let name = format!("{i}");
-                ast::BV::new_const(format!("__bv_coerce_{name}"), width)
+            Z3Value::Int(i) => ast::BV::from_int(i, width),
+            Z3Value::Bool(b) => {
+                let one = ast::BV::from_u64(1, width);
+                let zero = ast::BV::from_u64(0, width);
+                b.ite(&one, &zero)
             }
-            _ => ast::BV::new_const("__bv_coerce", width),
+            // Non-int/non-bool/non-bv: last-resort uninterpreted (caller should avoid this path).
+            _ => ast::BV::new_const("__bv_coerce_unknown", width),
         }
     }
 
