@@ -2,9 +2,8 @@
 
 use std::collections::HashSet;
 
-use assura_ast::{Clause, ClauseKind, Decl, SpExpr};
+use assura_ast::{Clause, ClauseKind, SpExpr};
 
-use crate::CounterexampleModel;
 use crate::VerificationResult;
 use crate::cache::SessionCache;
 use crate::cvc5_common::{
@@ -35,16 +34,8 @@ pub(crate) fn collect_cvc5_type_constraints(
     )
 }
 
-/// Outcome of a single clause `check-sat` query.
-#[derive(Debug, Clone)]
-pub(crate) enum Cvc5ClauseSatOutcome {
-    Unsat,
-    Sat {
-        model_str: String,
-        counter_model: Option<CounterexampleModel>,
-    },
-    Timeout,
-}
+/// Outcome of a single clause `check-sat` query (alias of shared policy type).
+pub(crate) type Cvc5ClauseSatOutcome = crate::solver_outcome_policy::ClauseSatOutcome;
 
 /// Build a SAT outcome from raw SMT-LIB2 `(get-model)` stdout (shell-out path).
 #[cfg_attr(
@@ -63,73 +54,28 @@ pub(crate) fn cvc5_sat_outcome_from_smtlib_model(raw_model: String) -> Cvc5Claus
                 .join(", ")
         })
         .unwrap_or(raw_model);
-    Cvc5ClauseSatOutcome::Sat {
-        model_str,
-        counter_model,
-    }
+    crate::solver_outcome_policy::ClauseSatOutcome::sat(model_str, counter_model)
 }
 
-/// Map SAT/UNSAT/timeout to `VerificationResult` (Ensures vs Invariant semantics).
+/// Map SAT/UNSAT/timeout to `VerificationResult` (delegates to [`crate::solver_outcome_policy`]).
 pub(crate) fn cvc5_interpret_clause_check_result(
     desc: &str,
     kind: ClauseKind,
     outcome: Cvc5ClauseSatOutcome,
 ) -> VerificationResult {
-    match outcome {
-        Cvc5ClauseSatOutcome::Unsat => {
-            if matches!(kind, ClauseKind::Invariant) {
-                VerificationResult::Counterexample {
-                    clause_desc: desc.to_string(),
-                    model: "invariant is unsatisfiable".to_string(),
-                    counter_model: None,
-                }
-            } else {
-                VerificationResult::verified(desc.to_string())
-            }
-        }
-        Cvc5ClauseSatOutcome::Sat {
-            model_str,
-            counter_model,
-        } => {
-            if matches!(kind, ClauseKind::Invariant) {
-                VerificationResult::verified(desc.to_string())
-            } else {
-                VerificationResult::Counterexample {
-                    clause_desc: desc.to_string(),
-                    model: model_str,
-                    counter_model,
-                }
-            }
-        }
-        Cvc5ClauseSatOutcome::Timeout => VerificationResult::Timeout {
-            clause_desc: desc.to_string(),
-        },
-    }
+    crate::solver_outcome_policy::interpret_clause_check_result(desc, &kind, outcome)
 }
 
-/// Collect lemma definitions from a typed file's declarations.
-///
-/// Maps each lemma name to its ensures clause bodies. This mirrors
-/// `z3_backend::collect_lemma_defs` but is available without the
-/// `z3-verify` feature.
+/// Collect lemma definitions from a typed file (shared [`crate::verify_labels`]).
 pub(crate) fn collect_lemma_defs_for_cvc5(
     typed: &assura_types::TypedFile,
 ) -> std::collections::HashMap<String, Vec<&SpExpr>> {
-    let mut lemmas = std::collections::HashMap::new();
-    for decl in &typed.resolved.source.decls {
-        if let Decl::FnDef(f) = &decl.node
-            && f.is_lemma
-        {
-            let ensures: Vec<&SpExpr> = f
-                .clauses
-                .iter()
-                .filter(|c| c.kind == ClauseKind::Ensures)
-                .map(|c| &c.body)
-                .collect();
-            lemmas.insert(f.name.clone(), ensures);
-        }
-    }
-    lemmas
+    crate::verify_labels::collect_lemma_defs(typed)
+}
+
+/// CVC5 clause descriptor (stable `parent::kind` labels, not `Debug` of `ClauseKind`).
+pub(crate) fn cvc5_clause_desc(contract_name: &str, kind: &ClauseKind) -> String {
+    crate::verify_labels::clause_desc(contract_name, kind)
 }
 
 /// Prepared state shared by native and shell-out CVC5 contract verification.
@@ -220,9 +166,9 @@ mod tests {
     #[test]
     fn interpret_ensures_unsat_is_verified() {
         let result = cvc5_interpret_clause_check_result(
-            "C::Ensures",
+            "C::ensures",
             ClauseKind::Ensures,
-            Cvc5ClauseSatOutcome::Unsat,
+            Cvc5ClauseSatOutcome::unsat(),
         );
         assert!(matches!(result, VerificationResult::Verified { .. }));
     }
@@ -246,9 +192,9 @@ mod tests {
     #[test]
     fn interpret_invariant_unsat_is_counterexample() {
         let result = cvc5_interpret_clause_check_result(
-            "C::Invariant",
+            "C::invariant",
             ClauseKind::Invariant,
-            Cvc5ClauseSatOutcome::Unsat,
+            Cvc5ClauseSatOutcome::unsat(),
         );
         assert!(matches!(result, VerificationResult::Counterexample { .. }));
     }

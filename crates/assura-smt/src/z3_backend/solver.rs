@@ -9,24 +9,9 @@ use z3::{Model, Params, SatResult, Solver, ast};
 // Clause description helper
 // -----------------------------------------------------------------------
 
+/// Z3-backend facade; implementation in [`crate::verify_labels`].
 pub(super) fn clause_desc(parent_name: &str, kind: &ClauseKind) -> String {
-    let kind_str = match kind {
-        ClauseKind::Requires => "requires",
-        ClauseKind::Ensures => "ensures",
-        ClauseKind::Invariant => "invariant",
-        ClauseKind::Effects => "effects",
-        ClauseKind::Modifies => "modifies",
-        ClauseKind::Input => "input",
-        ClauseKind::Output => "output",
-        ClauseKind::Errors => "errors",
-        ClauseKind::Rule => "rule",
-        ClauseKind::DataFlow => "data_flow",
-        ClauseKind::MustNot => "must_not",
-        ClauseKind::Decreases => "decreases",
-        ClauseKind::Ordering => "ordering",
-        ClauseKind::Other(s) => s.as_str(),
-    };
-    format!("{parent_name}::{kind_str}")
+    crate::verify_labels::clause_desc(parent_name, kind)
 }
 
 // -----------------------------------------------------------------------
@@ -105,14 +90,13 @@ pub(crate) fn extract_unsat_core_labels(solver: &Solver) -> Option<Vec<String>> 
 
 /// Interpret solver result for a validity check (ensures/rule).
 /// We negate the goal and check-sat: UNSAT = valid.
-pub(crate) fn check_validity(solver: &Solver, desc: String, results: &mut Vec<VerificationResult>) {
+/// Run Z3 `check` and map to a shared [`crate::solver_outcome_policy::ClauseSatOutcome`].
+fn z3_clause_sat_outcome(solver: &Solver) -> crate::solver_outcome_policy::ClauseSatOutcome {
+    use crate::solver_outcome_policy::ClauseSatOutcome;
     match solver.check() {
         SatResult::Unsat => {
-            let core = extract_unsat_core_labels(solver);
-            results.push(VerificationResult::Verified {
-                clause_desc: desc,
-                unsat_core: core,
-            });
+            let core = extract_unsat_core_labels(solver).unwrap_or_default();
+            ClauseSatOutcome::unsat_with_core(core)
         }
         SatResult::Sat => {
             let (model_str, counter_model) = if let Some(m) = solver.get_model() {
@@ -121,26 +105,29 @@ pub(crate) fn check_validity(solver: &Solver, desc: String, results: &mut Vec<Ve
             } else {
                 ("(no model)".into(), None)
             };
-            results.push(VerificationResult::Counterexample {
-                clause_desc: desc,
-                model: model_str,
-                counter_model,
-            });
+            ClauseSatOutcome::sat(model_str, counter_model)
         }
         SatResult::Unknown => {
             let reason = solver
                 .get_reason_unknown()
                 .unwrap_or_else(|| "unknown".into());
             if reason.contains("timeout") {
-                results.push(VerificationResult::Timeout { clause_desc: desc });
+                ClauseSatOutcome::timeout()
             } else {
-                results.push(VerificationResult::Unknown {
-                    clause_desc: desc,
-                    reason,
-                });
+                ClauseSatOutcome::unknown(reason)
             }
         }
     }
+}
+
+pub(crate) fn check_validity(solver: &Solver, desc: String, results: &mut Vec<VerificationResult>) {
+    // Validity polarity (ensures / must_not / decreases): use Ensures kind semantics.
+    let outcome = z3_clause_sat_outcome(solver);
+    results.push(crate::solver_outcome_policy::interpret_clause_check_result(
+        &desc,
+        &assura_ast::ClauseKind::Ensures,
+        outcome,
+    ));
 }
 
 /// Interpret solver result for a satisfiability check (invariant).
@@ -150,29 +137,10 @@ pub(super) fn check_satisfiability(
     desc: String,
     results: &mut Vec<VerificationResult>,
 ) {
-    match solver.check() {
-        SatResult::Sat => {
-            results.push(VerificationResult::verified(desc));
-        }
-        SatResult::Unsat => {
-            results.push(VerificationResult::Counterexample {
-                clause_desc: desc,
-                model: "invariant is unsatisfiable (always false)".into(),
-                counter_model: None,
-            });
-        }
-        SatResult::Unknown => {
-            let reason = solver
-                .get_reason_unknown()
-                .unwrap_or_else(|| "unknown".into());
-            if reason.contains("timeout") {
-                results.push(VerificationResult::Timeout { clause_desc: desc });
-            } else {
-                results.push(VerificationResult::Unknown {
-                    clause_desc: desc,
-                    reason,
-                });
-            }
-        }
-    }
+    let outcome = z3_clause_sat_outcome(solver);
+    results.push(crate::solver_outcome_policy::interpret_clause_check_result(
+        &desc,
+        &assura_ast::ClauseKind::Invariant,
+        outcome,
+    ));
 }

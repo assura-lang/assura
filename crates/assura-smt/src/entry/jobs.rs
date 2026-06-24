@@ -76,7 +76,7 @@ pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJo
                             effect_variables: vec![],
                         };
                         self.0.push((
-                            format!("{}::invariant", s.name),
+                            crate::verify_labels::invariant_desc(&s.name),
                             vec![inv_clause],
                             vec![],
                             vec![],

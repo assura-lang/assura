@@ -181,15 +181,12 @@ pub(crate) fn finish_cvc5_clause_check<'a>(
 ) -> VerificationResult {
     let sat_result = solver.check_sat();
     let outcome = if sat_result.is_unsat() {
-        Cvc5ClauseSatOutcome::Unsat
+        Cvc5ClauseSatOutcome::unsat()
     } else if sat_result.is_sat() {
         let (model_str, counter_model) = extract_cvc5_counterexample_model(solver, var_map);
-        Cvc5ClauseSatOutcome::Sat {
-            model_str,
-            counter_model,
-        }
+        Cvc5ClauseSatOutcome::sat(model_str, counter_model)
     } else {
-        Cvc5ClauseSatOutcome::Timeout
+        Cvc5ClauseSatOutcome::timeout()
     };
     cvc5_interpret_clause_check_result(desc, kind, outcome)
 }

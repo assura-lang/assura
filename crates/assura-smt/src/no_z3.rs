@@ -10,7 +10,7 @@ pub(crate) fn verify_stub(typed: &TypedFile) -> Vec<VerificationResult> {
             for clause in &c.clauses {
                 if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
                     results.push(VerificationResult::Unknown {
-                        clause_desc: format!("{}::{:?}", c.name, clause.kind),
+                        clause_desc: crate::verify_labels::clause_desc(&c.name, &clause.kind),
                         reason: "Z3 not available (compiled without z3-verify feature)".into(),
                     });
                 }

@@ -170,7 +170,7 @@ pub(crate) fn verify_feature_body_cvc5(
     body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> VerificationResult {
-    let desc = format!("{parent_name}: {feature_label}");
+    let desc = crate::verify_labels::feature_clause_desc(parent_name, feature_label);
 
     // Skip declarative feature clauses (bare uppercase ident)
     if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
@@ -202,7 +202,10 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
     if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
     {
         results.push(VerificationResult::Unknown {
-            clause_desc: format!("{parent_name}: structural_invariant"),
+            clause_desc: crate::verify_labels::feature_clause_desc(
+                parent_name,
+                "structural_invariant",
+            ),
             reason: "structural_invariant not yet encoded in SMT".into(),
         });
         return results;
@@ -214,7 +217,10 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
         .filter(|c| c.kind == ClauseKind::Requires)
         .map(|c| &c.body)
         .collect();
-    let desc1 = format!("{parent_name}: structural_invariant (establishment)");
+    let desc1 = crate::verify_labels::feature_clause_desc(
+        parent_name,
+        "structural_invariant (establishment)",
+    );
     results.push(check_validity_cvc5(&desc1, &requires, body));
 
     // Step 2: Preservation (requires + ensures => invariant)
@@ -225,7 +231,10 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
         .map(|c| &c.body)
         .collect();
     assumptions.extend(ensures);
-    let desc2 = format!("{parent_name}: structural_invariant (preservation)");
+    let desc2 = crate::verify_labels::feature_clause_desc(
+        parent_name,
+        "structural_invariant (preservation)",
+    );
     results.push(check_validity_cvc5(&desc2, &assumptions, body));
 
     results

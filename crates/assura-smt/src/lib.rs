@@ -62,8 +62,10 @@ mod ir_parity;
 mod ir_templates;
 mod ir_type_ctx;
 mod prelude_policy;
+mod solver_outcome_policy;
 mod unmodelable;
 mod verify_context;
+mod verify_labels;
 
 /// Public entry point functions for SMT verification.
 mod entry;
