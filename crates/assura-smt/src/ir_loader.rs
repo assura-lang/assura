@@ -71,7 +71,7 @@ pub fn collect_verification_job_names(typed: &assura_types::TypedFile) -> Vec<St
                             names.push(format!("{}.{}", s.name, name));
                         }
                         ServiceItem::Invariant(_) => {
-                            names.push(format!("{}::invariant", s.name));
+                            names.push(crate::verify_labels::invariant_desc(&s.name));
                         }
                         _ => {}
                     }

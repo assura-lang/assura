@@ -340,7 +340,7 @@ pub fn verify_contract_with_solver(
                         )
                     })
                     .map(|c| {
-                        let desc = format!("{contract_name}::{:?}", c.kind);
+                        let desc = crate::verify_labels::clause_desc(contract_name, &c.kind);
                         VerificationResult::Unknown {
                             clause_desc: desc,
                             reason: "Z3 not available (compiled without z3-verify feature)".into(),

@@ -42,9 +42,11 @@ pub(crate) fn clause_gate_order() -> &'static [ClauseGateStep] {
 
 /// Session-cache key for one verifiable clause (shared Z3 / CVC5 shape).
 ///
-/// Includes `kind` so ensures/invariant/must_not with identical bodies do not collide.
+/// Includes `kind` (stable label, not `Debug`) so ensures/invariant/must_not with
+/// identical bodies do not collide and keys match [`crate::verify_labels`] descriptors.
 pub(crate) fn clause_session_cache_key(desc: &str, kind: &ClauseKind, body: &SpExpr) -> String {
-    format!("{desc}::{kind:?}:{body:?}")
+    let kind_label = crate::verify_labels::clause_kind_label(kind);
+    format!("{desc}::{kind_label}:{body:?}")
 }
 
 /// Reason detail when a clause body uses features not fully encoded in SMT.
@@ -200,8 +202,10 @@ mod tests {
         let body = sp_bool();
         let k1 = clause_session_cache_key("C: ensures", &ClauseKind::Ensures, &body);
         let k2 = clause_session_cache_key("C: ensures", &ClauseKind::Invariant, &body);
-        assert!(k1.contains("Ensures"));
-        assert!(k2.contains("Invariant"));
+        // Kind segment uses verify_labels stable labels (not Debug `Ensures`/`Invariant`).
+        assert!(k1.contains("ensures"));
+        assert!(k2.contains("invariant"));
+        assert!(!k1.contains("Ensures"));
         assert_ne!(k1, k2);
         assert!(k1.starts_with("C: ensures::"));
     }
