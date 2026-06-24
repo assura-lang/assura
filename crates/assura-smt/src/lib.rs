@@ -58,10 +58,17 @@ mod clause_policy;
 //   encode_raw_ops_policy    — raw-token operators + quantifier/range SMT-LIB shapes
 //   encode_quantifier_policy — AST quantifier domain/orchestration (shell/native)
 //   encode_method_policy     — KnownBuiltin tables, `is_*_builtin`, SMT-LIB method text
-//   encode_call_policy       — `EncodeCallKind` order (Z3/CVC5/shell classify + asserts)
+//   encode_call_policy       — `EncodeCallKind` / preamble (Z3/CVC5/shell classify + asserts)
 //   encode_field_policy      — field plan + FieldValueKind (bool/size/int) + SMT-LIB shapes
 //   encode_old_policy        — `old(e)` pre-state plan (ident/field/method; field plan + kinds)
 //   encode_if_policy         — `if cond then t [else e]` plan (`ite` vs `=>`)
+//   encode_index_policy      — `coll[idx]` plan (`__index` + optional bounds on `__len`)
+//   encode_let_policy        — `let` / block plan (SMT-LIB `let` shapes)
+//   encode_list_policy       — list/array constructor plan
+//   encode_tuple_policy      — tuple constructor plan
+//   encode_match_policy      — match / ADT scrutinee plan
+//   encode_binop_policy      — binary/unary op plan (arith/cmp/logic; AstBinOpKind/AstUnaryKind)
+//   encode_adt_policy        — ADT constructor/test plan
 // Not full `Expr`→solver-term unify: Z3 `Encoder` and CVC5 term builders stay separate.
 mod encode_adt_policy;
 mod encode_atom_policy;
