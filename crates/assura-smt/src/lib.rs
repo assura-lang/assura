@@ -137,7 +137,6 @@ pub(crate) use cvc5_backend::cvc5_binop_encode;
 // Encode paths import encode_*_policy directly (no cvc5_builtins compatibility surface).
 pub(crate) use cvc5_backend::cvc5_call_encode;
 pub(crate) use cvc5_backend::cvc5_collect;
-// cvc5_common is test-only (atom + field-chain regression tests); no crate-root re-export.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) use cvc5_backend::cvc5_encoder_state;
 pub(crate) use cvc5_backend::cvc5_expr_smtlib;

@@ -10,10 +10,9 @@
 pub(crate) mod cvc5_adt;
 pub(crate) mod cvc5_atom_encode;
 pub(crate) mod cvc5_binop_encode;
-// cvc5_builtins removed: policy lives in encode_method_policy / encode_atom_policy.
+// cvc5_builtins / cvc5_common removed: policy + unmodelable/lemma modules used directly.
 pub(crate) mod cvc5_call_encode;
 pub(crate) mod cvc5_collect;
-pub(crate) mod cvc5_common;
 #[cfg(feature = "cvc5-verify")]
 pub(crate) mod cvc5_encoder_state;
 pub(crate) mod cvc5_expr_smtlib;
