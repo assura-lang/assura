@@ -101,11 +101,13 @@ pub(crate) fn is_put_builtin(op: &str, arity: usize) -> bool {
 }
 
 /// Whether `op` is min at arity 2 (not max).
+#[cfg(test)]
 pub(crate) fn is_min_builtin(op: &str, arity: usize) -> bool {
     matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Min))
 }
 
 /// Whether `op` is max at arity 2 (not min).
+#[cfg(test)]
 pub(crate) fn is_max_builtin(op: &str, arity: usize) -> bool {
     matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Max))
 }

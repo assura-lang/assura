@@ -443,13 +443,9 @@ impl Encoder {
             let a = &arg_vals[0];
             let b = &arg_vals[1];
             let a_le_b = a.le(b);
-            let result = if crate::encode_method_policy::is_min_builtin(func_name, arg_vals.len()) {
+            let result = if func_name == "min" {
                 a_le_b.ite(a, b)
             } else {
-                debug_assert!(crate::encode_method_policy::is_max_builtin(
-                    func_name,
-                    arg_vals.len()
-                ));
                 a_le_b.ite(b, a)
             };
             return Z3Value::Int(result);
