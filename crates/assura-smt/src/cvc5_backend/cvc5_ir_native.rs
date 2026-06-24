@@ -208,7 +208,7 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
             .map(|t| t.replace('<', "_").replace('>', ""))
             .unwrap_or_else(|| "val".into());
         self.mk_unary_uf(
-            &crate::encode_atom_policy::ir_field_uf_name(ty_suffix, index),
+            &crate::encode_atom_policy::ir_field_uf_name(&ty_suffix, index),
             base,
         )
     }

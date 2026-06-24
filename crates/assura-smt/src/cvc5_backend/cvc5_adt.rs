@@ -267,7 +267,7 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
     axioms: &mut Vec<cvc5::Term<'a>>,
     fresh_counter: &mut usize,
 ) -> cvc5::Term<'a> {
-    let val_name = crate::encode_atom_policy::adt_val_fresh_name(fresh_counter, &ctor.name);
+    let val_name = crate::encode_atom_policy::adt_val_fresh_name(*fresh_counter, &ctor.name);
     *fresh_counter += 1;
     let val = tm.mk_const(tm.integer_sort(), &val_name);
 
