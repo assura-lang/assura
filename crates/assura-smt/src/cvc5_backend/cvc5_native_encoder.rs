@@ -44,6 +44,9 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
     use crate::ir::IrFunction;
     use crate::ir_encode::IrEncodeContext;
 
+    // Structural axioms only; IR apply is done below so `IrEncodeContext<'a>`
+    // shares the TermManager lifetime required by invariant `cvc5::Term<'a>`
+    // / `HashMap` borrows (trait method only offers `IrEncodeContext<'_>`).
     struct Cvc5HavocEffects<'a, 'v, 's> {
         tm: &'a cvc5::TermManager,
         vars: &'v mut std::collections::HashMap<String, cvc5::Term<'a>>,
@@ -69,23 +72,19 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
 
         fn apply_ir_body(
             &mut self,
-            func: &IrFunction,
-            param_names: &[String],
-            enc_ctx: IrEncodeContext<'_>,
+            _func: &IrFunction,
+            _param_names: &[String],
+            _enc_ctx: IrEncodeContext<'_>,
         ) {
-            apply_ir_body_constraints_cvc5(
-                self.tm,
-                func,
-                param_names,
-                self.vars,
-                self.state,
-                enc_ctx,
-            );
+            // See apply_havoc_assume_cvc5 epilogue (lifetime alignment).
         }
     }
 
     let mut effects = Cvc5HavocEffects { tm, vars, state };
     apply_havoc_assume_policy(input, &mut effects);
+    if let Some(func) = input.ir {
+        apply_ir_body_constraints_cvc5(tm, func, input.param_names, vars, state, input.enc_ctx);
+    }
 }
 
 /// Encode an AST expression as a CVC5 Term using the native API.
