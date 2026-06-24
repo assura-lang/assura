@@ -12,15 +12,12 @@ use crate::cvc5_common::{
 };
 use crate::cvc5_model::parse_smtlib_model;
 
-/// Backend-neutral type/constant constraints for CVC5 solver preludes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Cvc5TypeConstraint {
-    NatNonNegative(String),
-    ConstantEq(String, i64),
-    NarrowingLe(String, i64),
-}
+/// CVC5 prelude constraint (alias of shared [`crate::prelude_policy::PreludeConstraint`]).
+pub(crate) type Cvc5TypeConstraint = crate::prelude_policy::PreludeConstraint;
 
 /// Collect Nat, constant, and feature_max narrowing constraints for declared vars.
+///
+/// Delegates to [`crate::prelude_policy`] (one brain with Z3; filtered by SMT-LIB var set).
 pub(crate) fn collect_cvc5_type_constraints(
     vars: &HashSet<String>,
     params: &[assura_ast::Param],
@@ -28,37 +25,14 @@ pub(crate) fn collect_cvc5_type_constraints(
     constants: &[(String, i64)],
     narrowings: &[(String, i64)],
 ) -> Vec<Cvc5TypeConstraint> {
-    let mut out = Vec::new();
-    for param in params {
-        let pt = crate::entry::type_expr_to_token_vec(param.ty.as_ref());
-        if pt.len() == 1 && pt[0] == "Nat" {
-            let name = sanitize_smtlib_name(&param.name);
-            if vars.contains(&name) {
-                out.push(Cvc5TypeConstraint::NatNonNegative(name));
-            }
-        }
-    }
-    if return_ty.len() == 1 && return_ty[0] == "Nat" {
-        if vars.contains("__result") {
-            out.push(Cvc5TypeConstraint::NatNonNegative("__result".into()));
-        }
-        if vars.contains("result") {
-            out.push(Cvc5TypeConstraint::NatNonNegative("result".into()));
-        }
-    }
-    for (name, value) in constants {
-        let key = sanitize_smtlib_name(name);
-        if vars.contains(&key) {
-            out.push(Cvc5TypeConstraint::ConstantEq(key, *value));
-        }
-    }
-    for (name, value) in narrowings {
-        let key = sanitize_smtlib_name(name);
-        if vars.contains(&key) {
-            out.push(Cvc5TypeConstraint::NarrowingLe(key, *value));
-        }
-    }
-    out
+    crate::prelude_policy::collect_prelude_constraints_for_vars(
+        vars,
+        params,
+        return_ty,
+        constants,
+        narrowings,
+        sanitize_smtlib_name,
+    )
 }
 
 /// Outcome of a single clause `check-sat` query.

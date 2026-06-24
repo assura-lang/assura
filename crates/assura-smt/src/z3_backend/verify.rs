@@ -44,14 +44,9 @@ struct TypeConstraints<'a> {
     type_env: Option<&'a assura_types::TypeEnv>,
 }
 
-/// Returns true if the given type token list represents the `Nat` type.
-fn is_nat_type(ty: &[String]) -> bool {
-    ty.len() == 1 && ty[0] == "Nat"
-}
-
 /// Convert a Param's `Option<TypeExpr>` to token vec for SMT type checking.
 fn param_ty_tokens(param: &assura_ast::Param) -> Vec<String> {
-    crate::entry::type_expr_to_token_vec(param.ty.as_ref())
+    crate::prelude_policy::param_type_tokens(param)
 }
 
 // Re-use extract_output_return_type and extract_input_params from entry.rs
@@ -91,6 +86,8 @@ fn verify_clauses_with_types(
 ) {
     // One compiler brain: clause partitioning / feature dispatch / frame setup
     // (shared with CVC5 via `clause_policy`; not full expr-encode unification).
+    // Step order documented in `prelude_policy::VERIFY_PRELUDE_ORDER`.
+    let _order = crate::prelude_policy::verify_prelude_order();
     let (feature_results, prep) = crate::clause_policy::prepare_contract_clauses(
         parent_name,
         clauses,
@@ -123,7 +120,7 @@ fn verify_clauses_with_types(
     let mut solver_params = z3::Params::new();
     solver_params.set_u32("timeout", 10000);
     solver.set_params(&solver_params);
-    if requires.len() > 1 {
+    if crate::prelude_policy::track_requires_unsat_cores(requires.len()) {
         enable_unsat_cores(&solver);
     }
     let mut base_encoder = Encoder::with_string_theory(types.use_string_theory);
@@ -174,7 +171,7 @@ fn verify_clauses_with_types(
     for (i, req) in requires.iter().enumerate() {
         let req_val = base_encoder.encode_expr(&req.body);
         let req_bool = req_val.as_bool();
-        if requires.len() > 1 {
+        if crate::prelude_policy::track_requires_unsat_cores(requires.len()) {
             let label = format!("req_{i}");
             assert_tracked(&solver, &req_bool, &label);
         } else {
@@ -186,31 +183,33 @@ fn verify_clauses_with_types(
     }
     base_encoder.background_axioms.clear();
 
-    // Assert type-level constraints for parameters and return type.
-    for param in types.params {
-        if is_nat_type(&param_ty_tokens(param)) {
-            let p = base_encoder.get_or_create_int(&param.name);
-            let zero = ast::Int::from_i64(0);
-            solver.assert(p.ge(&zero));
+    // Type/constant/narrowing prelude (shared brain with CVC5; Z3 asserts all names).
+    use crate::prelude_policy::PreludeConstraint;
+    for constraint in crate::prelude_policy::collect_prelude_constraints(
+        types.params,
+        types.return_ty,
+        types.constants,
+        types.narrowings,
+    ) {
+        match constraint {
+            PreludeConstraint::NatNonNegative(name) => {
+                let p = base_encoder.get_or_create_int(&name);
+                let zero = ast::Int::from_i64(0);
+                solver.assert(p.ge(&zero));
+            }
+            // Constants are already bound as concrete ints in the encoder var map at init;
+            // do not re-assert equality here (would duplicate prior Z3 behavior).
+            PreludeConstraint::ConstantEq(_, _) => {}
+            PreludeConstraint::NarrowingLe(name, bound) => {
+                let var = base_encoder.get_or_create_int(&name);
+                let upper = ast::Int::from_i64(bound);
+                solver.assert(var.le(&upper));
+            }
         }
-    }
-    if is_nat_type(types.return_ty) {
-        let result_var = base_encoder.get_or_create_int("result");
-        let zero = ast::Int::from_i64(0);
-        solver.assert(result_var.ge(&zero));
-        let raw_result = base_encoder.get_or_create_int("__result");
-        solver.assert(raw_result.ge(&zero));
-    }
-
-    // #188: Refinement narrowing from feature_max declarations.
-    for (narrowed_name, bound) in types.narrowings {
-        let var = base_encoder.get_or_create_int(narrowed_name);
-        let upper = ast::Int::from_i64(*bound);
-        solver.assert(var.le(&upper));
     }
 
     // T044: Inject lemma ensures as assumptions for any `apply` refs
-    let apply_refs = collect_apply_refs(clauses);
+    let apply_refs = crate::prelude_policy::collect_apply_refs_from_clauses(clauses);
     for lemma_name in &apply_refs {
         if let Some(ensures_bodies) = lemma_defs.get(lemma_name) {
             for ensures_body in ensures_bodies {
@@ -258,7 +257,7 @@ fn verify_clauses_with_types(
             continue;
         }
 
-        let use_push_pop = verifiable.len() > 1;
+        let use_push_pop = crate::prelude_policy::use_incremental_clause_push_pop(verifiable.len());
         if use_push_pop {
             solver.push(); // Save solver state
         }
@@ -387,75 +386,6 @@ fn collect_lemma_defs(typed: &TypedFile) -> std::collections::HashMap<String, Ve
         }
     }
     lemmas
-}
-
-/// Scan clause bodies for `apply lemma_name(args)` expressions and
-/// collect the referenced lemma names.
-fn collect_apply_refs(clauses: &[Clause]) -> Vec<String> {
-    let mut refs = Vec::new();
-    for clause in clauses {
-        collect_apply_refs_expr(&clause.body, &mut refs);
-    }
-    refs
-}
-
-fn collect_apply_refs_expr(expr: &SpExpr, refs: &mut Vec<String>) {
-    match &expr.node {
-        Expr::Apply { lemma_name, args } => {
-            refs.push(lemma_name.clone());
-            for arg in args {
-                collect_apply_refs_expr(arg, refs);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_apply_refs_expr(lhs, refs);
-            collect_apply_refs_expr(rhs, refs);
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Field(inner, _)
-        | Expr::Cast { expr: inner, .. } => {
-            collect_apply_refs_expr(inner, refs);
-        }
-        Expr::Call { func, args } => {
-            collect_apply_refs_expr(func, refs);
-            for a in args {
-                collect_apply_refs_expr(a, refs);
-            }
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            collect_apply_refs_expr(receiver, refs);
-            for a in args {
-                collect_apply_refs_expr(a, refs);
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            collect_apply_refs_expr(e, refs);
-            collect_apply_refs_expr(index, refs);
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            collect_apply_refs_expr(domain, refs);
-            collect_apply_refs_expr(body, refs);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_apply_refs_expr(cond, refs);
-            collect_apply_refs_expr(then_branch, refs);
-            if let Some(eb) = else_branch {
-                collect_apply_refs_expr(eb, refs);
-            }
-        }
-        Expr::List(items) | Expr::Block(items) => {
-            for item in items {
-                collect_apply_refs_expr(item, refs);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Verify a quantified formula using Z3.
@@ -867,7 +797,7 @@ mod tests {
         }];
         let ty = extract_output_return_type(&clauses);
         assert_eq!(ty, vec!["Nat"]);
-        assert!(is_nat_type(&ty));
+        assert!(crate::prelude_policy::is_nat_type_tokens(&ty));
     }
 
     #[test]
@@ -879,7 +809,7 @@ mod tests {
         }];
         let ty = extract_output_return_type(&clauses);
         assert_eq!(ty, vec!["Bytes"]);
-        assert!(!is_nat_type(&ty));
+        assert!(!crate::prelude_policy::is_nat_type_tokens(&ty));
     }
 
     #[test]
