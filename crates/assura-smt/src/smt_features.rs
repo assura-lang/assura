@@ -10,6 +10,7 @@ use crate::ClauseKind;
 #[cfg(any(feature = "z3-verify", test))]
 use crate::Expr;
 use crate::VerificationResult;
+use crate::result::not_encoded_reason;
 #[cfg(feature = "z3-verify")]
 use crate::z3_backend::encoder::{Encoder, expr_has_unmodelable_features};
 #[cfg(feature = "z3-verify")]
@@ -49,10 +50,10 @@ fn verify_feature_body(
     }
     #[cfg(not(feature = "cvc5-verify"))]
     {
-        VerificationResult::Unknown {
-            clause_desc: format!("{parent_name}: {feature_label}"),
-            reason: format!("{feature_label} not yet encoded in SMT"),
-        }
+        VerificationResult::unknown_not_encoded(
+            format!("{parent_name}: {feature_label}"),
+            feature_label,
+        )
     }
 }
 
@@ -72,10 +73,10 @@ fn verify_feature_body(
 
     // Skip clauses with unmodelable features (typestate, etc.)
     if expr_has_unmodelable_features(body) {
-        return VerificationResult::Unknown {
-            clause_desc: desc,
-            reason: format!("{feature_label} clause uses features not yet encoded in SMT"),
-        };
+        return VerificationResult::unknown_not_encoded(
+            desc,
+            format!("{feature_label} clause uses features"),
+        );
     }
 
     // Skip declarative feature clauses whose body is a bare identifier
@@ -84,10 +85,7 @@ fn verify_feature_body(
     // unconstrained variable that trivially produces counterexamples.
     if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
     {
-        return VerificationResult::Unknown {
-            clause_desc: desc,
-            reason: format!("{feature_label} not yet encoded in SMT"),
-        };
+        return VerificationResult::unknown_not_encoded(desc, feature_label);
     }
 
     let solver = Solver::new();
@@ -182,7 +180,7 @@ pub fn verify_structural_invariant_inductive(
     {
         vec![VerificationResult::Unknown {
             clause_desc: format!("{parent_name}: structural_invariant"),
-            reason: "structural_invariant not yet encoded in SMT".into(),
+            reason: not_encoded_reason("structural_invariant"),
         }]
     }
 }
@@ -204,7 +202,7 @@ pub fn verify_structural_invariant_inductive(
     if expr_has_unmodelable_features(body) {
         all_results.push(VerificationResult::Unknown {
             clause_desc: format!("{parent_name}: structural_invariant (establishment)"),
-            reason: "structural_invariant clause uses features not yet encoded in SMT".into(),
+            reason: not_encoded_reason("structural_invariant clause uses features"),
         });
         return all_results;
     }
@@ -214,7 +212,7 @@ pub fn verify_structural_invariant_inductive(
     {
         all_results.push(VerificationResult::Unknown {
             clause_desc: format!("{parent_name}: structural_invariant"),
-            reason: "structural_invariant not yet encoded in SMT".into(),
+            reason: not_encoded_reason("structural_invariant"),
         });
         return all_results;
     }

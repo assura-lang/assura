@@ -76,12 +76,44 @@ pub fn is_known_smt_limitation(reason: &str) -> bool {
     reason.contains(KNOWN_SMT_LIMITATION_MARKER)
 }
 
+/// Build a canonical "not yet encoded" reason string (CLI warning severity).
+pub fn not_encoded_reason(detail: impl AsRef<str>) -> String {
+    let d = detail.as_ref();
+    if d.is_empty() {
+        KNOWN_SMT_LIMITATION_MARKER.to_string()
+    } else if d.contains(KNOWN_SMT_LIMITATION_MARKER) {
+        d.to_string()
+    } else {
+        format!("{d} {KNOWN_SMT_LIMITATION_MARKER}")
+    }
+}
+
 impl VerificationResult {
     /// Build a verified result without an unsat core.
     pub fn verified(clause_desc: impl Into<String>) -> Self {
         Self::Verified {
             clause_desc: clause_desc.into(),
             unsat_core: None,
+        }
+    }
+
+    /// Known compiler limitation (not a solver failure). Reason always includes
+    /// [`KNOWN_SMT_LIMITATION_MARKER`] so CLI/MCP treat it as a warning.
+    pub fn unknown_not_encoded(
+        clause_desc: impl Into<String>,
+        feature_or_detail: impl AsRef<str>,
+    ) -> Self {
+        Self::Unknown {
+            clause_desc: clause_desc.into(),
+            reason: not_encoded_reason(feature_or_detail),
+        }
+    }
+
+    /// Whether this result is a known encoding gap (warning) rather than solver Unknown (error).
+    pub fn is_known_limitation(&self) -> bool {
+        match self {
+            Self::Unknown { reason, .. } => is_known_smt_limitation(reason),
+            _ => false,
         }
     }
 

@@ -3,45 +3,63 @@
 use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
 use crate::havoc_assume::{
-    HavocAssumeInput, HavocAssumeSmtlibTarget, infer_length_identity_links, is_collection_return,
+    HavocAssumeEffects, HavocAssumeInput, HavocAssumeSmtlibTarget, apply_havoc_assume_policy,
 };
+use crate::ir::IrFunction;
+use crate::ir_encode::IrEncodeContext;
 
 /// Declare canonical length vars and append havoc+assume background axioms.
 pub(crate) fn append_havoc_assume_smtlib(
     target: &mut HavocAssumeSmtlibTarget<'_>,
     input: &HavocAssumeInput<'_>,
 ) {
-    if is_collection_return(input.return_ty) {
-        declare_canonical_len(target, "result");
-        let name = canonical_length_smtlib_name("result");
-        target.script.push_str(&format!("(assert (>= {name} 0))\n"));
+    struct SmtlibHavocEffects<'t, 's> {
+        target: &'t mut HavocAssumeSmtlibTarget<'s>,
     }
 
-    for (result, input_name) in infer_length_identity_links(input.requires, input.ensures) {
-        declare_canonical_len(target, &result);
-        declare_canonical_len(target, &input_name);
-        let len_result = canonical_length_smtlib_name(&result);
-        let len_input = canonical_length_smtlib_name(&input_name);
-        target
-            .script
-            .push_str(&format!("(assert (>= {len_result} 0))\n"));
-        target
-            .script
-            .push_str(&format!("(assert (>= {len_input} 0))\n"));
-        target
-            .script
-            .push_str(&format!("(assert (<= {len_result} {len_input}))\n"));
+    impl HavocAssumeEffects for SmtlibHavocEffects<'_, '_> {
+        fn collection_result_nonneg(&mut self) {
+            declare_canonical_len(self.target, "result");
+            let name = canonical_length_smtlib_name("result");
+            self.target
+                .script
+                .push_str(&format!("(assert (>= {name} 0))\n"));
+        }
+
+        fn length_identity_le(&mut self, result_name: &str, input_name: &str) {
+            declare_canonical_len(self.target, result_name);
+            declare_canonical_len(self.target, input_name);
+            let len_result = canonical_length_smtlib_name(result_name);
+            let len_input = canonical_length_smtlib_name(input_name);
+            self.target
+                .script
+                .push_str(&format!("(assert (>= {len_result} 0))\n"));
+            self.target
+                .script
+                .push_str(&format!("(assert (>= {len_input} 0))\n"));
+            self.target
+                .script
+                .push_str(&format!("(assert (<= {len_result} {len_input}))\n"));
+        }
+
+        fn apply_ir_body(
+            &mut self,
+            func: &IrFunction,
+            param_names: &[String],
+            enc_ctx: IrEncodeContext<'_>,
+        ) {
+            append_ir_body_constraints_smtlib(
+                self.target.script,
+                self.target.vars,
+                func,
+                param_names,
+                enc_ctx,
+            );
+        }
     }
 
-    if let Some(func) = input.ir {
-        append_ir_body_constraints_smtlib(
-            target.script,
-            target.vars,
-            func,
-            input.param_names,
-            input.enc_ctx,
-        );
-    }
+    let mut effects = SmtlibHavocEffects { target };
+    apply_havoc_assume_policy(input, &mut effects);
 }
 
 fn declare_canonical_len(target: &mut HavocAssumeSmtlibTarget<'_>, name: &str) {

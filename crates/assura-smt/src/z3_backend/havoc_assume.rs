@@ -4,14 +4,12 @@
 use super::encoder::Encoder;
 use crate::cvc5_builtins::{KnownBuiltin, classify_known_builtin};
 use crate::havoc_assume::{
-    HavocAssumeInput, RESULT_SLOT, infer_length_identity_links, ir_param_names,
-    is_collection_return,
+    HavocAssumeEffects, HavocAssumeInput, RESULT_SLOT, apply_havoc_assume_policy, ir_param_names,
 };
 use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
 use crate::ir_lower::{IrSlotContext, IrTermBuilder};
 use crate::ir_type_ctx::base_type_name;
-use assura_ast::Clause;
 use std::collections::HashMap;
 use z3::ast;
 
@@ -205,27 +203,36 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
 
 /// Apply havoc+assume axioms before verifying ensures clauses.
 pub(crate) fn apply_havoc_assume_z3(encoder: &mut Encoder, input: &HavocAssumeInput<'_>) {
-    apply_structural_result_axioms(encoder, input.return_ty);
-    apply_length_identity_axioms(encoder, input.requires, input.ensures);
-    if let Some(func) = input.ir {
-        apply_ir_body_constraints_z3(encoder, func, input.param_names, input.enc_ctx);
-    }
+    let mut effects = Z3HavocEffects { encoder };
+    apply_havoc_assume_policy(input, &mut effects);
 }
 
-fn apply_structural_result_axioms(encoder: &mut Encoder, return_ty: &[String]) {
-    if !is_collection_return(return_ty) {
-        return;
-    }
-    let len = encoder.canonical_length("result");
-    let zero = ast::Int::from_i64(0);
-    encoder.background_axioms.push(len.ge(&zero));
+struct Z3HavocEffects<'a> {
+    encoder: &'a mut Encoder,
 }
 
-fn apply_length_identity_axioms(encoder: &mut Encoder, requires: &[&Clause], ensures: &[&Clause]) {
-    for (result, input) in infer_length_identity_links(requires, ensures) {
-        let len_result = encoder.canonical_length(&result);
-        let len_input = encoder.canonical_length(&input);
-        encoder.background_axioms.push(len_result.le(&len_input));
+impl HavocAssumeEffects for Z3HavocEffects<'_> {
+    fn collection_result_nonneg(&mut self) {
+        let len = self.encoder.canonical_length("result");
+        let zero = ast::Int::from_i64(0);
+        self.encoder.background_axioms.push(len.ge(&zero));
+    }
+
+    fn length_identity_le(&mut self, result_name: &str, input_name: &str) {
+        let len_result = self.encoder.canonical_length(result_name);
+        let len_input = self.encoder.canonical_length(input_name);
+        self.encoder
+            .background_axioms
+            .push(len_result.le(&len_input));
+    }
+
+    fn apply_ir_body(
+        &mut self,
+        func: &IrFunction,
+        param_names: &[String],
+        enc_ctx: IrEncodeContext<'_>,
+    ) {
+        apply_ir_body_constraints_z3(self.encoder, func, param_names, enc_ctx);
     }
 }
 
@@ -326,7 +333,7 @@ fn encode_ir_pred_arg(
 mod tests {
     use super::*;
     use crate::ir::IrInstr;
-    use assura_ast::{BinOp, ClauseKind, Expr, Literal, Spanned};
+    use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Spanned};
     use assura_types::TypeEnv;
     use std::collections::HashMap;
 

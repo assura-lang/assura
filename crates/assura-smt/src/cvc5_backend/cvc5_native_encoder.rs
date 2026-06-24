@@ -40,22 +40,48 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) {
-    use crate::havoc_assume::{infer_length_identity_links, is_collection_return};
+    use crate::havoc_assume::{HavocAssumeEffects, apply_havoc_assume_policy};
+    use crate::ir::IrFunction;
+    use crate::ir_encode::IrEncodeContext;
 
-    if is_collection_return(input.return_ty) {
-        let len = canonical_length_cvc5(tm, "result", vars, state);
-        let zero = tm.mk_integer(0);
-        state.axioms.push(tm.mk_term(cvc5::Kind::Geq, &[len, zero]));
+    // Structural axioms only; IR apply is done below so `IrEncodeContext<'a>`
+    // shares the TermManager lifetime required by invariant `cvc5::Term<'a>`
+    // / `HashMap` borrows (trait method only offers `IrEncodeContext<'_>`).
+    struct Cvc5HavocEffects<'a, 'v, 's> {
+        tm: &'a cvc5::TermManager,
+        vars: &'v mut std::collections::HashMap<String, cvc5::Term<'a>>,
+        state: &'s mut Cvc5EncoderState<'a>,
     }
 
-    for (result, input_name) in infer_length_identity_links(input.requires, input.ensures) {
-        let len_result = canonical_length_cvc5(tm, &result, vars, state);
-        let len_input = canonical_length_cvc5(tm, &input_name, vars, state);
-        state
-            .axioms
-            .push(tm.mk_term(cvc5::Kind::Leq, &[len_result, len_input]));
+    impl HavocAssumeEffects for Cvc5HavocEffects<'_, '_, '_> {
+        fn collection_result_nonneg(&mut self) {
+            let len = canonical_length_cvc5(self.tm, "result", self.vars, self.state);
+            let zero = self.tm.mk_integer(0);
+            self.state
+                .axioms
+                .push(self.tm.mk_term(cvc5::Kind::Geq, &[len, zero]));
+        }
+
+        fn length_identity_le(&mut self, result_name: &str, input_name: &str) {
+            let len_result = canonical_length_cvc5(self.tm, result_name, self.vars, self.state);
+            let len_input = canonical_length_cvc5(self.tm, input_name, self.vars, self.state);
+            self.state
+                .axioms
+                .push(self.tm.mk_term(cvc5::Kind::Leq, &[len_result, len_input]));
+        }
+
+        fn apply_ir_body(
+            &mut self,
+            _func: &IrFunction,
+            _param_names: &[String],
+            _enc_ctx: IrEncodeContext<'_>,
+        ) {
+            // See apply_havoc_assume_cvc5 epilogue (lifetime alignment).
+        }
     }
 
+    let mut effects = Cvc5HavocEffects { tm, vars, state };
+    apply_havoc_assume_policy(input, &mut effects);
     if let Some(func) = input.ir {
         apply_ir_body_constraints_cvc5(tm, func, input.param_names, vars, state, input.enc_ctx);
     }

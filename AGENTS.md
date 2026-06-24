@@ -649,11 +649,36 @@ bash scripts/check-smt-feature-matrix.sh --require-cvc5
 Do not treat an assura-smt PR as green until the **CVC5 native tests** job
 passes on the latest SHA (not only `test` / `clippy`).
 
-**`apply_ir_body_constraints_cvc5`:** implemented via `Cvc5IrBuilder` +
-`ir_lower` (mirrors Z3 `havoc_assume::apply_ir_body_constraints`). The flag
-`CVC5_IR_BODY_CONSTRAINTS_IS_STUB` must stay `false`; if it is re-set to
-`true`, `scripts/check-smt-feature-matrix.sh` warns and `ir_parity` must not
-call the no-op path.
+**SMT architecture (one compiler brain, many solver muscles):**
+
+| Layer | Owns | Must not duplicate |
+|-------|------|--------------------|
+| `ir_exec::apply_ir_body_constraints` | IR instruction walk, result load/construct hooks, IR post | Backend-only apply loops |
+| `havoc_assume::apply_havoc_assume_policy` | Order: collection nonneg → length identity → IR body | Divergent order between Z3/CVC5/SMT-LIB |
+| `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
+| Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
+| SMT-LIB / shell CVC5 | Transport when `cvc5-verify` off | Second IR/havoc policy |
+
+**Rules for agents:**
+
+1. New IR instruction / result special-case logic goes in `ir_exec` or
+   `IrTermBuilder` default hooks, not in `cvc5_ir_native` / `havoc_assume` Z3
+   loops alone.
+2. New havoc+assume steps (structural axioms, clause-level length inference)
+   go in `apply_havoc_assume_policy` + `HavocAssumeEffects`, not copy-pasted
+   into three backends.
+3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
+   (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
+4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder
+   footgun). Opt in for watch/incremental only.
+5. IR sidecars load as `{JobName}.ir` beside the source or under `generated/`
+   (gitignored); commit `demos/IncOne.ir` style files, not only
+   `demos/generated/`.
+6. `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` must stay `false`; feature-matrix and
+   `ir_parity` guard regressions.
+
+**`apply_ir_body_constraints_cvc5`:** thin wrapper: slots + `Cvc5IrBuilder` +
+`ir_exec` (same as Z3 `apply_ir_body_constraints_z3`).
 
 **Before session end or marking a MASTER-PLAN task `[x]`** (full):
 ```bash
