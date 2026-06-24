@@ -8,7 +8,8 @@ use crate::cvc5_collect::collect_vars;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{
-    cvc5_lookup_cached_clause, cvc5_unmodelable_precheck, store_cvc5_clause_cache,
+    cvc5_clause_cache_key, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
+    store_cvc5_clause_cache,
 };
 use crate::cvc5_verify_shell_runner::{cvc5_shell_query_to_verification_result, run_cvc5_binary};
 use crate::cvc5_verify_shell_script::{
@@ -29,7 +30,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     let prepared = &session.prepared;
     let contract = session.contract;
 
-    let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
+    let cache_key = cvc5_clause_cache_key(desc, &kind, ensures_body);
     if let Some(result) = cvc5_lookup_cached_clause(session.cache, &cache_key, desc) {
         return result;
     }
@@ -91,10 +92,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     }
 
     let Some(smt) = expr_to_smtlib(ensures_body) else {
-        return VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason: "could not encode clause to SMT-LIB2".into(),
-        };
+        return crate::clause_gate_policy::clause_encode_failure(desc, "SMT-LIB2");
     };
     append_cvc5_shellout_clause_check(&mut script, kind.clone(), &smt);
 

@@ -8,8 +8,8 @@ use crate::cvc5_collect::collect_cvc5_var_names_from_clauses;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{
-    Cvc5ContractPrepared, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
-    store_cvc5_clause_cache,
+    Cvc5ContractPrepared, cvc5_clause_cache_key, cvc5_lookup_cached_clause,
+    cvc5_unmodelable_precheck, store_cvc5_clause_cache,
 };
 use crate::cvc5_verify_shell_clause::check_clause_cvc5_shellout;
 use crate::cvc5_verify_shell_runner::{
@@ -74,7 +74,7 @@ fn verify_contract_cvc5_shellout_incremental(
 
     for (index, clause) in prepared.verifiable.iter().enumerate() {
         let desc = format!("{contract_name}::{:?}", clause.kind);
-        let cache_key = format!("{desc}::{:?}:{:?}", clause.kind, clause.body);
+        let cache_key = cvc5_clause_cache_key(&desc, &clause.kind, &clause.body);
 
         if let Some(cached) = cvc5_lookup_cached_clause(session.cache, &cache_key, &desc) {
             resolved.push((index, cached));
@@ -87,10 +87,7 @@ fn verify_contract_cvc5_shellout_incremental(
         if expr_to_smtlib(&clause.body).is_none() {
             resolved.push((
                 index,
-                VerificationResult::Unknown {
-                    clause_desc: desc,
-                    reason: "could not encode clause to SMT-LIB2".into(),
-                },
+                crate::clause_gate_policy::clause_encode_failure(&desc, "SMT-LIB2"),
             ));
             continue;
         }

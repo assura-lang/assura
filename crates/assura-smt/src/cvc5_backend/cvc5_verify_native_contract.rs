@@ -18,8 +18,8 @@ use crate::cvc5_verify_native_solver::{
     finish_cvc5_clause_check, inject_cvc5_lemma_assumptions_for_bodies, new_cvc5_solver,
 };
 use crate::cvc5_verify_shared::{
-    cvc5_encode_failure, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
-    store_cvc5_clause_cache,
+    cvc5_clause_cache_key, cvc5_encode_failure, cvc5_lookup_cached_clause,
+    cvc5_unmodelable_precheck, store_cvc5_clause_cache,
 };
 use crate::verify_context::{Cvc5ClauseVerifyInput, Cvc5ContractVerifySession};
 
@@ -106,7 +106,7 @@ fn verify_contract_cvc5_native_incremental(
     for clause in &prepared.verifiable {
         let desc = format!("{contract_name}::{:?}", clause.kind);
 
-        let cache_key = format!("{desc}::{:?}:{:?}", clause.kind, clause.body);
+        let cache_key = cvc5_clause_cache_key(&desc, &clause.kind, &clause.body);
         if let Some(cached_result) = cvc5_lookup_cached_clause(session.cache, &cache_key, &desc) {
             results.push(cached_result);
             continue;

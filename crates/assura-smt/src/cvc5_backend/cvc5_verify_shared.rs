@@ -153,29 +153,17 @@ pub(crate) fn cvc5_lookup_cached_clause(
     cache_key: &str,
     desc: &str,
 ) -> Option<VerificationResult> {
-    cache
-        .lookup(cache_key)
-        .map(|entry| match entry.result.as_str() {
-            "verified" => VerificationResult::verified(desc.to_string()),
-            other => VerificationResult::Unknown {
-                clause_desc: desc.to_string(),
-                reason: format!("cached: {other}"),
-            },
-        })
+    crate::clause_gate_policy::lookup_clause_session_cache(cache, cache_key, desc)
 }
 
 pub(crate) fn cvc5_unmodelable_precheck(desc: &str, body: &SpExpr) -> Option<VerificationResult> {
-    if !expr_has_unmodelable_features_cvc5(body) {
-        return None;
-    }
-    let reasons = collect_unmodelable_reasons_cvc5(body);
-    Some(VerificationResult::Unknown {
-        clause_desc: desc.to_string(),
-        reason: format!(
-            "clause uses features not yet encoded in SMT ({})",
-            reasons.join(", ")
-        ),
-    })
+    let has = expr_has_unmodelable_features_cvc5(body);
+    let reasons = if has {
+        collect_unmodelable_reasons_cvc5(body)
+    } else {
+        Vec::new()
+    };
+    crate::clause_gate_policy::unmodelable_precheck_if(desc, has, &reasons)
 }
 
 pub(crate) fn store_cvc5_clause_cache(
@@ -183,21 +171,24 @@ pub(crate) fn store_cvc5_clause_cache(
     cache_key: String,
     result: &VerificationResult,
 ) {
-    let result_str = match result {
-        VerificationResult::Verified { .. } => "verified",
-        VerificationResult::Counterexample { .. } => "counterexample",
-        VerificationResult::Timeout { .. } => "timeout",
-        VerificationResult::Unknown { .. } => "unknown",
-    };
-    cache.insert(cache_key, result_str.to_string(), 0);
+    crate::clause_gate_policy::store_clause_session_cache(cache, cache_key, result);
 }
 
-#[cfg(feature = "cvc5-verify")]
+/// CVC5 session cache key (delegates to shared gate policy; includes clause kind).
+pub(crate) fn cvc5_clause_cache_key(desc: &str, kind: &ClauseKind, body: &SpExpr) -> String {
+    crate::clause_gate_policy::clause_session_cache_key(desc, kind, body)
+}
+
+/// Native CVC5 encode miss (only called from `cvc5-verify` / incremental-native paths).
+#[cfg_attr(
+    not(feature = "cvc5-verify"),
+    allow(
+        dead_code,
+        reason = "callers are cfg(cvc5-verify); shell uses clause_encode_failure"
+    )
+)]
 pub(crate) fn cvc5_encode_failure(desc: &str) -> VerificationResult {
-    VerificationResult::Unknown {
-        clause_desc: desc.to_string(),
-        reason: "could not encode clause to CVC5 terms".into(),
-    }
+    crate::clause_gate_policy::clause_encode_failure(desc, "CVC5 terms")
 }
 
 #[cfg(test)]
