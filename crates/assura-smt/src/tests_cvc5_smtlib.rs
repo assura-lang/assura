@@ -528,14 +528,14 @@ fn test_smtlib_raw_complex_expression() {
 
 #[test]
 fn test_smtlib_raw_function_call() {
-    // "abs ( x )" -> (abs x)
+    // "abs ( x )" -> ITE encoding (parity with Z3 parse_raw_atom).
     let expr = Spanned::no_span(Expr::Raw(vec![
         "abs".into(),
         "(".into(),
         "x".into(),
         ")".into(),
     ]));
-    assert_eq!(expr_to_smtlib(&expr), Some("(abs x)".into()));
+    assert_eq!(expr_to_smtlib(&expr), Some("(ite (>= x 0) x (- x))".into()));
 }
 
 #[test]
