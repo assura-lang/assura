@@ -1,11 +1,11 @@
 //! Native CVC5 encoding for havoc-assume IR bodies.
 
 #[cfg(feature = "cvc5-verify")]
-use crate::cvc5_common::sanitize_smtlib_name;
-#[cfg(feature = "cvc5-verify")]
 use crate::cvc5_encoder_state::{Cvc5EncoderState, canonical_length_cvc5};
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_native_builtins::encode_known_builtin_cvc5;
+#[cfg(feature = "cvc5-verify")]
+use crate::encode_atom_policy::sanitize_smt_name;
 #[cfg(feature = "cvc5-verify")]
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
 #[cfg(feature = "cvc5-verify")]
@@ -36,7 +36,7 @@ use std::collections::HashMap;
 #[cfg(feature = "cvc5-verify")]
 impl<'a, 'v, 's> Cvc5IrBuilder<'a, 'v, 's, '_> {
     fn mk_named_const(&mut self, name: &str) -> cvc5::Term<'a> {
-        let key = sanitize_smtlib_name(name);
+        let key = sanitize_smt_name(name);
         self.vars
             .entry(key.clone())
             .or_insert_with(|| self.tm.mk_const(self.tm.integer_sort(), &key))
@@ -54,7 +54,7 @@ impl<'a, 'v, 's> Cvc5IrBuilder<'a, 'v, 's, '_> {
     }
 
     fn mk_nary_uf(&mut self, name: &str, args: &[cvc5::Term<'a>]) -> cvc5::Term<'a> {
-        let key = sanitize_smtlib_name(name);
+        let key = sanitize_smt_name(name);
         let domain: Vec<cvc5::Sort<'_>> = (0..args.len()).map(|_| self.tm.integer_sort()).collect();
         let fun_sort = if domain.is_empty() {
             self.tm.integer_sort()
@@ -417,7 +417,7 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
     let mut slots: HashMap<usize, cvc5::Term<'a>> = HashMap::new();
 
     for (slot, name) in ir_param_names(func, contract_param_names) {
-        let key = sanitize_smtlib_name(&name);
+        let key = sanitize_smt_name(&name);
         let v = vars
             .entry(key.clone())
             .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))

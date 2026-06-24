@@ -2,7 +2,7 @@
 
 use assura_ast::SpExpr;
 
-use crate::cvc5_common::sanitize_smtlib_name;
+use crate::encode_atom_policy::sanitize_smt_name;
 
 /// Encode `let name = value in body` as SMT-LIB2 `(let ((v val)) body)`.
 pub(crate) fn encode_let_smtlib<F>(
@@ -14,7 +14,7 @@ pub(crate) fn encode_let_smtlib<F>(
 where
     F: FnMut(&SpExpr) -> Option<String>,
 {
-    let v = sanitize_smtlib_name(name);
+    let v = sanitize_smt_name(name);
     let val = encode(value)?;
     let b = encode(body)?;
     Some(format!("(let (({v} {val})) {b})"))
@@ -50,7 +50,7 @@ where
 {
     let v = encode(value, vars, state)?;
     let mut local_vars = vars.clone();
-    local_vars.insert(sanitize_smtlib_name(name), v);
+    local_vars.insert(sanitize_smt_name(name), v);
     encode(body, &mut local_vars, state)
 }
 
@@ -92,7 +92,7 @@ mod tests {
 
     fn encode_simple(expr: &SpExpr) -> Option<String> {
         match &expr.node {
-            Expr::Ident(name) => Some(sanitize_smtlib_name(name)),
+            Expr::Ident(name) => Some(sanitize_smt_name(name)),
             Expr::Literal(Literal::Int(n)) => Some(n.clone()),
             _ => None,
         }

@@ -4,10 +4,8 @@
 
 use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5, intern_uf_cvc5};
 use crate::cvc5_native_binops::alloc_fresh_int_cvc5;
+use crate::encode_call_policy::{EncodeCallKind, debug_assert_encode_call_kind};
 use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin, is_bool_returning_uf};
-
-// Call-order documentation: [`crate::encode_call_policy::classify_encode_call`]
-// mirrors Z3 `encode_call` priority before CVC5 term construction in this module.
 
 #[cfg(feature = "cvc5-verify")]
 fn fresh_int_cvc5<'a>(
@@ -272,22 +270,24 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
     let kind = classify_known_builtin(op, args.len())?;
+    // Parity with Z3 encode_call order for the builtins this function owns.
     match kind {
         KnownBuiltin::Abs => {
+            debug_assert_encode_call_kind(op, args.len(), EncodeCallKind::Abs);
             let x = &args[0];
             let zero = tm.mk_integer(0);
             let neg = tm.mk_term(cvc5::Kind::Neg, std::slice::from_ref(x));
             let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, x.clone(), neg]))
         }
-        KnownBuiltin::Min => {
+        KnownBuiltin::Min | KnownBuiltin::Max => {
+            debug_assert_encode_call_kind(op, args.len(), EncodeCallKind::MinMax);
             let (a, b) = (&args[0], &args[1]);
-            let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
-            Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
-        }
-        KnownBuiltin::Max => {
-            let (a, b) = (&args[0], &args[1]);
-            let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
+            let cond = if matches!(kind, KnownBuiltin::Min) {
+                tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()])
+            } else {
+                tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()])
+            };
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
         }
         KnownBuiltin::Substring => {
@@ -583,6 +583,7 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
         }
         KnownBuiltin::First => Some(fresh_int_cvc5(tm, state)),
         KnownBuiltin::Get => {
+            debug_assert_encode_call_kind(op, args.len(), EncodeCallKind::Get);
             let coll = &args[0];
             let key = &args[1];
             let get_func =
@@ -602,6 +603,7 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             Some(via_get)
         }
         KnownBuiltin::Set => {
+            debug_assert_encode_call_kind(op, args.len(), EncodeCallKind::Set);
             let arr = &args[0];
             let i = &args[1];
             let v = &args[2];
@@ -641,6 +643,7 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             Some(result)
         }
         KnownBuiltin::Put => {
+            debug_assert_encode_call_kind(op, args.len(), EncodeCallKind::Put);
             let map = &args[0];
             let k = &args[1];
             let v = &args[2];
@@ -712,6 +715,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
         return Some(encode_contains_key_cvc5(tm, encoded_args, state));
     }
     if is_bool_returning_uf(f_name) {
+        debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::BoolReturningUf);
         return Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, true));
     }
     if state.use_string_theory

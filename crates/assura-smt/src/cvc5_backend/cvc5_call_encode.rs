@@ -3,7 +3,7 @@
 use assura_ast::{Expr, SpExpr};
 
 use crate::cvc5_common::canonical_length_smtlib_name;
-use crate::cvc5_common::sanitize_smtlib_name;
+use crate::encode_atom_policy::sanitize_smt_name;
 use crate::encode_method_policy::known_builtin_to_smtlib;
 
 #[cfg(feature = "cvc5-verify")]
@@ -23,7 +23,7 @@ where
     F: FnMut(&SpExpr) -> Option<String>,
 {
     let f = match &func.node {
-        Expr::Ident(name) => sanitize_smtlib_name(name),
+        Expr::Ident(name) => sanitize_smt_name(name),
         _ => return None,
     };
     if args.is_empty() {
@@ -124,7 +124,7 @@ where
     ) -> Option<cvc5::Term<'a>>,
 {
     if let Expr::Ident(name) = &func.node {
-        let f_name = sanitize_smtlib_name(name);
+        let f_name = sanitize_smt_name(name);
         if args.is_empty() {
             return vars
                 .get(&f_name)
@@ -176,7 +176,7 @@ where
         maybe_link_ident_length_cvc5(tm, arg, &t, vars, state);
         all_encoded.push(t);
     }
-    let f_name = sanitize_smtlib_name(method);
+    let f_name = sanitize_smt_name(method);
     if let Some(term) = encode_known_builtin_cvc5(tm, f_name.as_str(), &all_encoded, state) {
         return Some(term);
     }
@@ -200,7 +200,7 @@ mod tests {
     fn encode_lit(expr: &SpExpr) -> Option<String> {
         match &expr.node {
             Expr::Literal(Literal::Int(n)) => Some(n.clone()),
-            Expr::Ident(name) => Some(sanitize_smtlib_name(name)),
+            Expr::Ident(name) => Some(sanitize_smt_name(name)),
             _ => None,
         }
     }

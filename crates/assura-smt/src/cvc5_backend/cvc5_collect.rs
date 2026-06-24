@@ -4,7 +4,8 @@ use std::collections::HashSet;
 
 use assura_ast::{Expr, SpExpr};
 
-use crate::cvc5_common::{sanitize_smtlib_name, smtlib_result_name};
+use crate::cvc5_common::smtlib_result_name;
+use crate::encode_atom_policy::sanitize_smt_name;
 
 /// Collect all variable names referenced in an expression.
 pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
@@ -13,7 +14,7 @@ pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
             if name == "result" {
                 vars.insert(smtlib_result_name().to_string());
             } else {
-                vars.insert(sanitize_smtlib_name(name));
+                vars.insert(sanitize_smt_name(name));
             }
         }
         Expr::BinOp { lhs, rhs, .. } => {
@@ -40,7 +41,7 @@ pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
         } => {
             collect_vars(body, vars);
             collect_vars(domain, vars);
-            vars.remove(&sanitize_smtlib_name(var));
+            vars.remove(&sanitize_smt_name(var));
         }
         Expr::Call { args, .. } => {
             for arg in args {
@@ -92,7 +93,7 @@ pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
                     && tok != "true"
                     && tok != "false"
                 {
-                    vars.insert(sanitize_smtlib_name(tok));
+                    vars.insert(sanitize_smt_name(tok));
                 }
             }
         }

@@ -412,16 +412,15 @@ impl Encoder {
             .iter()
             .map(|a| self.encode_expr(a).as_int(&mut self.fresh_counter))
             .collect();
-        // Shared order table (encode_call_policy); guards below still use method policy.
-        debug_assert_eq!(
-            crate::encode_call_policy::classify_encode_call(func_name, arg_vals.len())
-                == crate::encode_call_policy::EncodeCallKind::MinMax,
-            crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len())
-        );
         // min/max: encode with ite so Z3 proves bounds (not unconstrained UF).
         // e.g. ensures { min(a, b) <= a } verifies under any a, b.
         // Dispatch arity/name via encode_method_policy (parity with CVC5 classify).
         if crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::MinMax,
+            );
             let a = &arg_vals[0];
             let b = &arg_vals[1];
             let a_le_b = a.le(b);
@@ -439,6 +438,11 @@ impl Encoder {
         // Methods known to return Bool (UF with optional length / size links below).
         // Table lives in encode_method_policy (parity with CVC5 / methods.rs).
         if crate::encode_method_policy::is_bool_returning_uf(func_name) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::BoolReturningUf,
+            );
             let bool_sort = z3::Sort::bool();
             let int_sort = z3::Sort::int();
             let param_sorts: Vec<&z3::Sort> = (0..arg_vals.len()).map(|_| &int_sort).collect();
@@ -502,6 +506,11 @@ impl Encoder {
         }
         // String / sequence methods with known semantics (arity via encode_method_policy).
         if crate::encode_method_policy::is_substring_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Substring,
+            );
             // substring(str, start, end): length == end - start; 0 <= start <= end <= len(str)
             let str_expr = &args[0].node;
             let str_val = &arg_vals[0];
@@ -526,6 +535,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_concat_append_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::ConcatAppend,
+            );
             // concat(a, b) / append(a, b): len(result) == len(a) + len(b)
             let l_expr = &args[0].node;
             let r_expr = &args[1].node;
@@ -755,6 +769,11 @@ impl Encoder {
         }
         // abs(x) => if x >= 0 then x else -x (policy arity; min/max handled above).
         if crate::encode_method_policy::is_abs_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Abs,
+            );
             let x = &arg_vals[0];
             let zero = ast::Int::from_i64(0);
             let neg_x = x.unary_minus();
@@ -763,6 +782,11 @@ impl Encoder {
         }
         // get(coll, key_or_idx): uninterpreted; unify `get` with `__index` for arrays.
         if crate::encode_method_policy::is_get_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Get,
+            );
             let coll = &arg_vals[0];
             let key = &arg_vals[1];
             let get_decl = self.make_func(crate::encode_atom_policy::GET_UF_NAME, 2);
@@ -781,6 +805,11 @@ impl Encoder {
         // Array set(arr, index, value): store axiom + length preserve.
         // set(a, i, v) returns a new array where get(result, i) == v.
         if crate::encode_method_policy::is_set_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Set,
+            );
             let arr_expr = &args[0].node;
             let arr = &arg_vals[0];
             let idx = &arg_vals[1];
@@ -809,6 +838,11 @@ impl Encoder {
         }
         // Map put(map, key, value): get(put(m,k,v), k) == v; size non-decreasing.
         if crate::encode_method_policy::is_put_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Put,
+            );
             let map_expr = &args[0].node;
             let map_val = &arg_vals[0];
             let key = &arg_vals[1];

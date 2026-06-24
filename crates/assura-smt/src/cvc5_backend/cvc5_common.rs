@@ -1,10 +1,15 @@
 //! Shared CVC5 utilities used by shell-out and native backends.
 //!
 //! Atom/naming helpers delegate to [`crate::encode_atom_policy`] (encode convergence groundwork).
+//! Prefer importing `sanitize_smt_name` / other policy helpers directly at new call sites;
+//! [`sanitize_smtlib_name`] remains a thin alias for tests and any remaining `cvc5_common` paths.
 
 use assura_ast::SpExpr;
 
 /// Sanitize an Assura identifier for SMT-LIB2/CVC5 names.
+///
+/// Thin alias of [`crate::encode_atom_policy::sanitize_smt_name`]; prefer the policy import.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn sanitize_smtlib_name(name: &str) -> String {
     crate::encode_atom_policy::sanitize_smt_name(name)
 }

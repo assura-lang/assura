@@ -6,12 +6,12 @@ use std::collections::{HashMap, HashSet};
 
 use assura_ast::{ClauseKind, SpExpr};
 
-use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_native_encoder::{Cvc5EncoderState, encode_expr_cvc5};
 use crate::cvc5_verify_shared::{
     Cvc5ClauseSatOutcome, Cvc5TypeConstraint, collect_cvc5_type_constraints,
     cvc5_interpret_clause_check_result,
 };
+use crate::encode_atom_policy::sanitize_smt_name;
 use crate::{CounterexampleModel, VerificationResult};
 
 pub(crate) fn build_cvc5_var_map<'a>(
@@ -24,7 +24,7 @@ pub(crate) fn build_cvc5_var_map<'a>(
         var_map.insert(name.clone(), tm.mk_const(tm.integer_sort(), name));
     }
     for (name, value) in constants {
-        let key = sanitize_smtlib_name(name);
+        let key = sanitize_smt_name(name);
         var_map.insert(key, tm.mk_integer(*value));
     }
     var_map
@@ -116,7 +116,7 @@ pub(crate) fn assert_cvc5_frame_axioms<'a>(
     frame_vars: &[String],
 ) {
     for var_name in frame_vars {
-        let current_key = sanitize_smtlib_name(var_name);
+        let current_key = sanitize_smt_name(var_name);
         let old_key = crate::encode_atom_policy::old_snapshot_name(var_name);
         let current = var_map
             .get(&current_key)

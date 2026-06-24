@@ -23,9 +23,8 @@ use crate::encode_method_policy::{
 /// Order matches historical Z3 `encode_call` (min/max → bool UF → string/seq
 /// builtins → abs → get/set/put → size UF → uninterpreted UF).
 ///
-/// Referenced from tests and available for backends to `match` before term
-/// construction (incremental wire-up; Z3/CVC5 still branch via `is_*_builtin`).
-#[cfg_attr(not(test), allow(dead_code))]
+/// Used by Z3/CVC5 for `debug_assert` parity and (incrementally) `match` dispatch.
+/// Term construction stays backend-local; guards still use `is_*_builtin` tables.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EncodeCallKind {
     /// `min` / `max` at arity 2 (ite encoding, not free UF).
@@ -84,7 +83,6 @@ pub(crate) enum EncodeCallKind {
 ///
 /// Callers pass the **last segment** of a dotted method name (same as Z3
 /// `encode_call` / CVC5 method base name).
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn classify_encode_call(func_name: &str, arity: usize) -> EncodeCallKind {
     if is_min_max_builtin(func_name, arity) {
         return EncodeCallKind::MinMax;
@@ -159,6 +157,23 @@ pub(crate) fn classify_encode_call(func_name: &str, arity: usize) -> EncodeCallK
         return EncodeCallKind::SizeFieldUf;
     }
     EncodeCallKind::UninterpretedUf
+}
+
+/// Debug-only check: branch guard (`expected`) agrees with [`classify_encode_call`].
+///
+/// Call at the entry of each encode_call arm so Z3/CVC5 cannot diverge from the
+/// shared order table without a failing debug build.
+#[inline]
+pub(crate) fn debug_assert_encode_call_kind(
+    func_name: &str,
+    arity: usize,
+    expected: EncodeCallKind,
+) {
+    debug_assert_eq!(
+        classify_encode_call(func_name, arity),
+        expected,
+        "encode_call_policy mismatch for {func_name}/{arity}"
+    );
 }
 
 #[cfg(test)]

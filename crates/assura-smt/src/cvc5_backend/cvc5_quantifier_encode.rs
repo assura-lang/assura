@@ -7,7 +7,7 @@
 use assura_ast::{Expr, SpExpr};
 
 #[cfg(feature = "cvc5-verify")]
-use crate::cvc5_common::sanitize_smtlib_name;
+use crate::encode_atom_policy::sanitize_smt_name;
 
 // Re-exports: encode_quantifier_policy (encode convergence step 3)
 // Callers import via `cvc5_quantifier_encode`; default builds only hit re-exports from shell paths.
@@ -91,7 +91,7 @@ where
         &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    let v_name = sanitize_smtlib_name(var);
+    let v_name = sanitize_smt_name(var);
     let bound_var = ctx.tm.mk_var(ctx.tm.integer_sort(), &v_name);
     let old_binding = ctx.vars.insert(v_name.clone(), bound_var.clone());
     let b = encode(body, ctx)?;
