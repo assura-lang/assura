@@ -16,6 +16,7 @@ pub(crate) fn encode_tuple_smtlib_placeholder() -> String {
 }
 
 /// Plan for encoding a tuple of given arity (solver-neutral).
+/// Used by CVC5 shell/native and Z3 `Expr::Tuple`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TupleEncodePlan {
     /// Shell / incomplete: emit [`TUPLE_FRESH_PLACEHOLDER`] without element axioms.
@@ -26,9 +27,7 @@ pub(crate) enum TupleEncodePlan {
 
 /// Classify how backends should encode a tuple with `arity` elements.
 ///
-/// Currently always `FreshWithAccessors` for native/Z3; shell uses placeholder
-/// independently. Kept as an explicit plan so shell can graduate without
-/// forking name policy.
+/// `FreshWithAccessors` for Z3/CVC5 native; shell uses placeholder independently.
 pub(crate) fn plan_tuple_encode(arity: usize, shell_placeholder_path: bool) -> TupleEncodePlan {
     if shell_placeholder_path {
         TupleEncodePlan::ShellPlaceholder
@@ -39,11 +38,7 @@ pub(crate) fn plan_tuple_encode(arity: usize, shell_placeholder_path: bool) -> T
 
 /// Accessor UF name for element `index` of an `arity`-tuple (delegates to atom policy).
 ///
-/// Used by CVC5 native / Z3 full tuple paths (`cvc5-verify` or encoder internals).
-#[cfg_attr(
-    not(any(test, feature = "cvc5-verify")),
-    allow(dead_code, reason = "native/Z3 callers; default build is shell-only")
-)]
+/// Used by CVC5 native / Z3 full tuple paths.
 pub(crate) fn tuple_accessor_uf_name(arity: usize, index: usize) -> String {
     crate::encode_atom_policy::tuple_accessor_name(arity, index)
 }

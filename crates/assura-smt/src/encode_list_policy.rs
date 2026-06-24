@@ -37,17 +37,13 @@ pub(crate) fn plan_list_encode(len: usize, shell_placeholder_path: bool) -> List
 /// Fresh list constant name for counter `n` (delegates to atom policy).
 #[cfg_attr(
     not(any(test, feature = "cvc5-verify")),
-    allow(dead_code, reason = "native/Z3 callers; default build is shell-only")
+    allow(dead_code, reason = "native CVC5; Z3 allocates via fresh_int")
 )]
 pub(crate) fn list_value_fresh_name(counter: impl std::fmt::Display) -> String {
     crate::encode_atom_policy::list_fresh_name(counter)
 }
 
 /// List element accessor UIF name (delegates to atom policy).
-#[cfg_attr(
-    not(any(test, feature = "cvc5-verify")),
-    allow(dead_code, reason = "native CVC5 only in default builds")
-)]
 pub(crate) fn list_get_uf_name() -> &'static str {
     crate::encode_atom_policy::LIST_GET_UF_NAME
 }

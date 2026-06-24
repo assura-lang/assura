@@ -36,13 +36,6 @@ pub(crate) fn encode_ast_unary_smtlib(op: &UnaryOp, inner: &str) -> String {
 }
 
 /// Kind of AST binop for planning (special forms vs standard SMT operator).
-#[cfg_attr(
-    not(any(test, feature = "cvc5-verify")),
-    allow(
-        dead_code,
-        reason = "native CVC5/Z3 dispatch; shell uses encode_ast_binop_smtlib"
-    )
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AstBinOpKind {
     /// `!=` → `(not (= l r))`
@@ -62,13 +55,6 @@ pub(crate) enum AstBinOpKind {
 }
 
 /// Classify an AST `BinOp` for encode dispatch (Z3/CVC5 share this order of arms).
-#[cfg_attr(
-    not(any(test, feature = "cvc5-verify")),
-    allow(
-        dead_code,
-        reason = "native CVC5/Z3 dispatch; shell uses encode_ast_binop_smtlib"
-    )
-)]
 pub(crate) fn classify_ast_binop(op: &BinOp) -> AstBinOpKind {
     match op {
         BinOp::Neq => AstBinOpKind::Neq,
