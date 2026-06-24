@@ -661,6 +661,8 @@ passes on the latest SHA (not only `test` / `clippy`).
 | `unmodelable` | Expr walk for unmodelable gate + field-chain flatten/self-root helpers | Separate Z3 `encoder/unmodelable` vs CVC5 `*_cvc5` copies |
 | `verify_labels` | Clause/invariant/feature descriptors + lemma ensures collection | CVC5 `{:?}` kind strings vs Z3 `::ensures`; duplicate lemma maps |
 | `solver_outcome_policy` | SAT/UNSAT/timeout/unknown → `VerificationResult` (validity vs sat) | Divergent invariant UNSAT vs ensures UNSAT handling |
+| `portfolio_policy` | Multi-solver result merge priority (Z3/CVC5 portfolio) | Divergent Verified/CE/Unknown/Timeout selection |
+| `lemma_inject_policy` | `apply` ref collection + which lemma ensures to assert | Divergent lemma sets between Z3/CVC5 injection loops |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
 | Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
 | SMT-LIB / shell CVC5 | Transport when `cvc5-verify` off | Second IR/havoc policy |
@@ -691,6 +693,10 @@ passes on the latest SHA (not only `test` / `clippy`).
 2g. Post-`check-sat` result interpretation (invariant sat vs ensures validity)
    goes in `solver_outcome_policy`; backends only produce `ClauseSatOutcome`
    (model/core extraction stays backend-specific).
+2h. Portfolio merge (which of Z3/CVC5 wins per clause) goes in
+   `portfolio_policy`; entry only runs solvers and threads.
+2i. Lemma `apply` ref walks and which ensures bodies to inject go in
+   `lemma_inject_policy`; backends only encode/assert those bodies.
 3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
    (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder

@@ -61,6 +61,8 @@ mod ir_lower;
 mod ir_parity;
 mod ir_templates;
 mod ir_type_ctx;
+mod lemma_inject_policy;
+mod portfolio_policy;
 mod prelude_policy;
 mod solver_outcome_policy;
 mod unmodelable;

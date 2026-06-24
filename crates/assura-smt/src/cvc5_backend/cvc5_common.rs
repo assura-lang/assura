@@ -1,6 +1,6 @@
 //! Shared CVC5 utilities used by shell-out and native backends.
 
-use assura_ast::{Expr, SpExpr};
+use assura_ast::SpExpr;
 
 /// Rational denominator for Float literal encoding (matches Z3/CVC5 native).
 pub(crate) const FLOAT_RATIONAL_DENOM: i64 = 1_000_000;
@@ -114,82 +114,11 @@ pub(crate) fn is_internal_cvc5_var(name: &str) -> bool {
 }
 
 // -------------------------------------------------------------------------
-// Lemma apply-ref collection
+// Lemma apply-ref collection (delegates to lemma_inject_policy)
 // -------------------------------------------------------------------------
 
 pub(crate) fn collect_apply_refs_from_expr(expr: &SpExpr) -> Vec<String> {
-    let mut refs = Vec::new();
-    collect_apply_refs_inner(expr, &mut refs);
-    refs
-}
-
-fn collect_apply_refs_inner(expr: &SpExpr, refs: &mut Vec<String>) {
-    match &expr.node {
-        Expr::Apply { lemma_name, args } => {
-            refs.push(lemma_name.clone());
-            for arg in args {
-                collect_apply_refs_inner(arg, refs);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_apply_refs_inner(lhs, refs);
-            collect_apply_refs_inner(rhs, refs);
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Field(inner, _)
-        | Expr::Cast { expr: inner, .. } => {
-            collect_apply_refs_inner(inner, refs);
-        }
-        Expr::Call { func, args } => {
-            collect_apply_refs_inner(func, refs);
-            for a in args {
-                collect_apply_refs_inner(a, refs);
-            }
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            collect_apply_refs_inner(receiver, refs);
-            for a in args {
-                collect_apply_refs_inner(a, refs);
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            collect_apply_refs_inner(e, refs);
-            collect_apply_refs_inner(index, refs);
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            collect_apply_refs_inner(domain, refs);
-            collect_apply_refs_inner(body, refs);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_apply_refs_inner(cond, refs);
-            collect_apply_refs_inner(then_branch, refs);
-            if let Some(eb) = else_branch {
-                collect_apply_refs_inner(eb, refs);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            collect_apply_refs_inner(value, refs);
-            collect_apply_refs_inner(body, refs);
-        }
-        Expr::Match { scrutinee, arms } => {
-            collect_apply_refs_inner(scrutinee, refs);
-            for a in arms {
-                collect_apply_refs_inner(&a.body, refs);
-            }
-        }
-        Expr::List(items) | Expr::Block(items) | Expr::Tuple(items) => {
-            for item in items {
-                collect_apply_refs_inner(item, refs);
-            }
-        }
-        _ => {}
-    }
+    crate::lemma_inject_policy::collect_apply_refs_from_expr(expr)
 }
 
 #[cfg(test)]
