@@ -47,12 +47,12 @@ pub(crate) fn define_adt_cvc5(
         constructors: adt_ctors,
     };
 
-    let tag_fn = format!("__adt_tag_{adt_name}");
+    let tag_fn = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
     assertions.push(format!("(declare-fun {tag_fn} (Int) Int)"));
 
     for ctor in &adt_def.constructors {
         for accessor in &ctor.accessors {
-            let acc_fn = format!("__adt_{adt_name}_{accessor}");
+            let acc_fn = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
             assertions.push(format!("(declare-fun {acc_fn} (Int) Int)"));
         }
     }
@@ -82,7 +82,7 @@ pub(crate) fn define_adt_cvc5(
                 format!("(= ({tag_fn} b) {})", ctor.tag),
             ];
             for accessor in &ctor.accessors {
-                let acc_fn = format!("__adt_{adt_name}_{accessor}");
+                let acc_fn = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
                 conjuncts.push(format!("(= ({acc_fn} a) ({acc_fn} b))"));
             }
             assertions.push(format!(
@@ -120,7 +120,7 @@ pub(crate) fn adt_is_constructor_smt(
         .iter()
         .find(|c| c.name == ctor_name)
         .map_or(0, |c| c.tag);
-    let tag_fn = format!("__adt_tag_{adt_name}");
+    let tag_fn = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
     format!("(= ({tag_fn} {value}) {tag})")
 }
 
@@ -130,7 +130,7 @@ pub(crate) fn adt_is_constructor_smt(
     expect(dead_code, reason = "shell-out prelude only; native uses UF accessors")
 )]
 pub(crate) fn adt_accessor_smt(adt_name: &str, accessor: &str, value: &str) -> String {
-    let acc_fn = format!("__adt_{adt_name}_{accessor}");
+    let acc_fn = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
     format!("({acc_fn} {value})")
 }
 
@@ -155,14 +155,14 @@ fn build_adt_cvc5_native<'a>(
         constructors: adt_ctors,
     };
 
-    let tag_fn_name = format!("__adt_tag_{adt_name}");
+    let tag_fn_name = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
     let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
     let tag_fn = tm.mk_const(tag_sort, &tag_fn_name);
 
     let mut acc_fns = std::collections::HashMap::new();
     for ctor in &adt_def.constructors {
         for accessor in &ctor.accessors {
-            let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+            let acc_fn_name = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
             let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
             let acc_fn_term = tm.mk_const(acc_sort, &acc_fn_name);
             acc_fns.insert(acc_fn_name, acc_fn_term);
@@ -200,7 +200,10 @@ pub(crate) fn define_adt_cvc5_native<'a>(
     let (adt_def, symbols) = build_adt_cvc5_native(tm, adt_name, constructors);
     let tag_fn = symbols.tag_fn.clone();
 
-    let x = tm.mk_var(tm.integer_sort(), &format!("__adt_exh_{adt_name}"));
+    let x = tm.mk_var(
+        tm.integer_sort(),
+        &crate::encode_atom_policy::adt_exhaust_var_name(adt_name),
+    );
     let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), x.clone()]);
 
     let tag_eqs: Vec<cvc5::Term> = adt_def
@@ -220,11 +223,11 @@ pub(crate) fn define_adt_cvc5_native<'a>(
     for ctor in &adt_def.constructors {
         let a = tm.mk_var(
             tm.integer_sort(),
-            &format!("__adt_inj_{adt_name}_{}_a", ctor.name),
+            &crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'a'),
         );
         let b = tm.mk_var(
             tm.integer_sort(),
-            &format!("__adt_inj_{adt_name}_{}_b", ctor.name),
+            &crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'b'),
         );
         let tag_a = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), a.clone()]);
         let tag_b = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), b.clone()]);
@@ -236,7 +239,7 @@ pub(crate) fn define_adt_cvc5_native<'a>(
         ];
 
         for accessor in &ctor.accessors {
-            let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+            let acc_fn_name = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
             if let Some(acc_fn_term) = symbols.acc_fns.get(&acc_fn_name) {
                 let acc_a = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), a.clone()]);
                 let acc_b = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), b.clone()]);
@@ -264,7 +267,7 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
     axioms: &mut Vec<cvc5::Term<'a>>,
     fresh_counter: &mut usize,
 ) -> cvc5::Term<'a> {
-    let val_name = format!("__adt_val_{}_{}", fresh_counter, ctor.name);
+    let val_name = crate::encode_atom_policy::adt_val_fresh_name(fresh_counter, &ctor.name);
     *fresh_counter += 1;
     let val = tm.mk_const(tm.integer_sort(), &val_name);
 
@@ -273,7 +276,8 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
 
     for (i, accessor) in ctor.accessors.iter().enumerate() {
         if let Some(arg) = args.get(i) {
-            let acc_fn_name = format!("__adt_{}_{accessor}", symbols.adt_name);
+            let acc_fn_name =
+                crate::encode_atom_policy::adt_accessor_uf_name(&symbols.adt_name, accessor);
             if let Some(acc_fn) = symbols.acc_fns.get(&acc_fn_name) {
                 let acc_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn.clone(), val.clone()]);
                 axioms.push(tm.mk_term(cvc5::Kind::Equal, &[acc_applied, arg.clone()]));
@@ -307,7 +311,7 @@ pub(crate) fn adt_accessor_cvc5_native<'a>(
     accessor: &str,
     value: &cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
-    let acc_fn_name = format!("__adt_{}_{accessor}", symbols.adt_name);
+    let acc_fn_name = crate::encode_atom_policy::adt_accessor_uf_name(&symbols.adt_name, accessor);
     let acc_fn = symbols
         .acc_fns
         .get(&acc_fn_name)

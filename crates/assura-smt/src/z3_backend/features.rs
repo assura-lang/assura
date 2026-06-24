@@ -334,7 +334,8 @@ fn assert_measure_axioms(
             MeasureAxiomTag::EmptyIsZero => {
                 // measure(empty) == 0, where empty is represented as a
                 // distinguished constant
-                let empty = ast::Int::new_const("__empty");
+                let empty =
+                    ast::Int::new_const(crate::encode_method_policy::MEASURE_EMPTY_CONST_NAME);
                 let app = func_decl.apply(&[&empty]);
                 let Some(app_int) = app.as_int() else {
                     continue;

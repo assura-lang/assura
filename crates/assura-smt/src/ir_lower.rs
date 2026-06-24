@@ -8,22 +8,22 @@ use crate::ir_encode::{IrEncodeContext, is_length_ir_call, slot_type_map};
 
 /// Block-local result slot name (#297).
 pub fn block_result_name(block_id: usize) -> String {
-    format!("__ir_block{block_id}_result")
+    crate::encode_atom_policy::ir_block_result_name(block_id)
 }
 
 /// Block-local temporary slot name.
 pub fn block_slot_name(block_id: usize, slot: usize) -> String {
-    format!("__ir_block{block_id}_slot_{slot}")
+    crate::encode_atom_policy::ir_block_slot_name(block_id, slot)
 }
 
 /// Nullary UF fallback when a sibling `fn #N` body is missing from the block map (#296).
 pub fn missing_block_uf_name(block_id: usize) -> String {
-    format!("__ir_block_{block_id}")
+    crate::encode_atom_policy::ir_block_label_name(block_id)
 }
 
 /// Prefix for inlined callee IR slots.
 pub fn call_prefix(func: &str) -> String {
-    format!("__ir_call_{func}_")
+    crate::encode_atom_policy::ir_call_temp_prefix(func)
 }
 
 /// Slot naming/type metadata for one IR lowering scope.
@@ -86,7 +86,7 @@ pub trait IrTermBuilder {
         slots: &HashMap<usize, Self::Term>,
     ) -> Self::Term {
         let val = self.load_slot(slots, slot);
-        self.unary_uf(&format!("__ir_state_{state}"), val)
+        self.unary_uf(&crate::encode_atom_policy::ir_state_uf_name(state), val)
     }
 
     /// `$result = load $param` for identity copy: `length(result) == length(param)`.
@@ -99,7 +99,7 @@ pub trait IrTermBuilder {
     /// `$result = construct T …`: bind a deterministic tag constant for the type id.
     fn on_result_construct(&mut self, type_id: &str) {
         let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
-        let tag_val = self.get_or_create_named(&format!("__ir_tag_{type_id}"));
+        let tag_val = self.get_or_create_named(&crate::encode_atom_policy::ir_tag_name(type_id));
         let tag_const = self.int_const(tag);
         self.push_eq_axiom(tag_val, tag_const);
     }
@@ -227,7 +227,10 @@ pub fn encode_ir_expr<B: IrTermBuilder>(
             if let Some(builtin) = builder.try_known_builtin(func, &arg_terms) {
                 return builtin;
             }
-            builder.nary_uf(&format!("__ir_call_{func}"), &arg_terms)
+            builder.nary_uf(
+                &crate::encode_atom_policy::ir_call_uf_name(func),
+                &arg_terms,
+            )
         }
         IrExprKind::Field { slot, index } => builder.encode_field(*slot, *index, slots, ctx),
         IrExprKind::Construct { type_id, fields } => {
