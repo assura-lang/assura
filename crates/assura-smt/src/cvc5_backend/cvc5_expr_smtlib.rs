@@ -9,7 +9,6 @@ use std::sync::OnceLock;
 use crate::cvc5_adt::{Cvc5AdtDef, adt_is_constructor_smt, define_adt_cvc5};
 use crate::cvc5_atom_encode::{encode_apply_smtlib, encode_ident_smtlib, encode_literal_smtlib};
 use crate::cvc5_call_encode::{encode_call_smtlib, encode_method_call_smtlib};
-use crate::cvc5_if_encode::encode_if_smtlib;
 use crate::cvc5_list_encode::encode_list_smtlib;
 use crate::cvc5_match_encode::encode_match_smtlib;
 use crate::cvc5_old_access::encode_old_smtlib;
@@ -19,6 +18,7 @@ use crate::cvc5_wrapper_encode::encode_wrapper_smtlib;
 use crate::encode_atom_policy::{canonical_length_name, index_access_smtlib};
 use crate::encode_binop_policy::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 use crate::encode_field_policy::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
+use crate::encode_if_policy::encode_if_smtlib;
 use crate::encode_let_policy::{encode_block_smtlib, encode_let_smtlib};
 use crate::encode_quantifier_policy::encode_ast_quantifier_smtlib;
 

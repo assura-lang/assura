@@ -1442,6 +1442,11 @@ impl Encoder {
     /// tag to the constructor's tag, and bind accessor values to the
     /// provided arguments.
     ///
+    /// Tag resolution uses [`crate::encode_adt_policy::adt_ctor_tag_or_zero`]
+    /// when the ADT registry is present (parity with CVC5 shell); unknown ctor
+    /// still defaults to tag `0`. Accessor UF names come from
+    /// [`crate::encode_atom_policy`].
+    ///
     /// Returns the fresh Int representing the constructed value.
     pub(crate) fn adt_constructor(
         &mut self,
@@ -1454,7 +1459,17 @@ impl Encoder {
             .as_ref()
             .and_then(|d| d.constructors.iter().find(|c| c.name == ctor_name));
 
-        let tag = ctor.map_or(0, |c| c.tag);
+        // Prefer sequential tag from the registered ctor; fall back to
+        // name-order policy (unknown ctor → 0) when the registry entry is
+        // missing or incomplete (parity with CVC5 adt_is_constructor_smtlib).
+        let tag = if let Some(c) = ctor {
+            c.tag
+        } else if let Some(def) = adt_def.as_ref() {
+            let names: Vec<&str> = def.constructors.iter().map(|c| c.name.as_str()).collect();
+            crate::encode_adt_policy::adt_ctor_tag_or_zero(&names, ctor_name)
+        } else {
+            0
+        };
         let accessors: Vec<String> = ctor.map_or_else(Vec::new, |c| c.accessors.clone());
 
         let val = self.fresh_int();
@@ -1488,18 +1503,26 @@ impl Encoder {
 
     /// Test whether a value was built with a specific constructor.
     ///
-    /// Returns `tag(x) == CONSTRUCTOR_TAG` as a Z3 Bool.
+    /// Returns `tag(x) == CONSTRUCTOR_TAG` as a Z3 Bool. Tag lookup mirrors
+    /// [`crate::encode_adt_policy::adt_ctor_tag_or_zero`] / CVC5 shell when the
+    /// ctor is not in the local registry entry.
     pub(crate) fn adt_is_constructor(
         &mut self,
         adt_name: &str,
         ctor_name: &str,
         value: &ast::Int,
     ) -> ast::Bool {
-        let tag = self
-            .adt_defs
-            .get(adt_name)
-            .and_then(|d| d.constructors.iter().find(|c| c.name == ctor_name))
-            .map_or(0, |c| c.tag);
+        let adt_def = self.adt_defs.get(adt_name);
+        let tag = if let Some(c) =
+            adt_def.and_then(|d| d.constructors.iter().find(|c| c.name == ctor_name))
+        {
+            c.tag
+        } else if let Some(def) = adt_def {
+            let names: Vec<&str> = def.constructors.iter().map(|c| c.name.as_str()).collect();
+            crate::encode_adt_policy::adt_ctor_tag_or_zero(&names, ctor_name)
+        } else {
+            0
+        };
 
         let tag_fn_name = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
         let tag_fn = self.make_func(&tag_fn_name, 1);
@@ -1512,7 +1535,9 @@ impl Encoder {
 
     /// Access a field of a constructed ADT value.
     ///
-    /// Returns `accessor(x)` as a Z3 Int.
+    /// Returns `accessor(x)` as a Z3 Int. UF name via
+    /// [`crate::encode_atom_policy::adt_accessor_uf_name`] (parity with
+    /// [`crate::encode_adt_policy::adt_accessor_smtlib`]).
     pub(crate) fn adt_accessor(
         &mut self,
         adt_name: &str,
