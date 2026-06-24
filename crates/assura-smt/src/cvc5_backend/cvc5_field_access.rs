@@ -36,9 +36,9 @@ pub(crate) fn shallow_field_smtlib(field: &str, obj_smt: &str) -> String {
     format!("({} {obj_smt})", field_uf_smtlib_name(field))
 }
 
-/// Render `old(flattened)` as `{flat}__old`.
+/// Render `old(flattened)` as `{flat}__old` (source/flat snapshot naming).
 pub(crate) fn old_flat_field_smtlib(flat_name: &str) -> String {
-    format!("{flat_name}__old")
+    crate::encode_atom_policy::old_snapshot_name(flat_name)
 }
 
 #[cfg(feature = "cvc5-verify")]
