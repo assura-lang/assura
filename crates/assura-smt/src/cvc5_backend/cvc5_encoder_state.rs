@@ -68,7 +68,7 @@ pub(crate) fn canonical_length_cvc5<'a>(
     vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
-    let key = format!("__canonical_len_{name}");
+    let key = crate::encode_atom_policy::canonical_length_name(name);
     if let Some(v) = vars.get(&key) {
         return v.clone();
     }

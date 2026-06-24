@@ -65,6 +65,38 @@ pub(crate) fn field_uif_name(field: &str) -> String {
     format!("__field_{field}")
 }
 
+/// Fresh temporary constant (`__fresh_{n}`).
+pub(crate) fn fresh_temp_name(counter: impl std::fmt::Display) -> String {
+    format!("__fresh_{counter}")
+}
+
+/// Fresh list object constant (`__list_{n}`).
+///
+/// Referenced from CVC5 list encode (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+pub(crate) fn list_fresh_name(counter: impl std::fmt::Display) -> String {
+    format!("__list_{counter}")
+}
+
+/// Fresh tuple object constant (`__tuple_{n}`).
+///
+/// Referenced from CVC5 tuple encode (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+pub(crate) fn tuple_fresh_name(counter: impl std::fmt::Display) -> String {
+    format!("__tuple_{counter}")
+}
+
+/// Tuple element accessor UIF (`__tuple_{arity}_{index}`).
+pub(crate) fn tuple_accessor_name(arity: usize, index: usize) -> String {
+    format!("__tuple_{arity}_{index}")
+}
+
+/// List element accessor UIF name (`__list_get`).
+///
+/// Referenced from CVC5 list encode (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+pub(crate) const LIST_GET_UF_NAME: &str = "__list_get";
+
 /// Integer literal as SMT-LIB2 text (negatives use `(- n)`).
 pub(crate) fn encode_int_literal_smtlib(n: &str) -> String {
     if let Some(stripped) = n.strip_prefix('-') {
@@ -195,6 +227,11 @@ mod tests {
         assert_eq!(old_ident_name("x.y"), "x_y__old");
         assert_eq!(canonical_length_name("buf"), "__canonical_len_buf");
         assert_eq!(field_uif_name("len"), "__field_len");
+        assert_eq!(fresh_temp_name(3), "__fresh_3");
+        assert_eq!(list_fresh_name(1), "__list_1");
+        assert_eq!(tuple_fresh_name(2), "__tuple_2");
+        assert_eq!(tuple_accessor_name(3, 0), "__tuple_3_0");
+        assert_eq!(LIST_GET_UF_NAME, "__list_get");
         assert!(is_internal_encoder_var("__field_len"));
         assert!(is_internal_encoder_var(RESULT_VAR_NAME));
         assert!(!is_internal_encoder_var("payload_length"));

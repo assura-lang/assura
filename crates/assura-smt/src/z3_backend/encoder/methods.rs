@@ -356,7 +356,7 @@ impl Encoder {
                 for (i, elem) in elems.iter().enumerate() {
                     let elem_val = self.encode_expr(elem);
                     // Assert: __tuple_{arity}_{i}(tuple) == elem_val
-                    let accessor_name = format!("__tuple_{arity}_{i}");
+                    let accessor_name = crate::encode_atom_policy::tuple_accessor_name(arity, i);
                     let accessor = self.make_func(&accessor_name, 1);
                     let accessed = accessor
                         .apply(&[&tuple_val as &dyn z3::ast::Ast])

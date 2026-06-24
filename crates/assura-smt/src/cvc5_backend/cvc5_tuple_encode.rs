@@ -15,12 +15,12 @@ pub(crate) fn encode_tuple_cvc5<'a>(
     axioms: &mut Vec<cvc5::Term<'a>>,
     fresh_counter: &mut usize,
 ) -> cvc5::Term<'a> {
-    let tuple_name = format!("__tuple_{fresh_counter}");
+    let tuple_name = crate::encode_atom_policy::tuple_fresh_name(*fresh_counter);
     *fresh_counter += 1;
     let tuple_val = tm.mk_const(tm.integer_sort(), &tuple_name);
     let arity = elem_vals.len();
     for (i, elem_val) in elem_vals.iter().enumerate() {
-        let accessor_name = format!("__tuple_{arity}_{i}");
+        let accessor_name = crate::encode_atom_policy::tuple_accessor_name(arity, i);
         let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
         let acc_func = tm.mk_const(acc_sort, &accessor_name);
         let accessed = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_func, tuple_val.clone()]);
