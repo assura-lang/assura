@@ -47,6 +47,11 @@ pub(crate) fn plan_old_access(inner: &SpExpr) -> OldAccessPlan {
     match &inner.node {
         Expr::Ident(name) => OldAccessPlan::Ident(name.clone()),
         Expr::Field(obj, field) => match plan_field_access(obj, field) {
+            // old(ident.len) is not a special snapshot; treat as shallow UF on the length field.
+            FieldAccessPlan::CanonicalLength { obj_name } => OldAccessPlan::ShallowField {
+                obj: Box::new(assura_ast::Spanned::no_span(Expr::Ident(obj_name))),
+                field: field.to_string(),
+            },
             FieldAccessPlan::Flatten(flat) => OldAccessPlan::FlatField(flat),
             FieldAccessPlan::ShallowUf { field: f } => OldAccessPlan::ShallowField {
                 obj: obj.clone(),

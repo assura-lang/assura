@@ -49,14 +49,10 @@ where
     use crate::encode_atom_policy::is_size_field_name;
     use crate::encode_method_policy::is_bool_field_name;
 
-    if (field == crate::encode_atom_policy::LEN_UF_NAME
-        || field == crate::encode_atom_policy::LENGTH_METHOD_NAME)
-        && let Expr::Ident(name) = &obj.node
-    {
-        return Some(canonical_length_cvc5(tm, name, vars, state));
-    }
-
     match plan_field_access(obj, field) {
+        FieldAccessPlan::CanonicalLength { obj_name } => {
+            Some(canonical_length_cvc5(tm, &obj_name, vars, state))
+        }
         FieldAccessPlan::Flatten(flat_name) => {
             if is_bool_field_name(field) {
                 return Some(tm.mk_const(tm.boolean_sort(), &flat_name));

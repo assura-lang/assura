@@ -925,27 +925,11 @@ impl Encoder {
     /// `__field_len(result)`. This is a known limitation; see the doc
     /// comment on `verify_clauses_with_types` for details.
     pub(crate) fn encode_field_access(&mut self, obj: &SpExpr, field: &str) -> Z3Value {
-        // Canonical length for simple identifiers (#267).
-        if crate::encode_atom_policy::is_length_method_name(field)
-            && let Expr::Ident(name) = &obj.node
-        {
-            return Z3Value::Int(self.canonical_length(name));
-        }
-
-        // Native string theory: .length() on a Str value uses Z3's str.len
-        if self.use_string_theory && crate::encode_atom_policy::is_length_method_name(field) {
-            let obj_val = self.encode_expr(obj);
-            if let Z3Value::Str(s) = &obj_val {
-                let len = s.length();
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(len.ge(&zero));
-                return Z3Value::Int(len);
-            }
-            // Not a Str value; fall through to default encoding
-        }
-
-        // #198: flatten vs shallow UF via encode_field_policy (parity with CVC5).
+        // #198 / #267: plan via encode_field_policy (canonical length, flatten, shallow).
         match crate::encode_field_policy::plan_field_access(obj, field) {
+            crate::encode_field_policy::FieldAccessPlan::CanonicalLength { obj_name } => {
+                return Z3Value::Int(self.canonical_length(&obj_name));
+            }
             crate::encode_field_policy::FieldAccessPlan::Flatten(flat_name) => {
                 // Boolean-valued fields at any depth (table in encode_method_policy).
                 if crate::encode_method_policy::is_bool_field_name(field) {
@@ -964,6 +948,21 @@ impl Encoder {
                 return Z3Value::Int(v);
             }
             crate::encode_field_policy::FieldAccessPlan::ShallowUf { .. } => {}
+        }
+
+        // Native string theory: .length() on a non-ident Str value uses Z3's str.len
+        // (ident length is CanonicalLength above; policy marks may_use_string_theory).
+        if self.use_string_theory
+            && crate::encode_field_policy::field_access_may_use_string_theory_length(obj, field)
+        {
+            let obj_val = self.encode_expr(obj);
+            if let Z3Value::Str(s) = &obj_val {
+                let len = s.length();
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(len.ge(&zero));
+                return Z3Value::Int(len);
+            }
+            // Not a Str value; fall through to shallow UF
         }
 
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);

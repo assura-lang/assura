@@ -15,7 +15,7 @@ use crate::cvc5_old_access::encode_old_smtlib;
 use crate::cvc5_raw_encode::encode_raw_expr_smtlib;
 use crate::cvc5_tuple_encode::encode_tuple_smtlib;
 use crate::cvc5_wrapper_encode::encode_wrapper_smtlib;
-use crate::encode_atom_policy::{canonical_length_name, index_access_smtlib};
+use crate::encode_atom_policy::index_access_smtlib;
 use crate::encode_binop_policy::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 use crate::encode_field_policy::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
 use crate::encode_if_policy::encode_if_smtlib;
@@ -77,20 +77,16 @@ pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
         } => encode_match_smtlib(scrutinee, arms, expr_to_smtlib, |name, s| {
             adt_is_constructor_smt("Option", name, s, shell_match_adt_def())
         }),
-        Expr::Field(obj, field) => {
-            if matches!(field.as_str(), "len" | "length")
-                && let Expr::Ident(name) = &obj.as_ref().node
-            {
-                return Some(canonical_length_name(name));
+        Expr::Field(obj, field) => match plan_field_access(obj, field) {
+            FieldAccessPlan::CanonicalLength { obj_name } => Some(
+                crate::encode_field_policy::canonical_length_field_smtlib(&obj_name),
+            ),
+            FieldAccessPlan::Flatten(name) => Some(name),
+            FieldAccessPlan::ShallowUf { field: f } => {
+                let o = expr_to_smtlib(obj)?;
+                Some(shallow_field_smtlib(&f, &o))
             }
-            match plan_field_access(obj, field) {
-                FieldAccessPlan::Flatten(name) => Some(name),
-                FieldAccessPlan::ShallowUf { field: f } => {
-                    let o = expr_to_smtlib(obj)?;
-                    Some(shallow_field_smtlib(&f, &o))
-                }
-            }
-        }
+        },
         Expr::Index { expr: coll, index } => {
             let c = expr_to_smtlib(coll)?;
             let i = expr_to_smtlib(index)?;
