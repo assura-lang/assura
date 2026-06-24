@@ -1,6 +1,6 @@
 //! Shared list encoding for CVC5 backends.
 
-pub(crate) const LIST_FRESH_PLACEHOLDER: &str = "__list_fresh";
+pub(crate) use crate::encode_atom_policy::LIST_FRESH_PLACEHOLDER;
 
 #[cfg(feature = "cvc5-verify")]
 pub(crate) use crate::encode_atom_policy::LIST_GET_UF_NAME;
