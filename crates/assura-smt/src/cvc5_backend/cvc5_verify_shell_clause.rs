@@ -92,10 +92,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     }
 
     let Some(smt) = expr_to_smtlib(ensures_body) else {
-        return VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason: "could not encode clause to SMT-LIB2".into(),
-        };
+        return crate::clause_gate_policy::clause_encode_failure(desc, "SMT-LIB2");
     };
     append_cvc5_shellout_clause_check(&mut script, kind.clone(), &smt);
 
