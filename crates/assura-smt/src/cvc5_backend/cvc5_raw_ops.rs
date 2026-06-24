@@ -27,7 +27,13 @@ pub(crate) use crate::encode_raw_ops_policy::{
 #[cfg(test)]
 pub(crate) use crate::encode_raw_ops_policy::wrap_ast_quantifier_smtlib;
 
-// AST binop SMT-LIB text: encode_atom_policy
+// AST binop SMT-LIB text: prefer `encode_binop_policy` / `cvc5_binop_encode` re-exports.
+// Keep atom helpers available only when CVC5-native binop tests/kinds need direct access.
+#[cfg(any(test, feature = "cvc5-verify"))]
+#[allow(
+    unused_imports,
+    reason = "cvc5-verify / tests; shell goes through encode_binop_policy"
+)]
 pub(crate) use crate::encode_atom_policy::{
     concat_binop_smtlib, format_neq_ast_binop_smtlib, format_standard_ast_binop_smtlib,
     in_binop_smtlib, not_in_binop_smtlib, range_binop_smtlib,

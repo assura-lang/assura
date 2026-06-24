@@ -1,11 +1,10 @@
 //! Shared AST BinOp/UnaryOp encoding for CVC5 shell-out and native backends.
+//!
+//! SMT-LIB **policy** lives in [`crate::encode_binop_policy`]; this module re-exports
+//! it and keeps CVC5-native term construction.
 
-use assura_ast::{BinOp, UnaryOp};
-
-use crate::cvc5_raw_ops::{
-    concat_binop_smtlib, format_neq_ast_binop_smtlib, format_standard_ast_binop_smtlib,
-    in_binop_smtlib, not_in_binop_smtlib, range_binop_smtlib,
-};
+// Stable import paths for `cvc5_expr_smtlib` / callers.
+pub(crate) use crate::encode_binop_policy::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5};
@@ -13,26 +12,10 @@ use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5};
 use crate::cvc5_native_binops::{
     encode_concat_binop_cvc5, encode_contains_binop_cvc5, encode_range_binop_cvc5,
 };
-
-/// Encode an AST binary operator as SMT-LIB2.
-pub(crate) fn encode_ast_binop_smtlib(op: &BinOp, l: &str, r: &str) -> Option<String> {
-    match op {
-        BinOp::Neq => Some(format_neq_ast_binop_smtlib(l, r)),
-        BinOp::Range => Some(range_binop_smtlib(l, r)),
-        BinOp::In => Some(in_binop_smtlib(l, r)),
-        BinOp::NotIn => Some(not_in_binop_smtlib(l, r)),
-        BinOp::Concat => Some(concat_binop_smtlib(l, r)),
-        _ => format_standard_ast_binop_smtlib(op, l, r),
-    }
-}
-
-/// Encode an AST unary operator as SMT-LIB2.
-pub(crate) fn encode_ast_unary_smtlib(op: &UnaryOp, inner: &str) -> String {
-    match op {
-        UnaryOp::Not => format!("(not {inner})"),
-        UnaryOp::Neg => format!("(- {inner})"),
-    }
-}
+#[cfg(feature = "cvc5-verify")]
+use crate::encode_binop_policy::{AstBinOpKind, classify_ast_binop};
+#[cfg(feature = "cvc5-verify")]
+use assura_ast::{BinOp, UnaryOp};
 
 /// Encode an AST binary operator as a native CVC5 term.
 #[cfg(feature = "cvc5-verify")]
@@ -43,24 +26,24 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
     r: cvc5::Term<'a>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    match op {
-        BinOp::Neq => {
+    match classify_ast_binop(op) {
+        AstBinOpKind::Neq => {
             let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]);
             Some(tm.mk_term(cvc5::Kind::Not, &[eq]))
         }
-        BinOp::Range => Some(encode_range_binop_cvc5(
+        AstBinOpKind::Range => Some(encode_range_binop_cvc5(
             tm,
             &mut state.axioms,
             &mut state.fresh_counter,
             l,
             r,
         )),
-        BinOp::In => Some(encode_contains_binop_cvc5(tm, r, l)),
-        BinOp::NotIn => {
+        AstBinOpKind::In => Some(encode_contains_binop_cvc5(tm, r, l)),
+        AstBinOpKind::NotIn => {
             let in_result = encode_contains_binop_cvc5(tm, r, l);
             Some(tm.mk_term(cvc5::Kind::Not, &[in_result]))
         }
-        BinOp::Concat => {
+        AstBinOpKind::Concat => {
             let len_func = field_len_fn_cvc5(tm, state);
             Some(encode_concat_binop_cvc5(
                 tm,
@@ -71,10 +54,11 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
                 r,
             ))
         }
-        _ => {
+        AstBinOpKind::Standard => {
             let kind = crate::cvc5_raw_ops::standard_ast_binop_cvc5_kind(op)?;
             Some(tm.mk_term(kind, &[l, r]))
         }
+        AstBinOpKind::Unsupported => None,
     }
 }
 
@@ -93,6 +77,8 @@ pub(crate) fn encode_ast_unary_cvc5<'a>(
 
 #[cfg(test)]
 mod tests {
+    use assura_ast::{BinOp, UnaryOp};
+
     use super::*;
 
     #[test]

@@ -7,8 +7,6 @@
 use assura_ast::Literal;
 use assura_ast::{MatchArm, Pattern, SpExpr};
 
-#[cfg(feature = "cvc5-verify")]
-use crate::encode_match_policy::is_constructor_tag_pattern;
 use crate::encode_match_policy::{
     MatchArmKind, classify_match_arm, ctor_tag_eq_smtlib, literal_eq_smtlib,
 };
@@ -103,6 +101,9 @@ pub(crate) fn bind_pattern_vars_cvc5<'a>(
 }
 
 /// Encode match arms as nested native `ite` terms (arms processed right-to-left).
+///
+/// Arm kinds come from [`crate::encode_match_policy::classify_match_arm`] (parity
+/// with `encode_match_smtlib`).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_match_cvc5<'a, E>(
     tm: &'a cvc5::TermManager,
@@ -119,33 +120,43 @@ where
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
+    use crate::encode_match_policy::{MatchArmKind, classify_match_arm};
+
     if arms.is_empty() {
         return None;
     }
     let s = encode(scrutinee, vars, state)?;
     let mut result: Option<cvc5::Term<'_>> = None;
     for arm in arms.iter().rev() {
-        match &arm.pattern {
-            Pattern::Wildcard => {
+        let kind = classify_match_arm(arm);
+        match kind {
+            MatchArmKind::Wildcard => {
                 result = Some(encode(&arm.body, vars, state)?);
             }
-            Pattern::Ident(name) => {
+            MatchArmKind::BindIdent => {
+                let mut local_vars = vars.clone();
+                bind_pattern_vars_cvc5(tm, &arm.pattern, &mut local_vars);
+                result = Some(encode(&arm.body, &mut local_vars, state)?);
+            }
+            MatchArmKind::CtorTagIdent => {
+                let Pattern::Ident(name) = &arm.pattern else {
+                    unreachable!("CtorTagIdent requires Ident pattern");
+                };
                 let mut local_vars = vars.clone();
                 bind_pattern_vars_cvc5(tm, &arm.pattern, &mut local_vars);
                 let body = encode(&arm.body, &mut local_vars, state)?;
-                if is_constructor_tag_pattern(name) {
-                    let tag_val = tm.mk_integer(pattern_hash_name(name));
-                    let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), tag_val]);
-                    if let Some(default) = result.as_ref() {
-                        result = Some(tm.mk_term(cvc5::Kind::Ite, &[cond, body, default.clone()]));
-                    } else {
-                        result = Some(body);
-                    }
+                let tag_val = tm.mk_integer(pattern_hash_name(name));
+                let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), tag_val]);
+                if let Some(default) = result.as_ref() {
+                    result = Some(tm.mk_term(cvc5::Kind::Ite, &[cond, body, default.clone()]));
                 } else {
                     result = Some(body);
                 }
             }
-            Pattern::Literal(lit) => {
+            MatchArmKind::Literal => {
+                let Pattern::Literal(lit) = &arm.pattern else {
+                    unreachable!("Literal kind requires Literal pattern");
+                };
                 let body = encode(&arm.body, vars, state)?;
                 let lit_term = match lit {
                     Literal::Int(n) => {
@@ -159,7 +170,10 @@ where
                 let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), lit_term]);
                 result = Some(tm.mk_term(cvc5::Kind::Ite, &[cond, body, default]));
             }
-            Pattern::Constructor { name, fields } => {
+            MatchArmKind::Constructor => {
+                let Pattern::Constructor { name, fields } = &arm.pattern else {
+                    unreachable!("Constructor kind requires Constructor pattern");
+                };
                 let tag_val = tm.mk_integer(pattern_hash_name(name));
                 let cond = tm.mk_term(cvc5::Kind::Equal, &[s.clone(), tag_val]);
                 let mut local_vars = vars.clone();
@@ -170,7 +184,10 @@ where
                 let default = result.as_ref()?.clone();
                 result = Some(tm.mk_term(cvc5::Kind::Ite, &[cond, body, default]));
             }
-            Pattern::Tuple(pats) => {
+            MatchArmKind::Tuple => {
+                let Pattern::Tuple(pats) = &arm.pattern else {
+                    unreachable!("Tuple kind requires Tuple pattern");
+                };
                 let mut local_vars = vars.clone();
                 for pat in pats {
                     bind_pattern_vars_cvc5(tm, pat, &mut local_vars);

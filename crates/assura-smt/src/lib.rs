@@ -63,6 +63,7 @@ mod clause_policy;
 //   encode_old_policy        — `old(e)` pre-state access plan (ident/field/method)
 // Not full `Expr`→solver-term unify: Z3 `Encoder` and CVC5 term builders stay separate.
 mod encode_atom_policy;
+mod encode_binop_policy;
 mod encode_call_policy;
 mod encode_field_policy;
 mod encode_match_policy;
