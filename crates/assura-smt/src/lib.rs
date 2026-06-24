@@ -58,7 +58,7 @@ mod clause_policy;
 //   encode_raw_ops_policy    — raw-token operators + quantifier/range SMT-LIB shapes
 //   encode_quantifier_policy — AST quantifier domain/orchestration (shell/native)
 //   encode_method_policy     — KnownBuiltin tables, `is_*_builtin`, SMT-LIB method text
-//   encode_call_policy       — `EncodeCallKind` order (`classify_encode_call` / asserts)
+//   encode_call_policy       — `EncodeCallKind` order (Z3/CVC5/shell classify + asserts)
 //   encode_field_policy      — field access plan (flatten vs shallow UF) + SMT-LIB shapes
 //   encode_old_policy        — `old(e)` pre-state access plan (ident/field/method)
 //   encode_if_policy         — `if cond then t [else e]` plan (`ite` vs `=>`)

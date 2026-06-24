@@ -1,9 +1,15 @@
 //! Shared **call / method encode order** policy (encode convergence step 5).
 //!
-//! Documents and classifies the dispatch order used by Z3 `encode_call` and
-//! CVC5 `encode_known_builtin_cvc5` / method UF fallbacks. Backends still build
-//! solver terms locally; this module only returns a neutral [`EncodeCallKind`]
-//! so Z3/CVC5/shell agree on *which* path applies before term construction.
+//! Documents and classifies the dispatch order used by:
+//! - Z3 `Encoder::encode_call` (`call_kind = classify_encode_call`, then `matches!` arms)
+//! - CVC5 `encode_known_builtin_cvc5` (`KnownBuiltin` match + [`debug_assert_known_builtin_encode_kind`])
+//! - CVC5 `encode_uf_call_cvc5` (post-builtin UF / size / bool path via `call_kind`)
+//! - CVC5 shell `encode_call_smtlib` / `encode_method_call_smtlib` (known builtin text +
+//!   fallthrough `classify_encode_call` for size/bool/UF)
+//!
+//! Backends still build solver terms locally; this module only returns a neutral
+//! [`EncodeCallKind`] so Z3/CVC5/shell agree on *which* path applies before term
+//! construction.
 //!
 //! Complements [`crate::encode_method_policy`] (builtin tables / `is_*_builtin`)
 //! and [`crate::encode_atom_policy`] (UF/name atoms).
