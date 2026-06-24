@@ -1,9 +1,9 @@
 //! Shared CVC5 builtin classification and SMT-LIB rendering.
 //!
-//! Native encoding (`encode_known_builtin_cvc5`) and shell-out (`expr_to_smtlib`)
-//! share the same builtin name/arity table. **Policy** lives in
-//! [`crate::encode_method_policy`]; this module re-exports stable `cvc5_builtins`
-//! import paths and keeps CVC5-only thin aliases (`is_bool_field`).
+//! **Policy** lives in [`crate::encode_method_policy`] / [`crate::encode_atom_policy`].
+//! New encode paths should import those modules directly. This module keeps a
+//! stable `cvc5_builtins::*` re-export surface (tests/shell aliases) plus
+//! CVC5-only thin wrappers (`is_bool_field`, `is_size_field`).
 
 // -------------------------------------------------------------------------
 // Re-exports: encode_method_policy (encode convergence step 4)

@@ -2,9 +2,9 @@
 
 use assura_ast::{Expr, SpExpr};
 
-use crate::cvc5_builtins::known_builtin_to_smtlib;
 use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_common::sanitize_smtlib_name;
+use crate::encode_method_policy::known_builtin_to_smtlib;
 
 #[cfg(feature = "cvc5-verify")]
 use std::collections::HashMap;
