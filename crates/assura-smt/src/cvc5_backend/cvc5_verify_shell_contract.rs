@@ -87,10 +87,7 @@ fn verify_contract_cvc5_shellout_incremental(
         if expr_to_smtlib(&clause.body).is_none() {
             resolved.push((
                 index,
-                VerificationResult::Unknown {
-                    clause_desc: desc,
-                    reason: "could not encode clause to SMT-LIB2".into(),
-                },
+                crate::clause_gate_policy::clause_encode_failure(&desc, "SMT-LIB2"),
             ));
             continue;
         }

@@ -179,6 +179,14 @@ pub(crate) fn cvc5_clause_cache_key(desc: &str, kind: &ClauseKind, body: &SpExpr
     crate::clause_gate_policy::clause_session_cache_key(desc, kind, body)
 }
 
+/// Native CVC5 encode miss (only called from `cvc5-verify` / incremental-native paths).
+#[cfg_attr(
+    not(feature = "cvc5-verify"),
+    allow(
+        dead_code,
+        reason = "callers are cfg(cvc5-verify); shell uses clause_encode_failure"
+    )
+)]
 pub(crate) fn cvc5_encode_failure(desc: &str) -> VerificationResult {
     crate::clause_gate_policy::clause_encode_failure(desc, "CVC5 terms")
 }
