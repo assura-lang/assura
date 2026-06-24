@@ -435,7 +435,7 @@ impl Encoder {
         arg_vals: &[ast::Int],
         call_kind: crate::encode_call_policy::EncodeCallKind,
     ) -> Z3Value {
-        use crate::encode_call_policy::EncodeCallKind;
+        use crate::encode_call_policy::{BoolCallAxiom, EncodeCallKind, classify_bool_call_axiom};
 
         // min/max: encode with ite so Z3 proves bounds (not unconstrained UF).
         // e.g. ensures { min(a, b) <= a } verifies under any a, b.
@@ -452,6 +452,7 @@ impl Encoder {
         }
         // Methods known to return Bool (UF with optional length / size links below).
         // Table lives in encode_method_policy (parity with CVC5 / methods.rs).
+        // Sub-classification via classify_bool_call_axiom selects specialized axioms.
         if matches!(call_kind, EncodeCallKind::BoolReturningUf) {
             let bool_sort = z3::Sort::bool();
             let int_sort = z3::Sort::int();
@@ -461,56 +462,60 @@ impl Encoder {
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
             let result = decl.apply(&arg_refs);
             let b = result.as_bool().unwrap_or_else(|| self.fresh_bool());
-            // is_empty(x) <=> len(x) == 0 (sound for sequences/maps with size).
-            if func_name == "is_empty" && arg_vals.len() == 1 {
-                let coll = &arg_vals[0];
-                let coll_expr = &args[0].node;
-                let len_val = self.collection_len_of(coll_expr, coll, "len");
-                let zero = ast::Int::from_i64(0);
-                let len_is_zero = len_val.eq(&zero);
-                // Both directions: empty iff length zero.
-                self.background_axioms.push(b.implies(&len_is_zero));
-                self.background_axioms.push(len_is_zero.implies(&b));
-            }
-            // contains(s, sub) => len(s) >= len(sub) (contiguous substring; sound).
-            if func_name == "contains" && arg_vals.len() == 2 {
-                let hay_expr = &args[0].node;
-                let needle_expr = &args[1].node;
-                let hay_len = self.collection_len_of(hay_expr, &arg_vals[0], "len");
-                let needle_len = self.collection_len_of(needle_expr, &arg_vals[1], "len");
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(hay_len.ge(&zero));
-                self.background_axioms.push(needle_len.ge(&zero));
-                let hay_ge_needle = hay_len.ge(&needle_len);
-                self.background_axioms.push(b.implies(&hay_ge_needle));
-            }
-            // starts_with(s, pre) / ends_with(s, suf) => len(s) >= len(pre/suf) (sound).
-            if matches!(func_name, "starts_with" | "ends_with") && arg_vals.len() == 2 {
-                let s_expr = &args[0].node;
-                let aff_expr = &args[1].node;
-                let s_len = self.collection_len_of(s_expr, &arg_vals[0], "len");
-                let aff_len = self.collection_len_of(aff_expr, &arg_vals[1], "len");
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(s_len.ge(&zero));
-                self.background_axioms.push(aff_len.ge(&zero));
-                let s_ge_aff = s_len.ge(&aff_len);
-                self.background_axioms.push(b.implies(&s_ge_aff));
-                // Empty affix: starts_with/ends_with always hold (prefix/suffix of length 0).
-                let aff_is_zero = aff_len.eq(&zero);
-                self.background_axioms.push(aff_is_zero.implies(&b));
-            }
-            // contains_key(m, k) => size(m) >= 1 (key present implies non-empty map; sound).
-            if func_name == "contains_key" && arg_vals.len() == 2 {
-                let map_expr = &args[0].node;
-                let map_size = self.collection_len_of(map_expr, &arg_vals[0], "size");
-                // Also link size <-> len for maps (size method vs len).
-                let map_len = self.collection_len_of(map_expr, &arg_vals[0], "len");
-                self.background_axioms.push(map_size.eq(&map_len));
-                let one = ast::Int::from_i64(1);
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(map_size.ge(&zero));
-                let size_ge_one = map_size.ge(&one);
-                self.background_axioms.push(b.implies(&size_ge_one));
+            match classify_bool_call_axiom(func_name, arg_vals.len()) {
+                BoolCallAxiom::IsEmpty => {
+                    // is_empty(x) <=> len(x) == 0 (bidirectional; sound).
+                    let coll = &arg_vals[0];
+                    let coll_expr = &args[0].node;
+                    let len_val = self.collection_len_of(coll_expr, coll, "len");
+                    let zero = ast::Int::from_i64(0);
+                    let len_is_zero = len_val.eq(&zero);
+                    self.background_axioms.push(b.implies(&len_is_zero));
+                    self.background_axioms.push(len_is_zero.implies(&b));
+                }
+                BoolCallAxiom::Contains => {
+                    // contains(s, sub) => len(s) >= len(sub) (contiguous substring; sound).
+                    let hay_expr = &args[0].node;
+                    let needle_expr = &args[1].node;
+                    let hay_len = self.collection_len_of(hay_expr, &arg_vals[0], "len");
+                    let needle_len = self.collection_len_of(needle_expr, &arg_vals[1], "len");
+                    let zero = ast::Int::from_i64(0);
+                    self.background_axioms.push(hay_len.ge(&zero));
+                    self.background_axioms.push(needle_len.ge(&zero));
+                    let hay_ge_needle = hay_len.ge(&needle_len);
+                    self.background_axioms.push(b.implies(&hay_ge_needle));
+                }
+                BoolCallAxiom::AffixPredicate => {
+                    // starts_with/ends_with(s, affix) => len(s) >= len(affix) (sound).
+                    let s_expr = &args[0].node;
+                    let aff_expr = &args[1].node;
+                    let s_len = self.collection_len_of(s_expr, &arg_vals[0], "len");
+                    let aff_len = self.collection_len_of(aff_expr, &arg_vals[1], "len");
+                    let zero = ast::Int::from_i64(0);
+                    self.background_axioms.push(s_len.ge(&zero));
+                    self.background_axioms.push(aff_len.ge(&zero));
+                    let s_ge_aff = s_len.ge(&aff_len);
+                    self.background_axioms.push(b.implies(&s_ge_aff));
+                    // Empty affix: starts_with/ends_with always hold (prefix/suffix of length 0).
+                    let aff_is_zero = aff_len.eq(&zero);
+                    self.background_axioms.push(aff_is_zero.implies(&b));
+                }
+                BoolCallAxiom::ContainsKey => {
+                    // contains_key(m, k) => size(m) >= 1 (key present implies non-empty map; sound).
+                    let map_expr = &args[0].node;
+                    let map_size = self.collection_len_of(map_expr, &arg_vals[0], "size");
+                    // Also link size <-> len for maps (size method vs len).
+                    let map_len = self.collection_len_of(map_expr, &arg_vals[0], "len");
+                    self.background_axioms.push(map_size.eq(&map_len));
+                    let one = ast::Int::from_i64(1);
+                    let zero = ast::Int::from_i64(0);
+                    self.background_axioms.push(map_size.ge(&zero));
+                    let size_ge_one = map_size.ge(&one);
+                    self.background_axioms.push(b.implies(&size_ge_one));
+                }
+                BoolCallAxiom::Generic => {
+                    // No specialized axioms; generic bool UF.
+                }
             }
             return Z3Value::Bool(b);
         }

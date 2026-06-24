@@ -235,6 +235,45 @@ pub(crate) fn encode_call_kind_from_known_builtin(kind: KnownBuiltin) -> EncodeC
     }
 }
 
+/// Which specialized axiom pattern a [`BoolReturningUf`](EncodeCallKind::BoolReturningUf) call gets.
+///
+/// All `BoolReturningUf` calls share Bool sort, but some get additional length/size
+/// axioms. This sub-classification avoids hardcoded `func_name == "is_empty"` checks
+/// in every backend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoolCallAxiom {
+    /// `is_empty(x) <=> len(x) == 0` (bidirectional).
+    IsEmpty,
+    /// `contains(s, sub) => len(s) >= len(sub)`.
+    Contains,
+    /// `starts_with` / `ends_with`: `len(s) >= len(affix)`, plus empty affix always true.
+    AffixPredicate,
+    /// `contains_key(m, k) => size(m) >= 1`.
+    ContainsKey,
+    /// No specialized axioms (generic bool UF).
+    Generic,
+}
+
+/// Classify a `BoolReturningUf` call into its specialized axiom pattern.
+///
+/// Only meaningful when [`classify_encode_call`] returns [`EncodeCallKind::BoolReturningUf`].
+/// Backends use this to select the right axiom set without hardcoding function name strings.
+pub(crate) fn classify_bool_call_axiom(func_name: &str, arity: usize) -> BoolCallAxiom {
+    if func_name == "is_empty" && arity == 1 {
+        return BoolCallAxiom::IsEmpty;
+    }
+    if func_name == "contains" && arity == 2 {
+        return BoolCallAxiom::Contains;
+    }
+    if matches!(func_name, "starts_with" | "ends_with") && arity == 2 {
+        return BoolCallAxiom::AffixPredicate;
+    }
+    if func_name == "contains_key" && arity == 2 {
+        return BoolCallAxiom::ContainsKey;
+    }
+    BoolCallAxiom::Generic
+}
+
 /// Debug-only check: branch guard (`expected`) agrees with [`classify_encode_call`].
 ///
 /// Call at the entry of each encode_call arm so Z3/CVC5 cannot diverge from the
@@ -391,6 +430,67 @@ mod tests {
             assert_eq!(
                 classify_encode_call(op, arity),
                 encode_call_kind_from_known_builtin(kb)
+            );
+        }
+    }
+
+    #[test]
+    fn classify_bool_call_axiom_specialized() {
+        assert_eq!(
+            classify_bool_call_axiom("is_empty", 1),
+            BoolCallAxiom::IsEmpty
+        );
+        assert_eq!(
+            classify_bool_call_axiom("contains", 2),
+            BoolCallAxiom::Contains
+        );
+        assert_eq!(
+            classify_bool_call_axiom("starts_with", 2),
+            BoolCallAxiom::AffixPredicate
+        );
+        assert_eq!(
+            classify_bool_call_axiom("ends_with", 2),
+            BoolCallAxiom::AffixPredicate
+        );
+        assert_eq!(
+            classify_bool_call_axiom("contains_key", 2),
+            BoolCallAxiom::ContainsKey
+        );
+        // Wrong arity falls to Generic.
+        assert_eq!(
+            classify_bool_call_axiom("is_empty", 2),
+            BoolCallAxiom::Generic
+        );
+        assert_eq!(
+            classify_bool_call_axiom("contains", 1),
+            BoolCallAxiom::Generic
+        );
+        // Non-specialized bool UF.
+        assert_eq!(
+            classify_bool_call_axiom("is_valid", 1),
+            BoolCallAxiom::Generic
+        );
+    }
+
+    #[test]
+    fn bool_call_axiom_implies_bool_returning_uf_kind() {
+        // Every specialized BoolCallAxiom name must classify as BoolReturningUf.
+        for (name, arity) in [
+            ("is_empty", 1),
+            ("contains", 2),
+            ("starts_with", 2),
+            ("ends_with", 2),
+            ("contains_key", 2),
+        ] {
+            assert_eq!(
+                classify_encode_call(name, arity),
+                EncodeCallKind::BoolReturningUf,
+                "{name}/{arity} must be BoolReturningUf"
+            );
+            assert_ne!(
+                classify_bool_call_axiom(name, arity),
+                BoolCallAxiom::Generic,
+                "{name}/{arity} must have specialized axiom"
             );
         }
     }

@@ -5,7 +5,8 @@
 use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5, intern_uf_cvc5};
 use crate::cvc5_native_binops::alloc_fresh_int_cvc5;
 use crate::encode_call_policy::{
-    EncodeCallKind, classify_encode_call, debug_assert_known_builtin_encode_kind,
+    BoolCallAxiom, EncodeCallKind, classify_bool_call_axiom, classify_encode_call,
+    debug_assert_known_builtin_encode_kind,
 };
 use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin};
 
@@ -706,21 +707,17 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
 ) -> Option<cvc5::Term<'a>> {
     let call_kind = classify_encode_call(f_name, encoded_args.len());
 
-    // Specialized bool predicates before generic BoolReturningUf UF (Z3 parity).
-    if f_name == "is_empty" && encoded_args.len() == 1 {
-        return Some(encode_is_empty_cvc5(tm, &encoded_args[0], state));
-    }
-    if f_name == "contains" && encoded_args.len() == 2 {
-        return Some(encode_contains_cvc5(tm, encoded_args, state));
-    }
-    if matches!(f_name, "starts_with" | "ends_with") && encoded_args.len() == 2 {
-        return Some(encode_affix_pred_cvc5(tm, f_name, encoded_args, state));
-    }
-    if f_name == "contains_key" && encoded_args.len() == 2 {
-        return Some(encode_contains_key_cvc5(tm, encoded_args, state));
-    }
+    // Bool-returning UF dispatch via classify_bool_call_axiom (Z3 parity).
     if matches!(call_kind, EncodeCallKind::BoolReturningUf) {
-        return Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, true));
+        return Some(match classify_bool_call_axiom(f_name, encoded_args.len()) {
+            BoolCallAxiom::IsEmpty => encode_is_empty_cvc5(tm, &encoded_args[0], state),
+            BoolCallAxiom::Contains => encode_contains_cvc5(tm, encoded_args, state),
+            BoolCallAxiom::AffixPredicate => {
+                encode_affix_pred_cvc5(tm, f_name, encoded_args, state)
+            }
+            BoolCallAxiom::ContainsKey => encode_contains_key_cvc5(tm, encoded_args, state),
+            BoolCallAxiom::Generic => apply_int_uf_cvc5(tm, state, f_name, encoded_args, true),
+        });
     }
     if state.use_string_theory
         && crate::encode_atom_policy::is_length_method_name(f_name)
