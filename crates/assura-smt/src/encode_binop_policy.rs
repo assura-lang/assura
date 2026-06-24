@@ -27,11 +27,28 @@ pub(crate) fn encode_ast_binop_smtlib(op: &BinOp, l: &str, r: &str) -> Option<St
     }
 }
 
+/// Kind of AST unary for planning (Z3/CVC5 share arm order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AstUnaryKind {
+    /// Logical not → `(not x)` / `Not` term
+    Not,
+    /// Arithmetic/bitwise negate → `(- x)` / `Neg` term (Z3 promotes Real vs Int locally)
+    Neg,
+}
+
+/// Classify an AST `UnaryOp` for encode dispatch.
+pub(crate) fn classify_ast_unary(op: &UnaryOp) -> AstUnaryKind {
+    match op {
+        UnaryOp::Not => AstUnaryKind::Not,
+        UnaryOp::Neg => AstUnaryKind::Neg,
+    }
+}
+
 /// Encode an AST unary operator as SMT-LIB2.
 pub(crate) fn encode_ast_unary_smtlib(op: &UnaryOp, inner: &str) -> String {
-    match op {
-        UnaryOp::Not => format!("(not {inner})"),
-        UnaryOp::Neg => format!("(- {inner})"),
+    match classify_ast_unary(op) {
+        AstUnaryKind::Not => format!("(not {inner})"),
+        AstUnaryKind::Neg => format!("(- {inner})"),
     }
 }
 
@@ -83,6 +100,8 @@ mod tests {
         );
         assert_eq!(encode_ast_unary_smtlib(&UnaryOp::Not, "p"), "(not p)");
         assert_eq!(encode_ast_unary_smtlib(&UnaryOp::Neg, "3"), "(- 3)");
+        assert_eq!(classify_ast_unary(&UnaryOp::Not), AstUnaryKind::Not);
+        assert_eq!(classify_ast_unary(&UnaryOp::Neg), AstUnaryKind::Neg);
     }
 
     #[test]
