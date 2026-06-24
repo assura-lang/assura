@@ -98,7 +98,7 @@ pub trait IrTermBuilder {
 
     /// `$result = construct T …`: bind a deterministic tag constant for the type id.
     fn on_result_construct(&mut self, type_id: &str) {
-        let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
+        let tag = crate::encode_method_policy::pattern_hash_name(type_id);
         let tag_val = self.get_or_create_named(&crate::encode_atom_policy::ir_tag_name(type_id));
         let tag_const = self.int_const(tag);
         self.push_eq_axiom(tag_val, tag_const);

@@ -81,6 +81,46 @@ pub(crate) fn is_collection_access_builtin(op: &str, arity: usize) -> bool {
     )
 }
 
+/// Whether `op` is substring/substr at arity 3 (Z3 length-axiom path).
+pub(crate) fn is_substring_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Substring)
+    )
+}
+
+/// Whether `op` is concat/append at arity 2 (Z3 length-sum axiom path).
+pub(crate) fn is_concat_append_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Concat | KnownBuiltin::Append)
+    )
+}
+
+/// Whether `op` is index_of/find/indexOf at arity 2.
+pub(crate) fn is_index_of_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::IndexOf)
+    )
+}
+
+/// Whether `op` is char_at/charAt/code_unit_at at arity 2.
+pub(crate) fn is_char_at_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::CharAt)
+    )
+}
+
+/// Whether `op` is replace at arity 3.
+pub(crate) fn is_replace_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Replace)
+    )
+}
+
 /// Builtin operations shared between CVC5 native/shell and (eventually) Z3 call encode.
 /// Mirrors historical CVC5 `encode_call` / Z3 `encode_call` semantics for parity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -241,5 +281,12 @@ mod tests {
         assert!(is_collection_access_builtin("get", 2));
         assert!(is_collection_access_builtin("set", 3));
         assert!(is_collection_access_builtin("put", 3));
+        assert!(is_substring_builtin("substring", 3));
+        assert!(is_substring_builtin("substr", 3));
+        assert!(is_concat_append_builtin("concat", 2));
+        assert!(is_concat_append_builtin("append", 2));
+        assert!(is_index_of_builtin("index_of", 2));
+        assert!(is_char_at_builtin("char_at", 2));
+        assert!(is_replace_builtin("replace", 3));
     }
 }
