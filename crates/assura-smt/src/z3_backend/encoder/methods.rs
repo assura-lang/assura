@@ -6,7 +6,8 @@ use z3::ast;
 
 use super::BitvectorEncoder;
 use super::Encoder;
-use super::value::{RawOp, Z3Value};
+use super::value::Z3Value;
+use crate::encode_raw_ops_policy::RawBinOp;
 
 impl Encoder {
     /// Encode an AST expression into a Z3 value.
@@ -523,23 +524,11 @@ impl Encoder {
         let (mut lhs, mut pos) = self.parse_raw_atom(tokens, 0);
 
         while pos < tokens.len() {
-            let (op_prec, op_kind) = match tokens[pos].as_str() {
-                "or" | "||" => (1, RawOp::Or),
-                "and" | "&&" => (2, RawOp::And),
-                "=>" | "==>" | "implies" => (3, RawOp::Implies),
-                "==" => (4, RawOp::Eq),
-                "!=" => (4, RawOp::Neq),
-                "<" => (5, RawOp::Lt),
-                "<=" => (5, RawOp::Lte),
-                ">" => (5, RawOp::Gt),
-                ">=" => (5, RawOp::Gte),
-                "+" => (6, RawOp::Add),
-                "-" => (6, RawOp::Sub),
-                "*" => (7, RawOp::Mul),
-                "/" => (7, RawOp::Div),
-                "%" | "mod" => (7, RawOp::Mod),
-                _ => break,
-            };
+            let (op_prec, op_kind) =
+                match crate::encode_raw_ops_policy::raw_op_info(tokens[pos].as_str()) {
+                    Some(pair) => pair,
+                    None => break,
+                };
 
             if op_prec < min_prec {
                 break;
@@ -867,35 +856,35 @@ impl Encoder {
         (Z3Value::Int(v), next)
     }
 
-    /// Apply a raw binary operation.
-    pub(crate) fn apply_raw_op(&mut self, op: RawOp, lhs: Z3Value, rhs: Z3Value) -> Z3Value {
+    /// Apply a raw binary operation using the shared [`RawBinOp`] policy enum.
+    pub(crate) fn apply_raw_op(&mut self, op: RawBinOp, lhs: Z3Value, rhs: Z3Value) -> Z3Value {
         match op {
-            RawOp::Add => {
+            RawBinOp::Add => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Int(ast::Int::add(&[&l, &r]))
             }
-            RawOp::Sub => {
+            RawBinOp::Sub => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Int(ast::Int::sub(&[&l, &r]))
             }
-            RawOp::Mul => {
+            RawBinOp::Mul => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Int(ast::Int::mul(&[&l, &r]))
             }
-            RawOp::Div => {
+            RawBinOp::Div => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Int(l.div(&r))
             }
-            RawOp::Mod => {
+            RawBinOp::Mod => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Int(l.rem(&r))
             }
-            RawOp::Eq => match (&lhs, &rhs) {
+            RawBinOp::Eq => match (&lhs, &rhs) {
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r)),
                 (Z3Value::Str(l), Z3Value::Str(r)) => Z3Value::Bool(l.eq(r)),
                 _ => {
@@ -904,7 +893,7 @@ impl Encoder {
                     Z3Value::Bool(l.eq(&r))
                 }
             },
-            RawOp::Neq => match (&lhs, &rhs) {
+            RawBinOp::Neq => match (&lhs, &rhs) {
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r).not()),
                 (Z3Value::Str(l), Z3Value::Str(r)) => Z3Value::Bool(l.eq(r).not()),
                 _ => {
@@ -913,37 +902,37 @@ impl Encoder {
                     Z3Value::Bool(l.eq(&r).not())
                 }
             },
-            RawOp::Lt => {
+            RawBinOp::Lt => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.lt(&r))
             }
-            RawOp::Lte => {
+            RawBinOp::Leq => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.le(&r))
             }
-            RawOp::Gt => {
+            RawBinOp::Gt => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.gt(&r))
             }
-            RawOp::Gte => {
+            RawBinOp::Geq => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
                 Z3Value::Bool(l.ge(&r))
             }
-            RawOp::And => {
+            RawBinOp::And => {
                 let l = lhs.as_bool();
                 let r = rhs.as_bool();
                 Z3Value::Bool(ast::Bool::and(&[&l, &r]))
             }
-            RawOp::Or => {
+            RawBinOp::Or => {
                 let l = lhs.as_bool();
                 let r = rhs.as_bool();
                 Z3Value::Bool(ast::Bool::or(&[&l, &r]))
             }
-            RawOp::Implies => {
+            RawBinOp::Implies => {
                 let l = lhs.as_bool();
                 let r = rhs.as_bool();
                 Z3Value::Bool(l.implies(&r))
