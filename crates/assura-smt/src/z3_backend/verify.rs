@@ -4,16 +4,16 @@
 
 use super::encoder::{Encoder, collect_unmodelable_reasons, expr_has_unmodelable_features};
 use super::havoc_assume::apply_havoc_assume_z3;
-use super::solver::extract_counter_model;
 use super::solver::{
     assert_tracked, check_satisfiability, check_validity, clause_desc, enable_unsat_cores,
+    z3_clause_sat_outcome,
 };
 use crate::cache::SessionCache;
 use crate::feature_max::{collect_feature_max_constants, derive_narrowings};
 use crate::ir::{IrFunction, IrInstr};
 use crate::*;
 use assura_ast::{Clause, SpExpr};
-use z3::{SatResult, Solver, ast};
+use z3::{Solver, ast};
 
 // -----------------------------------------------------------------------
 // Contract clause verification
@@ -387,37 +387,12 @@ pub(crate) fn verify_quantified_impl(
     // Negate and check: UNSAT means the formula holds
     solver.assert(body_bool.not());
 
-    match solver.check() {
-        SatResult::Unsat => VerificationResult::verified(name),
-        SatResult::Sat => {
-            let (model_str, counter_model) = if let Some(m) = solver.get_model() {
-                let cm = extract_counter_model(&m);
-                (format!("{m}"), Some(cm))
-            } else {
-                ("(no model)".into(), None)
-            };
-            VerificationResult::Counterexample {
-                clause_desc: name.into(),
-                model: model_str,
-                counter_model,
-            }
-        }
-        SatResult::Unknown => {
-            let reason = solver
-                .get_reason_unknown()
-                .unwrap_or_else(|| "unknown".into());
-            if reason.contains("timeout") {
-                VerificationResult::Timeout {
-                    clause_desc: name.into(),
-                }
-            } else {
-                VerificationResult::Unknown {
-                    clause_desc: name.into(),
-                    reason,
-                }
-            }
-        }
-    }
+    let outcome = z3_clause_sat_outcome(&solver);
+    crate::solver_outcome_policy::interpret_clause_check_result(
+        name,
+        &assura_ast::ClauseKind::Ensures,
+        outcome,
+    )
 }
 
 pub(crate) fn verify_contract_impl(

@@ -91,7 +91,9 @@ pub(crate) fn extract_unsat_core_labels(solver: &Solver) -> Option<Vec<String>> 
 /// Interpret solver result for a validity check (ensures/rule).
 /// We negate the goal and check-sat: UNSAT = valid.
 /// Run Z3 `check` and map to a shared [`crate::solver_outcome_policy::ClauseSatOutcome`].
-fn z3_clause_sat_outcome(solver: &Solver) -> crate::solver_outcome_policy::ClauseSatOutcome {
+pub(super) fn z3_clause_sat_outcome(
+    solver: &Solver,
+) -> crate::solver_outcome_policy::ClauseSatOutcome {
     use crate::solver_outcome_policy::ClauseSatOutcome;
     match solver.check() {
         SatResult::Unsat => {
