@@ -408,11 +408,15 @@ impl Encoder {
             .collect();
         // min/max: encode with ite so Z3 proves bounds (not unconstrained UF).
         // e.g. ensures { min(a, b) <= a } verifies under any a, b.
-        if matches!(func_name, "min" | "max") && arg_vals.len() == 2 {
+        // Dispatch arity/name via encode_method_policy (parity with CVC5 classify).
+        if crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len()) {
             let a = &arg_vals[0];
             let b = &arg_vals[1];
             let a_le_b = a.le(b);
-            let result = if func_name == "min" {
+            let result = if matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Min)
+            ) {
                 a_le_b.ite(a, b)
             } else {
                 a_le_b.ite(b, a)
@@ -445,7 +449,10 @@ impl Encoder {
             let result = decl.apply(&arg_refs);
             let b = result.as_bool().unwrap_or_else(|| self.fresh_bool());
             // is_empty(x) <=> len(x) == 0 (sound for sequences/maps with size).
-            if func_name == "is_empty" && arg_vals.len() == 1 {
+            if crate::encode_method_policy::is_bool_returning_uf(func_name)
+                && func_name == "is_empty"
+                && arg_vals.len() == 1
+            {
                 let coll = &arg_vals[0];
                 let coll_expr = &args[0].node;
                 let len_val = self.collection_len_of(coll_expr, coll, "len");
@@ -456,7 +463,10 @@ impl Encoder {
                 self.background_axioms.push(len_is_zero.implies(&b));
             }
             // contains(s, sub) => len(s) >= len(sub) (contiguous substring; sound).
-            if func_name == "contains" && arg_vals.len() == 2 {
+            if crate::encode_method_policy::is_bool_returning_uf(func_name)
+                && func_name == "contains"
+                && arg_vals.len() == 2
+            {
                 let hay_expr = &args[0].node;
                 let needle_expr = &args[1].node;
                 let hay_len = self.collection_len_of(hay_expr, &arg_vals[0], "len");
@@ -773,7 +783,7 @@ impl Encoder {
         // Built-in functions with known semantics
         match func_name {
             // abs(x) => if x >= 0 then x else -x
-            "abs" if arg_vals.len() == 1 => {
+            _ if crate::encode_method_policy::is_abs_builtin(func_name, arg_vals.len()) => {
                 let x = &arg_vals[0];
                 let zero = ast::Int::from_i64(0);
                 let neg_x = x.unary_minus();
@@ -793,7 +803,12 @@ impl Encoder {
             _ => {}
         }
         // get(coll, key_or_idx): uninterpreted; unify `get` with `__index` for arrays.
-        if func_name == "get" && arg_vals.len() == 2 {
+        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
+            && matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Get)
+            )
+        {
             let coll = &arg_vals[0];
             let key = &arg_vals[1];
             let get_decl = self.make_func(crate::encode_atom_policy::GET_UF_NAME, 2);
@@ -811,7 +826,12 @@ impl Encoder {
         }
         // Array set(arr, index, value): store axiom + length preserve.
         // set(a, i, v) returns a new array where get(result, i) == v.
-        if func_name == "set" && arg_vals.len() == 3 {
+        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
+            && matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Set)
+            )
+        {
             let arr_expr = &args[0].node;
             let arr = &arg_vals[0];
             let idx = &arg_vals[1];
@@ -839,7 +859,12 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         // Map put(map, key, value): get(put(m,k,v), k) == v; size non-decreasing.
-        if func_name == "put" && arg_vals.len() == 3 {
+        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
+            && matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Put)
+            )
+        {
             let map_expr = &args[0].node;
             let map_val = &arg_vals[0];
             let key = &arg_vals[1];

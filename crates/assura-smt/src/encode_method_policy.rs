@@ -57,6 +57,35 @@ pub(crate) fn is_bool_field_name(name: &str) -> bool {
 /// Termination measure "empty collection" distinguished constant.
 pub(crate) const MEASURE_EMPTY_CONST_NAME: &str = "__empty";
 
+/// Whether `op` at `arity` is a registered [`KnownBuiltin`] (Z3/CVC5 call dispatch guard).
+///
+/// Referenced from tests and available for backend entry-point guards.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn is_known_builtin(op: &str, arity: usize) -> bool {
+    classify_known_builtin(op, arity).is_some()
+}
+
+/// Whether `op` is a min/max binary builtin (Z3 encodes with `ite`, not a free UF).
+pub(crate) fn is_min_max_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Min | KnownBuiltin::Max)
+    )
+}
+
+/// Whether `op` is the unary `abs` builtin.
+pub(crate) fn is_abs_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Abs))
+}
+
+/// Whether `op` is a get/set/put collection accessor at the given arity.
+pub(crate) fn is_collection_access_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Get | KnownBuiltin::Set | KnownBuiltin::Put)
+    )
+}
+
 /// Builtin operations shared between CVC5 native/shell and (eventually) Z3 call encode.
 /// Mirrors historical CVC5 `encode_call` / Z3 `encode_call` semantics for parity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,5 +238,13 @@ mod tests {
         assert_eq!(classify_known_builtin("get", 2), Some(KnownBuiltin::Get));
         assert_eq!(classify_known_builtin("abs", 2), None);
         assert_eq!(classify_known_builtin("unknown", 1), None);
+        assert!(is_known_builtin("push", 2));
+        assert!(is_min_max_builtin("min", 2));
+        assert!(is_min_max_builtin("max", 2));
+        assert!(!is_min_max_builtin("min", 1));
+        assert!(is_abs_builtin("abs", 1));
+        assert!(is_collection_access_builtin("get", 2));
+        assert!(is_collection_access_builtin("set", 3));
+        assert!(is_collection_access_builtin("put", 3));
     }
 }

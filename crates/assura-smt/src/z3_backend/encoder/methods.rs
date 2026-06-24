@@ -704,43 +704,29 @@ impl Encoder {
             // Extract the base function name (last segment after dots)
             let func_name = name.rsplit('.').next().unwrap_or(&name);
 
-            // Built-in functions with known semantics
-            match func_name {
-                "abs" if arg_vals.len() == 1 => {
-                    let x = &arg_vals[0];
-                    let zero = ast::Int::from_i64(0);
-                    let neg_x = x.unary_minus();
-                    let cond = x.ge(&zero);
-                    return (Z3Value::Int(cond.ite(x, &neg_x)), end);
-                }
-                "min" if arg_vals.len() == 2 => {
-                    let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                    return (Z3Value::Int(a.le(b).ite(a, b)), end);
-                }
-                "max" if arg_vals.len() == 2 => {
-                    let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                    return (Z3Value::Int(a.ge(b).ite(a, b)), end);
-                }
-                _ => {}
+            // Built-in functions with known semantics (dispatch via encode_method_policy).
+            if crate::encode_method_policy::is_abs_builtin(func_name, arg_vals.len()) {
+                let x = &arg_vals[0];
+                let zero = ast::Int::from_i64(0);
+                let neg_x = x.unary_minus();
+                let cond = x.ge(&zero);
+                return (Z3Value::Int(cond.ite(x, &neg_x)), end);
+            }
+            if crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len()) {
+                let (a, b) = (&arg_vals[0], &arg_vals[1]);
+                let result = if matches!(
+                    crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                    Some(crate::encode_method_policy::KnownBuiltin::Min)
+                ) {
+                    a.le(b).ite(a, b)
+                } else {
+                    a.ge(b).ite(a, b)
+                };
+                return (Z3Value::Int(result), end);
             }
 
-            // Boolean-returning functions
-            if matches!(
-                func_name,
-                "contains"
-                    | "is_empty"
-                    | "is_some"
-                    | "is_none"
-                    | "is_ok"
-                    | "is_err"
-                    | "any"
-                    | "all"
-                    | "contains_key"
-                    | "starts_with"
-                    | "ends_with"
-                    | "is_subset"
-                    | "is_superset"
-            ) {
+            // Boolean-returning functions (table in encode_method_policy).
+            if crate::encode_method_policy::is_bool_returning_uf(func_name) {
                 let bool_sort = z3::Sort::bool();
                 let int_sort = z3::Sort::int();
                 let arity = arg_vals.len().max(1);

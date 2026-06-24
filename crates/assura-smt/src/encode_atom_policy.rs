@@ -445,41 +445,55 @@ pub(crate) fn adt_val_fresh_name(counter: impl std::fmt::Display, ctor_name: &st
     format!("__adt_val_{counter}_{ctor_name}")
 }
 
+/// Exact internal names (not prefix-matched).
+///
+/// Includes [`crate::encode_method_policy::MEASURE_EMPTY_CONST_NAME`].
+pub(crate) const INTERNAL_ENCODER_EXACT_NAMES: &[&str] = &["__empty"];
+
+/// Prefixes for internal encoder / model-filter variable names.
+///
+/// Single source for [`is_internal_encoder_var`]; extend here when adding SMT temporaries.
+pub(crate) const INTERNAL_ENCODER_PREFIXES: &[&str] = &[
+    "__str_",
+    "__tuple_",
+    "__list_",
+    "__fresh_",
+    "__field_",
+    "__index",
+    "__len",
+    "__arr_",
+    "__domain_contains",
+    "__apply_",
+    "__coerce",
+    "__trigger_",
+    "__list_get",
+    "__result",
+    "__contains",
+    "__obj_",
+    "__ir_",
+    "__canonical_len_",
+    "__match_adt_",
+    "__call_",
+    "__old_fresh_",
+    "__typestate_",
+    "__adt_",
+    "__bv_as_real_",
+    "__ax_",
+    "__append_",
+    "__ir_slot_",
+    "__ir_state_",
+    "__ir_tag_",
+    "__ir_call_",
+    "__ir_block",
+    "__adt_val_",
+];
+
 /// Whether a model/counterexample variable name is internal encoder noise (shared filter heuristic).
 pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
-    name.starts_with("__str_")
-        || name.starts_with("__tuple_")
-        || name.starts_with("__list_")
-        || name.starts_with("__fresh_")
-        || name.starts_with("__field_")
-        || name.starts_with("__index")
-        || name.starts_with("__len")
-        || name.starts_with("__arr_")
-        || name.starts_with("__domain_contains")
-        || name.starts_with("__apply_")
-        || name.starts_with("__coerce")
-        || name.starts_with("__trigger_")
-        || name.starts_with("__list_get")
-        || name.starts_with("__result")
-        || name.starts_with("__contains")
-        || name.starts_with("__obj_")
-        || name.starts_with("__ir_")
-        || name.starts_with("__canonical_len_")
-        || name.starts_with("__match_adt_")
-        || name.starts_with("__call_")
-        || name.starts_with("__old_fresh_")
-        || name.starts_with("__typestate_")
-        || name.starts_with("__adt_")
-        || name.starts_with("__bv_as_real_")
-        || name.starts_with("__ax_")
-        || name.starts_with("__append_")
-        || name == "__empty"
-        || name.starts_with("__ir_slot_")
-        || name.starts_with("__ir_state_")
-        || name.starts_with("__ir_tag_")
-        || name.starts_with("__ir_call_")
-        || name.starts_with("__ir_block")
-        || name.starts_with("__adt_val_")
+    INTERNAL_ENCODER_EXACT_NAMES.contains(&name)
+        || INTERNAL_ENCODER_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
 }
 
 #[cfg(test)]
@@ -549,6 +563,10 @@ mod tests {
         assert!(is_internal_encoder_var("__typestate_conn"));
         assert!(is_internal_encoder_var("__adt_tag_Opt"));
         assert!(is_internal_encoder_var("__bv_as_real_8"));
+        assert!(is_internal_encoder_var("__empty"));
+        assert!(is_internal_encoder_var("__ir_block0_result"));
+        assert!(INTERNAL_ENCODER_PREFIXES.contains(&"__field_"));
+        assert!(INTERNAL_ENCODER_EXACT_NAMES.contains(&"__empty"));
         assert!(!is_internal_encoder_var("payload_length"));
     }
 
