@@ -4,10 +4,10 @@ use std::collections::HashSet;
 
 use assura_ast::{ClauseKind, SpExpr};
 
-use crate::cvc5_common::collect_apply_refs_from_expr;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
 use crate::encode_atom_policy::sanitize_smt_name;
+use crate::lemma_inject_policy::collect_apply_refs_from_expr;
 
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
     for req in requires {

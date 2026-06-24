@@ -6,9 +6,9 @@ use assura_ast::{Clause, ClauseKind, SpExpr};
 
 use crate::VerificationResult;
 use crate::cache::SessionCache;
-use crate::cvc5_common::{collect_unmodelable_reasons_cvc5, expr_has_unmodelable_features_cvc5};
 use crate::cvc5_model::parse_smtlib_model;
 use crate::encode_atom_policy::sanitize_smt_name;
+use crate::unmodelable::{collect_unmodelable_reasons, expr_has_unmodelable_features};
 
 /// CVC5 prelude constraint (alias of shared [`crate::prelude_policy::PreludeConstraint`]).
 pub(crate) type Cvc5TypeConstraint = crate::prelude_policy::PreludeConstraint;
@@ -102,9 +102,9 @@ pub(crate) fn cvc5_lookup_cached_clause(
 }
 
 pub(crate) fn cvc5_unmodelable_precheck(desc: &str, body: &SpExpr) -> Option<VerificationResult> {
-    let has = expr_has_unmodelable_features_cvc5(body);
+    let has = expr_has_unmodelable_features(body);
     let reasons = if has {
-        collect_unmodelable_reasons_cvc5(body)
+        collect_unmodelable_reasons(body)
     } else {
         Vec::new()
     };
