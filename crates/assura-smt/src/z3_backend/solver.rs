@@ -38,9 +38,7 @@ pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
         let name = decl.name();
         // Skip internal/fresh/coercion variables via shared policy, but keep contract
         // `result` binding (`__result` is classified internal by the same helper).
-        if crate::encode_atom_policy::is_internal_encoder_var(&name)
-            && name != crate::encode_atom_policy::RESULT_VAR_NAME
-        {
+        if !crate::encode_atom_policy::is_counterexample_user_var(&name) {
             continue;
         }
         // Try to get the interpretation as a string

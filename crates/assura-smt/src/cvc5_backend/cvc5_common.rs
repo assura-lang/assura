@@ -77,6 +77,9 @@ pub(crate) fn flatten_field_chain_cvc5(expr: &SpExpr) -> String {
 // Counterexample model filtering
 // -------------------------------------------------------------------------
 
+/// Thin alias for tests and CVC5-facing call sites; production model filters use
+/// [`crate::encode_atom_policy::is_counterexample_user_var`].
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn is_internal_cvc5_var(name: &str) -> bool {
     crate::encode_atom_policy::is_internal_encoder_var(name)
 }

@@ -648,7 +648,7 @@ fn test_smtlib_match_ident_constructor_like() {
         ],
     });
     let smt = expr_to_smtlib(&expr).expect("should encode ident-as-constructor match");
-    let none_hash = crate::cvc5_builtins::pattern_hash_name("None");
+    let none_hash = crate::encode_method_policy::pattern_hash_name("None");
     assert!(smt.contains(&none_hash.to_string()));
     assert!(smt.contains("ite"));
 }

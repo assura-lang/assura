@@ -163,7 +163,7 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
     }
 
     fn on_result_construct(&mut self, type_id: &str) {
-        let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
+        let tag = crate::encode_method_policy::pattern_hash_name(type_id);
         let tag_name = sanitize_smtlib_name(&crate::encode_atom_policy::ir_tag_name(type_id));
         declare_int_var(self.script, self.vars, &tag_name);
         self.script

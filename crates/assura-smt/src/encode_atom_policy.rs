@@ -496,6 +496,14 @@ pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
             .any(|prefix| name.starts_with(prefix))
 }
 
+/// Whether a model variable should appear in user-facing counterexample output.
+///
+/// Internal encoder temporaries are suppressed, except [`RESULT_VAR_NAME`] which
+/// represents contract `result` and must stay visible.
+pub(crate) fn is_counterexample_user_var(name: &str) -> bool {
+    !is_internal_encoder_var(name) || name == RESULT_VAR_NAME
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,6 +576,10 @@ mod tests {
         assert!(INTERNAL_ENCODER_PREFIXES.contains(&"__field_"));
         assert!(INTERNAL_ENCODER_EXACT_NAMES.contains(&"__empty"));
         assert!(!is_internal_encoder_var("payload_length"));
+        assert!(is_counterexample_user_var("payload_length"));
+        assert!(is_counterexample_user_var(RESULT_VAR_NAME));
+        assert!(!is_counterexample_user_var("__fresh_0"));
+        assert!(!is_counterexample_user_var("__field_len"));
     }
 
     #[test]
