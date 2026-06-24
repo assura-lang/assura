@@ -55,100 +55,39 @@ pub(crate) fn float_to_rational_parts(f: &str) -> (i64, i64) {
 // Deep field-chain flattening (#250)
 // -------------------------------------------------------------------------
 
-pub(crate) fn is_self_rooted_cvc5(expr: &SpExpr) -> bool {
-    match &expr.node {
-        Expr::Ident(name) => name == "self",
-        Expr::Field(obj, _) => is_self_rooted_cvc5(obj),
-        _ => false,
-    }
+// -------------------------------------------------------------------------
+// Field chain + unmodelable walk (shared `crate::unmodelable`; CVC5 name aliases)
+// -------------------------------------------------------------------------
+// Aliases keep `tests_cvc5_smtlib` / call sites stable; several are test-only in lib builds.
+
+/// CVC5-facing alias: unmodelable walk is solver-neutral in [`crate::unmodelable`].
+pub(crate) fn expr_has_unmodelable_features_cvc5(expr: &SpExpr) -> bool {
+    crate::unmodelable::expr_has_unmodelable_features(expr)
 }
 
+pub(crate) fn collect_unmodelable_reasons_cvc5(expr: &SpExpr) -> Vec<String> {
+    crate::unmodelable::collect_unmodelable_reasons(expr)
+}
+
+pub(crate) fn is_self_rooted_cvc5(expr: &SpExpr) -> bool {
+    crate::unmodelable::is_self_rooted_sp(expr)
+}
+
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "used in tests_cvc5_smtlib field_chain tests")
+)]
 pub(crate) fn field_chain_depth_cvc5(expr: &SpExpr) -> usize {
-    match &expr.node {
-        Expr::Field(obj, _) => 1 + field_chain_depth_cvc5(obj),
-        _ => 0,
-    }
+    crate::unmodelable::field_chain_depth_sp(expr)
 }
 
 pub(crate) fn has_deep_field_chain_cvc5(expr: &SpExpr) -> bool {
-    field_chain_depth_cvc5(expr) >= 2
+    crate::unmodelable::has_deep_field_chain_sp(expr)
 }
 
 /// Flatten a field chain like `a.b.c` into `"a__b__c"`.
 pub(crate) fn flatten_field_chain_cvc5(expr: &SpExpr) -> String {
-    match &expr.node {
-        Expr::Field(obj, field) => {
-            let prefix = flatten_field_chain_cvc5(obj);
-            format!("{prefix}__{field}")
-        }
-        Expr::Ident(name) => name.clone(),
-        _ => format!("__obj_{:p}", expr as *const _),
-    }
-}
-
-// -------------------------------------------------------------------------
-// Unmodelable-feature detection (mirrors Z3 encoder, no z3-verify dep)
-// -------------------------------------------------------------------------
-
-pub(crate) fn expr_has_unmodelable_features_cvc5(expr: &SpExpr) -> bool {
-    match &expr.node {
-        Expr::Field(obj, _) => expr_has_unmodelable_features_cvc5(obj),
-        Expr::MethodCall {
-            receiver,
-            method: _,
-            args,
-        } => {
-            expr_has_unmodelable_features_cvc5(receiver)
-                || args.iter().any(expr_has_unmodelable_features_cvc5)
-        }
-        Expr::Raw(_tokens) => false,
-        Expr::BinOp { lhs, rhs, .. } => {
-            expr_has_unmodelable_features_cvc5(lhs) || expr_has_unmodelable_features_cvc5(rhs)
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Cast { expr: inner, .. } => expr_has_unmodelable_features_cvc5(inner),
-        Expr::Call { func, args } => {
-            expr_has_unmodelable_features_cvc5(func)
-                || args.iter().any(expr_has_unmodelable_features_cvc5)
-        }
-        Expr::Index { expr: e, index } => {
-            expr_has_unmodelable_features_cvc5(e) || expr_has_unmodelable_features_cvc5(index)
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            expr_has_unmodelable_features_cvc5(domain) || expr_has_unmodelable_features_cvc5(body)
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_has_unmodelable_features_cvc5(cond)
-                || expr_has_unmodelable_features_cvc5(then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_has_unmodelable_features_cvc5(e))
-        }
-        Expr::Let { value, body, .. } => {
-            expr_has_unmodelable_features_cvc5(value) || expr_has_unmodelable_features_cvc5(body)
-        }
-        Expr::Match { scrutinee, arms } => {
-            expr_has_unmodelable_features_cvc5(scrutinee)
-                || arms
-                    .iter()
-                    .any(|a| expr_has_unmodelable_features_cvc5(&a.body))
-        }
-        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
-            items.iter().any(expr_has_unmodelable_features_cvc5)
-        }
-        Expr::Apply { args, .. } => args.iter().any(expr_has_unmodelable_features_cvc5),
-        Expr::Literal(_) | Expr::Ident(_) => false,
-    }
-}
-
-pub(crate) fn collect_unmodelable_reasons_cvc5(_expr: &SpExpr) -> Vec<String> {
-    Vec::new()
+    crate::unmodelable::flatten_field_chain_sp(expr)
 }
 
 // -------------------------------------------------------------------------
