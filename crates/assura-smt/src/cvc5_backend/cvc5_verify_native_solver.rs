@@ -117,7 +117,7 @@ pub(crate) fn assert_cvc5_frame_axioms<'a>(
 ) {
     for var_name in frame_vars {
         let current_key = sanitize_smtlib_name(var_name);
-        let old_key = crate::encode_atom_policy::old_snapshot_name(&var_name);
+        let old_key = crate::encode_atom_policy::old_snapshot_name(var_name);
         let current = var_map
             .get(&current_key)
             .cloned()
