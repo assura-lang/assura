@@ -1,14 +1,19 @@
 //! Shared match-expression encoding for CVC5 shell-out and native backends.
+//!
+//! Arm/tag **policy** lives in [`crate::encode_match_policy`]; this module builds
+//! SMT-LIB2 / native `ite` chains via encode callbacks.
 
-use assura_ast::{Literal, MatchArm, Pattern, SpExpr};
+#[cfg(feature = "cvc5-verify")]
+use assura_ast::Literal;
+use assura_ast::{MatchArm, Pattern, SpExpr};
 
-use crate::encode_atom_policy::float_literal_to_smtlib;
+#[cfg(feature = "cvc5-verify")]
+use crate::encode_match_policy::is_constructor_tag_pattern;
+use crate::encode_match_policy::{
+    MatchArmKind, classify_match_arm, ctor_tag_eq_smtlib, literal_eq_smtlib,
+};
+#[cfg(feature = "cvc5-verify")]
 use crate::encode_method_policy::pattern_hash_name;
-
-/// Uppercase-initial identifier patterns are enum constructor tags (hash-matched).
-pub(crate) fn is_constructor_tag_pattern(name: &str) -> bool {
-    name.starts_with(|c: char| c.is_uppercase())
-}
 
 /// Encode match arms as nested `ite` chains in SMT-LIB2 (arms processed right-to-left).
 pub(crate) fn encode_match_smtlib<F, G>(
@@ -27,38 +32,42 @@ where
     let s = encode(scrutinee)?;
     let mut result = None;
     for arm in arms.iter().rev() {
-        match &arm.pattern {
-            Pattern::Wildcard => {
+        let kind = classify_match_arm(arm);
+        match kind {
+            MatchArmKind::Wildcard => {
                 result = Some(encode(&arm.body)?);
             }
-            Pattern::Ident(name) => {
-                let body = encode(&arm.body)?;
-                if is_constructor_tag_pattern(name) {
-                    let tag = pattern_hash_name(name);
-                    let default = result.as_ref()?;
-                    result = Some(format!("(ite (= {s} {tag}) {body} {default})"));
-                } else {
-                    result = Some(body);
-                }
+            MatchArmKind::BindIdent => {
+                result = Some(encode(&arm.body)?);
             }
-            Pattern::Literal(lit) => {
-                let body = encode(&arm.body)?;
-                let lit_smt = match lit {
-                    Literal::Int(n) => n.clone(),
-                    Literal::Float(f) => float_literal_to_smtlib(f),
-                    Literal::Bool(b) => b.to_string(),
-                    Literal::Str(_) => return None,
+            MatchArmKind::CtorTagIdent => {
+                let Pattern::Ident(name) = &arm.pattern else {
+                    unreachable!("CtorTagIdent requires Ident pattern");
                 };
+                let body = encode(&arm.body)?;
+                let cond = ctor_tag_eq_smtlib(&s, name);
                 let default = result.as_ref()?;
-                result = Some(format!("(ite (= {s} {lit_smt}) {body} {default})"));
+                result = Some(format!("(ite {cond} {body} {default})"));
             }
-            Pattern::Constructor { name, fields: _ } => {
+            MatchArmKind::Literal => {
+                let Pattern::Literal(lit) = &arm.pattern else {
+                    unreachable!("Literal kind requires Literal pattern");
+                };
+                let body = encode(&arm.body)?;
+                let cond = literal_eq_smtlib(&s, lit)?;
+                let default = result.as_ref()?;
+                result = Some(format!("(ite {cond} {body} {default})"));
+            }
+            MatchArmKind::Constructor => {
+                let Pattern::Constructor { name, fields: _ } = &arm.pattern else {
+                    unreachable!("Constructor kind requires Constructor pattern");
+                };
                 let body = encode(&arm.body)?;
                 let default = result.as_ref()?;
                 let cond = constructor_test(name, &s);
                 result = Some(format!("(ite {cond} {body} {default})"));
             }
-            Pattern::Tuple(_) => {
+            MatchArmKind::Tuple => {
                 result = Some(encode(&arm.body)?);
             }
         }
@@ -176,7 +185,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::encode_match_policy::is_constructor_tag_pattern;
 
     #[test]
     fn constructor_tag_detects_uppercase() {

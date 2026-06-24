@@ -65,6 +65,7 @@ mod clause_policy;
 mod encode_atom_policy;
 mod encode_call_policy;
 mod encode_field_policy;
+mod encode_match_policy;
 mod encode_method_policy;
 mod encode_old_policy;
 mod encode_quantifier_policy;
