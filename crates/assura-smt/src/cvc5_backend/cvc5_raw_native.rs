@@ -228,7 +228,7 @@ fn parse_raw_atom_cvc5<'a>(
 
     if next + 1 < tokens.len() && tokens[next] == "@" {
         let state_name = &tokens[next + 1];
-        let ts_var_name = crate::encode_atom_policy::typestate_var_name(name);
+        let ts_var_name = crate::encode_atom_policy::typestate_var_name(&name);
         let ts_var = vars
             .entry(ts_var_name.clone())
             .or_insert_with(|| tm.mk_const(tm.integer_sort(), &ts_var_name))
