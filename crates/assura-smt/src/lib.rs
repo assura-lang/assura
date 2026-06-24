@@ -61,12 +61,14 @@ mod clause_policy;
 //   encode_call_policy       — `EncodeCallKind` order (`classify_encode_call` / asserts)
 //   encode_field_policy      — field access plan (flatten vs shallow UF) + SMT-LIB shapes
 //   encode_old_policy        — `old(e)` pre-state access plan (ident/field/method)
+//   encode_if_policy         — `if cond then t [else e]` plan (`ite` vs `=>`)
 // Not full `Expr`→solver-term unify: Z3 `Encoder` and CVC5 term builders stay separate.
 mod encode_adt_policy;
 mod encode_atom_policy;
 mod encode_binop_policy;
 mod encode_call_policy;
 mod encode_field_policy;
+mod encode_if_policy;
 mod encode_index_policy;
 mod encode_let_policy;
 mod encode_list_policy;
@@ -163,6 +165,10 @@ pub(crate) use cvc5_backend::cvc5_expr_smtlib;
 pub(crate) use cvc5_backend::cvc5_field_access;
 #[cfg(not(feature = "cvc5-verify"))]
 pub(crate) use cvc5_backend::cvc5_havoc_assume_smtlib;
+#[allow(
+    unused_imports,
+    reason = "stable crate::cvc5_if_encode path; cvc5-verify / tests"
+)]
 pub(crate) use cvc5_backend::cvc5_if_encode;
 #[allow(
     unused_imports,

@@ -182,38 +182,48 @@ impl Encoder {
                 Z3Value::Bool(result)
             }
 
-            // --- If-then-else ---
+            // --- If-then-else (plan via encode_if_policy; Z3 terms here) ---
             Expr::If {
                 cond,
                 then_branch,
                 else_branch,
             } => {
+                use crate::encode_if_policy::{IfEncodePlan, plan_if_encode};
+
                 let cond_val = self.encode_expr(cond);
                 let cond_bool = cond_val.as_bool();
                 let then_val = self.encode_expr(then_branch);
 
-                if let Some(else_br) = else_branch {
-                    let else_val = self.encode_expr(else_br);
-                    match (&then_val, &else_val) {
-                        (Z3Value::Int(t), Z3Value::Int(e)) => Z3Value::Int(cond_bool.ite(t, e)),
-                        (Z3Value::Bool(t), Z3Value::Bool(e)) => Z3Value::Bool(cond_bool.ite(t, e)),
-                        (Z3Value::Real(t), Z3Value::Real(e)) => Z3Value::Real(cond_bool.ite(t, e)),
-                        (Z3Value::Int(t), Z3Value::Real(e)) => {
-                            Z3Value::Real(cond_bool.ite(&ast::Real::from_int(t), e))
-                        }
-                        (Z3Value::Real(t), Z3Value::Int(e)) => {
-                            Z3Value::Real(cond_bool.ite(t, &ast::Real::from_int(e)))
-                        }
-                        _ => {
-                            let t = then_val.as_bool();
-                            let e = else_val.as_bool();
-                            Z3Value::Bool(cond_bool.ite(&t, &e))
+                match plan_if_encode(else_branch.is_some()) {
+                    IfEncodePlan::Ite => {
+                        let else_br = else_branch.as_ref().expect("Ite plan requires else_branch");
+                        let else_val = self.encode_expr(else_br);
+                        match (&then_val, &else_val) {
+                            (Z3Value::Int(t), Z3Value::Int(e)) => Z3Value::Int(cond_bool.ite(t, e)),
+                            (Z3Value::Bool(t), Z3Value::Bool(e)) => {
+                                Z3Value::Bool(cond_bool.ite(t, e))
+                            }
+                            (Z3Value::Real(t), Z3Value::Real(e)) => {
+                                Z3Value::Real(cond_bool.ite(t, e))
+                            }
+                            (Z3Value::Int(t), Z3Value::Real(e)) => {
+                                Z3Value::Real(cond_bool.ite(&ast::Real::from_int(t), e))
+                            }
+                            (Z3Value::Real(t), Z3Value::Int(e)) => {
+                                Z3Value::Real(cond_bool.ite(t, &ast::Real::from_int(e)))
+                            }
+                            _ => {
+                                let t = then_val.as_bool();
+                                let e = else_val.as_bool();
+                                Z3Value::Bool(cond_bool.ite(&t, &e))
+                            }
                         }
                     }
-                } else {
-                    // No else: `if P then Q` = `P => Q`
-                    let then_bool = then_val.as_bool();
-                    Z3Value::Bool(cond_bool.implies(&then_bool))
+                    IfEncodePlan::ImpliesThenOnly => {
+                        // No else: `if P then Q` = `P => Q` (parity with CVC5 shell/native).
+                        let then_bool = then_val.as_bool();
+                        Z3Value::Bool(cond_bool.implies(&then_bool))
+                    }
                 }
             }
 
