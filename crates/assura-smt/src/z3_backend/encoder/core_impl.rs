@@ -102,8 +102,7 @@ impl Encoder {
         self.background_axioms.push(v.ge(&zero));
         // Link to `len` / `__field_len` UIFs so concat/array axioms agree with `.len` (#267).
         let obj = self.get_or_create_int(name);
-        let field_len = crate::encode_atom_policy::field_uif_name("len");
-        for uf_name in ["len", field_len.as_str()] {
+        for uf_name in crate::encode_atom_policy::length_uf_names() {
             let len_decl = self.make_func(uf_name, 1);
             let uif_len = len_decl
                 .apply(&[&obj as &dyn z3::ast::Ast])
@@ -342,8 +341,8 @@ impl Encoder {
         let zero = ast::Int::from_i64(0);
         self.background_axioms.push(got.eq(val));
         self.background_axioms.push(val.ge(&zero));
-        if len_uf == "len" || len_uf == "__field_len" {
-            for other in ["len", "__field_len"] {
+        if crate::encode_atom_policy::is_length_uf_name(len_uf) {
+            for other in crate::encode_atom_policy::length_uf_names() {
                 if other != len_uf {
                     let d = self.make_func(other, 1);
                     let o = d
@@ -505,10 +504,18 @@ impl Encoder {
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(start.ge(&zero));
                 self.background_axioms.push(start.le(end));
-                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
+                let str_len = self.collection_len_of(
+                    str_expr,
+                    str_val,
+                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+                );
                 self.background_axioms.push(end.le(&str_len));
                 let diff = ast::Int::sub(&[end, start]);
-                self.assert_collection_len_eq(&result, &diff, "__field_len");
+                self.assert_collection_len_eq(
+                    &result,
+                    &diff,
+                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+                );
                 return Z3Value::Int(result);
             }
             // concat(a, b) / append(a, b): len(result) == len(a) + len(b)
@@ -518,13 +525,19 @@ impl Encoder {
                 let l = &arg_vals[0];
                 let r = &arg_vals[1];
                 let result = self.fresh_int();
-                let len_l = self.collection_len_of(l_expr, l, "__field_len");
-                let len_r = self.collection_len_of(r_expr, r, "__field_len");
+                let len_l =
+                    self.collection_len_of(l_expr, l, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
+                let len_r =
+                    self.collection_len_of(r_expr, r, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(len_l.ge(&zero));
                 self.background_axioms.push(len_r.ge(&zero));
                 let sum = ast::Int::add(&[&len_l, &len_r]);
-                self.assert_collection_len_eq(&result, &sum, "__field_len");
+                self.assert_collection_len_eq(
+                    &result,
+                    &sum,
+                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+                );
                 // Also result length >= each operand (redundant but helps some goals).
                 self.background_axioms.push(sum.ge(&len_l));
                 self.background_axioms.push(sum.ge(&len_r));
@@ -537,7 +550,11 @@ impl Encoder {
                 let result = self.fresh_int();
                 let neg_one = ast::Int::from_i64(-1);
                 self.background_axioms.push(result.ge(&neg_one));
-                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
+                let str_len = self.collection_len_of(
+                    str_expr,
+                    str_val,
+                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+                );
                 // result < len(str) covers both found indices and -1 when len >= 0.
                 self.background_axioms.push(result.lt(&str_len));
                 return Z3Value::Int(result);
@@ -549,7 +566,11 @@ impl Encoder {
                 let idx = &arg_vals[1];
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(idx.ge(&zero));
-                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
+                let str_len = self.collection_len_of(
+                    str_expr,
+                    str_val,
+                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+                );
                 self.background_axioms.push(idx.lt(&str_len));
                 return Z3Value::Int(self.fresh_int());
             }
@@ -559,7 +580,11 @@ impl Encoder {
                 let res_len = self.fresh_int();
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(res_len.ge(&zero));
-                self.assert_collection_len_eq(&result, &res_len, "__field_len");
+                self.assert_collection_len_eq(
+                    &result,
+                    &res_len,
+                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+                );
                 return Z3Value::Int(result);
             }
             // split(str, delim): returns collection with len >= 1
@@ -581,8 +606,12 @@ impl Encoder {
                 let str_expr = &args[0].node;
                 let str_val = &arg_vals[0];
                 let result = self.fresh_int();
-                let str_len = self.collection_len_of(str_expr, str_val, "__field_len");
-                let len_decl = self.make_func("__field_len", 1);
+                let str_len = self.collection_len_of(
+                    str_expr,
+                    str_val,
+                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+                );
+                let len_decl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
                 let res_len = len_decl
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
@@ -873,7 +902,7 @@ impl Encoder {
                 self.background_axioms.push(via_method.eq(&len_val));
             }
             // Keep __field_len aligned (string/method `.length()` on temporaries).
-            let fl = self.make_func("__field_len", 1);
+            let fl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
             let via_fl = fl
                 .apply(&[coll as &dyn z3::ast::Ast])
                 .as_int()

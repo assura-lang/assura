@@ -387,7 +387,7 @@ impl Encoder {
                     self.background_axioms.push(accessed.eq(&elem_int));
                 }
                 // Assert length
-                let len_decl = self.make_func("__field_len", 1);
+                let len_decl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
                 let len_result = len_decl
                     .apply(&[&list_val as &dyn z3::ast::Ast])
                     .as_int()
@@ -1121,7 +1121,7 @@ impl Encoder {
                 let l = lv.as_int(&mut self.fresh_counter);
                 let r = rv.as_int(&mut self.fresh_counter);
                 let result = self.fresh_int();
-                let len_decl = self.make_func("__field_len", 1);
+                let len_decl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
                 let len_l = len_decl
                     .apply(&[&l as &dyn z3::ast::Ast])
                     .as_int()
