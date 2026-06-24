@@ -170,7 +170,8 @@ pub fn format_counterexample_lines(
                 if let Some(name) = current_name.take() {
                     // Skip internal encoder temporaries; keep `result` (`__result`) visible.
                     if crate::encode_atom_policy::is_counterexample_user_var(&name) {
-                        let clean_name = crate::encode_atom_policy::strip_field_uif_prefix(&name).to_string();
+                        let clean_name =
+                            crate::encode_atom_policy::strip_field_uif_prefix(&name).to_string();
                         pairs.push((clean_name, clean_z3_value(&value)));
                     }
                 }
@@ -189,7 +190,8 @@ pub fn format_counterexample_lines(
                 // Single-line assignment
                 let name = name.trim();
                 if crate::encode_atom_policy::is_counterexample_user_var(name) {
-                    let clean_name = crate::encode_atom_policy::strip_field_uif_prefix(name).to_string();
+                    let clean_name =
+                        crate::encode_atom_policy::strip_field_uif_prefix(name).to_string();
                     pairs.push((clean_name, clean_z3_value(rest)));
                 }
             }
