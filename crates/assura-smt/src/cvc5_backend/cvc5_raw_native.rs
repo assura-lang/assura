@@ -2,13 +2,13 @@
 
 use std::collections::HashMap;
 
-use crate::cvc5_builtins::pattern_hash_name;
 use crate::cvc5_common::{append_raw_dotted_segment, sanitize_smtlib_name};
 use crate::cvc5_encoder_state::Cvc5EncoderState;
 use crate::cvc5_raw_ops::{
     apply_raw_op_cvc5, comma_chunk_ranges, find_matching_delim, is_raw_spec_skip_keyword,
     parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
+use crate::encode_method_policy::pattern_hash_name;
 
 /// Encode multi-token raw expressions for the native CVC5 backend.
 #[cfg(feature = "cvc5-verify")]

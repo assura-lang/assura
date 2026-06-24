@@ -648,7 +648,7 @@ fn test_smtlib_match_ident_constructor_like() {
         ],
     });
     let smt = expr_to_smtlib(&expr).expect("should encode ident-as-constructor match");
-    let none_hash = crate::cvc5_builtins::pattern_hash_name("None");
+    let none_hash = crate::encode_method_policy::pattern_hash_name("None");
     assert!(smt.contains(&none_hash.to_string()));
     assert!(smt.contains("ite"));
 }
@@ -799,11 +799,11 @@ fn test_parse_model_filters_all_internal_vars() {
 (define-fun y () Int 20)";
     let parsed = parse_smtlib_model(model).unwrap();
     let names: Vec<&str> = parsed.variables.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(names, vec!["x", "y"]);
+    // `__result` is contract `result`; kept via is_counterexample_user_var (Z3 parity).
+    assert_eq!(names, vec!["__result", "x", "y"]);
     assert!(!names.contains(&"__str_hello"));
     assert!(!names.contains(&"__field_len"));
     assert!(!names.contains(&"__fresh_0"));
-    assert!(!names.contains(&"__result"));
     assert!(!names.contains(&"__coerce_1"));
 }
 

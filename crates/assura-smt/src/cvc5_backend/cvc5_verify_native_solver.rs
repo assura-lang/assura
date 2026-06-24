@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use assura_ast::{ClauseKind, SpExpr};
 
-use crate::cvc5_common::{is_internal_cvc5_var, sanitize_smtlib_name};
+use crate::cvc5_common::sanitize_smtlib_name;
 use crate::cvc5_native_encoder::{Cvc5EncoderState, encode_expr_cvc5};
 use crate::cvc5_verify_shared::{
     Cvc5ClauseSatOutcome, Cvc5TypeConstraint, collect_cvc5_type_constraints,
@@ -151,7 +151,7 @@ pub(crate) fn extract_cvc5_counterexample_model<'a>(
 ) -> (String, Option<CounterexampleModel>) {
     let mut variables: Vec<(String, String)> = var_map
         .iter()
-        .filter(|(name, _)| !is_internal_cvc5_var(name))
+        .filter(|(name, _)| crate::encode_atom_policy::is_counterexample_user_var(name))
         .map(|(name, term)| {
             let val = solver.get_value(term.clone());
             (name.clone(), val.to_string())

@@ -1,7 +1,6 @@
 //! CVC5 model parsing and counterexample filtering.
 
 use crate::CounterexampleModel;
-use crate::cvc5_common::is_internal_cvc5_var;
 
 /// Parse a CVC5 model output into a CounterexampleModel.
 ///
@@ -22,7 +21,7 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
                 if let Some(space_idx) = type_and_value.find(' ') {
                     let raw = &type_and_value[space_idx + 1..];
                     let value = raw.strip_suffix(')').unwrap_or(raw).trim().to_string();
-                    if !is_internal_cvc5_var(&name) {
+                    if crate::encode_atom_policy::is_counterexample_user_var(&name) {
                         variables.push((name, value));
                     }
                 }
