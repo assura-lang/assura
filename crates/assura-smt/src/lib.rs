@@ -53,6 +53,13 @@ pub use result::{
 /// Shared IR expression encoding helpers.
 mod clause_gate_policy;
 mod clause_policy;
+// Encode convergence policy modules (solver-neutral; backends build terms locally):
+//   encode_atom_policy       — names/atoms (`result`→`__result`, UF names, float/str atoms)
+//   encode_raw_ops_policy    — raw-token operators + quantifier/range SMT-LIB shapes
+//   encode_quantifier_policy — AST quantifier domain/orchestration (shell/native)
+//   encode_method_policy     — KnownBuiltin tables, `is_*_builtin`, SMT-LIB method text
+//   encode_call_policy       — `EncodeCallKind` order (`classify_encode_call` / asserts)
+// Not full `Expr`→solver-term unify: Z3 `Encoder` and CVC5 term builders stay separate.
 mod encode_atom_policy;
 mod encode_call_policy;
 mod encode_method_policy;
@@ -127,8 +134,7 @@ pub(crate) mod cvc5_backend;
 pub(crate) use cvc5_backend::cvc5_adt;
 pub(crate) use cvc5_backend::cvc5_atom_encode;
 pub(crate) use cvc5_backend::cvc5_binop_encode;
-// cvc5_builtins is reachable as cvc5_backend::cvc5_builtins (tests/shell re-exports).
-// Encode paths import encode_method_policy / encode_atom_policy directly.
+// Encode paths import encode_*_policy directly (no cvc5_builtins compatibility surface).
 pub(crate) use cvc5_backend::cvc5_call_encode;
 pub(crate) use cvc5_backend::cvc5_collect;
 // cvc5_common is test-only (atom + field-chain regression tests); no crate-root re-export.
