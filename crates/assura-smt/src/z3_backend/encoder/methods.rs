@@ -798,8 +798,11 @@ impl Encoder {
                 return (Z3Value::Int(result), end);
             }
 
-            // Boolean-returning functions (table in encode_method_policy).
-            if crate::encode_method_policy::is_bool_returning_uf(func_name) {
+            // Post-builtin UF/size/bool: same classify_encode_call order as encode_call
+            // (parity with CVC5 encode_uf_call_cvc5 / shell encode_call_smtlib).
+            use crate::encode_call_policy::{EncodeCallKind, classify_encode_call};
+            let call_kind = classify_encode_call(func_name, arg_vals.len());
+            if matches!(call_kind, EncodeCallKind::BoolReturningUf) {
                 let bool_sort = z3::Sort::bool();
                 let int_sort = z3::Sort::int();
                 let arity = arg_vals.len().max(1);
@@ -817,8 +820,7 @@ impl Encoder {
                 return (Z3Value::Bool(b), end);
             }
 
-            // Size-like functions get non-negativity axiom
-            if crate::encode_atom_policy::is_size_field_name(func_name) {
+            if matches!(call_kind, EncodeCallKind::SizeFieldUf) {
                 let decl = self.make_func(func_name, arg_vals.len().max(1));
                 let arg_refs: Vec<&dyn z3::ast::Ast> =
                     arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
