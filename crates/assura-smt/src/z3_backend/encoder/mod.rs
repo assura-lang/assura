@@ -1,7 +1,7 @@
 //! Z3 expression encoder: translates Assura AST expressions into Z3 formulas.
 //!
 //! Split by agent edit surface:
-//! - [`value`] — `Z3Value`, `RawOp`
+//! - [`value`] — `Z3Value`
 //! - [`core_impl`] — setup, ADT, quantifiers, call/field/index/literal/match
 //! - [`methods`] — `encode_expr`, raw tokens, binops
 //! - [`unmodelable`] — unmodelable-feature detection / reasons
@@ -27,7 +27,7 @@ pub(crate) use bitvector::{BitvectorEncoder, OverflowResult};
 #[allow(unused_imports)]
 pub(crate) use unmodelable::{collect_unmodelable_reasons, expr_has_unmodelable_features};
 #[allow(unused_imports)]
-pub(crate) use value::{RawOp, Z3Value};
+pub(crate) use value::Z3Value;
 
 static BITVECTOR_API_WIRED: Once = Once::new();
 

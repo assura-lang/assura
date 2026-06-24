@@ -84,6 +84,19 @@ pub(crate) fn classify_ast_binop(op: &BinOp) -> AstBinOpKind {
     }
 }
 
+/// Whether an AST `BinOp` is a comparison operator (used for comparison chaining).
+///
+/// Comparison chaining: `a < b < c` → `(a < b) && (b < c)`.
+/// The parser produces `BinOp(BinOp(a, <, b), <, c)`.  When a comparison's LHS
+/// is itself a comparison, backends extract the shared middle operand and encode
+/// as conjunction.
+pub(crate) fn is_comparison_ast_binop(op: &BinOp) -> bool {
+    matches!(
+        op,
+        BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte | BinOp::Eq | BinOp::Neq
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +123,18 @@ mod tests {
         assert_eq!(classify_ast_binop(&BinOp::Range), AstBinOpKind::Range);
         assert_eq!(classify_ast_binop(&BinOp::In), AstBinOpKind::In);
         assert_eq!(classify_ast_binop(&BinOp::And), AstBinOpKind::Standard);
+    }
+
+    #[test]
+    fn is_comparison_recognizes_relational_and_equality() {
+        assert!(is_comparison_ast_binop(&BinOp::Lt));
+        assert!(is_comparison_ast_binop(&BinOp::Lte));
+        assert!(is_comparison_ast_binop(&BinOp::Gt));
+        assert!(is_comparison_ast_binop(&BinOp::Gte));
+        assert!(is_comparison_ast_binop(&BinOp::Eq));
+        assert!(is_comparison_ast_binop(&BinOp::Neq));
+        assert!(!is_comparison_ast_binop(&BinOp::Add));
+        assert!(!is_comparison_ast_binop(&BinOp::And));
+        assert!(!is_comparison_ast_binop(&BinOp::Or));
     }
 }

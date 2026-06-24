@@ -1,4 +1,4 @@
-//! Z3 value wrapper and raw-token operator kinds.
+//! Z3 value wrapper.
 
 use z3::ast;
 
@@ -12,25 +12,6 @@ pub(crate) enum Z3Value {
     Str(ast::String),
     /// Fixed-width bitvector (#265).
     Bv(ast::BV),
-}
-
-/// Binary operator kind for raw token parsing.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum RawOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Eq,
-    Neq,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    And,
-    Or,
-    Implies,
 }
 
 impl Z3Value {
