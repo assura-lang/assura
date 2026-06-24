@@ -62,6 +62,7 @@ mod clause_policy;
 //   encode_field_policy      — field access plan (flatten vs shallow UF) + SMT-LIB shapes
 //   encode_old_policy        — `old(e)` pre-state access plan (ident/field/method)
 // Not full `Expr`→solver-term unify: Z3 `Encoder` and CVC5 term builders stay separate.
+mod encode_adt_policy;
 mod encode_atom_policy;
 mod encode_binop_policy;
 mod encode_call_policy;

@@ -365,13 +365,23 @@ impl Encoder {
             Expr::Index { expr, index } => self.encode_index(expr, index),
 
             // --- Tuple: model as an Int with element-access axioms ---
+            // Plan via encode_tuple_policy (parity with CVC5 FreshWithAccessors).
             Expr::Tuple(elems) => {
-                let tuple_val = self.fresh_int();
+                use crate::encode_tuple_policy::{
+                    TupleEncodePlan, plan_tuple_encode, tuple_accessor_uf_name,
+                };
+
                 let arity = elems.len();
+                let plan = plan_tuple_encode(arity, false);
+                debug_assert!(matches!(
+                    plan,
+                    TupleEncodePlan::FreshWithAccessors { arity: a } if a == arity
+                ));
+                let tuple_val = self.fresh_int();
                 for (i, elem) in elems.iter().enumerate() {
                     let elem_val = self.encode_expr(elem);
                     // Assert: __tuple_{arity}_{i}(tuple) == elem_val
-                    let accessor_name = crate::encode_atom_policy::tuple_accessor_name(arity, i);
+                    let accessor_name = tuple_accessor_uf_name(arity, i);
                     let accessor = self.make_func(&accessor_name, 1);
                     let accessed = accessor
                         .apply(&[&tuple_val as &dyn z3::ast::Ast])
@@ -387,12 +397,23 @@ impl Encoder {
             Expr::Cast { expr, .. } => self.encode_expr(expr),
 
             // --- List: model as an Int with element-access and length axioms ---
+            // Plan via encode_list_policy (parity with CVC5 FreshWithElements).
             Expr::List(elems) => {
+                use crate::encode_list_policy::{
+                    ListEncodePlan, list_get_uf_name, plan_list_encode,
+                };
+
+                let plan = plan_list_encode(elems.len(), false);
+                debug_assert!(matches!(
+                    plan,
+                    ListEncodePlan::FreshWithElements { len } if len == elems.len()
+                ));
                 let list_val = self.fresh_int();
+                let get_uf = list_get_uf_name();
                 for (i, elem) in elems.iter().enumerate() {
                     let elem_val = self.encode_expr(elem);
                     // Assert: __list_get(list, i) == elem_val
-                    let accessor = self.make_func(crate::encode_atom_policy::LIST_GET_UF_NAME, 2);
+                    let accessor = self.make_func(get_uf, 2);
                     let idx = ast::Int::from_i64(i as i64);
                     let accessed = accessor
                         .apply(&[&list_val as &dyn z3::ast::Ast, &idx as &dyn z3::ast::Ast])
@@ -413,12 +434,20 @@ impl Encoder {
             }
 
             // --- Block: encode all body expressions, return last ---
+            // Shape via encode_let_policy (parity with CVC5 encode_block_cvc5).
             Expr::Block(body) => {
-                let mut result = Z3Value::Int(self.fresh_int());
-                for expr in body {
-                    result = self.encode_expr(expr);
+                use crate::encode_let_policy::{BlockReducePlan, classify_block};
+
+                match classify_block(body) {
+                    BlockReducePlan::Empty => Z3Value::Int(self.fresh_int()),
+                    BlockReducePlan::LastExpr => {
+                        let mut result = Z3Value::Int(self.fresh_int());
+                        for expr in body {
+                            result = self.encode_expr(expr);
+                        }
+                        result
+                    }
                 }
-                result
             }
         }
     }
@@ -909,6 +938,11 @@ impl Encoder {
 
     /// Encode a binary operation.
     pub(crate) fn encode_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> Z3Value {
+        // Shared special-form classification (parity with CVC5 encode_ast_binop_cvc5).
+        // Z3 still matches on full BinOp for BV/Real arithmetic; this ties policy to
+        // the special-form subset (Neq/Range/In/NotIn/Concat) vs standard ops.
+        let _binop_plan = crate::encode_binop_policy::classify_ast_binop(op);
+
         // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
         // The parser produces BinOp(BinOp(a, <, b), <, c). We detect
         // when a comparison's LHS is itself a comparison, extract the

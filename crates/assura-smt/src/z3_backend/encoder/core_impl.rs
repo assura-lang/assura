@@ -1252,7 +1252,7 @@ impl Encoder {
         if ctor_specs.is_empty() {
             return None;
         }
-        let adt_name = crate::encode_atom_policy::match_adt_fresh_name(self.fresh_counter);
+        let adt_name = crate::encode_adt_policy::match_adt_fresh_name(self.fresh_counter);
         self.fresh_counter += 1;
         let accessor_refs: Vec<Vec<&str>> = ctor_specs
             .iter()

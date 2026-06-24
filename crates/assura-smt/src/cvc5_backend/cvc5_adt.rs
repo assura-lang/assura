@@ -109,19 +109,30 @@ pub(crate) fn cvc5_adt_prelude_lines() -> Vec<String> {
 }
 
 /// Returns `(= (__adt_tag_<adt> <value>) <tag>)`.
+///
+/// Delegates SMT-LIB shape to [`crate::encode_adt_policy`]; tag lookup uses
+/// ordered constructor names from `adt_def` (sequential tags 0..n-1).
 pub(crate) fn adt_is_constructor_smt(
     adt_name: &str,
     ctor_name: &str,
     value: &str,
     adt_def: &Cvc5AdtDef,
 ) -> String {
+    let ctor_names: Vec<&str> = adt_def
+        .constructors
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    // Prefer stored tag when present (matches definition order for normal defs).
     let tag = adt_def
         .constructors
         .iter()
         .find(|c| c.name == ctor_name)
-        .map_or(0, |c| c.tag);
-    let tag_fn = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
-    format!("(= ({tag_fn} {value}) {tag})")
+        .map_or_else(
+            || crate::encode_adt_policy::adt_ctor_tag_or_zero(&ctor_names, ctor_name),
+            |c| c.tag,
+        );
+    crate::encode_adt_policy::adt_is_constructor_smtlib(adt_name, value, tag)
 }
 
 /// Returns `(__adt_<adt>_<accessor> <value>)`.
@@ -130,8 +141,7 @@ pub(crate) fn adt_is_constructor_smt(
     expect(dead_code, reason = "shell-out prelude only; native uses UF accessors")
 )]
 pub(crate) fn adt_accessor_smt(adt_name: &str, accessor: &str, value: &str) -> String {
-    let acc_fn = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
-    format!("({acc_fn} {value})")
+    crate::encode_adt_policy::adt_accessor_smtlib(adt_name, accessor, value)
 }
 
 #[cfg(feature = "cvc5-verify")]
