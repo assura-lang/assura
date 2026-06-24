@@ -94,6 +94,8 @@ pub(crate) fn field_uif_name(field: &str) -> String {
 /// Strip the `__field_` prefix from an encoder variable name for user display.
 ///
 /// Returns the bare field name if the prefix is present, otherwise the original name.
+/// Superseded by [`counterexample_display_name`] for production use; kept for focused tests.
+#[cfg(test)]
 pub(crate) fn strip_field_uif_prefix(name: &str) -> &str {
     name.strip_prefix(FIELD_UIF_PREFIX).unwrap_or(name)
 }
@@ -514,6 +516,21 @@ pub(crate) fn is_counterexample_user_var(name: &str) -> bool {
     !is_internal_encoder_var(name) || name == RESULT_VAR_NAME
 }
 
+/// Clean a solver variable name for user-facing counterexample display.
+///
+/// Strips [`FIELD_UIF_PREFIX`] (`__field_`) when present, otherwise strips
+/// the generic `__` prefix added by [`encode_ident_name`] (e.g. `__result` → `result`).
+/// Names without internal prefixes pass through unchanged.
+///
+/// Used by all three model-extraction paths (Z3, CVC5 native, CVC5 shell) so
+/// `CounterexampleModel` variables always carry clean display names.
+pub(crate) fn counterexample_display_name(name: &str) -> &str {
+    if let Some(rest) = name.strip_prefix(FIELD_UIF_PREFIX) {
+        return rest;
+    }
+    name.strip_prefix("__").unwrap_or(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -593,6 +610,23 @@ mod tests {
         assert!(is_counterexample_user_var(RESULT_VAR_NAME));
         assert!(!is_counterexample_user_var("__fresh_0"));
         assert!(!is_counterexample_user_var("__field_len"));
+    }
+
+    #[test]
+    fn counterexample_display_name_strips_correctly() {
+        // __result → result (generic __ strip)
+        assert_eq!(counterexample_display_name("__result"), "result");
+        // __field_length → length (FIELD_UIF_PREFIX strip, higher priority)
+        assert_eq!(counterexample_display_name("__field_length"), "length");
+        assert_eq!(counterexample_display_name("__field_len"), "len");
+        // Plain user vars pass through
+        assert_eq!(counterexample_display_name("x"), "x");
+        assert_eq!(
+            counterexample_display_name("payload_length"),
+            "payload_length"
+        );
+        // Other __ prefixed names stripped generically
+        assert_eq!(counterexample_display_name("__old_x"), "old_x");
     }
 
     #[test]

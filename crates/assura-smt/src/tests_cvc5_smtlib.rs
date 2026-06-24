@@ -800,8 +800,8 @@ fn test_parse_model_filters_all_internal_vars() {
 (define-fun y () Int 20)";
     let parsed = parse_smtlib_model(model).unwrap();
     let names: Vec<&str> = parsed.variables.iter().map(|(n, _)| n.as_str()).collect();
-    // `__result` is contract `result`; kept via is_counterexample_user_var (Z3 parity).
-    assert_eq!(names, vec!["__result", "x", "y"]);
+    // `__result` is contract `result`; cleaned to `result` by counterexample_display_name.
+    assert_eq!(names, vec!["result", "x", "y"]);
     assert!(!names.contains(&"__str_hello"));
     assert!(!names.contains(&"__field_len"));
     assert!(!names.contains(&"__fresh_0"));

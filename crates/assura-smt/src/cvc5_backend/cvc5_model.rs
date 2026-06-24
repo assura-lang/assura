@@ -22,7 +22,9 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
                     let raw = &type_and_value[space_idx + 1..];
                     let value = raw.strip_suffix(')').unwrap_or(raw).trim().to_string();
                     if crate::encode_atom_policy::is_counterexample_user_var(&name) {
-                        variables.push((name, value));
+                        let clean = crate::encode_atom_policy::counterexample_display_name(&name)
+                            .to_string();
+                        variables.push((clean, value));
                     }
                 }
             }

@@ -133,12 +133,13 @@ pub fn format_counterexample_lines(
         let mut inputs = Vec::new();
         let mut outputs = Vec::new();
         for (name, value) in &cm.variables {
-            let clean_name = name.strip_prefix("__").unwrap_or(name);
+            // CounterexampleModel variables already carry clean display names
+            // (stripped by counterexample_display_name at extraction time).
             let clean_value = clean_z3_value(value);
-            if clean_name == "result" || clean_name.starts_with("result") {
-                outputs.push((clean_name.to_string(), clean_value));
+            if name == "result" || name.starts_with("result") {
+                outputs.push((name.clone(), clean_value));
             } else {
-                inputs.push((clean_name.to_string(), clean_value));
+                inputs.push((name.clone(), clean_value));
             }
         }
         if !inputs.is_empty() {
@@ -171,7 +172,8 @@ pub fn format_counterexample_lines(
                     // Skip internal encoder temporaries; keep `result` (`__result`) visible.
                     if crate::encode_atom_policy::is_counterexample_user_var(&name) {
                         let clean_name =
-                            crate::encode_atom_policy::strip_field_uif_prefix(&name).to_string();
+                            crate::encode_atom_policy::counterexample_display_name(&name)
+                                .to_string();
                         pairs.push((clean_name, clean_z3_value(&value)));
                     }
                 }
@@ -191,7 +193,7 @@ pub fn format_counterexample_lines(
                 let name = name.trim();
                 if crate::encode_atom_policy::is_counterexample_user_var(name) {
                     let clean_name =
-                        crate::encode_atom_policy::strip_field_uif_prefix(name).to_string();
+                        crate::encode_atom_policy::counterexample_display_name(name).to_string();
                     pairs.push((clean_name, clean_z3_value(rest)));
                 }
             }
@@ -424,13 +426,14 @@ mod tests {
     }
 
     #[test]
-    fn test_counterexample_with_dunder_prefix() {
+    fn test_counterexample_clean_display_names() {
+        // CounterexampleModel variables now carry pre-cleaned display names
+        // (cleaned by counterexample_display_name at extraction time).
         let model = CounterexampleModel {
-            variables: vec![("__x".to_string(), "99".to_string())],
+            variables: vec![("x".to_string(), "99".to_string())],
         };
         let lines = format_counterexample_lines(&Some(model), "");
         assert!(lines[0].contains("x = 99"));
-        assert!(!lines[0].contains("__x"));
     }
 
     #[test]
