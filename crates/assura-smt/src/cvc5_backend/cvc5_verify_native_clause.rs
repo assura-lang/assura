@@ -90,10 +90,13 @@ pub(crate) fn check_clause_cvc5_native(
 
         assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
-        if kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
-            let frame_vars = prepared
-                .frame_checker
-                .frame_axiom_vars_with_candidates(ensures_body, &prepared.param_names);
+        let frame_vars = crate::clause_policy::frame_axiom_vars_for_clause(
+            &prepared.frame_checker,
+            &kind,
+            ensures_body,
+            &prepared.param_names,
+        );
+        if !frame_vars.is_empty() {
             assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
         }
 

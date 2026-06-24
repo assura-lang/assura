@@ -215,11 +215,13 @@ fn build_incremental_shell_script(
         };
         append_havoc_assume_smtlib(&mut havoc_target, &havoc_input);
 
-        if clause.kind == ClauseKind::Ensures && input.prepared.frame_checker.has_modifies() {
-            let frame_vars = input
-                .prepared
-                .frame_checker
-                .frame_axiom_vars_with_candidates(&clause.body, &input.prepared.param_names);
+        let frame_vars = crate::clause_policy::frame_axiom_vars_for_clause(
+            &input.prepared.frame_checker,
+            &clause.kind,
+            &clause.body,
+            &input.prepared.param_names,
+        );
+        if !frame_vars.is_empty() {
             append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
         }
 

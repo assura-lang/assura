@@ -89,61 +89,25 @@ fn verify_clauses_with_types(
     results: &mut Vec<VerificationResult>,
     types: &TypeConstraints,
 ) {
-    let requires: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Requires)
-        .collect();
+    // One compiler brain: clause partitioning / feature dispatch / frame setup
+    // (shared with CVC5 via `clause_policy`; not full expr-encode unification).
+    let (feature_results, prep) = crate::clause_policy::prepare_contract_clauses(
+        parent_name,
+        clauses,
+        types.params,
+        types.constants,
+    );
+    results.extend(feature_results);
 
-    let verifiable: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| {
-            matches!(
-                c.kind,
-                ClauseKind::Ensures
-                    | ClauseKind::Invariant
-                    | ClauseKind::Rule
-                    | ClauseKind::MustNot
-                    | ClauseKind::Decreases
-            )
-        })
-        .collect();
-
-    let ensures_clauses: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Ensures)
-        .collect();
-
-    // Process feature-specific Other clauses via SMT feature dispatch.
-    // Pass the clause body and sibling clauses so features with boolean
-    // predicate bodies get real Z3 validity checking.
-    for clause in clauses {
-        if let ClauseKind::Other(kind) = &clause.kind {
-            let feature_results = crate::smt_features::verify_feature_clause(
-                kind,
-                parent_name,
-                &clause.body,
-                clauses,
-            );
-            results.extend(feature_results);
-        }
-    }
+    let requires = &prep.requires_clauses;
+    let verifiable = &prep.verifiable;
+    let ensures_clauses = &prep.ensures_clauses;
+    let frame_checker = &prep.frame_checker;
+    let param_names = &prep.param_names;
 
     if verifiable.is_empty() {
         return;
     }
-
-    // T045: Build frame checker from modifies clauses
-    let modifies_bodies: Vec<&SpExpr> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Modifies)
-        .map(|c| &c.body)
-        .collect();
-    let frame_checker = if modifies_bodies.is_empty() {
-        assura_types::FrameChecker::empty()
-    } else {
-        let body_refs: Vec<&SpExpr> = modifies_bodies.to_vec();
-        assura_types::FrameChecker::new(&body_refs)
-    };
 
     // ---------------------------------------------------------------
     // Incremental solving: create ONE solver, assert shared requires
@@ -186,12 +150,11 @@ fn verify_clauses_with_types(
         collect_function_names_for_triggers(&other_clause.body, &mut base_encoder.trigger_manager);
     }
 
-    let param_names: Vec<String> = types.params.iter().map(|p| p.name.clone()).collect();
     let havoc_input = crate::havoc_assume::HavocAssumeInput {
-        requires: &requires,
-        ensures: &ensures_clauses,
+        requires,
+        ensures: ensures_clauses,
         return_ty: types.return_ty,
-        param_names: &param_names,
+        param_names,
         ir: types.ir_body,
         enc_ctx: crate::ir_encode::IrEncodeContext::new(
             types.type_env,
@@ -265,7 +228,7 @@ fn verify_clauses_with_types(
     base_encoder.background_axioms.clear();
 
     // For each verifiable clause: push, encode, check, pop
-    for clause in &verifiable {
+    for clause in verifiable {
         let desc = clause_desc(parent_name, &clause.kind);
 
         // Skip clauses with unmodelable features
@@ -322,19 +285,18 @@ fn verify_clauses_with_types(
             );
         }
 
-        // T045 / Tier A3: For ensures clauses with a modifies set, inject frame
-        // axioms: for every variable referenced in the ensures (plus contract
-        // params/inputs) that is NOT in the modifies set, assert `var == old(var)`.
-        if clause.kind == ClauseKind::Ensures && frame_checker.has_modifies() {
-            let frame_vars =
-                frame_checker.frame_axiom_vars_with_candidates(&clause.body, &param_names);
-            for var_name in &frame_vars {
-                let current = clause_encoder.get_or_create_int(var_name);
-                let old_name = format!("{var_name}__old");
-                let old_var = clause_encoder.get_or_create_int(&old_name);
-                let axiom = current.eq(&old_var);
-                solver.assert(&axiom);
-            }
+        // T045 / Tier A3: frame axioms from shared clause_policy (ensures + modifies).
+        for var_name in crate::clause_policy::frame_axiom_vars_for_clause(
+            frame_checker,
+            &clause.kind,
+            &clause.body,
+            param_names,
+        ) {
+            let current = clause_encoder.get_or_create_int(&var_name);
+            let old_name = format!("{var_name}__old");
+            let old_var = clause_encoder.get_or_create_int(&old_name);
+            let axiom = current.eq(&old_var);
+            solver.assert(&axiom);
         }
 
         // Encode the clause body
@@ -348,31 +310,29 @@ fn verify_clauses_with_types(
         clause_encoder.background_axioms.clear();
 
         let result_before = results.len();
-        match clause.kind {
-            ClauseKind::Ensures | ClauseKind::Rule => {
+        use crate::clause_policy::ClauseCheckPolarity;
+        match crate::clause_policy::clause_check_polarity(&clause.kind) {
+            Some(ClauseCheckPolarity::ValidityNegateBody) => {
                 solver.assert(clause_bool.not());
                 check_validity(&solver, desc, results);
             }
-            ClauseKind::Invariant => {
+            Some(ClauseCheckPolarity::SatisfiabilityAssertBody) => {
                 solver.assert(&clause_bool);
                 check_satisfiability(&solver, desc, results);
             }
-            // must_not { P }: assert P; UNSAT means P is impossible (verified),
-            // SAT means a counterexample exists (P is possible). Reuses
-            // check_validity's result mapping (UNSAT=ok, SAT=counterexample).
-            // Mirrors CVC5 assert_formula(body) + unsat/sat interpretation.
-            ClauseKind::MustNot => {
+            // must_not { P }: assert P; UNSAT means P is impossible (verified).
+            Some(ClauseCheckPolarity::ValidityAssertBody) => {
                 solver.assert(&clause_bool);
                 check_validity(&solver, desc, results);
             }
-            ClauseKind::Decreases => {
+            Some(ClauseCheckPolarity::DecreasesNonNeg) => {
                 let zero = ast::Int::from_i64(0);
                 let measure = clause_val.as_int(&mut clause_encoder.fresh_counter);
                 let non_neg = measure.ge(&zero);
                 solver.assert(non_neg.not());
                 check_validity(&solver, desc, results);
             }
-            _ => {}
+            None => {}
         }
 
         // T113: Cache the verification result

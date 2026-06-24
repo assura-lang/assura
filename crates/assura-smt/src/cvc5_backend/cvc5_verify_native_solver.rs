@@ -138,12 +138,12 @@ pub(crate) fn assert_cvc5_clause_check<'a>(
     kind: ClauseKind,
     body_term: cvc5::Term<'a>,
 ) {
-    match kind {
-        ClauseKind::Invariant | ClauseKind::MustNot => solver.assert_formula(body_term),
-        _ => {
-            let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
-            solver.assert_formula(negated);
-        }
+    // Polarity from shared clause_policy (CVC5 coarse path; Z3 handles Decreases via measure).
+    if crate::clause_policy::cvc5_assert_negates_body(&kind) {
+        let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
+        solver.assert_formula(negated);
+    } else {
+        solver.assert_formula(body_term);
     }
 }
 

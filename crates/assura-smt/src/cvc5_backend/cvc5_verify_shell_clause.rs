@@ -2,8 +2,6 @@
 
 use std::collections::HashSet;
 
-use assura_ast::ClauseKind;
-
 use crate::VerificationResult;
 use crate::cvc5_adt::cvc5_adt_prelude_lines;
 use crate::cvc5_collect::collect_vars;
@@ -82,10 +80,13 @@ pub(crate) fn check_clause_cvc5_shellout(
         append_cvc5_shellout_lemma_assumptions(&mut script, ensures_body, defs);
     }
 
-    if kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
-        let frame_vars = prepared
-            .frame_checker
-            .frame_axiom_vars_with_candidates(ensures_body, &prepared.param_names);
+    let frame_vars = crate::clause_policy::frame_axiom_vars_for_clause(
+        &prepared.frame_checker,
+        &kind,
+        ensures_body,
+        &prepared.param_names,
+    );
+    if !frame_vars.is_empty() {
         append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
     }
 
