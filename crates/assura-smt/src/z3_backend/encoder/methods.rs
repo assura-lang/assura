@@ -956,33 +956,25 @@ impl Encoder {
         }
     }
 
-    /// Check if a BinOp is a comparison operator.
-    pub(crate) fn is_comparison(op: &BinOp) -> bool {
-        matches!(
-            op,
-            BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte | BinOp::Eq | BinOp::Neq
-        )
-    }
-
     /// Encode a binary operation.
     ///
     /// Special forms (`Neq`/`Range`/`In`/`NotIn`/`Concat`) align with
     /// [`crate::encode_binop_policy::AstBinOpKind`]; arithmetic/logic/compare
     /// remain full `BinOp` match for BV/Real/Int overloads (Z3-only).
     pub(crate) fn encode_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> Z3Value {
-        use crate::encode_binop_policy::{AstBinOpKind, classify_ast_binop};
+        use crate::encode_binop_policy::{AstBinOpKind, classify_ast_binop, is_comparison_ast_binop};
 
         // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
         // The parser produces BinOp(BinOp(a, <, b), <, c). We detect
         // when a comparison's LHS is itself a comparison, extract the
         // shared middle operand, and encode as conjunction.
-        if Self::is_comparison(op)
+        if is_comparison_ast_binop(op)
             && let Expr::BinOp {
                 lhs: inner_lhs,
                 op: inner_op,
                 rhs: inner_rhs,
             } = &lhs.node
-            && Self::is_comparison(inner_op)
+            && is_comparison_ast_binop(inner_op)
         {
             // Encode: (inner_lhs inner_op inner_rhs) && (inner_rhs op rhs)
             let left_cmp = self.encode_binop(inner_lhs, inner_op, inner_rhs);
