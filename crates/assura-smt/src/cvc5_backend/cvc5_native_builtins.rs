@@ -55,8 +55,8 @@ fn assert_collection_len_eq_cvc5<'a>(
     state
         .axioms
         .push(tm.mk_term(cvc5::Kind::Geq, &[val.clone(), zero]));
-    if len_uf == "len" || len_uf == "__field_len" {
-        for other in ["len", "__field_len"] {
+    if crate::encode_atom_policy::is_length_uf_name(len_uf) {
+        for other in crate::encode_atom_policy::length_uf_names() {
             if other != len_uf {
                 let o = collection_len_of_cvc5(tm, state, obj, other);
                 state
@@ -76,7 +76,7 @@ pub(crate) fn link_ident_length_cvc5<'a>(
     coll_term: &cvc5::Term<'a>,
     canon_len: &cvc5::Term<'a>,
 ) {
-    for uf in ["len", "__field_len"] {
+    for uf in crate::encode_atom_policy::length_uf_names() {
         let got = collection_len_of_cvc5(tm, state, coll_term, uf);
         state
             .axioms
@@ -91,7 +91,12 @@ fn field_len_of_cvc5<'a>(
     value: &cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
     let _ = field_len_fn_cvc5(tm, state); // seed field_len_fn + uf_cache
-    apply_unary_int_uf_cvc5(tm, state, "__field_len", value)
+    apply_unary_int_uf_cvc5(
+        tm,
+        state,
+        crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+        value,
+    )
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -277,12 +282,23 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Leq, &[start.clone(), end.clone()]));
-            let str_len = collection_len_of_cvc5(tm, state, str_val, "__field_len");
+            let str_len = collection_len_of_cvc5(
+                tm,
+                state,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Leq, &[end.clone(), str_len]));
             let diff = tm.mk_term(cvc5::Kind::Sub, &[end.clone(), start.clone()]);
-            assert_collection_len_eq_cvc5(tm, state, &result, &diff, "__field_len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &diff,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::Concat | KnownBuiltin::Append => {
@@ -290,8 +306,10 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let l = &args[0];
             let r = &args[1];
             let result = fresh_int_cvc5(tm, state);
-            let len_l = collection_len_of_cvc5(tm, state, l, "__field_len");
-            let len_r = collection_len_of_cvc5(tm, state, r, "__field_len");
+            let len_l =
+                collection_len_of_cvc5(tm, state, l, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
+            let len_r =
+                collection_len_of_cvc5(tm, state, r, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
             let zero = tm.mk_integer(0);
             state
                 .axioms
@@ -300,7 +318,13 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[len_r.clone(), zero]));
             let sum = tm.mk_term(cvc5::Kind::Add, &[len_l.clone(), len_r.clone()]);
-            assert_collection_len_eq_cvc5(tm, state, &result, &sum, "__field_len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &sum,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[sum.clone(), len_l]));
@@ -316,7 +340,12 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), neg_one]));
-            let str_len = collection_len_of_cvc5(tm, state, str_val, "__field_len");
+            let str_len = collection_len_of_cvc5(
+                tm,
+                state,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Lt, &[result.clone(), str_len]));
@@ -329,7 +358,12 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[idx.clone(), zero]));
-            let str_len = collection_len_of_cvc5(tm, state, str_val, "__field_len");
+            let str_len = collection_len_of_cvc5(
+                tm,
+                state,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Lt, &[idx.clone(), str_len]));
@@ -342,7 +376,13 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[res_len.clone(), zero]));
-            assert_collection_len_eq_cvc5(tm, state, &result, &res_len, "__field_len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &res_len,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::Split => {
@@ -357,8 +397,18 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
         KnownBuiltin::Trim => {
             let str_val = &args[0];
             let result = fresh_int_cvc5(tm, state);
-            let str_len = collection_len_of_cvc5(tm, state, str_val, "__field_len");
-            let res_len = collection_len_of_cvc5(tm, state, &result, "__field_len");
+            let str_len = collection_len_of_cvc5(
+                tm,
+                state,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            let res_len = collection_len_of_cvc5(
+                tm,
+                state,
+                &result,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
             let zero = tm.mk_integer(0);
             state
                 .axioms
