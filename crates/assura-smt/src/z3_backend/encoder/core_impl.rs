@@ -1,7 +1,7 @@
 //! Encoder construction, ADT emulation, quantifiers, and non-expr encode helpers.
 
 use crate::*;
-use assura_ast::{BinOp, Literal, SpExpr};
+use assura_ast::{Literal, SpExpr};
 use assura_types::checkers::expr_references_var;
 use std::collections::HashMap;
 use z3::ast;
@@ -133,6 +133,9 @@ impl Encoder {
     ///
     /// For non-range domains (collections, identifiers), encode
     /// membership as an uninterpreted `contains(domain, x)` predicate.
+    ///
+    /// Domain classification shares [`crate::encode_quantifier_policy::domain_as_range`];
+    /// term construction stays Z3-local (mirrors CVC5 `guard_quantifier_body_cvc5`).
     pub(crate) fn guard_quantifier_body(
         &mut self,
         domain: &SpExpr,
@@ -140,13 +143,7 @@ impl Encoder {
         body: &ast::Bool,
         is_forall: bool,
     ) -> ast::Bool {
-        // Check if domain is a range expression: lo..hi
-        if let Expr::BinOp {
-            op: BinOp::Range,
-            lhs: lo,
-            rhs: hi,
-        } = &domain.node
-        {
+        if let Some((lo, hi)) = crate::encode_quantifier_policy::domain_as_range(domain) {
             let lo_val = self.encode_expr(lo).as_int(&mut self.fresh_counter);
             let hi_val = self.encode_expr(hi).as_int(&mut self.fresh_counter);
             let ge_lo = bound.ge(&lo_val);
@@ -161,8 +158,11 @@ impl Encoder {
             // Non-range domain: encode as uninterpreted contains(domain, x)
             let int_sort = z3::Sort::int();
             let bool_sort = z3::Sort::bool();
-            let contains_fn =
-                z3::FuncDecl::new("__domain_contains", &[&int_sort, &int_sort], &bool_sort);
+            let contains_fn = z3::FuncDecl::new(
+                crate::encode_quantifier_policy::DOMAIN_CONTAINS_UF_NAME,
+                &[&int_sort, &int_sort],
+                &bool_sort,
+            );
             let domain_val = self.encode_expr(domain).as_int(&mut self.fresh_counter);
             let membership = contains_fn
                 .apply(&[
