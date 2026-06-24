@@ -937,11 +937,12 @@ impl Encoder {
     }
 
     /// Encode a binary operation.
+    ///
+    /// Special forms (`Neq`/`Range`/`In`/`NotIn`/`Concat`) align with
+    /// [`crate::encode_binop_policy::AstBinOpKind`]; arithmetic/logic/compare
+    /// remain full `BinOp` match for BV/Real/Int overloads (Z3-only).
     pub(crate) fn encode_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> Z3Value {
-        // Shared special-form classification (parity with CVC5 encode_ast_binop_cvc5).
-        // Z3 still matches on full BinOp for BV/Real arithmetic; this ties policy to
-        // the special-form subset (Neq/Range/In/NotIn/Concat) vs standard ops.
-        let _binop_plan = crate::encode_binop_policy::classify_ast_binop(op);
+        use crate::encode_binop_policy::{AstBinOpKind, classify_ast_binop};
 
         // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
         // The parser produces BinOp(BinOp(a, <, b), <, c). We detect
@@ -965,6 +966,70 @@ impl Encoder {
 
         let lv = self.encode_expr(lhs);
         let rv = self.encode_expr(rhs);
+
+        // Policy-classified special forms first (parity with CVC5 encode_ast_binop_cvc5).
+        match classify_ast_binop(op) {
+            AstBinOpKind::Neq => {
+                return match (&lv, &rv) {
+                    (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l.eq(r).not()),
+                    (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r).not()),
+                    (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l.eq(r).not()),
+                    _ if Self::is_real(&lv) || Self::is_real(&rv) => {
+                        let l = lv.as_real(&mut self.fresh_counter);
+                        let r = rv.as_real(&mut self.fresh_counter);
+                        Z3Value::Bool(l.eq(&r).not())
+                    }
+                    _ => {
+                        let l = lv.as_int(&mut self.fresh_counter);
+                        let r = rv.as_int(&mut self.fresh_counter);
+                        Z3Value::Bool(l.eq(&r).not())
+                    }
+                };
+            }
+            AstBinOpKind::In | AstBinOpKind::NotIn => {
+                let l = lv.as_int(&mut self.fresh_counter);
+                let r = rv.as_int(&mut self.fresh_counter);
+                let decl = self.make_func(crate::encode_atom_policy::CONTAINS_UF_NAME, 2);
+                let result = decl.apply(&[&r as &dyn z3::ast::Ast, &l as &dyn z3::ast::Ast]);
+                let contains_int = result.as_int().unwrap_or_else(|| self.fresh_int());
+                let zero = ast::Int::from_i64(0);
+                let is_member = contains_int.eq(&zero).not();
+                return if matches!(op, BinOp::NotIn) {
+                    Z3Value::Bool(is_member.not())
+                } else {
+                    Z3Value::Bool(is_member)
+                };
+            }
+            AstBinOpKind::Concat => {
+                let l = lv.as_int(&mut self.fresh_counter);
+                let r = rv.as_int(&mut self.fresh_counter);
+                let result = self.fresh_int();
+                let len_decl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
+                let len_l = len_decl
+                    .apply(&[&l as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let len_r = len_decl
+                    .apply(&[&r as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let len_result = len_decl
+                    .apply(&[&result as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| self.fresh_int());
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(len_l.ge(&zero));
+                self.background_axioms.push(len_r.ge(&zero));
+                let sum = ast::Int::add(&[&len_l, &len_r]);
+                self.background_axioms.push(len_result.eq(&sum));
+                self.background_axioms.push(len_result.ge(&zero));
+                return Z3Value::Int(result);
+            }
+            AstBinOpKind::Range => {
+                return Z3Value::Int(self.fresh_int());
+            }
+            AstBinOpKind::Standard | AstBinOpKind::Unsupported => {}
+        }
 
         match op {
             // --- Arithmetic: produce Int or Real depending on operands ---
@@ -1053,21 +1118,10 @@ impl Encoder {
                     Z3Value::Bool(l.eq(&r))
                 }
             },
-            BinOp::Neq => match (&lv, &rv) {
-                (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l.eq(r).not()),
-                (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r).not()),
-                (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l.eq(r).not()),
-                _ if Self::is_real(&lv) || Self::is_real(&rv) => {
-                    let l = lv.as_real(&mut self.fresh_counter);
-                    let r = rv.as_real(&mut self.fresh_counter);
-                    Z3Value::Bool(l.eq(&r).not())
-                }
-                _ => {
-                    let l = lv.as_int(&mut self.fresh_counter);
-                    let r = rv.as_int(&mut self.fresh_counter);
-                    Z3Value::Bool(l.eq(&r).not())
-                }
-            },
+            // Neq / In / NotIn / Concat / Range handled via AstBinOpKind above.
+            BinOp::Neq | BinOp::In | BinOp::NotIn | BinOp::Concat | BinOp::Range => {
+                unreachable!("special binop forms handled via classify_ast_binop")
+            }
             BinOp::Lt => {
                 if Self::is_bv(&lv) || Self::is_bv(&rv) {
                     let width = Self::bv_width(if Self::is_bv(&lv) { &lv } else { &rv });
@@ -1134,58 +1188,6 @@ impl Encoder {
                 let l = lv.as_bool();
                 let r = rv.as_bool();
                 Z3Value::Bool(l.implies(&r))
-            }
-
-            // --- Membership: uninterpreted function __contains(set, elem) ---
-            BinOp::In | BinOp::NotIn => {
-                let l = lv.as_int(&mut self.fresh_counter);
-                let r = rv.as_int(&mut self.fresh_counter);
-                let decl = self.make_func(crate::encode_atom_policy::CONTAINS_UF_NAME, 2);
-                let result = decl.apply(&[&r as &dyn z3::ast::Ast, &l as &dyn z3::ast::Ast]);
-                let contains_int = result.as_int().unwrap_or_else(|| self.fresh_int());
-                // __contains returns 0 for false, non-zero for true
-                let zero = ast::Int::from_i64(0);
-                let is_member = contains_int.eq(&zero).not();
-                if matches!(op, BinOp::NotIn) {
-                    Z3Value::Bool(is_member.not())
-                } else {
-                    Z3Value::Bool(is_member)
-                }
-            }
-            BinOp::Concat => {
-                // String/list concat: result is a fresh value with
-                // length axiom: len(a ++ b) == len(a) + len(b)
-                let l = lv.as_int(&mut self.fresh_counter);
-                let r = rv.as_int(&mut self.fresh_counter);
-                let result = self.fresh_int();
-                let len_decl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
-                let len_l = len_decl
-                    .apply(&[&l as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                let len_r = len_decl
-                    .apply(&[&r as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                let len_result = len_decl
-                    .apply(&[&result as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                // len(a) >= 0, len(b) >= 0
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(len_l.ge(&zero));
-                self.background_axioms.push(len_r.ge(&zero));
-                // len(a ++ b) == len(a) + len(b)
-                let sum = ast::Int::add(&[&len_l, &len_r]);
-                self.background_axioms.push(len_result.eq(&sum));
-                // len(a ++ b) >= 0
-                self.background_axioms.push(len_result.ge(&zero));
-                Z3Value::Int(result)
-            }
-            BinOp::Range => {
-                // Range is structural (already constrained by domain
-                // guard in quantifiers); return a fresh collection
-                Z3Value::Int(self.fresh_int())
             }
         }
     }
