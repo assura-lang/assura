@@ -318,6 +318,9 @@ pub(crate) fn encode_raw_single_token_smtlib(token: &str) -> Option<String> {
     if token.parse::<i64>().is_ok() {
         return Some(encode_int_literal_smtlib(token));
     }
+    if token.contains('.') && token.parse::<f64>().is_ok() {
+        return Some(float_literal_to_smtlib(token));
+    }
     Some(encode_ident_name(token))
 }
 
@@ -640,6 +643,16 @@ mod tests {
     #[test]
     fn float_rational_encoding() {
         assert_eq!(float_literal_to_smtlib("1.5"), "(/ 1500000 1000000)");
+    }
+
+    #[test]
+    fn single_token_float_literal() {
+        assert_eq!(
+            encode_raw_single_token_smtlib("3.14"),
+            Some("(/ 3140000 1000000)".into())
+        );
+        // Non-float dots still treated as identifiers
+        assert_eq!(encode_raw_single_token_smtlib("abc"), Some("abc".into()));
     }
 
     #[test]
