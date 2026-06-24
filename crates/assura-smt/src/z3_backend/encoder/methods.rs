@@ -132,6 +132,8 @@ impl Encoder {
                     Z3Value::Int(v)
                 }
                 crate::encode_old_policy::OldAccessPlan::ShallowField { obj, field } => {
+                    // Pre-state shallow field: same bool/size/int classes as live
+                    // `encode_field_access` (size gets non-neg axiom; #198/#267 parity).
                     let old_obj = self.encode_expr(&Spanned::no_span(Expr::Old(obj)));
                     let old_obj_int = old_obj.as_int(&mut self.fresh_counter);
                     let func_name = crate::encode_field_policy::field_uf_smtlib_name(&field);
@@ -141,6 +143,13 @@ impl Encoder {
                         let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
                         let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
                         Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()))
+                    } else if crate::encode_atom_policy::is_size_field_name(&field) {
+                        let decl = self.make_func(&func_name, 1);
+                        let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
+                        let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
+                        let zero = ast::Int::from_i64(0);
+                        self.background_axioms.push(len_val.ge(&zero));
+                        Z3Value::Int(len_val)
                     } else {
                         let decl = self.make_func(&func_name, 1);
                         let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
