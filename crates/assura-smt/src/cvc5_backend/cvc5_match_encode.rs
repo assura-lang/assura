@@ -2,7 +2,7 @@
 
 use assura_ast::{Literal, MatchArm, Pattern, SpExpr};
 
-use crate::cvc5_common::float_literal_to_smtlib;
+use crate::encode_atom_policy::float_literal_to_smtlib;
 use crate::encode_method_policy::pattern_hash_name;
 
 /// Uppercase-initial identifier patterns are enum constructor tags (hash-matched).

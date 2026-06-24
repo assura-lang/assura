@@ -2,10 +2,10 @@
 
 use assura_ast::{Expr, SpExpr, Spanned};
 
-use crate::cvc5_common::old_ident_smtlib_name;
 use crate::cvc5_field_access::{
     FieldAccessPlan, old_flat_field_smtlib, plan_field_access, shallow_field_smtlib,
 };
+use crate::encode_atom_policy::old_ident_name;
 
 /// How `old(inner)` should be encoded.
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ where
     F: FnMut(&SpExpr) -> Option<String>,
 {
     match plan_old_access(inner) {
-        OldAccessPlan::Ident(name) => Some(old_ident_smtlib_name(&name)),
+        OldAccessPlan::Ident(name) => Some(old_ident_name(&name)),
         OldAccessPlan::FlatField(flat) => Some(old_flat_field_smtlib(&flat)),
         OldAccessPlan::ShallowField { obj, field } => {
             let old_expr = Spanned::no_span(Expr::Old(obj));
@@ -86,8 +86,8 @@ where
 
     match plan_old_access(inner) {
         OldAccessPlan::Ident(name) => {
-            // `old_ident_smtlib_name` already sanitizes; do not double-sanitize.
-            let key = old_ident_smtlib_name(&name);
+            // `old_ident_name` already sanitizes; do not double-sanitize.
+            let key = old_ident_name(&name);
             Some(
                 vars.get(&key)
                     .cloned()

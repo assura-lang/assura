@@ -2,8 +2,7 @@
 
 use assura_ast::{Expr, SpExpr};
 
-use crate::cvc5_common::canonical_length_smtlib_name;
-use crate::encode_atom_policy::sanitize_smt_name;
+use crate::encode_atom_policy::{canonical_length_name, sanitize_smt_name};
 use crate::encode_call_policy::{
     EncodeCallKind, classify_encode_call, debug_assert_encode_call_kind,
     encode_call_kind_from_known_builtin,
@@ -73,7 +72,7 @@ where
         && args.is_empty()
         && let Expr::Ident(name) = &receiver.node
     {
-        return Some(canonical_length_smtlib_name(name));
+        return Some(canonical_length_name(name));
     }
     let r = encode(receiver)?;
     let arg_strs: Option<Vec<String>> = args.iter().map(encode).collect();

@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cvc5_adt::define_adt_cvc5;
-use crate::cvc5_common::canonical_length_smtlib_name;
+use crate::encode_atom_policy::canonical_length_name;
 use crate::encode_atom_policy::sanitize_smt_name;
 use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
 use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
@@ -44,7 +44,7 @@ fn declare_int_var(script: &mut String, vars: &mut HashSet<String>, name: &str) 
 }
 
 fn declare_canonical_len(script: &mut String, vars: &mut HashSet<String>, name: &str) {
-    let key = canonical_length_smtlib_name(name);
+    let key = canonical_length_name(name);
     if vars.insert(key.clone()) {
         script.push_str(&format!("(declare-const {key} Int)\n"));
     }
@@ -159,7 +159,7 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
 
     fn canonical_length_for_name(&mut self, name: &str) -> Self::Term {
         declare_canonical_len(self.script, self.vars, name);
-        canonical_length_smtlib_name(name)
+        canonical_length_name(name)
     }
 
     fn on_result_construct(&mut self, type_id: &str) {

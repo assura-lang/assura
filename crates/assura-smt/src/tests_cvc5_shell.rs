@@ -4,9 +4,9 @@ use crate::VerificationResult;
 use crate::cache::SessionCache;
 use crate::cvc5_backend::expr_to_smtlib;
 use crate::cvc5_backend::verify_contract_cvc5_with_lemmas;
-use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
+use crate::encode_atom_policy::canonical_length_name;
 use crate::havoc_assume::{HavocAssumeInput, HavocAssumeSmtlibTarget};
 use crate::verify_context::{ContractVerifyContext, LoadedIrContext};
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
@@ -27,10 +27,7 @@ fn shell_method_call_length_uses_canonical_len() {
         method: "length".into(),
         args: vec![],
     });
-    assert_eq!(
-        expr_to_smtlib(&expr),
-        Some(canonical_length_smtlib_name("raw"))
-    );
+    assert_eq!(expr_to_smtlib(&expr), Some(canonical_length_name("raw")));
 }
 
 #[test]
@@ -39,10 +36,7 @@ fn shell_ident_field_length_uses_canonical_len() {
         Box::new(Spanned::no_span(Expr::Ident("raw".into()))),
         "length".into(),
     ));
-    assert_eq!(
-        expr_to_smtlib(&expr),
-        Some(canonical_length_smtlib_name("raw"))
-    );
+    assert_eq!(expr_to_smtlib(&expr), Some(canonical_length_name("raw")));
 }
 
 #[test]
