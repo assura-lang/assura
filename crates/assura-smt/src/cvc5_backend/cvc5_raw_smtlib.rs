@@ -85,7 +85,10 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     }
 
     if tok == "result" {
-        return Some(("__result".to_string(), start + 1));
+        return Some((
+            crate::encode_atom_policy::RESULT_VAR_NAME.to_string(),
+            start + 1,
+        ));
     }
 
     if tok == "old" && start + 1 < tokens.len() && tokens[start + 1] == "(" {

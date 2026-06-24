@@ -100,13 +100,14 @@ pub(crate) fn field_len_fn_cvc5<'a>(
     if let Some(f) = state.field_len_fn.as_ref() {
         return f.clone();
     }
+    let len_name = crate::encode_atom_policy::FIELD_LEN_UF_NAME;
     let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let len_func = tm.mk_const(len_sort, "__field_len");
+    let len_func = tm.mk_const(len_sort, len_name);
     state.field_len_fn = Some(len_func.clone());
-    // Keep uf_cache aligned so `collection_len_of("__field_len")` reuses this symbol.
+    // Keep uf_cache aligned so `collection_len_of(FIELD_LEN_UF_NAME)` reuses this symbol.
     state
         .uf_cache
-        .insert(uf_cache_key("__field_len", 1, false), len_func.clone());
+        .insert(uf_cache_key(len_name, 1, false), len_func.clone());
     len_func
 }
 
@@ -138,7 +139,7 @@ pub(crate) fn intern_uf_cvc5<'a>(
     };
     let func_sort = tm.mk_fun_sort(&domain, codomain);
     let func_const = tm.mk_const(func_sort, name);
-    if name == "__field_len" && arity == 1 && !returns_bool {
+    if name == crate::encode_atom_policy::FIELD_LEN_UF_NAME && arity == 1 && !returns_bool {
         state.field_len_fn = Some(func_const.clone());
     }
     state.uf_cache.insert(key, func_const.clone());

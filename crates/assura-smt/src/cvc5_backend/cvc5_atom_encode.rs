@@ -63,7 +63,7 @@ pub(crate) fn encode_string_literal_cvc5<'a>(
         }
         state.string_constants.push(const_name);
     }
-    let len_name = "__field_len";
+    let len_name = crate::encode_atom_policy::FIELD_LEN_UF_NAME;
     let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
     let len_func = tm.mk_const(len_sort, len_name);
     let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);

@@ -44,7 +44,7 @@ impl<'a, 'v, 's> Cvc5IrBuilder<'a, 'v, 's, '_> {
     }
 
     fn mk_fresh_const(&mut self) -> cvc5::Term<'a> {
-        let name = format!("__fresh_{}", self.state.fresh_counter);
+        let name = crate::encode_atom_policy::fresh_temp_name(self.state.fresh_counter);
         self.state.fresh_counter += 1;
         self.tm.mk_const(self.tm.integer_sort(), &name)
     }
@@ -302,12 +302,12 @@ fn encode_ir_pred_arg_cvc5<'a>(
 
     match arg {
         IrPredArg::Slot(n) => slots.get(n).cloned().unwrap_or_else(|| {
-            let name = format!("__fresh_{}", state.fresh_counter);
+            let name = crate::encode_atom_policy::fresh_temp_name(state.fresh_counter);
             state.fresh_counter += 1;
             tm.mk_const(tm.integer_sort(), &name)
         }),
         IrPredArg::SlotResult => slots.get(&RESULT_SLOT).cloned().unwrap_or_else(|| {
-            let key = sanitize_smtlib_name("result");
+            let key = crate::encode_atom_policy::RESULT_VAR_NAME.to_string();
             vars.entry(key.clone())
                 .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
                 .clone()
@@ -316,7 +316,7 @@ fn encode_ir_pred_arg_cvc5<'a>(
         IrPredArg::Lit(IrLiteral::Float(f)) => tm.mk_integer(*f as i64),
         IrPredArg::Lit(IrLiteral::Bool(b)) => tm.mk_integer(if *b { 1 } else { 0 }),
         IrPredArg::Lit(IrLiteral::Str(_)) => {
-            let name = format!("__fresh_{}", state.fresh_counter);
+            let name = crate::encode_atom_policy::fresh_temp_name(state.fresh_counter);
             state.fresh_counter += 1;
             tm.mk_const(tm.integer_sort(), &name)
         }

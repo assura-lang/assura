@@ -115,7 +115,7 @@ fn parse_raw_atom_cvc5<'a>(
     }
 
     if tok == "result" {
-        let key = "__result";
+        let key = crate::encode_atom_policy::RESULT_VAR_NAME;
         let v = vars
             .get(key)
             .cloned()
