@@ -4,9 +4,10 @@ use std::collections::HashSet;
 
 use assura_ast::{ClauseKind, SpExpr};
 
-use crate::cvc5_common::{collect_apply_refs_from_expr, sanitize_smtlib_name};
+use crate::cvc5_common::collect_apply_refs_from_expr;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
+use crate::encode_atom_policy::sanitize_smt_name;
 
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
     for req in requires {
@@ -22,7 +23,7 @@ pub(crate) fn append_cvc5_shellout_frame_axioms(
     frame_vars: &[String],
 ) {
     for var_name in frame_vars {
-        let current = sanitize_smtlib_name(var_name);
+        let current = sanitize_smt_name(var_name);
         let old = crate::encode_atom_policy::old_snapshot_name(var_name);
         if !vars.contains(&old) {
             script.push_str(&format!("(declare-const {old} Int)\n"));

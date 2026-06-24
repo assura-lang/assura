@@ -2,12 +2,13 @@
 
 use std::collections::HashMap;
 
-use crate::cvc5_common::{append_raw_dotted_segment, sanitize_smtlib_name};
+use crate::cvc5_common::append_raw_dotted_segment;
 use crate::cvc5_encoder_state::Cvc5EncoderState;
 use crate::cvc5_raw_ops::{
     apply_raw_op_cvc5, comma_chunk_ranges, find_matching_delim, is_raw_spec_skip_keyword,
     parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
+use crate::encode_atom_policy::sanitize_smt_name;
 use crate::encode_method_policy::pattern_hash_name;
 
 /// Encode multi-token raw expressions for the native CVC5 backend.
@@ -142,7 +143,7 @@ fn parse_raw_atom_cvc5<'a>(
                 .get(&old_name)
                 .cloned()
                 .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
-            let field = sanitize_smtlib_name(&inner_tokens[2]);
+            let field = sanitize_smt_name(&inner_tokens[2]);
             let func_name = crate::encode_atom_policy::field_uif_name(&field);
             let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
             let func = tm.mk_const(fun_sort, &func_name);
@@ -188,7 +189,7 @@ fn parse_raw_atom_cvc5<'a>(
     }
 
     if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {
-        let var_name = sanitize_smtlib_name(&tokens[slice.var_token_idx]);
+        let var_name = sanitize_smt_name(&tokens[slice.var_token_idx]);
 
         let bound = tm.mk_var(tm.integer_sort(), &var_name);
         let mut local_vars = vars.clone();
@@ -219,7 +220,7 @@ fn parse_raw_atom_cvc5<'a>(
         return parse_raw_atom_cvc5(tm, tokens, start + 1, vars, state);
     }
 
-    let mut name = sanitize_smtlib_name(tok);
+    let mut name = sanitize_smt_name(tok);
     let mut next = start + 1;
     while next + 1 < tokens.len() && tokens[next] == "." {
         append_raw_dotted_segment(&mut name, &tokens[next + 1]);

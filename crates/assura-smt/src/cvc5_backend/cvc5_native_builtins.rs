@@ -4,10 +4,10 @@
 
 use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5, intern_uf_cvc5};
 use crate::cvc5_native_binops::alloc_fresh_int_cvc5;
+use crate::encode_call_policy::{
+    EncodeCallKind, debug_assert_encode_call_kind, debug_assert_known_builtin_encode_kind,
+};
 use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin, is_bool_returning_uf};
-
-// Call-order documentation: [`crate::encode_call_policy::classify_encode_call`]
-// mirrors Z3 `encode_call` priority before CVC5 term construction in this module.
 
 #[cfg(feature = "cvc5-verify")]
 fn fresh_int_cvc5<'a>(
@@ -272,6 +272,8 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
     let kind = classify_known_builtin(op, args.len())?;
+    // Parity with Z3 encode_call order for the builtins this function owns.
+    debug_assert_known_builtin_encode_kind(op, args.len(), kind);
     match kind {
         KnownBuiltin::Abs => {
             let x = &args[0];
@@ -280,14 +282,13 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, x.clone(), neg]))
         }
-        KnownBuiltin::Min => {
+        KnownBuiltin::Min | KnownBuiltin::Max => {
             let (a, b) = (&args[0], &args[1]);
-            let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
-            Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
-        }
-        KnownBuiltin::Max => {
-            let (a, b) = (&args[0], &args[1]);
-            let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
+            let cond = if matches!(kind, KnownBuiltin::Min) {
+                tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()])
+            } else {
+                tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()])
+            };
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
         }
         KnownBuiltin::Substring => {
@@ -712,6 +713,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
         return Some(encode_contains_key_cvc5(tm, encoded_args, state));
     }
     if is_bool_returning_uf(f_name) {
+        debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::BoolReturningUf);
         return Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, true));
     }
     if state.use_string_theory
@@ -728,6 +730,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
     }
     // Size-like methods: non-negativity + unify len/length/size/__field_len (Z3 parity).
     if crate::encode_atom_policy::is_size_field_name(f_name) && encoded_args.len() == 1 {
+        debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::SizeFieldUf);
         let coll = &encoded_args[0];
         let len_val =
             collection_len_of_cvc5(tm, state, coll, crate::encode_atom_policy::LEN_UF_NAME);
@@ -748,6 +751,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
         return Some(len_val);
     }
     if crate::encode_atom_policy::is_size_field_name(f_name) {
+        debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::SizeFieldUf);
         let result = apply_int_uf_cvc5(tm, state, f_name, encoded_args, false);
         let zero = tm.mk_integer(0);
         state
@@ -755,6 +759,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
             .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
         return Some(result);
     }
+    debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::UninterpretedUf);
     Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, false))
 }
 

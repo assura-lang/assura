@@ -1,10 +1,11 @@
 //! SMT-LIB2 Pratt parser for multi-token `Expr::Raw` expressions (shell-out path).
 
-use crate::cvc5_common::{append_raw_dotted_segment, sanitize_smtlib_name};
+use crate::cvc5_common::append_raw_dotted_segment;
 use crate::cvc5_raw_ops::{
     comma_chunk_ranges, find_matching_delim, format_raw_binop_smtlib, format_raw_quantifier_smtlib,
     is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
+use crate::encode_atom_policy::sanitize_smt_name;
 
 /// Encode multi-token raw expressions as SMT-LIB2.
 pub(crate) fn encode_raw_tokens_smtlib(tokens: &[String]) -> Option<String> {
@@ -107,7 +108,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     }
 
     if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {
-        let var_name = sanitize_smtlib_name(&tokens[slice.var_token_idx]);
+        let var_name = sanitize_smt_name(&tokens[slice.var_token_idx]);
         let body_tokens = &tokens[slice.body_start..slice.body_end];
         if let Some((body_val, _)) = parse_raw_expr_smtlib(body_tokens, 0, 0) {
             return Some((
@@ -129,7 +130,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
         return parse_raw_atom_smtlib(tokens, start + 1);
     }
 
-    let mut name = sanitize_smtlib_name(tok);
+    let mut name = sanitize_smt_name(tok);
     let mut next = start + 1;
     while next + 1 < tokens.len() && tokens[next] == "." {
         append_raw_dotted_segment(&mut name, &tokens[next + 1]);

@@ -6,10 +6,9 @@ use assura_ast::{Clause, ClauseKind, SpExpr};
 
 use crate::VerificationResult;
 use crate::cache::SessionCache;
-use crate::cvc5_common::{
-    collect_unmodelable_reasons_cvc5, expr_has_unmodelable_features_cvc5, sanitize_smtlib_name,
-};
+use crate::cvc5_common::{collect_unmodelable_reasons_cvc5, expr_has_unmodelable_features_cvc5};
 use crate::cvc5_model::parse_smtlib_model;
+use crate::encode_atom_policy::sanitize_smt_name;
 
 /// CVC5 prelude constraint (alias of shared [`crate::prelude_policy::PreludeConstraint`]).
 pub(crate) type Cvc5TypeConstraint = crate::prelude_policy::PreludeConstraint;
@@ -30,7 +29,7 @@ pub(crate) fn collect_cvc5_type_constraints(
         return_ty,
         constants,
         narrowings,
-        sanitize_smtlib_name,
+        sanitize_smt_name,
     )
 }
 
