@@ -10,7 +10,7 @@
 
 use crate::encode_atom_policy::is_size_field_name;
 use crate::encode_method_policy::{
-    is_abs_builtin, is_bool_returning_uf, is_case_fold_method, is_char_at_builtin,
+    KnownBuiltin, is_abs_builtin, is_bool_returning_uf, is_case_fold_method, is_char_at_builtin,
     is_clear_builtin, is_clone_builtin, is_concat_append_builtin, is_drop_builtin,
     is_first_builtin, is_get_builtin, is_index_of_builtin, is_insert_builtin, is_min_max_builtin,
     is_pop_builtin, is_push_builtin, is_put_builtin, is_remove_builtin, is_replace_builtin,
@@ -159,6 +159,40 @@ pub(crate) fn classify_encode_call(func_name: &str, arity: usize) -> EncodeCallK
     EncodeCallKind::UninterpretedUf
 }
 
+/// Map a classified [`KnownBuiltin`] to the matching [`EncodeCallKind`].
+///
+/// CVC5 `encode_known_builtin_cvc5` matches on `KnownBuiltin`; this keeps that
+/// path aligned with the Z3 `encode_call` order table without duplicating guards.
+/// Default (no `cvc5-verify`) builds only exercise this via unit tests.
+#[cfg_attr(not(any(test, feature = "cvc5-verify")), allow(dead_code))]
+#[inline]
+pub(crate) fn encode_call_kind_from_known_builtin(kind: KnownBuiltin) -> EncodeCallKind {
+    match kind {
+        KnownBuiltin::Min | KnownBuiltin::Max => EncodeCallKind::MinMax,
+        KnownBuiltin::Substring => EncodeCallKind::Substring,
+        KnownBuiltin::Concat | KnownBuiltin::Append => EncodeCallKind::ConcatAppend,
+        KnownBuiltin::IndexOf => EncodeCallKind::IndexOf,
+        KnownBuiltin::CharAt => EncodeCallKind::CharAt,
+        KnownBuiltin::Replace => EncodeCallKind::Replace,
+        KnownBuiltin::Split => EncodeCallKind::Split,
+        KnownBuiltin::Trim => EncodeCallKind::TrimOrCaseFold,
+        KnownBuiltin::Clone | KnownBuiltin::Reverse => EncodeCallKind::CloneOrReverse,
+        KnownBuiltin::Clear => EncodeCallKind::Clear,
+        KnownBuiltin::Push => EncodeCallKind::Push,
+        KnownBuiltin::Pop | KnownBuiltin::Tail => EncodeCallKind::PopOrTail,
+        KnownBuiltin::Insert => EncodeCallKind::Insert,
+        KnownBuiltin::Remove => EncodeCallKind::Remove,
+        KnownBuiltin::Slice => EncodeCallKind::Slice,
+        KnownBuiltin::Take => EncodeCallKind::Take,
+        KnownBuiltin::Drop => EncodeCallKind::Drop,
+        KnownBuiltin::First => EncodeCallKind::First,
+        KnownBuiltin::Abs => EncodeCallKind::Abs,
+        KnownBuiltin::Get => EncodeCallKind::Get,
+        KnownBuiltin::Set => EncodeCallKind::Set,
+        KnownBuiltin::Put => EncodeCallKind::Put,
+    }
+}
+
 /// Debug-only check: branch guard (`expected`) agrees with [`classify_encode_call`].
 ///
 /// Call at the entry of each encode_call arm so Z3/CVC5 cannot diverge from the
@@ -174,6 +208,15 @@ pub(crate) fn debug_assert_encode_call_kind(
         expected,
         "encode_call_policy mismatch for {func_name}/{arity}"
     );
+}
+
+/// Debug-only: `KnownBuiltin` arm agrees with [`classify_encode_call`] for `op`/`arity`.
+///
+/// Called from CVC5 `encode_known_builtin_cvc5` (`cvc5-verify` feature).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+#[inline]
+pub(crate) fn debug_assert_known_builtin_encode_kind(op: &str, arity: usize, kind: KnownBuiltin) {
+    debug_assert_encode_call_kind(op, arity, encode_call_kind_from_known_builtin(kind));
 }
 
 #[cfg(test)]
@@ -225,5 +268,46 @@ mod tests {
             EncodeCallKind::Abs,
             "wrong arity falls through"
         );
+    }
+
+    #[test]
+    fn known_builtin_maps_to_encode_call_kind() {
+        assert_eq!(
+            encode_call_kind_from_known_builtin(KnownBuiltin::Min),
+            EncodeCallKind::MinMax
+        );
+        assert_eq!(
+            encode_call_kind_from_known_builtin(KnownBuiltin::Substring),
+            EncodeCallKind::Substring
+        );
+        assert_eq!(
+            encode_call_kind_from_known_builtin(KnownBuiltin::Push),
+            EncodeCallKind::Push
+        );
+        assert_eq!(
+            encode_call_kind_from_known_builtin(KnownBuiltin::Pop),
+            EncodeCallKind::PopOrTail
+        );
+        assert_eq!(
+            encode_call_kind_from_known_builtin(KnownBuiltin::Tail),
+            EncodeCallKind::PopOrTail
+        );
+        assert_eq!(
+            encode_call_kind_from_known_builtin(KnownBuiltin::Abs),
+            EncodeCallKind::Abs
+        );
+        // Cross-check: classified op agrees with direct classify_encode_call.
+        for (op, arity, kb) in [
+            ("min", 2, KnownBuiltin::Min),
+            ("substring", 3, KnownBuiltin::Substring),
+            ("concat", 2, KnownBuiltin::Concat),
+            ("push", 2, KnownBuiltin::Push),
+            ("get", 2, KnownBuiltin::Get),
+        ] {
+            assert_eq!(
+                classify_encode_call(op, arity),
+                encode_call_kind_from_known_builtin(kb)
+            );
+        }
     }
 }

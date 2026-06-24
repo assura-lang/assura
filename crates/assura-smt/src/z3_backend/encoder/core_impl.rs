@@ -565,6 +565,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_index_of_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::IndexOf,
+            );
             // index_of(str, substr): -1 <= result < len(str)
             let str_expr = &args[0].node;
             let str_val = &arg_vals[0];
@@ -581,6 +586,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_char_at_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::CharAt,
+            );
             // char_at(str, idx): 0 <= idx < len(str)
             let str_expr = &args[0].node;
             let str_val = &arg_vals[0];
@@ -596,6 +606,11 @@ impl Encoder {
             return Z3Value::Int(self.fresh_int());
         }
         if crate::encode_method_policy::is_replace_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Replace,
+            );
             // replace(str, old, new): result length >= 0 (weak; no exact length)
             let result = self.fresh_int();
             let res_len = self.fresh_int();
@@ -610,6 +625,11 @@ impl Encoder {
         }
         // Remaining collection/string methods (dispatch arity/name via encode_method_policy).
         if crate::encode_method_policy::is_split_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Split,
+            );
             // split(str, delim): returns collection with len >= 1
             let result = self.fresh_int();
             let one = ast::Int::from_i64(1);
@@ -624,6 +644,11 @@ impl Encoder {
         if crate::encode_method_policy::is_trim_builtin(func_name, arg_vals.len())
             || crate::encode_method_policy::is_case_fold_method(func_name, arg_vals.len())
         {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::TrimOrCaseFold,
+            );
             // trim/to_lower/to_upper: result length <= input length
             let str_expr = &args[0].node;
             let str_val = &arg_vals[0];
@@ -646,6 +671,11 @@ impl Encoder {
         if crate::encode_method_policy::is_clone_builtin(func_name, arg_vals.len())
             || crate::encode_method_policy::is_reverse_builtin(func_name, arg_vals.len())
         {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::CloneOrReverse,
+            );
             // Length-preserving views/copies / reverse.
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
@@ -655,6 +685,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_clear_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Clear,
+            );
             // clear(seq): length == 0
             let result = self.fresh_int();
             let zero = ast::Int::from_i64(0);
@@ -662,6 +697,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_push_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Push,
+            );
             // push(seq, elem) / push_back: length = old + 1
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
@@ -675,6 +715,11 @@ impl Encoder {
         if crate::encode_method_policy::is_pop_builtin(func_name, arg_vals.len())
             || crate::encode_method_policy::is_tail_builtin(func_name, arg_vals.len())
         {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::PopOrTail,
+            );
             // pop / tail / rest: length = max(0, old - 1)
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
@@ -688,6 +733,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_insert_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Insert,
+            );
             // insert(seq, idx, val): length = old + 1; get(result, idx) == val
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
@@ -710,6 +760,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_remove_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Remove,
+            );
             // remove(seq, idx) / remove_at: length = max(0, old - 1)
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
@@ -723,6 +778,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_slice_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Slice,
+            );
             // slice(seq, start, end)
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
@@ -739,6 +799,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_take_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Take,
+            );
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
             let n = &arg_vals[1];
@@ -751,6 +816,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_drop_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::Drop,
+            );
             let src_expr = &args[0].node;
             let src = &arg_vals[0];
             let n = &arg_vals[1];
@@ -764,6 +834,11 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         if crate::encode_method_policy::is_first_builtin(func_name, arg_vals.len()) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::First,
+            );
             // first/last/head: weak (no value); length of source > 0 if used in requires separately
             return Z3Value::Int(self.fresh_int());
         }
@@ -889,6 +964,11 @@ impl Encoder {
         }
         // Size-like methods get non-negativity axiom; unify len/length/size/__field_len.
         if crate::encode_atom_policy::is_size_field_name(func_name) && arg_vals.len() == 1 {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::SizeFieldUf,
+            );
             let coll_expr = &args[0].node;
             let coll = &arg_vals[0];
             // Named collections: always use the canonical length variable.
@@ -917,6 +997,11 @@ impl Encoder {
             return Z3Value::Int(len_val);
         }
         if crate::encode_atom_policy::is_size_field_name(func_name) {
+            crate::encode_call_policy::debug_assert_encode_call_kind(
+                func_name,
+                arg_vals.len(),
+                crate::encode_call_policy::EncodeCallKind::SizeFieldUf,
+            );
             let decl = self.make_func(func_name, arg_vals.len());
             let arg_refs: Vec<&dyn z3::ast::Ast> =
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
@@ -926,6 +1011,11 @@ impl Encoder {
             self.background_axioms.push(len_val.ge(&zero));
             return Z3Value::Int(len_val);
         }
+        crate::encode_call_policy::debug_assert_encode_call_kind(
+            func_name,
+            arg_vals.len(),
+            crate::encode_call_policy::EncodeCallKind::UninterpretedUf,
+        );
         let decl = self.make_func(func_name, arg_vals.len());
         let arg_refs: Vec<&dyn z3::ast::Ast> =
             arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
