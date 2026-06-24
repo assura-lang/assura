@@ -1,5 +1,10 @@
 //! Standalone CVC5 native validity and satisfiability checks.
+//!
+//! Routes solver outcomes through [`crate::solver_outcome_policy`] so the
+//! SAT/UNSAT → VerificationResult mapping is identical to the Z3 path.
 #![cfg_attr(feature = "z3-verify", allow(dead_code))]
+
+use std::collections::HashMap;
 
 use assura_ast::SpExpr;
 
@@ -11,6 +16,32 @@ use crate::cvc5_verify_native_solver::{
     extract_cvc5_unsat_core_labels, new_cvc5_solver,
 };
 use crate::cvc5_verify_shared::{cvc5_encode_failure, cvc5_unmodelable_precheck};
+use crate::solver_outcome_policy::ClauseSatOutcome;
+
+/// Convert a CVC5 `check_sat` result to a solver-neutral [`ClauseSatOutcome`].
+///
+/// Mirrors [`crate::z3_backend::solver::z3_clause_sat_outcome`] so that both
+/// backends feed the same shared [`crate::solver_outcome_policy::interpret_clause_check_result`].
+fn cvc5_clause_sat_outcome(
+    sat_result: &cvc5::Result,
+    solver: &cvc5::Solver,
+    var_map: &HashMap<String, cvc5::Term>,
+    tracked_assumptions: &[cvc5::Term],
+) -> ClauseSatOutcome {
+    if sat_result.is_unsat() {
+        let core = extract_cvc5_unsat_core_labels(solver, tracked_assumptions);
+        ClauseSatOutcome::unsat_with_core(core)
+    } else if sat_result.is_sat() {
+        let (model_str, counter_model) = extract_cvc5_counterexample_model(solver, var_map);
+        ClauseSatOutcome::sat(model_str, counter_model)
+    } else {
+        // CVC5 returns Unknown for timeout and incomplete reasoning.
+        // Map to Timeout (matches prior behavior). A future improvement
+        // could query solver statistics to distinguish timeout from other
+        // unknowns, mirroring the Z3 get_reason_unknown() path.
+        ClauseSatOutcome::timeout()
+    }
+}
 
 pub(crate) fn check_validity_cvc5(
     desc: &str,
@@ -65,21 +96,12 @@ pub(crate) fn check_validity_cvc5(
     } else {
         solver.check_sat_assuming(&tracked_assumptions)
     };
-    if sat_result.is_unsat() {
-        let core = extract_cvc5_unsat_core_labels(&solver, &tracked_assumptions);
-        VerificationResult::verified_with_core(desc.to_string(), core)
-    } else if sat_result.is_sat() {
-        let (model_str, counter_model) = extract_cvc5_counterexample_model(&solver, &var_map);
-        VerificationResult::Counterexample {
-            clause_desc: desc.to_string(),
-            model: model_str,
-            counter_model,
-        }
-    } else {
-        VerificationResult::Timeout {
-            clause_desc: desc.to_string(),
-        }
-    }
+    let outcome = cvc5_clause_sat_outcome(&sat_result, &solver, &var_map, &tracked_assumptions);
+    crate::solver_outcome_policy::interpret_clause_check_result(
+        desc,
+        &assura_ast::ClauseKind::Ensures,
+        outcome,
+    )
 }
 
 /// Check satisfiability of `body` under `assumptions` using CVC5.
@@ -119,17 +141,10 @@ pub(crate) fn check_satisfiability_cvc5(
     solver.assert_formula(body_term);
 
     let sat_result = solver.check_sat();
-    if sat_result.is_sat() {
-        VerificationResult::verified(desc.to_string())
-    } else if sat_result.is_unsat() {
-        VerificationResult::Counterexample {
-            clause_desc: desc.to_string(),
-            model: "invariant is unsatisfiable".to_string(),
-            counter_model: None,
-        }
-    } else {
-        VerificationResult::Timeout {
-            clause_desc: desc.to_string(),
-        }
-    }
+    let outcome = cvc5_clause_sat_outcome(&sat_result, &solver, &var_map, &[]);
+    crate::solver_outcome_policy::interpret_clause_check_result(
+        desc,
+        &assura_ast::ClauseKind::Invariant,
+        outcome,
+    )
 }
