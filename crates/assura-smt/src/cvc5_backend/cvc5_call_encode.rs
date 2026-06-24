@@ -4,8 +4,7 @@ use assura_ast::{Expr, SpExpr};
 
 use crate::encode_atom_policy::{canonical_length_name, sanitize_smt_name};
 use crate::encode_call_policy::{
-    EncodeCallKind, classify_encode_call, debug_assert_encode_call_kind,
-    encode_call_kind_from_known_builtin,
+    EncodeCallKind, classify_encode_call, debug_assert_known_builtin_encode_kind,
 };
 use crate::encode_method_policy::{classify_known_builtin, known_builtin_to_smtlib};
 
@@ -36,11 +35,7 @@ where
     let arg_strs = arg_strs?;
     if let Some(s) = known_builtin_to_smtlib(f.as_str(), &arg_strs) {
         if let Some(kb) = classify_known_builtin(f.as_str(), arg_strs.len()) {
-            debug_assert_encode_call_kind(
-                f.as_str(),
-                arg_strs.len(),
-                encode_call_kind_from_known_builtin(kb),
-            );
+            debug_assert_known_builtin_encode_kind(f.as_str(), arg_strs.len(), kb);
         }
         return Some(s);
     }
@@ -81,11 +76,7 @@ where
     all_args.extend(arg_strs);
     if let Some(s) = known_builtin_to_smtlib(method, &all_args) {
         if let Some(kb) = classify_known_builtin(method, all_args.len()) {
-            debug_assert_encode_call_kind(
-                method,
-                all_args.len(),
-                encode_call_kind_from_known_builtin(kb),
-            );
+            debug_assert_known_builtin_encode_kind(method, all_args.len(), kb);
         }
         return Some(s);
     }
