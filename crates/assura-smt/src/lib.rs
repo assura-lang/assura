@@ -144,7 +144,10 @@ pub(crate) mod cvc5_backend;
 // paths throughout the crate continue to resolve without changes.
 pub(crate) use cvc5_backend::cvc5_adt;
 pub(crate) use cvc5_backend::cvc5_atom_encode;
-#[allow(unused_imports, reason = "stable crate::cvc5_binop_encode path; cvc5-verify / tests")]
+#[allow(
+    unused_imports,
+    reason = "stable crate::cvc5_binop_encode path; cvc5-verify / tests"
+)]
 pub(crate) use cvc5_backend::cvc5_binop_encode;
 // Encode paths import encode_*_policy directly (no cvc5_builtins compatibility surface).
 pub(crate) use cvc5_backend::cvc5_call_encode;
@@ -153,18 +156,27 @@ pub(crate) use cvc5_backend::cvc5_collect;
 pub(crate) use cvc5_backend::cvc5_encoder_state;
 pub(crate) use cvc5_backend::cvc5_expr_smtlib;
 // Re-exports keep historical `crate::cvc5_*` paths; some shells now use encode_*_policy directly.
-#[allow(unused_imports, reason = "stable crate::cvc5_field_access path; cvc5-verify / tests")]
+#[allow(
+    unused_imports,
+    reason = "stable crate::cvc5_field_access path; cvc5-verify / tests"
+)]
 pub(crate) use cvc5_backend::cvc5_field_access;
 #[cfg(not(feature = "cvc5-verify"))]
 pub(crate) use cvc5_backend::cvc5_havoc_assume_smtlib;
 pub(crate) use cvc5_backend::cvc5_if_encode;
-#[allow(unused_imports, reason = "stable crate::cvc5_index_access path; cvc5-verify / tests")]
+#[allow(
+    unused_imports,
+    reason = "stable crate::cvc5_index_access path; cvc5-verify / tests"
+)]
 pub(crate) use cvc5_backend::cvc5_index_access;
 #[cfg(feature = "cvc5-verify")]
 pub(crate) use cvc5_backend::cvc5_ir_native;
 #[cfg(not(feature = "cvc5-verify"))]
 pub(crate) use cvc5_backend::cvc5_ir_smtlib;
-#[allow(unused_imports, reason = "stable crate::cvc5_let_block_encode path; cvc5-verify / tests")]
+#[allow(
+    unused_imports,
+    reason = "stable crate::cvc5_let_block_encode path; cvc5-verify / tests"
+)]
 pub(crate) use cvc5_backend::cvc5_let_block_encode;
 pub(crate) use cvc5_backend::cvc5_list_encode;
 pub(crate) use cvc5_backend::cvc5_match_encode;

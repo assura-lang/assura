@@ -4,7 +4,10 @@
 //! owns CVC5 term construction and keeps stable `cvc5_field_access::*` imports.
 
 // Stable re-exports; shell `cvc5_expr_smtlib` may import encode_field_policy directly.
-#[allow(unused_imports, reason = "re-export surface; callers may use encode_field_policy")]
+#[allow(
+    unused_imports,
+    reason = "re-export surface; callers may use encode_field_policy"
+)]
 pub(crate) use crate::encode_field_policy::{
     FieldAccessPlan, plan_field_access, shallow_field_smtlib,
 };
