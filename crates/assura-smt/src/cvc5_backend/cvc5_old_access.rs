@@ -62,8 +62,29 @@ where
             )
         }
         OldAccessPlan::FlatField(flat) => {
+            use crate::encode_field_policy::{
+                FieldValueKind, classify_field_value_kind, flat_leaf_field,
+            };
             let key = crate::encode_atom_policy::old_snapshot_name(&flat);
-            Some(tm.mk_const(tm.integer_sort(), &key))
+            match classify_field_value_kind(flat_leaf_field(&flat)) {
+                FieldValueKind::Bool => Some(tm.mk_const(tm.boolean_sort(), &key)),
+                FieldValueKind::SizeNonNeg => {
+                    let v = vars
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key));
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+                    Some(v)
+                }
+                FieldValueKind::Int => Some(
+                    vars.get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key)),
+                ),
+            }
         }
         OldAccessPlan::ShallowField { obj, field } => {
             let old_expr = Spanned::no_span(Expr::Old(obj));
