@@ -22,8 +22,6 @@ pub(crate) fn pattern_hash_name(name: &str) -> i64 {
 }
 
 /// UFs that return Bool in integer-encoding mode (native CVC5 / Z3 method dispatch).
-/// Referenced from CVC5 native method dispatch (`cvc5-verify` only in default builds).
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) const BOOL_RETURNING_UFS: &[&str] = &[
     "contains",
     "is_empty",
@@ -40,22 +38,176 @@ pub(crate) const BOOL_RETURNING_UFS: &[&str] = &[
     "is_superset",
 ];
 
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) fn is_bool_returning_uf(name: &str) -> bool {
     BOOL_RETURNING_UFS.contains(&name)
 }
 
-/// Field/method names treated as Bool-valued in native encoding.
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+/// Field/method names treated as Bool-valued in native encoding / Z3 field access.
 pub(crate) const BOOL_FIELD_NAMES: &[&str] = &["is_empty", "is_some", "is_none", "is_ok", "is_err"];
 
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) fn is_bool_field_name(name: &str) -> bool {
     BOOL_FIELD_NAMES.contains(&name)
 }
 
 /// Termination measure "empty collection" distinguished constant.
 pub(crate) const MEASURE_EMPTY_CONST_NAME: &str = "__empty";
+
+/// Whether `op` at `arity` is a registered [`KnownBuiltin`] (Z3/CVC5 call dispatch guard).
+///
+/// Referenced from tests and available for backend entry-point guards.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn is_known_builtin(op: &str, arity: usize) -> bool {
+    classify_known_builtin(op, arity).is_some()
+}
+
+/// Whether `op` is a min/max binary builtin (Z3 encodes with `ite`, not a free UF).
+pub(crate) fn is_min_max_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Min | KnownBuiltin::Max)
+    )
+}
+
+/// Whether `op` is the unary `abs` builtin.
+pub(crate) fn is_abs_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Abs))
+}
+
+/// Whether `op` is a get/set/put collection accessor at the given arity.
+pub(crate) fn is_collection_access_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Get | KnownBuiltin::Set | KnownBuiltin::Put)
+    )
+}
+
+/// Whether `op` is substring/substr at arity 3 (Z3 length-axiom path).
+pub(crate) fn is_substring_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Substring)
+    )
+}
+
+/// Whether `op` is concat/append at arity 2 (Z3 length-sum axiom path).
+pub(crate) fn is_concat_append_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Concat | KnownBuiltin::Append)
+    )
+}
+
+/// Whether `op` is index_of/find/indexOf at arity 2.
+pub(crate) fn is_index_of_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::IndexOf)
+    )
+}
+
+/// Whether `op` is char_at/charAt/code_unit_at at arity 2.
+pub(crate) fn is_char_at_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::CharAt)
+    )
+}
+
+/// Whether `op` is replace at arity 3.
+pub(crate) fn is_replace_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Replace)
+    )
+}
+
+/// Whether `op` is split at arity 2.
+pub(crate) fn is_split_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Split))
+}
+
+/// Whether `op` is trim at arity 1.
+pub(crate) fn is_trim_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Trim))
+}
+
+/// Whether `op` is clone/to_string/to_owned/as_str at arity 1.
+pub(crate) fn is_clone_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Clone))
+}
+
+/// Whether `op` is reverse at arity 1.
+pub(crate) fn is_reverse_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Reverse)
+    )
+}
+
+/// Whether `op` is clear at arity 1.
+pub(crate) fn is_clear_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Clear))
+}
+
+/// Whether `op` is push/push_back/push_front at arity 2.
+pub(crate) fn is_push_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Push))
+}
+
+/// Whether `op` is pop/pop_back/pop_front at arity 1.
+pub(crate) fn is_pop_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Pop))
+}
+
+/// Whether `op` is insert at arity 3.
+pub(crate) fn is_insert_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Insert)
+    )
+}
+
+/// Whether `op` is remove/remove_at at arity 2.
+pub(crate) fn is_remove_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Remove)
+    )
+}
+
+/// Whether `op` is slice at arity 3.
+pub(crate) fn is_slice_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Slice))
+}
+
+/// Whether `op` is take at arity 2.
+pub(crate) fn is_take_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Take))
+}
+
+/// Whether `op` is drop at arity 2.
+pub(crate) fn is_drop_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Drop))
+}
+
+/// Whether `op` is tail/rest at arity 1.
+pub(crate) fn is_tail_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Tail))
+}
+
+/// Whether `op` is first/last/head/front/back at arity 1.
+pub(crate) fn is_first_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::First))
+}
+
+/// Case-fold methods not in [`KnownBuiltin`] but with Z3 length axioms (trim-like).
+pub(crate) fn is_case_fold_method(op: &str, arity: usize) -> bool {
+    arity == 1
+        && matches!(
+            op,
+            "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
+        )
+}
 
 /// Builtin operations shared between CVC5 native/shell and (eventually) Z3 call encode.
 /// Mirrors historical CVC5 `encode_call` / Z3 `encode_call` semantics for parity.
@@ -209,5 +361,20 @@ mod tests {
         assert_eq!(classify_known_builtin("get", 2), Some(KnownBuiltin::Get));
         assert_eq!(classify_known_builtin("abs", 2), None);
         assert_eq!(classify_known_builtin("unknown", 1), None);
+        assert!(is_known_builtin("push", 2));
+        assert!(is_min_max_builtin("min", 2));
+        assert!(is_min_max_builtin("max", 2));
+        assert!(!is_min_max_builtin("min", 1));
+        assert!(is_abs_builtin("abs", 1));
+        assert!(is_collection_access_builtin("get", 2));
+        assert!(is_collection_access_builtin("set", 3));
+        assert!(is_collection_access_builtin("put", 3));
+        assert!(is_substring_builtin("substring", 3));
+        assert!(is_substring_builtin("substr", 3));
+        assert!(is_concat_append_builtin("concat", 2));
+        assert!(is_concat_append_builtin("append", 2));
+        assert!(is_index_of_builtin("index_of", 2));
+        assert!(is_char_at_builtin("char_at", 2));
+        assert!(is_replace_builtin("replace", 3));
     }
 }

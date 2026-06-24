@@ -168,8 +168,9 @@ pub fn format_counterexample_lines(
                 // End of block: join inner lines as the value
                 let value = block_lines.join(" ");
                 if let Some(name) = current_name.take() {
-                    // Skip internal Z3 variables
-                    if !name.starts_with("__") || name == crate::encode_atom_policy::RESULT_VAR_NAME
+                    // Skip internal encoder temporaries; keep `result` (`__result`) visible.
+                    if !crate::encode_atom_policy::is_internal_encoder_var(&name)
+                        || name == crate::encode_atom_policy::RESULT_VAR_NAME
                     {
                         let clean_name = name.strip_prefix("__field_").unwrap_or(&name).to_string();
                         pairs.push((clean_name, clean_z3_value(&value)));
@@ -189,7 +190,9 @@ pub fn format_counterexample_lines(
             } else {
                 // Single-line assignment
                 let name = name.trim();
-                if !name.starts_with("__") || name == crate::encode_atom_policy::RESULT_VAR_NAME {
+                if !crate::encode_atom_policy::is_internal_encoder_var(name)
+                    || name == crate::encode_atom_policy::RESULT_VAR_NAME
+                {
                     let clean_name = name.strip_prefix("__field_").unwrap_or(name).to_string();
                     pairs.push((clean_name, clean_z3_value(rest)));
                 }

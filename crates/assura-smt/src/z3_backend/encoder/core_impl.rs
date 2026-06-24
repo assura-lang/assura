@@ -408,11 +408,15 @@ impl Encoder {
             .collect();
         // min/max: encode with ite so Z3 proves bounds (not unconstrained UF).
         // e.g. ensures { min(a, b) <= a } verifies under any a, b.
-        if matches!(func_name, "min" | "max") && arg_vals.len() == 2 {
+        // Dispatch arity/name via encode_method_policy (parity with CVC5 classify).
+        if crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len()) {
             let a = &arg_vals[0];
             let b = &arg_vals[1];
             let a_le_b = a.le(b);
-            let result = if func_name == "min" {
+            let result = if matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Min)
+            ) {
                 a_le_b.ite(a, b)
             } else {
                 a_le_b.ite(b, a)
@@ -420,22 +424,8 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         // Methods known to return Bool (UF with optional length / size links below).
-        if matches!(
-            func_name,
-            "contains"
-                | "is_empty"
-                | "is_some"
-                | "is_none"
-                | "is_ok"
-                | "is_err"
-                | "any"
-                | "all"
-                | "contains_key"
-                | "starts_with"
-                | "ends_with"
-                | "is_subset"
-                | "is_superset"
-        ) {
+        // Table lives in encode_method_policy (parity with CVC5 / methods.rs).
+        if crate::encode_method_policy::is_bool_returning_uf(func_name) {
             let bool_sort = z3::Sort::bool();
             let int_sort = z3::Sort::int();
             let param_sorts: Vec<&z3::Sort> = (0..arg_vals.len()).map(|_| &int_sort).collect();
@@ -497,303 +487,274 @@ impl Encoder {
             }
             return Z3Value::Bool(b);
         }
-        // String / sequence methods with known semantics
-        match func_name {
+        // String / sequence methods with known semantics (arity via encode_method_policy).
+        if crate::encode_method_policy::is_substring_builtin(func_name, arg_vals.len()) {
             // substring(str, start, end): length == end - start; 0 <= start <= end <= len(str)
-            "substring" | "substr" if arg_vals.len() == 3 => {
-                let str_expr = &args[0].node;
-                let str_val = &arg_vals[0];
-                let start = &arg_vals[1];
-                let end = &arg_vals[2];
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(start.ge(&zero));
-                self.background_axioms.push(start.le(end));
-                let str_len = self.collection_len_of(
-                    str_expr,
-                    str_val,
-                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
-                );
-                self.background_axioms.push(end.le(&str_len));
-                let diff = ast::Int::sub(&[end, start]);
-                self.assert_collection_len_eq(
-                    &result,
-                    &diff,
-                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
-                );
-                return Z3Value::Int(result);
-            }
-            // concat(a, b) / append(a, b): len(result) == len(a) + len(b)
-            "concat" | "append" if arg_vals.len() == 2 => {
-                let l_expr = &args[0].node;
-                let r_expr = &args[1].node;
-                let l = &arg_vals[0];
-                let r = &arg_vals[1];
-                let result = self.fresh_int();
-                let len_l =
-                    self.collection_len_of(l_expr, l, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
-                let len_r =
-                    self.collection_len_of(r_expr, r, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(len_l.ge(&zero));
-                self.background_axioms.push(len_r.ge(&zero));
-                let sum = ast::Int::add(&[&len_l, &len_r]);
-                self.assert_collection_len_eq(
-                    &result,
-                    &sum,
-                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
-                );
-                // Also result length >= each operand (redundant but helps some goals).
-                self.background_axioms.push(sum.ge(&len_l));
-                self.background_axioms.push(sum.ge(&len_r));
-                return Z3Value::Int(result);
-            }
-            // index_of(str, substr): -1 <= result < len(str)
-            "index_of" | "find" | "indexOf" if arg_vals.len() == 2 => {
-                let str_expr = &args[0].node;
-                let str_val = &arg_vals[0];
-                let result = self.fresh_int();
-                let neg_one = ast::Int::from_i64(-1);
-                self.background_axioms.push(result.ge(&neg_one));
-                let str_len = self.collection_len_of(
-                    str_expr,
-                    str_val,
-                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
-                );
-                // result < len(str) covers both found indices and -1 when len >= 0.
-                self.background_axioms.push(result.lt(&str_len));
-                return Z3Value::Int(result);
-            }
-            // char_at(str, idx): 0 <= idx < len(str)
-            "char_at" | "charAt" | "code_unit_at" if arg_vals.len() == 2 => {
-                let str_expr = &args[0].node;
-                let str_val = &arg_vals[0];
-                let idx = &arg_vals[1];
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(idx.ge(&zero));
-                let str_len = self.collection_len_of(
-                    str_expr,
-                    str_val,
-                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
-                );
-                self.background_axioms.push(idx.lt(&str_len));
-                return Z3Value::Int(self.fresh_int());
-            }
-            // replace(str, old, new): result length >= 0 (weak; no exact length)
-            "replace" if arg_vals.len() == 3 => {
-                let result = self.fresh_int();
-                let res_len = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(res_len.ge(&zero));
-                self.assert_collection_len_eq(
-                    &result,
-                    &res_len,
-                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
-                );
-                return Z3Value::Int(result);
-            }
-            // split(str, delim): returns collection with len >= 1
-            "split" if arg_vals.len() == 2 => {
-                let result = self.fresh_int();
-                let one = ast::Int::from_i64(1);
-                let len_decl = self.make_func(crate::encode_atom_policy::LEN_UF_NAME, 1);
-                let res_len = len_decl
-                    .apply(&[&result as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                self.background_axioms.push(res_len.ge(&one));
-                return Z3Value::Int(result);
-            }
-            // trim/to_lower/to_upper/clone/to_string: length preserved or <= input
-            "trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
-                if arg_vals.len() == 1 =>
-            {
-                let str_expr = &args[0].node;
-                let str_val = &arg_vals[0];
-                let result = self.fresh_int();
-                let str_len = self.collection_len_of(
-                    str_expr,
-                    str_val,
-                    crate::encode_atom_policy::FIELD_LEN_UF_NAME,
-                );
-                let len_decl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
-                let res_len = len_decl
-                    .apply(&[&result as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(res_len.ge(&zero));
-                self.background_axioms.push(res_len.le(&str_len));
-                return Z3Value::Int(result);
-            }
-            "clone" | "to_string" | "to_owned" | "as_str" if arg_vals.len() == 1 => {
-                // Length-preserving views/copies.
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let result = self.fresh_int();
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                self.assert_collection_len_eq(&result, &old_len, "len");
-                return Z3Value::Int(result);
-            }
-            // reverse(seq): length preserved
-            "reverse" if arg_vals.len() == 1 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let result = self.fresh_int();
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                self.assert_collection_len_eq(&result, &old_len, "len");
-                return Z3Value::Int(result);
-            }
-            // clear(seq): length == 0
-            "clear" if arg_vals.len() == 1 => {
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                self.assert_collection_len_eq(&result, &zero, "len");
-                return Z3Value::Int(result);
-            }
-            // push(seq, elem) / push_back: length = old + 1
-            "push" | "push_back" | "push_front" if arg_vals.len() == 2 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let result = self.fresh_int();
-                let one = ast::Int::from_i64(1);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                let new_len = ast::Int::add(&[&old_len, &one]);
-                self.assert_collection_len_eq(&result, &new_len, "len");
-                return Z3Value::Int(result);
-            }
-            // pop / pop_back: length = max(0, old - 1)
-            "pop" | "pop_back" | "pop_front" if arg_vals.len() == 1 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                let one = ast::Int::from_i64(1);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                let dec = ast::Int::sub(&[&old_len, &one]);
-                let new_len = old_len.ge(&one).ite(&dec, &zero);
-                self.assert_collection_len_eq(&result, &new_len, "len");
-                return Z3Value::Int(result);
-            }
-            // insert(seq, idx, val): length = old + 1; get(result, idx) == val
-            "insert" if arg_vals.len() == 3 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let idx = &arg_vals[1];
-                let val = &arg_vals[2];
-                let result = self.fresh_int();
-                let one = ast::Int::from_i64(1);
-                let zero = ast::Int::from_i64(0);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                let new_len = ast::Int::add(&[&old_len, &one]);
-                self.assert_collection_len_eq(&result, &new_len, "len");
-                self.background_axioms.push(idx.ge(&zero));
-                self.background_axioms.push(idx.le(&old_len));
-                let get_decl = self.make_func(crate::encode_atom_policy::INDEX_UF_NAME, 2);
-                let at_idx = get_decl
-                    .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
-                    .as_int()
-                    .unwrap_or_else(|| self.fresh_int());
-                self.background_axioms.push(at_idx.eq(val));
-                return Z3Value::Int(result);
-            }
-            // remove(seq, idx) / remove_at: length = max(0, old - 1)
-            "remove" | "remove_at" if arg_vals.len() == 2 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                let one = ast::Int::from_i64(1);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                let dec = ast::Int::sub(&[&old_len, &one]);
-                let new_len = old_len.ge(&one).ite(&dec, &zero);
-                self.assert_collection_len_eq(&result, &new_len, "len");
-                return Z3Value::Int(result);
-            }
-            // slice(seq, start, end) / take(seq, n) / drop(seq, n)
-            "slice" if arg_vals.len() == 3 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let start = &arg_vals[1];
-                let end = &arg_vals[2];
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                self.background_axioms.push(start.ge(&zero));
-                self.background_axioms.push(start.le(end));
-                self.background_axioms.push(end.le(&old_len));
-                let diff = ast::Int::sub(&[end, start]);
-                self.assert_collection_len_eq(&result, &diff, "len");
-                return Z3Value::Int(result);
-            }
-            "take" if arg_vals.len() == 2 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let n = &arg_vals[1];
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                self.background_axioms.push(n.ge(&zero));
-                let taken = n.le(&old_len).ite(n, &old_len);
-                self.assert_collection_len_eq(&result, &taken, "len");
-                return Z3Value::Int(result);
-            }
-            "drop" if arg_vals.len() == 2 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let n = &arg_vals[1];
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                self.background_axioms.push(n.ge(&zero));
-                let rem = ast::Int::sub(&[&old_len, n]);
-                let dropped = n.le(&old_len).ite(&rem, &zero);
-                self.assert_collection_len_eq(&result, &dropped, "len");
-                return Z3Value::Int(result);
-            }
-            // first/last/head: weak (no value); length of source > 0 if used in requires separately
-            "first" | "last" | "head" | "front" | "back" if arg_vals.len() == 1 => {
-                return Z3Value::Int(self.fresh_int());
-            }
-            // tail/rest: length = max(0, old - 1)
-            "tail" | "rest" if arg_vals.len() == 1 => {
-                let src_expr = &args[0].node;
-                let src = &arg_vals[0];
-                let result = self.fresh_int();
-                let zero = ast::Int::from_i64(0);
-                let one = ast::Int::from_i64(1);
-                let old_len = self.collection_len_of(src_expr, src, "len");
-                let dec = ast::Int::sub(&[&old_len, &one]);
-                let new_len = old_len.ge(&one).ite(&dec, &zero);
-                self.assert_collection_len_eq(&result, &new_len, "len");
-                return Z3Value::Int(result);
-            }
-            _ => {}
+            let str_expr = &args[0].node;
+            let str_val = &arg_vals[0];
+            let start = &arg_vals[1];
+            let end = &arg_vals[2];
+            let result = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            self.background_axioms.push(start.ge(&zero));
+            self.background_axioms.push(start.le(end));
+            let str_len = self.collection_len_of(
+                str_expr,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            self.background_axioms.push(end.le(&str_len));
+            let diff = ast::Int::sub(&[end, start]);
+            self.assert_collection_len_eq(
+                &result,
+                &diff,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            return Z3Value::Int(result);
         }
-        // Built-in functions with known semantics
-        match func_name {
-            // abs(x) => if x >= 0 then x else -x
-            "abs" if arg_vals.len() == 1 => {
-                let x = &arg_vals[0];
-                let zero = ast::Int::from_i64(0);
-                let neg_x = x.unary_minus();
-                let cond = x.ge(&zero);
-                return Z3Value::Int(cond.ite(x, &neg_x));
-            }
-            // min(a, b) => if a <= b then a else b
-            "min" if arg_vals.len() == 2 => {
-                let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                return Z3Value::Int(a.le(b).ite(a, b));
-            }
-            // max(a, b) => if a >= b then a else b
-            "max" if arg_vals.len() == 2 => {
-                let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                return Z3Value::Int(a.ge(b).ite(a, b));
-            }
-            _ => {}
+        if crate::encode_method_policy::is_concat_append_builtin(func_name, arg_vals.len()) {
+            // concat(a, b) / append(a, b): len(result) == len(a) + len(b)
+            let l_expr = &args[0].node;
+            let r_expr = &args[1].node;
+            let l = &arg_vals[0];
+            let r = &arg_vals[1];
+            let result = self.fresh_int();
+            let len_l =
+                self.collection_len_of(l_expr, l, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
+            let len_r =
+                self.collection_len_of(r_expr, r, crate::encode_atom_policy::FIELD_LEN_UF_NAME);
+            let zero = ast::Int::from_i64(0);
+            self.background_axioms.push(len_l.ge(&zero));
+            self.background_axioms.push(len_r.ge(&zero));
+            let sum = ast::Int::add(&[&len_l, &len_r]);
+            self.assert_collection_len_eq(
+                &result,
+                &sum,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            // Also result length >= each operand (redundant but helps some goals).
+            self.background_axioms.push(sum.ge(&len_l));
+            self.background_axioms.push(sum.ge(&len_r));
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_index_of_builtin(func_name, arg_vals.len()) {
+            // index_of(str, substr): -1 <= result < len(str)
+            let str_expr = &args[0].node;
+            let str_val = &arg_vals[0];
+            let result = self.fresh_int();
+            let neg_one = ast::Int::from_i64(-1);
+            self.background_axioms.push(result.ge(&neg_one));
+            let str_len = self.collection_len_of(
+                str_expr,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            // result < len(str) covers both found indices and -1 when len >= 0.
+            self.background_axioms.push(result.lt(&str_len));
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_char_at_builtin(func_name, arg_vals.len()) {
+            // char_at(str, idx): 0 <= idx < len(str)
+            let str_expr = &args[0].node;
+            let str_val = &arg_vals[0];
+            let idx = &arg_vals[1];
+            let zero = ast::Int::from_i64(0);
+            self.background_axioms.push(idx.ge(&zero));
+            let str_len = self.collection_len_of(
+                str_expr,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            self.background_axioms.push(idx.lt(&str_len));
+            return Z3Value::Int(self.fresh_int());
+        }
+        if crate::encode_method_policy::is_replace_builtin(func_name, arg_vals.len()) {
+            // replace(str, old, new): result length >= 0 (weak; no exact length)
+            let result = self.fresh_int();
+            let res_len = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            self.background_axioms.push(res_len.ge(&zero));
+            self.assert_collection_len_eq(
+                &result,
+                &res_len,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            return Z3Value::Int(result);
+        }
+        // Remaining collection/string methods (dispatch arity/name via encode_method_policy).
+        if crate::encode_method_policy::is_split_builtin(func_name, arg_vals.len()) {
+            // split(str, delim): returns collection with len >= 1
+            let result = self.fresh_int();
+            let one = ast::Int::from_i64(1);
+            let len_decl = self.make_func(crate::encode_atom_policy::LEN_UF_NAME, 1);
+            let res_len = len_decl
+                .apply(&[&result as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            self.background_axioms.push(res_len.ge(&one));
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_trim_builtin(func_name, arg_vals.len())
+            || crate::encode_method_policy::is_case_fold_method(func_name, arg_vals.len())
+        {
+            // trim/to_lower/to_upper: result length <= input length
+            let str_expr = &args[0].node;
+            let str_val = &arg_vals[0];
+            let result = self.fresh_int();
+            let str_len = self.collection_len_of(
+                str_expr,
+                str_val,
+                crate::encode_atom_policy::FIELD_LEN_UF_NAME,
+            );
+            let len_decl = self.make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
+            let res_len = len_decl
+                .apply(&[&result as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            let zero = ast::Int::from_i64(0);
+            self.background_axioms.push(res_len.ge(&zero));
+            self.background_axioms.push(res_len.le(&str_len));
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_clone_builtin(func_name, arg_vals.len())
+            || crate::encode_method_policy::is_reverse_builtin(func_name, arg_vals.len())
+        {
+            // Length-preserving views/copies / reverse.
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let result = self.fresh_int();
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            self.assert_collection_len_eq(&result, &old_len, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_clear_builtin(func_name, arg_vals.len()) {
+            // clear(seq): length == 0
+            let result = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            self.assert_collection_len_eq(&result, &zero, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_push_builtin(func_name, arg_vals.len()) {
+            // push(seq, elem) / push_back: length = old + 1
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let result = self.fresh_int();
+            let one = ast::Int::from_i64(1);
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            let new_len = ast::Int::add(&[&old_len, &one]);
+            self.assert_collection_len_eq(&result, &new_len, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_pop_builtin(func_name, arg_vals.len())
+            || crate::encode_method_policy::is_tail_builtin(func_name, arg_vals.len())
+        {
+            // pop / tail / rest: length = max(0, old - 1)
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let result = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            let one = ast::Int::from_i64(1);
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            let dec = ast::Int::sub(&[&old_len, &one]);
+            let new_len = old_len.ge(&one).ite(&dec, &zero);
+            self.assert_collection_len_eq(&result, &new_len, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_insert_builtin(func_name, arg_vals.len()) {
+            // insert(seq, idx, val): length = old + 1; get(result, idx) == val
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let idx = &arg_vals[1];
+            let val = &arg_vals[2];
+            let result = self.fresh_int();
+            let one = ast::Int::from_i64(1);
+            let zero = ast::Int::from_i64(0);
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            let new_len = ast::Int::add(&[&old_len, &one]);
+            self.assert_collection_len_eq(&result, &new_len, "len");
+            self.background_axioms.push(idx.ge(&zero));
+            self.background_axioms.push(idx.le(&old_len));
+            let get_decl = self.make_func(crate::encode_atom_policy::INDEX_UF_NAME, 2);
+            let at_idx = get_decl
+                .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
+                .as_int()
+                .unwrap_or_else(|| self.fresh_int());
+            self.background_axioms.push(at_idx.eq(val));
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_remove_builtin(func_name, arg_vals.len()) {
+            // remove(seq, idx) / remove_at: length = max(0, old - 1)
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let result = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            let one = ast::Int::from_i64(1);
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            let dec = ast::Int::sub(&[&old_len, &one]);
+            let new_len = old_len.ge(&one).ite(&dec, &zero);
+            self.assert_collection_len_eq(&result, &new_len, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_slice_builtin(func_name, arg_vals.len()) {
+            // slice(seq, start, end)
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let start = &arg_vals[1];
+            let end = &arg_vals[2];
+            let result = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            self.background_axioms.push(start.ge(&zero));
+            self.background_axioms.push(start.le(end));
+            self.background_axioms.push(end.le(&old_len));
+            let diff = ast::Int::sub(&[end, start]);
+            self.assert_collection_len_eq(&result, &diff, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_take_builtin(func_name, arg_vals.len()) {
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let n = &arg_vals[1];
+            let result = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            self.background_axioms.push(n.ge(&zero));
+            let taken = n.le(&old_len).ite(n, &old_len);
+            self.assert_collection_len_eq(&result, &taken, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_drop_builtin(func_name, arg_vals.len()) {
+            let src_expr = &args[0].node;
+            let src = &arg_vals[0];
+            let n = &arg_vals[1];
+            let result = self.fresh_int();
+            let zero = ast::Int::from_i64(0);
+            let old_len = self.collection_len_of(src_expr, src, "len");
+            self.background_axioms.push(n.ge(&zero));
+            let rem = ast::Int::sub(&[&old_len, n]);
+            let dropped = n.le(&old_len).ite(&rem, &zero);
+            self.assert_collection_len_eq(&result, &dropped, "len");
+            return Z3Value::Int(result);
+        }
+        if crate::encode_method_policy::is_first_builtin(func_name, arg_vals.len()) {
+            // first/last/head: weak (no value); length of source > 0 if used in requires separately
+            return Z3Value::Int(self.fresh_int());
+        }
+        // abs(x) => if x >= 0 then x else -x (policy arity; min/max handled above).
+        if crate::encode_method_policy::is_abs_builtin(func_name, arg_vals.len()) {
+            let x = &arg_vals[0];
+            let zero = ast::Int::from_i64(0);
+            let neg_x = x.unary_minus();
+            let cond = x.ge(&zero);
+            return Z3Value::Int(cond.ite(x, &neg_x));
         }
         // get(coll, key_or_idx): uninterpreted; unify `get` with `__index` for arrays.
-        if func_name == "get" && arg_vals.len() == 2 {
+        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
+            && matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Get)
+            )
+        {
             let coll = &arg_vals[0];
             let key = &arg_vals[1];
             let get_decl = self.make_func(crate::encode_atom_policy::GET_UF_NAME, 2);
@@ -811,7 +772,12 @@ impl Encoder {
         }
         // Array set(arr, index, value): store axiom + length preserve.
         // set(a, i, v) returns a new array where get(result, i) == v.
-        if func_name == "set" && arg_vals.len() == 3 {
+        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
+            && matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Set)
+            )
+        {
             let arr_expr = &args[0].node;
             let arr = &arg_vals[0];
             let idx = &arg_vals[1];
@@ -839,7 +805,12 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         // Map put(map, key, value): get(put(m,k,v), k) == v; size non-decreasing.
-        if func_name == "put" && arg_vals.len() == 3 {
+        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
+            && matches!(
+                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
+                Some(crate::encode_method_policy::KnownBuiltin::Put)
+            )
+        {
             let map_expr = &args[0].node;
             let map_val = &arg_vals[0];
             let key = &arg_vals[1];
@@ -966,11 +937,8 @@ impl Encoder {
         {
             let flat_name =
                 flatten_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()));
-            // Boolean-valued fields at any depth
-            if matches!(
-                field,
-                "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
-            ) {
+            // Boolean-valued fields at any depth (table in encode_method_policy).
+            if crate::encode_method_policy::is_bool_field_name(field) {
                 let v = ast::Bool::new_const(flat_name.as_str());
                 return Z3Value::Bool(v);
             }
@@ -988,11 +956,8 @@ impl Encoder {
 
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
         let func_name = crate::encode_atom_policy::field_uif_name(field);
-        // Boolean-valued fields
-        if matches!(
-            field,
-            "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
-        ) {
+        // Boolean-valued fields (table in encode_method_policy).
+        if crate::encode_method_policy::is_bool_field_name(field) {
             let bool_sort = z3::Sort::bool();
             let int_sort = z3::Sort::int();
             let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
@@ -1062,15 +1027,10 @@ impl Encoder {
 
     /// Hash a pattern name to a stable i64 for Z3 encoding.
     ///
-    /// Uses FNV-1a instead of DefaultHasher for determinism across Rust
-    /// versions (DefaultHasher may change its algorithm between releases).
+    /// Delegates to [`crate::encode_method_policy::pattern_hash_name`] (FNV-1a,
+    /// shared with CVC5 match/IR tag encoding).
     pub(crate) fn pattern_hash(&self, name: &str) -> i64 {
-        let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
-        for byte in name.as_bytes() {
-            hash ^= *byte as u64;
-            hash = hash.wrapping_mul(0x100000001b3); // FNV prime
-        }
-        hash as i64
+        crate::encode_method_policy::pattern_hash_name(name)
     }
 
     /// Encode a literal value to Z3.
