@@ -46,8 +46,8 @@ pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
             .get_const_interp(&decl.apply(&[]))
             .map(|v| format!("{v}"))
             .unwrap_or_else(|| "?".into());
-        // Strip __field_ prefix from variable names leaked by the encoder
-        let clean_name = name.strip_prefix("__field_").unwrap_or(&name).to_string();
+        // Strip __field_ prefix from variable names leaked by the encoder.
+        let clean_name = crate::encode_atom_policy::strip_field_uif_prefix(&name).to_string();
         variables.push((clean_name, value));
     }
     // Sort for deterministic output
