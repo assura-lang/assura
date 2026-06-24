@@ -196,16 +196,7 @@ pub(crate) fn verify_region_containment_impl(
 // SEC.1: Taint tracking (T047)
 // -----------------------------------------------------------------------
 
-/// Map a TaintLabel to its Z3 integer encoding.
-///
-/// Lattice: Untrusted(0) < Validated(1) < Trusted(2).
-fn taint_label_to_int(label: assura_types::TaintLabel) -> i64 {
-    match label {
-        assura_types::TaintLabel::Untrusted => 0,
-        assura_types::TaintLabel::Validated => 1,
-        assura_types::TaintLabel::Trusted => 2,
-    }
-}
+use crate::encode_atom_policy::taint_label_to_int;
 
 /// Verify taint safety via Z3.
 ///
