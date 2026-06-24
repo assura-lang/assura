@@ -81,13 +81,13 @@ where
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    use crate::cvc5_common::sanitize_smtlib_name;
     use crate::cvc5_field_access::encode_shallow_field_cvc5;
     use assura_ast::Spanned;
 
     match plan_old_access(inner) {
         OldAccessPlan::Ident(name) => {
-            let key = sanitize_smtlib_name(&old_ident_smtlib_name(&name));
+            // `old_ident_smtlib_name` already sanitizes; do not double-sanitize.
+            let key = old_ident_smtlib_name(&name);
             Some(
                 vars.get(&key)
                     .cloned()
@@ -95,7 +95,8 @@ where
             )
         }
         OldAccessPlan::FlatField(flat) => {
-            Some(tm.mk_const(tm.integer_sort(), &format!("{flat}__old")))
+            let key = crate::encode_atom_policy::old_snapshot_name(&flat);
+            Some(tm.mk_const(tm.integer_sort(), &key))
         }
         OldAccessPlan::ShallowField { obj, field } => {
             let old_expr = Spanned::no_span(Expr::Old(obj));

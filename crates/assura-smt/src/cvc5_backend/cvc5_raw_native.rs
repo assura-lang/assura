@@ -129,7 +129,7 @@ fn parse_raw_atom_cvc5<'a>(
         let inner_tokens = &tokens[start + 2..p];
 
         if inner_tokens.len() == 1 {
-            let old_name = format!("{}__old", sanitize_smtlib_name(&inner_tokens[0]));
+            let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
             let v = vars
                 .get(&old_name)
                 .cloned()
@@ -137,7 +137,7 @@ fn parse_raw_atom_cvc5<'a>(
             return Some((v, end));
         }
         if inner_tokens.len() == 3 && inner_tokens[1] == "." {
-            let old_name = format!("{}__old", sanitize_smtlib_name(&inner_tokens[0]));
+            let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
             let old_var = vars
                 .get(&old_name)
                 .cloned()
@@ -173,8 +173,7 @@ fn parse_raw_atom_cvc5<'a>(
                         | "in"
                 )
             {
-                let sane = sanitize_smtlib_name(inner_tok);
-                let old_key = format!("{sane}__old");
+                let old_key = crate::encode_atom_policy::old_snapshot_name(inner_tok);
                 old_vars
                     .entry(old_key.clone())
                     .or_insert_with(|| tm.mk_const(tm.integer_sort(), &old_key));
@@ -183,7 +182,7 @@ fn parse_raw_atom_cvc5<'a>(
         if let Some((val, _)) = parse_raw_expr_cvc5(tm, inner_tokens, 0, 0, &mut old_vars, state) {
             return Some((val, end));
         }
-        let fresh_name = format!("__old_fresh_{}", state.fresh_counter);
+        let fresh_name = crate::encode_atom_policy::old_fresh_temp_name(state.fresh_counter);
         state.fresh_counter += 1;
         return Some((tm.mk_const(tm.integer_sort(), &fresh_name), end));
     }

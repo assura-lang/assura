@@ -54,8 +54,18 @@ pub(crate) fn old_ident_name(name: &str) -> String {
 ///
 /// Does **not** special-case `result`; use [`old_ident_name`] when live names
 /// go through [`encode_ident_name`].
+///
+/// Safe for already-sanitized flat names (`a_b` stays `a_b__old`).
 pub(crate) fn old_snapshot_name(name: &str) -> String {
     format!("{}__old", sanitize_smt_name(name))
+}
+
+/// Fresh temporary for complex `old(expr)` that cannot rename in place.
+///
+/// Referenced from CVC5 raw-native (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+pub(crate) fn old_fresh_temp_name(counter: impl std::fmt::Display) -> String {
+    format!("__old_fresh_{counter}")
 }
 
 /// Canonical length binding name (`__canonical_len_{sanitized}`).
@@ -257,6 +267,8 @@ mod tests {
         assert_eq!(old_ident_name("x.y"), "x_y__old");
         assert_eq!(old_snapshot_name("result"), "result__old");
         assert_eq!(old_snapshot_name("x.y"), "x_y__old");
+        assert_eq!(old_snapshot_name("a_b"), "a_b__old");
+        assert_eq!(old_fresh_temp_name(4), "__old_fresh_4");
         assert_eq!(canonical_length_name("buf"), "__canonical_len_buf");
         assert_eq!(field_uif_name("len"), FIELD_LEN_UF_NAME);
         assert_eq!(field_uif_name("len"), "__field_len");
