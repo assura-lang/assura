@@ -5,9 +5,9 @@
 use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5, intern_uf_cvc5};
 use crate::cvc5_native_binops::alloc_fresh_int_cvc5;
 use crate::encode_call_policy::{
-    EncodeCallKind, debug_assert_encode_call_kind, debug_assert_known_builtin_encode_kind,
+    EncodeCallKind, classify_encode_call, debug_assert_known_builtin_encode_kind,
 };
-use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin, is_bool_returning_uf};
+use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin};
 
 #[cfg(feature = "cvc5-verify")]
 fn fresh_int_cvc5<'a>(
@@ -692,6 +692,11 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
     }
 }
 
+/// UF / method fallthrough after [`encode_known_builtin_cvc5`].
+///
+/// Uses [`classify_encode_call`] for BoolReturningUf / SizeFieldUf / UninterpretedUf
+/// dispatch (parity with Z3 `encode_call` post-builtin path). Named bool predicates
+/// (`is_empty`, `contains`, …) still get specialized axioms before generic bool UF.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_uf_call_cvc5<'a>(
     tm: &'a cvc5::TermManager,
@@ -699,7 +704,9 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
     encoded_args: &[cvc5::Term<'a>],
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    // is_empty(x) <=> len(x) == 0 (before generic bool-UF fallthrough).
+    let call_kind = classify_encode_call(f_name, encoded_args.len());
+
+    // Specialized bool predicates before generic BoolReturningUf UF (Z3 parity).
     if f_name == "is_empty" && encoded_args.len() == 1 {
         return Some(encode_is_empty_cvc5(tm, &encoded_args[0], state));
     }
@@ -712,8 +719,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
     if f_name == "contains_key" && encoded_args.len() == 2 {
         return Some(encode_contains_key_cvc5(tm, encoded_args, state));
     }
-    if is_bool_returning_uf(f_name) {
-        debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::BoolReturningUf);
+    if matches!(call_kind, EncodeCallKind::BoolReturningUf) {
         return Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, true));
     }
     if state.use_string_theory
@@ -729,8 +735,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
         return Some(len);
     }
     // Size-like methods: non-negativity + unify len/length/size/__field_len (Z3 parity).
-    if crate::encode_atom_policy::is_size_field_name(f_name) && encoded_args.len() == 1 {
-        debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::SizeFieldUf);
+    if matches!(call_kind, EncodeCallKind::SizeFieldUf) && encoded_args.len() == 1 {
         let coll = &encoded_args[0];
         let len_val =
             collection_len_of_cvc5(tm, state, coll, crate::encode_atom_policy::LEN_UF_NAME);
@@ -750,8 +755,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
             .push(tm.mk_term(cvc5::Kind::Equal, &[via_fl, len_val.clone()]));
         return Some(len_val);
     }
-    if crate::encode_atom_policy::is_size_field_name(f_name) {
-        debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::SizeFieldUf);
+    if matches!(call_kind, EncodeCallKind::SizeFieldUf) {
         let result = apply_int_uf_cvc5(tm, state, f_name, encoded_args, false);
         let zero = tm.mk_integer(0);
         state
@@ -759,7 +763,10 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
             .push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
         return Some(result);
     }
-    debug_assert_encode_call_kind(f_name, encoded_args.len(), EncodeCallKind::UninterpretedUf);
+    debug_assert!(
+        matches!(call_kind, EncodeCallKind::UninterpretedUf),
+        "encode_uf_call_cvc5 fallthrough unexpected kind {call_kind:?} for {f_name}"
+    );
     Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, false))
 }
 
