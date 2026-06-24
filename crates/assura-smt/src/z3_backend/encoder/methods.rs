@@ -243,23 +243,34 @@ impl Encoder {
             }
 
             // --- Match: encode as ITE chain over arm bodies ---
+            // Arm kinds via encode_match_policy (parity with CVC5 shell/native).
             Expr::Match { scrutinee, arms } => {
+                use crate::encode_match_policy::{MatchArmKind, classify_match_arm};
+
                 let scrut = self.encode_expr(scrutinee);
                 let match_adt = self.register_match_adt_from_arms(arms);
                 // Build an if-then-else chain: if scrut == pattern1 then body1
                 // else if scrut == pattern2 then body2 ... else default
                 let default = Z3Value::Int(self.fresh_int());
                 arms.iter().rev().fold(default, |else_val, arm| {
+                    let kind = classify_match_arm(arm);
                     // Bind pattern variables before encoding the body
                     self.bind_pattern_vars(&arm.pattern, &scrut, match_adt.as_deref());
                     let body = self.encode_expr(&arm.body);
-                    // For wildcard patterns, the arm always matches
-                    if matches!(arm.pattern, assura_ast::Pattern::Wildcard) {
-                        return body;
+                    // Wildcard / bind-ident / tuple: arm always matches (no scrutinee test).
+                    match kind {
+                        MatchArmKind::Wildcard | MatchArmKind::BindIdent | MatchArmKind::Tuple => {
+                            return body;
+                        }
+                        MatchArmKind::CtorTagIdent
+                        | MatchArmKind::Literal
+                        | MatchArmKind::Constructor => {}
                     }
-                    // For ident patterns, check scrut == pattern_name
-                    let cond = match &arm.pattern {
-                        assura_ast::Pattern::Ident(name) => {
+                    let cond = match kind {
+                        MatchArmKind::CtorTagIdent => {
+                            let assura_ast::Pattern::Ident(name) = &arm.pattern else {
+                                unreachable!("CtorTagIdent requires Ident");
+                            };
                             let pat_val = Z3Value::Int(ast::Int::from_i64(self.pattern_hash(name)));
                             match (&scrut, &pat_val) {
                                 (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
@@ -270,7 +281,10 @@ impl Encoder {
                                 _ => ast::Bool::from_bool(true),
                             }
                         }
-                        assura_ast::Pattern::Literal(lit) => {
+                        MatchArmKind::Literal => {
+                            let assura_ast::Pattern::Literal(lit) = &arm.pattern else {
+                                unreachable!("Literal kind requires Literal");
+                            };
                             let lit_val = self.encode_literal(lit);
                             match (&scrut, &lit_val) {
                                 (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
@@ -284,7 +298,10 @@ impl Encoder {
                                 _ => ast::Bool::from_bool(true),
                             }
                         }
-                        assura_ast::Pattern::Constructor { name, .. } => {
+                        MatchArmKind::Constructor => {
+                            let assura_ast::Pattern::Constructor { name, .. } = &arm.pattern else {
+                                unreachable!("Constructor kind requires Constructor");
+                            };
                             if let (Some(adt_name), Z3Value::Int(s)) =
                                 (match_adt.as_deref(), &scrut)
                             {
@@ -293,8 +310,9 @@ impl Encoder {
                                 ast::Bool::from_bool(true)
                             }
                         }
-                        assura_ast::Pattern::Tuple(_) => ast::Bool::from_bool(true),
-                        _ => ast::Bool::from_bool(true),
+                        MatchArmKind::Wildcard | MatchArmKind::BindIdent | MatchArmKind::Tuple => {
+                            ast::Bool::from_bool(true)
+                        }
                     };
                     // Build ITE: if cond then body else else_val
                     match (&body, &else_val) {
