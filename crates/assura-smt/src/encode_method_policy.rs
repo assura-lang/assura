@@ -121,6 +121,106 @@ pub(crate) fn is_replace_builtin(op: &str, arity: usize) -> bool {
     )
 }
 
+/// Whether `op` is split at arity 2.
+pub(crate) fn is_split_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Split))
+}
+
+/// Whether `op` is trim at arity 1.
+pub(crate) fn is_trim_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Trim))
+}
+
+/// Whether `op` is clone/to_string/to_owned/as_str at arity 1.
+pub(crate) fn is_clone_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Clone)
+    )
+}
+
+/// Whether `op` is reverse at arity 1.
+pub(crate) fn is_reverse_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Reverse)
+    )
+}
+
+/// Whether `op` is clear at arity 1.
+pub(crate) fn is_clear_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Clear)
+    )
+}
+
+/// Whether `op` is push/push_back/push_front at arity 2.
+pub(crate) fn is_push_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Push))
+}
+
+/// Whether `op` is pop/pop_back/pop_front at arity 1.
+pub(crate) fn is_pop_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Pop))
+}
+
+/// Whether `op` is insert at arity 3.
+pub(crate) fn is_insert_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Insert)
+    )
+}
+
+/// Whether `op` is remove/remove_at at arity 2.
+pub(crate) fn is_remove_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Remove)
+    )
+}
+
+/// Whether `op` is slice at arity 3.
+pub(crate) fn is_slice_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::Slice)
+    )
+}
+
+/// Whether `op` is take at arity 2.
+pub(crate) fn is_take_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Take))
+}
+
+/// Whether `op` is drop at arity 2.
+pub(crate) fn is_drop_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Drop))
+}
+
+/// Whether `op` is tail/rest at arity 1.
+pub(crate) fn is_tail_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Tail))
+}
+
+/// Whether `op` is first/last/head/front/back at arity 1.
+pub(crate) fn is_first_builtin(op: &str, arity: usize) -> bool {
+    matches!(
+        classify_known_builtin(op, arity),
+        Some(KnownBuiltin::First)
+    )
+}
+
+/// Case-fold methods not in [`KnownBuiltin`] but with Z3 length axioms (trim-like).
+pub(crate) fn is_case_fold_method(op: &str, arity: usize) -> bool {
+    arity == 1
+        && matches!(
+            op,
+            "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper"
+        )
+}
+
 /// Builtin operations shared between CVC5 native/shell and (eventually) Z3 call encode.
 /// Mirrors historical CVC5 `encode_call` / Z3 `encode_call` semantics for parity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
