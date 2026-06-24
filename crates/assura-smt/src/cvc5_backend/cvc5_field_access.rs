@@ -46,26 +46,25 @@ where
     ) -> Option<cvc5::Term<'a>>,
 {
     use crate::cvc5_encoder_state::canonical_length_cvc5;
-    use crate::encode_atom_policy::is_size_field_name;
-    use crate::encode_method_policy::is_bool_field_name;
 
     match plan_field_access(obj, field) {
         FieldAccessPlan::CanonicalLength { obj_name } => {
             Some(canonical_length_cvc5(tm, &obj_name, vars, state))
         }
         FieldAccessPlan::Flatten(flat_name) => {
-            if is_bool_field_name(field) {
-                return Some(tm.mk_const(tm.boolean_sort(), &flat_name));
+            use crate::encode_field_policy::{FieldValueKind, classify_field_value_kind};
+            match classify_field_value_kind(field) {
+                FieldValueKind::Bool => Some(tm.mk_const(tm.boolean_sort(), &flat_name)),
+                FieldValueKind::SizeNonNeg => {
+                    let v = get_or_create_int_cvc5(tm, &flat_name, vars);
+                    let zero = tm.mk_integer(0);
+                    state
+                        .axioms
+                        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+                    Some(v)
+                }
+                FieldValueKind::Int => Some(get_or_create_int_cvc5(tm, &flat_name, vars)),
             }
-            if is_size_field_name(field) {
-                let v = get_or_create_int_cvc5(tm, &flat_name, vars);
-                let zero = tm.mk_integer(0);
-                state
-                    .axioms
-                    .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
-                return Some(v);
-            }
-            Some(get_or_create_int_cvc5(tm, &flat_name, vars))
         }
         FieldAccessPlan::ShallowUf { field: f } => {
             let obj_val = encode(obj, vars, state)?;
@@ -88,14 +87,10 @@ pub(crate) fn encode_shallow_field_cvc5<'a>(
     axioms: &mut Vec<cvc5::Term<'a>>,
     use_string_theory: bool,
 ) -> cvc5::Term<'a> {
-    use crate::encode_atom_policy::is_size_field_name;
-    use crate::encode_method_policy::is_bool_field_name;
+    use crate::encode_atom_policy::is_length_method_name;
+    use crate::encode_field_policy::{FieldValueKind, classify_field_value_kind};
 
-    if use_string_theory
-        && (field == crate::encode_atom_policy::LEN_UF_NAME
-            || field == crate::encode_atom_policy::LENGTH_METHOD_NAME)
-        && obj_val.sort().is_string()
-    {
+    if use_string_theory && is_length_method_name(field) && obj_val.sort().is_string() {
         let len = tm.mk_term(cvc5::Kind::StringLength, &[obj_val]);
         let zero = tm.mk_integer(0);
         axioms.push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));
@@ -103,20 +98,24 @@ pub(crate) fn encode_shallow_field_cvc5<'a>(
     }
 
     let func_name = field_uf_smtlib_name(field);
-    if is_bool_field_name(field) {
-        let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.boolean_sort());
-        let func_const = tm.mk_const(func_sort, &func_name);
-        return tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
+    match classify_field_value_kind(field) {
+        FieldValueKind::Bool => {
+            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.boolean_sort());
+            let func_const = tm.mk_const(func_sort, &func_name);
+            tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val])
+        }
+        FieldValueKind::SizeNonNeg => {
+            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let func_const = tm.mk_const(func_sort, &func_name);
+            let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
+            let zero = tm.mk_integer(0);
+            axioms.push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
+            result
+        }
+        FieldValueKind::Int => {
+            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+            let func_const = tm.mk_const(func_sort, &func_name);
+            tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val])
+        }
     }
-    if is_size_field_name(field) {
-        let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-        let func_const = tm.mk_const(func_sort, &func_name);
-        let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
-        let zero = tm.mk_integer(0);
-        axioms.push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
-        return result;
-    }
-    let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let func_const = tm.mk_const(func_sort, &func_name);
-    tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val])
 }
