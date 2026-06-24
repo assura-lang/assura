@@ -1,10 +1,12 @@
 //! Shared **method / builtin dispatch** policy (encode convergence step 4).
 //!
-//! Owns constructor-tag hashing, bool-returning UF/field tables, and the known
-//! builtin classification + SMT-LIB rendering used by CVC5 shell/native (and
-//! eventually Z3 call encode). Complements [`crate::encode_atom_policy`]
-//! (identifier/UF **names**) and [`crate::encode_raw_ops_policy`] (raw operators).
+//! Owns constructor-tag hashing, bool-returning UF/field tables, known
+//! builtin classification + SMT-LIB rendering, and `is_*_builtin` guards used by
+//! Z3 `encode_call` / havoc IR, CVC5 native/shell, and model/field paths.
+//! Complements [`crate::encode_atom_policy`] (identifier/UF **names**) and
+//! [`crate::encode_raw_ops_policy`] (raw operators).
 //!
+//! Prefer importing this module directly (not via `cvc5_builtins` re-exports).
 //! Still **not** full `Expr` → solver term encode: Z3 `Encoder` and CVC5 term
 //! builders remain backend-local; only dispatch tables and SMT-LIB method text
 //! live here.

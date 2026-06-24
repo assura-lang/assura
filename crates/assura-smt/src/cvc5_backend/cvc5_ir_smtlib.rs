@@ -177,7 +177,7 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
     }
 
     fn try_known_builtin(&mut self, func: &str, args: &[Self::Term]) -> Option<Self::Term> {
-        crate::cvc5_builtins::known_builtin_to_smtlib(func, args)
+        crate::encode_method_policy::known_builtin_to_smtlib(func, args)
     }
 
     fn encode_field(

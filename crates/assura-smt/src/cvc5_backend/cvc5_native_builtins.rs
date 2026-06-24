@@ -2,9 +2,9 @@
 //!
 //! Mirrors Z3 `encoder/core_impl.rs` `encode_call` axioms (#364) for CVC5 parity.
 
-use crate::cvc5_builtins::{KnownBuiltin, classify_known_builtin, is_bool_returning_uf};
 use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5, intern_uf_cvc5};
 use crate::cvc5_native_binops::alloc_fresh_int_cvc5;
+use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin, is_bool_returning_uf};
 
 #[cfg(feature = "cvc5-verify")]
 fn fresh_int_cvc5<'a>(

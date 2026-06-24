@@ -126,7 +126,8 @@ pub(crate) mod cvc5_backend;
 pub(crate) use cvc5_backend::cvc5_adt;
 pub(crate) use cvc5_backend::cvc5_atom_encode;
 pub(crate) use cvc5_backend::cvc5_binop_encode;
-pub(crate) use cvc5_backend::cvc5_builtins;
+// cvc5_builtins is reachable as cvc5_backend::cvc5_builtins (tests/shell re-exports).
+// Encode paths import encode_method_policy / encode_atom_policy directly.
 pub(crate) use cvc5_backend::cvc5_call_encode;
 pub(crate) use cvc5_backend::cvc5_collect;
 pub(crate) use cvc5_backend::cvc5_common;

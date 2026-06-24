@@ -2,7 +2,7 @@
 //! length inference, and IR body constraints (#267).
 
 use super::encoder::Encoder;
-use crate::cvc5_builtins::{KnownBuiltin, classify_known_builtin};
+use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin};
 use crate::havoc_assume::{
     HavocAssumeEffects, HavocAssumeInput, RESULT_SLOT, apply_havoc_assume_policy, ir_param_names,
 };

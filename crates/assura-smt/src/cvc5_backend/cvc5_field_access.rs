@@ -69,8 +69,9 @@ where
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    use crate::cvc5_builtins::{is_bool_field, is_size_field};
     use crate::cvc5_encoder_state::canonical_length_cvc5;
+    use crate::encode_atom_policy::is_size_field_name;
+    use crate::encode_method_policy::is_bool_field_name;
 
     if (field == crate::encode_atom_policy::LEN_UF_NAME
         || field == crate::encode_atom_policy::LENGTH_METHOD_NAME)
@@ -81,10 +82,10 @@ where
 
     match plan_field_access(obj, field) {
         FieldAccessPlan::Flatten(flat_name) => {
-            if is_bool_field(field) {
+            if is_bool_field_name(field) {
                 return Some(tm.mk_const(tm.boolean_sort(), &flat_name));
             }
-            if is_size_field(field) {
+            if is_size_field_name(field) {
                 let v = get_or_create_int_cvc5(tm, &flat_name, vars);
                 let zero = tm.mk_integer(0);
                 state
@@ -115,7 +116,8 @@ pub(crate) fn encode_shallow_field_cvc5<'a>(
     axioms: &mut Vec<cvc5::Term<'a>>,
     use_string_theory: bool,
 ) -> cvc5::Term<'a> {
-    use crate::cvc5_builtins::{is_bool_field, is_size_field};
+    use crate::encode_atom_policy::is_size_field_name;
+    use crate::encode_method_policy::is_bool_field_name;
 
     if use_string_theory
         && (field == crate::encode_atom_policy::LEN_UF_NAME
@@ -129,12 +131,12 @@ pub(crate) fn encode_shallow_field_cvc5<'a>(
     }
 
     let func_name = field_uf_smtlib_name(field);
-    if is_bool_field(field) {
+    if is_bool_field_name(field) {
         let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.boolean_sort());
         let func_const = tm.mk_const(func_sort, &func_name);
         return tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
     }
-    if is_size_field(field) {
+    if is_size_field_name(field) {
         let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
         let func_const = tm.mk_const(func_sort, &func_name);
         let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
