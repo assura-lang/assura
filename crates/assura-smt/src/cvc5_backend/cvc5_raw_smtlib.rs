@@ -94,7 +94,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
         let inner = &tokens[start + 2..p];
 
         if inner.len() == 1 {
-            let old_name = format!("{}__old", sanitize_smtlib_name(&inner[0]));
+            let old_name = crate::encode_atom_policy::old_snapshot_name(&inner[0]);
             return Some((old_name, end));
         }
         if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0) {

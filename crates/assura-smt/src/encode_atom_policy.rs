@@ -37,12 +37,25 @@ pub(crate) fn encode_ident_name(name: &str) -> String {
 }
 
 /// SMT-LIB / solver name for `old(x)` snapshots.
+///
+/// Result-aware: `result` → `__result__old` (matches [`encode_ident_name`]).
+/// Prefer this for CVC5 shell/native paths that already bind `result` as
+/// [`RESULT_VAR_NAME`].
 pub(crate) fn old_ident_name(name: &str) -> String {
     if name == "result" {
         format!("{RESULT_VAR_NAME}__old")
     } else {
         format!("{}__old", sanitize_smt_name(name))
     }
+}
+
+/// `old(x)` snapshot when the live variable is stored under the **source** name
+/// (e.g. Z3 still binds `result` as `result`, not [`RESULT_VAR_NAME`]).
+///
+/// Does **not** special-case `result`; use [`old_ident_name`] when live names
+/// go through [`encode_ident_name`].
+pub(crate) fn old_snapshot_name(name: &str) -> String {
+    format!("{}__old", sanitize_smt_name(name))
 }
 
 /// Canonical length binding name (`__canonical_len_{sanitized}`).
@@ -111,8 +124,7 @@ pub(crate) fn tuple_accessor_name(arity: usize, index: usize) -> String {
 
 /// List element accessor UIF name (`__list_get`).
 ///
-/// Referenced from CVC5 list encode (`cvc5-verify` only in default builds).
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+/// Used by Z3 list encode and CVC5 `encode_list_cvc5`.
 pub(crate) const LIST_GET_UF_NAME: &str = "__list_get";
 
 /// Integer literal as SMT-LIB2 text (negatives use `(- n)`).
@@ -243,6 +255,8 @@ mod tests {
         assert_eq!(encode_ident_name("a.b"), "a_b");
         assert_eq!(old_ident_name("result"), "__result__old");
         assert_eq!(old_ident_name("x.y"), "x_y__old");
+        assert_eq!(old_snapshot_name("result"), "result__old");
+        assert_eq!(old_snapshot_name("x.y"), "x_y__old");
         assert_eq!(canonical_length_name("buf"), "__canonical_len_buf");
         assert_eq!(field_uif_name("len"), FIELD_LEN_UF_NAME);
         assert_eq!(field_uif_name("len"), "__field_len");

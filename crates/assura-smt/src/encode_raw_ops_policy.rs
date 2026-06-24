@@ -272,11 +272,7 @@ mod tests {
 
     #[test]
     fn quantifier_slice_and_smtlib() {
-        let tokens: Vec<String> = "forall x in 0 .. n : x >= 0"
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
-        // tokens won't match because `..` may be one token in real lexer; use explicit list
+        // Explicit token list (real lexer may emit `..` as one token).
         let tokens: Vec<String> = vec![
             "forall".into(),
             "x".into(),

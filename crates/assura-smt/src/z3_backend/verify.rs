@@ -286,7 +286,7 @@ fn verify_clauses_with_types(
             param_names,
         ) {
             let current = clause_encoder.get_or_create_int(&var_name);
-            let old_name = format!("{var_name}__old");
+            let old_name = crate::encode_atom_policy::old_snapshot_name(&var_name);
             let old_var = clause_encoder.get_or_create_int(&old_name);
             let axiom = current.eq(&old_var);
             solver.assert(&axiom);

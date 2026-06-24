@@ -23,7 +23,7 @@ pub(crate) fn append_cvc5_shellout_frame_axioms(
 ) {
     for var_name in frame_vars {
         let current = sanitize_smtlib_name(var_name);
-        let old = sanitize_smtlib_name(&format!("{var_name}__old"));
+        let old = crate::encode_atom_policy::old_snapshot_name(var_name);
         if !vars.contains(&old) {
             script.push_str(&format!("(declare-const {old} Int)\n"));
         }
