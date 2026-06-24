@@ -96,13 +96,14 @@ impl Encoder {
         if let Some(v) = self.canonical_lengths.get(name) {
             return v.clone();
         }
-        let key = format!("__canonical_len_{name}");
+        let key = crate::encode_atom_policy::canonical_length_name(name);
         let v = ast::Int::new_const(key.as_str());
         let zero = ast::Int::from_i64(0);
         self.background_axioms.push(v.ge(&zero));
         // Link to `len` / `__field_len` UIFs so concat/array axioms agree with `.len` (#267).
         let obj = self.get_or_create_int(name);
-        for uf_name in ["len", "__field_len"] {
+        let field_len = crate::encode_atom_policy::field_uif_name("len");
+        for uf_name in ["len", field_len.as_str()] {
             let len_decl = self.make_func(uf_name, 1);
             let uif_len = len_decl
                 .apply(&[&obj as &dyn z3::ast::Ast])
@@ -952,7 +953,7 @@ impl Encoder {
         }
 
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
-        let func_name = format!("__field_{field}");
+        let func_name = crate::encode_atom_policy::field_uif_name(field);
         // Boolean-valued fields
         if matches!(
             field,
