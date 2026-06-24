@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use z3::ast;
 
 use super::BitvectorEncoder;
-use super::unmodelable::{flatten_field_chain, has_deep_field_chain, is_self_rooted};
+
 use super::value::Z3Value;
 use super::{AdtConstructor, AdtDef, BITVECTOR_API_WIRED, Encoder};
 
@@ -1052,32 +1052,30 @@ impl Encoder {
             // Not a Str value; fall through to default encoding
         }
 
-        // #198: Flatten deep field chains (e.g., state.head.extra.extra_max)
-        // into a single Z3 variable instead of nested uninterpreted functions.
-        if has_deep_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()))
-            || is_self_rooted(&obj.node)
-        {
-            let flat_name =
-                flatten_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()));
-            // Boolean-valued fields at any depth (table in encode_method_policy).
-            if crate::encode_method_policy::is_bool_field_name(field) {
-                let v = ast::Bool::new_const(flat_name.as_str());
-                return Z3Value::Bool(v);
-            }
-            // Size fields at any depth get non-negativity axiom
-            if crate::encode_atom_policy::is_size_field_name(field) {
+        // #198: flatten vs shallow UF via encode_field_policy (parity with CVC5).
+        match crate::encode_field_policy::plan_field_access(obj, field) {
+            crate::encode_field_policy::FieldAccessPlan::Flatten(flat_name) => {
+                // Boolean-valued fields at any depth (table in encode_method_policy).
+                if crate::encode_method_policy::is_bool_field_name(field) {
+                    let v = ast::Bool::new_const(flat_name.as_str());
+                    return Z3Value::Bool(v);
+                }
+                // Size fields at any depth get non-negativity axiom
+                if crate::encode_atom_policy::is_size_field_name(field) {
+                    let v = self.get_or_create_int(&flat_name);
+                    let zero = ast::Int::from_i64(0);
+                    self.background_axioms.push(v.ge(&zero));
+                    return Z3Value::Int(v);
+                }
+                // General field: create as Int variable (Nat fields get >= 0)
                 let v = self.get_or_create_int(&flat_name);
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(v.ge(&zero));
                 return Z3Value::Int(v);
             }
-            // General field: create as Int variable (Nat fields get >= 0)
-            let v = self.get_or_create_int(&flat_name);
-            return Z3Value::Int(v);
+            crate::encode_field_policy::FieldAccessPlan::ShallowUf { .. } => {}
         }
 
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
-        let func_name = crate::encode_atom_policy::field_uif_name(field);
+        let func_name = crate::encode_field_policy::field_uf_smtlib_name(field);
         // Boolean-valued fields (table in encode_method_policy).
         if crate::encode_method_policy::is_bool_field_name(field) {
             let bool_sort = z3::Sort::bool();
