@@ -64,7 +64,7 @@ impl Encoder {
 
                     // String length axiom: len("hello") == 5
                     let len_decl = self
-                        .make_func(crate::encode_atom_policy::field_uif_name("len").as_str(), 1);
+                        .make_func(crate::encode_atom_policy::FIELD_LEN_UF_NAME, 1);
                     let len_result = len_decl
                         .apply(&[&str_val as &dyn z3::ast::Ast])
                         .as_int()
